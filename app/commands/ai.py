@@ -1,0 +1,68 @@
+"""Commands backed by the replaceable AI service."""
+
+from app.commands.registry import CommandRegistry
+from app.services.ai_request_policy import PolicyDecision
+from app.utils.cooldown import CooldownPolicy
+from app.config import ASK_COOLDOWN_SECONDS
+
+
+def register_ai_commands(registry: CommandRegistry) -> None:
+    def ask_pre_check(context, arguments: str) -> bool:
+        clean_args = arguments.strip()
+        if not clean_args:
+            return False
+        policy_decision = context.services.ai_request_policy.check(clean_args)
+        if policy_decision == PolicyDecision.IGNORE or policy_decision.name == "IGNORE":
+            return False
+        return True
+
+    @registry.command(
+        "ask",
+        help_text="!ask <question>",
+        cooldown=CooldownPolicy(per_user_seconds=0.0, global_seconds=ASK_COOLDOWN_SECONDS),
+        pre_check=ask_pre_check,
+    )
+    async def ask(context, arguments: str) -> None:
+        clean_args = arguments.strip()
+        if not clean_args:
+            return
+
+        memory_service = getattr(context.services, "memory", None)
+        runtime_state = getattr(context.services, "runtime_state", None)
+        memory_enabled = memory_service is not None and (
+            runtime_state is None or runtime_state.ai_memory_enabled
+        )
+        memory_context = None
+        if memory_enabled:
+            try:
+                entries = await memory_service.get_recent(context.message.author.twitch_user_id)
+                memory_context = memory_service.format_context(entries)
+            except Exception:
+                context.logger.exception("Could not load AI memory")
+
+        if memory_enabled:
+            reply = await context.services.ai.generate_reply(
+                prompt=clean_args,
+                user_id=context.message.author.twitch_user_id,
+                memory_context=memory_context,
+            )
+        else:
+            reply = await context.services.ai.generate_reply(
+                prompt=clean_args,
+                user_id=context.message.author.twitch_user_id,
+            )
+        if reply.is_available and reply.text:
+            username = context.message.author.username.lstrip("@")
+            delivered = await context.reply(f"@{username} {reply.text}")
+            memory_still_enabled = memory_enabled and (
+                runtime_state is None or runtime_state.ai_memory_enabled
+            )
+            if delivered and memory_still_enabled:
+                try:
+                    await memory_service.save_exchange(
+                        twitch_user_id=context.message.author.twitch_user_id,
+                        request_text=clean_args,
+                        response_text=reply.text,
+                    )
+                except Exception:
+                    context.logger.exception("Could not save AI memory")

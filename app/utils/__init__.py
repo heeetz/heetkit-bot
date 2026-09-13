@@ -1,0 +1,1 @@
+"""Reusable, infrastructure-free helpers."""
