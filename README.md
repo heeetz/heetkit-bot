@@ -18,6 +18,7 @@ app/
 │   ├── ai.py                       Registers `!ask` and its memory flow.
 │   ├── fun.py                      Registers `!ping`, `!tg`, `!forecast`, and `!weather`.
 │   ├── info.py                     Registers `!help`, `!commands`, and `!uptime`.
+│   ├── social.py                   Registers `!followage` and `!seen`.
 │   ├── memory.py                   Private owner-only memory maintenance command wiring.
 │   └── registry.py                 Command definitions, visibility, permissions, cooldowns, and dispatch.
 ├── config/
@@ -32,6 +33,7 @@ app/
 │   ├── memory.py                   Last-five successful `!ask` exchange service.
 │   ├── runtime.py                  Application uptime tracking.
 │   ├── user_service.py             User-facing operations over the repository.
+│   ├── twitch.py                   Adapter for authenticated Twitch API lookups.
 │   ├── weather.py                  Open-Meteo geocoding, matching, and current weather.
 │   ├── ai_request_policy.py        Pre-request policy for unsafe or unwanted `!ask` requests.
 │   ├── gemini_ai_service.py        Optional Gemini generation and local response filtering.
@@ -111,21 +113,26 @@ On first use, authorize the bot through TwitchIO's local OAuth page at `http://l
 
 Closing the control panel does not directly terminate the bot. The panel's Stop Bot action requests an orderly application shutdown.
 
-## Public commands
+## Commands and access
 
-| Command | Purpose |
-| --- | --- |
-| `!ping` | Replies with `pong`; moderator permission is required. |
-| `!tg <1-10>` | Sends the configured Telegram link repeatedly; moderator permission is required. It intentionally bypasses only the global outgoing-message limiter. |
-| `!help` | Lists public command help entries. |
-| `!commands` | Lists public commands; moderator permission is required. |
-| `!uptime` | Shows application uptime; moderator permission is required. |
-| `!forecast` | Sends a random forecast. |
-| `!weather <location>` | Looks up current temperature, condition, and wind through Open-Meteo. Russian, Ukrainian, and English queries are supported; country or region context may be included. |
-| `!ask <question>` | Requests a Gemini reply when configured and allowed by the request policy. |
+The table shows the normal global cooldown for each command. A command must also be enabled in the control panel. Invalid arguments are ignored without consuming cooldown.
+
+| Command                 | Access    | Cooldown | Purpose |
+| ---                     | ---       | ---:     | --- |
+| `!ping`                 | Moderator | 10 s     | Replies with `pong`. |
+| `!tg <1-10>`            | Moderator | None     | Sends the configured Telegram message 1–10 times; bypasses only the global outgoing-message limiter. |
+| `!help`                 | Everyone  | 10 s     | Lists public command help entries. |
+| `!commands`             | Moderator | 15 s     | Lists registered public commands. |
+| `!uptime`               | Moderator | 15 s     | Shows application uptime. |
+| `!followage`            | Everyone  | 10 s     | Shows how long the invoking user has followed the channel. |
+| `!seen <username>`      | Everyone  | 15 s     | Shows when a known chat user was last seen. |
+| `!forecast`             | Everyone  | 15 s     | Sends a random forecast. |
+| `!weather <location>`   | Everyone  | 30 s     | Shows current temperature, condition, and wind through Open-Meteo. Russian, Ukrainian, and English queries are supported. |
+| `!ask <question>`       | Everyone  | 35 s     | Requests a Gemini reply when configured and allowed by the request policy. |
+
+The private `!erase <username>` command is broadcaster-only and hidden from public help. It removes that user’s stored AI memory. The configured AI cooldown bypass user may bypass the normal `!ask` cooldown.
 
 The dispatcher applies runtime command toggles, argument limits, permissions, cooldowns, and the global output limiter. Disabled commands are ignored before permission and cooldown processing.
-
 ## AI and memory
 
 `!ask` uses the following flow:

@@ -6,6 +6,7 @@ from app.config import (
     FORECAST_COOLDOWN_SECONDS,
     PING_COOLDOWN_SECONDS,
     TG_BURST_DELAY,
+    TG_MESSAGE,
     WEATHER_COOLDOWN_SECONDS,
 )
 from app.commands.registry import CommandRegistry
@@ -13,8 +14,6 @@ from app.services.weather import WeatherServiceError, format_weather_response, w
 from app.utils.cooldown import CooldownPolicy
 from app.twitch.permissions import Permission
 
-
-TG_MESSAGE = "t.me/sch1lla <- 🍑🍑🍑"
 
 
 def _valid_tg_arguments(arguments: str) -> bool:

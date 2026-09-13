@@ -27,6 +27,7 @@ class CommandDefinition:
     cooldown: CooldownPolicy = field(default_factory=CooldownPolicy)
     pre_check: Callable[[CommandContext, str], bool] | None = None
     argument_validator: ArgumentValidator | None = None
+    silent_invalid_arguments: bool = False
     hidden: bool = False
 
 
@@ -76,6 +77,7 @@ class CommandRegistry:
         cooldown: CooldownPolicy | None = None,
         pre_check: Callable[[CommandContext, str], bool] | None = None,
         argument_validator: ArgumentValidator | None = None,
+        silent_invalid_arguments: bool = False,
         hidden: bool = False,
     ) -> Callable[[CommandHandler], CommandHandler]:
         def decorator(handler: CommandHandler) -> CommandHandler:
@@ -89,6 +91,7 @@ class CommandRegistry:
                     cooldown=cooldown or CooldownPolicy(),
                     pre_check=pre_check,
                     argument_validator=argument_validator,
+                    silent_invalid_arguments=silent_invalid_arguments,
                     hidden=hidden,
                 )
             )
@@ -116,6 +119,7 @@ class CommandRegistry:
             cooldown=definition.cooldown,
             pre_check=definition.pre_check,
             argument_validator=definition.argument_validator,
+            silent_invalid_arguments=definition.silent_invalid_arguments,
             hidden=definition.hidden,
         )
         for command_name in normalized_names:
@@ -177,6 +181,12 @@ class CommandDispatcher:
                 return True
 
             if len(arguments) > self._max_arguments_length:
+                return True
+
+            if definition.silent_invalid_arguments and (
+                definition.argument_validator is not None
+                and not definition.argument_validator(arguments)
+            ):
                 return True
 
             if not has_permission(message.author, definition.required_permission):

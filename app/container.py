@@ -10,6 +10,7 @@ from app.commands.ai import register_ai_commands
 from app.commands.fun import register_fun_commands
 from app.commands.info import register_info_commands
 from app.commands.memory import register_memory_commands
+from app.commands.social import register_social_commands
 from app.commands.registry import CommandDispatcher, CommandRegistry
 from app.config.settings import Settings
 from app.database.database import Database
@@ -24,6 +25,7 @@ from app.services.weather import OpenMeteoWeatherService
 from app.services.gemini_ai_service import GeminiAIService
 from app.services.filter_manager import FilterManager
 from app.services.ai_request_policy import AIRequestPolicy
+from app.services.twitch import TwitchAPIService
 from app.runtime_state import RuntimeState
 from app.utils.cooldown import CooldownManager
 from app.utils.logging import get_logger
@@ -67,6 +69,7 @@ def build_application(settings: Settings) -> Application:
     filter_manager = FilterManager()
     ai_request_policy = AIRequestPolicy()
     runtime_state = RuntimeState()
+    twitch_api = TwitchAPIService()
     services = ApplicationServices(
         users=UserService(user_repository),
         memory=AIMemoryService(memory_repository),
@@ -79,12 +82,14 @@ def build_application(settings: Settings) -> Application:
         ai_request_policy=ai_request_policy,
         settings=settings,
         runtime_state=runtime_state,
+        twitch=twitch_api,
     )
     registry = CommandRegistry()
     register_fun_commands(registry)
     register_info_commands(registry)
     register_ai_commands(registry)
     register_memory_commands(registry)
+    register_social_commands(registry)
     dispatcher = CommandDispatcher(
         registry=registry,
         cooldowns=CooldownManager(),
