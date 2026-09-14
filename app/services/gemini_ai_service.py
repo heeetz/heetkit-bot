@@ -10,6 +10,7 @@ from app.config.settings import Settings
 from app.services.contracts import AIReply
 from app.config import AI_MAX_RESPONSE_LENGTH, build_ai_system_instruction as build_system_instruction
 from app.runtime_state import RuntimeState
+from app.services.filter_manager import FilterManager
 
 logger = logging.getLogger(__name__)
 GEMINI_REQUEST_TIMEOUT_SECONDS = 60.0
@@ -34,9 +35,15 @@ _SEARCH_NAMED_OPINION_PATTERN = re.compile(
 class GeminiAIService:
     """Gemini AI service that implements the AIService protocol."""
 
-    def __init__(self, settings: Settings, runtime_state: RuntimeState | None = None):
+    def __init__(
+        self,
+        settings: Settings,
+        runtime_state: RuntimeState | None = None,
+        filter_manager: FilterManager | None = None,
+    ):
         self.settings = settings
         self.runtime_state = runtime_state
+        self.filter_manager = filter_manager
         self._blocked_response_patterns: list[Pattern] = [
             # Dedicated hard block for the specified term and grammatical forms.
             re.compile(
@@ -380,6 +387,8 @@ class GeminiAIService:
         )
 
     def _contains_blocked_response_content(self, text: str) -> bool:
+        if self.filter_manager is not None and self.filter_manager.contains_blocked_content(text):
+            return True
         for pattern in self._blocked_sexual_fetish_patterns:
             if pattern.search(text):
                 return True

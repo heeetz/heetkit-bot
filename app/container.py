@@ -74,7 +74,11 @@ def build_application(settings: Settings) -> Application:
         users=UserService(user_repository),
         memory=AIMemoryService(memory_repository),
         runtime=RuntimeService(),
-        ai=GeminiAIService(settings, runtime_state=runtime_state),
+        ai=GeminiAIService(
+            settings,
+            runtime_state=runtime_state,
+            filter_manager=filter_manager,
+        ),
         web_search=DisabledWebSearchService(),
         moderation=AllowAllModerationService(),
         weather=OpenMeteoWeatherService(http_client),

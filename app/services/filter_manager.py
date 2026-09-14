@@ -48,19 +48,23 @@ class FilterManager:
         
         Returns True if the message should be allowed, False if it should be ignored.
         """
+        return not self.contains_blocked_content(message_content)
+
+    def contains_blocked_content(self, message_content: str) -> bool:
+        """Return whether the message matches any loaded global filter rule."""
         # Check for blocked words - use word boundary matching
         for word in self._blocked_words:
             # Use word boundary matching to avoid partial matches
             pattern = r'\b' + re.escape(word) + r'\b'
             flags = re.IGNORECASE  # Always case insensitive for words
             if re.search(pattern, message_content, flags):
-                return False
+                return True
         
         # Check for blocked phrases - simple substring matching, case-insensitive by default
         for phrase in self._blocked_phrases:
             flags = re.IGNORECASE  # Always case insensitive for phrases
             if re.search(re.escape(phrase), message_content, flags):
-                return False
+                return True
         
         # Check for blocked regex patterns
         for rule in self._blocked_patterns:
@@ -68,13 +72,13 @@ class FilterManager:
                 flags = 0 if rule.case_sensitive else re.IGNORECASE
                 if rule.is_regex:
                     if re.search(rule.pattern, message_content, flags):
-                        return False
+                        return True
                 else:
                     # Treat as literal pattern matching
                     if re.search(re.escape(rule.pattern), message_content, flags):
-                        return False
+                        return True
             except re.error:
                 # If regex is invalid, skip this rule (no crash)
                 continue
         
-        return True  # Allow the message by default
+        return False
