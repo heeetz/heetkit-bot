@@ -1,6 +1,8 @@
 """Gemini AI service implementation."""
 
 import logging
+import asyncio
+import time
 from re import Pattern
 import re
 
@@ -10,7 +12,24 @@ from app.config import AI_MAX_RESPONSE_LENGTH, build_ai_system_instruction as bu
 from app.runtime_state import RuntimeState
 
 logger = logging.getLogger(__name__)
+GEMINI_REQUEST_TIMEOUT_SECONDS = 60.0
+_SEARCH_TRIGGER_PATTERN = re.compile(
+    r"(?:\b(?:current|currently|now|today|latest|recent|breaking|news|event|events|match|game|score|weather|price|prices|stock|stocks|exchange\s+rate|schedule|concert|release)\b|\b(?:сейчас|сегодня|текущ\w*|последн\w*|свеж\w*|новост\w*|событи\w*|матч|игр\w*|сч[её]т|погод\w*|курс|цен\w*|расписан\w*|концерт|выбор\w*|зараз|сьогодні|поточ\w*|останн\w*|свіж\w*|новин\w*|поді\w*|матч|(?:гра|гри|грою)\b|рахунок|погод\w*|курс|цін\w*|розклад|концерт|вибор\w*)\b|\b(?:who|what|where)\b.{0,60}\b(?:now|today|currently|latest)\b|\b(?:кто|что|где)\b.{0,60}\b(?:сейчас|сегодня|текущ\w*|последн\w*)\b|\b(?:хто|що|де)\b.{0,60}\b(?:зараз|сьогодні|поточ\w*|останн\w*)\b|\b(?:who\s+won|what\s+happened\s+to|кто\s+победил|что\s+произошло|хто\s+переміг|що\s+сталося)\b)",
+    re.IGNORECASE,
+)
 
+
+_SEARCH_ENTITY_CONTEXT_PATTERN = re.compile(
+    r"(?:\b(?:better|worse|best|worst|compare|comparison|versus|vs|ranking|ranked|top)\b|"
+    r"\b(?:лучше|хуже|лучший|худший|сравни|сравнение|рейтинг|топ)\b|"
+    r"(?:why\s+(?:was|were|did)\s+\S+\s+(?:banned|removed|cancelled|disappear|leave)|"
+    r"почему\s+\S+\s+(?:забанили|запретили|уш[её]л|исчез|отменили)))",
+    re.IGNORECASE,
+)
+_SEARCH_NAMED_OPINION_PATTERN = re.compile(
+    r"(?i:(?:what\s+do\s+you\s+think\s+about|что\s+ты\s+думаешь\s+о)\s+)"
+    r"(?:[A-Z][a-z0-9_-]{2,}|[А-ЯЁІЇЄҐ][а-яёіїєґ]{2,})",
+)
 
 class GeminiAIService:
     """Gemini AI service that implements the AIService protocol."""
@@ -231,17 +250,74 @@ class GeminiAIService:
             )
 
             # Generate content using the modern async approach with Google Search tool
-            response = await client.aio.models.generate_content(
-                model=self.settings.gemini_model,
-                contents=self._build_request_content(prompt, memory_context),
-                config=types.GenerateContentConfig(
-                    system_instruction=build_system_instruction(
-                        self.runtime_state.active_ai_personality
-                        if self.runtime_state is not None
-                        else None
-                    ),
-                    tools=[search_tool],
-                ),
+            use_search = self._should_use_search(prompt)
+            request_content = self._build_request_content(prompt, memory_context)
+            if use_search:
+                request_content = (
+                    "Use Google Search to verify current, changing, or event-related facts before answering.\n\n"
+                    + request_content
+                )
+
+            logger.info(
+                "Gemini request config model=%s tools=%s",
+                self.settings.gemini_model,
+                [type(search_tool).__name__] if use_search else [],
+            )
+            request_started_at = time.monotonic()
+            logger.info("Gemini request start")
+            try:
+                async with asyncio.timeout(GEMINI_REQUEST_TIMEOUT_SECONDS):
+                    response = await client.aio.models.generate_content(
+                        model=self.settings.gemini_model,
+                        contents=request_content,
+                        config=types.GenerateContentConfig(
+                            system_instruction=build_system_instruction(
+                                self.runtime_state.active_ai_personality
+                                if self.runtime_state is not None
+                                else None
+                            ),
+                            tools=[search_tool] if use_search else None,
+                        ),
+                    )
+            finally:
+                elapsed_seconds = time.monotonic() - request_started_at
+                logger.info("Gemini request finished elapsed_seconds=%.2f", elapsed_seconds)
+
+            candidates = getattr(response, "candidates", None) or []
+            grounding_metadata = [
+                getattr(candidate, "grounding_metadata", None)
+                for candidate in candidates
+            ]
+            search_queries = sum(
+                len(getattr(metadata, "web_search_queries", None) or [])
+                for metadata in grounding_metadata
+                if metadata is not None
+            )
+            grounding_chunks = sum(
+                len(getattr(metadata, "grounding_chunks", None) or [])
+                for metadata in grounding_metadata
+                if metadata is not None
+            )
+            tool_call_parts = sum(
+                sum(
+                    1
+                    for part in (getattr(candidate.content, "parts", None) or [])
+                    if getattr(part, "function_call", None) is not None
+                    or getattr(part, "tool_call", None) is not None
+                )
+                for candidate in candidates
+                if getattr(candidate, "content", None) is not None
+            )
+            afc_history = getattr(response, "automatic_function_calling_history", None) or []
+            logger.info(
+                "Gemini response diagnostics candidates=%d tool_call_parts=%d "
+                "grounding_metadata=%s search_queries=%d grounding_chunks=%d afc_history=%d",
+                len(candidates),
+                tool_call_parts,
+                any(metadata is not None for metadata in grounding_metadata),
+                search_queries,
+                grounding_chunks,
+                len(afc_history),
             )
 
             # Get the text response
@@ -284,6 +360,14 @@ class GeminiAIService:
                 text="",
                 is_available=False,
             )
+
+    @staticmethod
+    def _should_use_search(prompt: str) -> bool:
+        return (
+            _SEARCH_TRIGGER_PATTERN.search(prompt) is not None
+            or _SEARCH_ENTITY_CONTEXT_PATTERN.search(prompt) is not None
+            or _SEARCH_NAMED_OPINION_PATTERN.search(prompt) is not None
+        )
 
     @staticmethod
     def _build_request_content(prompt: str, memory_context: str | None) -> str:
