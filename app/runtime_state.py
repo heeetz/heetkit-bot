@@ -2,6 +2,7 @@
 
 from threading import RLock
 from time import monotonic
+from collections.abc import Iterable
 
 from config import AI_MEMORY_ENABLED, ACTIVE_AI_PERSONALITY, AI_PERSONALITY_PRESETS
 
@@ -9,12 +10,7 @@ from config import AI_MEMORY_ENABLED, ACTIVE_AI_PERSONALITY, AI_PERSONALITY_PRES
 class RuntimeState:
     def __init__(self) -> None:
         self._lock = RLock()
-        self._command_enabled = {
-            "ask": True,
-            "weather": True,
-            "forecast": True,
-            "tg": True,
-        }
+        self._command_enabled: dict[str, bool] = {}
         self._ai_enabled = True
         self._ai_memory_enabled = AI_MEMORY_ENABLED
         self._active_ai_personality = ACTIVE_AI_PERSONALITY
@@ -25,6 +21,18 @@ class RuntimeState:
     @property
     def available_personalities(self) -> tuple[str, ...]:
         return tuple(AI_PERSONALITY_PRESETS)
+
+    @property
+    def runtime_toggleable_commands(self) -> tuple[str, ...]:
+        with self._lock:
+            return tuple(self._command_enabled)
+
+    def configure_commands(self, command_names: Iterable[str]) -> None:
+        with self._lock:
+            self._command_enabled = {
+                name: self._command_enabled.get(name, True)
+                for name in command_names
+            }
 
     def is_command_enabled(self, command_name: str) -> bool:
         with self._lock:

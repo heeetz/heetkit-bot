@@ -40,6 +40,12 @@ class ControlPanel:
             self._thread.join()
         self._thread = None
 
+    def _command_names(self) -> tuple[str, ...]:
+        return self._runtime_state.runtime_toggleable_commands
+
+    def _set_command_enabled(self, command_name: str, enabled: bool) -> None:
+        self._runtime_state.set_command_enabled(command_name, enabled)
+
     def _run(self) -> None:
         try:
             root = tk.Tk()
@@ -89,7 +95,7 @@ class ControlPanel:
         )
         commands_frame.pack(fill="x")
         command_variables: dict[str, tk.BooleanVar] = {}
-        for command_name in ("ask", "weather", "forecast", "tg"):
+        for index, command_name in enumerate(self._command_names()):
             variable = tk.BooleanVar(value=self._runtime_state.command_enabled(command_name))
             command_variables[command_name] = variable
             tk.Checkbutton(
@@ -103,10 +109,10 @@ class ControlPanel:
                 selectcolor=control_background,
                 highlightthickness=0,
                 bd=0,
-                command=lambda name=command_name, value=variable: self._runtime_state.set_command_enabled(
+                command=lambda name=command_name, value=variable: self._set_command_enabled(
                     name, value.get()
                 ),
-            ).pack(anchor="w")
+            ).grid(row=index // 3, column=index % 3, sticky="w", padx=(0, 8))
 
         ai_frame = tk.LabelFrame(
             frame,
@@ -205,7 +211,7 @@ class ControlPanel:
             status_label.configure(text=f"Bot: {state_text}    Uptime: {uptime}s")
             root.after(500, refresh)
 
-        refresh()
+        root.after(0, refresh)
         try:
             root.mainloop()
         finally:

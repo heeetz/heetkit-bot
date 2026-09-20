@@ -7,10 +7,16 @@
 .tio.tokens.json
 twitchio_tokens.json
 data/twitchio_tokens.json
+data/*token*.json
 
-# Virtual environment
+# Virtual environments
 .venv/
+venv/
+env/
+
+# IDE metadata
 .idea/
+.vscode/
 
 # Python cache / compiled files
 __pycache__/
@@ -18,17 +24,47 @@ __pycache__/
 
 # Test / coverage artifacts
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
 
 # Runtime data
 data/*
 !data/.gitkeep
+!data/filters/
+!data/filters/*.txt
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
 
 # Logs
 *.log
+logs/
 
 # Build / package artifacts
 *.egg-info/
 build/
 dist/
+*.zip
+
+# Editor, OS, and temporary files
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.tmp
+*.temp
+*.bak
+*.swp
+*~

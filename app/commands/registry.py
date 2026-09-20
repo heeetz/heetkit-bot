@@ -128,17 +128,20 @@ class CommandRegistry:
     def get(self, name: str) -> CommandDefinition | None:
         return self._commands.get(normalize_command_name(name))
 
+    def definitions(self) -> tuple[CommandDefinition, ...]:
+        definitions = {definition.name: definition for definition in self._commands.values()}
+        return tuple(definitions[name] for name in sorted(definitions))
+
     def names(self) -> tuple[str, ...]:
         return tuple(
             sorted({definition.name for definition in self._commands.values() if not definition.hidden})
         )
 
     def help_entries(self) -> tuple[str, ...]:
-        definitions = {definition.name: definition for definition in self._commands.values()}
         return tuple(
-            definitions[name].help_text or f"!{name}"
-            for name in sorted(definitions)
-            if not definitions[name].hidden
+            definition.help_text or f"!{definition.name}"
+            for definition in self.definitions()
+            if not definition.hidden
         )
 
 

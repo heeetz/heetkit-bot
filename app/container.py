@@ -87,6 +87,9 @@ def build_application(settings: Settings) -> Application:
     register_info_commands(registry)
     register_ai_commands(registry)
     register_social_commands(registry)
+    runtime_state.configure_commands(
+        definition.name for definition in registry.definitions()
+    )
     dispatcher = CommandDispatcher(
         registry=registry,
         cooldowns=CooldownManager(),

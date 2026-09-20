@@ -1,0 +1,29 @@
+# Cuckold / obvious spelling evasions
+(?i)\bcuck[\s_-]*old\b
+(?i)\bcook[\s_-]*old\b
+(?i)\bq[\s_-]*cold\b
+(?i)\bku[\s_-]*k[\s_-]*old\b
+(?i)\bкук[\s_-]*олд[а-яёіїєґ]*\b
+
+# Pidor / leetspeak variants
+(?i)\bp[i1]d[o0]{1,2}r\b
+(?i)\bp[i1]d[o0]r[a-z]*\b
+
+# Simp family / Cyrillic and Latin
+(?i)\bсимп[а-яёіїєґ]*\b
+(?i)\bsimp[a-z]*\b
+(?i)\bs[i1]mp[a-z]*\b
+
+# Incel variants
+(?i)\bincel[a-z]*\b
+(?i)\b[i1]ncel[a-z]*\b
+(?i)\bинцел[а-яёіїєґ]*\b
+
+# Pedophile / spelling variants
+(?i)\bped[o0]ph[i1]l[e3][a-z]*\b
+(?i)\bped[o0]f[i1]l[e3][a-z]*\b
+(?i)\bпед[oо]ф[iи]л[а-яёіїєґ]*\b
+
+# Explicit "nigger" spelling evasions
+(?i)\bn[i1]gg[e3]r[a-z]*\b
+(?i)\bn[i1]gg[a4][a-z]*\b
