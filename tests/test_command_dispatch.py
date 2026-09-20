@@ -18,6 +18,7 @@ from app.services.facade import ApplicationServices
 from app.services.filter_manager import FilterManager
 from app.services.gemini_ai_service import GeminiAIService
 from app.services.weather import WeatherServiceError
+from app.runtime_state import RuntimeState
 from app.twitch.client import process_twitch_message
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.twitch.permissions import Permission
@@ -52,12 +53,15 @@ def build_dispatcher(registry: CommandRegistry) -> CommandDispatcher:
     )
 
 
-class FixedRuntime:
+class FixedRuntimeState:
     def __init__(self, elapsed_seconds: int) -> None:
         self._elapsed_seconds = elapsed_seconds
 
     def elapsed_seconds(self) -> int:
         return self._elapsed_seconds
+
+    def is_command_enabled(self, command_name: str) -> bool:
+        return True
 
 
 class FakeWeatherService:
@@ -119,16 +123,31 @@ async def test_help_uses_registered_command_names_and_commands_alias() -> None:
 
 
 @pytest.mark.asyncio
-async def test_uptime_uses_application_runtime_service() -> None:
+async def test_uptime_uses_runtime_state() -> None:
     registry = CommandRegistry()
     register_info_commands(registry)
     transport = FakeChatTransport("!uptime", is_moderator=True)
-    services = cast(ApplicationServices, SimpleNamespace(runtime=FixedRuntime(3_661)))
+    services = cast(
+        ApplicationServices,
+        SimpleNamespace(runtime_state=FixedRuntimeState(3_661)),
+    )
 
     handled = await build_dispatcher(registry).dispatch(transport.message, services)
 
     assert handled is True
     assert transport.replies == ["Uptime: 1h 01m 01s"]
+
+
+def test_runtime_state_uptime_starts_at_state_construction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock_values = iter((100.0, 101.0, 110.0))
+    monkeypatch.setattr("app.runtime_state.monotonic", lambda: next(clock_values))
+    runtime_state = RuntimeState()
+
+    runtime_state.set_bot_running(True)
+
+    assert runtime_state.elapsed_seconds() == 10
 
 
 @pytest.mark.asyncio
@@ -604,14 +623,22 @@ async def test_moderator_only_commands_reject_regular_users() -> None:
     # Regular viewer tries moderator commands
     for cmd in ("!ping", "!uptime", "!commands"):
         transport = FakeChatTransport(cmd, is_moderator=False)
-        handled = await dispatcher.dispatch(transport.message, cast(ApplicationServices, SimpleNamespace(runtime=FixedRuntime(100))))
+        services = cast(
+            ApplicationServices,
+            SimpleNamespace(runtime_state=FixedRuntimeState(100)),
+        )
+        handled = await dispatcher.dispatch(transport.message, services)
         assert handled is True
         assert transport.replies == []
 
     # Moderator tries moderator commands
     for cmd in ("!ping", "!uptime", "!commands"):
         transport = FakeChatTransport(cmd, is_moderator=True)
-        handled = await dispatcher.dispatch(transport.message, cast(ApplicationServices, SimpleNamespace(runtime=FixedRuntime(100))))
+        services = cast(
+            ApplicationServices,
+            SimpleNamespace(runtime_state=FixedRuntimeState(100)),
+        )
+        handled = await dispatcher.dispatch(transport.message, services)
         assert handled is True
         assert len(transport.replies) == 1
 

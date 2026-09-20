@@ -38,5 +38,5 @@ def register_info_commands(registry: CommandRegistry) -> None:
             return
 
         await context.reply(
-            f"Uptime: {format_duration(context.services.runtime.elapsed_seconds())}"
+            f"Uptime: {format_duration(context.services.runtime_state.elapsed_seconds())}"
         )

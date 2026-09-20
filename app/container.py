@@ -15,7 +15,6 @@ from app.config.settings import Settings
 from app.database.database import Database
 from app.database.repository import AIMemoryRepository, UserRepository
 from app.services.facade import ApplicationServices
-from app.services.runtime import RuntimeService
 from app.services.user_service import UserService
 from app.services.memory import AIMemoryService
 from app.services.weather import OpenMeteoWeatherService
@@ -65,12 +64,13 @@ def build_application(settings: Settings) -> Application:
     memory_repository = AIMemoryRepository(database.session_factory)
     filter_manager = FilterManager()
     ai_request_policy = AIRequestPolicy()
-    runtime_state = RuntimeState()
     twitch_api = TwitchAPIService()
+    users = UserService(user_repository)
+    memory = AIMemoryService(memory_repository)
+    runtime_state = RuntimeState()
     services = ApplicationServices(
-        users=UserService(user_repository),
-        memory=AIMemoryService(memory_repository),
-        runtime=RuntimeService(),
+        users=users,
+        memory=memory,
         ai=GeminiAIService(
             settings,
             runtime_state=runtime_state,

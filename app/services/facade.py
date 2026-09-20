@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 
 from app.services.contracts import AIService, WeatherService
-from app.services.runtime import RuntimeService
 from app.services.user_service import UserService
 from app.services.memory import AIMemoryService
 from app.services.filter_manager import FilterManager
@@ -16,7 +15,6 @@ from app.services.twitch import TwitchAPIService
 @dataclass(frozen=True, slots=True)
 class ApplicationServices:
     users: UserService
-    runtime: RuntimeService
     ai: AIService
     weather: WeatherService
     filter_manager: FilterManager

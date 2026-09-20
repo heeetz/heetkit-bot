@@ -20,6 +20,7 @@ class RuntimeState:
         self._active_ai_personality = ACTIVE_AI_PERSONALITY
         self._bot_running = False
         self._started_at: float | None = None
+        self._uptime_started_at = monotonic()
 
     @property
     def available_personalities(self) -> tuple[str, ...]:
@@ -73,6 +74,10 @@ class RuntimeState:
         with self._lock:
             self._bot_running = running
             self._started_at = monotonic() if running else None
+
+    def elapsed_seconds(self) -> int:
+        with self._lock:
+            return max(0, int(monotonic() - self._uptime_started_at))
 
     def status(self) -> tuple[bool, int]:
         with self._lock:
