@@ -3,7 +3,7 @@
 from threading import RLock
 from time import monotonic
 
-from app.config import AI_MEMORY_ENABLED, ACTIVE_AI_PERSONALITY, AI_PERSONALITY_PRESETS
+from config import AI_MEMORY_ENABLED, ACTIVE_AI_PERSONALITY, AI_PERSONALITY_PRESETS
 
 
 class RuntimeState:

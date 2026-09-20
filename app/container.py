@@ -5,17 +5,16 @@ from dataclasses import dataclass
 import httpx
 import logging
 
-from app.config import FILTERS_DIRECTORY
+from config import FILTERS_DIRECTORY
 from app.commands.ai import register_ai_commands
 from app.commands.fun import register_fun_commands
-from app.commands.info import register_info_commands
+from app.commands.info import register_info_commands, register_weather_commands
 from app.commands.social import register_social_commands
 from app.commands.registry import CommandDispatcher, CommandRegistry
 from app.config.settings import Settings
 from app.database.database import Database
 from app.database.repository import AIMemoryRepository, UserRepository
 from app.services.facade import ApplicationServices
-from app.services.user_service import UserService
 from app.services.memory import AIMemoryService
 from app.services.weather import OpenMeteoWeatherService
 from app.services.gemini_ai_service import GeminiAIService
@@ -65,11 +64,10 @@ def build_application(settings: Settings) -> Application:
     filter_manager = FilterManager()
     ai_request_policy = AIRequestPolicy()
     twitch_api = TwitchAPIService()
-    users = UserService(user_repository)
     memory = AIMemoryService(memory_repository)
     runtime_state = RuntimeState()
     services = ApplicationServices(
-        users=users,
+        users=user_repository,
         memory=memory,
         ai=GeminiAIService(
             settings,
@@ -85,6 +83,7 @@ def build_application(settings: Settings) -> Application:
     )
     registry = CommandRegistry()
     register_fun_commands(registry)
+    register_weather_commands(registry)
     register_info_commands(registry)
     register_ai_commands(registry)
     register_social_commands(registry)

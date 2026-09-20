@@ -1,6 +1,6 @@
 """Small per-user memory service for recent successful !ask exchanges."""
 
-from app.config import AI_MEMORY_MAX_ENTRIES
+from config import AI_MEMORY_MAX_ENTRIES
 from app.database.repository import AIMemoryRepository
 from app.services.contracts import AIMemoryExchange
 

@@ -8,7 +8,7 @@ import pytest
 
 from app.commands.ai import register_ai_commands
 from app.commands.fun import FORECASTS, register_fun_commands
-from app.commands.info import register_info_commands
+from app.commands.info import register_info_commands, register_weather_commands
 from app.commands.registry import CommandDispatcher, CommandRegistry
 from app.config.settings import Settings
 from app.container import build_application
@@ -164,6 +164,7 @@ async def test_fun_commands_report_usage_when_arguments_are_missing(
 ) -> None:
     registry = CommandRegistry()
     register_fun_commands(registry)
+    register_weather_commands(registry)
     transport = FakeChatTransport(content)
 
     await build_dispatcher(registry).dispatch(transport.message, cast(ApplicationServices, object()))
@@ -187,6 +188,7 @@ async def test_forecast_replies_with_a_known_prediction() -> None:
 async def test_weather_preserves_a_multiple_word_city() -> None:
     registry = CommandRegistry()
     register_fun_commands(registry)
+    register_weather_commands(registry)
     weather = FakeWeatherService(report=None)
     transport = FakeChatTransport("!weather\tNew   York")
     services = cast(ApplicationServices, SimpleNamespace(weather=weather))
@@ -201,6 +203,7 @@ async def test_weather_preserves_a_multiple_word_city() -> None:
 async def test_weather_forwards_a_cyrillic_city_name() -> None:
     registry = CommandRegistry()
     register_fun_commands(registry)
+    register_weather_commands(registry)
     weather = FakeWeatherService(report=WeatherReport("Киев", 12.0, "clear", 8.0))
     transport = FakeChatTransport("!weather Киев")
 
@@ -217,6 +220,7 @@ async def test_weather_forwards_a_cyrillic_city_name() -> None:
 async def test_weather_sends_current_conditions_for_a_found_city() -> None:
     registry = CommandRegistry()
     register_fun_commands(registry)
+    register_weather_commands(registry)
     weather = FakeWeatherService(
         report=WeatherReport("London", 17.0, "overcast", 14.0),
     )
@@ -235,6 +239,7 @@ async def test_weather_sends_current_conditions_for_a_found_city() -> None:
 async def test_weather_sends_friendly_message_when_provider_is_unavailable() -> None:
     registry = CommandRegistry()
     register_fun_commands(registry)
+    register_weather_commands(registry)
     transport = FakeChatTransport("!weather London")
     weather = FakeWeatherService(error=WeatherServiceError("unavailable"))
 
@@ -314,6 +319,7 @@ async def test_failing_handler_does_not_break_later_commands(caplog: pytest.LogC
 async def test_dispatcher_cooldown_manager_persists_across_dispatched_messages() -> None:
     registry = CommandRegistry()
     register_fun_commands(registry)
+    register_weather_commands(registry)
     current_time = 100.0
     manager = CooldownManager(clock=lambda: current_time)
     dispatcher = CommandDispatcher(
@@ -520,6 +526,7 @@ async def test_bypass_user_bypasses_only_ask_cooldown() -> None:
     registry = CommandRegistry()
     register_ai_commands(registry)
     register_fun_commands(registry)
+    register_weather_commands(registry)
     ai = FakeAIService("AI Answer")
     weather = FakeWeatherService(report=WeatherReport("London", 17.0, "overcast", 14.0))
     services = cast(

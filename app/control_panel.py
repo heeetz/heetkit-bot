@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import queue
 import threading
 import tkinter as tk
@@ -19,18 +20,24 @@ class ControlPanel:
 
     def start(self) -> None:
         self._thread = threading.Thread(
-            target=self._run,
+            target=self._run_in_thread,
             name="twitch-bot-control-panel",
-            daemon=True,
+            daemon=False,
         )
         self._thread.start()
+
+    def _run_in_thread(self) -> None:
+        try:
+            self._run()
+        finally:
+            gc.collect()
 
     def stop(self) -> None:
         if self._thread is None:
             return
         self._actions.put("close")
         if threading.current_thread() is not self._thread:
-            self._thread.join(timeout=2.0)
+            self._thread.join()
         self._thread = None
 
     def _run(self) -> None:
@@ -53,7 +60,7 @@ class ControlPanel:
 
         def request_stop() -> None:
             self._on_stop()
-            root.destroy()
+            root.quit()
 
         root.protocol("WM_DELETE_WINDOW", request_stop)
 
@@ -190,7 +197,7 @@ class ControlPanel:
             except queue.Empty:
                 action = ""
             if action == "close":
-                root.destroy()
+                root.quit()
                 return
 
             running, uptime = self._runtime_state.status()
@@ -199,4 +206,7 @@ class ControlPanel:
             root.after(500, refresh)
 
         refresh()
-        root.mainloop()
+        try:
+            root.mainloop()
+        finally:
+            root.destroy()

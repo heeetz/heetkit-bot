@@ -8,7 +8,7 @@ import re
 
 from app.config.settings import Settings
 from app.services.contracts import AIReply
-from app.config import AI_MAX_RESPONSE_LENGTH, build_ai_system_instruction as build_system_instruction
+from config import AI_MAX_RESPONSE_LENGTH, build_ai_system_instruction as build_system_instruction
 from app.runtime_state import RuntimeState
 from app.services.filter_manager import FilterManager
 

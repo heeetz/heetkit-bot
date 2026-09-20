@@ -2,15 +2,13 @@
 
 from random import choice
 
-from app.config import (
+from config import (
     FORECAST_COOLDOWN_SECONDS,
     PING_COOLDOWN_SECONDS,
     TG_BURST_DELAY,
     TG_MESSAGE,
-    WEATHER_COOLDOWN_SECONDS,
 )
 from app.commands.registry import CommandRegistry
-from app.services.weather import WeatherServiceError, format_weather_response, weather_language_for_query
 from app.utils.cooldown import CooldownPolicy
 from app.twitch.permissions import Permission
 
@@ -89,36 +87,3 @@ def register_fun_commands(registry: CommandRegistry) -> None:
             return
         username = context.message.author.username.lstrip("@")
         await context.reply(f"@{username}, {random_forecast()}")
-
-    @registry.command(
-        "weather",
-        help_text="!weather <city>",
-        cooldown=CooldownPolicy(global_seconds=WEATHER_COOLDOWN_SECONDS),
-        argument_validator=lambda arguments: bool(arguments),
-    )
-    async def weather(context, arguments: str) -> None:
-        if not arguments:
-            await context.reply("Usage: !weather <city>")
-            return
-        username = context.message.author.username.lstrip("@")
-        try:
-            report = await context.services.weather.get_current_weather(arguments)
-        except WeatherServiceError:
-            language = weather_language_for_query(arguments)
-            unavailable = {
-                "en": "weather is currently unavailable",
-                "ru": "погода сейчас недоступна",
-                "uk": "погода зараз недоступна",
-            }[language]
-            await context.reply(f"@{username}, {unavailable}.")
-            return
-        if report is None:
-            language = weather_language_for_query(arguments)
-            not_found = {
-                "en": "could not find that city",
-                "ru": "не смог найти такой город",
-                "uk": "не вдалося знайти це місто",
-            }[language]
-            await context.reply(f"@{username}, {not_found}.")
-            return
-        await context.reply(f"@{username}, {format_weather_response(report, arguments)}")

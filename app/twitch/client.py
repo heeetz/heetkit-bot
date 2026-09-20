@@ -75,7 +75,10 @@ async def process_twitch_message(
         incoming.content,
     )
     try:
-        await services.users.record_seen(incoming.author)
+        await services.users.upsert_seen(
+            twitch_user_id=incoming.author.twitch_user_id,
+            username=incoming.author.username,
+        )
     except SQLAlchemyError:
         logger.exception("Could not persist chat user")
     except Exception:

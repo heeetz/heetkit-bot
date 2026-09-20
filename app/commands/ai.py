@@ -4,7 +4,7 @@ from app.commands.registry import CommandRegistry
 from app.services.ai_request_policy import PolicyDecision
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
-from app.config import ASK_COOLDOWN_SECONDS
+from config import ASK_COOLDOWN_SECONDS
 
 
 def register_ai_commands(registry: CommandRegistry) -> None:
@@ -78,6 +78,6 @@ def register_ai_commands(registry: CommandRegistry) -> None:
         if not target_username:
             return
 
-        user = await context.services.users.get_user_by_username(target_username)
+        user = await context.services.users.get_by_username(target_username)
         if user is not None:
             await context.services.memory.erase_for_user(user.twitch_user_id)

@@ -37,12 +37,12 @@ class FakeTwitchMessage:
         self.responses.append(content)
 
 
-class RecordingUsers:
+class RecordingUserRepository:
     def __init__(self) -> None:
         self.seen_user_ids: list[str] = []
 
-    async def record_seen(self, author) -> None:
-        self.seen_user_ids.append(author.twitch_user_id)
+    async def upsert_seen(self, *, twitch_user_id: str, username: str) -> None:
+        self.seen_user_ids.append(twitch_user_id)
 
 
 class AllowingFilterManager:
@@ -80,7 +80,7 @@ def build_settings() -> Settings:
 async def test_twitch_message_maps_to_dto_persists_user_and_sends_response() -> None:
     raw_message = FakeTwitchMessage()
     mapped = to_incoming_chat_message(cast(object, raw_message))
-    users = RecordingUsers()
+    users = RecordingUserRepository()
     filter_manager = AllowingFilterManager()
     dispatcher = ReplyingDispatcher()
     services = cast(

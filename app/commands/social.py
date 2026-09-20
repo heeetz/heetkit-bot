@@ -4,7 +4,7 @@ from calendar import monthrange
 from datetime import datetime, timezone
 
 from app.commands.registry import CommandRegistry
-from app.config import FOLLOWAGE_COOLDOWN_SECONDS, SEEN_COOLDOWN_SECONDS
+from config import FOLLOWAGE_COOLDOWN_SECONDS, SEEN_COOLDOWN_SECONDS
 from app.utils.cooldown import CooldownPolicy
 
 
@@ -108,7 +108,7 @@ def register_social_commands(registry: CommandRegistry) -> None:
     async def seen(context, arguments: str) -> None:
         username = arguments.strip().lstrip("@").strip()
         try:
-            user = await context.services.users.get_user_by_username(username)
+            user = await context.services.users.get_by_username(username)
         except Exception:
             context.logger.exception("Could not retrieve last seen user")
             return
