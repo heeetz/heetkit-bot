@@ -10,6 +10,7 @@ data/twitchio_tokens.json
 
 # Virtual environment
 .venv/
+.idea/
 
 # Python cache / compiled files
 __pycache__/
