@@ -60,9 +60,4 @@ class Settings(BaseSettings):
 
 
 def load_settings() -> Settings:
-    settings = Settings()
-    print("BOT:", settings.twitch_bot_username)
-    print("CHANNEL:", settings.twitch_channel)
-    print("CHANNEL ID:", settings.twitch_channel_user_id)
-    print("TOKEN FILE:", settings.twitch_token_file)
-    return settings
+    return Settings()

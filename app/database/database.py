@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from app.database.models import Base
 
@@ -21,9 +21,6 @@ class Database:
 
     async def close(self) -> None:
         await self.engine.dispose()
-
-    def session(self) -> AsyncSession:
-        return self.session_factory()
 
     def _create_sqlite_parent_directory(self) -> None:
         database_name = make_url(self._database_url).database

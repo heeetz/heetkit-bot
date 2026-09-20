@@ -55,7 +55,7 @@ def _load_blocked_words(filter_manager: FilterManager, file_path: str) -> None:
         with open(file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
         
-        for line_num, line in enumerate(lines, 1):
+        for line in lines:
             # Strip whitespace and skip comments/empty lines
             content = line.strip()
             if not content or content.startswith('#'):
@@ -84,7 +84,7 @@ def _load_blocked_phrases(filter_manager: FilterManager, file_path: str) -> None
         with open(file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
         
-        for line_num, line in enumerate(lines, 1):
+        for line in lines:
             # Strip whitespace and skip comments/empty lines
             content = line.strip()
             if not content or content.startswith('#'):

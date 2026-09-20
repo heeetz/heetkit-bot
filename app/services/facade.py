@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from app.services.contracts import AIService, ModerationService, WeatherService, WebSearchService
+from app.services.contracts import AIService, WeatherService
 from app.services.runtime import RuntimeService
 from app.services.user_service import UserService
 from app.services.memory import AIMemoryService
@@ -18,8 +18,6 @@ class ApplicationServices:
     users: UserService
     runtime: RuntimeService
     ai: AIService
-    web_search: WebSearchService
-    moderation: ModerationService
     weather: WeatherService
     filter_manager: FilterManager
     ai_request_policy: AIRequestPolicy

@@ -15,8 +15,5 @@ class UserService:
             username=author.username,
         )
 
-    async def get_user(self, twitch_user_id: str) -> User | None:
-        return await self._users.get_by_twitch_user_id(twitch_user_id)
-
     async def get_user_by_username(self, username: str) -> User | None:
         return await self._users.get_by_username(username)

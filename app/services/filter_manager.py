@@ -36,12 +36,6 @@ class FilterManager:
         if pattern:
             self._blocked_patterns.append(FilterRule(pattern=pattern, is_regex=is_regex, case_sensitive=case_sensitive))
     
-    def clear_filters(self) -> None:
-        """Clear all filters."""
-        self._blocked_words.clear()
-        self._blocked_phrases.clear()
-        self._blocked_patterns.clear()
-    
     def filter_message(self, message_content: str) -> bool:
         """
         Determine if a message should be ALLOWED (True) or IGNORED (False).

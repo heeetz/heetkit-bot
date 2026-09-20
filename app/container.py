@@ -9,18 +9,15 @@ from app.config import FILTERS_DIRECTORY
 from app.commands.ai import register_ai_commands
 from app.commands.fun import register_fun_commands
 from app.commands.info import register_info_commands
-from app.commands.memory import register_memory_commands
 from app.commands.social import register_social_commands
 from app.commands.registry import CommandDispatcher, CommandRegistry
 from app.config.settings import Settings
 from app.database.database import Database
 from app.database.repository import AIMemoryRepository, UserRepository
 from app.services.facade import ApplicationServices
-from app.services.moderation import AllowAllModerationService
 from app.services.runtime import RuntimeService
 from app.services.user_service import UserService
 from app.services.memory import AIMemoryService
-from app.services.web_search import DisabledWebSearchService
 from app.services.weather import OpenMeteoWeatherService
 from app.services.gemini_ai_service import GeminiAIService
 from app.services.filter_manager import FilterManager
@@ -79,8 +76,6 @@ def build_application(settings: Settings) -> Application:
             runtime_state=runtime_state,
             filter_manager=filter_manager,
         ),
-        web_search=DisabledWebSearchService(),
-        moderation=AllowAllModerationService(),
         weather=OpenMeteoWeatherService(http_client),
         filter_manager=filter_manager,
         ai_request_policy=ai_request_policy,
@@ -92,7 +87,6 @@ def build_application(settings: Settings) -> Application:
     register_fun_commands(registry)
     register_info_commands(registry)
     register_ai_commands(registry)
-    register_memory_commands(registry)
     register_social_commands(registry)
     dispatcher = CommandDispatcher(
         registry=registry,
