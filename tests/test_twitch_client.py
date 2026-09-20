@@ -45,6 +45,15 @@ class RecordingUsers:
         self.seen_user_ids.append(author.twitch_user_id)
 
 
+class AllowingFilterManager:
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    def filter_message(self, content: str) -> bool:
+        self.messages.append(content)
+        return True
+
+
 class ReplyingDispatcher:
     def __init__(self) -> None:
         self.messages = []
@@ -72,8 +81,12 @@ async def test_twitch_message_maps_to_dto_persists_user_and_sends_response() -> 
     raw_message = FakeTwitchMessage()
     mapped = to_incoming_chat_message(cast(object, raw_message))
     users = RecordingUsers()
+    filter_manager = AllowingFilterManager()
     dispatcher = ReplyingDispatcher()
-    services = cast(ApplicationServices, SimpleNamespace(users=users))
+    services = cast(
+        ApplicationServices,
+        SimpleNamespace(users=users, filter_manager=filter_manager),
+    )
 
     assert mapped.channel == "testchannel"
     assert mapped.author.is_subscriber is True
@@ -87,6 +100,7 @@ async def test_twitch_message_maps_to_dto_persists_user_and_sends_response() -> 
     )
 
     assert users.seen_user_ids == ["viewer-id"]
+    assert filter_manager.messages == ["!ping"]
     assert dispatcher.messages[0].content == "!ping"
     assert raw_message.responses == ["pong"]
 
@@ -161,7 +175,7 @@ async def test_oauth_callback_accepts_the_configured_bot_account(monkeypatch: py
     bot = TwitchChatBot(
         settings=settings,
         account=settings.primary_account,
-        services=cast(ApplicationServices, object()),
+        services=cast(ApplicationServices, SimpleNamespace(twitch=None)),
         dispatcher=cast(CommandDispatcher, object()),
         logger=logging.getLogger("tests.twitch"),
     )
@@ -195,7 +209,7 @@ async def test_oauth_callback_rejects_an_unexpected_account(monkeypatch: pytest.
     bot = TwitchChatBot(
         settings=settings,
         account=settings.primary_account,
-        services=cast(ApplicationServices, object()),
+        services=cast(ApplicationServices, SimpleNamespace(twitch=None)),
         dispatcher=cast(CommandDispatcher, object()),
         logger=logging.getLogger("tests.twitch"),
     )
@@ -224,7 +238,7 @@ async def test_oauth_callback_discards_broadcaster_authorization(monkeypatch: py
     bot = TwitchChatBot(
         settings=settings,
         account=settings.primary_account,
-        services=cast(ApplicationServices, object()),
+        services=cast(ApplicationServices, SimpleNamespace(twitch=None)),
         dispatcher=cast(CommandDispatcher, object()),
         logger=logging.getLogger("tests.twitch"),
     )

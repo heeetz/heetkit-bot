@@ -175,7 +175,7 @@ async def test_weather_preserves_a_multiple_word_city() -> None:
     await build_dispatcher(registry).dispatch(transport.message, services)
 
     assert weather.queries == ["New   York"]
-    assert transport.replies == ["@viewer, не смог найти такой город."]
+    assert transport.replies == ["@viewer, could not find that city."]
 
 
 @pytest.mark.asyncio
@@ -191,7 +191,7 @@ async def test_weather_forwards_a_cyrillic_city_name() -> None:
     )
 
     assert weather.queries == ["Киев"]
-    assert transport.replies == ["@viewer, Киев: 12°C, clear, wind 8 km/h."]
+    assert transport.replies == ["@viewer, Киев: +12°C, ясно, ветер 8 км/ч."]
 
 
 @pytest.mark.asyncio
@@ -224,7 +224,7 @@ async def test_weather_sends_friendly_message_when_provider_is_unavailable() -> 
         cast(ApplicationServices, SimpleNamespace(weather=weather)),
     )
 
-    assert transport.replies == ["@viewer, погода сейчас недоступна."]
+    assert transport.replies == ["@viewer, weather is currently unavailable."]
 
 
 def test_application_registers_phase_two_commands() -> None:
@@ -372,7 +372,7 @@ async def test_ask_allowed_processes_and_replies() -> None:
     assert handled is True
     assert len(ai.calls) == 1
     assert ai.calls[0][0] == "how does photosynthesis work?"
-    assert transport.replies == ["Photosynthesis converts light into chemical energy."]
+    assert transport.replies == ["@viewer Photosynthesis converts light into chemical energy."]
 
 
 @pytest.mark.asyncio
@@ -461,7 +461,7 @@ async def test_policy_blocked_request_does_not_consume_cooldown() -> None:
     valid_transport = FakeChatTransport("!ask what is python?")
     await dispatcher.dispatch(valid_transport.message, services)
     assert len(ai.calls) == 1
-    assert valid_transport.replies == ["Valid answer"]
+    assert valid_transport.replies == ["@viewer Valid answer"]
 
 
 @pytest.mark.asyncio
@@ -486,7 +486,7 @@ async def test_cooldown_blocked_request_does_not_call_gemini() -> None:
     t1 = FakeChatTransport("!ask question 1")
     await dispatcher.dispatch(t1.message, services)
     assert len(ai.calls) == 1
-    assert t1.replies == ["Answer 1"]
+    assert t1.replies == ["@viewer Answer 1"]
 
     # Second request within 30s is rejected by cooldown and does NOT call AI service
     current_time = 110.0
@@ -533,7 +533,7 @@ async def test_bypass_user_bypasses_only_ask_cooldown() -> None:
     )
     await dispatcher.dispatch(bypass_ask.message, services)
     assert len(ai.calls) == 2
-    assert bypass_ask.replies == ["AI Answer"]
+    assert bypass_ask.replies == ["@bypass_user AI Answer"]
 
     # Normal user calls !weather London at t=106
     current_time = 106.0
