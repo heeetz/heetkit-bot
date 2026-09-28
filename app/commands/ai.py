@@ -41,17 +41,20 @@ def register_ai_commands(registry: CommandRegistry) -> None:
             except Exception:
                 context.logger.exception("Could not load AI memory")
 
-        if memory_enabled:
-            reply = await context.services.ai.generate_reply(
-                prompt=clean_args,
-                user_id=context.message.author.twitch_user_id,
-                memory_context=memory_context,
-            )
-        else:
-            reply = await context.services.ai.generate_reply(
-                prompt=clean_args,
-                user_id=context.message.author.twitch_user_id,
-            )
+        stream_category = None
+        twitch_service = getattr(context.services, "twitch", None)
+        if twitch_service is not None:
+            try:
+                stream_category = await twitch_service.get_current_category()
+            except Exception:
+                context.logger.exception("Could not load Twitch stream category")
+
+        reply = await context.services.ai.generate_reply(
+            prompt=clean_args,
+            user_id=context.message.author.twitch_user_id,
+            memory_context=memory_context,
+            stream_category=stream_category,
+        )
         if reply.is_available and reply.text:
             username = context.message.author.username.lstrip("@")
             delivered = await context.reply(f"@{username} {reply.text}")

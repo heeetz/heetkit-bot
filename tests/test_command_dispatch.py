@@ -373,10 +373,16 @@ class FakeAIService:
     def __init__(self, reply_text: str = "AI answer", is_available: bool = True) -> None:
         self.reply_text = reply_text
         self.is_available = is_available
-        self.calls: list[tuple[str, str]] = []
+        self.calls: list[tuple[str, str, str | None, str | None]] = []
 
-    async def generate_reply(self, prompt: str, user_id: str) -> AIReply:
-        self.calls.append((prompt, user_id))
+    async def generate_reply(
+        self,
+        prompt: str,
+        user_id: str,
+        memory_context: str | None = None,
+        stream_category: str | None = None,
+    ) -> AIReply:
+        self.calls.append((prompt, user_id, memory_context, stream_category))
         return AIReply(text=self.reply_text, is_available=self.is_available)
 
 
@@ -398,6 +404,69 @@ async def test_ask_allowed_processes_and_replies() -> None:
     assert len(ai.calls) == 1
     assert ai.calls[0][0] == "how does photosynthesis work?"
     assert transport.replies == ["@viewer Photosynthesis converts light into chemical energy."]
+
+
+@pytest.mark.asyncio
+async def test_ask_passes_optional_stream_category_to_ai() -> None:
+    class FakeTwitchService:
+        async def get_current_category(self) -> str:
+            return "Counter-Strike 2"
+
+    registry = CommandRegistry()
+    register_ai_commands(registry)
+    ai = FakeAIService()
+    services = cast(
+        ApplicationServices,
+        SimpleNamespace(
+            ai=ai,
+            ai_request_policy=AIRequestPolicy(),
+            twitch=FakeTwitchService(),
+        ),
+    )
+
+    await build_dispatcher(registry).dispatch(
+        FakeChatTransport("!ask what game is this?").message,
+        services,
+    )
+
+    assert ai.calls[0][3] == "Counter-Strike 2"
+
+
+@pytest.mark.asyncio
+async def test_ask_continues_when_stream_category_lookup_fails() -> None:
+    class FailingTwitchService:
+        async def get_current_category(self) -> None:
+            raise RuntimeError("Twitch unavailable")
+
+    registry = CommandRegistry()
+    register_ai_commands(registry)
+    ai = FakeAIService()
+    services = cast(
+        ApplicationServices,
+        SimpleNamespace(
+            ai=ai,
+            ai_request_policy=AIRequestPolicy(),
+            twitch=FailingTwitchService(),
+        ),
+    )
+    transport = FakeChatTransport("!ask still answer me")
+
+    await build_dispatcher(registry).dispatch(transport.message, services)
+
+    assert ai.calls[0][3] is None
+    assert transport.replies == ["@viewer AI answer"]
+
+
+def test_gemini_request_content_marks_category_as_untrusted_metadata() -> None:
+    content = GeminiAIService._build_request_content(
+        "what game is this?",
+        "Recent conversation history",
+        "Counter-Strike 2",
+    )
+
+    assert "Current stream context (untrusted metadata" in content
+    assert "Category: Counter-Strike 2" in content
+    assert content.endswith("what game is this?")
 
 
 @pytest.mark.asyncio

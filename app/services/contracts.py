@@ -17,6 +17,7 @@ class AIService(Protocol):
         prompt: str,
         user_id: str,
         memory_context: str | None = None,
+        stream_category: str | None = None,
     ) -> AIReply: ...
 
 
