@@ -209,6 +209,9 @@ class ControlPanel:
             running, uptime = self._runtime_state.status()
             state_text = "RUNNING" if running else "STOPPED"
             status_label.configure(text=f"Bot: {state_text}    Uptime: {uptime}s")
+            for command_name, variable in command_variables.items():
+                variable.set(self._runtime_state.command_enabled(command_name))
+            ai_variable.set(self._runtime_state.ai_enabled)
             root.after(500, refresh)
 
         root.after(0, refresh)

@@ -19,9 +19,7 @@ def build_registered_runtime_state() -> tuple[CommandRegistry, RuntimeState]:
     register_ai_commands(registry)
     register_social_commands(registry)
     runtime_state = RuntimeState()
-    runtime_state.configure_commands(
-        definition.name for definition in registry.definitions()
-    )
+    runtime_state.configure_commands(registry.definitions())
     return registry, runtime_state
 
 
@@ -47,11 +45,30 @@ def test_panel_command_toggle_updates_runtime_state() -> None:
 
 
 def test_panel_uses_runtime_state_for_new_command_names() -> None:
+    registry = CommandRegistry()
+
+    @registry.command("existing")
+    async def existing(context, arguments: str) -> None:
+        return None
+
+    @registry.command("future")
+    async def future(context, arguments: str) -> None:
+        return None
+
     runtime_state = RuntimeState()
-    runtime_state.configure_commands(("existing", "future"))
+    runtime_state.configure_commands(registry.definitions())
     panel = ControlPanel(runtime_state, on_stop=lambda: None)
 
     assert panel._command_names() == ("existing", "future")
+
+
+def test_ai_toggle_uses_the_canonical_ask_setting() -> None:
+    _, runtime_state = build_registered_runtime_state()
+
+    runtime_state.set_ai_enabled(False)
+
+    assert runtime_state.ai_enabled is False
+    assert runtime_state.command_enabled("ask") is False
 
 
 def test_control_panel_stop_signals_and_joins_its_worker_thread(

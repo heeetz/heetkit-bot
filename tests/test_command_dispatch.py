@@ -22,7 +22,7 @@ from app.runtime_state import RuntimeState
 from app.twitch.client import process_twitch_message
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.twitch.permissions import Permission
-from app.utils.cooldown import CooldownManager
+from app.utils.cooldown import CooldownManager, CooldownPolicy
 from app.utils.output_limiter import OutputLimiter
 
 
@@ -44,12 +44,20 @@ class FakeChatTransport:
         self.replies.append(content)
 
 
-def build_dispatcher(registry: CommandRegistry) -> CommandDispatcher:
+def build_dispatcher(
+    registry: CommandRegistry,
+    *,
+    runtime_state: RuntimeState | None = None,
+    cooldowns: CooldownManager | None = None,
+    output_limiter: OutputLimiter | None = None,
+) -> CommandDispatcher:
     return CommandDispatcher(
         registry=registry,
-        cooldowns=CooldownManager(),
+        cooldowns=cooldowns or CooldownManager(),
         logger=logging.getLogger("tests.commands"),
         command_prefix="!",
+        output_limiter=output_limiter,
+        runtime_state=runtime_state,
     )
 
 
@@ -289,6 +297,97 @@ async def test_dispatcher_enforces_registered_permissions() -> None:
 
     assert handled is True
     assert transport.replies == []
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_consumes_runtime_enable_and_permission_settings() -> None:
+    registry = CommandRegistry()
+
+    @registry.command("runtime")
+    async def runtime_command(context, arguments: str) -> None:
+        await context.reply("allowed")
+
+    runtime_state = RuntimeState()
+    runtime_state.configure_commands(registry.definitions())
+    dispatcher = build_dispatcher(registry, runtime_state=runtime_state)
+
+    runtime_state.apply_command_settings("runtime", enabled=False)
+    disabled = FakeChatTransport("!runtime")
+    assert await dispatcher.dispatch(disabled.message, cast(ApplicationServices, object()))
+    assert disabled.replies == []
+
+    runtime_state.apply_command_settings(
+        "runtime",
+        enabled=True,
+        permission=Permission.MODERATOR,
+    )
+    viewer = FakeChatTransport("!runtime")
+    moderator = FakeChatTransport("!runtime", is_moderator=True)
+    await dispatcher.dispatch(viewer.message, cast(ApplicationServices, object()))
+    await dispatcher.dispatch(moderator.message, cast(ApplicationServices, object()))
+
+    assert viewer.replies == []
+    assert moderator.replies == ["allowed"]
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_consumes_runtime_cooldown_setting() -> None:
+    registry = CommandRegistry()
+
+    @registry.command("runtime", cooldown=CooldownPolicy(global_seconds=30.0))
+    async def runtime_command(context, arguments: str) -> None:
+        await context.reply("allowed")
+
+    runtime_state = RuntimeState()
+    runtime_state.configure_commands(registry.definitions())
+    runtime_state.apply_command_settings("runtime", cooldown=CooldownPolicy())
+    dispatcher = build_dispatcher(registry, runtime_state=runtime_state)
+    transport = FakeChatTransport("!runtime")
+
+    await dispatcher.dispatch(transport.message, cast(ApplicationServices, object()))
+    await dispatcher.dispatch(transport.message, cast(ApplicationServices, object()))
+
+    assert transport.replies == ["allowed", "allowed"]
+
+
+@pytest.mark.asyncio
+async def test_invalid_arguments_do_not_consume_runtime_cooldown() -> None:
+    registry = CommandRegistry()
+
+    @registry.command(
+        "validated",
+        cooldown=CooldownPolicy(global_seconds=30.0),
+        argument_validator=lambda arguments: bool(arguments),
+    )
+    async def validated(context, arguments: str) -> None:
+        await context.reply("executed" if arguments else "usage")
+
+    runtime_state = RuntimeState()
+    runtime_state.configure_commands(registry.definitions())
+    dispatcher = build_dispatcher(registry, runtime_state=runtime_state)
+    invalid = FakeChatTransport("!validated")
+    valid = FakeChatTransport("!validated value")
+
+    await dispatcher.dispatch(invalid.message, cast(ApplicationServices, object()))
+    await dispatcher.dispatch(valid.message, cast(ApplicationServices, object()))
+
+    assert invalid.replies == ["usage"]
+    assert valid.replies == ["executed"]
+
+
+@pytest.mark.asyncio
+async def test_tg_preserves_output_limiter_bypass() -> None:
+    registry = CommandRegistry()
+    register_fun_commands(registry)
+    dispatcher = build_dispatcher(
+        registry,
+        output_limiter=OutputLimiter(interval=60.0),
+    )
+    transport = FakeChatTransport("!tg 2", is_moderator=True)
+
+    await dispatcher.dispatch(transport.message, cast(ApplicationServices, object()))
+
+    assert len(transport.replies) == 2
 
 
 @pytest.mark.asyncio

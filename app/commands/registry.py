@@ -5,6 +5,8 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
+from app.command_settings import CommandSettings
+from app.runtime_state import RuntimeState
 from app.services.facade import ApplicationServices
 from app.twitch.events import IncomingChatMessage
 from app.twitch.permissions import Permission, has_permission
@@ -29,6 +31,15 @@ class CommandDefinition:
     argument_validator: ArgumentValidator | None = None
     silent_invalid_arguments: bool = False
     hidden: bool = False
+    enabled_by_default: bool = True
+
+    @property
+    def default_settings(self) -> CommandSettings:
+        return CommandSettings(
+            enabled=self.enabled_by_default,
+            cooldown=self.cooldown,
+            permission=self.required_permission,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +84,7 @@ class CommandRegistry:
         *,
         aliases: tuple[str, ...] = (),
         help_text: str | None = None,
+        enabled_by_default: bool = True,
         required_permission: Permission = Permission.USER,
         cooldown: CooldownPolicy | None = None,
         pre_check: Callable[[CommandContext, str], bool] | None = None,
@@ -87,6 +99,7 @@ class CommandRegistry:
                     handler=handler,
                     aliases=aliases,
                     help_text=help_text,
+                    enabled_by_default=enabled_by_default,
                     required_permission=required_permission,
                     cooldown=cooldown or CooldownPolicy(),
                     pre_check=pre_check,
@@ -115,6 +128,7 @@ class CommandRegistry:
             handler=definition.handler,
             aliases=normalized_names[1:],
             help_text=definition.help_text,
+            enabled_by_default=definition.enabled_by_default,
             required_permission=definition.required_permission,
             cooldown=definition.cooldown,
             pre_check=definition.pre_check,
@@ -155,6 +169,7 @@ class CommandDispatcher:
         max_arguments_length: int = 300,
         output_limiter: OutputLimiter | None = None,
         ai_cooldown_bypass_user_id: str | None = None,
+        runtime_state: RuntimeState | None = None,
     ) -> None:
         self._registry = registry
         self._cooldowns = cooldowns
@@ -163,6 +178,7 @@ class CommandDispatcher:
         self._max_arguments_length = max_arguments_length
         self._output_limiter = output_limiter
         self._ai_cooldown_bypass_user_id = ai_cooldown_bypass_user_id
+        self._runtime_state = runtime_state
 
     async def dispatch(self, message: IncomingChatMessage, services: ApplicationServices) -> bool:
         try:
@@ -174,13 +190,17 @@ class CommandDispatcher:
             definition = self._registry.get(command_name)
             if definition is None:
                 return False
+            settings = (
+                definition.default_settings
+                if self._runtime_state is None
+                else self._runtime_state.get_command_settings(definition.name)
+            )
 
             command_output_limiter = (
                 None if definition.name == "tg" else self._output_limiter
             )
 
-            runtime_state = getattr(services, "runtime_state", None)
-            if runtime_state is not None and not runtime_state.is_command_enabled(definition.name):
+            if not settings.enabled:
                 return True
 
             if len(arguments) > self._max_arguments_length:
@@ -192,7 +212,7 @@ class CommandDispatcher:
             ):
                 return True
 
-            if not has_permission(message.author, definition.required_permission):
+            if not has_permission(message.author, settings.permission):
                 return True
 
             if (
@@ -235,7 +255,7 @@ class CommandDispatcher:
                 cooldown = self._cooldowns.check_and_record(
                     command_name=definition.name,
                     user_id=message.author.twitch_user_id,
-                    policy=definition.cooldown,
+                    policy=settings.cooldown,
                 )
                 self._logger.info(
                     "COOLDOWN DEBUG manager=%s dispatcher=%s command=%s "
@@ -243,8 +263,8 @@ class CommandDispatcher:
                     id(self._cooldowns),
                     id(self),
                     definition.name,
-                    definition.cooldown.global_seconds,
-                    definition.cooldown.per_user_seconds,
+                    settings.cooldown.global_seconds,
+                    settings.cooldown.per_user_seconds,
                     cooldown.allowed,
                     cooldown.retry_after,
                 )

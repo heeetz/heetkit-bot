@@ -7,6 +7,7 @@ from app.config.personalities import AI_PERSONALITY_PRESETS
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 FILTERS_DIRECTORY = PROJECT_ROOT / "data" / "filters"
+COMMAND_SETTINGS_PATH = PROJECT_ROOT / "data" / "command_settings.json"
 
 
 # Command behavior.
