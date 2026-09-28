@@ -4,7 +4,8 @@ from threading import RLock
 from time import monotonic
 from collections.abc import Iterable
 
-from config import AI_MEMORY_ENABLED, ACTIVE_AI_PERSONALITY, AI_PERSONALITY_PRESETS
+from app.config.personalities import AI_PERSONALITY_PRESETS
+from config import AI_MEMORY_ENABLED, ACTIVE_AI_PERSONALITY
 
 
 class RuntimeState:
