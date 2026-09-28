@@ -34,6 +34,7 @@ h1 { margin-bottom: 0; font-size: 30px; }
 .primary, .danger { border: 0; border-radius: 9px; padding: 10px 16px; color: white; font-weight: 700; cursor: pointer; }
 .primary { background: #7c4dff; }
 .danger { background: #b53b55; }
+.secondary { border: 1px solid #344057; border-radius: 8px; padding: 9px 12px; color: #d5ddec; background: #20293a; cursor: pointer; }
 .error-banner { margin-bottom: 18px; padding: 12px 14px; border: 1px solid #7e3445; border-radius: 9px; color: #ffc5d0; background: #321721; }
 .inline-error { margin-bottom: 16px; color: #ffc5d0; }
 .empty-state { max-width: 680px; }
@@ -57,6 +58,26 @@ th, td { padding: 15px 22px; border-top: 1px solid #273044; text-align: left; ve
 th { color: #78869f; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; background: rgba(10,14,22,.28); }
 td { color: #c6cfdf; }
 .command-meta { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 6px; font-size: 12px; }
+.logs-card { padding: 0; overflow: hidden; }
+.logs-card .section-heading { padding: 22px 22px 0; }
+.log-toolbar { display: flex; align-items: end; gap: 12px; padding: 0 22px 18px; }
+.log-toolbar label { display: grid; gap: 6px; color: #8290aa; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.log-toolbar select, .log-toolbar input[type="text"], .log-toolbar input:not([type]) { border: 1px solid #344057; border-radius: 8px; padding: 9px 10px; color: #e9eef8; background: #111722; outline: none; }
+.log-toolbar select:focus, .log-toolbar input:focus { border-color: #7052c9; }
+.search-field { flex: 1; }
+.checkbox-field { display: flex !important; grid-auto-flow: column; align-items: center; padding: 9px 4px; white-space: nowrap; }
+.checkbox-field input { accent-color: #7c4dff; }
+.log-error { padding: 0 22px; }
+.log-console { height: min(56vh, 520px); overflow: auto; border-top: 1px solid #273044; background: #090d14; font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace; }
+.log-row { display: grid; grid-template-columns: 92px 72px 150px minmax(260px, 1fr); gap: 12px; padding: 9px 16px; border-bottom: 1px solid #171e2b; font-size: 12px; }
+.log-row time, .log-source { color: #72809a; }
+.log-level { font-weight: 800; }
+.level-debug { color: #8fa1bc; }
+.level-info { color: #72b7ff; }
+.level-warning { color: #f0c66b; }
+.level-error, .level-critical { color: #ff7d96; }
+.log-row pre { margin: 0; color: #c8d1e1; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+.log-empty { padding: 24px; color: #71809a; }
 
 @media (max-width: 760px) {
   .app-shell { grid-template-columns: 1fr; }
@@ -66,4 +87,7 @@ td { color: #c6cfdf; }
   nav button { text-align: center; }
   .card-grid { grid-template-columns: 1fr; }
   main { padding: 24px 18px; }
+  .log-toolbar { align-items: stretch; flex-direction: column; }
+  .log-row { grid-template-columns: 82px 70px 1fr; }
+  .log-row pre { grid-column: 1 / -1; }
 }

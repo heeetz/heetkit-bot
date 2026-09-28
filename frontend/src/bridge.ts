@@ -31,10 +31,23 @@ export interface AIStatus {
   model: string
 }
 
+export interface LogEntry {
+  id: number
+  timestamp: string
+  level: string
+  source: string
+  message: string
+}
+
+export interface LogsResponse {
+  entries: LogEntry[]
+}
+
 interface PythonApi {
   get_app_status(): Promise<AppStatus>
   get_commands(): Promise<CommandsResponse>
   get_ai_status(): Promise<AIStatus>
+  get_recent_logs(after_id?: number, limit?: number): Promise<LogsResponse>
   start_bot(): Promise<ActionResult>
   stop_bot(): Promise<ActionResult>
 }

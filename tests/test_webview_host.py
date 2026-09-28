@@ -1,10 +1,12 @@
 """Tests for the desktop host bridge without opening a native window."""
 
+import logging
 from types import SimpleNamespace
 from typing import cast
 
 import pytest
 
+from app.utils.logging import RecentLogBuffer, RecentLogHandler
 from app.webview_host import AsyncioBackendHost, WebUIBridge, resolve_frontend_url
 
 
@@ -86,6 +88,31 @@ def test_bridge_gets_ai_state_without_exposing_personality_prompts() -> None:
         "available_personalities": ["neutral", "vas"],
         "model": "gemini-test",
     }
+
+
+def test_bridge_reads_bounded_logs_with_validated_cursor_arguments() -> None:
+    log_buffer = RecentLogBuffer(max_entries=2)
+    handler = RecentLogHandler(log_buffer)
+    for message in ("first", "second", "third"):
+        handler.emit(
+            logging.LogRecord(
+                name="tests.webview",
+                level=logging.INFO,
+                pathname=__file__,
+                lineno=1,
+                msg=message,
+                args=(),
+                exc_info=None,
+            )
+        )
+    bridge = WebUIBridge(
+        cast(AsyncioBackendHost, SimpleNamespace()),
+        log_buffer=log_buffer,
+    )
+
+    result = bridge.get_recent_logs(after_id=2, limit=5000)
+
+    assert [entry["message"] for entry in result["entries"]] == ["third"]
 
 
 def test_production_frontend_requires_a_built_entrypoint(monkeypatch) -> None:

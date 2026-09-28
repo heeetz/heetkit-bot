@@ -15,7 +15,12 @@ from pydantic import ValidationError
 from app.bot_runtime import BotRuntime
 from app.config.settings import Settings, load_settings
 from app.container import Application, build_application
-from app.utils.logging import configure_logging, get_logger
+from app.utils.logging import (
+    RecentLogBuffer,
+    configure_logging,
+    get_logger,
+    get_recent_log_buffer,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -115,9 +120,14 @@ class AsyncioBackendHost:
 class WebUIBridge:
     """Small application-level API exposed to the frontend."""
 
-    def __init__(self, backend: AsyncioBackendHost) -> None:
+    def __init__(
+        self,
+        backend: AsyncioBackendHost,
+        log_buffer: RecentLogBuffer | None = None,
+    ) -> None:
         self._backend = backend
         self._logger = get_logger("app.webview.bridge")
+        self._log_buffer = log_buffer or get_recent_log_buffer()
 
     def get_app_status(self) -> dict[str, object]:
         application = self._backend.application
@@ -164,6 +174,17 @@ class WebUIBridge:
             "active_personality": runtime_state.active_ai_personality,
             "available_personalities": list(runtime_state.available_personalities),
             "model": application.settings.gemini_model,
+        }
+
+    def get_recent_logs(self, after_id: int = 0, limit: int = 200) -> dict[str, object]:
+        safe_after_id = after_id if type(after_id) is int and after_id >= 0 else 0
+        safe_limit = limit if type(limit) is int else 200
+        safe_limit = min(200, max(1, safe_limit))
+        return {
+            "entries": self._log_buffer.recent(
+                after_id=safe_after_id,
+                limit=safe_limit,
+            )
         }
 
     def start_bot(self) -> dict[str, object]:

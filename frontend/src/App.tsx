@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   type AIStatus,
   type AppStatus,
   type CommandInfo,
   type CommandsResponse,
+  type LogEntry,
   waitForBridge,
 } from './bridge'
 import './styles.css'
@@ -181,11 +182,119 @@ function AIPage() {
   )
 }
 
-function Placeholder({ section }: { section: 'Logs' | 'Settings' }) {
-  const message = section === 'Logs'
-    ? 'Live application logs will appear here in the next Phase 2 slice.'
-    : 'Application settings editing is deliberately deferred to Phase 3.'
-  return <section className="card empty-state"><p className="label">PHASE 2</p><h2>{section}</h2><p>{message}</p></section>
+const logLevels = ['ALL', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'] as const
+
+function LogsPage() {
+  const [entries, setEntries] = useState<LogEntry[]>([])
+  const [level, setLevel] = useState<(typeof logLevels)[number]>('ALL')
+  const [search, setSearch] = useState('')
+  const [autoScroll, setAutoScroll] = useState(true)
+  const [error, setError] = useState('')
+  const cursor = useRef(0)
+  const bottom = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    let active = true
+    let timer = 0
+    const refresh = async () => {
+      try {
+        const api = await waitForBridge()
+        const response = await api.get_recent_logs(cursor.current, 200)
+        if (active && response.entries.length > 0) {
+          cursor.current = response.entries.at(-1)?.id ?? cursor.current
+          setEntries((current) => [...current, ...response.entries].slice(-500))
+        }
+        if (active) {
+          setError('')
+        }
+      } catch (reason) {
+        if (active) {
+          setError(reason instanceof Error ? reason.message : 'Could not load application logs.')
+        }
+      } finally {
+        if (active) {
+          timer = window.setTimeout(() => void refresh(), 1000)
+        }
+      }
+    }
+    void refresh()
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [])
+
+  const normalizedSearch = search.trim().toLowerCase()
+  const visibleEntries = entries.filter((entry) => {
+    const matchesLevel = level === 'ALL' || entry.level === level
+    const matchesSearch = !normalizedSearch
+      || entry.message.toLowerCase().includes(normalizedSearch)
+      || entry.source.toLowerCase().includes(normalizedSearch)
+    return matchesLevel && matchesSearch
+  })
+
+  useEffect(() => {
+    if (autoScroll) {
+      bottom.current?.scrollIntoView({ block: 'nearest' })
+    }
+  }, [autoScroll, visibleEntries.length])
+
+  return (
+    <section className="card logs-card">
+      <div className="section-heading">
+        <div><p className="label">LIVE APPLICATION LOGS</p><h2>Recent activity</h2></div>
+        <span className="read-only-badge">{entries.length} / 500</span>
+      </div>
+      <div className="log-toolbar">
+        <label>
+          Level
+          <select value={level} onChange={(event) => setLevel(event.target.value as typeof level)}>
+            {logLevels.map((item) => <option key={item}>{item}</option>)}
+          </select>
+        </label>
+        <label className="search-field">
+          Search
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Message or source"
+          />
+        </label>
+        <label className="checkbox-field">
+          <input
+            type="checkbox"
+            checked={autoScroll}
+            onChange={(event) => setAutoScroll(event.target.checked)}
+          />
+          Auto-scroll
+        </label>
+        <button className="secondary" onClick={() => setEntries([])}>Clear view</button>
+      </div>
+      {error && <div className="inline-error log-error">{error}</div>}
+      <div className="log-console">
+        {visibleEntries.length === 0 && <p className="log-empty">No matching log entries.</p>}
+        {visibleEntries.map((entry) => (
+          <div className="log-row" key={entry.id}>
+            <time dateTime={entry.timestamp}>{new Date(entry.timestamp).toLocaleTimeString()}</time>
+            <span className={`log-level level-${entry.level.toLowerCase()}`}>{entry.level}</span>
+            <span className="log-source">{entry.source}</span>
+            <pre>{entry.message}</pre>
+          </div>
+        ))}
+        <div ref={bottom} />
+      </div>
+    </section>
+  )
+}
+
+function SettingsPlaceholder() {
+  return (
+    <section className="card empty-state">
+      <p className="label">PHASE 2</p>
+      <h2>Settings</h2>
+      <p>Application settings editing is deliberately deferred to Phase 3.</p>
+    </section>
+  )
 }
 
 export default function App() {
@@ -253,7 +362,8 @@ export default function App() {
         {section === 'Dashboard' && <Dashboard status={status} busy={actionBusy} onChangeState={(shouldRun) => void changeBotState(shouldRun)} />}
         {section === 'Commands' && <CommandsPage />}
         {section === 'AI' && <AIPage />}
-        {(section === 'Logs' || section === 'Settings') && <Placeholder section={section} />}
+        {section === 'Logs' && <LogsPage />}
+        {section === 'Settings' && <SettingsPlaceholder />}
       </main>
     </div>
   )
