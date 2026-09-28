@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is a single-channel Twitch chatbot with a local Windows-friendly control panel. It receives chat through TwitchIO EventSub, records when users were last seen, applies global and AI-specific filters, and dispatches commands with permission and cooldown checks.
+This is a single-channel Twitch chatbot with a Windows-friendly desktop interface. It receives chat through TwitchIO EventSub, records when users were last seen, applies global and AI-specific filters, and dispatches commands with permission and cooldown checks.
 
 Major features include:
 
@@ -12,17 +12,20 @@ Major features include:
 - optional Gemini responses with conditional Google Search grounding;
 - per-user Gemini conversation memory in SQLite;
 - configurable blocked words, phrases, and regular expressions;
-- a Tkinter control panel for command, AI, memory, personality, status, and shutdown controls.
+- a React/TypeScript desktop UI hosted by pywebview, with dashboard, command, AI, and live-log views;
+- the original Tkinter control panel as a migration fallback.
 
-The application uses Python, TwitchIO 3, asyncio, SQLAlchemy 2 with SQLite, HTTPX, Pydantic Settings, Google Gen AI, Open-Meteo, and Tkinter.
+Python remains the application core. The web-style desktop shell uses React, TypeScript, Vite, and pywebview; TwitchIO, asyncio, SQLAlchemy 2 with SQLite, HTTPX, Pydantic Settings, Google Gen AI, and Open-Meteo remain behind the Python UI bridge.
 
 ## Requirements
 
 - Python 3.12 or newer. Python 3.12 is the recommended baseline.
+- Node.js 20.19 or newer for installing and building the frontend.
 - A Twitch account for the bot and a Twitch Developer application.
 - The numeric Twitch user IDs for the bot account and target channel.
 - A Gemini API key only if `!ask` should produce AI responses.
 - Tkinter for the local control panel. It is included with normal Windows Python installations; some Linux distributions require a separate `python3-tk` package.
+- A renderer supported by pywebview. Windows normally uses the installed Microsoft Edge WebView2 runtime.
 
 ## Installation
 
@@ -43,7 +46,28 @@ Edit `.env` with the required Twitch values, then validate configuration and loc
 python -m app.main --check
 ```
 
-Start the bot and control panel with either supported entry point:
+Install and build the frontend once:
+
+```powershell
+Push-Location frontend
+npm install
+npm run build
+Pop-Location
+```
+
+Start the new desktop UI from the repository root:
+
+```powershell
+python -m app.webview_host
+```
+
+The installed console entry point is equivalent:
+
+```powershell
+twitch-bot-web
+```
+
+The legacy Tkinter UI remains available through its original launch paths:
 
 ```powershell
 python -m app.main
@@ -53,13 +77,27 @@ python -m app.main
 twitch-bot
 ```
 
+For frontend development, run Vite in one terminal and point the Python host at it from another:
+
+```powershell
+Set-Location frontend
+npm run dev
+```
+
+```powershell
+python -m app.webview_host --dev-url http://localhost:5173
+```
+
+Use `--stopped` when the desktop shell should open without automatically connecting the bot. Production mode loads generated `frontend/dist/` assets; the directory is intentionally ignored and recreated by `npm run build`.
+
 ## Configuration
 
-Configuration has three distinct owners:
+Configuration responsibilities remain separated:
 
 - `.env` contains deployment values, account identity, credentials, local paths, and logging settings. It is loaded by `app/config/settings.py` and must remain private.
-- `config.py` contains non-secret behavioral settings, including cooldowns, the Telegram message, AI response length, memory limits, and personality prompts.
-- The control panel changes process-local runtime state. Its command, AI, memory, and personality changes last only until the process exits.
+- `config.py` contains non-secret behavioral defaults, including cooldowns, the Telegram message, AI response length, memory limits, and the active personality identifier. Built-in personality prompts live in `app/config/personalities.py`.
+- `data/command_settings.json` contains optional local command overrides and is ignored by Git. Commands without overrides continue to use registry defaults.
+- UI changes that are not explicitly saved through the command-settings backend remain process-local. The Phase 2 web command and AI pages are read-only.
 
 The environment variables supported by the current application are:
 
@@ -111,7 +149,7 @@ Set `GEMINI_API_KEY` in `.env` to enable AI replies. `GEMINI_MODEL` defaults to 
 
 `!ask` applies the local AI request policy before contacting Gemini. Requests involving current, changing, comparison, event, or named-opinion information can enable Google Search grounding. Provider responses then pass through the local response policy and configured response-length limit before delivery.
 
-When AI memory is enabled, up to `AI_MEMORY_MAX_ENTRIES` successful exchanges per Twitch user are stored in SQLite and supplied as untrusted conversation context. The control panel can disable memory without disabling Gemini. Personality prompts and the default personality are configured in `config.py`.
+When AI memory is enabled, up to `AI_MEMORY_MAX_ENTRIES` successful exchanges per Twitch user are stored in SQLite and supplied as untrusted conversation context. The legacy control panel can disable memory without disabling Gemini. Personality prompts are defined in `app/config/personalities.py`; `config.py` selects the startup default.
 
 ## Commands
 
@@ -133,9 +171,11 @@ All commands are runtime-toggleable from the local control panel. Hidden command
 
 Cooldowns come from `config.py`. `!tg` and hidden `!erase` currently have no command cooldown; all other cooldown values are explicitly configured there.
 
-## Control panel
+## Desktop interfaces
 
-Starting the normal application opens a compact Tkinter control panel. It displays every canonical registered command in a grid, including hidden runtime-toggleable commands. The command list comes from the command registry through `RuntimeState`, so the UI does not maintain a separate command-name list.
+The pywebview entry point opens the React UI and controls the same composed Python application used by the bot. The bridge exposes only application-level status, lifecycle, command metadata, AI status, and recent logs. Commands are derived from the registry and canonical runtime settings rather than duplicated in the frontend. Live logs use a thread-safe 500-entry in-memory buffer and one-second polling; clearing the Logs page only clears its local view.
+
+The legacy entry point opens the compact Tkinter control panel. It displays every canonical registered command in a grid, including hidden runtime-toggleable commands. The command list comes from the command registry through `RuntimeState`, so the UI does not maintain a separate command-name list.
 
 The panel also provides:
 
@@ -185,10 +225,19 @@ python -m compileall -q app tests
 git diff --check
 ```
 
+Validate and build the frontend from `frontend/`:
+
+```powershell
+npm run typecheck
+npm run build
+```
+
 ## Troubleshooting
 
 - Missing or invalid `.env`: copy `.env.example`, fill every required Twitch value, and run `python -m app.main --check` to see validation errors.
 - Twitch authentication failure: verify the client credentials, numeric account IDs, callback URL, and that the intended bot account completed OAuth. Remove a stale local token file only when you intentionally want to authorize again.
 - Import or command not found: activate `.venv` and rerun `python -m pip install -e ".[dev]"`.
 - No control panel: verify Tkinter is installed and that the process has access to a graphical desktop. `python -m app.main --check` intentionally does not open the GUI.
+- Web UI build missing: run `npm install` and `npm run build` in `frontend/`, then retry `python -m app.webview_host`.
+- Web UI development server unavailable: start `npm run dev` in `frontend/` before using `--dev-url http://localhost:5173`.
 - Gemini unavailable: verify `GEMINI_API_KEY`, the selected model, network access, and package installation. Other non-AI commands continue to work without Gemini.
