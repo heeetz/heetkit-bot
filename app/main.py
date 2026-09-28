@@ -5,10 +5,11 @@ import asyncio
 
 from pydantic import ValidationError
 
+from app.bot_runtime import BotRuntime
 from app.config.settings import load_settings
 from app.container import build_application
 from app.control_panel import ControlPanel
-from app.twitch.client import TwitchConnectionError, run_twitch_bot
+from app.twitch.client import TwitchConnectionError
 from app.utils.logging import configure_logging, get_logger
 
 
@@ -17,30 +18,22 @@ async def run(check_only: bool = False) -> None:
     configure_logging(settings.log_level)
     logger = get_logger("app")
     application = build_application(settings)
-    stop_event = asyncio.Event()
+    bot_runtime = BotRuntime(application, get_logger("app.twitch"))
     loop = asyncio.get_running_loop()
     control_panel = None if check_only else ControlPanel(
         application.services.runtime_state,
-        on_stop=lambda: loop.call_soon_threadsafe(stop_event.set),
+        on_stop=lambda: loop.call_soon_threadsafe(bot_runtime.request_stop),
     )
     if control_panel is not None:
         control_panel.start()
     logger.info("Starting Twitch bot application")
     try:
-        await application.startup()
+        await bot_runtime.startup()
         if check_only:
             logger.info("Application health check completed")
             return
-        if stop_event.is_set():
-            return
-        application.services.runtime_state.set_bot_running(True)
-        await run_twitch_bot(
-            settings=application.settings,
-            services=application.services,
-            dispatcher=application.dispatcher,
-            logger=get_logger("app.twitch"),
-            stop_event=stop_event,
-        )
+        await bot_runtime.start_bot()
+        await bot_runtime.wait_until_stopped()
     except asyncio.CancelledError:
         logger.info("Application shutdown requested")
         raise
@@ -51,10 +44,9 @@ async def run(check_only: bool = False) -> None:
         )
         raise
     finally:
-        application.services.runtime_state.set_bot_running(False)
         if control_panel is not None:
             control_panel.stop()
-        await application.shutdown()
+        await bot_runtime.shutdown()
         logger.info("Twitch bot application stopped")
 
 

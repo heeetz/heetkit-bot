@@ -59,6 +59,10 @@ build/
 dist/
 *.zip
 
+# Frontend dependencies and generated assets
+node_modules/
+.vite/
+
 # Editor, OS, and temporary files
 .DS_Store
 Thumbs.db
