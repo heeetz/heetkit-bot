@@ -1,12 +1,40 @@
 export interface AppStatus {
   running: boolean
+  twitch_connected: boolean
   uptime_seconds: number
   channel: string
   account: string
 }
 
+export interface CommandInfo {
+  name: string
+  aliases: string[]
+  enabled: boolean
+  permission: string
+  cooldown: {
+    per_user_seconds: number
+    global_seconds: number
+  }
+  hidden: boolean
+}
+
+export interface CommandsResponse {
+  command_prefix: string
+  commands: CommandInfo[]
+}
+
+export interface AIStatus {
+  enabled: boolean
+  memory_enabled: boolean
+  active_personality: string
+  available_personalities: string[]
+  model: string
+}
+
 interface PythonApi {
   get_app_status(): Promise<AppStatus>
+  get_commands(): Promise<CommandsResponse>
+  get_ai_status(): Promise<AIStatus>
   start_bot(): Promise<ActionResult>
   stop_bot(): Promise<ActionResult>
 }

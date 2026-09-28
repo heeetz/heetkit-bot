@@ -116,6 +116,10 @@ class TwitchChatBot(commands.Bot):
         if services.twitch is not None:
             services.twitch.bind(self, account.channel_user_id, account.user_id)
 
+    def _set_connection_state(self, connected: bool) -> None:
+        if self._services.runtime_state is not None:
+            self._services.runtime_state.set_twitch_connected(connected)
+
     async def setup_hook(self) -> None:
         if self.bot_id not in self.tokens:
             self._logger.info("Waiting for Twitch bot OAuth authorization")
@@ -132,11 +136,13 @@ class TwitchChatBot(commands.Bot):
 
     async def event_ready(self) -> None:
         if self.bot_id not in self.tokens:
+            self._set_connection_state(False)
             self._logger.warning(
                 "Authorize the configured bot account at "
                 "http://localhost:4343/oauth?scopes=user%3Aread%3Achat%20user%3Awrite%3Achat%20user%3Abot%20moderator%3Aread%3Afollowers&force_verify=true"
             )
             return
+        self._set_connection_state(True)
         self._logger.info(
             "Twitch connection ready account=%s channel=%s",
             self._account.username,
@@ -187,6 +193,7 @@ class TwitchChatBot(commands.Bot):
             self._logger.exception("Unexpected Twitch message processing failure")
 
     async def event_websocket_closed(self, payload: object) -> None:
+        self._set_connection_state(False)
         self._logger.warning("Twitch EventSub WebSocket closed payload=%s", payload)
 
 

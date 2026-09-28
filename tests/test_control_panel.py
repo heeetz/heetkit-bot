@@ -71,6 +71,20 @@ def test_ai_toggle_uses_the_canonical_ask_setting() -> None:
     assert runtime_state.command_enabled("ask") is False
 
 
+def test_runtime_tracks_twitch_connection_separately_from_bot_process() -> None:
+    _, runtime_state = build_registered_runtime_state()
+
+    runtime_state.set_bot_running(True)
+    runtime_state.set_twitch_connected(True)
+
+    assert runtime_state.status()[0] is True
+    assert runtime_state.twitch_connected is True
+
+    runtime_state.set_bot_running(False)
+
+    assert runtime_state.twitch_connected is False
+
+
 def test_control_panel_stop_signals_and_joins_its_worker_thread(
     monkeypatch,
 ) -> None:

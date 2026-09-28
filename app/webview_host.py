@@ -121,12 +121,49 @@ class WebUIBridge:
 
     def get_app_status(self) -> dict[str, object]:
         application = self._backend.application
-        running, uptime = application.services.runtime_state.status()
+        runtime_state = application.services.runtime_state
+        running, uptime = runtime_state.status()
         return {
             "running": running,
+            "twitch_connected": runtime_state.twitch_connected,
             "uptime_seconds": uptime,
             "channel": application.settings.twitch_channel,
             "account": application.settings.twitch_bot_username,
+        }
+
+    def get_commands(self) -> dict[str, object]:
+        application = self._backend.application
+        runtime_state = application.services.runtime_state
+        commands = []
+        for definition in application.registry.definitions():
+            settings = runtime_state.get_command_settings(definition.name)
+            commands.append(
+                {
+                    "name": definition.name,
+                    "aliases": list(definition.aliases),
+                    "enabled": settings.enabled,
+                    "permission": settings.permission.name,
+                    "cooldown": {
+                        "per_user_seconds": settings.cooldown.per_user_seconds,
+                        "global_seconds": settings.cooldown.global_seconds,
+                    },
+                    "hidden": definition.hidden,
+                }
+            )
+        return {
+            "command_prefix": application.settings.command_prefix,
+            "commands": commands,
+        }
+
+    def get_ai_status(self) -> dict[str, object]:
+        application = self._backend.application
+        runtime_state = application.services.runtime_state
+        return {
+            "enabled": runtime_state.ai_enabled,
+            "memory_enabled": runtime_state.ai_memory_enabled,
+            "active_personality": runtime_state.active_ai_personality,
+            "available_personalities": list(runtime_state.available_personalities),
+            "model": application.settings.gemini_model,
         }
 
     def start_bot(self) -> dict[str, object]:

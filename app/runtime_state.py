@@ -30,6 +30,7 @@ class RuntimeState:
         self._ai_memory_enabled = AI_MEMORY_ENABLED
         self._active_ai_personality = ACTIVE_AI_PERSONALITY
         self._bot_running = False
+        self._twitch_connected = False
         self._started_at: float | None = None
         self._uptime_started_at = monotonic()
 
@@ -162,6 +163,17 @@ class RuntimeState:
         with self._lock:
             self._bot_running = running
             self._started_at = monotonic() if running else None
+            if not running:
+                self._twitch_connected = False
+
+    @property
+    def twitch_connected(self) -> bool:
+        with self._lock:
+            return self._twitch_connected
+
+    def set_twitch_connected(self, connected: bool) -> None:
+        with self._lock:
+            self._twitch_connected = connected
 
     def elapsed_seconds(self) -> int:
         with self._lock:

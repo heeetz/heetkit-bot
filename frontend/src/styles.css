@@ -9,6 +9,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; }
 button { font: inherit; }
+button:disabled { cursor: wait; opacity: .62; }
 
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 230px 1fr; background: radial-gradient(circle at 85% 5%, #17213a 0, #0b0f17 38%); }
 .sidebar { padding: 26px 18px; border-right: 1px solid #202838; background: rgba(10, 14, 22, .92); }
@@ -34,8 +35,28 @@ h1 { margin-bottom: 0; font-size: 30px; }
 .primary { background: #7c4dff; }
 .danger { background: #b53b55; }
 .error-banner { margin-bottom: 18px; padding: 12px 14px; border: 1px solid #7e3445; border-radius: 9px; color: #ffc5d0; background: #321721; }
+.inline-error { margin-bottom: 16px; color: #ffc5d0; }
 .empty-state { max-width: 680px; }
 .empty-state p:last-child, .card > p:last-child { color: #94a0b7; }
+.success-text { color: #58dea1; }
+.metric { font-variant-numeric: tabular-nums; font-size: 24px; }
+.muted, .command-meta { color: #8290aa; }
+.section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
+.section-heading h2 { margin-bottom: 0; }
+.read-only-badge, .mini-badge, .state-pill { display: inline-flex; align-items: center; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.read-only-badge { padding: 6px 10px; color: #b9c4d9; background: #273147; }
+.mini-badge { padding: 2px 7px; color: #c6b8ff; background: #302656; }
+.state-pill { padding: 5px 9px; color: #b8c1d2; background: #2a3140; }
+.state-pill.enabled { color: #8ce8ba; background: #173a2d; }
+.table-card { padding: 0; overflow: hidden; }
+.table-card .section-heading { padding: 22px 22px 0; }
+.table-card > .inline-error, .table-card > .muted { margin-left: 22px; margin-right: 22px; }
+.table-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 15px 22px; border-top: 1px solid #273044; text-align: left; vertical-align: middle; }
+th { color: #78869f; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; background: rgba(10,14,22,.28); }
+td { color: #c6cfdf; }
+.command-meta { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 6px; font-size: 12px; }
 
 @media (max-width: 760px) {
   .app-shell { grid-template-columns: 1fr; }
@@ -44,4 +65,5 @@ h1 { margin-bottom: 0; font-size: 30px; }
   nav { grid-template-columns: repeat(5, minmax(max-content, 1fr)); overflow-x: auto; }
   nav button { text-align: center; }
   .card-grid { grid-template-columns: 1fr; }
+  main { padding: 24px 18px; }
 }
