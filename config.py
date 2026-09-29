@@ -13,6 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 FILTERS_DIRECTORY = PROJECT_ROOT / "data" / "filters"
 COMMAND_SETTINGS_PATH = PROJECT_ROOT / "data" / "command_settings.json"
 PERSONALITY_SETTINGS_PATH = PROJECT_ROOT / "data" / "personality_settings.json"
+APP_SETTINGS_PATH = PROJECT_ROOT / "data" / "app_settings.json"
 
 
 # Command behavior.

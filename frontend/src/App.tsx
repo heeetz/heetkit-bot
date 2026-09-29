@@ -6,6 +6,7 @@ import {
 } from './bridge'
 import CommandsPage from './pages/CommandsPage'
 import AIPage from './pages/AIPage'
+import SettingsPage from './pages/SettingsPage'
 import './styles.css'
 
 const sections = ['Dashboard', 'Commands', 'AI', 'Logs', 'Settings'] as const
@@ -164,16 +165,6 @@ function LogsPage() {
   )
 }
 
-function SettingsPlaceholder() {
-  return (
-    <section className="card empty-state">
-      <p className="label">PHASE 2</p>
-      <h2>Settings</h2>
-      <p>Application settings editing is deliberately deferred to Phase 3.</p>
-    </section>
-  )
-}
-
 export default function App() {
   const [section, setSection] = useState<Section>('Dashboard')
   const [status, setStatus] = useState<AppStatus | null>(null)
@@ -240,7 +231,7 @@ export default function App() {
         <div hidden={section !== 'Commands'}><CommandsPage active={section === 'Commands'} /></div>
         <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} /></div>
         {section === 'Logs' && <LogsPage />}
-        {section === 'Settings' && <SettingsPlaceholder />}
+        <div hidden={section !== 'Settings'}><SettingsPage active={section === 'Settings'} /></div>
       </main>
     </div>
   )

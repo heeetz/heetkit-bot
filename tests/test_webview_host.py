@@ -7,11 +7,17 @@ from typing import cast
 import pytest
 
 from app.commands.registry import CommandRegistry
+from app.app_settings import AppSettingsStore
 from app.runtime_state import RuntimeState
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
 from app.utils.logging import RecentLogBuffer, RecentLogHandler
-from app.webview_host import AsyncioBackendHost, WebUIBridge, resolve_frontend_url
+from app.webview_host import (
+    AsyncioBackendHost,
+    DesktopController,
+    WebUIBridge,
+    resolve_frontend_url,
+)
 
 
 def test_bridge_reads_shared_runtime_status() -> None:
@@ -297,3 +303,153 @@ def test_production_frontend_requires_a_built_entrypoint(monkeypatch) -> None:
 
 def test_development_frontend_url_does_not_require_build() -> None:
     assert resolve_frontend_url("http://localhost:5173") == "http://localhost:5173"
+
+
+class FakeEvent:
+    def __init__(self) -> None:
+        self.handlers = []
+
+    def __iadd__(self, handler):
+        self.handlers.append(handler)
+        return self
+
+
+class FakeWindow:
+    def __init__(self) -> None:
+        self.events = SimpleNamespace(closing=FakeEvent(), minimized=FakeEvent())
+        self.hide_calls = 0
+        self.show_calls = 0
+        self.restore_calls = 0
+        self.destroy_calls = 0
+
+    def hide(self) -> None:
+        self.hide_calls += 1
+
+    def show(self) -> None:
+        self.show_calls += 1
+
+    def restore(self) -> None:
+        self.restore_calls += 1
+
+    def destroy(self) -> None:
+        self.destroy_calls += 1
+
+
+class FakeTray:
+    def __init__(self) -> None:
+        self.start_calls = 0
+        self.stop_calls = 0
+        self.update_calls = 0
+
+    def start(self) -> None:
+        self.start_calls += 1
+
+    def stop(self) -> None:
+        self.stop_calls += 1
+
+    def update_menu(self) -> None:
+        self.update_calls += 1
+
+
+class FakeDesktopRuntimeState:
+    def __init__(self) -> None:
+        self.running = False
+
+    def status(self) -> tuple[bool, int]:
+        return self.running, 0
+
+
+class FakeDesktopBackend:
+    def __init__(self) -> None:
+        self.runtime_state = FakeDesktopRuntimeState()
+        self.application = SimpleNamespace(
+            services=SimpleNamespace(runtime_state=self.runtime_state)
+        )
+        self.close_calls = 0
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
+class FakeDesktopBridge:
+    def __init__(self, runtime_state: FakeDesktopRuntimeState) -> None:
+        self.runtime_state = runtime_state
+        self.start_calls = 0
+        self.stop_calls = 0
+
+    def start_bot(self) -> dict[str, object]:
+        self.start_calls += 1
+        self.runtime_state.running = True
+        return {"ok": True}
+
+    def stop_bot(self) -> dict[str, object]:
+        self.stop_calls += 1
+        self.runtime_state.running = False
+        return {"ok": True}
+
+
+def build_desktop_controller(tmp_path):
+    backend = FakeDesktopBackend()
+    bridge = FakeDesktopBridge(backend.runtime_state)
+    tray = FakeTray()
+    store = AppSettingsStore(tmp_path / "app_settings.json")
+    controller = DesktopController(
+        cast(AsyncioBackendHost, backend),
+        cast(WebUIBridge, bridge),
+        store,
+        tray=tray,
+    )
+    window = FakeWindow()
+    controller.bind_window(window)
+    return controller, backend, bridge, tray, store, window
+
+
+def test_desktop_controller_hides_window_for_saved_tray_settings(tmp_path) -> None:
+    controller, backend, bridge, tray, store, window = build_desktop_controller(
+        tmp_path
+    )
+    store.update(
+        start_minimized=False,
+        minimize_to_tray=True,
+        close_to_tray=True,
+    )
+
+    controller.start_tray()
+    assert window.events.closing.handlers[0]() is False
+    window.events.minimized.handlers[0]()
+    controller.open_window()
+
+    assert tray.start_calls == 1
+    assert window.hide_calls == 2
+    assert window.show_calls == 1
+    assert window.restore_calls == 1
+    assert backend.close_calls == 0
+
+
+def test_desktop_controller_tray_toggles_bot_and_exits_orderly(tmp_path) -> None:
+    controller, backend, bridge, tray, store, window = build_desktop_controller(
+        tmp_path
+    )
+
+    controller.toggle_bot()
+    controller.toggle_bot()
+    controller.exit_application()
+    controller.exit_application()
+
+    assert bridge.start_calls == 1
+    assert bridge.stop_calls == 1
+    assert tray.update_calls == 2
+    assert backend.close_calls == 1
+    assert tray.stop_calls == 1
+    assert window.destroy_calls == 1
+
+
+def test_desktop_controller_allows_normal_close_when_setting_is_disabled(
+    tmp_path,
+) -> None:
+    controller, backend, bridge, tray, store, window = build_desktop_controller(
+        tmp_path
+    )
+
+    assert window.events.closing.handlers[0]() is None
+    assert window.hide_calls == 0

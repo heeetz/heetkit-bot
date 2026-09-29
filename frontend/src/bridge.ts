@@ -58,6 +58,16 @@ export interface PersonalitiesResponse {
   personalities: PersonalityInfo[]
 }
 
+export interface AppSettings {
+  start_minimized: boolean
+  minimize_to_tray: boolean
+  close_to_tray: boolean
+}
+
+export interface AppSettingsResponse extends ActionResult {
+  settings?: AppSettings
+}
+
 export interface LogEntry {
   id: number
   timestamp: string
@@ -84,6 +94,8 @@ interface PythonApi {
   apply_personality(personality: string, prompt: string): Promise<ActionResult>
   save_personality(personality: string, prompt: string): Promise<ActionResult>
   reset_personality(personality: string): Promise<ActionResult>
+  get_app_settings(): Promise<AppSettingsResponse>
+  update_app_settings(startMinimized: boolean, minimizeToTray: boolean, closeToTray: boolean): Promise<ActionResult>
   start_bot(): Promise<ActionResult>
   stop_bot(): Promise<ActionResult>
 }

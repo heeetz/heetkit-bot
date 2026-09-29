@@ -13,10 +13,12 @@ from typing import Any, Coroutine
 
 from pydantic import ValidationError
 
+from app.app_settings import AppSettingsStore
 from app.bot_runtime import BotRuntime
 from app.command_settings import CommandSettings
 from app.config.settings import Settings, load_settings
 from app.container import Application, build_application
+from app.system_tray import SystemTray
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
 from app.utils.logging import (
@@ -25,6 +27,7 @@ from app.utils.logging import (
     get_logger,
     get_recent_log_buffer,
 )
+from config import APP_SETTINGS_PATH
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -128,10 +131,12 @@ class WebUIBridge:
         self,
         backend: AsyncioBackendHost,
         log_buffer: RecentLogBuffer | None = None,
+        app_settings: AppSettingsStore | None = None,
     ) -> None:
         self._backend = backend
         self._logger = get_logger("app.webview.bridge")
         self._log_buffer = log_buffer or get_recent_log_buffer()
+        self._app_settings = app_settings
 
     def get_app_status(self) -> dict[str, object]:
         application = self._backend.application
@@ -394,6 +399,41 @@ class WebUIBridge:
         self._logger.info("AI personality override reset name=%s", personality)
         return {"ok": True}
 
+    def get_app_settings(self) -> dict[str, object]:
+        if self._app_settings is None:
+            return {"ok": False, "error": "Desktop settings are not configured."}
+        settings = self._app_settings.snapshot()
+        return {
+            "ok": True,
+            "settings": {
+                "start_minimized": settings.start_minimized,
+                "minimize_to_tray": settings.minimize_to_tray,
+                "close_to_tray": settings.close_to_tray,
+            },
+        }
+
+    def update_app_settings(
+        self,
+        start_minimized: object,
+        minimize_to_tray: object,
+        close_to_tray: object,
+    ) -> dict[str, object]:
+        if self._app_settings is None:
+            return {"ok": False, "error": "Desktop settings are not configured."}
+        try:
+            self._app_settings.update(
+                start_minimized=start_minimized,
+                minimize_to_tray=minimize_to_tray,
+                close_to_tray=close_to_tray,
+            )
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except OSError:
+            self._logger.exception("Could not save desktop settings")
+            return {"ok": False, "error": "Could not save desktop settings."}
+        self._logger.info("Desktop application settings saved")
+        return {"ok": True}
+
     def get_recent_logs(self, after_id: int = 0, limit: int = 200) -> dict[str, object]:
         safe_after_id = after_id if type(after_id) is int and after_id >= 0 else 0
         safe_limit = limit if type(limit) is int else 200
@@ -434,26 +474,128 @@ def resolve_frontend_url(dev_url: str | None) -> str:
     return str(FRONTEND_ENTRYPOINT)
 
 
+class DesktopController:
+    """Coordinate one pywebview window, tray icon, and backend lifecycle."""
+
+    def __init__(
+        self,
+        backend: AsyncioBackendHost,
+        bridge: WebUIBridge,
+        app_settings: AppSettingsStore,
+        tray: SystemTray | None = None,
+    ) -> None:
+        self._backend = backend
+        self._bridge = bridge
+        self._app_settings = app_settings
+        self._logger = get_logger("app.webview.desktop")
+        self._window: Any | None = None
+        self._exit_requested = False
+        self._exit_lock = threading.RLock()
+        self._tray = tray or SystemTray(
+            on_open=self.open_window,
+            on_toggle_bot=self.toggle_bot,
+            on_exit=self.exit_application,
+            is_bot_running=self.is_bot_running,
+        )
+
+    def bind_window(self, window: Any) -> None:
+        self._window = window
+        window.events.closing += self._on_closing
+        window.events.minimized += self._on_minimized
+
+    def start_tray(self) -> None:
+        self._tray.start()
+
+    def is_bot_running(self) -> bool:
+        return bool(self._backend.application.services.runtime_state.status()[0])
+
+    def open_window(self) -> None:
+        window = self._window
+        if window is None:
+            return
+        try:
+            window.show()
+            window.restore()
+        except Exception:
+            self._logger.exception("Could not restore desktop window")
+
+    def toggle_bot(self) -> None:
+        result = (
+            self._bridge.stop_bot()
+            if self.is_bot_running()
+            else self._bridge.start_bot()
+        )
+        if not result.get("ok"):
+            self._logger.error("Tray could not change bot state error=%s", result.get("error"))
+        self._tray.update_menu()
+
+    def exit_application(self) -> None:
+        with self._exit_lock:
+            if self._exit_requested:
+                return
+            self._exit_requested = True
+        try:
+            self._backend.close()
+        except Exception:
+            self._logger.exception("Desktop backend shutdown failed")
+        finally:
+            self._tray.stop()
+            if self._window is not None:
+                try:
+                    self._window.destroy()
+                except Exception:
+                    self._logger.exception("Could not close desktop window")
+
+    def shutdown(self) -> None:
+        self._tray.stop()
+        self._backend.close()
+
+    def _on_closing(self) -> bool | None:
+        if self._exit_requested:
+            return None
+        if self._app_settings.snapshot().close_to_tray:
+            if self._window is not None:
+                self._window.hide()
+            return False
+        return None
+
+    def _on_minimized(self) -> None:
+        if self._app_settings.snapshot().minimize_to_tray and self._window is not None:
+            self._window.hide()
+
+
 def run_desktop_host(settings: Settings, frontend_url: str, *, auto_start: bool = True) -> None:
     import webview
 
     backend = AsyncioBackendHost(settings, auto_start=auto_start)
+    app_settings = AppSettingsStore(APP_SETTINGS_PATH)
+    controller: DesktopController | None = None
     try:
         backend.start()
-        webview.create_window(
+        bridge = WebUIBridge(backend, app_settings=app_settings)
+        controller = DesktopController(backend, bridge, app_settings)
+        window = webview.create_window(
             "Twitch Bot",
             frontend_url,
-            js_api=WebUIBridge(backend),
+            js_api=bridge,
             width=1180,
             height=760,
             min_size=(900, 620),
+            hidden=app_settings.snapshot().start_minimized,
             background_color="#0b0f17",
             text_select=True,
         )
+        if window is None:
+            raise RuntimeError("Could not create the desktop window.")
+        controller.bind_window(window)
+        controller.start_tray()
         development_mode = frontend_url.startswith(("http://", "https://"))
         webview.start(debug=development_mode, http_server=not development_mode)
     finally:
-        backend.close()
+        if controller is not None:
+            controller.shutdown()
+        else:
+            backend.close()
 
 
 def main() -> None:
