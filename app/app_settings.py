@@ -29,9 +29,16 @@ class AISettings:
 
 
 @dataclass(frozen=True, slots=True)
+class TwitchSettings:
+    channel: str | None = None
+    channel_user_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class AppSettings:
     window: WindowSettings = field(default_factory=WindowSettings)
     ai: AISettings = field(default_factory=AISettings)
+    twitch: TwitchSettings = field(default_factory=TwitchSettings)
 
 
 def _read_boolean(
@@ -59,6 +66,40 @@ def _read_section(payload: dict[str, object], section_name: str) -> dict[str, ob
         return section
     logger.warning("Ignoring malformed application settings section name=%s", section_name)
     return {}
+
+
+def _read_optional_string(
+    section: dict[str, object],
+    section_name: str,
+    field_name: str,
+) -> str | None:
+    value = section.get(field_name)
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    logger.warning(
+        "Ignoring invalid application setting name=%s.%s",
+        section_name,
+        field_name,
+    )
+    return None
+
+
+def validate_twitch_settings(channel: object, channel_user_id: object) -> TwitchSettings:
+    if not isinstance(channel, str) or not channel.strip():
+        raise ValueError("Twitch target channel must not be empty.")
+    parsed_channel = channel.strip().lower().removeprefix("#")
+    if not parsed_channel or any(character.isspace() for character in parsed_channel):
+        raise ValueError("Twitch target channel must not contain whitespace.")
+    if len(parsed_channel) > 100:
+        raise ValueError("Twitch target channel is too long.")
+    if not isinstance(channel_user_id, str) or not channel_user_id.strip().isdigit():
+        raise ValueError("Twitch channel user ID must contain digits only.")
+    return TwitchSettings(
+        channel=parsed_channel,
+        channel_user_id=channel_user_id.strip(),
+    )
 
 
 def load_app_settings(path: Path) -> AppSettings:
@@ -90,6 +131,25 @@ def load_app_settings(path: Path) -> AppSettings:
     else:
         window_payload = _read_section(payload, "window")
         ai_payload = _read_section(payload, "ai")
+    twitch_payload = (
+        {} if "version" not in payload else _read_section(payload, "twitch")
+    )
+    twitch_channel = _read_optional_string(twitch_payload, "twitch", "channel")
+    twitch_channel_user_id = _read_optional_string(
+        twitch_payload,
+        "twitch",
+        "channel_user_id",
+    )
+    if twitch_channel is not None and twitch_channel_user_id is not None:
+        try:
+            twitch = validate_twitch_settings(twitch_channel, twitch_channel_user_id)
+        except ValueError:
+            logger.warning("Ignoring invalid Twitch application settings override")
+            twitch = TwitchSettings()
+    else:
+        if (twitch_channel is None) != (twitch_channel_user_id is None):
+            logger.warning("Ignoring incomplete Twitch application settings override")
+        twitch = TwitchSettings()
 
     return AppSettings(
         window=WindowSettings(
@@ -120,6 +180,7 @@ def load_app_settings(path: Path) -> AppSettings:
                 defaults.ai.memory_enabled,
             )
         ),
+        twitch=twitch,
     )
 
 
@@ -174,7 +235,11 @@ class AppSettingsStore:
             close_to_tray=close_to_tray,
         )
         with self._lock:
-            updated = AppSettings(window=window, ai=self._settings.ai)
+            updated = AppSettings(
+                window=window,
+                ai=self._settings.ai,
+                twitch=self._settings.twitch,
+            )
             save_app_settings(self._path, updated)
             self._settings = updated
         return updated
@@ -186,6 +251,24 @@ class AppSettingsStore:
             updated = AppSettings(
                 window=self._settings.window,
                 ai=AISettings(memory_enabled=enabled),
+                twitch=self._settings.twitch,
+            )
+            save_app_settings(self._path, updated)
+            self._settings = updated
+        return updated
+
+    def update_twitch(
+        self,
+        *,
+        channel: object,
+        channel_user_id: object,
+    ) -> AppSettings:
+        twitch = validate_twitch_settings(channel, channel_user_id)
+        with self._lock:
+            updated = AppSettings(
+                window=self._settings.window,
+                ai=self._settings.ai,
+                twitch=twitch,
             )
             save_app_settings(self._path, updated)
             self._settings = updated

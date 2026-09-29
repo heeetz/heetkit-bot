@@ -1,13 +1,16 @@
 """Tests for the desktop host bridge without opening a native window."""
 
+import asyncio
 import logging
+from concurrent.futures import Future
 from types import SimpleNamespace
 from typing import cast
 
 import pytest
 
 from app.commands.registry import CommandRegistry
-from app.app_settings import AppSettingsStore
+from app.app_settings import AppSettings, AppSettingsStore, TwitchSettings
+from app.config.settings import Settings
 from app.runtime_state import RuntimeState
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
@@ -16,6 +19,7 @@ from app.webview_host import (
     AsyncioBackendHost,
     DesktopController,
     WebUIBridge,
+    apply_twitch_app_settings,
     resolve_frontend_url,
 )
 
@@ -37,6 +41,117 @@ def test_bridge_reads_shared_runtime_status() -> None:
         "channel": "channel",
         "account": "bot",
     }
+
+
+def test_twitch_app_settings_override_environment_defaults() -> None:
+    settings = Settings(
+        _env_file=None,
+        twitch_client_id="client-id",
+        twitch_client_secret="client-secret",
+        twitch_bot_user_id="100",
+        twitch_bot_username="testbot",
+        twitch_channel_user_id="200",
+        twitch_channel="environment-channel",
+    )
+
+    effective = apply_twitch_app_settings(
+        settings,
+        AppSettings(
+            twitch=TwitchSettings(
+                channel="local-channel",
+                channel_user_id="300",
+            )
+        ),
+    )
+
+    assert effective.twitch_channel == "local-channel"
+    assert effective.twitch_channel_user_id == "300"
+    assert settings.twitch_channel == "environment-channel"
+
+
+def test_bridge_exposes_and_saves_non_secret_twitch_settings(tmp_path) -> None:
+    token_path = tmp_path / "tokens.json"
+    token_path.write_text("{}", encoding="utf-8")
+    runtime_state = SimpleNamespace(
+        status=lambda: (True, 12),
+        twitch_connected=True,
+    )
+    application = SimpleNamespace(
+        services=SimpleNamespace(runtime_state=runtime_state),
+        settings=SimpleNamespace(
+            twitch_channel="environment-channel",
+            twitch_channel_user_id="200",
+            twitch_bot_username="testbot",
+            twitch_bot_user_id="100",
+            twitch_token_file=str(token_path),
+        ),
+    )
+    store = AppSettingsStore(tmp_path / "app_settings.json")
+    bridge = WebUIBridge(
+        cast(AsyncioBackendHost, SimpleNamespace(application=application)),
+        app_settings=store,
+    )
+
+    initial = bridge.get_twitch_settings()
+    assert initial["settings"] == {
+        "target_channel": "environment-channel",
+        "target_channel_user_id": "200",
+        "active_channel": "environment-channel",
+        "bot_username": "testbot",
+        "bot_user_id": "100",
+        "running": True,
+        "connected": True,
+        "oauth_token_available": True,
+        "has_local_override": False,
+    }
+    assert bridge.update_twitch_settings("NewChannel", "300") == {
+        "ok": True,
+        "requires_reconnect": True,
+    }
+    assert store.snapshot().twitch == TwitchSettings(
+        channel="newchannel",
+        channel_user_id="300",
+    )
+
+
+def test_bridge_reconnects_through_existing_bot_runtime(tmp_path) -> None:
+    calls: list[tuple[str, str]] = []
+
+    class FakeBotRuntime:
+        async def reconnect_twitch(self, *, channel: str, channel_user_id: str) -> bool:
+            calls.append((channel, channel_user_id))
+            return True
+
+    class FakeBackend:
+        def __init__(self) -> None:
+            self.application = SimpleNamespace(
+                services=SimpleNamespace(
+                    runtime_state=SimpleNamespace(
+                        status=lambda: (True, 1),
+                        twitch_connected=True,
+                    )
+                ),
+                settings=SimpleNamespace(
+                    twitch_channel="oldchannel",
+                    twitch_channel_user_id="200",
+                ),
+            )
+            self.bot_runtime = FakeBotRuntime()
+
+        def submit(self, coroutine):
+            future: Future[bool] = Future()
+            future.set_result(asyncio.run(coroutine))
+            return future
+
+    store = AppSettingsStore(tmp_path / "app_settings.json")
+    store.update_twitch(channel="newchannel", channel_user_id="300")
+    bridge = WebUIBridge(
+        cast(AsyncioBackendHost, FakeBackend()),
+        app_settings=store,
+    )
+
+    assert bridge.reconnect_twitch() == {"ok": True, "changed": True}
+    assert calls == [("newchannel", "300")]
 
 
 def test_bridge_gets_commands_from_registry_and_effective_runtime_settings() -> None:

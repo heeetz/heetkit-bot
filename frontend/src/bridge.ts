@@ -68,6 +68,22 @@ export interface AppSettingsResponse extends ActionResult {
   settings?: AppSettings
 }
 
+export interface TwitchConnectionSettings {
+  target_channel: string
+  target_channel_user_id: string
+  active_channel: string
+  bot_username: string
+  bot_user_id: string
+  running: boolean
+  connected: boolean
+  oauth_token_available: boolean
+  has_local_override: boolean
+}
+
+export interface TwitchSettingsResponse extends ActionResult {
+  settings?: TwitchConnectionSettings
+}
+
 export type CredentialName = 'gemini_api_key' | 'twitch_client_secret'
 
 export interface CredentialInfo {
@@ -110,6 +126,9 @@ interface PythonApi {
   reset_personality(personality: string): Promise<ActionResult>
   get_app_settings(): Promise<AppSettingsResponse>
   update_app_settings(startMinimized: boolean, minimizeToTray: boolean, closeToTray: boolean): Promise<ActionResult>
+  get_twitch_settings(): Promise<TwitchSettingsResponse>
+  update_twitch_settings(targetChannel: string, targetChannelUserId: string): Promise<ActionResult>
+  reconnect_twitch(): Promise<ActionResult>
   get_credentials(): Promise<CredentialsResponse>
   replace_credential(name: CredentialName, value: string): Promise<ActionResult>
   remove_credential(name: CredentialName): Promise<ActionResult>
@@ -121,6 +140,7 @@ interface PythonApi {
 export interface ActionResult {
   ok: boolean
   changed?: boolean
+  requires_reconnect?: boolean
   error?: string
 }
 

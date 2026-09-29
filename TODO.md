@@ -181,16 +181,22 @@ values. TwitchIO's generated OAuth token cache remains library-managed local sec
 
 ## TODO-006 — Add Twitch connection settings to the UI
 
-- [ ] Add a clear Twitch section in Settings.
-- [ ] Expose ordinary non-secret values such as:
+- [x] Add a clear Twitch section in Settings.
+- [x] Expose ordinary non-secret values such as:
   - target channel;
   - bot account identity/status where available.
-- [ ] Add connection/authentication status.
-- [ ] Add a safe reconnect/test action if supported cleanly.
-- [ ] Store non-secret channel configuration in ordinary local settings.
-- [ ] Store secrets/tokens through the credential/auth system, not ordinary JSON.
-- [ ] Clearly indicate which changes apply immediately and which require reconnect/restart.
-- [ ] Preserve the existing Twitch lifecycle and OAuth flow unless a concrete UX improvement requires a targeted change.
+- [x] Add connection/authentication status.
+- [x] Add a safe reconnect/test action if supported cleanly.
+- [x] Store non-secret channel configuration in ordinary local settings.
+- [x] Store secrets/tokens through the credential/auth system, not ordinary JSON.
+- [x] Clearly indicate which changes apply immediately and which require reconnect/restart.
+- [x] Preserve the existing Twitch lifecycle and OAuth flow unless a concrete UX improvement requires a targeted change.
+
+The Settings page now shows Twitch connection state, configured bot identity, OAuth-cache
+availability, active channel, and editable target-channel login/user ID. Non-secret channel
+overrides use `data/app_settings.json`; Save & reconnect reuses the existing `BotRuntime`
+lifecycle. Client secrets remain in Windows Credential Manager with `.env` fallback, and
+TwitchIO OAuth tokens remain in the ignored token cache.
 
 ---
 

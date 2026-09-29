@@ -21,7 +21,10 @@ class FakeRuntimeState:
 
 class FakeApplication:
     def __init__(self) -> None:
-        self.settings = object()
+        self.settings = SimpleNamespace(
+            twitch_channel="oldchannel",
+            twitch_channel_user_id="100",
+        )
         self.dispatcher = object()
         self.services = SimpleNamespace(runtime_state=FakeRuntimeState())
         self.startup_calls = 0
@@ -58,6 +61,61 @@ async def test_runtime_starts_and_stops_one_bot_session(monkeypatch) -> None:
 
     assert application.startup_calls == 1
     assert application.shutdown_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_runtime_reconnects_running_session_with_new_channel(monkeypatch) -> None:
+    application = FakeApplication()
+    session_count = 0
+
+    async def fake_run_twitch_bot(**kwargs) -> None:
+        nonlocal session_count
+        session_count += 1
+        await kwargs["stop_event"].wait()
+
+    monkeypatch.setattr("app.bot_runtime.run_twitch_bot", fake_run_twitch_bot)
+    runtime = BotRuntime(cast(Application, application), logging.getLogger("tests.runtime"))
+    await runtime.startup()
+    await runtime.start_bot()
+    await asyncio.sleep(0)
+
+    assert await runtime.reconnect_twitch(
+        channel="newchannel",
+        channel_user_id="200",
+    ) is True
+    await asyncio.sleep(0)
+
+    assert session_count == 2
+    assert application.settings.twitch_channel == "newchannel"
+    assert application.settings.twitch_channel_user_id == "200"
+    assert application.services.runtime_state.running is True
+    await runtime.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_runtime_applies_twitch_settings_without_starting_stopped_bot(
+    monkeypatch,
+) -> None:
+    application = FakeApplication()
+    run_calls = 0
+
+    async def fake_run_twitch_bot(**kwargs) -> None:
+        nonlocal run_calls
+        run_calls += 1
+
+    monkeypatch.setattr("app.bot_runtime.run_twitch_bot", fake_run_twitch_bot)
+    runtime = BotRuntime(cast(Application, application), logging.getLogger("tests.runtime"))
+    await runtime.startup()
+
+    assert await runtime.reconnect_twitch(
+        channel="newchannel",
+        channel_user_id="200",
+    ) is False
+
+    assert run_calls == 0
+    assert application.settings.twitch_channel == "newchannel"
+    assert application.settings.twitch_channel_user_id == "200"
+    await runtime.shutdown()
 
 
 @pytest.mark.asyncio

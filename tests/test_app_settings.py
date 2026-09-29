@@ -12,6 +12,7 @@ from app.app_settings import (
     AISettings,
     AppSettings,
     AppSettingsStore,
+    TwitchSettings,
     WindowSettings,
     load_app_settings,
 )
@@ -124,6 +125,7 @@ def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
             "close_to_tray": False,
         },
         "ai": {"memory_enabled": False},
+        "twitch": {"channel": None, "channel_user_id": None},
     }
     assert list(tmp_path.glob(".app_settings.json.*.tmp")) == []
 
@@ -155,6 +157,56 @@ def test_app_settings_store_rejects_non_boolean_values(tmp_path) -> None:
             minimize_to_tray=False,
             close_to_tray=False,
         )
+
+
+def test_twitch_app_settings_are_validated_persisted_and_reloaded(tmp_path) -> None:
+    settings_path = tmp_path / "app_settings.json"
+    store = AppSettingsStore(settings_path)
+
+    updated = store.update_twitch(channel=" #TestChannel ", channel_user_id=" 200 ")
+
+    assert updated.twitch == TwitchSettings(
+        channel="testchannel",
+        channel_user_id="200",
+    )
+    assert AppSettingsStore(settings_path).snapshot().twitch == updated.twitch
+    payload = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert payload["twitch"] == {
+        "channel": "testchannel",
+        "channel_user_id": "200",
+    }
+
+
+@pytest.mark.parametrize(
+    ("channel", "channel_user_id"),
+    [("", "200"), ("bad channel", "200"), ("channel", "not-a-number")],
+)
+def test_twitch_app_settings_reject_invalid_values(
+    tmp_path,
+    channel: str,
+    channel_user_id: str,
+) -> None:
+    store = AppSettingsStore(tmp_path / "app_settings.json")
+
+    with pytest.raises(ValueError):
+        store.update_twitch(channel=channel, channel_user_id=channel_user_id)
+
+    assert store.snapshot().twitch == TwitchSettings()
+
+
+def test_incomplete_twitch_override_falls_back_safely(tmp_path) -> None:
+    settings_path = tmp_path / "app_settings.json"
+    settings_path.write_text(
+        json.dumps(
+            {
+                "version": APP_SETTINGS_VERSION,
+                "twitch": {"channel": "testchannel"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert load_app_settings(settings_path).twitch == TwitchSettings()
 
 
 def test_bridge_reads_and_updates_desktop_settings(tmp_path) -> None:

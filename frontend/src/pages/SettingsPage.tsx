@@ -4,6 +4,7 @@ import {
   type AppSettings,
   type CredentialInfo,
   type CredentialName,
+  type TwitchConnectionSettings,
   waitForBridge,
 } from '../bridge'
 
@@ -15,6 +16,8 @@ export default function SettingsPage({ active }: SettingsPageProps) {
   const [saved, setSaved] = useState<AppSettings | null>(null)
   const [draft, setDraft] = useState<AppSettings | null>(null)
   const [credentials, setCredentials] = useState<CredentialInfo[]>([])
+  const [twitchSaved, setTwitchSaved] = useState<TwitchConnectionSettings | null>(null)
+  const [twitchDraft, setTwitchDraft] = useState<TwitchConnectionSettings | null>(null)
   const [credentialDrafts, setCredentialDrafts] = useState<Record<CredentialName, string>>({
     gemini_api_key: '',
     twitch_client_secret: '',
@@ -31,15 +34,19 @@ export default function SettingsPage({ active }: SettingsPageProps) {
     const load = async () => {
       try {
         const api = await waitForBridge()
-        const [response, credentialResponse] = await Promise.all([
+        const [response, credentialResponse, twitchResponse] = await Promise.all([
           api.get_app_settings(),
           api.get_credentials(),
+          api.get_twitch_settings(),
         ])
         if (!response.ok || !response.settings) {
           throw new Error(response.error ?? 'Desktop settings are unavailable.')
         }
         if (!credentialResponse.ok || !credentialResponse.credentials) {
           throw new Error(credentialResponse.error ?? 'Credential status is unavailable.')
+        }
+        if (!twitchResponse.ok || !twitchResponse.settings) {
+          throw new Error(twitchResponse.error ?? 'Twitch settings are unavailable.')
         }
         if (mounted) {
           setDraft((current) => {
@@ -48,6 +55,13 @@ export default function SettingsPage({ active }: SettingsPageProps) {
           })
           setSaved(response.settings)
           setCredentials(credentialResponse.credentials)
+          setTwitchDraft((current) => {
+            const dirty = current && twitchSaved
+              && (current.target_channel !== twitchSaved.target_channel
+                || current.target_channel_user_id !== twitchSaved.target_channel_user_id)
+            return dirty ? current : twitchResponse.settings!
+          })
+          setTwitchSaved(twitchResponse.settings)
           setError('')
         }
       } catch (reason) {
@@ -86,6 +100,62 @@ export default function SettingsPage({ active }: SettingsPageProps) {
       setNotice('Desktop settings saved.')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Desktop settings could not be saved.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const updateTwitchDraft = (values: Partial<TwitchConnectionSettings>) => {
+    setTwitchDraft((current) => current ? { ...current, ...values } : current)
+    setNotice('')
+  }
+
+  const saveTwitch = async (reconnect: boolean) => {
+    if (!twitchDraft) {
+      return
+    }
+    const channel = twitchDraft.target_channel.trim().replace(/^#/, '')
+    const channelUserId = twitchDraft.target_channel_user_id.trim()
+    if (!channel || /\s/.test(channel)) {
+      setError('Twitch target channel must be a non-empty login name without spaces.')
+      return
+    }
+    if (!/^\d+$/.test(channelUserId)) {
+      setError('Twitch channel user ID must contain digits only.')
+      return
+    }
+    setBusy(reconnect ? 'twitch:reconnect' : 'twitch:save')
+    setError('')
+    setNotice('')
+    try {
+      const api = await waitForBridge()
+      const savedResult = await api.update_twitch_settings(channel, channelUserId)
+      if (!savedResult.ok) {
+        throw new Error(savedResult.error ?? 'Twitch settings could not be saved.')
+      }
+      if (reconnect) {
+        const reconnectResult = await api.reconnect_twitch()
+        if (!reconnectResult.ok) {
+          throw new Error(reconnectResult.error ?? 'Twitch could not reconnect.')
+        }
+      }
+      const refreshed = await api.get_twitch_settings()
+      if (!refreshed.ok || !refreshed.settings) {
+        throw new Error(refreshed.error ?? 'Twitch status could not be refreshed.')
+      }
+      setTwitchSaved(refreshed.settings)
+      setTwitchDraft(refreshed.settings)
+      setNotice(
+        reconnect
+          ? refreshed.settings.running
+            ? 'Twitch settings saved and the connection was restarted.'
+            : 'Twitch settings saved and applied for the next bot start.'
+          : savedResult.requires_reconnect
+            ? 'Twitch settings saved. Reconnect or restart the application to apply them.'
+            : 'Twitch settings saved.',
+      )
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Twitch settings could not be saved.')
     } finally {
       setBusy('')
     }
@@ -136,6 +206,14 @@ export default function SettingsPage({ active }: SettingsPageProps) {
   const dirty = Boolean(
     draft && saved && JSON.stringify(draft) !== JSON.stringify(saved),
   )
+  const twitchDirty = Boolean(
+    twitchDraft && twitchSaved
+      && (twitchDraft.target_channel !== twitchSaved.target_channel
+        || twitchDraft.target_channel_user_id !== twitchSaved.target_channel_user_id),
+  )
+  const twitchCredential = credentials.find(
+    (credential) => credential.name === 'twitch_client_secret',
+  )
 
   return (
     <div className="settings-layout">
@@ -167,6 +245,43 @@ export default function SettingsPage({ active }: SettingsPageProps) {
             <div className="settings-actions">
               <button className="primary" disabled={!dirty || Boolean(busy)} onClick={() => void save()}>{busy === 'settings' ? 'Saving…' : 'Save settings'}</button>
             </div>
+          </div>
+        )}
+      </section>
+
+      <section className="card settings-page">
+        <div className="section-heading">
+          <div>
+            <p className="label">TWITCH CONNECTION</p>
+            <h2>Channel and account</h2>
+            <p className="section-copy">Channel changes are stored locally. Save and reconnect to apply them to a running bot.</p>
+          </div>
+          {twitchDirty && <span className="mini-badge dirty-badge">Edited</span>}
+        </div>
+        {!twitchDraft ? <p className="muted">Loading Twitch settingsâ€¦</p> : (
+          <div className="settings-list">
+            <div className="twitch-status-grid">
+              <div><span>Connection</span><strong className={twitchDraft.connected ? 'status-good' : ''}>{twitchDraft.connected ? 'Connected' : twitchDraft.running ? 'Connecting / authorization required' : 'Stopped'}</strong></div>
+              <div><span>Bot account</span><strong>{twitchDraft.bot_username} ({twitchDraft.bot_user_id})</strong></div>
+              <div><span>Active channel</span><strong>{twitchDraft.active_channel}</strong></div>
+              <div><span>OAuth token cache</span><strong>{twitchDraft.oauth_token_available ? 'Available' : 'Authorization required'}</strong></div>
+              <div><span>Client secret</span><strong>{twitchCredential?.configured ? 'Configured' : 'Missing'}</strong></div>
+            </div>
+            <label className="form-field">
+              Target channel login
+              <input value={twitchDraft.target_channel} onChange={(event) => updateTwitchDraft({ target_channel: event.target.value })} placeholder="channel_name" />
+              <small>Non-secret. Saved in the local application settings file.</small>
+            </label>
+            <label className="form-field">
+              Target channel user ID
+              <input inputMode="numeric" value={twitchDraft.target_channel_user_id} onChange={(event) => updateTwitchDraft({ target_channel_user_id: event.target.value })} placeholder="123456789" />
+              <small>The numeric Twitch broadcaster ID used for chat subscriptions and API lookups.</small>
+            </label>
+            <div className="settings-actions">
+              <button className="secondary" disabled={!twitchDirty || Boolean(busy)} onClick={() => void saveTwitch(false)}>{busy === 'twitch:save' ? 'Savingâ€¦' : 'Save for later'}</button>
+              <button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch(true)}>{busy === 'twitch:reconnect' ? 'Reconnectingâ€¦' : twitchDraft.running ? 'Save & reconnect' : 'Save & apply'}</button>
+            </div>
+            <p className="settings-hint">Bot identity and OAuth authorization continue to use the existing startup configuration and Twitch flow. Secure credential changes require an application restart.</p>
           </div>
         )}
       </section>

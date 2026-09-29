@@ -36,25 +36,28 @@ class BotRuntime:
     async def start_bot(self) -> bool:
         """Start the Twitch session and return whether a new session was created."""
         async with self._lifecycle_lock:
-            if not self._started:
-                raise RuntimeError("Application startup has not completed.")
-            if self._bot_task is not None and not self._bot_task.done():
-                return False
-            if self._bot_task is not None:
-                with suppress(Exception):
-                    self._bot_task.result()
-            if self._bot_task is None and self._stop_requested:
-                self._stop_requested = False
-                return False
+            return self._start_bot_locked()
 
+    def _start_bot_locked(self) -> bool:
+        if not self._started:
+            raise RuntimeError("Application startup has not completed.")
+        if self._bot_task is not None and not self._bot_task.done():
+            return False
+        if self._bot_task is not None:
+            with suppress(Exception):
+                self._bot_task.result()
+        if self._bot_task is None and self._stop_requested:
             self._stop_requested = False
-            self._stop_event = asyncio.Event()
-            self.application.services.runtime_state.set_bot_running(True)
-            self._bot_task = asyncio.create_task(
-                self._run_bot_session(self._stop_event),
-                name="twitch-bot-session",
-            )
-            return True
+            return False
+
+        self._stop_requested = False
+        self._stop_event = asyncio.Event()
+        self.application.services.runtime_state.set_bot_running(True)
+        self._bot_task = asyncio.create_task(
+            self._run_bot_session(self._stop_event),
+            name="twitch-bot-session",
+        )
+        return True
 
     async def _run_bot_session(self, stop_event: asyncio.Event) -> None:
         try:
@@ -94,6 +97,28 @@ class BotRuntime:
         task = self._bot_task
         if task is not None:
             await task
+
+    async def reconnect_twitch(
+        self,
+        *,
+        channel: str,
+        channel_user_id: str,
+    ) -> bool:
+        """Apply target-channel settings and reconnect an active Twitch session."""
+        async with self._lifecycle_lock:
+            if not self._started:
+                raise RuntimeError("Application startup has not completed.")
+            task = self._bot_task
+            was_running = task is not None and not task.done()
+            if was_running:
+                self.request_stop()
+                with suppress(Exception):
+                    await task
+            self.application.settings.twitch_channel = channel
+            self.application.settings.twitch_channel_user_id = channel_user_id
+            if was_running:
+                self._start_bot_locked()
+            return was_running
 
     async def shutdown(self) -> None:
         if self._shutdown:

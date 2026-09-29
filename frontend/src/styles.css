@@ -103,7 +103,14 @@ td { color: #c6cfdf; }
 .settings-option span, .settings-option strong, .settings-option small { display: block; }
 .settings-option strong { color: #dce4f2; }
 .settings-option small { margin-top: 4px; color: #8491a9; line-height: 1.45; }
-.settings-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+.settings-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.settings-hint { margin: 2px 0 0; color: #8491a9; font-size: 13px; line-height: 1.5; }
+.twitch-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 8px; }
+.twitch-status-grid > div { padding: 12px; border: 1px solid #2a354a; border-radius: 9px; background: #111722; }
+.twitch-status-grid span, .twitch-status-grid strong { display: block; }
+.twitch-status-grid span { margin-bottom: 5px; color: #7f8ba3; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.twitch-status-grid strong { color: #dce4f2; overflow-wrap: anywhere; }
+.twitch-status-grid .status-good { color: #8ce8ba; }
 .credential-list { display: grid; gap: 12px; }
 .credential-row { padding: 16px; border: 1px solid #2a354a; border-radius: 10px; background: #111722; }
 .credential-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
@@ -154,5 +161,6 @@ td { color: #c6cfdf; }
   .command-title { grid-column: auto; }
   .row-actions { justify-content: flex-start; }
   .ai-status-grid { grid-template-columns: 1fr; }
+  .twitch-status-grid { grid-template-columns: 1fr; }
   .editor-footer { align-items: flex-start; flex-direction: column; }
 }

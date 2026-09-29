@@ -13,7 +13,7 @@ from typing import Any, Coroutine
 
 from pydantic import ValidationError
 
-from app.app_settings import AppSettingsStore
+from app.app_settings import AppSettings, AppSettingsStore
 from app.bot_runtime import BotRuntime
 from app.command_settings import CommandSettings
 from app.config.settings import Settings, load_settings_with_credentials
@@ -453,6 +453,87 @@ class WebUIBridge:
         self._logger.info("Desktop application settings saved")
         return {"ok": True}
 
+    def get_twitch_settings(self) -> dict[str, object]:
+        if self._app_settings is None:
+            return {"ok": False, "error": "Desktop settings are not configured."}
+        application = self._backend.application
+        runtime_state = application.services.runtime_state
+        local = self._app_settings.snapshot().twitch
+        return {
+            "ok": True,
+            "settings": {
+                "target_channel": local.channel or application.settings.twitch_channel,
+                "target_channel_user_id": (
+                    local.channel_user_id
+                    or application.settings.twitch_channel_user_id
+                ),
+                "active_channel": application.settings.twitch_channel,
+                "bot_username": application.settings.twitch_bot_username,
+                "bot_user_id": application.settings.twitch_bot_user_id,
+                "running": runtime_state.status()[0],
+                "connected": runtime_state.twitch_connected,
+                "oauth_token_available": Path(
+                    application.settings.twitch_token_file
+                ).is_file(),
+                "has_local_override": (
+                    local.channel is not None
+                    and local.channel_user_id is not None
+                ),
+            },
+        }
+
+    def update_twitch_settings(
+        self,
+        target_channel: object,
+        target_channel_user_id: object,
+    ) -> dict[str, object]:
+        if self._app_settings is None:
+            return {"ok": False, "error": "Desktop settings are not configured."}
+        try:
+            updated = self._app_settings.update_twitch(
+                channel=target_channel,
+                channel_user_id=target_channel_user_id,
+            )
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except OSError:
+            self._logger.exception("Could not save Twitch connection settings")
+            return {"ok": False, "error": "Could not save Twitch settings."}
+        application_settings = self._backend.application.settings
+        requires_reconnect = (
+            updated.twitch.channel != application_settings.twitch_channel
+            or updated.twitch.channel_user_id
+            != application_settings.twitch_channel_user_id
+        )
+        self._logger.info("Twitch target channel settings saved")
+        return {"ok": True, "requires_reconnect": requires_reconnect}
+
+    def reconnect_twitch(self) -> dict[str, object]:
+        if self._app_settings is None:
+            return {"ok": False, "error": "Desktop settings are not configured."}
+        application = self._backend.application
+        local = self._app_settings.snapshot().twitch
+        channel = local.channel or application.settings.twitch_channel
+        channel_user_id = (
+            local.channel_user_id or application.settings.twitch_channel_user_id
+        )
+        try:
+            future = self._backend.submit(
+                self._backend.bot_runtime.reconnect_twitch(
+                    channel=channel,
+                    channel_user_id=channel_user_id,
+                )
+            )
+            reconnected = future.result(timeout=30)
+        except Exception as error:
+            self._logger.warning(
+                "Twitch reconnect failed error_type=%s",
+                type(error).__name__,
+            )
+            return {"ok": False, "error": "Could not reconnect Twitch."}
+        self._logger.info("Twitch target settings applied reconnected=%s", reconnected)
+        return {"ok": True, "changed": reconnected}
+
     def get_credentials(self) -> dict[str, object]:
         if self._credential_manager is None:
             return {"ok": False, "error": "Credential storage is not configured."}
@@ -573,6 +654,18 @@ def resolve_frontend_url(dev_url: str | None) -> str:
     return str(FRONTEND_ENTRYPOINT)
 
 
+def apply_twitch_app_settings(settings: Settings, app_settings: AppSettings) -> Settings:
+    twitch = app_settings.twitch
+    if twitch.channel is None or twitch.channel_user_id is None:
+        return settings
+    return settings.model_copy(
+        update={
+            "twitch_channel": twitch.channel,
+            "twitch_channel_user_id": twitch.channel_user_id,
+        }
+    )
+
+
 class DesktopController:
     """Coordinate one pywebview window, tray icon, and backend lifecycle."""
 
@@ -686,6 +779,7 @@ def run_desktop_host(
 
     app_settings = AppSettingsStore(APP_SETTINGS_PATH)
     settings_snapshot = app_settings.snapshot()
+    settings = apply_twitch_app_settings(settings, settings_snapshot)
     backend = AsyncioBackendHost(
         settings,
         auto_start=auto_start,

@@ -41,7 +41,8 @@ Responsibility: compose the native window with the existing Python application s
   `Application`, and owns one `BotRuntime`.
 - `WebUIBridge` exposes narrow application operations: status, bot start/stop, registered
   commands and command Apply/Save/Reset, AI status/toggles, personality Apply/Save/Reset,
-  app settings, masked credential status/actions, and recent logs.
+  app settings, Twitch target/status/reconnect, masked credential status/actions, and recent
+  logs.
 - Async bot operations are submitted to the owning loop with
   `asyncio.run_coroutine_threadsafe`; raw Twitch, database, Gemini, and `RuntimeState` objects
   are not exposed to React.
@@ -72,7 +73,8 @@ Responsibility: one tray icon and window behavior per application process.
 - Tray actions are Open, Start Bot/Stop Bot, and Exit. Start/Stop delegates to `WebUIBridge`;
   Exit reuses the orderly desktop shutdown path.
 - `AppSettingsStore` supplies the versioned local application settings. Its `window` section
-  owns start-minimized, minimize-to-tray, and close-to-tray behavior. Start minimized controls
+  owns start-minimized, minimize-to-tray, and close-to-tray behavior. Its `twitch` section may
+  override the non-secret target-channel login and numeric user ID. Start minimized controls
   only initial window visibility.
 
 ## RuntimeState
@@ -148,6 +150,9 @@ disable unrelated commands.
   subscription, incoming-message mapping, and connection-state updates.
 - `app/services/twitch.py` is the command/service-facing API boundary. It is bound to the
   authenticated TwitchIO client and exposes category and followage lookups.
+- `.env` supplies initial Twitch identity/channel defaults. A validated local target-channel
+  override is applied before application composition; Save & reconnect uses the existing
+  `BotRuntime` stop/start lifecycle on its owning asyncio loop.
 - OAuth tokens are stored in the configured local TwitchIO token file. They are secrets and
   are ignored by Git.
 
@@ -180,7 +185,7 @@ disable unrelated commands.
 | Behavioral defaults and paths | root `config.py` | Tracked |
 | Built-in personality prompts | `app/resources/personalities.json` | Tracked package data |
 | Protected shared AI instructions | `app/config/personalities.py` | Tracked application code |
-| Ordinary application preferences | Versioned `data/app_settings.json` (`window`, `ai`) | Ignored local state |
+| Ordinary application preferences | Versioned `data/app_settings.json` (`window`, `ai`, non-secret `twitch` target) | Ignored local state |
 | Command overrides | `data/command_settings.json` | Ignored local state |
 | Personality selection/overrides | `data/personality_settings.json` | Ignored local state |
 | Twitch OAuth tokens | `data/twitchio_tokens.json` or configured path | Ignored secret state |
