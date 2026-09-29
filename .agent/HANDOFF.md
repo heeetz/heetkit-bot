@@ -7,7 +7,7 @@ transcript.
 
 - Branch: `main`.
 - Remote target: `origin/main`.
-- Latest completed task: **TODO-003 — Consolidate ordinary local application settings**
+- Latest completed task: **TODO-004 — Move built-in personalities to tracked data resources**
   (committed with this handoff).
 - Working application path: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
 - No active partially completed task exists.
@@ -26,12 +26,14 @@ transcript.
   window/tray behavior and AI-memory enablement while accepting the legacy flat window format.
 - Personality-specific overrides and active selection are local data; shared AI instructions
   remain protected source code.
+- Built-in personality-specific prompts load from tracked
+  `app/resources/personalities.json`; all existing IDs and prompt text are preserved.
 
 ## TODO position
 
-- Latest completed TODO: **TODO-003 — Consolidate ordinary local application settings**.
-- Expected next TODO: **TODO-004 — Move built-in personalities from Python code to tracked data resources**.
-- Do not start TODO-004 unless it is explicitly requested.
+- Latest completed TODO: **TODO-004 — Move built-in personalities from Python code to tracked data resources**.
+- Expected next TODO: **TODO-005 — Secure credential storage**.
+- Do not start TODO-005 unless it is explicitly requested.
 - A deferred **TODO-R1 architecture and reliability checkpoint** belongs after the current
   configuration/settings/UX work and before custom commands/triggers. It has not been run.
 
@@ -42,7 +44,6 @@ transcript.
 - AI enablement has one canonical owner (`ask` command settings) but different persistence UX
   between AI and Commands pages.
 - Tracked filter defaults are also the current manual customization surface.
-- Built-in personality text remains embedded in Python pending TODO-004.
 - Gemini model selection is read-only in the UI and no fallback model is configured.
 - Secure OS-backed credential storage, Twitch/AI settings UX, filters UI, custom commands,
   triggers, standalone packaging, and releases remain unfinished TODO work.
@@ -53,6 +54,8 @@ transcript.
   `pytest -q tests/test_webview_host.py` passed with 19 tests.
 - TODO-003: `python -m compileall -q app tests` passed and the focused app-settings and
   desktop-host test selection passed with 32 tests.
+- TODO-004: `python -m compileall -q app tests` passed and the focused personality selection
+  passed with 14 tests; prompt hashes verify exact preservation of all six built-ins.
 - The last full Phase 3 suite passed with 119 tests; frontend typecheck/build and
   `python -m app.main --check` also passed at that milestone.
 
@@ -63,4 +66,6 @@ transcript.
   and `ai.memory_enabled`; a legacy flat window file is read safely and the next successful
   save writes the versioned form.
 - Command and personality overrides intentionally remain in their dedicated JSON stores.
+- Built-in personality prompts are tracked package data; local personality selection and
+  overrides remain in ignored `data/personality_settings.json`.
 - Local runtime files, databases, logs, frontend build output, `.env`, and tokens are ignored.

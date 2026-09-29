@@ -128,16 +128,16 @@ their focused TODOs.
 
 ## TODO-004 — Move built-in personalities from Python code to tracked data resources
 
-- [ ] Built-in personality text should no longer need to live directly in `.py`.
-- [ ] Store built-in personalities as tracked application resources, preferably JSON or another simple data format.
-- [ ] Preserve:
+- [x] Built-in personality text should no longer need to live directly in `.py`.
+- [x] Store built-in personalities as tracked application resources, preferably JSON or another simple data format.
+- [x] Preserve:
   - personality IDs;
   - current wording;
   - active-personality behaviour;
   - Reset-to-built-in behaviour.
-- [ ] Keep protected/shared AI instructions application-owned and not casually editable.
-- [ ] User personality overrides remain local data and Git-ignored.
-- [ ] Do not turn personality data into executable code.
+- [x] Keep protected/shared AI instructions application-owned and not casually editable.
+- [x] User personality overrides remain local data and Git-ignored.
+- [x] Do not turn personality data into executable code.
 
 Conceptual model:
 
@@ -148,6 +148,11 @@ tracked built-in personality resource
               ↓
           runtime prompt
 ```
+
+Built-in personality-specific prompts now load from tracked UTF-8 JSON at
+`app/resources/personalities.json`. The loader preserves the existing IDs/order and combines
+each prompt with protected shared instructions kept in application code. Local overrides
+remain in ignored `data/personality_settings.json`.
 
 ---
 

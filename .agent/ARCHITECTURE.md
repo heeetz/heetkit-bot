@@ -129,8 +129,10 @@ not disable unrelated commands.
 
 ## Personalities and AI memory
 
-- Protected shared instructions and built-in personality definitions currently live in
-  `app/config/personalities.py`; the active source default is in root `config.py`.
+- Built-in personality-specific prompts are tracked UTF-8 data in
+  `app/resources/personalities.json` and loaded by `app/config/personalities.py`. Protected
+  shared instructions remain application code there; the active source default is in root
+  `config.py`.
 - Only personality-specific text is editable. `RuntimeState` overlays local prompts and active
   selection from `data/personality_settings.json` (Git-ignored).
 - Personality Apply is runtime-only, Save is persistent, and Reset restores the built-in text.
@@ -163,7 +165,8 @@ not disable unrelated commands.
 | --- | --- | --- |
 | Typed deployment settings | `app/config/settings.py`, loaded from `.env` | `.env` ignored; `.env.example` tracked |
 | Behavioral defaults and paths | root `config.py` | Tracked |
-| Built-in personalities/shared instructions | `app/config/personalities.py` | Tracked |
+| Built-in personality prompts | `app/resources/personalities.json` | Tracked package data |
+| Protected shared AI instructions | `app/config/personalities.py` | Tracked application code |
 | Ordinary application preferences | Versioned `data/app_settings.json` (`window`, `ai`) | Ignored local state |
 | Command overrides | `data/command_settings.json` | Ignored local state |
 | Personality selection/overrides | `data/personality_settings.json` | Ignored local state |

@@ -112,8 +112,10 @@ settings file.
 Status: Active
 
 Decision:
-Users edit only personality-specific text. Shared system/safety instructions remain
-application-owned and are combined with the effective personality by Python.
+Built-in personality-specific text is tracked non-executable data in
+`app/resources/personalities.json`. Users edit only local personality-specific overrides.
+Shared system/safety instructions remain application-owned Python code and are combined with
+the effective personality by Python.
 
 Reason:
 Tone customization must not override core policy or prompt-safety boundaries.

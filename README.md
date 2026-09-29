@@ -83,7 +83,7 @@ Use `--stopped` when the desktop shell should open without automatically connect
 Configuration responsibilities remain separated:
 
 - `.env` contains deployment values, account identity, credentials, local paths, and logging settings. It is loaded by `app/config/settings.py` and must remain private.
-- `config.py` contains non-secret behavioral defaults, including cooldowns, the Telegram message, AI response length, memory limits, and the active personality identifier. Built-in personality prompts live in `app/config/personalities.py`.
+- `config.py` contains non-secret behavioral defaults, including cooldowns, the Telegram message, AI response length, memory limits, and the active personality identifier. Built-in personality prompts live in the tracked `app/resources/personalities.json` resource; protected shared AI instructions remain application code in `app/config/personalities.py`.
 - `data/command_settings.json` contains optional local command overrides and is ignored by Git. Commands without overrides continue to use registry defaults.
 - `data/personality_settings.json` contains the locally selected AI personality and optional personality-specific prompt overrides. Shared AI instructions are not editable.
 - `data/app_settings.json` is a versioned local application-settings file. It currently contains `window` preferences and the `ai.memory_enabled` preference; legacy flat window settings remain readable and are rewritten in the versioned format on the next save.
@@ -139,7 +139,7 @@ Set `GEMINI_API_KEY` in `.env` to enable AI replies. `GEMINI_MODEL` defaults to 
 
 `!ask` applies the local AI request policy before contacting Gemini. Requests involving current, changing, comparison, event, or named-opinion information can enable Google Search grounding. Provider responses then pass through the local response policy and configured response-length limit before delivery.
 
-When AI memory is enabled, up to `AI_MEMORY_MAX_ENTRIES` successful exchanges per Twitch user are stored in SQLite and supplied as untrusted conversation context. The AI page can disable memory without disabling Gemini, and that preference is saved in `data/app_settings.json`. Built-in personality prompts are defined in `app/config/personalities.py`; the editor exposes only personality-specific text and always preserves shared system and safety instructions.
+When AI memory is enabled, up to `AI_MEMORY_MAX_ENTRIES` successful exchanges per Twitch user are stored in SQLite and supplied as untrusted conversation context. The AI page can disable memory without disabling Gemini, and that preference is saved in `data/app_settings.json`. Built-in personality prompts are loaded from `app/resources/personalities.json`; the editor exposes only personality-specific text and always preserves the application-owned shared system and safety instructions.
 
 ## Commands
 

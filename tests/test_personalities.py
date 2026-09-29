@@ -2,14 +2,41 @@
 
 import json
 import logging
+from hashlib import sha256
+from importlib.resources import files
 from types import SimpleNamespace
 
 import pytest
 
-from app.config.personalities import AI_PERSONALITY_PRESETS, AI_PERSONALITY_PROMPTS
+from app.config.personalities import (
+    AI_PERSONALITY_PRESETS,
+    AI_PERSONALITY_PROMPTS,
+    BUILTIN_PERSONALITIES_RESOURCE,
+)
 from app.runtime_state import RuntimeState
 from app.services.gemini_ai_service import GeminiAIService
 from config import ACTIVE_AI_PERSONALITY, build_ai_system_instruction
+
+
+EXPECTED_PERSONALITY_PROMPT_HASHES = {
+    "vas2": "f2182cc92f8ff0945e6c67671b07fd552dc5fc6ffbef2c7494fb2024ade4b608",
+    "vas": "04abc2c5d00b0e5cb24b9d5a78e64d6f5117c331554051c1ee23b3dfd651dcb1",
+    "anime_girl": "bb63f770691207fb2289da3780240178ad2f9277d776eda2b6764f0b6b5712cd",
+    "rapper": "209bbbb68f13ed89bd395634a1267df539a0975b0d7dd01fd93f9dc2b56c89df",
+    "neutral": "77d803678ef822205be916db84614daab4f780cd6047038e589968e0bfc8159b",
+    "gopnik": "8d771382eb8ed1f13f69c985309b26a3422bd690f3f9b92d4e871c84e053d2b7",
+}
+
+
+def test_built_in_personality_resource_preserves_existing_prompts() -> None:
+    resource = files("app.resources").joinpath(BUILTIN_PERSONALITIES_RESOURCE)
+    payload = json.loads(resource.read_text(encoding="utf-8"))
+
+    assert payload == AI_PERSONALITY_PROMPTS
+    assert {
+        name: sha256(prompt.encode("utf-8")).hexdigest()
+        for name, prompt in payload.items()
+    } == EXPECTED_PERSONALITY_PROMPT_HASHES
 
 
 def test_all_built_in_personalities_resolve() -> None:
