@@ -44,6 +44,20 @@ export interface AIStatus {
   model: string
 }
 
+export interface PersonalityInfo {
+  name: string
+  prompt: string
+  built_in_prompt: string
+  prompt_saved: boolean
+  has_saved_override: boolean
+}
+
+export interface PersonalitiesResponse {
+  active_personality: string
+  active_personality_saved: boolean
+  personalities: PersonalityInfo[]
+}
+
 export interface LogEntry {
   id: number
   timestamp: string
@@ -60,10 +74,16 @@ interface PythonApi {
   get_app_status(): Promise<AppStatus>
   get_commands(): Promise<CommandsResponse>
   get_ai_status(): Promise<AIStatus>
+  get_personalities(): Promise<PersonalitiesResponse>
   get_recent_logs(after_id?: number, limit?: number): Promise<LogsResponse>
   apply_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string): Promise<ActionResult>
   save_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string): Promise<ActionResult>
   reset_command_settings(commandName: string): Promise<ActionResult>
+  set_ai_enabled(enabled: boolean): Promise<ActionResult>
+  set_ai_memory_enabled(enabled: boolean): Promise<ActionResult>
+  apply_personality(personality: string, prompt: string): Promise<ActionResult>
+  save_personality(personality: string, prompt: string): Promise<ActionResult>
+  reset_personality(personality: string): Promise<ActionResult>
   start_bot(): Promise<ActionResult>
   stop_bot(): Promise<ActionResult>
 }

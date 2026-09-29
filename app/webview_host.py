@@ -303,6 +303,97 @@ class WebUIBridge:
             "model": application.settings.gemini_model,
         }
 
+    def get_personalities(self) -> dict[str, object]:
+        runtime_state = self._backend.application.services.runtime_state
+        return {
+            "active_personality": runtime_state.active_ai_personality,
+            "active_personality_saved": runtime_state.active_ai_personality_is_saved,
+            "personalities": [
+                {
+                    "name": name,
+                    "prompt": runtime_state.get_ai_personality_prompt(name),
+                    "built_in_prompt": runtime_state.get_builtin_ai_personality_prompt(name),
+                    "prompt_saved": runtime_state.personality_prompt_is_saved(name),
+                    "has_saved_override": runtime_state.has_saved_personality_override(
+                        name
+                    ),
+                }
+                for name in runtime_state.available_personalities
+            ],
+        }
+
+    @staticmethod
+    def _validate_toggle(enabled: object) -> bool:
+        if type(enabled) is not bool:
+            raise ValueError("Enabled must be a boolean.")
+        return enabled
+
+    def set_ai_enabled(self, enabled: object) -> dict[str, object]:
+        try:
+            parsed_enabled = self._validate_toggle(enabled)
+            self._backend.application.services.runtime_state.set_ai_enabled(
+                parsed_enabled
+            )
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        self._logger.info("AI command runtime state changed enabled=%s", parsed_enabled)
+        return {"ok": True}
+
+    def set_ai_memory_enabled(self, enabled: object) -> dict[str, object]:
+        try:
+            parsed_enabled = self._validate_toggle(enabled)
+            self._backend.application.services.runtime_state.set_ai_memory_enabled(
+                parsed_enabled
+            )
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        self._logger.info("AI memory runtime state changed enabled=%s", parsed_enabled)
+        return {"ok": True}
+
+    def apply_personality(self, personality: object, prompt: object) -> dict[str, object]:
+        try:
+            if not isinstance(personality, str):
+                raise ValueError("Unknown AI personality.")
+            self._backend.application.services.runtime_state.apply_ai_personality(
+                personality,
+                prompt,
+            )
+        except (TypeError, ValueError) as error:
+            return {"ok": False, "error": str(error)}
+        self._logger.info("AI personality applied name=%s", personality)
+        return {"ok": True}
+
+    def save_personality(self, personality: object, prompt: object) -> dict[str, object]:
+        try:
+            if not isinstance(personality, str):
+                raise ValueError("Unknown AI personality.")
+            self._backend.application.services.runtime_state.save_ai_personality(
+                personality,
+                prompt,
+            )
+        except (TypeError, ValueError) as error:
+            return {"ok": False, "error": str(error)}
+        except (OSError, RuntimeError):
+            self._logger.exception("Could not save AI personality name=%s", personality)
+            return {"ok": False, "error": "Could not save AI personality."}
+        self._logger.info("AI personality override saved name=%s", personality)
+        return {"ok": True}
+
+    def reset_personality(self, personality: object) -> dict[str, object]:
+        try:
+            if not isinstance(personality, str):
+                raise ValueError("Unknown AI personality.")
+            self._backend.application.services.runtime_state.reset_ai_personality(
+                personality
+            )
+        except (TypeError, ValueError) as error:
+            return {"ok": False, "error": str(error)}
+        except (OSError, RuntimeError):
+            self._logger.exception("Could not reset AI personality name=%s", personality)
+            return {"ok": False, "error": "Could not reset AI personality."}
+        self._logger.info("AI personality override reset name=%s", personality)
+        return {"ok": True}
+
     def get_recent_logs(self, after_id: int = 0, limit: int = 200) -> dict[str, object]:
         safe_after_id = after_id if type(after_id) is int and after_id >= 0 else 0
         safe_limit = limit if type(limit) is int else 200

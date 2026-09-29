@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  type AIStatus,
   type AppStatus,
   type LogEntry,
   waitForBridge,
 } from './bridge'
 import CommandsPage from './pages/CommandsPage'
+import AIPage from './pages/AIPage'
 import './styles.css'
 
 const sections = ['Dashboard', 'Commands', 'AI', 'Logs', 'Settings'] as const
@@ -56,51 +56,6 @@ function Dashboard({ status, onChangeState, busy }: {
         <h3 className="metric">{status ? formatUptime(status.uptime_seconds) : '—'}</h3>
       </article>
     </section>
-  )
-}
-
-function AIPage() {
-  const [status, setStatus] = useState<AIStatus | null>(null)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    let active = true
-    let timer = 0
-    const refresh = async () => {
-      try {
-        const api = await waitForBridge()
-        const response = await api.get_ai_status()
-        if (active) {
-          setStatus(response)
-          setError('')
-        }
-      } catch (reason) {
-        if (active) {
-          setError(reason instanceof Error ? reason.message : 'Could not load AI status.')
-        }
-      } finally {
-        if (active) {
-          timer = window.setTimeout(() => void refresh(), 2500)
-        }
-      }
-    }
-    void refresh()
-    return () => {
-      active = false
-      window.clearTimeout(timer)
-    }
-  }, [])
-
-  return (
-    <>
-      {error && <div className="error-banner">{error}</div>}
-      <section className="card-grid">
-        <article className="card"><p className="label">AI command</p><h3>{status ? (status.enabled ? 'Enabled' : 'Disabled') : 'Loading…'}</h3><p>Backed by the canonical AI command state.</p></article>
-        <article className="card"><p className="label">Conversation memory</p><h3>{status ? (status.memory_enabled ? 'Enabled' : 'Disabled') : 'Loading…'}</h3><p>Current process state; no editor is exposed here.</p></article>
-        <article className="card"><p className="label">Active personality</p><h3>{status?.active_personality ?? '—'}</h3><p>{status ? `${status.available_personalities.length} built-in personalities available` : 'Loading…'}</p></article>
-        <article className="card"><p className="label">Gemini model</p><h3>{status?.model ?? '—'}</h3><p>Configured by the Python backend.</p></article>
-      </section>
-    </>
   )
 }
 
@@ -282,8 +237,8 @@ export default function App() {
         <header><div><p className="eyebrow">CONTROL CENTER</p><h1>{section}</h1></div></header>
         {error && <div className="error-banner">{error}</div>}
         {section === 'Dashboard' && <Dashboard status={status} busy={actionBusy} onChangeState={(shouldRun) => void changeBotState(shouldRun)} />}
-        <div hidden={section !== 'Commands'}><CommandsPage /></div>
-        {section === 'AI' && <AIPage />}
+        <div hidden={section !== 'Commands'}><CommandsPage active={section === 'Commands'} /></div>
+        <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} /></div>
         {section === 'Logs' && <LogsPage />}
         {section === 'Settings' && <SettingsPlaceholder />}
       </main>

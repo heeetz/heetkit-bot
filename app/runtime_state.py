@@ -12,14 +12,24 @@ from app.command_settings import (
     load_command_overrides,
     save_command_overrides,
 )
-from app.config.personalities import AI_PERSONALITY_PRESETS
+from app.config.personalities import AI_PERSONALITY_PRESETS, AI_PERSONALITY_PROMPTS
+from app.personality_settings import (
+    PersonalitySettings,
+    load_personality_settings,
+    save_personality_settings,
+    validate_personality_prompt,
+)
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
 from config import AI_MEMORY_ENABLED, ACTIVE_AI_PERSONALITY
 
 
 class RuntimeState:
-    def __init__(self, command_settings_path: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        command_settings_path: str | Path | None = None,
+        personality_settings_path: str | Path | None = None,
+    ) -> None:
         self._lock = RLock()
         self._command_defaults: dict[str, CommandSettings] = {}
         self._command_settings: dict[str, CommandSettings] = {}
@@ -27,8 +37,24 @@ class RuntimeState:
         self._command_settings_path = (
             None if command_settings_path is None else Path(command_settings_path)
         )
+        self._personality_settings_path = (
+            None if personality_settings_path is None else Path(personality_settings_path)
+        )
         self._ai_memory_enabled = AI_MEMORY_ENABLED
-        self._active_ai_personality = ACTIVE_AI_PERSONALITY
+        personality_settings = (
+            PersonalitySettings(ACTIVE_AI_PERSONALITY, {})
+            if self._personality_settings_path is None
+            else load_personality_settings(
+                self._personality_settings_path,
+                AI_PERSONALITY_PROMPTS,
+                ACTIVE_AI_PERSONALITY,
+            )
+        )
+        self._persisted_personality_overrides = dict(personality_settings.overrides)
+        self._personality_prompts = dict(AI_PERSONALITY_PROMPTS)
+        self._personality_prompts.update(self._persisted_personality_overrides)
+        self._persisted_active_ai_personality = personality_settings.active_personality
+        self._active_ai_personality = personality_settings.active_personality
         self._bot_running = False
         self._twitch_connected = False
         self._started_at: float | None = None
@@ -207,6 +233,86 @@ class RuntimeState:
             raise ValueError(f"Unknown AI personality: {personality}")
         with self._lock:
             self._active_ai_personality = personality
+
+    def get_ai_personality_prompt(self, personality: str) -> str:
+        with self._lock:
+            try:
+                return self._personality_prompts[personality]
+            except KeyError as error:
+                raise ValueError(f"Unknown AI personality: {personality}") from error
+
+    def get_builtin_ai_personality_prompt(self, personality: str) -> str:
+        try:
+            return AI_PERSONALITY_PROMPTS[personality]
+        except KeyError as error:
+            raise ValueError(f"Unknown AI personality: {personality}") from error
+
+    def personality_prompt_is_saved(self, personality: str) -> bool:
+        with self._lock:
+            current = self.get_ai_personality_prompt(personality)
+            saved = self._persisted_personality_overrides.get(
+                personality,
+                self.get_builtin_ai_personality_prompt(personality),
+            )
+            return current == saved
+
+    def has_saved_personality_override(self, personality: str) -> bool:
+        with self._lock:
+            self.get_builtin_ai_personality_prompt(personality)
+            return personality in self._persisted_personality_overrides
+
+    @property
+    def active_ai_personality_is_saved(self) -> bool:
+        with self._lock:
+            return self._active_ai_personality == self._persisted_active_ai_personality
+
+    def apply_ai_personality(self, personality: str, prompt: object) -> None:
+        parsed_prompt = validate_personality_prompt(prompt)
+        self.get_builtin_ai_personality_prompt(personality)
+        with self._lock:
+            self._personality_prompts[personality] = parsed_prompt
+            self._active_ai_personality = personality
+
+    def save_ai_personality(self, personality: str, prompt: object) -> None:
+        parsed_prompt = validate_personality_prompt(prompt)
+        built_in_prompt = self.get_builtin_ai_personality_prompt(personality)
+        with self._lock:
+            overrides = dict(self._persisted_personality_overrides)
+            if parsed_prompt == built_in_prompt:
+                overrides.pop(personality, None)
+            else:
+                overrides[personality] = parsed_prompt
+            self._save_personality_settings(personality, overrides)
+            self._persisted_personality_overrides = overrides
+            self._persisted_active_ai_personality = personality
+            self._personality_prompts[personality] = parsed_prompt
+            self._active_ai_personality = personality
+
+    def reset_ai_personality(self, personality: str) -> None:
+        built_in_prompt = self.get_builtin_ai_personality_prompt(personality)
+        with self._lock:
+            overrides = dict(self._persisted_personality_overrides)
+            overrides.pop(personality, None)
+            if self._personality_settings_path is not None:
+                self._save_personality_settings(
+                    self._persisted_active_ai_personality,
+                    overrides,
+                )
+            self._persisted_personality_overrides = overrides
+            self._personality_prompts[personality] = built_in_prompt
+            self._active_ai_personality = personality
+
+    def _save_personality_settings(
+        self,
+        active_personality: str,
+        overrides: dict[str, str],
+    ) -> None:
+        if self._personality_settings_path is None:
+            raise RuntimeError("Personality settings persistence is not configured.")
+        save_personality_settings(
+            self._personality_settings_path,
+            PersonalitySettings(active_personality, overrides),
+        )
 
     def set_bot_running(self, running: bool) -> None:
         with self._lock:

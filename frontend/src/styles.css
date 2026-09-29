@@ -40,6 +40,7 @@ h1 { margin-bottom: 0; font-size: 30px; }
 .error-banner { margin-bottom: 18px; padding: 12px 14px; border: 1px solid #7e3445; border-radius: 9px; color: #ffc5d0; background: #321721; }
 .inline-error { margin-bottom: 16px; color: #ffc5d0; }
 .inline-success { margin-bottom: 16px; color: #8ce8ba; }
+.success-banner { margin-bottom: 18px; padding: 12px 14px; border: 1px solid #286849; border-radius: 9px; color: #a5edc8; background: #122c22; }
 .empty-state { max-width: 680px; }
 .empty-state p:last-child, .card > p:last-child { color: #94a0b7; }
 .success-text { color: #58dea1; }
@@ -80,6 +81,20 @@ td { color: #c6cfdf; }
 .saved-badge { color: #8ce8ba; background: #173a2d; }
 .runtime-badge { color: #f0c66b; background: #443716; }
 .dirty-badge { color: #c6b8ff; background: #302656; }
+.ai-layout { display: grid; gap: 18px; }
+.ai-status-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.compact-card { min-height: 112px; }
+.compact-card strong { font-size: 18px; }
+.settings-toggle { display: flex; align-items: center; gap: 10px; color: #d7dfed; font-weight: 700; }
+.settings-toggle input { width: 18px; height: 18px; accent-color: #7c4dff; }
+.personality-editor { min-height: 0; }
+.personality-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.form-field { display: grid; gap: 7px; color: #8290aa; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.form-field select, .form-field textarea { border: 1px solid #344057; border-radius: 8px; padding: 10px 12px; color: #e9eef8; background: #0d131e; outline: none; }
+.form-field select:focus, .form-field textarea:focus { border-color: #7052c9; }
+.personality-select { max-width: 300px; margin-bottom: 16px; }
+.form-field textarea { min-height: 330px; resize: vertical; font: 13px/1.55 "Cascadia Code", "SFMono-Regular", Consolas, monospace; text-transform: none; }
+.editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 14px; }
 .logs-card { padding: 0; overflow: hidden; }
 .logs-card .section-heading { padding: 22px 22px 0; }
 .log-toolbar { display: flex; align-items: end; gap: 12px; padding: 0 22px 18px; }
@@ -105,6 +120,7 @@ td { color: #c6cfdf; }
   .command-row { grid-template-columns: minmax(180px, 1.2fr) repeat(2, minmax(140px, .8fr)); }
   .command-title { grid-column: 1 / 3; }
   .row-actions { justify-content: flex-end; }
+  .ai-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 760px) {
@@ -121,4 +137,6 @@ td { color: #c6cfdf; }
   .command-row { grid-template-columns: 1fr; }
   .command-title { grid-column: auto; }
   .row-actions { justify-content: flex-start; }
+  .ai-status-grid { grid-template-columns: 1fr; }
+  .editor-footer { align-items: flex-start; flex-direction: column; }
 }

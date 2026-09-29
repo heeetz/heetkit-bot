@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import httpx
 import logging
 
-from config import COMMAND_SETTINGS_PATH, FILTERS_DIRECTORY
+from config import COMMAND_SETTINGS_PATH, FILTERS_DIRECTORY, PERSONALITY_SETTINGS_PATH
 from app.commands.ai import register_ai_commands
 from app.commands.fun import register_fun_commands
 from app.commands.info import register_info_commands, register_weather_commands
@@ -65,7 +65,10 @@ def build_application(settings: Settings) -> Application:
     ai_request_policy = AIRequestPolicy()
     twitch_api = TwitchAPIService()
     memory = AIMemoryService(memory_repository)
-    runtime_state = RuntimeState(command_settings_path=COMMAND_SETTINGS_PATH)
+    runtime_state = RuntimeState(
+        command_settings_path=COMMAND_SETTINGS_PATH,
+        personality_settings_path=PERSONALITY_SETTINGS_PATH,
+    )
     services = ApplicationServices(
         users=user_repository,
         memory=memory,

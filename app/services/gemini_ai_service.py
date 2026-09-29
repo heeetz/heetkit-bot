@@ -222,6 +222,18 @@ class GeminiAIService:
             ),
         ]
 
+    def _build_system_instruction(self) -> str:
+        if self.runtime_state is None:
+            return build_system_instruction()
+        personality = self.runtime_state.active_ai_personality
+        prompt = self.runtime_state.get_ai_personality_prompt(personality)
+        if prompt == self.runtime_state.get_builtin_ai_personality_prompt(personality):
+            return build_system_instruction(personality)
+        return build_system_instruction(
+            personality,
+            prompt,
+        )
+
     async def generate_reply(
         self,
         prompt: str,
@@ -283,11 +295,7 @@ class GeminiAIService:
                         model=self.settings.gemini_model,
                         contents=request_content,
                         config=types.GenerateContentConfig(
-                            system_instruction=build_system_instruction(
-                                self.runtime_state.active_ai_personality
-                                if self.runtime_state is not None
-                                else None
-                            ),
+                            system_instruction=self._build_system_instruction(),
                             tools=[search_tool] if use_search else None,
                         ),
                     )

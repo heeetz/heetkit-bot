@@ -16,6 +16,10 @@ interface CommandDraft {
 
 type Drafts = Record<string, CommandDraft>
 
+interface CommandsPageProps {
+  active: boolean
+}
+
 function draftFromCommand(command: CommandInfo): CommandDraft {
   return {
     enabled: command.enabled,
@@ -40,7 +44,7 @@ function draftIsDirty(command: CommandInfo, draft: CommandDraft): boolean {
     || parsedCooldown(draft.globalSeconds) !== command.cooldown.global_seconds
 }
 
-export default function CommandsPage() {
+export default function CommandsPage({ active }: CommandsPageProps) {
   const [data, setData] = useState<CommandsResponse | null>(null)
   const [drafts, setDrafts] = useState<Drafts>({})
   const [busyCommand, setBusyCommand] = useState('')
@@ -63,27 +67,35 @@ export default function CommandsPage() {
   }
 
   useEffect(() => {
-    let active = true
+    if (!active) {
+      return
+    }
+    let mounted = true
     const load = async () => {
       try {
         const api = await waitForBridge()
         const response = await api.get_commands()
-        if (active) {
+        if (mounted) {
           setData(response)
-          setDrafts(Object.fromEntries(
-            response.commands.map((command) => [command.name, draftFromCommand(command)]),
-          ))
+          setDrafts((currentDrafts) => Object.fromEntries(response.commands.map((command) => {
+            const previousCommand = data?.commands.find((item) => item.name === command.name)
+            const previousDraft = currentDrafts[command.name]
+            const keepDraft = previousCommand
+              && previousDraft
+              && draftIsDirty(previousCommand, previousDraft)
+            return [command.name, keepDraft ? previousDraft : draftFromCommand(command)]
+          })))
           setError('')
         }
       } catch (reason) {
-        if (active) {
+        if (mounted) {
           setError(reason instanceof Error ? reason.message : 'Could not load commands.')
         }
       }
     }
     void load()
-    return () => { active = false }
-  }, [])
+    return () => { mounted = false }
+  }, [active])
 
   const updateDraft = (commandName: string, values: Partial<CommandDraft>) => {
     setDrafts((current) => ({

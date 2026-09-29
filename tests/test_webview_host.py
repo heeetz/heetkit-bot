@@ -195,6 +195,71 @@ def test_bridge_gets_ai_state_without_exposing_personality_prompts() -> None:
     }
 
 
+def build_ai_bridge(tmp_path) -> tuple[WebUIBridge, RuntimeState]:
+    registry = CommandRegistry()
+
+    @registry.command("ask")
+    async def ask(context, arguments: str) -> None:
+        return None
+
+    runtime_state = RuntimeState(
+        command_settings_path=tmp_path / "command_settings.json",
+        personality_settings_path=tmp_path / "personality_settings.json",
+    )
+    runtime_state.configure_commands(registry.definitions())
+    application = SimpleNamespace(
+        services=SimpleNamespace(runtime_state=runtime_state),
+        registry=registry,
+        settings=SimpleNamespace(gemini_model="gemini-test"),
+    )
+    bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace(application=application)))
+    return bridge, runtime_state
+
+
+def test_bridge_exposes_only_personality_specific_editable_prompts(tmp_path) -> None:
+    bridge, runtime_state = build_ai_bridge(tmp_path)
+
+    result = bridge.get_personalities()
+
+    assert result["active_personality"] == runtime_state.active_ai_personality
+    neutral = next(
+        item for item in result["personalities"] if item["name"] == "neutral"
+    )
+    assert "You are a Twitch chat assistant." not in neutral["prompt"]
+    assert neutral["prompt"] == neutral["built_in_prompt"]
+
+
+def test_bridge_applies_saves_and_resets_personality(tmp_path) -> None:
+    bridge, runtime_state = build_ai_bridge(tmp_path)
+
+    assert bridge.apply_personality("neutral", "temporary") == {"ok": True}
+    assert runtime_state.get_ai_personality_prompt("neutral") == "temporary"
+    assert runtime_state.active_ai_personality_is_saved is False
+
+    assert bridge.save_personality("neutral", "saved") == {"ok": True}
+    assert runtime_state.get_ai_personality_prompt("neutral") == "saved"
+    assert runtime_state.has_saved_personality_override("neutral") is True
+
+    assert bridge.reset_personality("neutral") == {"ok": True}
+    assert runtime_state.has_saved_personality_override("neutral") is False
+    assert runtime_state.get_ai_personality_prompt("neutral") == (
+        runtime_state.get_builtin_ai_personality_prompt("neutral")
+    )
+
+
+def test_bridge_updates_ai_runtime_toggles_with_validation(tmp_path) -> None:
+    bridge, runtime_state = build_ai_bridge(tmp_path)
+
+    assert bridge.set_ai_enabled(False) == {"ok": True}
+    assert runtime_state.ai_enabled is False
+    assert bridge.set_ai_memory_enabled(False) == {"ok": True}
+    assert runtime_state.ai_memory_enabled is False
+    assert bridge.set_ai_enabled("false") == {
+        "ok": False,
+        "error": "Enabled must be a boolean.",
+    }
+
+
 def test_bridge_reads_bounded_logs_with_validated_cursor_arguments() -> None:
     log_buffer = RecentLogBuffer(max_entries=2)
     handler = RecentLogHandler(log_buffer)
