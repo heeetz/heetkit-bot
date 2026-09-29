@@ -37,9 +37,16 @@ FRONTEND_ENTRYPOINT = PROJECT_ROOT / "frontend" / "dist" / "index.html"
 class AsyncioBackendHost:
     """Own the application and its single asyncio loop on a background thread."""
 
-    def __init__(self, settings: Settings, *, auto_start: bool = True) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        auto_start: bool = True,
+        initial_ai_memory_enabled: bool | None = None,
+    ) -> None:
         self._settings = settings
         self._auto_start = auto_start
+        self._initial_ai_memory_enabled = initial_ai_memory_enabled
         self._logger = get_logger("app.webview")
         self._thread: threading.Thread | None = None
         self._ready = threading.Event()
@@ -80,6 +87,10 @@ class AsyncioBackendHost:
         asyncio.set_event_loop(loop)
         try:
             application = build_application(self._settings)
+            if self._initial_ai_memory_enabled is not None:
+                application.services.runtime_state.set_ai_memory_enabled(
+                    self._initial_ai_memory_enabled
+                )
             bot_runtime = BotRuntime(application, get_logger("app.twitch"))
             self._application = application
             self._bot_runtime = bot_runtime
@@ -347,12 +358,17 @@ class WebUIBridge:
     def set_ai_memory_enabled(self, enabled: object) -> dict[str, object]:
         try:
             parsed_enabled = self._validate_toggle(enabled)
+            if self._app_settings is not None:
+                self._app_settings.update_ai_memory(enabled=parsed_enabled)
             self._backend.application.services.runtime_state.set_ai_memory_enabled(
                 parsed_enabled
             )
         except ValueError as error:
             return {"ok": False, "error": str(error)}
-        self._logger.info("AI memory runtime state changed enabled=%s", parsed_enabled)
+        except OSError:
+            self._logger.exception("Could not save AI memory setting")
+            return {"ok": False, "error": "Could not save AI memory setting."}
+        self._logger.info("AI memory setting changed enabled=%s", parsed_enabled)
         return {"ok": True}
 
     def apply_personality(self, personality: object, prompt: object) -> dict[str, object]:
@@ -406,9 +422,9 @@ class WebUIBridge:
         return {
             "ok": True,
             "settings": {
-                "start_minimized": settings.start_minimized,
-                "minimize_to_tray": settings.minimize_to_tray,
-                "close_to_tray": settings.close_to_tray,
+                "start_minimized": settings.window.start_minimized,
+                "minimize_to_tray": settings.window.minimize_to_tray,
+                "close_to_tray": settings.window.close_to_tray,
             },
         }
 
@@ -421,7 +437,7 @@ class WebUIBridge:
         if self._app_settings is None:
             return {"ok": False, "error": "Desktop settings are not configured."}
         try:
-            self._app_settings.update(
+            self._app_settings.update_window(
                 start_minimized=start_minimized,
                 minimize_to_tray=minimize_to_tray,
                 close_to_tray=close_to_tray,
@@ -558,7 +574,7 @@ class DesktopController:
     def _on_closing(self) -> bool | None:
         if self._exit_requested:
             return None
-        if self._app_settings.snapshot().close_to_tray:
+        if self._app_settings.snapshot().window.close_to_tray:
             if self._window is not None:
                 self._window.hide()
             return False
@@ -569,15 +585,23 @@ class DesktopController:
         self.exit_application()
 
     def _on_minimized(self) -> None:
-        if self._app_settings.snapshot().minimize_to_tray and self._window is not None:
+        if (
+            self._app_settings.snapshot().window.minimize_to_tray
+            and self._window is not None
+        ):
             self._window.hide()
 
 
 def run_desktop_host(settings: Settings, frontend_url: str, *, auto_start: bool = True) -> None:
     import webview
 
-    backend = AsyncioBackendHost(settings, auto_start=auto_start)
     app_settings = AppSettingsStore(APP_SETTINGS_PATH)
+    settings_snapshot = app_settings.snapshot()
+    backend = AsyncioBackendHost(
+        settings,
+        auto_start=auto_start,
+        initial_ai_memory_enabled=settings_snapshot.ai.memory_enabled,
+    )
     controller: DesktopController | None = None
     try:
         backend.start()
@@ -590,7 +614,7 @@ def run_desktop_host(settings: Settings, frontend_url: str, *, auto_start: bool 
             width=1180,
             height=760,
             min_size=(900, 620),
-            hidden=app_settings.snapshot().start_minimized,
+            hidden=settings_snapshot.window.start_minimized,
             background_color="#0b0f17",
             text_select=True,
         )

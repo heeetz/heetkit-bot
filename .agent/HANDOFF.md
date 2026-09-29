@@ -7,8 +7,8 @@ transcript.
 
 - Branch: `main`.
 - Remote target: `origin/main`.
-- Latest completed product task before agent-context initialization:
-  `cafb873 docs: audit configuration ownership`.
+- Latest completed task: **TODO-003 — Consolidate ordinary local application settings**
+  (committed with this handoff).
 - Working application path: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
 - No active partially completed task exists.
 
@@ -22,26 +22,23 @@ transcript.
 - Normal window close, Tray Exit, and host teardown converge on the orderly shutdown path.
 - Commands use registry defaults, optional local overrides, and canonical `RuntimeState`
   effective values.
+- `data/app_settings.json` is schema version 1 with `window` and `ai` sections. It persists
+  window/tray behavior and AI-memory enablement while accepting the legacy flat window format.
 - Personality-specific overrides and active selection are local data; shared AI instructions
   remain protected source code.
 
 ## TODO position
 
-- Latest completed TODO: **TODO-002 — Audit and classify all user-configurable values**.
-- Expected next TODO: **TODO-003 — Consolidate ordinary local application settings**.
-- `docs/configuration-audit.md` is the source document for TODO-003 planning.
-- Do not start TODO-003 unless it is explicitly requested.
+- Latest completed TODO: **TODO-003 — Consolidate ordinary local application settings**.
+- Expected next TODO: **TODO-004 — Move built-in personalities from Python code to tracked data resources**.
+- Do not start TODO-004 unless it is explicitly requested.
 - A deferred **TODO-R1 architecture and reliability checkpoint** belongs after the current
   configuration/settings/UX work and before custom commands/triggers. It has not been run.
 
 ## Known issues and unfinished work
 
-- Ordinary non-secret settings are split across `.env`, root `config.py`, and
-  `data/app_settings.json`.
-- `.env` currently mixes secrets with non-secret account, model, logging, database, and
-  command-parser settings.
-- AI-memory enablement changed in the UI is runtime-only and returns to the code default after
-  restart.
+- Twitch identity, provider/model, logging, database, and command-parser settings remain in
+  `.env` pending their focused TODOs; `.env` still mixes secrets with these non-secret values.
 - AI enablement has one canonical owner (`ask` command settings) but different persistence UX
   between AI and Commands pages.
 - Tracked filter defaults are also the current manual customization surface.
@@ -54,15 +51,16 @@ transcript.
 
 - TODO-001 lifecycle work: `python -m compileall -q app tests` passed and
   `pytest -q tests/test_webview_host.py` passed with 19 tests.
+- TODO-003: `python -m compileall -q app tests` passed and the focused app-settings and
+  desktop-host test selection passed with 32 tests.
 - The last full Phase 3 suite passed with 119 tests; frontend typecheck/build and
   `python -m app.main --check` also passed at that milestone.
-- TODO-002 and the agent-context initialization are documentation-only; no executable behavior
-  was changed and no broad test suite is required.
 
 ## Migration state
 
 - The legacy desktop migration is complete: pywebview is the only GUI path.
-- Local command, personality, and desktop-setting JSON files intentionally remain separate
-  today. TODO-003 may consolidate ordinary app settings but must preserve command/personality
-  domain boundaries and backward-compatible behavior.
+- Local ordinary settings now use versioned `data/app_settings.json`. Version 1 has `window`
+  and `ai.memory_enabled`; a legacy flat window file is read safely and the next successful
+  save writes the versioned form.
+- Command and personality overrides intentionally remain in their dedicated JSON stores.
 - Local runtime files, databases, logs, frontend build output, `.env`, and tokens are ignored.

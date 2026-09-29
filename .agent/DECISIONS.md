@@ -93,6 +93,20 @@ definitions, and built-in resources remain developer-owned.
 Reason:
 Source rewriting is fragile, unsafe, and makes Reset and upgrades difficult.
 
+## Decision: Ordinary app settings use one versioned local file
+
+Status: Active
+
+Decision:
+Ordinary non-secret desktop preferences use the versioned `data/app_settings.json` file.
+Schema version 1 contains `window` settings and `ai.memory_enabled`; future ordinary sections
+may extend this model. Command and personality overrides remain separate domain stores.
+
+Reason:
+One evolvable local model avoids files per checkbox while preserving clear ownership and
+recoverable source defaults. Domain-specific override semantics do not belong in a generic
+settings file.
+
 ## Decision: Personality overrides cannot replace protected shared instructions
 
 Status: Active

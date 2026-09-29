@@ -71,15 +71,16 @@ Responsibility: one tray icon and window behavior per application process.
   so repeated starts do not create another icon.
 - Tray actions are Open, Start Bot/Stop Bot, and Exit. Start/Stop delegates to `WebUIBridge`;
   Exit reuses the orderly desktop shutdown path.
-- `AppSettingsStore` supplies start-minimized, minimize-to-tray, and close-to-tray behavior.
-  Start minimized controls only initial window visibility.
+- `AppSettingsStore` supplies the versioned local application settings. Its `window` section
+  owns start-minimized, minimize-to-tray, and close-to-tray behavior. Start minimized controls
+  only initial window visibility.
 
 ## RuntimeState
 
 Responsibility: thread-safe effective runtime state shared by commands, services, and UI.
 
 - `app/runtime_state.py` owns effective command settings, persisted-command metadata, AI
-  enablement (the canonical `ask` command state), AI-memory enablement, effective personality
+  enablement (the canonical `ask` command state), effective AI-memory enablement, personality
   selection/prompts, bot running state, Twitch connection state, and uptime/session timestamps.
 - It uses an `RLock` for cross-thread reads and updates.
 - Runtime-only Apply changes are distinct from saved overrides. React is never an independent
@@ -135,8 +136,8 @@ not disable unrelated commands.
 - Personality Apply is runtime-only, Save is persistent, and Reset restores the built-in text.
   Shared AI instructions are never sent to the editor.
 - `AIMemoryService` uses repository-backed SQLite storage and retains the configured number of
-  successful exchanges per Twitch user. AI memory enablement is currently runtime-only after
-  startup.
+  successful exchanges per Twitch user. AI memory enablement starts from the source default
+  overlaid by `data/app_settings.json`; UI changes persist there before updating RuntimeState.
 
 ## Twitch boundary
 
@@ -163,7 +164,7 @@ not disable unrelated commands.
 | Typed deployment settings | `app/config/settings.py`, loaded from `.env` | `.env` ignored; `.env.example` tracked |
 | Behavioral defaults and paths | root `config.py` | Tracked |
 | Built-in personalities/shared instructions | `app/config/personalities.py` | Tracked |
-| Desktop window/tray preferences | `data/app_settings.json` | Ignored local state |
+| Ordinary application preferences | Versioned `data/app_settings.json` (`window`, `ai`) | Ignored local state |
 | Command overrides | `data/command_settings.json` | Ignored local state |
 | Personality selection/overrides | `data/personality_settings.json` | Ignored local state |
 | Twitch OAuth tokens | `data/twitchio_tokens.json` or configured path | Ignored secret state |

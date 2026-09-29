@@ -412,7 +412,7 @@ def test_desktop_controller_hides_window_for_saved_tray_settings(tmp_path) -> No
     controller, backend, bridge, tray, store, window = build_desktop_controller(
         tmp_path
     )
-    store.update(
+    store.update_window(
         start_minimized=True,
         minimize_to_tray=True,
         close_to_tray=True,

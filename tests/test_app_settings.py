@@ -7,7 +7,14 @@ from typing import cast
 
 import pytest
 
-from app.app_settings import AppSettings, AppSettingsStore, load_app_settings
+from app.app_settings import (
+    APP_SETTINGS_VERSION,
+    AISettings,
+    AppSettings,
+    AppSettingsStore,
+    WindowSettings,
+    load_app_settings,
+)
 from app.webview_host import AsyncioBackendHost, WebUIBridge
 
 
@@ -25,9 +32,13 @@ def test_partial_and_invalid_app_settings_fall_back_individually(
     settings_path.write_text(
         json.dumps(
             {
-                "start_minimized": True,
-                "minimize_to_tray": "yes",
-                "close_to_tray": False,
+                "version": APP_SETTINGS_VERSION,
+                "window": {
+                    "start_minimized": True,
+                    "minimize_to_tray": "yes",
+                    "close_to_tray": False,
+                },
+                "ai": {"memory_enabled": "yes"},
             }
         ),
         encoding="utf-8",
@@ -36,8 +47,36 @@ def test_partial_and_invalid_app_settings_fall_back_individually(
     with caplog.at_level(logging.WARNING):
         settings = load_app_settings(settings_path)
 
-    assert settings == AppSettings(start_minimized=True)
-    assert "invalid desktop setting" in caplog.text
+    assert settings == AppSettings(window=WindowSettings(start_minimized=True))
+    assert "invalid application setting" in caplog.text
+
+
+def test_legacy_flat_window_settings_remain_compatible(tmp_path) -> None:
+    settings_path = tmp_path / "app_settings.json"
+    settings_path.write_text(
+        json.dumps(
+            {
+                "start_minimized": True,
+                "minimize_to_tray": True,
+                "close_to_tray": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert load_app_settings(settings_path) == AppSettings(
+        window=WindowSettings(start_minimized=True, minimize_to_tray=True)
+    )
+    store = AppSettingsStore(settings_path)
+    updated = store.update_ai_memory(enabled=False)
+
+    assert updated.window == WindowSettings(
+        start_minimized=True,
+        minimize_to_tray=True,
+    )
+    assert json.loads(settings_path.read_text(encoding="utf-8"))["version"] == (
+        APP_SETTINGS_VERSION
+    )
 
 
 @pytest.mark.parametrize("file_content", ["", "[]", "{not-json"])
@@ -51,18 +90,41 @@ def test_malformed_app_settings_file_does_not_block_startup(
     assert load_app_settings(settings_path) == AppSettings()
 
 
+def test_unknown_app_settings_version_uses_defaults(tmp_path) -> None:
+    settings_path = tmp_path / "app_settings.json"
+    settings_path.write_text(
+        json.dumps({"version": 99, "window": {"start_minimized": True}}),
+        encoding="utf-8",
+    )
+
+    assert load_app_settings(settings_path) == AppSettings()
+
+
 def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
     settings_path = tmp_path / "app_settings.json"
     store = AppSettingsStore(settings_path)
 
-    updated = store.update(
+    store.update_ai_memory(enabled=False)
+    updated = store.update_window(
         start_minimized=True,
         minimize_to_tray=True,
         close_to_tray=False,
     )
 
-    assert updated == AppSettings(start_minimized=True, minimize_to_tray=True)
+    assert updated == AppSettings(
+        window=WindowSettings(start_minimized=True, minimize_to_tray=True),
+        ai=AISettings(memory_enabled=False),
+    )
     assert AppSettingsStore(settings_path).snapshot() == updated
+    assert json.loads(settings_path.read_text(encoding="utf-8")) == {
+        "version": APP_SETTINGS_VERSION,
+        "window": {
+            "start_minimized": True,
+            "minimize_to_tray": True,
+            "close_to_tray": False,
+        },
+        "ai": {"memory_enabled": False},
+    }
     assert list(tmp_path.glob(".app_settings.json.*.tmp")) == []
 
 
@@ -75,7 +137,7 @@ def test_failed_app_settings_save_keeps_previous_state(tmp_path, monkeypatch) ->
     monkeypatch.setattr("app.app_settings.save_app_settings", fail_save)
 
     with pytest.raises(OSError, match="expected write failure"):
-        store.update(
+        store.update_window(
             start_minimized=True,
             minimize_to_tray=True,
             close_to_tray=True,
@@ -88,7 +150,7 @@ def test_app_settings_store_rejects_non_boolean_values(tmp_path) -> None:
     store = AppSettingsStore(tmp_path / "app_settings.json")
 
     with pytest.raises(ValueError, match="boolean"):
-        store.update(
+        store.update_window(
             start_minimized="true",
             minimize_to_tray=False,
             close_to_tray=False,
@@ -111,8 +173,66 @@ def test_bridge_reads_and_updates_desktop_settings(tmp_path) -> None:
         },
     }
     assert bridge.update_app_settings(True, True, False) == {"ok": True}
-    assert store.snapshot() == AppSettings(start_minimized=True, minimize_to_tray=True)
+    assert store.snapshot() == AppSettings(
+        window=WindowSettings(start_minimized=True, minimize_to_tray=True)
+    )
     assert bridge.update_app_settings("true", False, False) == {
         "ok": False,
-        "error": "Desktop settings must be boolean values.",
+        "error": "Application window settings must be boolean values.",
     }
+
+
+def test_bridge_persists_ai_memory_before_updating_runtime(tmp_path) -> None:
+    store = AppSettingsStore(tmp_path / "app_settings.json")
+    runtime_state = SimpleNamespace(ai_memory_enabled=True)
+    runtime_state.set_ai_memory_enabled = lambda enabled: setattr(
+        runtime_state,
+        "ai_memory_enabled",
+        enabled,
+    )
+    backend = SimpleNamespace(
+        application=SimpleNamespace(
+            services=SimpleNamespace(runtime_state=runtime_state)
+        )
+    )
+    bridge = WebUIBridge(
+        cast(AsyncioBackendHost, backend),
+        app_settings=store,
+    )
+
+    assert bridge.set_ai_memory_enabled(False) == {"ok": True}
+    assert runtime_state.ai_memory_enabled is False
+    assert store.snapshot().ai == AISettings(memory_enabled=False)
+
+
+def test_bridge_does_not_change_runtime_when_ai_memory_save_fails(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    store = AppSettingsStore(tmp_path / "app_settings.json")
+    runtime_state = SimpleNamespace(ai_memory_enabled=True)
+    runtime_state.set_ai_memory_enabled = lambda enabled: setattr(
+        runtime_state,
+        "ai_memory_enabled",
+        enabled,
+    )
+    backend = SimpleNamespace(
+        application=SimpleNamespace(
+            services=SimpleNamespace(runtime_state=runtime_state)
+        )
+    )
+    bridge = WebUIBridge(
+        cast(AsyncioBackendHost, backend),
+        app_settings=store,
+    )
+
+    def fail_update(**kwargs) -> None:
+        raise OSError("expected failure")
+
+    monkeypatch.setattr(store, "update_ai_memory", fail_update)
+
+    assert bridge.set_ai_memory_enabled(False) == {
+        "ok": False,
+        "error": "Could not save AI memory setting.",
+    }
+    assert runtime_state.ai_memory_enabled is True

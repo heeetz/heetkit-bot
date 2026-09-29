@@ -105,19 +105,24 @@ Secrets are separate and must not live in normal JSON configuration.
 
 ## TODO-003 — Consolidate ordinary local application settings
 
-- [ ] Introduce one cohesive versioned local settings model/file for ordinary non-secret app settings.
-- [ ] Avoid one JSON file per checkbox.
-- [ ] Keep command overrides separate if their existing dedicated store remains the cleaner boundary.
-- [ ] Candidate sections:
+- [x] Introduce one cohesive versioned local settings model/file for ordinary non-secret app settings.
+- [x] Avoid one JSON file per checkbox.
+- [x] Keep command overrides separate if their existing dedicated store remains the cleaner boundary.
+- [x] Candidate sections:
   - `window`
   - `twitch`
   - `ai`
   - `general`
-- [ ] Missing/malformed settings must safely fall back to source defaults.
-- [ ] Use atomic writes.
-- [ ] Local settings must be Git-ignored.
-- [ ] Do not store API keys, OAuth tokens, refresh tokens, or other credentials here.
-- [ ] Keep source-controlled defaults clearly separated from user overrides.
+- [x] Missing/malformed settings must safely fall back to source defaults.
+- [x] Use atomic writes.
+- [x] Local settings must be Git-ignored.
+- [x] Do not store API keys, OAuth tokens, refresh tokens, or other credentials here.
+- [x] Keep source-controlled defaults clearly separated from user overrides.
+
+`data/app_settings.json` schema version 1 now groups `window` preferences and the persisted
+AI-memory preference. Legacy flat window settings remain readable; command and personality
+overrides remain in their dedicated stores. Twitch/provider/general fields stay deferred to
+their focused TODOs.
 
 ---
 
