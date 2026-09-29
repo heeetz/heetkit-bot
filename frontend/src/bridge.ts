@@ -68,6 +68,20 @@ export interface AppSettingsResponse extends ActionResult {
   settings?: AppSettings
 }
 
+export type CredentialName = 'gemini_api_key' | 'twitch_client_secret'
+
+export interface CredentialInfo {
+  name: CredentialName
+  label: string
+  configured: boolean
+  source: 'credential_store' | 'environment' | 'missing'
+  secure_storage_available: boolean
+}
+
+export interface CredentialsResponse extends ActionResult {
+  credentials?: CredentialInfo[]
+}
+
 export interface LogEntry {
   id: number
   timestamp: string
@@ -96,6 +110,10 @@ interface PythonApi {
   reset_personality(personality: string): Promise<ActionResult>
   get_app_settings(): Promise<AppSettingsResponse>
   update_app_settings(startMinimized: boolean, minimizeToTray: boolean, closeToTray: boolean): Promise<ActionResult>
+  get_credentials(): Promise<CredentialsResponse>
+  replace_credential(name: CredentialName, value: string): Promise<ActionResult>
+  remove_credential(name: CredentialName): Promise<ActionResult>
+  test_credential(name: CredentialName): Promise<ActionResult>
   start_bot(): Promise<ActionResult>
   stop_bot(): Promise<ActionResult>
 }

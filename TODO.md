@@ -158,17 +158,22 @@ remain in ignored `data/personality_settings.json`.
 
 ## TODO-005 — Secure credential storage
 
-- [ ] Stop treating plaintext user-editable JSON as an acceptable future home for credentials.
-- [ ] Add an OS-backed credential abstraction suitable for Windows desktop use.
-- [ ] Prefer a small established solution such as the system credential store / `keyring`.
-- [ ] Store sensitive values such as:
+- [x] Stop treating plaintext user-editable JSON as an acceptable future home for credentials.
+- [x] Add an OS-backed credential abstraction suitable for Windows desktop use.
+- [x] Prefer a small established solution such as the system credential store / `keyring`.
+- [x] Store sensitive values such as:
   - Gemini/API provider keys;
   - user-entered Twitch secrets where applicable;
   - future provider credentials.
-- [ ] `.env` may remain a developer/backward-compatible fallback if useful.
-- [ ] UI must mask stored values.
-- [ ] Support Replace / Remove / Test where appropriate.
-- [ ] Never log credential values.
+- [x] `.env` may remain a developer/backward-compatible fallback if useful.
+- [x] UI must mask stored values.
+- [x] Support Replace / Remove / Test where appropriate.
+- [x] Never log credential values.
+
+Gemini API keys and Twitch client secrets can now be managed through the masked Settings UI
+and are stored through `keyring` in Windows Credential Manager. Secure values override `.env`
+on startup; `.env` remains a private fallback. Provider tests and logs never include secret
+values. TwitchIO's generated OAuth token cache remains library-managed local secret state.
 
 ---
 

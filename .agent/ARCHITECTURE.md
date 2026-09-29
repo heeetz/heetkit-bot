@@ -41,7 +41,7 @@ Responsibility: compose the native window with the existing Python application s
   `Application`, and owns one `BotRuntime`.
 - `WebUIBridge` exposes narrow application operations: status, bot start/stop, registered
   commands and command Apply/Save/Reset, AI status/toggles, personality Apply/Save/Reset,
-  app settings, and recent logs.
+  app settings, masked credential status/actions, and recent logs.
 - Async bot operations are submitted to the owning loop with
   `asyncio.run_coroutine_threadsafe`; raw Twitch, database, Gemini, and `RuntimeState` objects
   are not exposed to React.
@@ -124,8 +124,9 @@ Responsibility: policy and provider work remain in Python.
    the response, and applies the configured response-length limit.
 5. A successfully delivered response is saved to memory only if memory remains enabled.
 
-Gemini API key/model currently come from typed environment `Settings`. Provider failures do
-not disable unrelated commands.
+The Gemini model comes from typed environment `Settings`. The Gemini API key is resolved from
+Windows Credential Manager first, then the private `.env` fallback. Provider failures do not
+disable unrelated commands.
 
 ## Personalities and AI memory
 
@@ -159,11 +160,23 @@ not disable unrelated commands.
   separate bounded view; Clear affects only that view and does not delete persistent logs.
 - Secrets and authorization values must never be added to log messages.
 
+## Credential boundary
+
+- `app/credentials.py` wraps `keyring`; on Windows its supported backend is Windows Credential
+  Manager. It owns masked status, Replace/Remove, and provider-specific credential tests.
+- Supported secure entries are the Gemini API key and Twitch client secret. Secure values
+  overlay private `.env` fallbacks during startup and require restart after UI changes.
+- `WebUIBridge` exposes identifiers/status/results only. Credential values are accepted for
+  replacement but are never returned to React or included in application logs.
+- TwitchIO-generated OAuth access/refresh tokens remain in its configured ignored token file;
+  they are not ordinary settings or user-entered provider credentials.
+
 ## Configuration and persistence boundaries
 
 | Data | Source of truth / location | Git status |
 | --- | --- | --- |
-| Typed deployment settings | `app/config/settings.py`, loaded from `.env` | `.env` ignored; `.env.example` tracked |
+| Typed deployment settings | `app/config/settings.py`, loaded from environment/`.env` | `.env` ignored; `.env.example` tracked |
+| User-entered provider credentials | Windows Credential Manager via `app/credentials.py`; `.env` fallback | OS-backed/private, never ordinary JSON |
 | Behavioral defaults and paths | root `config.py` | Tracked |
 | Built-in personality prompts | `app/resources/personalities.json` | Tracked package data |
 | Protected shared AI instructions | `app/config/personalities.py` | Tracked application code |

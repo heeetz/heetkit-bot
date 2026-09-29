@@ -3,7 +3,22 @@
 import pytest
 from pydantic import ValidationError
 
-from app.config.settings import Settings
+from app.config.settings import Settings, load_settings_with_credentials
+from app.credentials import CREDENTIAL_SERVICE_NAME, CredentialStore
+
+
+class FakeKeyring:
+    def __init__(self, values: dict[tuple[str, str], str]) -> None:
+        self.values = values
+
+    def get_password(self, service_name: str, username: str) -> str | None:
+        return self.values.get((service_name, username))
+
+    def set_password(self, service_name: str, username: str, password: str) -> None:
+        self.values[(service_name, username)] = password
+
+    def delete_password(self, service_name: str, username: str) -> None:
+        del self.values[(service_name, username)]
 
 
 def valid_settings() -> dict[str, str]:
@@ -30,3 +45,40 @@ def test_settings_require_twitch_identity() -> None:
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None, **values)
+
+
+def test_secure_credentials_override_environment_fallbacks(monkeypatch) -> None:
+    for name, value in valid_settings().items():
+        monkeypatch.setenv(name.upper(), value)
+    monkeypatch.setenv("GEMINI_API_KEY", "environment-gemini")
+    backend = FakeKeyring(
+        {
+            (CREDENTIAL_SERVICE_NAME, "twitch_client_secret"): "secure-twitch",
+            (CREDENTIAL_SERVICE_NAME, "gemini_api_key"): "secure-gemini",
+        }
+    )
+
+    settings, _ = load_settings_with_credentials(
+        CredentialStore(backend),
+        env_file=None,
+    )
+
+    assert settings.twitch_client_secret.get_secret_value() == "secure-twitch"
+    assert settings.gemini_api_key is not None
+    assert settings.gemini_api_key.get_secret_value() == "secure-gemini"
+
+
+def test_empty_optional_environment_credential_is_treated_as_missing(monkeypatch) -> None:
+    for name, value in valid_settings().items():
+        monkeypatch.setenv(name.upper(), value)
+    monkeypatch.setenv("GEMINI_API_KEY", "")
+
+    settings, manager = load_settings_with_credentials(
+        CredentialStore(FakeKeyring({})),
+        env_file=None,
+    )
+
+    assert settings.gemini_api_key is None
+    gemini_status = manager.statuses()[0]
+    assert gemini_status.configured is False
+    assert gemini_status.source == "missing"

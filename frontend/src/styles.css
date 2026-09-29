@@ -90,12 +90,13 @@ td { color: #c6cfdf; }
 .personality-editor { min-height: 0; }
 .personality-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
 .form-field { display: grid; gap: 7px; color: #8290aa; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-.form-field select, .form-field textarea { border: 1px solid #344057; border-radius: 8px; padding: 10px 12px; color: #e9eef8; background: #0d131e; outline: none; }
-.form-field select:focus, .form-field textarea:focus { border-color: #7052c9; }
+.form-field select, .form-field textarea, .form-field input { border: 1px solid #344057; border-radius: 8px; padding: 10px 12px; color: #e9eef8; background: #0d131e; outline: none; }
+.form-field select:focus, .form-field textarea:focus, .form-field input:focus { border-color: #7052c9; }
 .personality-select { max-width: 300px; margin-bottom: 16px; }
 .form-field textarea { min-height: 330px; resize: vertical; font: 13px/1.55 "Cascadia Code", "SFMono-Regular", Consolas, monospace; text-transform: none; }
 .editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 14px; }
 .settings-page { max-width: 780px; }
+.settings-layout { display: grid; gap: 18px; max-width: 780px; }
 .settings-list { display: grid; gap: 10px; }
 .settings-option { display: flex; align-items: flex-start; gap: 13px; padding: 16px; border: 1px solid #2a354a; border-radius: 10px; background: #111722; cursor: pointer; }
 .settings-option input { flex: 0 0 auto; width: 18px; height: 18px; margin-top: 2px; accent-color: #7c4dff; }
@@ -103,6 +104,13 @@ td { color: #c6cfdf; }
 .settings-option strong { color: #dce4f2; }
 .settings-option small { margin-top: 4px; color: #8491a9; line-height: 1.45; }
 .settings-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+.credential-list { display: grid; gap: 12px; }
+.credential-row { padding: 16px; border: 1px solid #2a354a; border-radius: 10px; background: #111722; }
+.credential-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
+.credential-heading strong, .credential-heading small { display: block; }
+.credential-heading small { margin-top: 4px; color: #8491a9; }
+.credential-warning { color: #f0c66b; font-size: 13px; }
+.credential-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
 .logs-card { padding: 0; overflow: hidden; }
 .logs-card .section-heading { padding: 22px 22px 0; }
 .log-toolbar { display: flex; align-items: end; gap: 12px; padding: 0 22px 18px; }

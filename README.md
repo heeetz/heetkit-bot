@@ -82,7 +82,7 @@ Use `--stopped` when the desktop shell should open without automatically connect
 
 Configuration responsibilities remain separated:
 
-- `.env` contains deployment values, account identity, credentials, local paths, and logging settings. It is loaded by `app/config/settings.py` and must remain private.
+- `.env` contains deployment values, account identity, local paths, logging settings, and private credential fallbacks. It is loaded by `app/config/settings.py` and must remain private. Credentials stored through the Settings page in Windows Credential Manager take precedence on the next launch.
 - `config.py` contains non-secret behavioral defaults, including cooldowns, the Telegram message, AI response length, memory limits, and the active personality identifier. Built-in personality prompts live in the tracked `app/resources/personalities.json` resource; protected shared AI instructions remain application code in `app/config/personalities.py`.
 - `data/command_settings.json` contains optional local command overrides and is ignored by Git. Commands without overrides continue to use registry defaults.
 - `data/personality_settings.json` contains the locally selected AI personality and optional personality-specific prompt overrides. Shared AI instructions are not editable.
@@ -94,19 +94,22 @@ The environment variables supported by the current application are:
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `TWITCH_CLIENT_ID` | Yes | Twitch Developer application client ID. |
-| `TWITCH_CLIENT_SECRET` | Yes | Twitch Developer application client secret. |
+| `TWITCH_CLIENT_SECRET` | Yes* | Private `.env` fallback for the Twitch client secret; a Windows Credential Manager value may supply it instead. |
 | `TWITCH_BOT_USER_ID` | Yes | Numeric user ID of the bot account. |
 | `TWITCH_BOT_USERNAME` | Yes | Login name of the bot account. |
 | `TWITCH_CHANNEL_USER_ID` | Yes | Numeric user ID of the channel receiving the bot. |
 | `TWITCH_CHANNEL` | Yes | Channel login name. |
 | `TWITCH_TOKEN_FILE` | No | TwitchIO token storage; defaults to `data/twitchio_tokens.json`. |
-| `GEMINI_API_KEY` | No | Enables Gemini-backed `!ask` replies. |
+| `GEMINI_API_KEY` | No | Private `.env` fallback for Gemini; a Windows Credential Manager value takes precedence. |
 | `GEMINI_MODEL` | No | Gemini model; defaults to `gemini-3.5-flash-lite`. |
 | `AI_COOLDOWN_BYPASS_USER_ID` | No | One Twitch user ID allowed to bypass only the `!ask` cooldown. |
 | `DATABASE_URL` | No | SQLAlchemy URL; defaults to local SQLite at `data/twitch_bot.db`. |
 | `LOG_LEVEL` | No | `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
 | `COMMAND_PREFIX` | No | Command prefix; defaults to `!`. |
 | `COMMAND_MAX_ARGUMENTS_LENGTH` | No | Maximum command-argument length, from 1 to 450. |
+
+`TWITCH_CLIENT_SECRET` must be available from either Windows Credential Manager or the
+private environment/`.env` fallback.
 
 Global message filters live in `data/filters/`:
 
@@ -135,7 +138,7 @@ TwitchIO stores generated access and refresh tokens in `TWITCH_TOKEN_FILE`. The 
 
 ## AI setup
 
-Set `GEMINI_API_KEY` in `.env` to enable AI replies. `GEMINI_MODEL` defaults to `gemini-3.5-flash-lite` and can be overridden through the environment.
+Store the Gemini API key from the Settings page or set `GEMINI_API_KEY` in the private `.env` fallback to enable AI replies. `GEMINI_MODEL` defaults to `gemini-3.5-flash-lite` and can be overridden through the environment.
 
 `!ask` applies the local AI request policy before contacting Gemini. Requests involving current, changing, comparison, event, or named-opinion information can enable Google Search grounding. Provider responses then pass through the local response policy and configured response-length limit before delivery.
 
@@ -171,7 +174,7 @@ The AI page provides a runtime AI-command toggle, a persisted memory toggle, and
 
 Live logs use a thread-safe 500-entry backend buffer and a bounded 500-entry frontend view. Clearing the Logs page does not delete persistent logs or application state.
 
-The Settings page controls start minimized, minimize to tray, and close to tray. The pystray menu provides Open, dynamic Start Bot / Stop Bot, and Exit. Tray Exit and normal application shutdown reuse the same orderly backend lifecycle. The completed parity checklist is in `docs/desktop-feature-parity.md`.
+The Settings page controls start minimized, minimize to tray, and close to tray. It also shows masked credential status for the Gemini API key and Twitch client secret, with Replace, Remove, and provider Test actions. Values are never returned to React; changes use Windows Credential Manager and take effect after restart. The pystray menu provides Open, dynamic Start Bot / Stop Bot, and Exit. Tray Exit and normal application shutdown reuse the same orderly backend lifecycle. The completed parity checklist is in `docs/desktop-feature-parity.md`.
 
 ## Runtime data and privacy
 
@@ -180,6 +183,7 @@ Generated local files include:
 | Path | Classification | Share? |
 | --- | --- | --- |
 | `.env` and other local `.env.*` files | Secrets and machine-specific deployment configuration | Never |
+| Windows Credential Manager entries for service `twitch-bot` | Gemini API key and Twitch client secret | Not repository files |
 | `data/twitchio_tokens.json` or custom token path | Twitch access/refresh credentials | Never |
 | `data/twitch_bot.db` or other SQLite files | Local user activity and AI memory | Never |
 | `data/command_settings.json` | Local command overrides | Never |

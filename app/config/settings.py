@@ -1,9 +1,12 @@
 """Typed configuration loaded from the environment."""
 
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.credentials import CredentialManager, CredentialName, CredentialStore
 
 
 class TwitchAccountSettings(BaseSettings):
@@ -59,5 +62,48 @@ class Settings(BaseSettings):
         )
 
 
+class EnvironmentCredentialSettings(BaseSettings):
+    """Private `.env`/environment fallbacks for OS-backed credentials."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        env_prefix="",
+        extra="ignore",
+    )
+
+    twitch_client_secret: SecretStr | None = None
+    gemini_api_key: SecretStr | None = None
+
+
+def _read_environment_secret(value: SecretStr | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.get_secret_value().strip()
+    return normalized or None
+
+
+def load_settings_with_credentials(
+    credential_store: CredentialStore | None = None,
+    *,
+    env_file: str | Path | None = ".env",
+) -> tuple[Settings, CredentialManager]:
+    environment = EnvironmentCredentialSettings(_env_file=env_file)
+    manager = CredentialManager(
+        {
+            CredentialName.TWITCH_CLIENT_SECRET: _read_environment_secret(
+                environment.twitch_client_secret
+            ),
+            CredentialName.GEMINI_API_KEY: _read_environment_secret(
+                environment.gemini_api_key
+            ),
+        },
+        store=credential_store,
+    )
+    settings = Settings(_env_file=env_file, **manager.settings_overrides())
+    return settings, manager
+
+
 def load_settings() -> Settings:
-    return Settings()
+    settings, _ = load_settings_with_credentials()
+    return settings

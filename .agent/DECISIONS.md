@@ -126,8 +126,10 @@ Status: Active
 
 Decision:
 API keys, client secrets, and OAuth tokens must not be written to ordinary application JSON.
-Current `.env` support is a private developer/deployment mechanism; planned desktop credential
-storage must use an appropriate protected boundary.
+User-entered Gemini and Twitch client credentials use the OS keyring (Windows Credential
+Manager) and override the private `.env` developer/deployment fallback at startup. The UI may
+show source/configuration status but must never read credential values back. TwitchIO OAuth
+tokens remain in its ignored library-managed token cache.
 
 Reason:
 Ordinary settings are user-editable and portable; credentials require stricter storage and

@@ -16,8 +16,9 @@ from pydantic import ValidationError
 from app.app_settings import AppSettingsStore
 from app.bot_runtime import BotRuntime
 from app.command_settings import CommandSettings
-from app.config.settings import Settings, load_settings
+from app.config.settings import Settings, load_settings_with_credentials
 from app.container import Application, build_application
+from app.credentials import CredentialError, CredentialManager
 from app.system_tray import SystemTray
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
@@ -143,11 +144,13 @@ class WebUIBridge:
         backend: AsyncioBackendHost,
         log_buffer: RecentLogBuffer | None = None,
         app_settings: AppSettingsStore | None = None,
+        credential_manager: CredentialManager | None = None,
     ) -> None:
         self._backend = backend
         self._logger = get_logger("app.webview.bridge")
         self._log_buffer = log_buffer or get_recent_log_buffer()
         self._app_settings = app_settings
+        self._credential_manager = credential_manager
 
     def get_app_status(self) -> dict[str, object]:
         application = self._backend.application
@@ -450,6 +453,86 @@ class WebUIBridge:
         self._logger.info("Desktop application settings saved")
         return {"ok": True}
 
+    def get_credentials(self) -> dict[str, object]:
+        if self._credential_manager is None:
+            return {"ok": False, "error": "Credential storage is not configured."}
+        return {
+            "ok": True,
+            "credentials": [
+                status.serialize() for status in self._credential_manager.statuses()
+            ],
+        }
+
+    def replace_credential(self, name: object, value: object) -> dict[str, object]:
+        if self._credential_manager is None:
+            return {"ok": False, "error": "Credential storage is not configured."}
+        try:
+            parsed_name = self._credential_manager.parse_name(name)
+            self._credential_manager.replace(parsed_name.value, value)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except CredentialError as error:
+            self._logger.warning(
+                "Credential replacement failed name=%s error_type=%s",
+                name if isinstance(name, str) else "invalid",
+                type(error).__name__,
+            )
+            return {"ok": False, "error": str(error)}
+        self._logger.info("Credential replaced name=%s", parsed_name.value)
+        return {"ok": True}
+
+    def remove_credential(self, name: object) -> dict[str, object]:
+        if self._credential_manager is None:
+            return {"ok": False, "error": "Credential storage is not configured."}
+        try:
+            parsed_name = self._credential_manager.parse_name(name)
+            removed = self._credential_manager.remove(parsed_name.value)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except CredentialError as error:
+            self._logger.warning(
+                "Credential removal failed name=%s error_type=%s",
+                name if isinstance(name, str) else "invalid",
+                type(error).__name__,
+            )
+            return {"ok": False, "error": str(error)}
+        if removed:
+            self._logger.info("Credential removed name=%s", parsed_name.value)
+        return {"ok": True, "changed": removed}
+
+    def test_credential(self, name: object) -> dict[str, object]:
+        if self._credential_manager is None:
+            return {"ok": False, "error": "Credential storage is not configured."}
+        try:
+            parsed_name = self._credential_manager.parse_name(name)
+            application = self._backend.application
+            future = self._backend.submit(
+                self._credential_manager.test(
+                    parsed_name.value,
+                    http_client=application.http_client,
+                    twitch_client_id=application.settings.twitch_client_id,
+                )
+            )
+            future.result(timeout=15)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except CredentialError as error:
+            self._logger.warning(
+                "Credential test failed name=%s error_type=%s",
+                name if isinstance(name, str) else "invalid",
+                type(error).__name__,
+            )
+            return {"ok": False, "error": str(error)}
+        except Exception as error:
+            self._logger.warning(
+                "Credential test failed name=%s error_type=%s",
+                name if isinstance(name, str) else "invalid",
+                type(error).__name__,
+            )
+            return {"ok": False, "error": "Credential test failed."}
+        self._logger.info("Credential test passed name=%s", parsed_name.value)
+        return {"ok": True}
+
     def get_recent_logs(self, after_id: int = 0, limit: int = 200) -> dict[str, object]:
         safe_after_id = after_id if type(after_id) is int and after_id >= 0 else 0
         safe_limit = limit if type(limit) is int else 200
@@ -592,7 +675,13 @@ class DesktopController:
             self._window.hide()
 
 
-def run_desktop_host(settings: Settings, frontend_url: str, *, auto_start: bool = True) -> None:
+def run_desktop_host(
+    settings: Settings,
+    frontend_url: str,
+    *,
+    auto_start: bool = True,
+    credential_manager: CredentialManager | None = None,
+) -> None:
     import webview
 
     app_settings = AppSettingsStore(APP_SETTINGS_PATH)
@@ -605,7 +694,11 @@ def run_desktop_host(settings: Settings, frontend_url: str, *, auto_start: bool 
     controller: DesktopController | None = None
     try:
         backend.start()
-        bridge = WebUIBridge(backend, app_settings=app_settings)
+        bridge = WebUIBridge(
+            backend,
+            app_settings=app_settings,
+            credential_manager=credential_manager,
+        )
         controller = DesktopController(backend, bridge, app_settings)
         window = webview.create_window(
             "Twitch Bot",
@@ -649,13 +742,18 @@ def main() -> None:
     )
     arguments = parser.parse_args()
     try:
-        settings = load_settings()
+        settings, credential_manager = load_settings_with_credentials()
         configure_logging(settings.log_level)
         frontend_url = resolve_frontend_url(arguments.dev_url)
         if arguments.check:
             logging.getLogger("app.webview").info("Web desktop configuration check completed")
             return
-        run_desktop_host(settings, frontend_url, auto_start=not arguments.stopped)
+        run_desktop_host(
+            settings,
+            frontend_url,
+            auto_start=not arguments.stopped,
+            credential_manager=credential_manager,
+        )
     except (ValidationError, FileNotFoundError) as error:
         parser.error(str(error))
 
