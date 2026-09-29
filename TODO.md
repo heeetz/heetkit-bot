@@ -239,16 +239,16 @@ remain in Windows Credential Manager with the private `.env` fallback.
 
 ## TODO-008 — Make settings behaviour obvious to users
 
-- [ ] Clearly communicate whether each setting:
+- [x] Clearly communicate whether each setting:
   - applies immediately;
   - applies to the next AI request;
   - requires Twitch reconnect;
   - requires application restart.
-- [ ] Prefer auto-save for simple app settings such as tray/window toggles.
-- [ ] Keep `Apply / Save / Reset` where runtime-vs-persistent distinction is genuinely useful, such as command settings and personality editing.
-- [ ] Add concise success/error feedback (toast/status).
-- [ ] Avoid fake controls or settings that are not wired.
-- [ ] Keep Settings grouped into understandable sections rather than one long undifferentiated page.
+- [x] Prefer auto-save for simple app settings such as tray/window toggles.
+- [x] Keep `Apply / Save / Reset` where runtime-vs-persistent distinction is genuinely useful, such as command settings and personality editing.
+- [x] Add concise success/error feedback (toast/status).
+- [x] Avoid fake controls or settings that are not wired.
+- [x] Keep Settings grouped into understandable sections rather than one long undifferentiated page.
 
 Suggested structure:
 
@@ -262,6 +262,12 @@ Settings
 ```
 
 Keep the full personality editor on its own AI/personality page rather than stuffing it into general settings.
+
+Window/tray toggles now auto-save with explicit immediate-versus-next-launch guidance. Action
+feedback uses dismissible viewport-fixed toasts, so it stays visible while content scrolls.
+Gemini presets/discovered models use real select controls with a separate custom-ID path. The
+desktop sidebar remains fixed while the main content pane scrolls; command/personality
+Apply/Save/Reset semantics remain unchanged.
 
 ---
 

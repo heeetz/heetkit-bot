@@ -7,7 +7,7 @@ transcript.
 
 - Branch: `main`.
 - Remote target: `origin/main`.
-- Latest completed task: **TODO-007 — Add AI provider/model configuration**
+- Latest completed task: **TODO-008 — Make settings behaviour obvious to users**
   (committed with this handoff).
 - Working application path: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
 - No active partially completed task exists.
@@ -37,12 +37,16 @@ transcript.
 - The Settings page exposes Google Gemini provider/model configuration using tracked backend
   presets, optional provider discovery, and custom IDs. Model changes apply to the next AI
   request; only model-not-found responses use the configured fallback.
+- Window/tray toggles auto-save with clear effect timing. Dismissible feedback toasts remain
+  visible while the independently scrolling main pane moves; the desktop sidebar stays fixed.
+- Gemini model choices are native selects populated from backend presets/discovery, with a
+  separate input shown only for a custom model ID.
 
 ## TODO position
 
-- Latest completed TODO: **TODO-007 — Add AI provider/model configuration**.
-- Expected next TODO: **TODO-008 — Make settings behaviour obvious to users**.
-- Do not start TODO-008 unless it is explicitly requested.
+- Latest completed TODO: **TODO-008 — Make settings behaviour obvious to users**.
+- Expected next TODO: **TODO-R1 — Review project structure and reliability**.
+- Do not start TODO-R1 or TODO-009 unless explicitly requested.
 - A deferred **TODO-R1 architecture and reliability checkpoint** belongs after the current
   configuration/settings/UX work and before custom commands/triggers. It has not been run.
 
@@ -54,8 +58,8 @@ transcript.
 - AI enablement has one canonical owner (`ask` command settings) but different persistence UX
   between AI and Commands pages.
 - Tracked filter defaults are also the current manual customization surface.
-- Twitch/AI settings UX beyond credential management, filters UI, custom commands, triggers,
-  standalone packaging, and releases remain unfinished TODO work.
+- Filters UI, custom commands, triggers, standalone packaging, and releases remain unfinished
+  TODO work.
 
 ## Recent validation
 
@@ -71,6 +75,8 @@ transcript.
   credential tests passed; frontend typecheck and production build passed.
 - TODO-007: `python -m compileall -q app tests` passed; 65 focused settings/Gemini/bridge/
   credential tests passed; frontend typecheck and production build passed.
+- TODO-008: frontend typecheck and production build passed. No Python code changed, so Python
+  tests were not rerun.
 - The last full Phase 3 suite passed with 119 tests; frontend typecheck/build and
   `python -m app.main --check` also passed at that milestone.
 

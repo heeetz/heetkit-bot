@@ -7,6 +7,7 @@ import {
 import CommandsPage from './pages/CommandsPage'
 import AIPage from './pages/AIPage'
 import SettingsPage from './pages/SettingsPage'
+import FeedbackToast from './components/FeedbackToast'
 import './styles.css'
 
 const sections = ['Dashboard', 'Commands', 'AI', 'Logs', 'Settings'] as const
@@ -226,7 +227,7 @@ export default function App() {
       </aside>
       <main>
         <header><div><p className="eyebrow">CONTROL CENTER</p><h1>{section}</h1></div></header>
-        {error && <div className="error-banner">{error}</div>}
+        <FeedbackToast error={error} onDismiss={() => setError('')} />
         {section === 'Dashboard' && <Dashboard status={status} busy={actionBusy} onChangeState={(shouldRun) => void changeBotState(shouldRun)} />}
         <div hidden={section !== 'Commands'}><CommandsPage active={section === 'Commands'} /></div>
         <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} /></div>

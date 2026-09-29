@@ -5,12 +5,71 @@ import {
   type AppSettings,
   type CredentialInfo,
   type CredentialName,
+  type GeminiModelPreset,
   type TwitchConnectionSettings,
   waitForBridge,
 } from '../bridge'
+import FeedbackToast from '../components/FeedbackToast'
 
 interface SettingsPageProps {
   active: boolean
+}
+
+const CUSTOM_MODEL_VALUE = '__custom_model__'
+
+function ModelSelector({
+  label,
+  value,
+  presets,
+  discoveredModels,
+  onChange,
+  help,
+}: {
+  label: string
+  value: string
+  presets: GeminiModelPreset[]
+  discoveredModels: string[]
+  onChange: (value: string) => void
+  help: string
+}) {
+  const presetById = new Map(presets.map((preset) => [preset.id, preset]))
+  const choices = Array.from(new Set([
+    ...presets.map((preset) => preset.id),
+    ...discoveredModels,
+  ]))
+  const usesCustomValue = !choices.includes(value)
+
+  return (
+    <div className="model-selector">
+      <label className="form-field">
+        {label}
+        <select
+          value={usesCustomValue ? CUSTOM_MODEL_VALUE : value}
+          onChange={(event) => onChange(
+            event.target.value === CUSTOM_MODEL_VALUE ? '' : event.target.value,
+          )}
+        >
+          {choices.map((model) => (
+            <option key={model} value={model}>
+              {presetById.has(model) ? `${presetById.get(model)!.label} — ${model}` : model}
+            </option>
+          ))}
+          <option value={CUSTOM_MODEL_VALUE}>Custom model ID…</option>
+        </select>
+        <small>{help}</small>
+      </label>
+      {usesCustomValue && (
+        <label className="form-field custom-model-field">
+          Custom model ID
+          <input
+            value={value}
+            placeholder="gemini-model-id"
+            onChange={(event) => onChange(event.target.value)}
+          />
+        </label>
+      )}
+    </div>
+  )
 }
 
 export default function SettingsPage({ active }: SettingsPageProps) {
@@ -57,10 +116,7 @@ export default function SettingsPage({ active }: SettingsPageProps) {
           throw new Error(aiResponse.error ?? 'AI provider settings are unavailable.')
         }
         if (mounted) {
-          setDraft((current) => {
-            const dirty = current && saved && JSON.stringify(current) !== JSON.stringify(saved)
-            return dirty ? current : response.settings!
-          })
+          setDraft(response.settings)
           setSaved(response.settings)
           setCredentials(credentialResponse.credentials)
           setTwitchDraft((current) => {
@@ -89,31 +145,33 @@ export default function SettingsPage({ active }: SettingsPageProps) {
     return () => { mounted = false }
   }, [active])
 
-  const updateDraft = (values: Partial<AppSettings>) => {
-    setDraft((current) => current ? { ...current, ...values } : current)
-    setNotice('')
-  }
-
-  const save = async () => {
+  const updateWindowSettings = async (
+    values: Partial<AppSettings>,
+    successMessage: string,
+  ) => {
     if (!draft) {
       return
     }
+    const previous = saved ?? draft
+    const updated = { ...draft, ...values }
+    setDraft(updated)
     setBusy('settings')
     setError('')
     setNotice('')
     try {
       const api = await waitForBridge()
       const result = await api.update_app_settings(
-        draft.start_minimized,
-        draft.minimize_to_tray,
-        draft.close_to_tray,
+        updated.start_minimized,
+        updated.minimize_to_tray,
+        updated.close_to_tray,
       )
       if (!result.ok) {
         throw new Error(result.error ?? 'Desktop settings could not be saved.')
       }
-      setSaved(draft)
-      setNotice('Desktop settings saved.')
+      setSaved(updated)
+      setNotice(successMessage)
     } catch (reason) {
+      setDraft(previous)
       setError(reason instanceof Error ? reason.message : 'Desktop settings could not be saved.')
     } finally {
       setBusy('')
@@ -122,6 +180,7 @@ export default function SettingsPage({ active }: SettingsPageProps) {
 
   const updateTwitchDraft = (values: Partial<TwitchConnectionSettings>) => {
     setTwitchDraft((current) => current ? { ...current, ...values } : current)
+    setError('')
     setNotice('')
   }
 
@@ -220,6 +279,7 @@ export default function SettingsPage({ active }: SettingsPageProps) {
 
   const updateAiDraft = (values: Partial<AIProviderSettings>) => {
     setAiDraft((current) => current ? { ...current, ...values } : current)
+    setError('')
     setNotice('')
   }
 
@@ -279,9 +339,6 @@ export default function SettingsPage({ active }: SettingsPageProps) {
     }
   }
 
-  const dirty = Boolean(
-    draft && saved && JSON.stringify(draft) !== JSON.stringify(saved),
-  )
   const twitchDirty = Boolean(
     twitchDraft && twitchSaved
       && (twitchDraft.target_channel !== twitchSaved.target_channel
@@ -300,14 +357,13 @@ export default function SettingsPage({ active }: SettingsPageProps) {
   )
     ?? aiDraft?.credential
     ?? null
-  const modelOptions = Array.from(new Set([
-    ...(aiDraft?.presets.map((preset) => preset.id) ?? []),
-    ...discoveredModels,
-    ...(aiDraft ? [aiDraft.selected_model, aiDraft.fallback_model] : []),
-  ].filter(Boolean))).sort()
-
   return (
     <div className="settings-layout">
+      <FeedbackToast
+        error={error}
+        notice={notice}
+        onDismiss={() => { setError(''); setNotice('') }}
+      />
       <section className="card settings-page">
         <div className="section-heading">
           <div>
@@ -315,27 +371,22 @@ export default function SettingsPage({ active }: SettingsPageProps) {
             <h2>Window and tray behavior</h2>
             <p className="section-copy">These settings are local to this computer.</p>
           </div>
-          {dirty && <span className="mini-badge dirty-badge">Edited</span>}
+          <span className="mini-badge saved-badge">Auto-saved</span>
         </div>
-        {error && <div className="inline-error">{error}</div>}
-        {notice && <div className="inline-success">{notice}</div>}
         {!draft ? <p className="muted">Loading desktop settings…</p> : (
           <div className="settings-list">
             <label className="settings-option">
-              <input type="checkbox" checked={draft.start_minimized} onChange={(event) => updateDraft({ start_minimized: event.target.checked })} />
-              <span><strong>Start minimized</strong><small>Start with the window hidden and the tray icon available. Takes effect on next launch.</small></span>
+              <input type="checkbox" checked={draft.start_minimized} disabled={Boolean(busy)} onChange={(event) => void updateWindowSettings({ start_minimized: event.target.checked }, 'Start-minimized preference saved for the next launch.')} />
+              <span><strong>Start minimized</strong><small>Saved automatically. Takes effect on the next application launch.</small></span>
             </label>
             <label className="settings-option">
-              <input type="checkbox" checked={draft.minimize_to_tray} onChange={(event) => updateDraft({ minimize_to_tray: event.target.checked })} />
-              <span><strong>Minimize to tray</strong><small>Hide the window when it is minimized while keeping the bot running.</small></span>
+              <input type="checkbox" checked={draft.minimize_to_tray} disabled={Boolean(busy)} onChange={(event) => void updateWindowSettings({ minimize_to_tray: event.target.checked }, 'Minimize-to-tray behavior saved and active.')} />
+              <span><strong>Minimize to tray</strong><small>Saved automatically and applies immediately when the window is minimized.</small></span>
             </label>
             <label className="settings-option">
-              <input type="checkbox" checked={draft.close_to_tray} onChange={(event) => updateDraft({ close_to_tray: event.target.checked })} />
-              <span><strong>Close to tray</strong><small>Hide the window instead of exiting when the close button is used.</small></span>
+              <input type="checkbox" checked={draft.close_to_tray} disabled={Boolean(busy)} onChange={(event) => void updateWindowSettings({ close_to_tray: event.target.checked }, 'Close-to-tray behavior saved and active.')} />
+              <span><strong>Close to tray</strong><small>Saved automatically and applies immediately when the close button is used.</small></span>
             </label>
-            <div className="settings-actions">
-              <button className="primary" disabled={!dirty || Boolean(busy)} onClick={() => void save()}>{busy === 'settings' ? 'Saving…' : 'Save settings'}</button>
-            </div>
           </div>
         )}
       </section>
@@ -355,29 +406,23 @@ export default function SettingsPage({ active }: SettingsPageProps) {
               <div><span>Provider</span><strong>{aiDraft.provider}</strong></div>
               <div><span>Credential</span><strong className={geminiCredential?.configured ? 'status-good' : ''}>{geminiCredential?.configured ? 'Configured' : 'Missing'}</strong></div>
             </div>
-            <datalist id="gemini-model-options">
-              {modelOptions.map((model) => <option key={model} value={model} />)}
-            </datalist>
             <div className="model-fields">
-              <label className="form-field">
-                Selected model
-                <input list="gemini-model-options" value={aiDraft.selected_model} onChange={(event) => updateAiDraft({ selected_model: event.target.value })} />
-                <small>Used for normal Gemini requests.</small>
-              </label>
-              <label className="form-field">
-                Fallback model
-                <input list="gemini-model-options" value={aiDraft.fallback_model} onChange={(event) => updateAiDraft({ fallback_model: event.target.value })} />
-                <small>Used only when the selected model is unavailable or unsupported.</small>
-              </label>
-            </div>
-            <div className="model-preset-list">
-              {aiDraft.presets.map((preset) => (
-                <div key={preset.id}>
-                  <strong>{preset.label}</strong>
-                  <code>{preset.id}</code>
-                  <small>{preset.description}</small>
-                </div>
-              ))}
+              <ModelSelector
+                label="Selected model"
+                value={aiDraft.selected_model}
+                presets={aiDraft.presets}
+                discoveredModels={discoveredModels}
+                onChange={(selected_model) => updateAiDraft({ selected_model })}
+                help="Saved model changes apply to the next AI request."
+              />
+              <ModelSelector
+                label="Fallback model"
+                value={aiDraft.fallback_model}
+                presets={aiDraft.presets}
+                discoveredModels={discoveredModels}
+                onChange={(fallback_model) => updateAiDraft({ fallback_model })}
+                help="Used only when the selected model is unavailable or unsupported."
+              />
             </div>
             <div className="settings-actions">
               <button className="secondary" disabled={Boolean(busy) || !geminiCredential?.configured} onClick={() => void runCredentialAction('gemini_api_key', 'test')}>{busy === 'gemini_api_key:test' ? 'Testing…' : 'Test credential'}</button>
@@ -398,7 +443,7 @@ export default function SettingsPage({ active }: SettingsPageProps) {
           </div>
           {twitchDirty && <span className="mini-badge dirty-badge">Edited</span>}
         </div>
-        {!twitchDraft ? <p className="muted">Loading Twitch settingsâ€¦</p> : (
+        {!twitchDraft ? <p className="muted">Loading Twitch settings…</p> : (
           <div className="settings-list">
             <div className="twitch-status-grid">
               <div><span>Connection</span><strong className={twitchDraft.connected ? 'status-good' : ''}>{twitchDraft.connected ? 'Connected' : twitchDraft.running ? 'Connecting / authorization required' : 'Stopped'}</strong></div>
@@ -418,8 +463,8 @@ export default function SettingsPage({ active }: SettingsPageProps) {
               <small>The numeric Twitch broadcaster ID used for chat subscriptions and API lookups.</small>
             </label>
             <div className="settings-actions">
-              <button className="secondary" disabled={!twitchDirty || Boolean(busy)} onClick={() => void saveTwitch(false)}>{busy === 'twitch:save' ? 'Savingâ€¦' : 'Save for later'}</button>
-              <button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch(true)}>{busy === 'twitch:reconnect' ? 'Reconnectingâ€¦' : twitchDraft.running ? 'Save & reconnect' : 'Save & apply'}</button>
+              <button className="secondary" disabled={!twitchDirty || Boolean(busy)} onClick={() => void saveTwitch(false)}>{busy === 'twitch:save' ? 'Saving…' : 'Save for later'}</button>
+              <button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch(true)}>{busy === 'twitch:reconnect' ? 'Reconnecting…' : twitchDraft.running ? 'Save & reconnect' : 'Save & apply'}</button>
             </div>
             <p className="settings-hint">Bot identity and OAuth authorization continue to use the existing startup configuration and Twitch flow. Secure credential changes require an application restart.</p>
           </div>
@@ -458,7 +503,11 @@ export default function SettingsPage({ active }: SettingsPageProps) {
                     autoComplete="off"
                     value={credentialDrafts[credential.name]}
                     placeholder={credential.configured ? 'Enter a replacement' : 'Enter credential'}
-                    onChange={(event) => setCredentialDrafts((current) => ({ ...current, [credential.name]: event.target.value }))}
+                    onChange={(event) => {
+                      setCredentialDrafts((current) => ({ ...current, [credential.name]: event.target.value }))
+                      setError('')
+                      setNotice('')
+                    }}
                   />
                 </label>
                 <div className="credential-actions">

@@ -6,6 +6,7 @@ import {
   type CommandsResponse,
   waitForBridge,
 } from '../bridge'
+import FeedbackToast from '../components/FeedbackToast'
 
 interface CommandDraft {
   enabled: boolean
@@ -102,6 +103,7 @@ export default function CommandsPage({ active }: CommandsPageProps) {
       ...current,
       [commandName]: { ...current[commandName], ...values },
     }))
+    setError('')
     setNotice('')
   }
 
@@ -166,6 +168,11 @@ export default function CommandsPage({ active }: CommandsPageProps) {
 
   return (
     <section className="card command-editor-card">
+      <FeedbackToast
+        error={error}
+        notice={notice}
+        onDismiss={() => { setError(''); setNotice('') }}
+      />
       <div className="section-heading">
         <div>
           <p className="label">REGISTERED COMMANDS</p>
@@ -174,8 +181,6 @@ export default function CommandsPage({ active }: CommandsPageProps) {
         </div>
         <span className="read-only-badge">Registry driven</span>
       </div>
-      {error && <div className="inline-error">{error}</div>}
-      {notice && <div className="inline-success">{notice}</div>}
       {!data ? <p className="muted">Loading command registry…</p> : (
         <div className="command-list">
           {data.commands.map((command) => {

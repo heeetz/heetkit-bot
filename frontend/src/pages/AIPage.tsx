@@ -6,6 +6,7 @@ import {
   type PersonalitiesResponse,
   waitForBridge,
 } from '../bridge'
+import FeedbackToast from '../components/FeedbackToast'
 
 interface AIPageProps {
   active: boolean
@@ -140,8 +141,11 @@ export default function AIPage({ active }: AIPageProps) {
 
   return (
     <section className="ai-layout">
-      {error && <div className="error-banner">{error}</div>}
-      {notice && <div className="success-banner">{notice}</div>}
+      <FeedbackToast
+        error={error}
+        notice={notice}
+        onDismiss={() => { setError(''); setNotice('') }}
+      />
       <div className="ai-status-grid">
         <article className="card compact-card">
           <p className="label">AI command</p>
@@ -149,6 +153,7 @@ export default function AIPage({ active }: AIPageProps) {
             <input type="checkbox" checked={status?.enabled ?? false} disabled={!status || Boolean(busy)} onChange={(event) => void changeToggle('enabled', event.target.checked)} />
             <span>{status?.enabled ? 'Enabled' : 'Disabled'}</span>
           </label>
+          <p className="setting-effect">Applies immediately for this session. Save the Ask command on the Commands page to persist it.</p>
         </article>
         <article className="card compact-card">
           <p className="label">Conversation memory</p>
@@ -156,6 +161,7 @@ export default function AIPage({ active }: AIPageProps) {
             <input type="checkbox" checked={status?.memory_enabled ?? false} disabled={!status || Boolean(busy)} onChange={(event) => void changeToggle('memory', event.target.checked)} />
             <span>{status?.memory_enabled ? 'Enabled' : 'Disabled'}</span>
           </label>
+          <p className="setting-effect">Applies immediately and is saved across restarts.</p>
         </article>
         <article className="card compact-card">
           <p className="label">Gemini model</p>
@@ -182,7 +188,7 @@ export default function AIPage({ active }: AIPageProps) {
         </div>
         <label className="form-field personality-select">
           Personality
-          <select value={selected} onChange={(event) => { setSelected(event.target.value); setNotice('') }}>
+          <select value={selected} onChange={(event) => { setSelected(event.target.value); setError(''); setNotice('') }}>
             {data?.personalities.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
           </select>
         </label>
@@ -194,6 +200,7 @@ export default function AIPage({ active }: AIPageProps) {
             disabled={!personality}
             onChange={(event) => {
               setDrafts((current) => ({ ...current, [selected]: event.target.value }))
+              setError('')
               setNotice('')
             }}
           />
