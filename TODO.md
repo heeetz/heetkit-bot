@@ -275,38 +275,38 @@ Apply/Save/Reset semantics remain unchanged.
 
 ## TODO-R1 — Review project structure and reliability
 
-- [ ] Re-evaluate the current folder/file structure after the configuration/UI work settles.
-- [ ] Identify files/modules that are:
+- [x] Re-evaluate the current folder/file structure after the configuration/UI work settles.
+- [x] Identify files/modules that are:
   - obsolete;
   - unused;
   - duplicated;
   - unnecessarily fragmented;
   - in an unclear package/location.
-- [ ] Review whether responsibilities still have obvious homes.
-- [ ] Check for unnecessary wrappers/forwarding layers.
-- [ ] Check for circular or awkward dependency direction.
-- [ ] Check lifecycle reliability:
+- [x] Review whether responsibilities still have obvious homes.
+- [x] Check for unnecessary wrappers/forwarding layers.
+- [x] Check for circular or awkward dependency direction.
+- [x] Check lifecycle reliability:
   - startup;
   - shutdown;
   - reconnect;
   - tray/window lifecycle;
   - background threads;
   - asyncio boundaries.
-- [ ] Review persistence robustness:
+- [x] Review persistence robustness:
   - malformed local settings;
   - atomic writes;
   - stale overrides;
   - reset behavior;
   - missing files.
-- [ ] Review external-service failure behavior:
+- [x] Review external-service failure behavior:
   - Twitch;
   - Gemini;
   - weather/other APIs.
-- [ ] Review logging/error handling.
-- [ ] Review security boundaries and accidental secret exposure.
-- [ ] Review whether tests cover important failure/lifecycle paths.
-- [ ] Review dead dependencies and package declarations.
-- [ ] Produce concrete cleanup recommendations before modifying architecture.
+- [x] Review logging/error handling.
+- [x] Review security boundaries and accidental secret exposure.
+- [x] Review whether tests cover important failure/lifecycle paths.
+- [x] Review dead dependencies and package declarations.
+- [x] Produce concrete cleanup recommendations before modifying architecture.
 - [ ] Implement only high-confidence cleanup in separate commits after the audit.
 
 Important:
@@ -320,6 +320,11 @@ unnecessary indirections.
 
 Do not perform this review until the preceding configuration/settings work is substantially
 complete.
+
+Audit completed in `docs/architecture-reliability-checkpoint.md`. The report records prioritized
+lifecycle, filter-loading, reconnect, concurrency, provider-lifetime, packaging, and
+regression-coverage follow-ups, plus boundaries that should remain unchanged. Resolve or
+explicitly accept those findings before release work.
 
 ---
 
