@@ -14,9 +14,10 @@ below need focused tasks and regression tests.
 
 These are small, isolated candidates suitable for separate commits.
 
-1. **Remove the duplicate tray menu refresh.** `DesktopController.toggle_bot()` refreshes the
-   tray menu, and `SystemTray._handle_toggle()` refreshes it again after invoking that callback.
-   Keep one refresh and cover the adapter callback with a focused test.
+1. **Completed separately: remove the duplicate tray menu refresh.**
+   `DesktopController.toggle_bot()` remains responsible for refreshing the tray menu;
+   `SystemTray._handle_toggle()` now dispatches the callback without refreshing it a second
+   time. A focused adapter/controller test verifies one refresh.
 2. **Validate filter regular expressions when loading them.** The loader's `try` block cannot
    currently detect an invalid expression because `FilterManager.add_blocked_pattern()` stores
    raw text without compiling it. Invalid patterns are then retried and silently skipped for
@@ -265,5 +266,5 @@ failure, and controller-level tray/window behavior already have focused regressi
 5. Select a supported Gemini SDK baseline and fix client lifetime (R7).
 6. Add a single-instance policy before standalone distribution (R2).
 7. Address first-run configuration and safe diagnostics (R8/R9).
-8. Perform the small cleanup candidates in focused commits, and resolve or explicitly accept
-   remaining findings before TODO-012/TODO-013 declares the project release-ready.
+8. Perform the remaining small cleanup candidates in focused commits, and resolve or explicitly
+   accept remaining findings before TODO-012/TODO-013 declares the project release-ready.

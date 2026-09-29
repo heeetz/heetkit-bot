@@ -7,7 +7,7 @@ transcript.
 
 - Branch: `main`.
 - Remote target: `origin/main`.
-- Latest completed task: **TODO-008 — Make settings behaviour obvious to users**
+- Latest completed task: **TODO-R1 — Architecture & reliability checkpoint**
   (committed with this handoff).
 - Working application path: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
 - No active partially completed task exists.
@@ -44,22 +44,28 @@ transcript.
 
 ## TODO position
 
-- Latest completed TODO: **TODO-008 — Make settings behaviour obvious to users**.
-- Expected next TODO: **TODO-R1 — Review project structure and reliability**.
-- Do not start TODO-R1 or TODO-009 unless explicitly requested.
-- A deferred **TODO-R1 architecture and reliability checkpoint** belongs after the current
-  configuration/settings/UX work and before custom commands/triggers. It has not been run.
+- Latest completed TODO: **TODO-R1 — Architecture & reliability checkpoint**.
+- The next numbered product item is **TODO-009 — Configurable simple commands**, but start it
+  only when explicitly requested.
+- The completed checkpoint is `docs/architecture-reliability-checkpoint.md`. Its high-priority
+  reliability findings should be fixed in focused tasks or explicitly accepted before release.
 
 ## Known issues and unfinished work
 
-- Twitch application/bot identity, logging, database, and command-parser settings remain in
-  `.env` pending their focused TODOs; `.env` still mixes secrets with these non-secret values.
-  Target-channel and Gemini model overrides are now ordinary local settings.
-- AI enablement has one canonical owner (`ask` command settings) but different persistence UX
-  between AI and Commands pages.
-- Tracked filter defaults are also the current manual customization surface.
-- Filters UI, custom commands, triggers, standalone packaging, and releases remain unfinished
-  TODO work.
+- Backend shutdown timeout handling can stop the loop while shutdown is still pending and can
+  leave a hidden non-daemon process; it needs a focused lifecycle fix and real host tests.
+- Multiple application launches are not prevented and can contend for Twitch, SQLite, tokens,
+  OAuth port 4343, and local JSON stores.
+- Filter loading catches I/O failures despite startup intending to fail safely, and invalid
+  regexes are not validated at load time.
+- TwitchIO owns normal reconnect, but reconnect-state restoration and terminal-failure recovery
+  lack focused coverage; bridge timeout/late-completion behavior is also untested.
+- Gemini clients are created per operation without an explicit lifetime. The installed
+  `google-genai 0.8.0` API has no public close method, so the dependency baseline and ownership
+  should be addressed together.
+- Required Twitch configuration is validated before the desktop UI opens, so first-run recovery
+  still depends on `.env`/credential setup outside the UI.
+- Filters UI, custom commands, triggers, standalone packaging, and releases remain unfinished.
 
 ## Recent validation
 
@@ -77,6 +83,11 @@ transcript.
   credential tests passed; frontend typecheck and production build passed.
 - TODO-008: frontend typecheck and production build passed. No Python code changed, so Python
   tests were not rerun.
+- TODO-R1: source/dependency/security review completed; `pip check` reported no broken
+  requirements, all 158 Python tests passed, and `python -m compileall -q app tests` passed.
+  The suite emitted dependency deprecation warnings for TwitchIO/aiohttp and `pytest-asyncio`;
+  no frontend code changed. A separate focused cleanup removed the duplicate tray-menu refresh
+  and its 26 desktop-host tests plus the compile check passed.
 - The last full Phase 3 suite passed with 119 tests; frontend typecheck/build and
   `python -m app.main --check` also passed at that milestone.
 
@@ -93,3 +104,5 @@ transcript.
 - Windows Credential Manager is the preferred store for user-entered Gemini/Twitch client
   credentials. `.env` remains a private fallback; credential values never enter ordinary JSON.
 - Local runtime files, databases, logs, frontend build output, `.env`, and tokens are ignored.
+- TODO-R1 made no architecture or ownership changes. An unrelated local edit to `AGENTS.md`
+  predates the checkpoint and remains intentionally uncommitted.

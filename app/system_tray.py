@@ -74,7 +74,6 @@ class SystemTray:
 
     def _handle_toggle(self, icon: Any, item: Any) -> None:
         self._on_toggle_bot()
-        self.update_menu()
 
     def _handle_exit(self, icon: Any, item: Any) -> None:
         self._on_exit()

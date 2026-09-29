@@ -307,7 +307,7 @@ Apply/Save/Reset semantics remain unchanged.
 - [x] Review whether tests cover important failure/lifecycle paths.
 - [x] Review dead dependencies and package declarations.
 - [x] Produce concrete cleanup recommendations before modifying architecture.
-- [ ] Implement only high-confidence cleanup in separate commits after the audit.
+- [x] Implement only high-confidence cleanup in separate commits after the audit.
 
 Important:
 
@@ -324,7 +324,8 @@ complete.
 Audit completed in `docs/architecture-reliability-checkpoint.md`. The report records prioritized
 lifecycle, filter-loading, reconnect, concurrency, provider-lifetime, packaging, and
 regression-coverage follow-ups, plus boundaries that should remain unchanged. Resolve or
-explicitly accept those findings before release work.
+explicitly accept those findings before release work. One isolated cleanup removed the duplicate
+tray-menu refresh; all broader findings remain deferred to focused tasks.
 
 ---
 

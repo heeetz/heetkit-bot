@@ -661,6 +661,24 @@ def test_desktop_controller_tray_toggles_bot_and_exits_orderly(tmp_path) -> None
     assert window.destroy_calls == 1
 
 
+def test_system_tray_toggle_refreshes_menu_once(tmp_path) -> None:
+    backend = FakeDesktopBackend()
+    bridge = FakeDesktopBridge(backend.runtime_state)
+    store = AppSettingsStore(tmp_path / "app_settings.json")
+    controller = DesktopController(
+        cast(AsyncioBackendHost, backend),
+        cast(WebUIBridge, bridge),
+        store,
+    )
+    icon = FakeTray()
+    controller._tray._icon = icon
+
+    controller._tray._handle_toggle(None, None)
+
+    assert bridge.start_calls == 1
+    assert icon.update_calls == 1
+
+
 def test_desktop_controller_allows_normal_close_when_setting_is_disabled(
     tmp_path,
 ) -> None:
