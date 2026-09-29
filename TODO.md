@@ -77,15 +77,17 @@ When asked to work from this file:
 
 ## TODO-002 — Audit and classify all user-configurable values
 
-- [ ] Inventory current configurable values and where each one lives.
-- [ ] Classify each value as:
+- [x] Inventory current configurable values and where each one lives.
+- [x] Classify each value as:
   - source-controlled default;
   - local non-secret user setting;
   - local secret/credential;
   - runtime-only state.
-- [ ] Identify duplicated/scattered configuration ownership.
-- [ ] Produce a short proposed target map before changing storage.
-- [ ] Do not perform the migration in the same task.
+- [x] Identify duplicated/scattered configuration ownership.
+- [x] Produce a short proposed target map before changing storage.
+- [x] Do not perform the migration in the same task.
+
+Audit recorded in `docs/configuration-audit.md`; no storage or runtime migration was made.
 
 Target principle:
 
