@@ -9,7 +9,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; }
 button { font: inherit; }
-button:disabled { cursor: wait; opacity: .62; }
+button:disabled { cursor: not-allowed; opacity: .52; }
 
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 230px 1fr; background: radial-gradient(circle at 85% 5%, #17213a 0, #0b0f17 38%); }
 .sidebar { padding: 26px 18px; border-right: 1px solid #202838; background: rgba(10, 14, 22, .92); }
@@ -35,8 +35,11 @@ h1 { margin-bottom: 0; font-size: 30px; }
 .primary { background: #7c4dff; }
 .danger { background: #b53b55; }
 .secondary { border: 1px solid #344057; border-radius: 8px; padding: 9px 12px; color: #d5ddec; background: #20293a; cursor: pointer; }
+.ghost { border: 1px solid transparent; border-radius: 8px; padding: 9px 12px; color: #aab6cb; background: transparent; cursor: pointer; }
+.ghost:hover { border-color: #344057; background: #171e2b; }
 .error-banner { margin-bottom: 18px; padding: 12px 14px; border: 1px solid #7e3445; border-radius: 9px; color: #ffc5d0; background: #321721; }
 .inline-error { margin-bottom: 16px; color: #ffc5d0; }
+.inline-success { margin-bottom: 16px; color: #8ce8ba; }
 .empty-state { max-width: 680px; }
 .empty-state p:last-child, .card > p:last-child { color: #94a0b7; }
 .success-text { color: #58dea1; }
@@ -58,6 +61,25 @@ th, td { padding: 15px 22px; border-top: 1px solid #273044; text-align: left; ve
 th { color: #78869f; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; background: rgba(10,14,22,.28); }
 td { color: #c6cfdf; }
 .command-meta { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 6px; font-size: 12px; }
+.section-copy { margin: 8px 0 0; color: #8e9ab0; }
+.command-editor-card { min-height: 0; }
+.command-list { display: grid; gap: 12px; }
+.command-row { display: grid; grid-template-columns: minmax(190px, 1.35fr) minmax(105px, .65fr) minmax(130px, .8fr) minmax(145px, .8fr) minmax(145px, .8fr) auto; align-items: end; gap: 14px; padding: 16px; border: 1px solid #283349; border-radius: 11px; background: #111722; }
+.command-row.dirty { border-color: #7052c9; box-shadow: inset 3px 0 #7c4dff; }
+.command-title { align-self: center; }
+.command-row label { display: grid; gap: 7px; color: #8290aa; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.command-row select, .command-row input[type="number"] { width: 100%; border: 1px solid #344057; border-radius: 8px; padding: 9px 10px; color: #e9eef8; background: #0d131e; outline: none; }
+.command-row select:focus, .command-row input:focus { border-color: #7052c9; }
+.command-row input.invalid { border-color: #b94a61; }
+.toggle-field { display: flex !important; align-items: center; align-self: center; gap: 8px !important; color: #cbd4e4 !important; text-transform: none !important; }
+.toggle-field input { width: 17px; height: 17px; accent-color: #7c4dff; }
+.number-with-unit { position: relative; display: block; }
+.number-with-unit input { padding-right: 42px !important; font-variant-numeric: tabular-nums; }
+.number-with-unit > span { position: absolute; right: 10px; top: 10px; color: #68758d; font-size: 11px; font-weight: 700; }
+.row-actions { display: flex; gap: 7px; }
+.saved-badge { color: #8ce8ba; background: #173a2d; }
+.runtime-badge { color: #f0c66b; background: #443716; }
+.dirty-badge { color: #c6b8ff; background: #302656; }
 .logs-card { padding: 0; overflow: hidden; }
 .logs-card .section-heading { padding: 22px 22px 0; }
 .log-toolbar { display: flex; align-items: end; gap: 12px; padding: 0 22px 18px; }
@@ -79,6 +101,12 @@ td { color: #c6cfdf; }
 .log-row pre { margin: 0; color: #c8d1e1; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 .log-empty { padding: 24px; color: #71809a; }
 
+@media (max-width: 1250px) {
+  .command-row { grid-template-columns: minmax(180px, 1.2fr) repeat(2, minmax(140px, .8fr)); }
+  .command-title { grid-column: 1 / 3; }
+  .row-actions { justify-content: flex-end; }
+}
+
 @media (max-width: 760px) {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar { border-right: 0; border-bottom: 1px solid #202838; }
@@ -90,4 +118,7 @@ td { color: #c6cfdf; }
   .log-toolbar { align-items: stretch; flex-direction: column; }
   .log-row { grid-template-columns: 82px 70px 1fr; }
   .log-row pre { grid-column: 1 / -1; }
+  .command-row { grid-template-columns: 1fr; }
+  .command-title { grid-column: auto; }
+  .row-actions { justify-content: flex-start; }
 }

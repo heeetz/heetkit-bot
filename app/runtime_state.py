@@ -72,6 +72,28 @@ class RuntimeState:
             except KeyError as error:
                 raise KeyError(f"Unknown command: {command_name}") from error
 
+    def get_command_default_settings(self, command_name: str) -> CommandSettings:
+        with self._lock:
+            try:
+                return self._command_defaults[command_name]
+            except KeyError as error:
+                raise KeyError(f"Unknown command: {command_name}") from error
+
+    def command_settings_are_saved(self, command_name: str) -> bool:
+        with self._lock:
+            current = self.get_command_settings(command_name)
+            defaults = self.get_command_default_settings(command_name)
+            saved = self._persisted_command_overrides.get(
+                command_name,
+                CommandSettingsOverride(),
+            ).apply(defaults)
+            return current == saved
+
+    def has_saved_command_override(self, command_name: str) -> bool:
+        with self._lock:
+            self.get_command_default_settings(command_name)
+            return command_name in self._persisted_command_overrides
+
     def apply_command_settings(
         self,
         command_name: str,
@@ -92,11 +114,38 @@ class RuntimeState:
 
     def save_command_override(self, command_name: str) -> None:
         with self._lock:
-            if self._command_settings_path is None:
-                raise RuntimeError("Command settings persistence is not configured.")
             current = self.get_command_settings(command_name)
+            self._save_command_settings(command_name, current)
+
+    def save_command_settings(
+        self,
+        command_name: str,
+        *,
+        enabled: bool,
+        cooldown: CooldownPolicy,
+        permission: Permission,
+    ) -> CommandSettings:
+        with self._lock:
+            self.get_command_default_settings(command_name)
+            updated = CommandSettings(
+                enabled=enabled,
+                cooldown=cooldown,
+                permission=permission,
+            )
+            self._save_command_settings(command_name, updated)
+            self._command_settings[command_name] = updated
+            return updated
+
+    def _save_command_settings(
+        self,
+        command_name: str,
+        settings: CommandSettings,
+    ) -> None:
+        if self._command_settings_path is None:
+            raise RuntimeError("Command settings persistence is not configured.")
+        with self._lock:
             defaults = self._command_defaults[command_name]
-            override = CommandSettingsOverride.from_settings(current, defaults)
+            override = CommandSettingsOverride.from_settings(settings, defaults)
             overrides = dict(self._persisted_command_overrides)
             if override.is_empty:
                 overrides.pop(command_name, None)

@@ -16,10 +16,23 @@ export interface CommandInfo {
     global_seconds: number
   }
   hidden: boolean
+  default_settings: CommandSettings
+  saved: boolean
+  has_saved_override: boolean
+}
+
+export interface CommandSettings {
+  enabled: boolean
+  permission: string
+  cooldown: {
+    per_user_seconds: number
+    global_seconds: number
+  }
 }
 
 export interface CommandsResponse {
   command_prefix: string
+  permissions: string[]
   commands: CommandInfo[]
 }
 
@@ -48,13 +61,16 @@ interface PythonApi {
   get_commands(): Promise<CommandsResponse>
   get_ai_status(): Promise<AIStatus>
   get_recent_logs(after_id?: number, limit?: number): Promise<LogsResponse>
+  apply_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string): Promise<ActionResult>
+  save_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string): Promise<ActionResult>
+  reset_command_settings(commandName: string): Promise<ActionResult>
   start_bot(): Promise<ActionResult>
   stop_bot(): Promise<ActionResult>
 }
 
-interface ActionResult {
+export interface ActionResult {
   ok: boolean
-  changed: boolean
+  changed?: boolean
   error?: string
 }
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import math
 import threading
 from concurrent.futures import Future
 from pathlib import Path
@@ -13,8 +14,11 @@ from typing import Any, Coroutine
 from pydantic import ValidationError
 
 from app.bot_runtime import BotRuntime
+from app.command_settings import CommandSettings
 from app.config.settings import Settings, load_settings
 from app.container import Application, build_application
+from app.twitch.permissions import Permission
+from app.utils.cooldown import CooldownPolicy
 from app.utils.logging import (
     RecentLogBuffer,
     configure_logging,
@@ -147,6 +151,7 @@ class WebUIBridge:
         commands = []
         for definition in application.registry.definitions():
             settings = runtime_state.get_command_settings(definition.name)
+            defaults = runtime_state.get_command_default_settings(definition.name)
             commands.append(
                 {
                     "name": definition.name,
@@ -158,12 +163,134 @@ class WebUIBridge:
                         "global_seconds": settings.cooldown.global_seconds,
                     },
                     "hidden": definition.hidden,
+                    "default_settings": self._serialize_command_settings(defaults),
+                    "saved": runtime_state.command_settings_are_saved(definition.name),
+                    "has_saved_override": runtime_state.has_saved_command_override(
+                        definition.name
+                    ),
                 }
             )
         return {
             "command_prefix": application.settings.command_prefix,
+            "permissions": [permission.name for permission in Permission],
             "commands": commands,
         }
+
+    @staticmethod
+    def _serialize_command_settings(settings: CommandSettings) -> dict[str, object]:
+        return {
+            "enabled": settings.enabled,
+            "permission": settings.permission.name,
+            "cooldown": {
+                "per_user_seconds": settings.cooldown.per_user_seconds,
+                "global_seconds": settings.cooldown.global_seconds,
+            },
+        }
+
+    @staticmethod
+    def _parse_command_settings(
+        enabled: object,
+        per_user_seconds: object,
+        global_seconds: object,
+        permission: object,
+    ) -> tuple[bool, CooldownPolicy, Permission]:
+        if type(enabled) is not bool:
+            raise ValueError("Enabled must be a boolean.")
+        values = (per_user_seconds, global_seconds)
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) < 0
+            for value in values
+        ):
+            raise ValueError("Cooldown values must be non-negative numbers.")
+        if not isinstance(permission, str):
+            raise ValueError("Permission must be a valid permission name.")
+        try:
+            parsed_permission = Permission[permission]
+        except KeyError as error:
+            raise ValueError("Permission must be a valid permission name.") from error
+        return (
+            enabled,
+            CooldownPolicy(
+                per_user_seconds=float(per_user_seconds),
+                global_seconds=float(global_seconds),
+            ),
+            parsed_permission,
+        )
+
+    def apply_command_settings(
+        self,
+        command_name: str,
+        enabled: object,
+        per_user_seconds: object,
+        global_seconds: object,
+        permission: object,
+    ) -> dict[str, object]:
+        try:
+            parsed_enabled, cooldown, parsed_permission = self._parse_command_settings(
+                enabled,
+                per_user_seconds,
+                global_seconds,
+                permission,
+            )
+            self._backend.application.services.runtime_state.apply_command_settings(
+                command_name,
+                enabled=parsed_enabled,
+                cooldown=cooldown,
+                permission=parsed_permission,
+            )
+        except KeyError:
+            return {"ok": False, "error": "Unknown command."}
+        except (TypeError, ValueError) as error:
+            return {"ok": False, "error": str(error)}
+        self._logger.info("Command runtime settings applied command=%s", command_name)
+        return {"ok": True}
+
+    def save_command_settings(
+        self,
+        command_name: str,
+        enabled: object,
+        per_user_seconds: object,
+        global_seconds: object,
+        permission: object,
+    ) -> dict[str, object]:
+        try:
+            parsed_enabled, cooldown, parsed_permission = self._parse_command_settings(
+                enabled,
+                per_user_seconds,
+                global_seconds,
+                permission,
+            )
+            self._backend.application.services.runtime_state.save_command_settings(
+                command_name,
+                enabled=parsed_enabled,
+                cooldown=cooldown,
+                permission=parsed_permission,
+            )
+        except KeyError:
+            return {"ok": False, "error": "Unknown command."}
+        except (TypeError, ValueError) as error:
+            return {"ok": False, "error": str(error)}
+        except (OSError, RuntimeError):
+            self._logger.exception("Could not save command settings command=%s", command_name)
+            return {"ok": False, "error": "Could not save command settings."}
+        self._logger.info("Command settings saved command=%s", command_name)
+        return {"ok": True}
+
+    def reset_command_settings(self, command_name: str) -> dict[str, object]:
+        try:
+            self._backend.application.services.runtime_state.reset_command_settings(
+                command_name
+            )
+        except (KeyError, TypeError):
+            return {"ok": False, "error": "Unknown command."}
+        except (OSError, RuntimeError):
+            self._logger.exception("Could not reset command settings command=%s", command_name)
+            return {"ok": False, "error": "Could not reset command settings."}
+        self._logger.info("Command settings reset command=%s", command_name)
+        return {"ok": True}
 
     def get_ai_status(self) -> dict[str, object]:
         application = self._backend.application

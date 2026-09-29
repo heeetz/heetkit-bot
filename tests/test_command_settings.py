@@ -87,6 +87,69 @@ def test_saved_override_loads_and_reset_restores_defaults(tmp_path) -> None:
     assert json.loads(settings_path.read_text(encoding="utf-8")) == {}
 
 
+def test_save_explicit_settings_applies_and_persists_atomically(tmp_path) -> None:
+    settings_path = tmp_path / "command_settings.json"
+    registry = build_registry()
+    runtime_state = RuntimeState(command_settings_path=settings_path)
+    runtime_state.configure_commands(registry.definitions())
+
+    saved = runtime_state.save_command_settings(
+        "ping",
+        enabled=False,
+        cooldown=CooldownPolicy(per_user_seconds=6.0, global_seconds=7.0),
+        permission=Permission.SUBSCRIBER,
+    )
+
+    assert runtime_state.get_command_settings("ping") == saved
+    assert runtime_state.command_settings_are_saved("ping") is True
+    assert runtime_state.has_saved_command_override("ping") is True
+    restored = RuntimeState(command_settings_path=settings_path)
+    restored.configure_commands(registry.definitions())
+    assert restored.get_command_settings("ping") == saved
+
+
+def test_apply_is_runtime_only_until_saved_and_reset_clears_override(tmp_path) -> None:
+    settings_path = tmp_path / "command_settings.json"
+    registry = build_registry()
+    runtime_state = RuntimeState(command_settings_path=settings_path)
+    runtime_state.configure_commands(registry.definitions())
+
+    runtime_state.apply_command_settings("ping", enabled=False)
+    assert runtime_state.command_settings_are_saved("ping") is False
+    assert runtime_state.has_saved_command_override("ping") is False
+
+    runtime_state.save_command_override("ping")
+    assert runtime_state.command_settings_are_saved("ping") is True
+    assert runtime_state.has_saved_command_override("ping") is True
+
+    runtime_state.reset_command_settings("ping")
+    assert runtime_state.get_command_settings("ping") == registry.get("ping").default_settings
+    assert runtime_state.command_settings_are_saved("ping") is True
+    assert runtime_state.has_saved_command_override("ping") is False
+
+
+def test_failed_explicit_save_does_not_apply_runtime_change(tmp_path, monkeypatch) -> None:
+    runtime_state = RuntimeState(command_settings_path=tmp_path / "command_settings.json")
+    runtime_state.configure_commands(build_registry().definitions())
+    original = runtime_state.get_command_settings("ping")
+
+    def fail_save(*args, **kwargs) -> None:
+        raise OSError("expected write failure")
+
+    monkeypatch.setattr("app.runtime_state.save_command_overrides", fail_save)
+
+    with pytest.raises(OSError, match="expected write failure"):
+        runtime_state.save_command_settings(
+            "ping",
+            enabled=False,
+            cooldown=CooldownPolicy(),
+            permission=Permission.USER,
+        )
+
+    assert runtime_state.get_command_settings("ping") == original
+    assert runtime_state.command_settings_are_saved("ping") is True
+
+
 def test_partial_and_malformed_values_fall_back_individually(
     tmp_path,
     caplog: pytest.LogCaptureFixture,

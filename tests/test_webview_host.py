@@ -6,6 +6,10 @@ from typing import cast
 
 import pytest
 
+from app.commands.registry import CommandRegistry
+from app.runtime_state import RuntimeState
+from app.twitch.permissions import Permission
+from app.utils.cooldown import CooldownPolicy
 from app.utils.logging import RecentLogBuffer, RecentLogHandler
 from app.webview_host import AsyncioBackendHost, WebUIBridge, resolve_frontend_url
 
@@ -40,7 +44,12 @@ def test_bridge_gets_commands_from_registry_and_effective_runtime_settings() -> 
         permission=SimpleNamespace(name="BROADCASTER"),
         cooldown=SimpleNamespace(per_user_seconds=3.0, global_seconds=5.0),
     )
-    runtime_state = SimpleNamespace(get_command_settings=lambda name: settings)
+    runtime_state = SimpleNamespace(
+        get_command_settings=lambda name: settings,
+        get_command_default_settings=lambda name: settings,
+        command_settings_are_saved=lambda name: True,
+        has_saved_command_override=lambda name: False,
+    )
     application = SimpleNamespace(
         services=SimpleNamespace(runtime_state=runtime_state),
         registry=SimpleNamespace(definitions=lambda: (definition,)),
@@ -52,6 +61,13 @@ def test_bridge_gets_commands_from_registry_and_effective_runtime_settings() -> 
 
     assert result == {
         "command_prefix": "!",
+        "permissions": [
+            "USER",
+            "SUBSCRIBER",
+            "VIP",
+            "MODERATOR",
+            "BROADCASTER",
+        ],
         "commands": [
             {
                 "name": "erase",
@@ -63,9 +79,98 @@ def test_bridge_gets_commands_from_registry_and_effective_runtime_settings() -> 
                     "global_seconds": 5.0,
                 },
                 "hidden": True,
+                "default_settings": {
+                    "enabled": False,
+                    "permission": "BROADCASTER",
+                    "cooldown": {
+                        "per_user_seconds": 3.0,
+                        "global_seconds": 5.0,
+                    },
+                },
+                "saved": True,
+                "has_saved_override": False,
             }
         ],
     }
+
+
+def build_command_bridge(tmp_path) -> tuple[WebUIBridge, RuntimeState]:
+    registry = CommandRegistry()
+
+    @registry.command(
+        "ping",
+        required_permission=Permission.MODERATOR,
+        cooldown=CooldownPolicy(global_seconds=10.0),
+    )
+    async def ping(context, arguments: str) -> None:
+        return None
+
+    runtime_state = RuntimeState(command_settings_path=tmp_path / "command_settings.json")
+    runtime_state.configure_commands(registry.definitions())
+    application = SimpleNamespace(
+        services=SimpleNamespace(runtime_state=runtime_state),
+        registry=registry,
+        settings=SimpleNamespace(command_prefix="!"),
+    )
+    bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace(application=application)))
+    return bridge, runtime_state
+
+
+def test_bridge_applies_command_settings_for_current_runtime(tmp_path) -> None:
+    bridge, runtime_state = build_command_bridge(tmp_path)
+
+    result = bridge.apply_command_settings("ping", False, 2, 3.5, "VIP")
+
+    assert result == {"ok": True}
+    settings = runtime_state.get_command_settings("ping")
+    assert settings.enabled is False
+    assert settings.cooldown == CooldownPolicy(2.0, 3.5)
+    assert settings.permission is Permission.VIP
+    assert runtime_state.command_settings_are_saved("ping") is False
+
+
+@pytest.mark.parametrize(
+    ("enabled", "per_user", "global_value", "permission", "expected_error"),
+    [
+        ("false", 0, 0, "USER", "Enabled must be a boolean."),
+        (True, -1, 0, "USER", "Cooldown values must be non-negative numbers."),
+        (True, float("nan"), 0, "USER", "Cooldown values must be non-negative numbers."),
+        (True, 0, 0, "OWNER", "Permission must be a valid permission name."),
+    ],
+)
+def test_bridge_rejects_invalid_command_settings(
+    tmp_path,
+    enabled,
+    per_user,
+    global_value,
+    permission,
+    expected_error: str,
+) -> None:
+    bridge, runtime_state = build_command_bridge(tmp_path)
+    original = runtime_state.get_command_settings("ping")
+
+    result = bridge.apply_command_settings(
+        "ping",
+        enabled,
+        per_user,
+        global_value,
+        permission,
+    )
+
+    assert result == {"ok": False, "error": expected_error}
+    assert runtime_state.get_command_settings("ping") == original
+
+
+def test_bridge_saves_and_resets_command_settings(tmp_path) -> None:
+    bridge, runtime_state = build_command_bridge(tmp_path)
+
+    assert bridge.save_command_settings("ping", False, 1, 2, "BROADCASTER") == {
+        "ok": True
+    }
+    assert runtime_state.has_saved_command_override("ping") is True
+    assert bridge.reset_command_settings("ping") == {"ok": True}
+    assert runtime_state.get_command_settings("ping").permission is Permission.MODERATOR
+    assert runtime_state.has_saved_command_override("ping") is False
 
 
 def test_bridge_gets_ai_state_without_exposing_personality_prompts() -> None:

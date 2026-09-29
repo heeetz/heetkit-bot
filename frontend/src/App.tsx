@@ -2,11 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import {
   type AIStatus,
   type AppStatus,
-  type CommandInfo,
-  type CommandsResponse,
   type LogEntry,
   waitForBridge,
 } from './bridge'
+import CommandsPage from './pages/CommandsPage'
 import './styles.css'
 
 const sections = ['Dashboard', 'Commands', 'AI', 'Logs', 'Settings'] as const
@@ -56,83 +55,6 @@ function Dashboard({ status, onChangeState, busy }: {
         <p className="label">Session uptime</p>
         <h3 className="metric">{status ? formatUptime(status.uptime_seconds) : '—'}</h3>
       </article>
-    </section>
-  )
-}
-
-function cooldownLabel(command: CommandInfo): string {
-  const parts: string[] = []
-  if (command.cooldown.per_user_seconds > 0) {
-    parts.push(`${command.cooldown.per_user_seconds}s / user`)
-  }
-  if (command.cooldown.global_seconds > 0) {
-    parts.push(`${command.cooldown.global_seconds}s global`)
-  }
-  return parts.length ? parts.join(' · ') : 'None'
-}
-
-function CommandsPage() {
-  const [data, setData] = useState<CommandsResponse | null>(null)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    let active = true
-    let timer = 0
-    const refresh = async () => {
-      try {
-        const api = await waitForBridge()
-        const response = await api.get_commands()
-        if (active) {
-          setData(response)
-          setError('')
-        }
-      } catch (reason) {
-        if (active) {
-          setError(reason instanceof Error ? reason.message : 'Could not load commands.')
-        }
-      } finally {
-        if (active) {
-          timer = window.setTimeout(() => void refresh(), 3000)
-        }
-      }
-    }
-    void refresh()
-    return () => {
-      active = false
-      window.clearTimeout(timer)
-    }
-  }, [])
-
-  return (
-    <section className="card table-card">
-      <div className="section-heading">
-        <div><p className="label">REGISTERED COMMANDS</p><h2>Effective runtime settings</h2></div>
-        <span className="read-only-badge">Read only</span>
-      </div>
-      {error && <div className="inline-error">{error}</div>}
-      {!data ? <p className="muted">Loading command registry…</p> : (
-        <div className="table-scroll">
-          <table>
-            <thead><tr><th>Command</th><th>State</th><th>Permission</th><th>Cooldown</th></tr></thead>
-            <tbody>
-              {data.commands.map((command) => (
-                <tr key={command.name}>
-                  <td>
-                    <strong>{data.command_prefix}{command.name}</strong>
-                    <div className="command-meta">
-                      {command.hidden && <span className="mini-badge">Hidden</span>}
-                      {command.aliases.length > 0 && <span>Aliases: {command.aliases.map((alias) => `${data.command_prefix}${alias}`).join(', ')}</span>}
-                    </div>
-                  </td>
-                  <td><span className={`state-pill ${command.enabled ? 'enabled' : ''}`}>{command.enabled ? 'Enabled' : 'Disabled'}</span></td>
-                  <td>{command.permission.toLowerCase()}</td>
-                  <td>{cooldownLabel(command)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
     </section>
   )
 }
@@ -360,7 +282,7 @@ export default function App() {
         <header><div><p className="eyebrow">CONTROL CENTER</p><h1>{section}</h1></div></header>
         {error && <div className="error-banner">{error}</div>}
         {section === 'Dashboard' && <Dashboard status={status} busy={actionBusy} onChangeState={(shouldRun) => void changeBotState(shouldRun)} />}
-        {section === 'Commands' && <CommandsPage />}
+        <div hidden={section !== 'Commands'}><CommandsPage /></div>
         {section === 'AI' && <AIPage />}
         {section === 'Logs' && <LogsPage />}
         {section === 'Settings' && <SettingsPlaceholder />}
