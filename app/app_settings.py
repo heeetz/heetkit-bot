@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from threading import RLock
 
+from app.config.ai_models import validate_gemini_model_settings
 from config import AI_MEMORY_ENABLED
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,8 @@ class WindowSettings:
 @dataclass(frozen=True, slots=True)
 class AISettings:
     memory_enabled: bool = AI_MEMORY_ENABLED
+    selected_model: str | None = None
+    fallback_model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +154,23 @@ def load_app_settings(path: Path) -> AppSettings:
             logger.warning("Ignoring incomplete Twitch application settings override")
         twitch = TwitchSettings()
 
+    selected_model = _read_optional_string(ai_payload, "ai", "selected_model")
+    fallback_model = _read_optional_string(ai_payload, "ai", "fallback_model")
+    if selected_model is not None and fallback_model is not None:
+        try:
+            selected_model, fallback_model = validate_gemini_model_settings(
+                selected_model,
+                fallback_model,
+            )
+        except ValueError:
+            logger.warning("Ignoring invalid Gemini model settings override")
+            selected_model = None
+            fallback_model = None
+    elif (selected_model is None) != (fallback_model is None):
+        logger.warning("Ignoring incomplete Gemini model settings override")
+        selected_model = None
+        fallback_model = None
+
     return AppSettings(
         window=WindowSettings(
             start_minimized=_read_boolean(
@@ -178,7 +198,9 @@ def load_app_settings(path: Path) -> AppSettings:
                 "ai",
                 "memory_enabled",
                 defaults.ai.memory_enabled,
-            )
+            ),
+            selected_model=selected_model,
+            fallback_model=fallback_model,
         ),
         twitch=twitch,
     )
@@ -250,7 +272,35 @@ class AppSettingsStore:
         with self._lock:
             updated = AppSettings(
                 window=self._settings.window,
-                ai=AISettings(memory_enabled=enabled),
+                ai=AISettings(
+                    memory_enabled=enabled,
+                    selected_model=self._settings.ai.selected_model,
+                    fallback_model=self._settings.ai.fallback_model,
+                ),
+                twitch=self._settings.twitch,
+            )
+            save_app_settings(self._path, updated)
+            self._settings = updated
+        return updated
+
+    def update_ai_models(
+        self,
+        *,
+        selected_model: object,
+        fallback_model: object,
+    ) -> AppSettings:
+        selected, fallback = validate_gemini_model_settings(
+            selected_model,
+            fallback_model,
+        )
+        with self._lock:
+            updated = AppSettings(
+                window=self._settings.window,
+                ai=AISettings(
+                    memory_enabled=self._settings.ai.memory_enabled,
+                    selected_model=selected,
+                    fallback_model=fallback,
+                ),
                 twitch=self._settings.twitch,
             )
             save_app_settings(self._path, updated)

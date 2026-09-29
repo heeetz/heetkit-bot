@@ -111,6 +111,18 @@ td { color: #c6cfdf; }
 .twitch-status-grid span { margin-bottom: 5px; color: #7f8ba3; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .twitch-status-grid strong { color: #dce4f2; overflow-wrap: anywhere; }
 .twitch-status-grid .status-good { color: #8ce8ba; }
+.ai-provider-status { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 8px; }
+.ai-provider-status > div { padding: 12px; border: 1px solid #2a354a; border-radius: 9px; background: #111722; }
+.ai-provider-status span, .ai-provider-status strong { display: block; }
+.ai-provider-status span { margin-bottom: 5px; color: #7f8ba3; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.ai-provider-status strong { color: #dce4f2; }
+.ai-provider-status .status-good { color: #8ce8ba; }
+.model-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.model-preset-list { display: grid; gap: 8px; }
+.model-preset-list > div { display: grid; grid-template-columns: minmax(150px, .8fr) minmax(180px, 1fr); gap: 5px 12px; padding: 11px 12px; border: 1px solid #273248; border-radius: 8px; background: #111722; }
+.model-preset-list strong { color: #dce4f2; }
+.model-preset-list code { color: #b7a5ff; overflow-wrap: anywhere; }
+.model-preset-list small { grid-column: 1 / -1; color: #8491a9; }
 .credential-list { display: grid; gap: 12px; }
 .credential-row { padding: 16px; border: 1px solid #2a354a; border-radius: 10px; background: #111722; }
 .credential-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
@@ -162,5 +174,8 @@ td { color: #c6cfdf; }
   .row-actions { justify-content: flex-start; }
   .ai-status-grid { grid-template-columns: 1fr; }
   .twitch-status-grid { grid-template-columns: 1fr; }
+  .ai-provider-status, .model-fields { grid-template-columns: 1fr; }
+  .model-preset-list > div { grid-template-columns: 1fr; }
+  .model-preset-list small { grid-column: auto; }
   .editor-footer { align-items: flex-start; flex-direction: column; }
 }

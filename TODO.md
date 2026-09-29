@@ -204,21 +204,21 @@ TwitchIO OAuth tokens remain in the ignored token cache.
 
 ## TODO-007 — Add AI provider/model configuration
 
-- [ ] Add an AI provider/model section to Settings.
-- [ ] Start with the currently supported Google Gemini path rather than pretending to support arbitrary providers immediately.
-- [ ] Show:
+- [x] Add an AI provider/model section to Settings.
+- [x] Start with the currently supported Google Gemini path rather than pretending to support arbitrary providers immediately.
+- [x] Show:
   - provider;
   - selected model;
   - fallback model;
   - credential status;
   - Test action.
-- [ ] Model selection should not be hardcoded only in React.
-- [ ] Prefer:
+- [x] Model selection should not be hardcoded only in React.
+- [x] Prefer:
   1. provider model discovery where reliable;
   2. shipped known-good model presets as fallback;
   3. optional custom model ID.
-- [ ] Keep model presets/current availability easy to update.
-- [ ] Do not silently hide model failures.
+- [x] Keep model presets/current availability easy to update.
+- [x] Do not silently hide model failures.
 
 Fallback behaviour:
 - use fallback for unavailable/unsupported selected model cases where appropriate;
@@ -226,6 +226,12 @@ Fallback behaviour:
 - log/display when fallback was actually used.
 
 If the selected model becomes invalid, the application should still have a known-good configured fallback where possible.
+
+Google Gemini model selection now uses tracked backend presets, optional provider discovery,
+and validated custom IDs. Selected/fallback IDs persist in the ordinary local app-settings
+file and apply to the next AI request. Fallback is attempted only for provider model-not-found
+responses; authentication, policy, rate-limit, and network errors remain visible. Credentials
+remain in Windows Credential Manager with the private `.env` fallback.
 
 ---
 

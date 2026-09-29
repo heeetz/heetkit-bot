@@ -98,6 +98,28 @@ export interface CredentialsResponse extends ActionResult {
   credentials?: CredentialInfo[]
 }
 
+export interface GeminiModelPreset {
+  id: string
+  label: string
+  description: string
+}
+
+export interface AIProviderSettings {
+  provider: string
+  selected_model: string
+  fallback_model: string
+  presets: GeminiModelPreset[]
+  credential: CredentialInfo | null
+}
+
+export interface AIProviderSettingsResponse extends ActionResult {
+  settings?: AIProviderSettings
+}
+
+export interface ModelDiscoveryResponse extends ActionResult {
+  models?: string[]
+}
+
 export interface LogEntry {
   id: number
   timestamp: string
@@ -130,6 +152,9 @@ interface PythonApi {
   update_twitch_settings(targetChannel: string, targetChannelUserId: string): Promise<ActionResult>
   reconnect_twitch(): Promise<ActionResult>
   get_credentials(): Promise<CredentialsResponse>
+  get_ai_provider_settings(): Promise<AIProviderSettingsResponse>
+  update_ai_provider_settings(selectedModel: string, fallbackModel: string): Promise<ActionResult>
+  discover_gemini_models(): Promise<ModelDiscoveryResponse>
   replace_credential(name: CredentialName, value: string): Promise<ActionResult>
   remove_credential(name: CredentialName): Promise<ActionResult>
   test_credential(name: CredentialName): Promise<ActionResult>

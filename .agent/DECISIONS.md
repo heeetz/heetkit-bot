@@ -99,9 +99,9 @@ Status: Active
 
 Decision:
 Ordinary non-secret desktop preferences use the versioned `data/app_settings.json` file.
-Schema version 1 contains `window` settings, `ai.memory_enabled`, and an optional non-secret
-Twitch target-channel override; future ordinary sections may extend this model. Command and
-personality overrides remain separate domain stores.
+Schema version 1 contains `window` settings, AI memory and selected/fallback model settings,
+and an optional non-secret Twitch target-channel override; future ordinary sections may extend
+this model. Command and personality overrides remain separate domain stores.
 
 Reason:
 One evolvable local model avoids files per checkbox while preserving clear ownership and

@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from app.app_settings import AppSettings, AppSettingsStore
 from app.bot_runtime import BotRuntime
 from app.command_settings import CommandSettings
+from app.config.ai_models import GEMINI_MODEL_PRESETS, GEMINI_PROVIDER_NAME
 from app.config.settings import Settings, load_settings_with_credentials
 from app.container import Application, build_application
 from app.credentials import CredentialError, CredentialManager
@@ -534,6 +535,74 @@ class WebUIBridge:
         self._logger.info("Twitch target settings applied reconnected=%s", reconnected)
         return {"ok": True, "changed": reconnected}
 
+    def get_ai_provider_settings(self) -> dict[str, object]:
+        if self._app_settings is None:
+            return {"ok": False, "error": "Desktop settings are not configured."}
+        application = self._backend.application
+        credential = None
+        if self._credential_manager is not None:
+            credential = next(
+                (
+                    status.serialize()
+                    for status in self._credential_manager.statuses()
+                    if status.name == "gemini_api_key"
+                ),
+                None,
+            )
+        return {
+            "ok": True,
+            "settings": {
+                "provider": GEMINI_PROVIDER_NAME,
+                "selected_model": application.settings.gemini_model,
+                "fallback_model": application.settings.gemini_fallback_model,
+                "presets": [preset.serialize() for preset in GEMINI_MODEL_PRESETS],
+                "credential": credential,
+            },
+        }
+
+    def update_ai_provider_settings(
+        self,
+        selected_model: object,
+        fallback_model: object,
+    ) -> dict[str, object]:
+        if self._app_settings is None:
+            return {"ok": False, "error": "Desktop settings are not configured."}
+        try:
+            updated = self._app_settings.update_ai_models(
+                selected_model=selected_model,
+                fallback_model=fallback_model,
+            )
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except OSError:
+            self._logger.exception("Could not save Gemini model settings")
+            return {"ok": False, "error": "Could not save Gemini model settings."}
+        application_settings = self._backend.application.settings
+        application_settings.gemini_model = updated.ai.selected_model
+        application_settings.gemini_fallback_model = updated.ai.fallback_model
+        self._logger.info(
+            "Gemini model settings saved selected_model=%s fallback_model=%s",
+            updated.ai.selected_model,
+            updated.ai.fallback_model,
+        )
+        return {"ok": True}
+
+    def discover_gemini_models(self) -> dict[str, object]:
+        service = self._backend.application.services.ai
+        discover = getattr(service, "discover_models", None)
+        if discover is None:
+            return {"ok": False, "error": "Gemini model discovery is unavailable."}
+        try:
+            future = self._backend.submit(discover())
+            models = future.result(timeout=20)
+        except Exception as error:
+            self._logger.warning(
+                "Gemini model discovery failed error_type=%s",
+                type(error).__name__,
+            )
+            return {"ok": False, "error": "Could not discover Gemini models."}
+        return {"ok": True, "models": models}
+
     def get_credentials(self) -> dict[str, object]:
         if self._credential_manager is None:
             return {"ok": False, "error": "Credential storage is not configured."}
@@ -666,6 +735,18 @@ def apply_twitch_app_settings(settings: Settings, app_settings: AppSettings) -> 
     )
 
 
+def apply_ai_app_settings(settings: Settings, app_settings: AppSettings) -> Settings:
+    ai = app_settings.ai
+    if ai.selected_model is None or ai.fallback_model is None:
+        return settings
+    return settings.model_copy(
+        update={
+            "gemini_model": ai.selected_model,
+            "gemini_fallback_model": ai.fallback_model,
+        }
+    )
+
+
 class DesktopController:
     """Coordinate one pywebview window, tray icon, and backend lifecycle."""
 
@@ -780,6 +861,7 @@ def run_desktop_host(
     app_settings = AppSettingsStore(APP_SETTINGS_PATH)
     settings_snapshot = app_settings.snapshot()
     settings = apply_twitch_app_settings(settings, settings_snapshot)
+    settings = apply_ai_app_settings(settings, settings_snapshot)
     backend = AsyncioBackendHost(
         settings,
         auto_start=auto_start,

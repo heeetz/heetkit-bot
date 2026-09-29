@@ -3,8 +3,10 @@
 import logging
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 from re import Pattern
 import re
+from typing import Any
 
 from app.config.settings import Settings
 from app.services.contracts import AIReply
@@ -14,6 +16,13 @@ from app.services.filter_manager import FilterManager
 
 logger = logging.getLogger(__name__)
 GEMINI_REQUEST_TIMEOUT_SECONDS = 60.0
+_NON_CHAT_MODEL_MARKERS = (
+    "embedding",
+    "image",
+    "live",
+    "tts",
+    "transcribe",
+)
 _SEARCH_TRIGGER_PATTERN = re.compile(
     r"(?:\b(?:current|currently|now|today|latest|recent|breaking|news|event|events|match|game|score|weather|price|prices|stock|stocks|exchange\s+rate|schedule|concert|release)\b|\b(?:сейчас|сегодня|текущ\w*|последн\w*|свеж\w*|новост\w*|событи\w*|матч|игр\w*|сч[её]т|погод\w*|курс|цен\w*|расписан\w*|концерт|выбор\w*|зараз|сьогодні|поточ\w*|останн\w*|свіж\w*|новин\w*|поді\w*|матч|(?:гра|гри|грою)\b|рахунок|погод\w*|курс|цін\w*|розклад|концерт|вибор\w*)\b|\b(?:who|what|where)\b.{0,60}\b(?:now|today|currently|latest)\b|\b(?:кто|что|где)\b.{0,60}\b(?:сейчас|сегодня|текущ\w*|последн\w*)\b|\b(?:хто|що|де)\b.{0,60}\b(?:зараз|сьогодні|поточ\w*|останн\w*)\b|\b(?:who\s+won|what\s+happened\s+to|кто\s+победил|что\s+произошло|хто\s+переміг|що\s+сталося)\b)",
     re.IGNORECASE,
@@ -234,6 +243,61 @@ class GeminiAIService:
             prompt,
         )
 
+    async def discover_models(self) -> list[str]:
+        """Return provider models suitable for text generation with the configured key."""
+        if self.settings.gemini_api_key is None:
+            raise RuntimeError("Gemini API key is not configured.")
+        try:
+            from google import genai
+        except ImportError as error:
+            raise RuntimeError("google-genai package is not available.") from error
+
+        client = genai.Client(api_key=self.settings.gemini_api_key.get_secret_value())
+        pager = await client.aio.models.list()
+        discovered: set[str] = set()
+        async for model in pager:
+            model_id = self._normalize_discovered_model(model)
+            if model_id is not None:
+                discovered.add(model_id)
+        return sorted(discovered)
+
+    @staticmethod
+    def _normalize_discovered_model(model: object) -> str | None:
+        name = getattr(model, "name", None)
+        actions = getattr(model, "supported_actions", None) or ()
+        normalized_actions = {
+            str(action).replace("_", "").lower()
+            for action in actions
+        }
+        if not isinstance(name, str) or "generatecontent" not in normalized_actions:
+            return None
+        model_id = name.rsplit("/", 1)[-1]
+        if not model_id.startswith("gemini-"):
+            return None
+        if any(marker in model_id.lower() for marker in _NON_CHAT_MODEL_MARKERS):
+            return None
+        return model_id
+
+    async def _request_with_model_fallback(
+        self,
+        request: Callable[[str], Awaitable[Any]],
+    ) -> tuple[Any, str]:
+        selected_model = self.settings.gemini_model
+        try:
+            return await request(selected_model), selected_model
+        except Exception as error:
+            fallback_model = self.settings.gemini_fallback_model
+            if getattr(error, "code", None) != 404 or fallback_model == selected_model:
+                raise
+            logger.warning(
+                "Gemini selected model unavailable; using fallback "
+                "selected_model=%s fallback_model=%s error_type=%s",
+                selected_model,
+                fallback_model,
+                type(error).__name__,
+            )
+            return await request(fallback_model), fallback_model
+
     async def generate_reply(
         self,
         prompt: str,
@@ -289,19 +353,26 @@ class GeminiAIService:
             )
             request_started_at = time.monotonic()
             logger.info("Gemini request start")
+            async def request_model(model: str) -> Any:
+                return await client.aio.models.generate_content(
+                    model=model,
+                    contents=request_content,
+                    config=types.GenerateContentConfig(
+                        system_instruction=self._build_system_instruction(),
+                        tools=[search_tool] if use_search else None,
+                    ),
+                )
+
             try:
                 async with asyncio.timeout(GEMINI_REQUEST_TIMEOUT_SECONDS):
-                    response = await client.aio.models.generate_content(
-                        model=self.settings.gemini_model,
-                        contents=request_content,
-                        config=types.GenerateContentConfig(
-                            system_instruction=self._build_system_instruction(),
-                            tools=[search_tool] if use_search else None,
-                        ),
+                    response, effective_model = await self._request_with_model_fallback(
+                        request_model
                     )
             finally:
                 elapsed_seconds = time.monotonic() - request_started_at
                 logger.info("Gemini request finished elapsed_seconds=%.2f", elapsed_seconds)
+            if effective_model != self.settings.gemini_model:
+                logger.info("Gemini request completed with fallback model=%s", effective_model)
 
             candidates = getattr(response, "candidates", None) or []
             grounding_metadata = [

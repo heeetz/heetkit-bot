@@ -37,6 +37,8 @@ def test_settings_create_primary_account() -> None:
 
     assert settings.primary_account.username == "testbot"
     assert settings.twitch_token_file == "data/twitchio_tokens.json"
+    assert settings.gemini_model == "gemini-3.5-flash-lite"
+    assert settings.gemini_fallback_model == "gemini-3.1-flash-lite"
 
 
 def test_settings_require_twitch_identity() -> None:

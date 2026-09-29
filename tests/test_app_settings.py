@@ -124,7 +124,11 @@ def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
             "minimize_to_tray": True,
             "close_to_tray": False,
         },
-        "ai": {"memory_enabled": False},
+        "ai": {
+            "fallback_model": None,
+            "memory_enabled": False,
+            "selected_model": None,
+        },
         "twitch": {"channel": None, "channel_user_id": None},
     }
     assert list(tmp_path.glob(".app_settings.json.*.tmp")) == []
@@ -207,6 +211,70 @@ def test_incomplete_twitch_override_falls_back_safely(tmp_path) -> None:
     )
 
     assert load_app_settings(settings_path).twitch == TwitchSettings()
+
+
+def test_gemini_model_settings_are_validated_persisted_and_reloaded(tmp_path) -> None:
+    settings_path = tmp_path / "app_settings.json"
+    store = AppSettingsStore(settings_path)
+
+    updated = store.update_ai_models(
+        selected_model=" custom-gemini-model ",
+        fallback_model="gemini-3.1-flash-lite",
+    )
+
+    assert updated.ai == AISettings(
+        selected_model="custom-gemini-model",
+        fallback_model="gemini-3.1-flash-lite",
+    )
+    assert AppSettingsStore(settings_path).snapshot().ai == updated.ai
+    assert json.loads(settings_path.read_text(encoding="utf-8"))["ai"] == {
+        "fallback_model": "gemini-3.1-flash-lite",
+        "memory_enabled": True,
+        "selected_model": "custom-gemini-model",
+    }
+
+    memory_updated = store.update_ai_memory(enabled=False)
+    assert memory_updated.ai == AISettings(
+        memory_enabled=False,
+        selected_model="custom-gemini-model",
+        fallback_model="gemini-3.1-flash-lite",
+    )
+
+
+@pytest.mark.parametrize(
+    ("selected", "fallback"),
+    [
+        ("", "gemini-fallback"),
+        ("bad model", "gemini-fallback"),
+        ("gemini-same", "gemini-same"),
+    ],
+)
+def test_gemini_model_settings_reject_invalid_values(
+    tmp_path,
+    selected: str,
+    fallback: str,
+) -> None:
+    store = AppSettingsStore(tmp_path / "app_settings.json")
+
+    with pytest.raises(ValueError):
+        store.update_ai_models(selected_model=selected, fallback_model=fallback)
+
+    assert store.snapshot().ai == AISettings()
+
+
+def test_incomplete_gemini_model_override_falls_back_safely(tmp_path) -> None:
+    settings_path = tmp_path / "app_settings.json"
+    settings_path.write_text(
+        json.dumps(
+            {
+                "version": APP_SETTINGS_VERSION,
+                "ai": {"selected_model": "gemini-custom"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert load_app_settings(settings_path).ai == AISettings()
 
 
 def test_bridge_reads_and_updates_desktop_settings(tmp_path) -> None:

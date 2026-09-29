@@ -41,8 +41,8 @@ Responsibility: compose the native window with the existing Python application s
   `Application`, and owns one `BotRuntime`.
 - `WebUIBridge` exposes narrow application operations: status, bot start/stop, registered
   commands and command Apply/Save/Reset, AI status/toggles, personality Apply/Save/Reset,
-  app settings, Twitch target/status/reconnect, masked credential status/actions, and recent
-  logs.
+  app settings, Twitch target/status/reconnect, Gemini model settings/discovery, masked
+  credential status/actions, and recent logs.
 - Async bot operations are submitted to the owning loop with
   `asyncio.run_coroutine_threadsafe`; raw Twitch, database, Gemini, and `RuntimeState` objects
   are not exposed to React.
@@ -122,13 +122,17 @@ Responsibility: policy and provider work remain in Python.
 3. `TwitchAPIService` supplies the current category as optional untrusted context, cached for
    90 seconds.
 4. `GeminiAIService` builds protected shared instructions plus the effective personality,
-   conditionally enables Google Search grounding, calls the configured Gemini model, filters
-   the response, and applies the configured response-length limit.
+   conditionally enables Google Search grounding, calls the selected Gemini model, and uses
+   the configured fallback only for model-not-found/unsupported responses. It then filters the
+   response and applies the configured response-length limit.
 5. A successfully delivered response is saved to memory only if memory remains enabled.
 
-The Gemini model comes from typed environment `Settings`. The Gemini API key is resolved from
-Windows Credential Manager first, then the private `.env` fallback. Provider failures do not
-disable unrelated commands.
+Gemini selected/fallback model defaults come from typed environment `Settings`; validated local
+overrides in `data/app_settings.json` are applied before composition and UI changes update the
+shared Settings object for the next request. Tracked presets live in
+`app/resources/gemini_models.json`, while provider discovery is optional. The Gemini API key is
+resolved from Windows Credential Manager first, then the private `.env` fallback. Provider
+failures do not disable unrelated commands.
 
 ## Personalities and AI memory
 
@@ -185,7 +189,8 @@ disable unrelated commands.
 | Behavioral defaults and paths | root `config.py` | Tracked |
 | Built-in personality prompts | `app/resources/personalities.json` | Tracked package data |
 | Protected shared AI instructions | `app/config/personalities.py` | Tracked application code |
-| Ordinary application preferences | Versioned `data/app_settings.json` (`window`, `ai`, non-secret `twitch` target) | Ignored local state |
+| Gemini model presets | `app/resources/gemini_models.json` | Tracked package data |
+| Ordinary application preferences | Versioned `data/app_settings.json` (`window`, AI memory/models, non-secret `twitch` target) | Ignored local state |
 | Command overrides | `data/command_settings.json` | Ignored local state |
 | Personality selection/overrides | `data/personality_settings.json` | Ignored local state |
 | Twitch OAuth tokens | `data/twitchio_tokens.json` or configured path | Ignored secret state |

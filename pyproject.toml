@@ -38,4 +38,4 @@ asyncio_mode = "auto"
 include = ["app*"]
 
 [tool.setuptools.package-data]
-"app.resources" = ["personalities.json"]
+"app.resources" = ["*.json"]

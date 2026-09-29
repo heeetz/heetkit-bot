@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import {
+  type AIProviderSettings,
   type AppSettings,
   type CredentialInfo,
   type CredentialName,
@@ -18,6 +19,9 @@ export default function SettingsPage({ active }: SettingsPageProps) {
   const [credentials, setCredentials] = useState<CredentialInfo[]>([])
   const [twitchSaved, setTwitchSaved] = useState<TwitchConnectionSettings | null>(null)
   const [twitchDraft, setTwitchDraft] = useState<TwitchConnectionSettings | null>(null)
+  const [aiSaved, setAiSaved] = useState<AIProviderSettings | null>(null)
+  const [aiDraft, setAiDraft] = useState<AIProviderSettings | null>(null)
+  const [discoveredModels, setDiscoveredModels] = useState<string[]>([])
   const [credentialDrafts, setCredentialDrafts] = useState<Record<CredentialName, string>>({
     gemini_api_key: '',
     twitch_client_secret: '',
@@ -34,10 +38,11 @@ export default function SettingsPage({ active }: SettingsPageProps) {
     const load = async () => {
       try {
         const api = await waitForBridge()
-        const [response, credentialResponse, twitchResponse] = await Promise.all([
+        const [response, credentialResponse, twitchResponse, aiResponse] = await Promise.all([
           api.get_app_settings(),
           api.get_credentials(),
           api.get_twitch_settings(),
+          api.get_ai_provider_settings(),
         ])
         if (!response.ok || !response.settings) {
           throw new Error(response.error ?? 'Desktop settings are unavailable.')
@@ -47,6 +52,9 @@ export default function SettingsPage({ active }: SettingsPageProps) {
         }
         if (!twitchResponse.ok || !twitchResponse.settings) {
           throw new Error(twitchResponse.error ?? 'Twitch settings are unavailable.')
+        }
+        if (!aiResponse.ok || !aiResponse.settings) {
+          throw new Error(aiResponse.error ?? 'AI provider settings are unavailable.')
         }
         if (mounted) {
           setDraft((current) => {
@@ -62,6 +70,13 @@ export default function SettingsPage({ active }: SettingsPageProps) {
             return dirty ? current : twitchResponse.settings!
           })
           setTwitchSaved(twitchResponse.settings)
+          setAiDraft((current) => {
+            const dirty = current && aiSaved
+              && (current.selected_model !== aiSaved.selected_model
+                || current.fallback_model !== aiSaved.fallback_model)
+            return dirty ? current : aiResponse.settings!
+          })
+          setAiSaved(aiResponse.settings)
           setError('')
         }
       } catch (reason) {
@@ -203,6 +218,67 @@ export default function SettingsPage({ active }: SettingsPageProps) {
     }
   }
 
+  const updateAiDraft = (values: Partial<AIProviderSettings>) => {
+    setAiDraft((current) => current ? { ...current, ...values } : current)
+    setNotice('')
+  }
+
+  const saveAiModels = async () => {
+    if (!aiDraft) {
+      return
+    }
+    const selectedModel = aiDraft.selected_model.trim()
+    const fallbackModel = aiDraft.fallback_model.trim()
+    if (!selectedModel || !fallbackModel) {
+      setError('Selected and fallback model IDs are required.')
+      return
+    }
+    if (selectedModel === fallbackModel) {
+      setError('Selected and fallback models must be different.')
+      return
+    }
+    setBusy('ai:save')
+    setError('')
+    setNotice('')
+    try {
+      const api = await waitForBridge()
+      const result = await api.update_ai_provider_settings(selectedModel, fallbackModel)
+      if (!result.ok) {
+        throw new Error(result.error ?? 'AI model settings could not be saved.')
+      }
+      const refreshed = await api.get_ai_provider_settings()
+      if (!refreshed.ok || !refreshed.settings) {
+        throw new Error(refreshed.error ?? 'AI provider settings could not be refreshed.')
+      }
+      setAiSaved(refreshed.settings)
+      setAiDraft(refreshed.settings)
+      setNotice('AI model settings saved and active for the next request.')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'AI model settings could not be saved.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const discoverModels = async () => {
+    setBusy('ai:discover')
+    setError('')
+    setNotice('')
+    try {
+      const api = await waitForBridge()
+      const result = await api.discover_gemini_models()
+      if (!result.ok || !result.models) {
+        throw new Error(result.error ?? 'Gemini models could not be discovered.')
+      }
+      setDiscoveredModels(result.models)
+      setNotice(`Discovered ${result.models.length} compatible Gemini model${result.models.length === 1 ? '' : 's'}.`)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Gemini models could not be discovered.')
+    } finally {
+      setBusy('')
+    }
+  }
+
   const dirty = Boolean(
     draft && saved && JSON.stringify(draft) !== JSON.stringify(saved),
   )
@@ -214,6 +290,21 @@ export default function SettingsPage({ active }: SettingsPageProps) {
   const twitchCredential = credentials.find(
     (credential) => credential.name === 'twitch_client_secret',
   )
+  const aiDirty = Boolean(
+    aiDraft && aiSaved
+      && (aiDraft.selected_model !== aiSaved.selected_model
+        || aiDraft.fallback_model !== aiSaved.fallback_model),
+  )
+  const geminiCredential = credentials.find(
+    (credential) => credential.name === 'gemini_api_key',
+  )
+    ?? aiDraft?.credential
+    ?? null
+  const modelOptions = Array.from(new Set([
+    ...(aiDraft?.presets.map((preset) => preset.id) ?? []),
+    ...discoveredModels,
+    ...(aiDraft ? [aiDraft.selected_model, aiDraft.fallback_model] : []),
+  ].filter(Boolean))).sort()
 
   return (
     <div className="settings-layout">
@@ -245,6 +336,55 @@ export default function SettingsPage({ active }: SettingsPageProps) {
             <div className="settings-actions">
               <button className="primary" disabled={!dirty || Boolean(busy)} onClick={() => void save()}>{busy === 'settings' ? 'Saving…' : 'Save settings'}</button>
             </div>
+          </div>
+        )}
+      </section>
+
+      <section className="card settings-page">
+        <div className="section-heading">
+          <div>
+            <p className="label">AI PROVIDER</p>
+            <h2>Google Gemini models</h2>
+            <p className="section-copy">Choose a model and an unavailable-model fallback. Custom Gemini model IDs are supported.</p>
+          </div>
+          {aiDirty && <span className="mini-badge dirty-badge">Edited</span>}
+        </div>
+        {!aiDraft ? <p className="muted">Loading AI provider settings…</p> : (
+          <div className="settings-list">
+            <div className="ai-provider-status">
+              <div><span>Provider</span><strong>{aiDraft.provider}</strong></div>
+              <div><span>Credential</span><strong className={geminiCredential?.configured ? 'status-good' : ''}>{geminiCredential?.configured ? 'Configured' : 'Missing'}</strong></div>
+            </div>
+            <datalist id="gemini-model-options">
+              {modelOptions.map((model) => <option key={model} value={model} />)}
+            </datalist>
+            <div className="model-fields">
+              <label className="form-field">
+                Selected model
+                <input list="gemini-model-options" value={aiDraft.selected_model} onChange={(event) => updateAiDraft({ selected_model: event.target.value })} />
+                <small>Used for normal Gemini requests.</small>
+              </label>
+              <label className="form-field">
+                Fallback model
+                <input list="gemini-model-options" value={aiDraft.fallback_model} onChange={(event) => updateAiDraft({ fallback_model: event.target.value })} />
+                <small>Used only when the selected model is unavailable or unsupported.</small>
+              </label>
+            </div>
+            <div className="model-preset-list">
+              {aiDraft.presets.map((preset) => (
+                <div key={preset.id}>
+                  <strong>{preset.label}</strong>
+                  <code>{preset.id}</code>
+                  <small>{preset.description}</small>
+                </div>
+              ))}
+            </div>
+            <div className="settings-actions">
+              <button className="secondary" disabled={Boolean(busy) || !geminiCredential?.configured} onClick={() => void runCredentialAction('gemini_api_key', 'test')}>{busy === 'gemini_api_key:test' ? 'Testing…' : 'Test credential'}</button>
+              <button className="secondary" disabled={Boolean(busy) || !geminiCredential?.configured} onClick={() => void discoverModels()}>{busy === 'ai:discover' ? 'Discovering…' : 'Discover models'}</button>
+              <button className="primary" disabled={Boolean(busy) || !aiDirty} onClick={() => void saveAiModels()}>{busy === 'ai:save' ? 'Saving…' : 'Save models'}</button>
+            </div>
+            <p className="settings-hint">Provider discovery augments the tracked presets. Authentication, network, policy, and rate-limit failures never trigger model fallback.</p>
           </div>
         )}
       </section>

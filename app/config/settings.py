@@ -6,6 +6,10 @@ from typing import Literal
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.config.ai_models import (
+    DEFAULT_GEMINI_FALLBACK_MODEL,
+    validate_gemini_model_id,
+)
 from app.credentials import CredentialManager, CredentialName, CredentialStore
 
 
@@ -39,6 +43,7 @@ class Settings(BaseSettings):
     twitch_token_file: str = "data/twitchio_tokens.json"
     gemini_api_key: SecretStr | None = None
     gemini_model: str = "gemini-3.5-flash-lite"
+    gemini_fallback_model: str = DEFAULT_GEMINI_FALLBACK_MODEL
     ai_cooldown_bypass_user_id: str | None = None
     database_url: str = "sqlite+aiosqlite:///./data/twitch_bot.db"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
@@ -51,6 +56,11 @@ class Settings(BaseSettings):
         if not value or value.isspace():
             raise ValueError("COMMAND_PREFIX must contain at least one visible character.")
         return value
+
+    @field_validator("gemini_model", "gemini_fallback_model")
+    @classmethod
+    def validate_gemini_model(cls, value: str) -> str:
+        return validate_gemini_model_id(value)
 
     @property
     def primary_account(self) -> TwitchAccountSettings:

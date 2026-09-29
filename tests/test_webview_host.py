@@ -9,8 +9,9 @@ from typing import cast
 import pytest
 
 from app.commands.registry import CommandRegistry
-from app.app_settings import AppSettings, AppSettingsStore, TwitchSettings
+from app.app_settings import AISettings, AppSettings, AppSettingsStore, TwitchSettings
 from app.config.settings import Settings
+from app.credentials import CredentialStatus
 from app.runtime_state import RuntimeState
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
@@ -19,6 +20,7 @@ from app.webview_host import (
     AsyncioBackendHost,
     DesktopController,
     WebUIBridge,
+    apply_ai_app_settings,
     apply_twitch_app_settings,
     resolve_frontend_url,
 )
@@ -67,6 +69,100 @@ def test_twitch_app_settings_override_environment_defaults() -> None:
     assert effective.twitch_channel == "local-channel"
     assert effective.twitch_channel_user_id == "300"
     assert settings.twitch_channel == "environment-channel"
+
+
+def test_ai_app_settings_override_environment_model_defaults() -> None:
+    settings = Settings(
+        _env_file=None,
+        twitch_client_id="client-id",
+        twitch_client_secret="client-secret",
+        twitch_bot_user_id="100",
+        twitch_bot_username="testbot",
+        twitch_channel_user_id="200",
+        twitch_channel="channel",
+        gemini_model="gemini-environment",
+        gemini_fallback_model="gemini-environment-fallback",
+    )
+
+    effective = apply_ai_app_settings(
+        settings,
+        AppSettings(
+            ai=AISettings(
+                selected_model="gemini-local",
+                fallback_model="gemini-local-fallback",
+            )
+        ),
+    )
+
+    assert effective.gemini_model == "gemini-local"
+    assert effective.gemini_fallback_model == "gemini-local-fallback"
+    assert settings.gemini_model == "gemini-environment"
+
+
+def test_bridge_exposes_and_updates_ai_provider_settings(tmp_path) -> None:
+    settings = SimpleNamespace(
+        gemini_model="gemini-selected",
+        gemini_fallback_model="gemini-fallback",
+    )
+    application = SimpleNamespace(
+        settings=settings,
+        services=SimpleNamespace(ai=SimpleNamespace()),
+    )
+    credential_manager = SimpleNamespace(
+        statuses=lambda: (
+            CredentialStatus(
+                name="gemini_api_key",
+                label="Gemini API key",
+                configured=True,
+                source="environment",
+                secure_storage_available=True,
+            ),
+        )
+    )
+    store = AppSettingsStore(tmp_path / "app_settings.json")
+    bridge = WebUIBridge(
+        cast(AsyncioBackendHost, SimpleNamespace(application=application)),
+        app_settings=store,
+        credential_manager=credential_manager,
+    )
+
+    result = bridge.get_ai_provider_settings()
+    assert result["ok"] is True
+    assert result["settings"]["provider"] == "Google Gemini"
+    assert result["settings"]["selected_model"] == "gemini-selected"
+    assert result["settings"]["credential"]["configured"] is True
+    assert "value" not in result["settings"]["credential"]
+
+    assert bridge.update_ai_provider_settings("gemini-new", "gemini-safe") == {
+        "ok": True
+    }
+    assert settings.gemini_model == "gemini-new"
+    assert settings.gemini_fallback_model == "gemini-safe"
+    assert store.snapshot().ai == AISettings(
+        selected_model="gemini-new",
+        fallback_model="gemini-safe",
+    )
+
+
+def test_bridge_discovers_models_on_the_existing_backend_loop() -> None:
+    class FakeAI:
+        async def discover_models(self) -> list[str]:
+            return ["gemini-discovered"]
+
+    class FakeBackend:
+        application = SimpleNamespace(services=SimpleNamespace(ai=FakeAI()))
+
+        def submit(self, coroutine):
+            future: Future[list[str]] = Future()
+            future.set_result(asyncio.run(coroutine))
+            return future
+
+    bridge = WebUIBridge(cast(AsyncioBackendHost, FakeBackend()))
+
+    assert bridge.discover_gemini_models() == {
+        "ok": True,
+        "models": ["gemini-discovered"],
+    }
 
 
 def test_bridge_exposes_and_saves_non_secret_twitch_settings(tmp_path) -> None:
