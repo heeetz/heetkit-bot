@@ -238,6 +238,58 @@ Keep the full personality editor on its own AI/personality page rather than stuf
 
 ---
 
+# P1.5 — Architecture & reliability checkpoint
+
+## TODO-R1 — Review project structure and reliability
+
+- [ ] Re-evaluate the current folder/file structure after the configuration/UI work settles.
+- [ ] Identify files/modules that are:
+  - obsolete;
+  - unused;
+  - duplicated;
+  - unnecessarily fragmented;
+  - in an unclear package/location.
+- [ ] Review whether responsibilities still have obvious homes.
+- [ ] Check for unnecessary wrappers/forwarding layers.
+- [ ] Check for circular or awkward dependency direction.
+- [ ] Check lifecycle reliability:
+  - startup;
+  - shutdown;
+  - reconnect;
+  - tray/window lifecycle;
+  - background threads;
+  - asyncio boundaries.
+- [ ] Review persistence robustness:
+  - malformed local settings;
+  - atomic writes;
+  - stale overrides;
+  - reset behavior;
+  - missing files.
+- [ ] Review external-service failure behavior:
+  - Twitch;
+  - Gemini;
+  - weather/other APIs.
+- [ ] Review logging/error handling.
+- [ ] Review security boundaries and accidental secret exposure.
+- [ ] Review whether tests cover important failure/lifecycle paths.
+- [ ] Review dead dependencies and package declarations.
+- [ ] Produce concrete cleanup recommendations before modifying architecture.
+- [ ] Implement only high-confidence cleanup in separate commits after the audit.
+
+Important:
+
+Do not optimize for minimum file count. A cohesive larger module is preferable to multiple
+useless forwarding files, but unrelated responsibilities must not be merged merely to reduce
+file count.
+
+The purpose is reliability, understandable structure, lower maintenance cost, and fewer
+unnecessary indirections.
+
+Do not perform this review until the preceding configuration/settings work is substantially
+complete.
+
+---
+
 # P2 — Product extensibility
 
 ## TODO-009 — Configurable simple commands
@@ -285,6 +337,9 @@ Keep the full personality editor on its own AI/personality page rather than stuf
 ---
 
 # P3 — Distribution
+
+Before declaring the project release-ready, resolve the findings from TODO-R1 or explicitly
+record which remaining risks are accepted. Do not duplicate the full checkpoint here.
 
 ## TODO-012 — Build standalone Windows application
 

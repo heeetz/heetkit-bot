@@ -1,0 +1,131 @@
+# Durable project decisions
+
+Only active, repository-supported decisions belong here. Update an entry when the decision
+changes; do not append meeting notes or reasoning transcripts.
+
+## Decision: Python owns the application and domain core
+
+Status: Active
+
+Decision:
+Python owns Twitch, Gemini, database access, validation, persistence, command dispatch, and
+application lifecycle.
+
+Reason:
+The existing services and runtime are composed in Python and shared by every desktop action.
+
+## Decision: React is a presentation layer
+
+Status: Active
+
+Decision:
+React displays backend state, holds temporary form drafts, and invokes explicit operations. It
+does not implement permissions, cooldown rules, AI policy, authentication, or persistence.
+
+Reason:
+Keeping domain behavior in one backend prevents competing sources of truth.
+
+## Decision: The frontend uses a narrow pywebview bridge
+
+Status: Active
+
+Decision:
+Frontend access is limited to explicit application-level `WebUIBridge` methods. Raw service,
+database, TwitchIO, Gemini, and runtime objects are not exposed.
+
+Reason:
+The boundary is easier to validate, thread safely, and evolve than reflection or a second
+local backend API.
+
+## Decision: One composed application owns one lifecycle
+
+Status: Active
+
+Decision:
+One `AsyncioBackendHost` owns one asyncio loop, one composed `Application`, and one
+`BotRuntime`. Desktop close and Tray Exit reuse the same idempotent orderly shutdown path.
+
+Reason:
+Duplicate loops or lifecycle controllers would create races and inconsistent runtime state.
+
+## Decision: One tray controller and icon exist per process
+
+Status: Active
+
+Decision:
+The desktop controller owns one idempotently started `SystemTray`; window settings change
+visibility behavior, not tray ownership.
+
+Reason:
+Start-minimized, minimize-to-tray, and close-to-tray combinations must never create duplicate
+icons or shutdown paths.
+
+## Decision: The command registry defines built-in commands
+
+Status: Active
+
+Decision:
+`CommandRegistry` is authoritative for command existence and built-in metadata/defaults.
+Runtime settings and the UI derive their command list from registered definitions.
+
+Reason:
+This prevents manually maintained command lists from drifting apart.
+
+## Decision: Defaults, local overrides, and effective runtime state are distinct
+
+Status: Active
+
+Decision:
+Source-controlled defaults flow through optional validated local overrides into effective
+runtime state. A default plus an override is intentional layering, not duplicate ownership.
+
+Reason:
+Users need recoverable defaults, persistent customization, and session-only Apply behavior.
+
+## Decision: Runtime settings never rewrite Python source
+
+Status: Active
+
+Decision:
+Desktop edits are persisted as data in the appropriate local store. `config.py`, registry
+definitions, and built-in resources remain developer-owned.
+
+Reason:
+Source rewriting is fragile, unsafe, and makes Reset and upgrades difficult.
+
+## Decision: Personality overrides cannot replace protected shared instructions
+
+Status: Active
+
+Decision:
+Users edit only personality-specific text. Shared system/safety instructions remain
+application-owned and are combined with the effective personality by Python.
+
+Reason:
+Tone customization must not override core policy or prompt-safety boundaries.
+
+## Decision: Secrets are separate from ordinary settings
+
+Status: Active
+
+Decision:
+API keys, client secrets, and OAuth tokens must not be written to ordinary application JSON.
+Current `.env` support is a private developer/deployment mechanism; planned desktop credential
+storage must use an appropriate protected boundary.
+
+Reason:
+Ordinary settings are user-editable and portable; credentials require stricter storage and
+logging rules.
+
+## Decision: Local runtime and user state is not committed
+
+Status: Active
+
+Decision:
+Local settings, tokens, databases, logs, caches, virtual environments, dependencies, and
+generated frontend output remain ignored. Safe defaults, schemas, source, lockfiles, and
+example configuration remain tracked.
+
+Reason:
+The repository must not leak credentials/private data or mix machine state with distributable
+source.
