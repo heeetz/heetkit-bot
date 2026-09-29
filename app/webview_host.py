@@ -490,6 +490,7 @@ class DesktopController:
         self._logger = get_logger("app.webview.desktop")
         self._window: Any | None = None
         self._exit_requested = False
+        self._tray_started = False
         self._exit_lock = threading.RLock()
         self._tray = tray or SystemTray(
             on_open=self.open_window,
@@ -501,10 +502,15 @@ class DesktopController:
     def bind_window(self, window: Any) -> None:
         self._window = window
         window.events.closing += self._on_closing
+        window.events.closed += self._on_closed
         window.events.minimized += self._on_minimized
 
     def start_tray(self) -> None:
-        self._tray.start()
+        with self._exit_lock:
+            if self._tray_started or self._exit_requested:
+                return
+            self._tray.start()
+            self._tray_started = True
 
     def is_bot_running(self) -> bool:
         return bool(self._backend.application.services.runtime_state.status()[0])
@@ -547,8 +553,7 @@ class DesktopController:
                     self._logger.exception("Could not close desktop window")
 
     def shutdown(self) -> None:
-        self._tray.stop()
-        self._backend.close()
+        self.exit_application()
 
     def _on_closing(self) -> bool | None:
         if self._exit_requested:
@@ -558,6 +563,10 @@ class DesktopController:
                 self._window.hide()
             return False
         return None
+
+    def _on_closed(self) -> None:
+        self._window = None
+        self.exit_application()
 
     def _on_minimized(self) -> None:
         if self._app_settings.snapshot().minimize_to_tray and self._window is not None:

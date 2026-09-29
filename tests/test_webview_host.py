@@ -316,7 +316,11 @@ class FakeEvent:
 
 class FakeWindow:
     def __init__(self) -> None:
-        self.events = SimpleNamespace(closing=FakeEvent(), minimized=FakeEvent())
+        self.events = SimpleNamespace(
+            closing=FakeEvent(),
+            closed=FakeEvent(),
+            minimized=FakeEvent(),
+        )
         self.hide_calls = 0
         self.show_calls = 0
         self.restore_calls = 0
@@ -409,11 +413,12 @@ def test_desktop_controller_hides_window_for_saved_tray_settings(tmp_path) -> No
         tmp_path
     )
     store.update(
-        start_minimized=False,
+        start_minimized=True,
         minimize_to_tray=True,
         close_to_tray=True,
     )
 
+    controller.start_tray()
     controller.start_tray()
     assert window.events.closing.handlers[0]() is False
     window.events.minimized.handlers[0]()
@@ -435,6 +440,7 @@ def test_desktop_controller_tray_toggles_bot_and_exits_orderly(tmp_path) -> None
     controller.toggle_bot()
     controller.exit_application()
     controller.exit_application()
+    controller.shutdown()
 
     assert bridge.start_calls == 1
     assert bridge.stop_calls == 1
@@ -453,3 +459,21 @@ def test_desktop_controller_allows_normal_close_when_setting_is_disabled(
 
     assert window.events.closing.handlers[0]() is None
     assert window.hide_calls == 0
+    window.events.closed.handlers[0]()
+
+    assert backend.close_calls == 1
+    assert tray.stop_calls == 1
+    assert window.destroy_calls == 0
+
+
+def test_desktop_controller_allows_normal_minimize_when_setting_is_disabled(
+    tmp_path,
+) -> None:
+    controller, backend, bridge, tray, store, window = build_desktop_controller(
+        tmp_path
+    )
+
+    window.events.minimized.handlers[0]()
+
+    assert window.hide_calls == 0
+    assert backend.close_calls == 0
