@@ -10,6 +10,7 @@ import {
   waitForBridge,
 } from '../bridge'
 import FeedbackToast from '../components/FeedbackToast'
+import Switch from '../components/Switch'
 
 interface SettingsPageProps {
   active: boolean
@@ -376,22 +377,18 @@ export default function SettingsPage({ active }: SettingsPageProps) {
         </div>
         {!draft ? <p className="muted">Loading desktop settings…</p> : (
           <div className="settings-list">
-            <label className="settings-option">
-              <input type="checkbox" checked={draft.auto_start_bot} disabled={Boolean(busy)} onChange={(event) => void updateWindowSettings({ auto_start_bot: event.target.checked }, 'Automatic bot startup preference saved for the next launch.')} />
+            <Switch className="settings-option" checked={draft.auto_start_bot} disabled={Boolean(busy)} onCheckedChange={(auto_start_bot) => void updateWindowSettings({ auto_start_bot }, 'Automatic bot startup preference saved for the next launch.')}>
               <span><strong>Start bot automatically</strong><small>Saved automatically. Takes effect on the next application launch and is independent of window visibility.</small></span>
-            </label>
-            <label className="settings-option">
-              <input type="checkbox" checked={draft.start_minimized} disabled={Boolean(busy)} onChange={(event) => void updateWindowSettings({ start_minimized: event.target.checked }, 'Start-minimized preference saved for the next launch.')} />
+            </Switch>
+            <Switch className="settings-option" checked={draft.start_minimized} disabled={Boolean(busy)} onCheckedChange={(start_minimized) => void updateWindowSettings({ start_minimized }, 'Start-minimized preference saved for the next launch.')}>
               <span><strong>Start minimized</strong><small>Saved automatically. Takes effect on the next application launch.</small></span>
-            </label>
-            <label className="settings-option">
-              <input type="checkbox" checked={draft.minimize_to_tray} disabled={Boolean(busy)} onChange={(event) => void updateWindowSettings({ minimize_to_tray: event.target.checked }, 'Minimize-to-tray behavior saved and active.')} />
+            </Switch>
+            <Switch className="settings-option" checked={draft.minimize_to_tray} disabled={Boolean(busy)} onCheckedChange={(minimize_to_tray) => void updateWindowSettings({ minimize_to_tray }, 'Minimize-to-tray behavior saved and active.')}>
               <span><strong>Minimize to tray</strong><small>Saved automatically and applies immediately when the window is minimized.</small></span>
-            </label>
-            <label className="settings-option">
-              <input type="checkbox" checked={draft.close_to_tray} disabled={Boolean(busy)} onChange={(event) => void updateWindowSettings({ close_to_tray: event.target.checked }, 'Close-to-tray behavior saved and active.')} />
+            </Switch>
+            <Switch className="settings-option" checked={draft.close_to_tray} disabled={Boolean(busy)} onCheckedChange={(close_to_tray) => void updateWindowSettings({ close_to_tray }, 'Close-to-tray behavior saved and active.')}>
               <span><strong>Close to tray</strong><small>Saved automatically and applies immediately when the close button is used.</small></span>
-            </label>
+            </Switch>
           </div>
         )}
       </section>

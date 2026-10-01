@@ -358,6 +358,28 @@ remains an explicit override, and start-minimized remains independent.
 
 ---
 
+## TODO-UX2 — Replace boolean checkboxes with a reusable switch control
+
+- [x] Create one reusable accessible switch/toggle component for boolean UI settings.
+- [x] Use a compact iOS-style track/knob visual rather than native checkbox squares.
+- [x] Preserve keyboard/focus/accessibility semantics.
+- [x] Replace boolean checkboxes consistently where they represent ON/OFF state, including:
+  - command `Enabled`;
+  - AI command enabled;
+  - conversation memory enabled;
+  - startup/window/tray booleans;
+  - other equivalent boolean settings.
+- [x] Do not replace controls that are not true booleans.
+- [x] Preserve existing save/apply semantics; this task changes presentation, not ownership or persistence.
+- [x] Keep disabled/loading states visually obvious.
+
+**Acceptance check:** all normal ON/OFF controls use one consistent switch component and still behave exactly as before.
+
+All eight boolean controls now use the shared native-checkbox-backed `Switch` component, with
+consistent track/knob styling, keyboard focus, accessible labels, and disabled feedback.
+
+---
+
 # P2 — Product extensibility
 
 ## TODO-009 — Configurable simple commands

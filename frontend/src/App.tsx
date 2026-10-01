@@ -8,6 +8,7 @@ import CommandsPage from './pages/CommandsPage'
 import AIPage from './pages/AIPage'
 import SettingsPage from './pages/SettingsPage'
 import FeedbackToast from './components/FeedbackToast'
+import Switch from './components/Switch'
 import './styles.css'
 
 const sections = ['Dashboard', 'Commands', 'AI', 'Logs', 'Settings'] as const
@@ -139,14 +140,13 @@ function LogsPage() {
             placeholder="Message or source"
           />
         </label>
-        <label className="checkbox-field">
-          <input
-            type="checkbox"
-            checked={autoScroll}
-            onChange={(event) => setAutoScroll(event.target.checked)}
-          />
+        <Switch
+          className="checkbox-field"
+          checked={autoScroll}
+          onCheckedChange={setAutoScroll}
+        >
           Auto-scroll
-        </label>
+        </Switch>
         <button className="secondary" onClick={() => setEntries([])}>Clear view</button>
       </div>
       {error && <div className="inline-error log-error">{error}</div>}

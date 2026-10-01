@@ -7,6 +7,7 @@ import {
   waitForBridge,
 } from '../bridge'
 import FeedbackToast from '../components/FeedbackToast'
+import Switch from '../components/Switch'
 
 interface AIPageProps {
   active: boolean
@@ -149,18 +150,28 @@ export default function AIPage({ active }: AIPageProps) {
       <div className="ai-status-grid">
         <article className="card compact-card">
           <p className="label">AI command</p>
-          <label className="settings-toggle">
-            <input type="checkbox" checked={status?.enabled ?? false} disabled={!status || Boolean(busy)} onChange={(event) => void changeToggle('enabled', event.target.checked)} />
+          <Switch
+            className="settings-toggle"
+            checked={status?.enabled ?? false}
+            disabled={!status || Boolean(busy)}
+            ariaLabel="Enable AI command"
+            onCheckedChange={(enabled) => void changeToggle('enabled', enabled)}
+          >
             <span>{status?.enabled ? 'Enabled' : 'Disabled'}</span>
-          </label>
+          </Switch>
           <p className="setting-effect">Applies immediately for this session. Save the Ask command on the Commands page to persist it.</p>
         </article>
         <article className="card compact-card">
           <p className="label">Conversation memory</p>
-          <label className="settings-toggle">
-            <input type="checkbox" checked={status?.memory_enabled ?? false} disabled={!status || Boolean(busy)} onChange={(event) => void changeToggle('memory', event.target.checked)} />
+          <Switch
+            className="settings-toggle"
+            checked={status?.memory_enabled ?? false}
+            disabled={!status || Boolean(busy)}
+            ariaLabel="Enable conversation memory"
+            onCheckedChange={(enabled) => void changeToggle('memory', enabled)}
+          >
             <span>{status?.memory_enabled ? 'Enabled' : 'Disabled'}</span>
-          </label>
+          </Switch>
           <p className="setting-effect">Applies immediately and is saved across restarts.</p>
         </article>
         <article className="card compact-card">

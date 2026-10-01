@@ -7,7 +7,7 @@ transcript.
 
 - Branch: `main`.
 - Remote target: `origin/main`.
-- Latest completed task: **TODO-UX1 — Fix startup bridge readiness and make bot startup explicit**
+- Latest completed task: **TODO-UX2 — Replace boolean checkboxes with a reusable switch control**
   (committed with this handoff).
 - Working application path: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
 - No active partially completed task exists.
@@ -45,12 +45,15 @@ transcript.
   `--stopped` remains an explicit override. Status polling waits for a populated pywebview API.
 - Gemini model choices are native selects populated from backend presets/discovery, with a
   separate input shown only for a custom model ID.
+- All normal boolean controls use one reusable native-checkbox-backed React switch component,
+  including command, AI, window/startup, and log auto-scroll controls. Existing Apply/Save and
+  auto-save behavior is unchanged.
 
 ## TODO position
 
-- Latest completed TODO: **TODO-UX1 — Fix startup bridge readiness and make bot startup explicit**.
-- The next daily-use item is **TODO-UX2 — Replace boolean checkboxes with a reusable switch
-  control**, but start it only when explicitly requested.
+- Latest completed TODO: **TODO-UX2 — Replace boolean checkboxes with a reusable switch control**.
+- The next daily-use item is **TODO-UX3 — Rebalance Dashboard, AI, and Settings information
+  architecture**, but start it only when explicitly requested.
 - The completed checkpoint is `docs/architecture-reliability-checkpoint.md`. Its high-priority
   reliability findings should be fixed in focused tasks or explicitly accepted before release.
 
@@ -95,6 +98,8 @@ transcript.
 - TODO-UX1: 50 focused app-settings/desktop-host tests passed; frontend typecheck and production
   build passed. The project virtual environment required execution outside the restricted agent
   sandbox; no environment workaround was added to the repository.
+- TODO-UX2: frontend typecheck and production build passed. No Python or backend behavior changed,
+  so Python tests were not rerun.
 - The last full Phase 3 suite passed with 119 tests; frontend typecheck/build and
   `python -m app.main --check` also passed at that milestone.
 
@@ -111,5 +116,5 @@ transcript.
 - Windows Credential Manager is the preferred store for user-entered Gemini/Twitch client
   credentials. `.env` remains a private fallback; credential values never enter ordinary JSON.
 - Local runtime files, databases, logs, frontend build output, `.env`, and tokens are ignored.
-- An unrelated local edit to `AGENTS.md` and user roadmap/filter changes predate TODO-UX1 and
-  remain intentionally uncommitted except for the completed TODO-UX1 subsection.
+- An unrelated local edit to `AGENTS.md` and user roadmap/filter changes predate TODO-UX2 and
+  remain intentionally uncommitted except for the completed TODO-UX1/UX2 subsections.

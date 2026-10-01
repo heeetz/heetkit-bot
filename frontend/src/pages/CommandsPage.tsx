@@ -7,6 +7,7 @@ import {
   waitForBridge,
 } from '../bridge'
 import FeedbackToast from '../components/FeedbackToast'
+import Switch from '../components/Switch'
 
 interface CommandDraft {
   enabled: boolean
@@ -201,14 +202,14 @@ export default function CommandsPage({ active }: CommandsPageProps) {
                     {command.aliases.length > 0 && <span>Aliases: {command.aliases.map((alias) => `${data.command_prefix}${alias}`).join(', ')}</span>}
                   </div>
                 </div>
-                <label className="toggle-field">
-                  <input
-                    type="checkbox"
-                    checked={draft.enabled}
-                    onChange={(event) => updateDraft(command.name, { enabled: event.target.checked })}
-                  />
+                <Switch
+                  className="toggle-field"
+                  checked={draft.enabled}
+                  ariaLabel={`Enable ${data.command_prefix}${command.name}`}
+                  onCheckedChange={(enabled) => updateDraft(command.name, { enabled })}
+                >
                   <span>{draft.enabled ? 'Enabled' : 'Disabled'}</span>
-                </label>
+                </Switch>
                 <label>
                   Permission
                   <select value={draft.permission} onChange={(event) => updateDraft(command.name, { permission: event.target.value })}>
