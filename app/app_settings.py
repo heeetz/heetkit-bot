@@ -25,6 +25,11 @@ class WindowSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class StartupSettings:
+    auto_start_bot: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class AISettings:
     memory_enabled: bool = AI_MEMORY_ENABLED
     selected_model: str | None = None
@@ -40,6 +45,7 @@ class TwitchSettings:
 @dataclass(frozen=True, slots=True)
 class AppSettings:
     window: WindowSettings = field(default_factory=WindowSettings)
+    startup: StartupSettings = field(default_factory=StartupSettings)
     ai: AISettings = field(default_factory=AISettings)
     twitch: TwitchSettings = field(default_factory=TwitchSettings)
 
@@ -124,6 +130,7 @@ def load_app_settings(path: Path) -> AppSettings:
 
     if "version" not in payload:
         window_payload = payload
+        startup_payload: dict[str, object] = {}
         ai_payload: dict[str, object] = {}
     elif type(payload["version"]) is not int or payload["version"] != APP_SETTINGS_VERSION:
         logger.warning(
@@ -133,6 +140,7 @@ def load_app_settings(path: Path) -> AppSettings:
         return defaults
     else:
         window_payload = _read_section(payload, "window")
+        startup_payload = _read_section(payload, "startup")
         ai_payload = _read_section(payload, "ai")
     twitch_payload = (
         {} if "version" not in payload else _read_section(payload, "twitch")
@@ -190,6 +198,14 @@ def load_app_settings(path: Path) -> AppSettings:
                 "window",
                 "close_to_tray",
                 defaults.window.close_to_tray,
+            ),
+        ),
+        startup=StartupSettings(
+            auto_start_bot=_read_boolean(
+                startup_payload,
+                "startup",
+                "auto_start_bot",
+                defaults.startup.auto_start_bot,
             ),
         ),
         ai=AISettings(
@@ -259,6 +275,38 @@ class AppSettingsStore:
         with self._lock:
             updated = AppSettings(
                 window=window,
+                startup=self._settings.startup,
+                ai=self._settings.ai,
+                twitch=self._settings.twitch,
+            )
+            save_app_settings(self._path, updated)
+            self._settings = updated
+        return updated
+
+    def update_desktop(
+        self,
+        *,
+        start_minimized: object,
+        minimize_to_tray: object,
+        close_to_tray: object,
+        auto_start_bot: object,
+    ) -> AppSettings:
+        values = (
+            start_minimized,
+            minimize_to_tray,
+            close_to_tray,
+            auto_start_bot,
+        )
+        if any(type(value) is not bool for value in values):
+            raise ValueError("Desktop settings must be boolean values.")
+        with self._lock:
+            updated = AppSettings(
+                window=WindowSettings(
+                    start_minimized=start_minimized,
+                    minimize_to_tray=minimize_to_tray,
+                    close_to_tray=close_to_tray,
+                ),
+                startup=StartupSettings(auto_start_bot=auto_start_bot),
                 ai=self._settings.ai,
                 twitch=self._settings.twitch,
             )
@@ -272,6 +320,7 @@ class AppSettingsStore:
         with self._lock:
             updated = AppSettings(
                 window=self._settings.window,
+                startup=self._settings.startup,
                 ai=AISettings(
                     memory_enabled=enabled,
                     selected_model=self._settings.ai.selected_model,
@@ -296,6 +345,7 @@ class AppSettingsStore:
         with self._lock:
             updated = AppSettings(
                 window=self._settings.window,
+                startup=self._settings.startup,
                 ai=AISettings(
                     memory_enabled=self._settings.ai.memory_enabled,
                     selected_model=selected,
@@ -317,6 +367,7 @@ class AppSettingsStore:
         with self._lock:
             updated = AppSettings(
                 window=self._settings.window,
+                startup=self._settings.startup,
                 ai=self._settings.ai,
                 twitch=twitch,
             )

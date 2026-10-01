@@ -59,6 +59,7 @@ export interface PersonalitiesResponse {
 }
 
 export interface AppSettings {
+  auto_start_bot: boolean
   start_minimized: boolean
   minimize_to_tray: boolean
   close_to_tray: boolean
@@ -147,7 +148,7 @@ interface PythonApi {
   save_personality(personality: string, prompt: string): Promise<ActionResult>
   reset_personality(personality: string): Promise<ActionResult>
   get_app_settings(): Promise<AppSettingsResponse>
-  update_app_settings(startMinimized: boolean, minimizeToTray: boolean, closeToTray: boolean): Promise<ActionResult>
+  update_app_settings(startMinimized: boolean, minimizeToTray: boolean, closeToTray: boolean, autoStartBot: boolean): Promise<ActionResult>
   get_twitch_settings(): Promise<TwitchSettingsResponse>
   update_twitch_settings(targetChannel: string, targetChannelUserId: string): Promise<ActionResult>
   reconnect_twitch(): Promise<ActionResult>
@@ -179,31 +180,40 @@ declare global {
 
 let pendingBridge: Promise<PythonApi> | null = null
 
+function readyBridge(): PythonApi | null {
+  const api = window.pywebview?.api
+  return api && typeof api.get_app_status === 'function' ? api : null
+}
+
 export async function waitForBridge(): Promise<PythonApi> {
-  if (window.pywebview?.api) {
-    return window.pywebview.api
+  const ready = readyBridge()
+  if (ready) {
+    return ready
   }
   if (pendingBridge) {
     return pendingBridge
   }
 
   pendingBridge = new Promise((resolve, reject) => {
+    const onReady = () => {
+      const api = readyBridge()
+      if (!api) {
+        return
+      }
+      window.clearTimeout(timeout)
+      window.removeEventListener('pywebviewready', onReady)
+      resolve(api)
+    }
     const timeout = window.setTimeout(
-      () => reject(new Error('The desktop backend did not become available.')),
+      () => {
+        window.removeEventListener('pywebviewready', onReady)
+        reject(new Error('The desktop backend did not become available.'))
+      },
       8000,
     )
-    window.addEventListener(
-      'pywebviewready',
-      () => {
-        window.clearTimeout(timeout)
-        if (window.pywebview?.api) {
-          resolve(window.pywebview.api)
-        } else {
-          reject(new Error('The desktop backend bridge is unavailable.'))
-        }
-      },
-      { once: true },
-    )
+    window.addEventListener('pywebviewready', onReady)
+    // Close the gap between the initial readiness check and listener registration.
+    onReady()
   })
   try {
     return await pendingBridge

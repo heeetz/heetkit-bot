@@ -43,7 +43,7 @@ class AsyncioBackendHost:
         self,
         settings: Settings,
         *,
-        auto_start: bool = True,
+        auto_start: bool = False,
         initial_ai_memory_enabled: bool | None = None,
     ) -> None:
         self._settings = settings
@@ -426,6 +426,7 @@ class WebUIBridge:
         return {
             "ok": True,
             "settings": {
+                "auto_start_bot": settings.startup.auto_start_bot,
                 "start_minimized": settings.window.start_minimized,
                 "minimize_to_tray": settings.window.minimize_to_tray,
                 "close_to_tray": settings.window.close_to_tray,
@@ -437,14 +438,16 @@ class WebUIBridge:
         start_minimized: object,
         minimize_to_tray: object,
         close_to_tray: object,
+        auto_start_bot: object,
     ) -> dict[str, object]:
         if self._app_settings is None:
             return {"ok": False, "error": "Desktop settings are not configured."}
         try:
-            self._app_settings.update_window(
+            self._app_settings.update_desktop(
                 start_minimized=start_minimized,
                 minimize_to_tray=minimize_to_tray,
                 close_to_tray=close_to_tray,
+                auto_start_bot=auto_start_bot,
             )
         except ValueError as error:
             return {"ok": False, "error": str(error)}
@@ -747,6 +750,12 @@ def apply_ai_app_settings(settings: Settings, app_settings: AppSettings) -> Sett
     )
 
 
+def resolve_auto_start(app_settings: AppSettings, override: bool | None) -> bool:
+    if override is not None:
+        return override
+    return app_settings.startup.auto_start_bot
+
+
 class DesktopController:
     """Coordinate one pywebview window, tray icon, and backend lifecycle."""
 
@@ -853,7 +862,7 @@ def run_desktop_host(
     settings: Settings,
     frontend_url: str,
     *,
-    auto_start: bool = True,
+    auto_start: bool | None = None,
     credential_manager: CredentialManager | None = None,
 ) -> None:
     import webview
@@ -862,9 +871,10 @@ def run_desktop_host(
     settings_snapshot = app_settings.snapshot()
     settings = apply_twitch_app_settings(settings, settings_snapshot)
     settings = apply_ai_app_settings(settings, settings_snapshot)
+    should_auto_start = resolve_auto_start(settings_snapshot, auto_start)
     backend = AsyncioBackendHost(
         settings,
-        auto_start=auto_start,
+        auto_start=should_auto_start,
         initial_ai_memory_enabled=settings_snapshot.ai.memory_enabled,
     )
     controller: DesktopController | None = None
@@ -909,7 +919,7 @@ def main() -> None:
     parser.add_argument(
         "--stopped",
         action="store_true",
-        help="Open the UI without automatically starting the Twitch bot.",
+        help="Open the UI with the Twitch bot stopped, overriding the saved preference.",
     )
     parser.add_argument(
         "--check",
@@ -927,7 +937,7 @@ def main() -> None:
         run_desktop_host(
             settings,
             frontend_url,
-            auto_start=not arguments.stopped,
+            auto_start=False if arguments.stopped else None,
             credential_manager=credential_manager,
         )
     except (ValidationError, FileNotFoundError) as error:

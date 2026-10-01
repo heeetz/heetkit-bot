@@ -329,6 +329,35 @@ tray-menu refresh; all broader findings remain deferred to focused tasks.
 
 ---
 
+
+# P1.6 — Daily-use UX & runtime polish
+
+These tasks come from real daily-use testing of the current desktop UI.
+
+Complete the blocking/runtime items first. Do not mix unrelated UX changes into one task.
+
+## TODO-UX1 — Fix startup bridge readiness and make bot startup explicit
+
+- [x] Reproduce and fix the user-facing startup error around `get_app_status` / bridge availability.
+- [x] Treat normal pywebview bridge initialization as an expected lifecycle state, not an error.
+- [x] Prefer waiting for the bridge-ready event / deterministic readiness path over blind repeated retries.
+- [x] Opening the desktop application must **not** start/connect the bot by default.
+- [x] Add a persisted local setting such as `startup.auto_start_bot`, defaulting to `false`.
+- [x] Add a clear **Start bot automatically** toggle in the desktop/startup settings.
+- [x] The toggle takes effect on the next application launch.
+- [x] `Start minimized` and `Start bot automatically` must remain independent.
+- [x] Preserve an explicit CLI/testing override if the current host already has one, but normal GUI launch follows the saved setting.
+- [x] No expected red error/toast should appear during a healthy application startup.
+- [x] Add focused bridge/startup regression coverage.
+
+**Acceptance check:** normal `run.bat` launch opens the application with the bot stopped by default and no `get_app_status` startup error.
+
+The frontend now waits for a fully populated pywebview API before status polling. Normal desktop
+launch follows the persisted `startup.auto_start_bot` preference, which defaults off; `--stopped`
+remains an explicit override, and start-minimized remains independent.
+
+---
+
 # P2 — Product extensibility
 
 ## TODO-009 — Configurable simple commands

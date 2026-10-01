@@ -9,7 +9,13 @@ from typing import cast
 import pytest
 
 from app.commands.registry import CommandRegistry
-from app.app_settings import AISettings, AppSettings, AppSettingsStore, TwitchSettings
+from app.app_settings import (
+    AISettings,
+    AppSettings,
+    AppSettingsStore,
+    StartupSettings,
+    TwitchSettings,
+)
 from app.config.settings import Settings
 from app.credentials import CredentialStatus
 from app.runtime_state import RuntimeState
@@ -22,6 +28,7 @@ from app.webview_host import (
     WebUIBridge,
     apply_ai_app_settings,
     apply_twitch_app_settings,
+    resolve_auto_start,
     resolve_frontend_url,
 )
 
@@ -97,6 +104,16 @@ def test_ai_app_settings_override_environment_model_defaults() -> None:
     assert effective.gemini_model == "gemini-local"
     assert effective.gemini_fallback_model == "gemini-local-fallback"
     assert settings.gemini_model == "gemini-environment"
+
+
+def test_saved_auto_start_defaults_off_and_accepts_explicit_override() -> None:
+    defaults = AppSettings()
+    enabled = AppSettings(startup=StartupSettings(auto_start_bot=True))
+
+    assert resolve_auto_start(defaults, None) is False
+    assert resolve_auto_start(enabled, None) is True
+    assert resolve_auto_start(enabled, False) is False
+    assert resolve_auto_start(defaults, True) is True
 
 
 def test_bridge_exposes_and_updates_ai_provider_settings(tmp_path) -> None:

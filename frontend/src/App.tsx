@@ -175,9 +175,8 @@ export default function App() {
   useEffect(() => {
     let active = true
     let timer = 0
-    const refresh = async () => {
+    const refresh = async (api: Awaited<ReturnType<typeof waitForBridge>>) => {
       try {
-        const api = await waitForBridge()
         const nextStatus = await api.get_app_status()
         if (active) {
           setStatus(nextStatus)
@@ -189,11 +188,23 @@ export default function App() {
         }
       } finally {
         if (active) {
-          timer = window.setTimeout(() => void refresh(), 1500)
+          timer = window.setTimeout(() => void refresh(api), 1500)
         }
       }
     }
-    void refresh()
+    const initialize = async () => {
+      try {
+        const api = await waitForBridge()
+        if (active) {
+          await refresh(api)
+        }
+      } catch (reason) {
+        if (active) {
+          setError(reason instanceof Error ? reason.message : 'Backend request failed.')
+        }
+      }
+    }
+    void initialize()
     return () => {
       active = false
       window.clearTimeout(timer)

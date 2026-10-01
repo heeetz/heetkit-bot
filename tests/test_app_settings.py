@@ -12,6 +12,7 @@ from app.app_settings import (
     AISettings,
     AppSettings,
     AppSettingsStore,
+    StartupSettings,
     TwitchSettings,
     WindowSettings,
     load_app_settings,
@@ -39,6 +40,7 @@ def test_partial_and_invalid_app_settings_fall_back_individually(
                     "minimize_to_tray": "yes",
                     "close_to_tray": False,
                 },
+                "startup": {"auto_start_bot": "yes"},
                 "ai": {"memory_enabled": "yes"},
             }
         ),
@@ -106,14 +108,16 @@ def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
     store = AppSettingsStore(settings_path)
 
     store.update_ai_memory(enabled=False)
-    updated = store.update_window(
+    updated = store.update_desktop(
         start_minimized=True,
         minimize_to_tray=True,
         close_to_tray=False,
+        auto_start_bot=True,
     )
 
     assert updated == AppSettings(
         window=WindowSettings(start_minimized=True, minimize_to_tray=True),
+        startup=StartupSettings(auto_start_bot=True),
         ai=AISettings(memory_enabled=False),
     )
     assert AppSettingsStore(settings_path).snapshot() == updated
@@ -124,6 +128,7 @@ def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
             "minimize_to_tray": True,
             "close_to_tray": False,
         },
+        "startup": {"auto_start_bot": True},
         "ai": {
             "fallback_model": None,
             "memory_enabled": False,
@@ -290,15 +295,17 @@ def test_bridge_reads_and_updates_desktop_settings(tmp_path) -> None:
             "start_minimized": False,
             "minimize_to_tray": False,
             "close_to_tray": False,
+            "auto_start_bot": False,
         },
     }
-    assert bridge.update_app_settings(True, True, False) == {"ok": True}
+    assert bridge.update_app_settings(True, True, False, True) == {"ok": True}
     assert store.snapshot() == AppSettings(
-        window=WindowSettings(start_minimized=True, minimize_to_tray=True)
+        window=WindowSettings(start_minimized=True, minimize_to_tray=True),
+        startup=StartupSettings(auto_start_bot=True),
     )
-    assert bridge.update_app_settings("true", False, False) == {
+    assert bridge.update_app_settings("true", False, False, False) == {
         "ok": False,
-        "error": "Application window settings must be boolean values.",
+        "error": "Desktop settings must be boolean values.",
     }
 
 

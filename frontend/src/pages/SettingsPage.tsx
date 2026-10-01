@@ -164,6 +164,7 @@ export default function SettingsPage({ active }: SettingsPageProps) {
         updated.start_minimized,
         updated.minimize_to_tray,
         updated.close_to_tray,
+        updated.auto_start_bot,
       )
       if (!result.ok) {
         throw new Error(result.error ?? 'Desktop settings could not be saved.')
@@ -368,13 +369,17 @@ export default function SettingsPage({ active }: SettingsPageProps) {
         <div className="section-heading">
           <div>
             <p className="label">DESKTOP APPLICATION</p>
-            <h2>Window and tray behavior</h2>
+            <h2>Startup, window and tray behavior</h2>
             <p className="section-copy">These settings are local to this computer.</p>
           </div>
           <span className="mini-badge saved-badge">Auto-saved</span>
         </div>
         {!draft ? <p className="muted">Loading desktop settings…</p> : (
           <div className="settings-list">
+            <label className="settings-option">
+              <input type="checkbox" checked={draft.auto_start_bot} disabled={Boolean(busy)} onChange={(event) => void updateWindowSettings({ auto_start_bot: event.target.checked }, 'Automatic bot startup preference saved for the next launch.')} />
+              <span><strong>Start bot automatically</strong><small>Saved automatically. Takes effect on the next application launch and is independent of window visibility.</small></span>
+            </label>
             <label className="settings-option">
               <input type="checkbox" checked={draft.start_minimized} disabled={Boolean(busy)} onChange={(event) => void updateWindowSettings({ start_minimized: event.target.checked }, 'Start-minimized preference saved for the next launch.')} />
               <span><strong>Start minimized</strong><small>Saved automatically. Takes effect on the next application launch.</small></span>

@@ -11,7 +11,8 @@ responsibilities and boundaries, not implementation detail from entire source fi
   `.venv\Scripts\python.exe -m app.main`; it never falls back to system Python.
 - `app/main.py` delegates to `app/webview_host.py`.
 - Production mode loads the generated, Git-ignored `frontend/dist/index.html`. Development
-  mode can load a Vite URL with `--dev-url`. `--stopped` suppresses automatic bot connection;
+  mode can load a Vite URL with `--dev-url`. Normal launch follows the saved
+  `startup.auto_start_bot` preference (default off); `--stopped` explicitly overrides it off.
   `--check` validates configuration/build availability without opening the UI.
 - Tkinter has been removed. There is no legacy GUI or alternate application lifecycle.
 
@@ -23,6 +24,8 @@ Responsibility: presentation and explicit user actions only.
 - Pages: Dashboard, Commands, AI, Logs, and Settings.
 - `frontend/src/bridge.ts` defines the typed pywebview API surface. React does not import
   Python internals or implement command permissions, persistence, AI policy, or Twitch logic.
+- Frontend startup waits for the `pywebviewready` lifecycle event and a populated
+  `get_app_status` bridge method before beginning status polling.
 - Status polling is approximately 1.5 seconds. Logs poll every second and keep at most 500
   entries in frontend state.
 - Commands and personality editors may hold dirty form drafts, but backend state remains
@@ -75,7 +78,8 @@ Responsibility: one tray icon and window behavior per application process.
 - `AppSettingsStore` supplies the versioned local application settings. Its `window` section
   owns start-minimized, minimize-to-tray, and close-to-tray behavior. Its `twitch` section may
   override the non-secret target-channel login and numeric user ID. Start minimized controls
-  only initial window visibility.
+  only initial window visibility. Its `startup.auto_start_bot` setting independently controls
+  whether the bot connection starts on the next normal desktop launch and defaults to false.
 
 ## RuntimeState
 
@@ -190,7 +194,7 @@ failures do not disable unrelated commands.
 | Built-in personality prompts | `app/resources/personalities.json` | Tracked package data |
 | Protected shared AI instructions | `app/config/personalities.py` | Tracked application code |
 | Gemini model presets | `app/resources/gemini_models.json` | Tracked package data |
-| Ordinary application preferences | Versioned `data/app_settings.json` (`window`, AI memory/models, non-secret `twitch` target) | Ignored local state |
+| Ordinary application preferences | Versioned `data/app_settings.json` (`startup`, `window`, AI memory/models, non-secret `twitch` target) | Ignored local state |
 | Command overrides | `data/command_settings.json` | Ignored local state |
 | Personality selection/overrides | `data/personality_settings.json` | Ignored local state |
 | Twitch OAuth tokens | `data/twitchio_tokens.json` or configured path | Ignored secret state |

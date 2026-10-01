@@ -7,7 +7,7 @@ transcript.
 
 - Branch: `main`.
 - Remote target: `origin/main`.
-- Latest completed task: **TODO-R1 — Architecture & reliability checkpoint**
+- Latest completed task: **TODO-UX1 — Fix startup bridge readiness and make bot startup explicit**
   (committed with this handoff).
 - Working application path: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
 - No active partially completed task exists.
@@ -22,9 +22,10 @@ transcript.
 - Normal window close, Tray Exit, and host teardown converge on the orderly shutdown path.
 - Commands use registry defaults, optional local overrides, and canonical `RuntimeState`
   effective values.
-- `data/app_settings.json` is schema version 1 with `window`, `ai`, and `twitch` sections. It
-  persists window/tray behavior, AI-memory enablement, selected/fallback Gemini models, and
-  optional target-channel overrides while accepting the legacy flat window format.
+- `data/app_settings.json` is schema version 1 with `startup`, `window`, `ai`, and `twitch`
+  sections. It persists opt-in automatic bot startup, window/tray behavior, AI-memory
+  enablement, selected/fallback Gemini models, and optional target-channel overrides while
+  accepting the legacy flat window format.
 - Personality-specific overrides and active selection are local data; shared AI instructions
   remain protected source code.
 - Built-in personality-specific prompts load from tracked
@@ -39,14 +40,17 @@ transcript.
   request; only model-not-found responses use the configured fallback.
 - Window/tray toggles auto-save with clear effect timing. Dismissible feedback toasts remain
   visible while the independently scrolling main pane moves; the desktop sidebar stays fixed.
+- Normal desktop launch leaves the bot stopped unless the local
+  `startup.auto_start_bot` preference is enabled. It is independent of start-minimized, and
+  `--stopped` remains an explicit override. Status polling waits for a populated pywebview API.
 - Gemini model choices are native selects populated from backend presets/discovery, with a
   separate input shown only for a custom model ID.
 
 ## TODO position
 
-- Latest completed TODO: **TODO-R1 — Architecture & reliability checkpoint**.
-- The next numbered product item is **TODO-009 — Configurable simple commands**, but start it
-  only when explicitly requested.
+- Latest completed TODO: **TODO-UX1 — Fix startup bridge readiness and make bot startup explicit**.
+- The next daily-use item is **TODO-UX2 — Replace boolean checkboxes with a reusable switch
+  control**, but start it only when explicitly requested.
 - The completed checkpoint is `docs/architecture-reliability-checkpoint.md`. Its high-priority
   reliability findings should be fixed in focused tasks or explicitly accepted before release.
 
@@ -88,21 +92,24 @@ transcript.
   The suite emitted dependency deprecation warnings for TwitchIO/aiohttp and `pytest-asyncio`;
   no frontend code changed. A separate focused cleanup removed the duplicate tray-menu refresh
   and its 26 desktop-host tests plus the compile check passed.
+- TODO-UX1: 50 focused app-settings/desktop-host tests passed; frontend typecheck and production
+  build passed. The project virtual environment required execution outside the restricted agent
+  sandbox; no environment workaround was added to the repository.
 - The last full Phase 3 suite passed with 119 tests; frontend typecheck/build and
   `python -m app.main --check` also passed at that milestone.
 
 ## Migration state
 
 - The legacy desktop migration is complete: pywebview is the only GUI path.
-- Local ordinary settings now use versioned `data/app_settings.json`. Version 1 has `window`,
-  `ai.memory_enabled`, optional selected/fallback Gemini models, and optional non-secret
-  `twitch` target-channel fields; a legacy flat window file is read safely and the next
-  successful save writes the versioned form.
+- Local ordinary settings now use versioned `data/app_settings.json`. Version 1 has independent
+  `startup.auto_start_bot` and `window` settings, `ai.memory_enabled`, optional
+  selected/fallback Gemini models, and optional non-secret `twitch` target-channel fields; a
+  legacy flat window file is read safely and the next successful save writes the versioned form.
 - Command and personality overrides intentionally remain in their dedicated JSON stores.
 - Built-in personality prompts are tracked package data; local personality selection and
   overrides remain in ignored `data/personality_settings.json`.
 - Windows Credential Manager is the preferred store for user-entered Gemini/Twitch client
   credentials. `.env` remains a private fallback; credential values never enter ordinary JSON.
 - Local runtime files, databases, logs, frontend build output, `.env`, and tokens are ignored.
-- TODO-R1 made no architecture or ownership changes. An unrelated local edit to `AGENTS.md`
-  predates the checkpoint and remains intentionally uncommitted.
+- An unrelated local edit to `AGENTS.md` and user roadmap/filter changes predate TODO-UX1 and
+  remain intentionally uncommitted except for the completed TODO-UX1 subsection.
