@@ -380,6 +380,45 @@ consistent track/knob styling, keyboard focus, accessible labels, and disabled f
 
 ---
 
+## TODO-UX3 — Rebalance Dashboard, AI, and Settings information architecture
+
+The current UI works, but the Dashboard is underused while Settings is vertically dense.
+
+- [x] Re-evaluate placement of **existing** controls before adding new features.
+- [x] Keep Commands as the dedicated command-management page; it is already appropriately dense.
+- [x] Make Dashboard a useful daily control center rather than mostly empty status cards.
+- [x] Prefer a compact responsive dashboard containing existing high-value runtime information such as:
+  - bot Start/Stop + running state;
+  - Twitch connection + active channel;
+  - session uptime;
+  - current stream category when available;
+  - AI enabled/memory state;
+  - selected model;
+  - active personality.
+- [x] Quick controls on Dashboard must call the same backend state/actions as detailed pages; do not duplicate sources of truth.
+- [x] Move detailed Gemini provider/model configuration out of the overloaded general Settings page and into the AI area if that produces a clearer ownership model.
+- [x] Keep the personality editor in AI.
+- [x] Keep Settings focused on application/startup/window behavior, Twitch connection/account/security configuration, and other true application settings.
+- [x] Avoid duplicating the same full editor on two pages.
+- [x] Improve use of horizontal space on wide desktop windows without making narrow windows unusable.
+- [x] Do not add new backend features in this task; reorganize and present existing functionality only.
+
+**Target mental model:**
+
+```text
+Dashboard  = daily status + quick controls
+Commands   = command behavior
+AI         = AI runtime + model/provider + personalities
+Logs       = diagnostics/activity
+Settings   = app/window + Twitch/account/security + local app configuration
+```
+
+Dashboard now presents responsive bot, Twitch, uptime, and AI runtime cards with shared backend
+controls. Gemini model configuration moved to AI beside personalities; Settings now focuses on
+desktop behavior, Twitch connection/account details, and secure credentials.
+
+---
+
 # P2 — Product extensibility
 
 ## TODO-009 — Configurable simple commands

@@ -21,7 +21,9 @@ responsibilities and boundaries, not implementation detail from entire source fi
 Responsibility: presentation and explicit user actions only.
 
 - Stack: React 19, TypeScript, and Vite under `frontend/`.
-- Pages: Dashboard, Commands, AI, Logs, and Settings.
+- Pages: Dashboard is the daily bot/Twitch/AI control center; Commands owns command behavior;
+  AI owns runtime toggles, Gemini model configuration, and personalities; Logs owns diagnostics;
+  Settings owns desktop/window behavior, Twitch connection metadata, and secure credentials.
 - `frontend/src/bridge.ts` defines the typed pywebview API surface. React does not import
   Python internals or implement command permissions, persistence, AI policy, or Twitch logic.
 - Frontend startup waits for the `pywebviewready` lifecycle event and a populated

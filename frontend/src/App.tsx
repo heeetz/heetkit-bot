@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  type AIStatus,
   type AppStatus,
   type LogEntry,
   waitForBridge,
@@ -23,41 +24,72 @@ function formatUptime(totalSeconds: number): string {
     .join(':')
 }
 
-function Dashboard({ status, onChangeState, busy }: {
+function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, busy }: {
   status: AppStatus | null
-  onChangeState: (shouldRun: boolean) => void
-  busy: boolean
+  aiStatus: AIStatus | null
+  onChangeBotState: (shouldRun: boolean) => void
+  onChangeAIState: (kind: 'enabled' | 'memory', enabled: boolean) => void
+  busy: string
 }) {
   const statusLabel = status ? (status.running ? 'Running' : 'Stopped') : 'Loading…'
   return (
-    <section className="card-grid">
-      <article className="card hero-card">
-        <div><p className="label">Bot status</p><h2>{statusLabel}</h2></div>
-        <span className={`status-dot ${status?.running ? 'online' : ''}`} />
+    <section className="dashboard-layout">
+      <article className="card dashboard-hero">
+        <div className="dashboard-hero-status">
+          <span className={`status-dot ${status?.running ? 'online' : ''}`} />
+          <div><p className="label">BOT STATUS</p><h2>{statusLabel}</h2></div>
+        </div>
         <button
           className={status?.running ? 'danger' : 'primary'}
-          disabled={!status || busy}
-          onClick={() => onChangeState(!status?.running)}
+          disabled={!status || Boolean(busy)}
+          onClick={() => onChangeBotState(!status?.running)}
         >
-          {busy ? 'Working…' : status?.running ? 'Stop Bot' : 'Start Bot'}
+          {busy === 'bot' ? 'Working…' : status?.running ? 'Stop Bot' : 'Start Bot'}
         </button>
       </article>
-      <article className="card">
-        <p className="label">Twitch connection</p>
-        <h3 className={status?.twitch_connected ? 'success-text' : ''}>
-          {status ? (status.twitch_connected ? 'Connected' : 'Disconnected') : 'Loading…'}
-        </h3>
-        <p>Bot controls remain available while Twitch is disconnected.</p>
-      </article>
-      <article className="card">
-        <p className="label">Active channel</p>
-        <h3>{status?.channel ?? '—'}</h3>
-        <p>Bot account: {status?.account ?? '—'}</p>
-      </article>
-      <article className="card">
-        <p className="label">Session uptime</p>
-        <h3 className="metric">{status ? formatUptime(status.uptime_seconds) : '—'}</h3>
-      </article>
+      <div className="dashboard-grid">
+        <article className="card dashboard-card">
+          <p className="label">TWITCH CONNECTION</p>
+          <h3 className={status?.twitch_connected ? 'success-text' : ''}>
+            {status ? (status.twitch_connected ? 'Connected' : 'Disconnected') : 'Loading…'}
+          </h3>
+          <p>{status?.running ? 'Connection state from the active bot session.' : 'Start the bot when you are ready to connect.'}</p>
+        </article>
+        <article className="card dashboard-card">
+          <p className="label">ACTIVE CHANNEL</p>
+          <h3>{status?.channel ?? '—'}</h3>
+          <p>Bot account: {status?.account ?? '—'}</p>
+        </article>
+        <article className="card dashboard-card">
+          <p className="label">SESSION UPTIME</p>
+          <h3 className="metric">{status ? formatUptime(status.uptime_seconds) : '—'}</h3>
+          <p>Time since the current bot session started.</p>
+        </article>
+        <article className="card dashboard-card dashboard-ai-card">
+          <div className="dashboard-card-heading">
+            <div><p className="label">AI RUNTIME</p><h3>{aiStatus?.model ?? 'Loading…'}</h3></div>
+            <span className="mini-badge">{aiStatus?.active_personality ?? '—'}</span>
+          </div>
+          <div className="dashboard-switches">
+            <Switch
+              checked={aiStatus?.enabled ?? false}
+              disabled={!aiStatus || Boolean(busy)}
+              ariaLabel="Enable AI command"
+              onCheckedChange={(enabled) => onChangeAIState('enabled', enabled)}
+            >
+              <span><strong>AI command</strong><small>{aiStatus?.enabled ? 'Enabled' : 'Disabled'}</small></span>
+            </Switch>
+            <Switch
+              checked={aiStatus?.memory_enabled ?? false}
+              disabled={!aiStatus || Boolean(busy)}
+              ariaLabel="Enable conversation memory"
+              onCheckedChange={(enabled) => onChangeAIState('memory', enabled)}
+            >
+              <span><strong>Conversation memory</strong><small>{aiStatus?.memory_enabled ? 'Enabled' : 'Disabled'}</small></span>
+            </Switch>
+          </div>
+        </article>
+      </div>
     </section>
   )
 }
@@ -169,17 +201,22 @@ function LogsPage() {
 export default function App() {
   const [section, setSection] = useState<Section>('Dashboard')
   const [status, setStatus] = useState<AppStatus | null>(null)
+  const [aiStatus, setAIStatus] = useState<AIStatus | null>(null)
   const [error, setError] = useState('')
-  const [actionBusy, setActionBusy] = useState(false)
+  const [actionBusy, setActionBusy] = useState('')
 
   useEffect(() => {
     let active = true
     let timer = 0
     const refresh = async (api: Awaited<ReturnType<typeof waitForBridge>>) => {
       try {
-        const nextStatus = await api.get_app_status()
+        const [nextStatus, nextAIStatus] = await Promise.all([
+          api.get_app_status(),
+          api.get_ai_status(),
+        ])
         if (active) {
           setStatus(nextStatus)
+          setAIStatus(nextAIStatus)
           setError('')
         }
       } catch (reason) {
@@ -213,7 +250,7 @@ export default function App() {
 
   const changeBotState = async (shouldRun: boolean) => {
     setError('')
-    setActionBusy(true)
+    setActionBusy('bot')
     try {
       const api = await waitForBridge()
       const result = shouldRun ? await api.start_bot() : await api.stop_bot()
@@ -224,7 +261,26 @@ export default function App() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Backend request failed.')
     } finally {
-      setActionBusy(false)
+      setActionBusy('')
+    }
+  }
+
+  const changeAIState = async (kind: 'enabled' | 'memory', enabled: boolean) => {
+    setError('')
+    setActionBusy(`ai:${kind}`)
+    try {
+      const api = await waitForBridge()
+      const result = kind === 'enabled'
+        ? await api.set_ai_enabled(enabled)
+        : await api.set_ai_memory_enabled(enabled)
+      if (!result.ok) {
+        throw new Error(result.error ?? 'The AI state could not be changed.')
+      }
+      setAIStatus(await api.get_ai_status())
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Backend request failed.')
+    } finally {
+      setActionBusy('')
     }
   }
 
@@ -239,7 +295,15 @@ export default function App() {
       <main>
         <header><div><p className="eyebrow">CONTROL CENTER</p><h1>{section}</h1></div></header>
         <FeedbackToast error={error} onDismiss={() => setError('')} />
-        {section === 'Dashboard' && <Dashboard status={status} busy={actionBusy} onChangeState={(shouldRun) => void changeBotState(shouldRun)} />}
+        {section === 'Dashboard' && (
+          <Dashboard
+            status={status}
+            aiStatus={aiStatus}
+            busy={actionBusy}
+            onChangeBotState={(shouldRun) => void changeBotState(shouldRun)}
+            onChangeAIState={(kind, enabled) => void changeAIState(kind, enabled)}
+          />
+        )}
         <div hidden={section !== 'Commands'}><CommandsPage active={section === 'Commands'} /></div>
         <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} /></div>
         {section === 'Logs' && <LogsPage />}

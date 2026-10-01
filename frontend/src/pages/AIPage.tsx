@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 
 import {
+  type AIProviderSettings,
   type AIStatus,
+  type GeminiModelPreset,
   type PersonalityInfo,
   type PersonalitiesResponse,
   waitForBridge,
@@ -13,11 +15,71 @@ interface AIPageProps {
   active: boolean
 }
 
+const CUSTOM_MODEL_VALUE = '__custom_model__'
+
+function ModelSelector({
+  label,
+  value,
+  presets,
+  discoveredModels,
+  onChange,
+  help,
+}: {
+  label: string
+  value: string
+  presets: GeminiModelPreset[]
+  discoveredModels: string[]
+  onChange: (value: string) => void
+  help: string
+}) {
+  const presetById = new Map(presets.map((preset) => [preset.id, preset]))
+  const choices = Array.from(new Set([
+    ...presets.map((preset) => preset.id),
+    ...discoveredModels,
+  ]))
+  const usesCustomValue = !choices.includes(value)
+
+  return (
+    <div className="model-selector">
+      <label className="form-field">
+        {label}
+        <select
+          value={usesCustomValue ? CUSTOM_MODEL_VALUE : value}
+          onChange={(event) => onChange(
+            event.target.value === CUSTOM_MODEL_VALUE ? '' : event.target.value,
+          )}
+        >
+          {choices.map((model) => (
+            <option key={model} value={model}>
+              {presetById.has(model) ? `${presetById.get(model)!.label} — ${model}` : model}
+            </option>
+          ))}
+          <option value={CUSTOM_MODEL_VALUE}>Custom model ID…</option>
+        </select>
+        <small>{help}</small>
+      </label>
+      {usesCustomValue && (
+        <label className="form-field custom-model-field">
+          Custom model ID
+          <input
+            value={value}
+            placeholder="gemini-model-id"
+            onChange={(event) => onChange(event.target.value)}
+          />
+        </label>
+      )}
+    </div>
+  )
+}
+
 export default function AIPage({ active }: AIPageProps) {
   const [status, setStatus] = useState<AIStatus | null>(null)
   const [data, setData] = useState<PersonalitiesResponse | null>(null)
   const [selected, setSelected] = useState('')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [providerSaved, setProviderSaved] = useState<AIProviderSettings | null>(null)
+  const [providerDraft, setProviderDraft] = useState<AIProviderSettings | null>(null)
+  const [discoveredModels, setDiscoveredModels] = useState<string[]>([])
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -54,13 +116,24 @@ export default function AIPage({ active }: AIPageProps) {
     const load = async () => {
       try {
         const api = await waitForBridge()
-        const [nextStatus, response] = await Promise.all([
+        const [nextStatus, response, providerResponse] = await Promise.all([
           api.get_ai_status(),
           api.get_personalities(),
+          api.get_ai_provider_settings(),
         ])
+        if (!providerResponse.ok || !providerResponse.settings) {
+          throw new Error(providerResponse.error ?? 'AI provider settings are unavailable.')
+        }
         if (current) {
           setStatus(nextStatus)
           mergeData(response)
+          setProviderDraft((current) => {
+            const dirty = current && providerSaved
+              && (current.selected_model !== providerSaved.selected_model
+                || current.fallback_model !== providerSaved.fallback_model)
+            return dirty ? current : providerResponse.settings!
+          })
+          setProviderSaved(providerResponse.settings)
           setError('')
         }
       } catch (reason) {
@@ -89,6 +162,87 @@ export default function AIPage({ active }: AIPageProps) {
       setNotice(kind === 'enabled' ? 'AI command state updated.' : 'AI memory state updated.')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'AI setting could not be changed.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const updateProviderDraft = (values: Partial<AIProviderSettings>) => {
+    setProviderDraft((current) => current ? { ...current, ...values } : current)
+    setError('')
+    setNotice('')
+  }
+
+  const saveProviderModels = async () => {
+    if (!providerDraft) {
+      return
+    }
+    const selectedModel = providerDraft.selected_model.trim()
+    const fallbackModel = providerDraft.fallback_model.trim()
+    if (!selectedModel || !fallbackModel) {
+      setError('Selected and fallback model IDs are required.')
+      return
+    }
+    if (selectedModel === fallbackModel) {
+      setError('Selected and fallback models must be different.')
+      return
+    }
+    setBusy('provider:save')
+    setError('')
+    setNotice('')
+    try {
+      const api = await waitForBridge()
+      const result = await api.update_ai_provider_settings(selectedModel, fallbackModel)
+      if (!result.ok) {
+        throw new Error(result.error ?? 'AI model settings could not be saved.')
+      }
+      const refreshed = await api.get_ai_provider_settings()
+      if (!refreshed.ok || !refreshed.settings) {
+        throw new Error(refreshed.error ?? 'AI provider settings could not be refreshed.')
+      }
+      setProviderSaved(refreshed.settings)
+      setProviderDraft(refreshed.settings)
+      setStatus(await api.get_ai_status())
+      setNotice('AI model settings saved and active for the next request.')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'AI model settings could not be saved.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const discoverModels = async () => {
+    setBusy('provider:discover')
+    setError('')
+    setNotice('')
+    try {
+      const api = await waitForBridge()
+      const result = await api.discover_gemini_models()
+      if (!result.ok || !result.models) {
+        throw new Error(result.error ?? 'Gemini models could not be discovered.')
+      }
+      setDiscoveredModels(result.models)
+      setNotice(`Discovered ${result.models.length} compatible Gemini model${result.models.length === 1 ? '' : 's'}.`)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Gemini models could not be discovered.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const testGeminiCredential = async () => {
+    setBusy('provider:test')
+    setError('')
+    setNotice('')
+    try {
+      const api = await waitForBridge()
+      const result = await api.test_credential('gemini_api_key')
+      if (!result.ok) {
+        throw new Error(result.error ?? 'Gemini credential test failed.')
+      }
+      setNotice('Gemini credential test passed.')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Gemini credential test failed.')
     } finally {
       setBusy('')
     }
@@ -139,6 +293,11 @@ export default function AIPage({ active }: AIPageProps) {
     personality
       && (dirty || personality.has_saved_override || personality.prompt !== personality.built_in_prompt),
   )
+  const providerDirty = Boolean(
+    providerDraft && providerSaved
+      && (providerDraft.selected_model !== providerSaved.selected_model
+        || providerDraft.fallback_model !== providerSaved.fallback_model),
+  )
 
   return (
     <section className="ai-layout">
@@ -183,6 +342,48 @@ export default function AIPage({ active }: AIPageProps) {
           <strong>{data?.active_personality ?? '—'}</strong>
         </article>
       </div>
+      <article className="card ai-provider-card">
+        <div className="section-heading">
+          <div>
+            <p className="label">GEMINI PROVIDER</p>
+            <h2>Models and fallback</h2>
+            <p className="section-copy">Choose the model used for AI requests and its unavailable-model fallback.</p>
+          </div>
+          {providerDirty && <span className="mini-badge dirty-badge">Edited</span>}
+        </div>
+        {!providerDraft ? <p className="muted">Loading AI provider settings…</p> : (
+          <div className="settings-list">
+            <div className="ai-provider-status">
+              <div><span>Provider</span><strong>{providerDraft.provider}</strong></div>
+              <div><span>Credential</span><strong className={providerDraft.credential?.configured ? 'status-good' : ''}>{providerDraft.credential?.configured ? 'Configured' : 'Missing'}</strong></div>
+            </div>
+            <div className="model-fields">
+              <ModelSelector
+                label="Selected model"
+                value={providerDraft.selected_model}
+                presets={providerDraft.presets}
+                discoveredModels={discoveredModels}
+                onChange={(selected_model) => updateProviderDraft({ selected_model })}
+                help="Saved model changes apply to the next AI request."
+              />
+              <ModelSelector
+                label="Fallback model"
+                value={providerDraft.fallback_model}
+                presets={providerDraft.presets}
+                discoveredModels={discoveredModels}
+                onChange={(fallback_model) => updateProviderDraft({ fallback_model })}
+                help="Used only when the selected model is unavailable or unsupported."
+              />
+            </div>
+            <div className="settings-actions">
+              <button className="secondary" disabled={Boolean(busy) || !providerDraft.credential?.configured} onClick={() => void testGeminiCredential()}>{busy === 'provider:test' ? 'Testing…' : 'Test credential'}</button>
+              <button className="secondary" disabled={Boolean(busy) || !providerDraft.credential?.configured} onClick={() => void discoverModels()}>{busy === 'provider:discover' ? 'Discovering…' : 'Discover models'}</button>
+              <button className="primary" disabled={Boolean(busy) || !providerDirty} onClick={() => void saveProviderModels()}>{busy === 'provider:save' ? 'Saving…' : 'Save models'}</button>
+            </div>
+            <p className="settings-hint">Manage the Gemini API key in Settings. Authentication, network, policy, and rate-limit failures never trigger model fallback.</p>
+          </div>
+        )}
+      </article>
       <article className="card personality-editor">
         <div className="section-heading">
           <div>
