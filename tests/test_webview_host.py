@@ -5,7 +5,7 @@ import logging
 import subprocess
 import sys
 import threading
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from types import SimpleNamespace
 from typing import cast
 
@@ -38,6 +38,15 @@ from app.webview_host import (
     resolve_auto_start,
     resolve_frontend_url,
 )
+
+
+def complete_bridge_coroutine(coroutine) -> Future:
+    future: Future = Future()
+    try:
+        future.set_result(asyncio.run(coroutine))
+    except BaseException as error:
+        future.set_exception(error)
+    return future
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows named mutex")
@@ -319,7 +328,13 @@ def test_bridge_exposes_and_updates_ai_provider_settings(tmp_path) -> None:
     )
     store = AppSettingsStore(tmp_path / "app_settings.json")
     bridge = WebUIBridge(
-        cast(AsyncioBackendHost, SimpleNamespace(application=application)),
+        cast(
+            AsyncioBackendHost,
+            SimpleNamespace(
+                application=application,
+                submit=complete_bridge_coroutine,
+            ),
+        ),
         app_settings=store,
         credential_manager=credential_manager,
     )
@@ -361,6 +376,154 @@ def test_bridge_discovers_models_on_the_existing_backend_loop() -> None:
         "ok": True,
         "models": ["gemini-discovered"],
     }
+
+
+def test_bridge_timeout_cancels_pending_backend_operation(
+    monkeypatch,
+    caplog,
+) -> None:
+    class FakeBotRuntime:
+        async def start_bot(self) -> bool:
+            return True
+
+    class PendingBackend:
+        def __init__(self) -> None:
+            self.bot_runtime = FakeBotRuntime()
+            self.future: Future[bool] = Future()
+
+        def submit(self, coroutine):
+            coroutine.close()
+            return self.future
+
+    backend = PendingBackend()
+    bridge = WebUIBridge(cast(AsyncioBackendHost, backend))
+    monkeypatch.setattr("app.webview_host.BRIDGE_BOT_START_TIMEOUT_SECONDS", 0.01)
+
+    with caplog.at_level(logging.ERROR, logger="app.webview.bridge"):
+        result = bridge.start_bot()
+
+    assert result == {
+        "ok": False,
+        "changed": False,
+        "error": "Starting the bot timed out. Check Logs for details.",
+    }
+    assert backend.future.cancelled()
+    assert "operation=start_bot" in caplog.text
+    assert "cancellation_requested=True" in caplog.text
+
+
+def test_bridge_observes_backend_completion_after_timeout(
+    monkeypatch,
+    caplog,
+) -> None:
+    class UncancellableFuture(Future[bool]):
+        def cancel(self) -> bool:
+            return False
+
+    class FakeBotRuntime:
+        async def start_bot(self) -> bool:
+            return True
+
+    class LateBackend:
+        def __init__(self) -> None:
+            self.bot_runtime = FakeBotRuntime()
+            self.future = UncancellableFuture()
+
+        def submit(self, coroutine):
+            coroutine.close()
+            return self.future
+
+    backend = LateBackend()
+    bridge = WebUIBridge(cast(AsyncioBackendHost, backend))
+    monkeypatch.setattr("app.webview_host.BRIDGE_BOT_START_TIMEOUT_SECONDS", 0.01)
+
+    with caplog.at_level(logging.WARNING, logger="app.webview.bridge"):
+        result = bridge.start_bot()
+        backend.future.set_result(True)
+
+    assert result["ok"] is False
+    assert "completed after its UI deadline operation=start_bot" in caplog.text
+
+
+def test_bridge_serializes_persist_and_apply_model_updates() -> None:
+    first_started = threading.Event()
+    second_entered = threading.Event()
+    release_first = threading.Event()
+
+    class BlockingSettingsStore:
+        def __init__(self) -> None:
+            self.ai = AISettings()
+            self.calls: list[str] = []
+
+        def update_ai_models(self, *, selected_model, fallback_model):
+            self.calls.append(selected_model)
+            if selected_model == "gemini-first":
+                first_started.set()
+                assert release_first.wait(timeout=1)
+            else:
+                second_entered.set()
+            self.ai = AISettings(
+                selected_model=selected_model,
+                fallback_model=fallback_model,
+            )
+            return AppSettings(ai=self.ai)
+
+    class SerialBackend:
+        def __init__(self) -> None:
+            self.application = SimpleNamespace(
+                settings=SimpleNamespace(
+                    gemini_model="gemini-original",
+                    gemini_fallback_model="gemini-original-fallback",
+                )
+            )
+            self.executor = ThreadPoolExecutor(max_workers=1)
+
+        def submit(self, coroutine):
+            return self.executor.submit(asyncio.run, coroutine)
+
+    store = BlockingSettingsStore()
+    backend = SerialBackend()
+    bridge = WebUIBridge(
+        cast(AsyncioBackendHost, backend),
+        app_settings=cast(AppSettingsStore, store),
+    )
+    results: list[dict[str, object]] = []
+    first = threading.Thread(
+        target=lambda: results.append(
+            bridge.update_ai_provider_settings("gemini-first", "gemini-first-fallback")
+        )
+    )
+    second = threading.Thread(
+        target=lambda: results.append(
+            bridge.update_ai_provider_settings("gemini-second", "gemini-second-fallback")
+        )
+    )
+
+    try:
+        first.start()
+        assert first_started.wait(timeout=1)
+        second.start()
+        assert not second_entered.wait(timeout=0.05)
+        release_first.set()
+        first.join(timeout=1)
+        second.join(timeout=1)
+    finally:
+        release_first.set()
+        backend.executor.shutdown(wait=True)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert results == [{"ok": True}, {"ok": True}]
+    assert store.calls == ["gemini-first", "gemini-second"]
+    assert store.ai == AISettings(
+        selected_model="gemini-second",
+        fallback_model="gemini-second-fallback",
+    )
+    assert backend.application.settings.gemini_model == "gemini-second"
+    assert (
+        backend.application.settings.gemini_fallback_model
+        == "gemini-second-fallback"
+    )
 
 
 def test_bridge_exposes_and_saves_non_secret_twitch_settings(tmp_path) -> None:
@@ -686,7 +849,15 @@ def build_ai_bridge(tmp_path) -> tuple[WebUIBridge, RuntimeState]:
         registry=registry,
         settings=SimpleNamespace(gemini_model="gemini-test"),
     )
-    bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace(application=application)))
+    bridge = WebUIBridge(
+        cast(
+            AsyncioBackendHost,
+            SimpleNamespace(
+                application=application,
+                submit=complete_bridge_coroutine,
+            ),
+        )
+    )
     return bridge, runtime_state
 
 

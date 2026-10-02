@@ -1,7 +1,9 @@
 """Focused tests for local desktop application settings."""
 
+import asyncio
 import json
 import logging
+from concurrent.futures import Future
 from types import SimpleNamespace
 from typing import cast
 
@@ -19,6 +21,15 @@ from app.app_settings import (
     load_app_settings,
 )
 from app.webview_host import AsyncioBackendHost, WebUIBridge
+
+
+def complete_bridge_coroutine(coroutine) -> Future:
+    future: Future = Future()
+    try:
+        future.set_result(asyncio.run(coroutine))
+    except BaseException as error:
+        future.set_exception(error)
+    return future
 
 
 def test_missing_app_settings_file_uses_safe_defaults(tmp_path) -> None:
@@ -416,7 +427,8 @@ def test_bridge_persists_ai_memory_before_updating_runtime(tmp_path) -> None:
     backend = SimpleNamespace(
         application=SimpleNamespace(
             services=SimpleNamespace(runtime_state=runtime_state)
-        )
+        ),
+        submit=complete_bridge_coroutine,
     )
     bridge = WebUIBridge(
         cast(AsyncioBackendHost, backend),
@@ -442,7 +454,8 @@ def test_bridge_does_not_change_runtime_when_ai_memory_save_fails(
     backend = SimpleNamespace(
         application=SimpleNamespace(
             services=SimpleNamespace(runtime_state=runtime_state)
-        )
+        ),
+        submit=complete_bridge_coroutine,
     )
     bridge = WebUIBridge(
         cast(AsyncioBackendHost, backend),

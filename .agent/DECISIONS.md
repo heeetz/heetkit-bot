@@ -31,7 +31,10 @@ Status: Active
 
 Decision:
 Frontend access is limited to explicit application-level `WebUIBridge` methods. Raw service,
-database, TwitchIO, Gemini, and runtime objects are not exposed.
+database, TwitchIO, Gemini, and runtime objects are not exposed. Calls that wait on backend
+asyncio work use bounded, cancelling waits with safe frontend errors and technical logging.
+Multi-step persistent/effective settings changes are submitted as narrow backend-loop
+transactions rather than exposed through a generic RPC or settings framework.
 
 Reason:
 The boundary is easier to validate, thread safely, and evolve than reflection or a second

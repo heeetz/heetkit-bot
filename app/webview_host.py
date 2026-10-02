@@ -17,7 +17,7 @@ from typing import Any, Coroutine, Iterator
 
 from pydantic import ValidationError
 
-from app.app_settings import AppSettings, AppSettingsStore
+from app.app_settings import AISettings, AppSettings, AppSettingsStore
 from app.bot_runtime import BotRuntime
 from app.command_settings import CommandSettings
 from app.config.ai_models import GEMINI_MODEL_PRESETS, GEMINI_PROVIDER_NAME
@@ -40,11 +40,21 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_ENTRYPOINT = PROJECT_ROOT / "frontend" / "dist" / "index.html"
 FALLBACK_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 FORCED_STOP_TIMEOUT_SECONDS = 2.0
+BRIDGE_SETTINGS_TIMEOUT_SECONDS = 10.0
+BRIDGE_CREDENTIAL_TEST_TIMEOUT_SECONDS = 15.0
+BRIDGE_MODEL_DISCOVERY_TIMEOUT_SECONDS = 20.0
+BRIDGE_BOT_START_TIMEOUT_SECONDS = 10.0
+BRIDGE_BOT_STOP_TIMEOUT_SECONDS = 20.0
+BRIDGE_TWITCH_RECONNECT_TIMEOUT_SECONDS = 30.0
 ERROR_ALREADY_EXISTS = 183
 
 
 class DesktopAlreadyRunningError(RuntimeError):
     """A desktop process already owns this checkout's local state."""
+
+
+class BridgeOperationTimedOut(RuntimeError):
+    """A bounded frontend bridge wait expired."""
 
 
 @contextmanager
@@ -324,6 +334,87 @@ class WebUIBridge:
         self._app_settings = app_settings
         self._credential_manager = credential_manager
 
+    def _wait_for_backend(
+        self,
+        coroutine: Coroutine[Any, Any, Any],
+        *,
+        operation: str,
+        timeout: float,
+    ) -> Any:
+        """Wait for one explicit backend operation and cancel it at the UI deadline."""
+        try:
+            future = self._backend.submit(coroutine)
+        except Exception:
+            coroutine.close()
+            raise
+        try:
+            return future.result(timeout=timeout)
+        except FutureTimeoutError as error:
+            # A coroutine may itself raise TimeoutError. Only treat an unfinished
+            # future as the bridge wait reaching its own deadline.
+            if future.done():
+                raise
+            future.add_done_callback(
+                lambda completed: self._observe_late_backend_result(
+                    operation,
+                    completed,
+                )
+            )
+            cancellation_requested = future.cancel()
+            self._logger.error(
+                "Desktop bridge operation timed out operation=%s "
+                "timeout_seconds=%.1f cancellation_requested=%s",
+                operation,
+                timeout,
+                cancellation_requested,
+            )
+            raise BridgeOperationTimedOut(operation) from error
+
+    def _observe_late_backend_result(
+        self,
+        operation: str,
+        future: Future[Any],
+    ) -> None:
+        """Consume an uncancelled late result so failures never become unobserved."""
+        if future.cancelled():
+            return
+        try:
+            future.result()
+        except Exception as error:
+            self._logger.error(
+                "Desktop bridge operation failed after its UI deadline operation=%s",
+                operation,
+                exc_info=(type(error), error, error.__traceback__),
+            )
+        else:
+            self._logger.warning(
+                "Desktop bridge operation completed after its UI deadline operation=%s",
+                operation,
+            )
+
+    async def _save_ai_memory_enabled(self, enabled: bool) -> None:
+        """Persist and apply AI memory as one backend-loop transaction."""
+        if self._app_settings is not None:
+            self._app_settings.update_ai_memory(enabled=enabled)
+        self._backend.application.services.runtime_state.set_ai_memory_enabled(enabled)
+
+    async def _save_ai_provider_models(
+        self,
+        selected_model: object,
+        fallback_model: object,
+    ) -> AISettings:
+        """Persist and apply Gemini models in backend-loop submission order."""
+        if self._app_settings is None:
+            raise RuntimeError("Desktop settings are not configured.")
+        updated = self._app_settings.update_ai_models(
+            selected_model=selected_model,
+            fallback_model=fallback_model,
+        )
+        application_settings = self._backend.application.settings
+        application_settings.gemini_model = updated.ai.selected_model
+        application_settings.gemini_fallback_model = updated.ai.fallback_model
+        return updated.ai
+
     def get_app_status(self) -> dict[str, object]:
         application = self._backend.application
         runtime_state = application.services.runtime_state
@@ -565,14 +656,22 @@ class WebUIBridge:
     def set_ai_memory_enabled(self, enabled: object) -> dict[str, object]:
         try:
             parsed_enabled = self._validate_toggle(enabled)
-            if self._app_settings is not None:
-                self._app_settings.update_ai_memory(enabled=parsed_enabled)
-            self._backend.application.services.runtime_state.set_ai_memory_enabled(
-                parsed_enabled
+            self._wait_for_backend(
+                self._save_ai_memory_enabled(parsed_enabled),
+                operation="save_ai_memory",
+                timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
             )
         except ValueError as error:
             return {"ok": False, "error": str(error)}
+        except BridgeOperationTimedOut:
+            return {
+                "ok": False,
+                "error": "Saving the AI memory setting timed out. Check Logs for details.",
+            }
         except OSError:
+            self._logger.exception("Could not save AI memory setting")
+            return {"ok": False, "error": "Could not save AI memory setting."}
+        except Exception:
             self._logger.exception("Could not save AI memory setting")
             return {"ok": False, "error": "Could not save AI memory setting."}
         self._logger.info(
@@ -864,18 +963,21 @@ class WebUIBridge:
             local.channel_user_id or application.settings.twitch_channel_user_id
         )
         try:
-            future = self._backend.submit(
+            reconnected = self._wait_for_backend(
                 self._backend.bot_runtime.reconnect_twitch(
                     channel=channel,
                     channel_user_id=channel_user_id,
-                )
+                ),
+                operation="reconnect_twitch",
+                timeout=BRIDGE_TWITCH_RECONNECT_TIMEOUT_SECONDS,
             )
-            reconnected = future.result(timeout=30)
-        except Exception as error:
-            self._logger.warning(
-                "Twitch reconnect failed error_type=%s",
-                type(error).__name__,
-            )
+        except BridgeOperationTimedOut:
+            return {
+                "ok": False,
+                "error": "Twitch reconnect timed out. Check Logs for details.",
+            }
+        except Exception:
+            self._logger.exception("Twitch reconnect failed")
             return {"ok": False, "error": "Could not reconnect Twitch."}
         self._logger.info(
             "Twitch target settings applied reconnected=%s",
@@ -921,26 +1023,32 @@ class WebUIBridge:
         if self._app_settings is None:
             return {"ok": False, "error": "Desktop settings are not configured."}
         try:
-            updated = self._app_settings.update_ai_models(
-                selected_model=selected_model,
-                fallback_model=fallback_model,
+            updated = self._wait_for_backend(
+                self._save_ai_provider_models(selected_model, fallback_model),
+                operation="save_ai_models",
+                timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
             )
         except ValueError as error:
             return {"ok": False, "error": str(error)}
+        except BridgeOperationTimedOut:
+            return {
+                "ok": False,
+                "error": "Saving Gemini model settings timed out. Check Logs for details.",
+            }
         except OSError:
             self._logger.exception("Could not save Gemini model settings")
             return {"ok": False, "error": "Could not save Gemini model settings."}
-        application_settings = self._backend.application.settings
-        application_settings.gemini_model = updated.ai.selected_model
-        application_settings.gemini_fallback_model = updated.ai.fallback_model
+        except Exception:
+            self._logger.exception("Could not save Gemini model settings")
+            return {"ok": False, "error": "Could not save Gemini model settings."}
         self._logger.info(
             "Gemini model settings saved selected_model=%s fallback_model=%s",
-            updated.ai.selected_model,
-            updated.ai.fallback_model,
+            updated.selected_model,
+            updated.fallback_model,
             extra={
                 "event_kind": "settings.ai_model",
                 "event_provider": "Google Gemini",
-                "event_model": str(updated.ai.selected_model),
+                "event_model": str(updated.selected_model),
                 "event_action": "save",
             },
         )
@@ -952,13 +1060,18 @@ class WebUIBridge:
         if discover is None:
             return {"ok": False, "error": "Gemini model discovery is unavailable."}
         try:
-            future = self._backend.submit(discover())
-            models = future.result(timeout=20)
-        except Exception as error:
-            self._logger.warning(
-                "Gemini model discovery failed error_type=%s",
-                type(error).__name__,
+            models = self._wait_for_backend(
+                discover(),
+                operation="discover_gemini_models",
+                timeout=BRIDGE_MODEL_DISCOVERY_TIMEOUT_SECONDS,
             )
+        except BridgeOperationTimedOut:
+            return {
+                "ok": False,
+                "error": "Gemini model discovery timed out. Check Logs for details.",
+            }
+        except Exception:
+            self._logger.exception("Gemini model discovery failed")
             return {"ok": False, "error": "Could not discover Gemini models."}
         return {"ok": True, "models": models}
 
@@ -1031,16 +1144,22 @@ class WebUIBridge:
         try:
             parsed_name = self._credential_manager.parse_name(name)
             application = self._backend.application
-            future = self._backend.submit(
+            self._wait_for_backend(
                 self._credential_manager.test(
                     parsed_name.value,
                     http_client=application.http_client,
                     twitch_client_id=application.settings.twitch_client_id,
-                )
+                ),
+                operation=f"test_credential:{parsed_name.value}",
+                timeout=BRIDGE_CREDENTIAL_TEST_TIMEOUT_SECONDS,
             )
-            future.result(timeout=15)
         except ValueError as error:
             return {"ok": False, "error": str(error)}
+        except BridgeOperationTimedOut:
+            return {
+                "ok": False,
+                "error": "Credential test timed out. Check Logs for details.",
+            }
         except CredentialError as error:
             self._logger.warning(
                 "Credential test failed name=%s error_type=%s",
@@ -1048,11 +1167,10 @@ class WebUIBridge:
                 type(error).__name__,
             )
             return {"ok": False, "error": str(error)}
-        except Exception as error:
-            self._logger.warning(
-                "Credential test failed name=%s error_type=%s",
+        except Exception:
+            self._logger.exception(
+                "Credential test failed name=%s",
                 name if isinstance(name, str) else "invalid",
-                type(error).__name__,
             )
             return {"ok": False, "error": "Credential test failed."}
         self._logger.info(
@@ -1079,8 +1197,17 @@ class WebUIBridge:
 
     def start_bot(self) -> dict[str, object]:
         try:
-            future = self._backend.submit(self._backend.bot_runtime.start_bot())
-            started = future.result(timeout=10)
+            started = self._wait_for_backend(
+                self._backend.bot_runtime.start_bot(),
+                operation="start_bot",
+                timeout=BRIDGE_BOT_START_TIMEOUT_SECONDS,
+            )
+        except BridgeOperationTimedOut:
+            return {
+                "ok": False,
+                "changed": False,
+                "error": "Starting the bot timed out. Check Logs for details.",
+            }
         except Exception:
             self._logger.exception("Desktop UI could not start the bot")
             return {"ok": False, "changed": False, "error": "Could not start the bot."}
@@ -1097,8 +1224,17 @@ class WebUIBridge:
 
     def stop_bot(self) -> dict[str, object]:
         try:
-            future = self._backend.submit(self._backend.bot_runtime.stop_bot())
-            stopped = future.result(timeout=20)
+            stopped = self._wait_for_backend(
+                self._backend.bot_runtime.stop_bot(),
+                operation="stop_bot",
+                timeout=BRIDGE_BOT_STOP_TIMEOUT_SECONDS,
+            )
+        except BridgeOperationTimedOut:
+            return {
+                "ok": False,
+                "changed": False,
+                "error": "Stopping the bot timed out. Check Logs for details.",
+            }
         except Exception:
             self._logger.exception("Desktop UI could not stop the bot")
             return {"ok": False, "changed": False, "error": "Could not stop the bot."}

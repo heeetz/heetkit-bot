@@ -7,7 +7,7 @@ transcript.
 
 - Branch: `main`.
 - Remote target: `origin/main`.
-- Latest completed task: **TODO-R3 — Add single-instance / local-state contention protection**
+- Latest completed task: **TODO-R4 — Harden pywebview bridge timeout and concurrency behavior**
   (committed with this handoff).
 - Working application path: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
 - No active partially completed task exists.
@@ -26,6 +26,12 @@ transcript.
 - Normal desktop launches hold a Windows named mutex keyed to the resolved local settings path
   before loading settings or starting the bot. A duplicate launch reports the existing process
   and exits; the read-only `--check` mode does not acquire the guard.
+- Frontend bridge operations that wait on backend asyncio work have explicit deadlines. A timeout
+  requests cancellation, returns a safe operation-specific error, and observes/logs an
+  uncancelled late completion without exposing technical details to the UI.
+- AI-memory and Gemini-model save-and-apply operations execute in backend-loop submission order,
+  keeping their persisted and effective runtime values consistent under concurrent frontend
+  calls.
 - Commands use registry defaults, optional local overrides, and canonical `RuntimeState`
   effective values.
 - `data/app_settings.json` is schema version 1 with `startup`, `window`, `ai`, and `twitch`
@@ -76,9 +82,9 @@ transcript.
 
 ## TODO position
 
-- Latest completed TODO: **TODO-R3 — Add single-instance / local-state contention protection**.
+- Latest completed TODO: **TODO-R4 — Harden pywebview bridge timeout and concurrency behavior**.
 - The daily-use UX sequence through TODO-UX7 is complete. The next reliability follow-up is
-  **TODO-R4 — Harden pywebview bridge timeout and concurrency behavior**, but start it only when
+  **TODO-R5 — Make filter-loading failures explicit and safe**, but start it only when
   explicitly requested.
 - The completed checkpoint is `docs/architecture-reliability-checkpoint.md`. Its high-priority
   reliability findings should be fixed in focused tasks or explicitly accepted before release.
@@ -88,7 +94,7 @@ transcript.
 - Filter loading catches I/O failures despite startup intending to fail safely, and invalid
   regexes are not validated at load time.
 - TwitchIO owns normal reconnect, but reconnect-state restoration and terminal-failure recovery
-  lack focused coverage; bridge timeout/late-completion behavior is also untested.
+  lack focused coverage.
 - Gemini clients are created per operation without an explicit lifetime. The installed
   `google-genai 0.8.0` API has no public close method, so the dependency baseline and ownership
   should be addressed together.
@@ -143,6 +149,9 @@ transcript.
 - TODO-R3: `python -m compileall -q app tests` passed and all 34 focused desktop-host tests
   passed, including a real cross-process mutex collision/release check, duplicate-launch
   rejection before settings load, and a usable read-only `--check` path.
+- TODO-R4: `python -m compileall -q app tests` passed and 62 focused desktop-host/app-settings
+  tests passed, including timeout cancellation, late completion observation, and concurrent
+  Gemini persist-and-apply ordering.
 - The last full Phase 3 suite passed with 119 tests; frontend typecheck/build and
   `python -m app.main --check` also passed at that milestone.
 

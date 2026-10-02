@@ -55,7 +55,10 @@ Responsibility: compose the native window with the existing Python application s
   app settings, Twitch target/status/reconnect, Gemini model settings/discovery, masked
   credential status/actions, and recent logs.
 - Async bot operations are submitted to the owning loop with
-  `asyncio.run_coroutine_threadsafe`; raw Twitch, database, Gemini, and `RuntimeState` objects
+  `asyncio.run_coroutine_threadsafe`. Bridge waits have operation-specific deadlines, request
+  cancellation at timeout, and observe any uncancelled late completion. AI-memory and Gemini
+  model persist-and-apply operations execute in backend-loop order so effective runtime values
+  cannot race their persisted values. Raw Twitch, database, Gemini, and `RuntimeState` objects
   are not exposed to React.
 
 ## Application composition and lifecycle

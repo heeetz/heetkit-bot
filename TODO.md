@@ -567,6 +567,21 @@ The read-only `--check` entry point remains usable, and the lock creates no sett
 
 ---
 
+## TODO-R4 — Harden pywebview bridge timeout and concurrency behavior
+
+- [x] Review bridge calls that can cross threads or wait on backend/asyncio work.
+- [x] Ensure one stalled backend operation does not leave the UI action pending forever.
+- [x] Avoid unsafe concurrent mutation of runtime/persistent settings.
+- [x] Return safe user-facing errors while preserving technical details in logs.
+- [x] Keep the bridge explicit; do not introduce a generic RPC framework.
+- [x] Add focused concurrency/timeout regression coverage for the high-risk paths identified by TODO-R1.
+
+Backend waits now share bounded cancellation/late-result observation while retaining explicit
+bridge methods. AI-memory and Gemini-model persist-and-apply changes run in backend-loop order,
+so concurrent frontend saves cannot reorder persistent and effective values.
+
+---
+
 # P2 — Product extensibility
 
 ## TODO-009 — Configurable simple commands
