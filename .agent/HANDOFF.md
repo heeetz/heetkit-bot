@@ -7,7 +7,7 @@ transcript.
 
 - Branch: `main`.
 - Remote target: `origin/main`.
-- Latest completed task: **TODO-R2 — Harden shutdown timeout behavior**
+- Latest completed task: **TODO-R3 — Add single-instance / local-state contention protection**
   (committed with this handoff).
 - Working application path: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
 - No active partially completed task exists.
@@ -23,6 +23,9 @@ transcript.
   `AsyncioBackendHost` serializes that work through one shutdown future; deadline overruns cancel
   pending asyncio work, use a bounded forced-stop grace period, and cannot keep the process alive
   through the daemon backend worker.
+- Normal desktop launches hold a Windows named mutex keyed to the resolved local settings path
+  before loading settings or starting the bot. A duplicate launch reports the existing process
+  and exits; the read-only `--check` mode does not acquire the guard.
 - Commands use registry defaults, optional local overrides, and canonical `RuntimeState`
   effective values.
 - `data/app_settings.json` is schema version 1 with `startup`, `window`, `ai`, and `twitch`
@@ -73,17 +76,15 @@ transcript.
 
 ## TODO position
 
-- Latest completed TODO: **TODO-R2 — Harden shutdown timeout behavior**.
+- Latest completed TODO: **TODO-R3 — Add single-instance / local-state contention protection**.
 - The daily-use UX sequence through TODO-UX7 is complete. The next reliability follow-up is
-  **TODO-R3 — Add single-instance / local-state contention protection**, but start it only when
+  **TODO-R4 — Harden pywebview bridge timeout and concurrency behavior**, but start it only when
   explicitly requested.
 - The completed checkpoint is `docs/architecture-reliability-checkpoint.md`. Its high-priority
   reliability findings should be fixed in focused tasks or explicitly accepted before release.
 
 ## Known issues and unfinished work
 
-- Multiple application launches are not prevented and can contend for Twitch, SQLite, tokens,
-  OAuth port 4343, and local JSON stores.
 - Filter loading catches I/O failures despite startup intending to fail safely, and invalid
   regexes are not validated at load time.
 - TwitchIO owns normal reconnect, but reconnect-state restoration and terminal-failure recovery
@@ -139,6 +140,9 @@ transcript.
 - TODO-R2: `python -m compileall -q app tests` passed and all 31 focused desktop-host tests
   passed, including orderly close, startup failure cleanup, repeated close, and the bounded
   degraded path for an unresponsive shutdown.
+- TODO-R3: `python -m compileall -q app tests` passed and all 34 focused desktop-host tests
+  passed, including a real cross-process mutex collision/release check, duplicate-launch
+  rejection before settings load, and a usable read-only `--check` path.
 - The last full Phase 3 suite passed with 119 tests; frontend typecheck/build and
   `python -m app.main --check` also passed at that milestone.
 
@@ -159,6 +163,6 @@ transcript.
 - Twitch presets intentionally do not model authenticated bot profiles. The current process
   continues to use one configured bot identity and OAuth cache; multi-account authentication is
   deferred rather than simulated through channel presets.
-- An unrelated local edit to `AGENTS.md` and user roadmap/filter changes predate TODO-R2 and
-  remain intentionally uncommitted except for completed TODO-UX1 through TODO-UX7 and TODO-R2
+- An unrelated local edit to `AGENTS.md` and user roadmap/filter changes predate TODO-R3 and
+  remain intentionally uncommitted except for completed TODO-UX1 through TODO-UX7 and TODO-R2/R3
   subsections.

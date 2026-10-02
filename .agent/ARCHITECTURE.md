@@ -7,6 +7,9 @@ responsibilities and boundaries, not implementation detail from entire source fi
 
 - `python -m app.main` is the canonical application entry point. The installed `twitch-bot`
   command resolves to the same function.
+- Normal Windows desktop launches acquire a named mutex keyed to the resolved local settings
+  path before loading settings or starting the host. A duplicate reports the existing instance
+  and exits. The read-only `--check` mode bypasses the guard; `--dev-url` remains guarded.
 - Root `run.bat` changes to the repository directory and invokes
   `.venv\Scripts\python.exe -m app.main`; it never falls back to system Python.
 - `app/main.py` delegates to `app/webview_host.py`.

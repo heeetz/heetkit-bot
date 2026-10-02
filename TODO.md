@@ -553,6 +553,20 @@ process-exit safeguard when uncooperative work cannot be interrupted.
 
 ---
 
+## TODO-R3 — Add single-instance / local-state contention protection
+
+- [x] Prevent two normal desktop instances from silently competing over the same local runtime files, OAuth/cache state, tray identity, or settings.
+- [x] Prefer a small Windows-appropriate single-instance mechanism.
+- [x] If another instance is already running, fail clearly or focus/notify the existing instance where reasonably simple.
+- [x] Do not corrupt or rewrite user settings as part of detection.
+- [x] Keep test/development entry points usable where intentional.
+
+Normal desktop launches now hold a Windows named mutex keyed to the resolved local settings
+path. A second launch shows an already-running message and exits before loading local state.
+The read-only `--check` entry point remains usable, and the lock creates no settings file.
+
+---
+
 # P2 — Product extensibility
 
 ## TODO-009 — Configurable simple commands

@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import ctypes
+import hashlib
 import logging
 import math
+import sys
 import threading
 from concurrent.futures import Future, TimeoutError as FutureTimeoutError
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
-from typing import Any, Coroutine
+from typing import Any, Coroutine, Iterator
 
 from pydantic import ValidationError
 
@@ -36,6 +40,57 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_ENTRYPOINT = PROJECT_ROOT / "frontend" / "dist" / "index.html"
 FALLBACK_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 FORCED_STOP_TIMEOUT_SECONDS = 2.0
+ERROR_ALREADY_EXISTS = 183
+
+
+class DesktopAlreadyRunningError(RuntimeError):
+    """A desktop process already owns this checkout's local state."""
+
+
+@contextmanager
+def desktop_instance_guard(settings_path: Path) -> Iterator[None]:
+    """Hold a Windows mutex while a desktop process uses its local state."""
+    if sys.platform != "win32":
+        yield
+        return
+
+    # Resolve and normalize the path so differently spelled paths to the same
+    # checkout cannot start competing desktop processes.
+    identity = str(settings_path.resolve()).casefold().encode("utf-8")
+    name = f"Global\\TwitchBotDesktop-{hashlib.sha256(identity).hexdigest()[:32]}"
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_mutex = kernel32.CreateMutexW
+    create_mutex.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p)
+    create_mutex.restype = ctypes.c_void_p
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = (ctypes.c_void_p,)
+    close_handle.restype = ctypes.c_int
+
+    ctypes.set_last_error(0)
+    handle = create_mutex(None, False, name)
+    error = ctypes.get_last_error()
+    if not handle:
+        raise OSError(error, "Could not establish the desktop instance guard")
+    try:
+        if error == ERROR_ALREADY_EXISTS:
+            raise DesktopAlreadyRunningError(
+                "Twitch Bot is already running for this project. Open its existing window "
+                "from the taskbar or system tray."
+            )
+        yield
+    finally:
+        close_handle(handle)
+
+
+def notify_existing_desktop(message: str) -> None:
+    """Show the collision to users who launched the desktop app by double-clicking."""
+    if sys.platform != "win32":
+        return
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    message_box = user32.MessageBoxW
+    message_box.argtypes = (ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint)
+    message_box.restype = ctypes.c_int
+    message_box(None, message, "Twitch Bot", 0x30)  # MB_ICONWARNING
 
 
 class AsyncioBackendHost:
@@ -1271,18 +1326,23 @@ def main() -> None:
     )
     arguments = parser.parse_args()
     try:
-        settings, credential_manager = load_settings_with_credentials()
-        configure_logging(settings.log_level)
-        frontend_url = resolve_frontend_url(arguments.dev_url)
-        if arguments.check:
-            logging.getLogger("app.webview").info("Web desktop configuration check completed")
-            return
-        run_desktop_host(
-            settings,
-            frontend_url,
-            auto_start=False if arguments.stopped else None,
-            credential_manager=credential_manager,
-        )
+        guard = nullcontext() if arguments.check else desktop_instance_guard(APP_SETTINGS_PATH)
+        with guard:
+            settings, credential_manager = load_settings_with_credentials()
+            configure_logging(settings.log_level)
+            frontend_url = resolve_frontend_url(arguments.dev_url)
+            if arguments.check:
+                logging.getLogger("app.webview").info("Web desktop configuration check completed")
+                return
+            run_desktop_host(
+                settings,
+                frontend_url,
+                auto_start=False if arguments.stopped else None,
+                credential_manager=credential_manager,
+            )
+    except DesktopAlreadyRunningError as error:
+        notify_existing_desktop(str(error))
+        parser.exit(1, f"ERROR: {error}\n")
     except (ValidationError, FileNotFoundError) as error:
         parser.error(str(error))
 

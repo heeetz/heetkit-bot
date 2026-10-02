@@ -65,6 +65,20 @@ Reason:
 Start-minimized, minimize-to-tray, and close-to-tray combinations must never create duplicate
 icons or shutdown paths.
 
+## Decision: One normal desktop process owns local state
+
+Status: Active
+
+Decision:
+Normal Windows desktop launches hold a named mutex derived from the resolved local app-settings
+path for the duration of the process. A duplicate launch displays a clear message and exits
+before loading local state. Read-only `--check` runs without the mutex; `--dev-url` uses it.
+
+Reason:
+Concurrent desktop processes would compete over SQLite, Twitch OAuth/cache state, local JSON,
+the OAuth port, and tray presence. An OS mutex is released on process termination and does not
+create or rewrite user settings.
+
 ## Decision: The command registry defines built-in commands
 
 Status: Active

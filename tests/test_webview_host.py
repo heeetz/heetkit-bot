@@ -2,6 +2,8 @@
 
 import asyncio
 import logging
+import subprocess
+import sys
 import threading
 from concurrent.futures import Future
 from types import SimpleNamespace
@@ -26,13 +28,89 @@ from app.utils.cooldown import CooldownPolicy
 from app.utils.logging import RecentLogBuffer, RecentLogHandler
 from app.webview_host import (
     AsyncioBackendHost,
+    DesktopAlreadyRunningError,
     DesktopController,
     WebUIBridge,
     apply_ai_app_settings,
     apply_twitch_app_settings,
+    desktop_instance_guard,
+    main,
     resolve_auto_start,
     resolve_frontend_url,
 )
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows named mutex")
+def test_desktop_instance_guard_blocks_other_process_and_releases(tmp_path) -> None:
+    settings_path = tmp_path / "data" / "app_settings.json"
+    probe = (
+        "import sys; from pathlib import Path; "
+        "from app.webview_host import DesktopAlreadyRunningError, desktop_instance_guard; "
+        "path = Path(sys.argv[1]); "
+        "\ntry:\n"
+        "    with desktop_instance_guard(path): pass\n"
+        "except DesktopAlreadyRunningError:\n"
+        "    sys.exit(2)\n"
+    )
+
+    with desktop_instance_guard(settings_path):
+        blocked = subprocess.run(
+            [sys.executable, "-c", probe, str(settings_path)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert blocked.returncode == 2, blocked.stderr
+        assert not settings_path.parent.exists()
+
+    permitted = subprocess.run(
+        [sys.executable, "-c", probe, str(settings_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert permitted.returncode == 0, permitted.stderr
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows named mutex")
+def test_duplicate_desktop_launch_fails_before_loading_local_state(
+    monkeypatch, tmp_path, capsys,
+) -> None:
+    settings_path = tmp_path / "app_settings.json"
+    notices: list[str] = []
+    monkeypatch.setattr("app.webview_host.APP_SETTINGS_PATH", settings_path)
+    monkeypatch.setattr("app.webview_host.notify_existing_desktop", notices.append)
+    monkeypatch.setattr(
+        "app.webview_host.load_settings_with_credentials",
+        lambda: pytest.fail("duplicate launch loaded local settings"),
+    )
+    monkeypatch.setattr(sys, "argv", ["twitch-bot", "--dev-url", "http://localhost:5173"])
+
+    with desktop_instance_guard(settings_path):
+        with pytest.raises(SystemExit) as exit_info:
+            main()
+
+    assert exit_info.value.code == 1
+    assert len(notices) == 1
+    assert "already running" in notices[0]
+    assert "already running" in capsys.readouterr().err
+
+
+def test_configuration_check_does_not_acquire_desktop_instance_guard(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["twitch-bot", "--check", "--dev-url", "http://localhost:5173"])
+    monkeypatch.setattr(
+        "app.webview_host.desktop_instance_guard",
+        lambda path: pytest.fail("--check acquired the desktop instance guard"),
+    )
+    monkeypatch.setattr(
+        "app.webview_host.load_settings_with_credentials",
+        lambda: (SimpleNamespace(log_level="INFO"), None),
+    )
+    monkeypatch.setattr("app.webview_host.configure_logging", lambda level: None)
+
+    main()
 
 
 class FakeHostApplication:
