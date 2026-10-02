@@ -187,3 +187,20 @@ primary diagnostic record.
 Reason:
 Producer-owned metadata is stable, searchable, and safer than coupling the UI to wording while
 preserving one authoritative logging pipeline.
+
+## Decision: Source context and end-user release contents are separate
+
+Status: Active
+
+Decision:
+The source repository may retain tests, agent context, TODOs, and development documentation.
+Generated frontend output, frozen applications, installers, and release archives remain
+untracked build artifacts. A standalone application must include its runtime and tracked
+resources, exclude development-only/private state, and keep mutable user data and credentials
+outside the install directory. Windows is the first release target; later platform artifacts
+are built and validated on their native operating systems.
+
+Reason:
+Developer context is useful in source control but is not end-user application content. Keeping
+runtime state outside the installation makes builds reproducible and upgrades safer without
+shipping secrets, local databases, or machine-specific configuration.

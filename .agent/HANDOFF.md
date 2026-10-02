@@ -1,177 +1,77 @@
 # Current handoff
 
-Replace outdated statements in this file when project state changes. Do not append a session
-transcript.
+Replace outdated statements when the project changes. This file describes current state, not a
+task history; repository code remains authoritative.
 
 ## Repository state
 
-- Branch: `main`.
-- Remote target: `origin/main`.
-- Latest completed task: **TODO-R4 — Harden pywebview bridge timeout and concurrency behavior**
-  (committed with this handoff).
-- Working application path: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
-- No active partially completed task exists.
+- Branch: `main`; remote target: `origin/main`.
+- Latest application-code baseline: `0b48edd` (`fix: harden bridge timeout and concurrency behavior`).
+- Normal launch paths: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
+- No active partially completed implementation task exists.
 
 ## Current application state
 
-- The desktop application is React/TypeScript/Vite hosted by pywebview; Tkinter is removed.
-- Python remains the application/domain core behind an explicit `WebUIBridge`.
-- Dashboard, editable command settings, AI/personality controls, live logs, window/tray
-  settings, and a single system tray icon are implemented.
-- One background asyncio loop owns the composed application and Twitch session.
-- Normal window close, Tray Exit, and host teardown converge on the orderly shutdown path.
-  `AsyncioBackendHost` serializes that work through one shutdown future; deadline overruns cancel
-  pending asyncio work, use a bounded forced-stop grace period, and cannot keep the process alive
-  through the daemon backend worker.
-- Normal desktop launches hold a Windows named mutex keyed to the resolved local settings path
-  before loading settings or starting the bot. A duplicate launch reports the existing process
-  and exits; the read-only `--check` mode does not acquire the guard.
-- Frontend bridge operations that wait on backend asyncio work have explicit deadlines. A timeout
-  requests cancellation, returns a safe operation-specific error, and observes/logs an
-  uncancelled late completion without exposing technical details to the UI.
-- AI-memory and Gemini-model save-and-apply operations execute in backend-loop submission order,
-  keeping their persisted and effective runtime values consistent under concurrent frontend
-  calls.
-- Commands use registry defaults, optional local overrides, and canonical `RuntimeState`
-  effective values.
-- `data/app_settings.json` is schema version 1 with `startup`, `window`, `ai`, and `twitch`
-  sections. It persists opt-in automatic bot startup, window/tray behavior, AI-memory
-  enablement, selected/fallback Gemini models, and optional target-channel overrides while
-  accepting the legacy flat window format.
-- Personality-specific overrides and active selection are local data; shared AI instructions
-  remain protected source code.
-- Built-in personality-specific prompts load from tracked
-  `app/resources/personalities.json`; all existing IDs and prompt text are preserved.
-- Gemini API keys and Twitch client secrets use Windows Credential Manager through `keyring`,
-  with private `.env` values retained as startup fallbacks.
-- The Settings page exposes Twitch connection/account/OAuth-cache status and named target
-  presets. Stable-ID presets persist only display name, channel login, and broadcaster ID in
-  ordinary local app settings. Save & reconnect reuses the shared `BotRuntime` lifecycle;
-  secure credentials, authenticated bot identity, and TwitchIO tokens retain their stores.
-- The Settings page exposes Google Gemini provider/model configuration using tracked backend
-  presets, optional provider discovery, and custom IDs. Model changes apply to the next AI
-  request; only model-not-found responses use the configured fallback.
-- Window/tray toggles auto-save with clear effect timing. Dismissible feedback toasts remain
-  visible while the independently scrolling main pane moves; the desktop sidebar stays fixed.
-- Normal desktop launch leaves the bot stopped unless the local
-  `startup.auto_start_bot` preference is enabled. It is independent of start-minimized, and
-  `--stopped` remains an explicit override. Status polling waits for a populated pywebview API.
-- Gemini model choices are native selects populated from backend presets/discovery, with a
-  separate input shown only for a custom model ID.
-- All normal boolean controls use one reusable native-checkbox-backed React switch component,
-  including command, AI, window/startup, and log auto-scroll controls. Existing Apply/Save and
-  auto-save behavior is unchanged.
-- Dashboard is the compact daily control center for bot start/stop, Twitch connection/channel,
-  uptime, and AI runtime/model/personality state. Its AI toggles call the same bridge actions as
-  the AI page. Gemini model discovery/selection now lives beside personalities on AI; Settings
-  retains desktop/window, Twitch connection, and secure credential controls.
-- Dashboard derives a first-run checklist from the existing Twitch target, credential, AI-model,
-  and personality APIs. Contextual actions scroll to the authoritative Twitch/credential editor
-  or open AI; Settings and AI show explicit missing/not-configured states without duplicating
-  persistence or introducing a mandatory onboarding flow.
-- Live logs retain their bounded standard-logging pipeline and whitelisted semantic metadata for
-  chat direction, commands/cooldowns, Twitch lifecycle, Gemini activity, and settings actions.
-  React presents important values in reusable priority-aware chips without message regexes:
-  cooldown duration, command/user, AI model/duration, and Twitch channel/action are immediately
-  scannable while secondary context and raw diagnostics remain available. Severity, raw-message
-  search/filtering, auto-scroll, and local Clear remain intact.
-- TODO-UX6 found no reproducible application-level scrolling defect in the production
-  pywebview/WebView2 host. The fixed sidebar and independently scrolling main pane remain
-  unchanged; any recurrence should be captured as a platform/input-specific case before code or
-  CSS is changed.
+- React/TypeScript/Vite is the only desktop UI, hosted by pywebview. Python owns the application
+  and domain core behind the explicit `WebUIBridge`; Tkinter has been removed.
+- One `AsyncioBackendHost` owns one background asyncio loop, composed `Application`, and
+  `BotRuntime`. Bot start/stop/reconnect and orderly shutdown stay on that lifecycle. Window
+  close, Tray Exit, and host teardown converge on the same idempotent shutdown path.
+- One `DesktopController` owns one tray icon. Start-minimized affects initial visibility only;
+  minimize-to-tray and close-to-tray change window behavior without creating another tray or
+  shutdown path.
+- Normal Windows desktop launches hold a named single-instance mutex before local state loads.
+  Duplicate launches report the existing process and exit; read-only `--check` bypasses it.
+- Bridge calls waiting on backend work have explicit deadlines, request cancellation on timeout,
+  and observe uncancelled late completion. AI-memory and Gemini-model persist-and-apply changes
+  execute in backend-loop order.
+- Commands are registry-driven and use canonical thread-safe `RuntimeState` settings. Apply is
+  session-only, Save persists a validated override, and Reset restores registry defaults.
+- Ordinary non-secret preferences use versioned `data/app_settings.json`; command and personality
+  overrides remain in their dedicated ignored JSON stores. Writes are atomic and malformed or
+  stale values fall back safely where defined.
+- Built-in personality prompts and Gemini model presets are tracked resources. Shared AI
+  instructions remain protected Python-owned policy; only personality-specific local overrides
+  are editable.
+- Gemini API keys and Twitch client secrets use the OS keyring abstraction (Windows Credential
+  Manager on the current target), with private `.env` values retained as startup fallbacks.
+  TwitchIO OAuth tokens remain in its ignored local token cache.
+- Twitch target-channel settings and named target presets contain no credentials and reconnect
+  through the shared bot lifecycle. TwitchIO remains responsible for normal network recovery.
+- Standard Python logging feeds a thread-safe bounded backend buffer and bounded React view with
+  whitelisted semantic metadata. Log Clear is frontend-local and secrets must never be logged.
+- The application currently runs from source. No standalone bundle, installer, or automated
+  release pipeline exists yet; generated frontend/release output remains untracked.
 
-## TODO position
+## Active roadmap
 
-- Latest completed TODO: **TODO-R4 — Harden pywebview bridge timeout and concurrency behavior**.
-- The daily-use UX sequence through TODO-UX7 is complete. The next reliability follow-up is
-  **TODO-R5 — Make filter-loading failures explicit and safe**, but start it only when
-  explicitly requested.
-- The completed checkpoint is `docs/architecture-reliability-checkpoint.md`. Its high-priority
-  reliability findings should be fixed in focused tasks or explicitly accepted before release.
+- `TODO.md` contains unfinished work only; completed implementation history is in Git.
+- Next item: **TODO-001 — Make filter loading failure-safe**. Start it only when explicitly
+  requested.
+- Later work covers Gemini client ownership, Twitch recovery observability, platform app-data,
+  portability/layout polish, custom commands/triggers/filter UI, and distribution.
 
-## Known issues and unfinished work
+## Important open risks
 
-- Filter loading catches I/O failures despite startup intending to fail safely, and invalid
-  regexes are not validated at load time.
-- TwitchIO owns normal reconnect, but reconnect-state restoration and terminal-failure recovery
-  lack focused coverage.
-- Gemini clients are created per operation without an explicit lifetime. The installed
-  `google-genai 0.8.0` API has no public close method, so the dependency baseline and ownership
-  should be addressed together.
-- Required Twitch configuration is validated before the desktop UI opens, so first-run recovery
-  still depends on `.env`/credential setup outside the UI.
-- Filters UI, custom commands, triggers, standalone packaging, and releases remain unfinished.
+- Filter loading does not yet isolate invalid/unreadable entries and files safely.
+- Gemini clients are constructed per operation without one explicit lifecycle owner.
+- Twitch disconnect/recovery and terminal authentication/configuration failures need clearer
+  state and focused coverage without adding a competing reconnect loop.
+- Mutable runtime data still lives under checkout-relative paths pending the platform app-data
+  migration.
+- Required Twitch configuration is validated before the UI opens, so first-run recovery still
+  depends on external `.env`/credential setup.
 
-## Recent validation
+## Validation baseline
 
-- TODO-001 lifecycle work: `python -m compileall -q app tests` passed and
-  `pytest -q tests/test_webview_host.py` passed with 19 tests.
-- TODO-003: `python -m compileall -q app tests` passed and the focused app-settings and
-  desktop-host test selection passed with 32 tests.
-- TODO-004: `python -m compileall -q app tests` passed and the focused personality selection
-  passed with 14 tests; prompt hashes verify exact preservation of all six built-ins.
-- TODO-005: `python -m compileall -q app tests` passed; 29 focused credential/settings/bridge
-  tests passed; frontend typecheck and production build passed.
-- TODO-006: `python -m compileall -q app tests` passed; 52 focused settings/lifecycle/bridge/
-  credential tests passed; frontend typecheck and production build passed.
-- TODO-007: `python -m compileall -q app tests` passed; 65 focused settings/Gemini/bridge/
-  credential tests passed; frontend typecheck and production build passed.
-- TODO-008: frontend typecheck and production build passed. No Python code changed, so Python
-  tests were not rerun.
-- TODO-R1: source/dependency/security review completed; `pip check` reported no broken
-  requirements, all 158 Python tests passed, and `python -m compileall -q app tests` passed.
-  The suite emitted dependency deprecation warnings for TwitchIO/aiohttp and `pytest-asyncio`;
-  no frontend code changed. A separate focused cleanup removed the duplicate tray-menu refresh
-  and its 26 desktop-host tests plus the compile check passed.
-- TODO-UX1: 50 focused app-settings/desktop-host tests passed; frontend typecheck and production
-  build passed. The project virtual environment required execution outside the restricted agent
-  sandbox; no environment workaround was added to the repository.
-- TODO-UX2: frontend typecheck and production build passed. No Python or backend behavior changed,
-  so Python tests were not rerun.
-- TODO-UX3: frontend typecheck and production build passed. No Python or backend behavior changed,
-  so Python tests were not rerun.
-- TODO-UX4: `python -m compileall -q app tests` passed; 53 focused app-settings/desktop-host
-  tests passed; frontend typecheck and production build passed.
-- TODO-UX5: `python -m compileall -q app tests` passed; 71 focused logging/command/Twitch/bridge
-  tests passed; frontend typecheck and production build passed.
-- Logs readability follow-up: representative semantic, generic, warning, and error rows were
-  visually verified at 1440x900 and 900x800; frontend typecheck and production build passed.
-- TODO-UX6: the real production pywebview/WebView2 host was measured on the 2,127 px Settings
-  page across multiple polling intervals. The 6.5-second probe recorded 354 frames (18.41 ms
-  average, 19.90 ms p95, 24.60 ms maximum), no frames over 25 ms, no long tasks, and no idle
-  scroll-position reset. No application code changed, so frontend/Python suites were not rerun.
-- TODO-UX7: first-run Dashboard, Settings, and AI empty states plus contextual setup navigation
-  were visually verified at 655 px and 1,180 px viewport widths; frontend typecheck and production
-  build passed. No Python code changed, so backend tests were not rerun.
-- TODO-R2: `python -m compileall -q app tests` passed and all 31 focused desktop-host tests
-  passed, including orderly close, startup failure cleanup, repeated close, and the bounded
-  degraded path for an unresponsive shutdown.
-- TODO-R3: `python -m compileall -q app tests` passed and all 34 focused desktop-host tests
-  passed, including a real cross-process mutex collision/release check, duplicate-launch
-  rejection before settings load, and a usable read-only `--check` path.
-- TODO-R4: `python -m compileall -q app tests` passed and 62 focused desktop-host/app-settings
-  tests passed, including timeout cancellation, late completion observation, and concurrent
-  Gemini persist-and-apply ordering.
-- The last full Phase 3 suite passed with 119 tests; frontend typecheck/build and
-  `python -m app.main --check` also passed at that milestone.
+- Latest application-code validation: `python -m compileall -q app tests` passed and 62 focused
+  desktop-host/app-settings tests passed for the bridge timeout/concurrency work.
+- The latest full-suite milestone passed 119 tests; frontend typecheck/build and
+  `python -m app.main --check` passed at that milestone.
+- This roadmap/context migration changes documentation only, so runtime suites were not rerun.
 
-## Migration state
+## Workspace note
 
-- The legacy desktop migration is complete: pywebview is the only GUI path.
-- Local ordinary settings now use versioned `data/app_settings.json`. Version 1 has independent
-  `startup.auto_start_bot` and `window` settings, `ai.memory_enabled`, optional
-  selected/fallback Gemini models, and optional non-secret `twitch` target-channel fields and
-  named target presets; a
-  legacy flat window file is read safely and the next successful save writes the versioned form.
-- Command and personality overrides intentionally remain in their dedicated JSON stores.
-- Built-in personality prompts are tracked package data; local personality selection and
-  overrides remain in ignored `data/personality_settings.json`.
-- Windows Credential Manager is the preferred store for user-entered Gemini/Twitch client
-  credentials. `.env` remains a private fallback; credential values never enter ordinary JSON.
-- Local runtime files, databases, logs, frontend build output, `.env`, and tokens are ignored.
-- Twitch presets intentionally do not model authenticated bot profiles. The current process
-  continues to use one configured bot identity and OAuth cache; multi-account authentication is
-  deferred rather than simulated through channel presets.
-- An unrelated local edit to `AGENTS.md` and user roadmap/filter changes predate TODO-R3 and
-  remain intentionally uncommitted except for completed TODO-UX1 through TODO-UX7 and TODO-R2/R3
-  subsections.
+- Unrelated pre-existing local edits to `AGENTS.md` and `data/filters/blocked_words.txt` are not
+  part of this migration and must remain unstaged unless a future user request explicitly owns
+  them.

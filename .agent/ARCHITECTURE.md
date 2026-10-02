@@ -224,3 +224,20 @@ failures do not disable unrelated commands.
 
 See `docs/configuration-audit.md` for the current ownership audit and recommended future
 configuration direction.
+
+## Current source and release boundary
+
+- The supported current workflow runs from the source checkout through `run.bat`,
+  `python -m app.main`, or the installed `twitch-bot` entry point. There is no standalone
+  end-user bundle or installer yet.
+- Vite output under `frontend/dist` is generated and ignored. Standalone packaging must rebuild
+  it and include the Python runtime plus required tracked resources; it must not require Python,
+  Node.js, or the development virtual environment on the target machine.
+- Root behavior configuration, packaged personality/model resources, frontend assets, and
+  tracked filter defaults are runtime inputs that a future build must include explicitly.
+- Local settings, keyring credentials, Twitch tokens, SQLite data, logs, caches, tests, agent
+  context, and other development-only material must not be bundled as user data or committed as
+  generated release output.
+- Windows x64 is the first distribution target. Any later macOS/Linux artifacts must be built
+  and validated natively for their pywebview and keyring backends rather than treated as
+  cross-compiled variants of a Windows bundle.

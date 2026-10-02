@@ -53,7 +53,14 @@ Edit `.env` with the required Twitch values, then validate configuration and the
 python -m app.main --check
 ```
 
-Start the desktop application from the repository root:
+On Windows, start the desktop application from the repository root with the one-click launcher:
+
+```powershell
+.\run.bat
+```
+
+The launcher uses `.venv\Scripts\python.exe` and reports a clear error if the project virtual
+environment has not been created. The equivalent Python command is:
 
 ```powershell
 python -m app.main
@@ -76,7 +83,10 @@ npm run dev
 python -m app.main --dev-url http://localhost:5173
 ```
 
-Use `--stopped` when the desktop shell should open without automatically connecting the bot. Production mode loads generated `frontend/dist/` assets; the directory is intentionally ignored and recreated by `npm run build`.
+Normal desktop launch follows the saved **Start bot automatically** preference, which defaults
+off. Use `--stopped` to force the desktop shell to open without connecting even when that saved
+preference is enabled. Production mode loads generated `frontend/dist/` assets; the directory
+is intentionally ignored and recreated by `npm run build`.
 
 ## Configuration
 
@@ -86,7 +96,11 @@ Configuration responsibilities remain separated:
 - `config.py` contains non-secret behavioral defaults, including cooldowns, the Telegram message, AI response length, memory limits, and the active personality identifier. Built-in personality prompts live in the tracked `app/resources/personalities.json` resource; protected shared AI instructions remain application code in `app/config/personalities.py`.
 - `data/command_settings.json` contains optional local command overrides and is ignored by Git. Commands without overrides continue to use registry defaults.
 - `data/personality_settings.json` contains the locally selected AI personality and optional personality-specific prompt overrides. Shared AI instructions are not editable.
-- `data/app_settings.json` is a versioned local application-settings file. It contains `window` preferences, `ai.memory_enabled`, and optional non-secret Twitch target-channel overrides; legacy flat window settings remain readable and are rewritten in the versioned format on the next save.
+- `data/app_settings.json` is a versioned local application-settings file. It contains the
+  opt-in automatic-start preference, window/tray preferences, AI memory and selected/fallback
+  Gemini models, plus optional non-secret Twitch target-channel settings and named target
+  presets. Legacy flat window settings remain readable and are rewritten in the versioned
+  format on the next save.
 - Apply actions take effect for the current process; Save persists local overrides; Reset restores source-controlled defaults. All three local JSON files are ignored by Git.
 
 The environment variables supported by the current application are:
@@ -138,7 +152,10 @@ TwitchIO stores generated access and refresh tokens in `TWITCH_TOKEN_FILE`. The 
 
 ## AI setup
 
-Store the Gemini API key from the Settings page or set `GEMINI_API_KEY` in the private `.env` fallback to enable AI replies. `GEMINI_MODEL` defaults to `gemini-3.5-flash-lite` and can be overridden through the environment.
+Store the Gemini API key from the Settings page or set `GEMINI_API_KEY` in the private `.env`
+fallback to enable AI replies. `GEMINI_MODEL` supplies the deployment default. The AI page can
+save validated selected and fallback model IDs locally for subsequent requests, using shipped
+presets, optional provider discovery, or an explicit custom model ID.
 
 `!ask` applies the local AI request policy before contacting Gemini. Requests involving current, changing, comparison, event, or named-opinion information can enable Google Search grounding. Provider responses then pass through the local response policy and configured response-length limit before delivery.
 
@@ -170,11 +187,24 @@ Built-in cooldowns come from `config.py`; saved local overrides take precedence 
 
 The Commands page is registry-driven, including hidden commands, and edits canonical enabled, permission, and cooldown settings. Apply is process-local, Save writes `data/command_settings.json`, and Reset removes the override and restores registry defaults.
 
-The AI page provides a runtime AI-command toggle, a persisted memory toggle, and the active personality selector. Personality Apply changes the next AI request without restarting, Save writes the active selection and personality-specific override to `data/personality_settings.json`, and Reset restores the built-in prompt. The shared AI instructions are never sent to the editor.
+The AI page provides a runtime AI-command toggle, a persisted memory toggle, Gemini
+selected/fallback model configuration, and the active personality selector. Personality Apply
+changes the next AI request without restarting, Save writes the active selection and
+personality-specific override to `data/personality_settings.json`, and Reset restores the
+built-in prompt. The shared AI instructions are never sent to the editor.
 
 Live logs use a thread-safe 500-entry backend buffer and a bounded 500-entry frontend view. Clearing the Logs page does not delete persistent logs or application state.
 
-The Settings page controls start minimized, minimize to tray, and close to tray. Its Twitch section shows connection, configured bot identity, OAuth-cache status, and the active/target channel. Saving a target channel writes only its non-secret login and numeric user ID to `data/app_settings.json`; Save & reconnect applies it through the existing bot lifecycle. The page also shows masked credential status for the Gemini API key and Twitch client secret, with Replace, Remove, and provider Test actions. Credential values are never returned to React; changes use Windows Credential Manager and take effect after restart. The pystray menu provides Open, dynamic Start Bot / Stop Bot, and Exit. Tray Exit and normal application shutdown reuse the same orderly backend lifecycle. The completed parity checklist is in `docs/desktop-feature-parity.md`.
+The Settings page controls automatic bot startup, start minimized, minimize to tray, and close
+to tray. Its Twitch section shows connection, configured bot identity, OAuth-cache status, and
+the active/target channel. Target settings and named presets write only display names, channel
+logins, and numeric user IDs to `data/app_settings.json`; Save & reconnect applies the selected
+target through the existing bot lifecycle. The page also shows masked credential status for the
+Gemini API key and Twitch client secret, with Replace, Remove, and provider Test actions.
+Credential values are never returned to React; changes use Windows Credential Manager and take
+effect after restart. The pystray menu provides Open, dynamic Start Bot / Stop Bot, and Exit.
+Tray Exit and normal application shutdown reuse the same orderly backend lifecycle. The
+completed parity checklist is in `docs/desktop-feature-parity.md`.
 
 ## Runtime data and privacy
 
@@ -188,7 +218,7 @@ Generated local files include:
 | `data/twitch_bot.db` or other SQLite files | Local user activity and AI memory | Never |
 | `data/command_settings.json` | Local command overrides | Never |
 | `data/personality_settings.json` | Local personality text and selection | Never |
-| `data/app_settings.json` | Versioned local window/tray, AI-memory, and non-secret Twitch target-channel preferences | Never |
+| `data/app_settings.json` | Versioned local startup, window/tray, AI memory/model, and non-secret Twitch target/preset preferences | Never |
 | `data/filters/*.txt` | Intended filter configuration/defaults | Yes, after reviewing custom content |
 | `.venv/`, caches, build output, logs, IDE metadata | Generated local development state | No |
 
