@@ -32,6 +32,7 @@ class Application:
     settings: Settings
     database: Database
     http_client: httpx.AsyncClient
+    ai_service: GeminiAIService
     services: ApplicationServices
     registry: CommandRegistry
     dispatcher: CommandDispatcher
@@ -50,8 +51,13 @@ class Application:
             logger.exception("Filter loading failed unexpectedly; existing rules remain active")
 
     async def shutdown(self) -> None:
-        await self.http_client.aclose()
-        await self.database.close()
+        try:
+            await self.ai_service.aclose()
+        finally:
+            try:
+                await self.http_client.aclose()
+            finally:
+                await self.database.close()
 
 
 def build_application(settings: Settings) -> Application:
@@ -67,14 +73,15 @@ def build_application(settings: Settings) -> Application:
         command_settings_path=COMMAND_SETTINGS_PATH,
         personality_settings_path=PERSONALITY_SETTINGS_PATH,
     )
+    ai_service = GeminiAIService(
+        settings,
+        runtime_state=runtime_state,
+        filter_manager=filter_manager,
+    )
     services = ApplicationServices(
         users=user_repository,
         memory=memory,
-        ai=GeminiAIService(
-            settings,
-            runtime_state=runtime_state,
-            filter_manager=filter_manager,
-        ),
+        ai=ai_service,
         weather=OpenMeteoWeatherService(http_client),
         filter_manager=filter_manager,
         ai_request_policy=ai_request_policy,
@@ -103,6 +110,7 @@ def build_application(settings: Settings) -> Application:
         settings=settings,
         database=database,
         http_client=http_client,
+        ai_service=ai_service,
         services=services,
         registry=registry,
         dispatcher=dispatcher,

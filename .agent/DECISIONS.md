@@ -56,6 +56,19 @@ Duplicate loops or lifecycle controllers would create races and inconsistent run
 A degraded timeout policy must remain bounded without replacing orderly cleanup as the normal
 path.
 
+## Decision: The Gemini service owns provider client resources
+
+Status: Active
+
+Decision:
+The composed `GeminiAIService` reuses one SDK client for its current credential and closes
+retired clients after active calls finish. `Application.shutdown()` closes the service before
+its other resources. Model settings remain per-request values and do not rebuild the client.
+
+Reason:
+Provider connections need one clear owner and deterministic cleanup while live model and
+credential changes remain effective.
+
 ## Decision: One tray controller and icon exist per process
 
 Status: Active

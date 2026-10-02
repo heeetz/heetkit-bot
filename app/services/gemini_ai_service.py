@@ -4,9 +4,10 @@ import logging
 import asyncio
 import time
 from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager
 from re import Pattern
 import re
-from typing import Any
+from typing import Any, AsyncIterator
 
 from app.config.settings import Settings
 from app.services.contracts import AIReply
@@ -53,6 +54,12 @@ class GeminiAIService:
         self.settings = settings
         self.runtime_state = runtime_state
         self.filter_manager = filter_manager
+        self._client: Any | None = None
+        self._client_key: object | None = None
+        self._client_users: dict[Any, int] = {}
+        self._retired_clients: set[Any] = set()
+        self._client_condition = asyncio.Condition()
+        self._closed = False
         self._blocked_response_patterns: list[Pattern] = [
             # Dedicated hard block for the specified term and grammatical forms.
             re.compile(
@@ -243,22 +250,82 @@ class GeminiAIService:
             prompt,
         )
 
+    @staticmethod
+    async def _close_client(client: Any) -> None:
+        try:
+            close_async = getattr(client.aio, "aclose", None)
+            if close_async is not None:
+                await close_async()
+        finally:
+            close_sync = getattr(client, "close", None)
+            if close_sync is not None:
+                close_sync()
+
+    @asynccontextmanager
+    async def _provider_client(self) -> AsyncIterator[Any]:
+        """Lease the shared SDK client without closing an in-flight old-key request."""
+        async with self._client_condition:
+            if self._closed:
+                raise RuntimeError("Gemini service has shut down.")
+            key = self.settings.gemini_api_key
+            if key is None:
+                raise RuntimeError("Gemini API key is not configured.")
+            if self._client is None or self._client_key != key:
+                from google import genai
+
+                replacement = genai.Client(api_key=key.get_secret_value())
+                previous = self._client
+                self._client = replacement
+                self._client_key = key
+                self._client_users[replacement] = 0
+                if previous is not None:
+                    if self._client_users[previous]:
+                        self._retired_clients.add(previous)
+                    else:
+                        del self._client_users[previous]
+                        await self._close_client(previous)
+            client = self._client
+            self._client_users[client] += 1
+        try:
+            yield client.aio
+        finally:
+            async with self._client_condition:
+                self._client_users[client] -= 1
+                try:
+                    if client in self._retired_clients and not self._client_users[client]:
+                        self._retired_clients.remove(client)
+                        del self._client_users[client]
+                        await self._close_client(client)
+                finally:
+                    self._client_condition.notify_all()
+
+    async def aclose(self) -> None:
+        """Release provider resources after all active requests complete."""
+        async with self._client_condition:
+            self._closed = True
+            await self._client_condition.wait_for(
+                lambda: not any(self._client_users.values())
+            )
+            clients = list(self._client_users)
+            self._client_users.clear()
+            self._retired_clients.clear()
+            self._client = None
+            self._client_key = None
+            for client in clients:
+                await self._close_client(client)
+
     async def discover_models(self) -> list[str]:
         """Return provider models suitable for text generation with the configured key."""
-        if self.settings.gemini_api_key is None:
-            raise RuntimeError("Gemini API key is not configured.")
         try:
-            from google import genai
+            async with self._provider_client() as client:
+                pager = await client.models.list()
+                discovered: set[str] = set()
+                async for model in pager:
+                    model_id = self._normalize_discovered_model(model)
+                    if model_id is not None:
+                        discovered.add(model_id)
         except ImportError as error:
             raise RuntimeError("google-genai package is not available.") from error
-
-        client = genai.Client(api_key=self.settings.gemini_api_key.get_secret_value())
-        pager = await client.aio.models.list()
-        discovered: set[str] = set()
-        async for model in pager:
-            model_id = self._normalize_discovered_model(model)
-            if model_id is not None:
-                discovered.add(model_id)
         return sorted(discovered)
 
     @staticmethod
@@ -314,9 +381,8 @@ class GeminiAIService:
                     is_available=False,
                 )
 
-            # Import the Gemini client only when needed to avoid import errors.
+            # Import request types only when needed to avoid import errors.
             try:
-                from google import genai
                 from google.genai import types
             except ImportError:
                 logger.warning("google-genai package is not available")
@@ -324,9 +390,6 @@ class GeminiAIService:
                     text="",
                     is_available=False,
                 )
-
-            # Create the client with API key
-            client = genai.Client(api_key=self.settings.gemini_api_key.get_secret_value())
 
             # Configure Google Search tool for grounding
             search_tool = types.Tool(
@@ -366,7 +429,7 @@ class GeminiAIService:
                 },
             )
             async def request_model(model: str) -> Any:
-                return await client.aio.models.generate_content(
+                return await client.models.generate_content(
                     model=model,
                     contents=request_content,
                     config=types.GenerateContentConfig(
@@ -376,10 +439,11 @@ class GeminiAIService:
                 )
 
             try:
-                async with asyncio.timeout(GEMINI_REQUEST_TIMEOUT_SECONDS):
-                    response, effective_model = await self._request_with_model_fallback(
-                        request_model
-                    )
+                async with self._provider_client() as client:
+                    async with asyncio.timeout(GEMINI_REQUEST_TIMEOUT_SECONDS):
+                        response, effective_model = await self._request_with_model_fallback(
+                            request_model
+                        )
             finally:
                 elapsed_seconds = time.monotonic() - request_started_at
                 logger.info(

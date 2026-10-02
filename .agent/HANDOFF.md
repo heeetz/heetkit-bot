@@ -6,7 +6,7 @@ task history; repository code remains authoritative.
 ## Repository state
 
 - Branch: `main`; remote target: `origin/main`.
-- Latest application-code baseline: TODO-001 filter loading hardening (this commit).
+- Latest application-code baseline: TODO-002 Gemini client lifecycle ownership.
 - Normal launch paths: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
 - No active partially completed implementation task exists.
 
@@ -36,6 +36,9 @@ task history; repository code remains authoritative.
 - Gemini API keys and Twitch client secrets use the OS keyring abstraction (Windows Credential
   Manager on the current target), with private `.env` values retained as startup fallbacks.
   TwitchIO OAuth tokens remain in its ignored local token cache.
+- `GeminiAIService` reuses one SDK client per effective credential, retires old clients after
+  active calls finish on credential change, and is closed by `Application.shutdown()`. Model
+  changes are read for each request without rebuilding the client.
 - Twitch target-channel settings and named target presets contain no credentials and reconnect
   through the shared bot lifecycle. TwitchIO remains responsible for normal network recovery.
 - Standard Python logging feeds a thread-safe bounded backend buffer and bounded React view with
@@ -49,14 +52,13 @@ task history; repository code remains authoritative.
 ## Active roadmap
 
 - `TODO.md` contains unfinished work only; completed implementation history is in Git.
-- Next item: **TODO-002 — Give the Gemini client one clear lifecycle owner**. Start it only when explicitly
+- Next item: **TODO-003 — Improve Twitch disconnect/recovery observability**. Start it only when explicitly
   requested.
-- Later work covers Gemini client ownership, Twitch recovery observability, platform app-data,
-  portability/layout polish, custom commands/triggers/filter UI, and distribution.
+- Later work covers platform app-data, portability/layout polish, custom commands/triggers/filter
+  UI, and distribution.
 
 ## Important open risks
 
-- Gemini clients are constructed per operation without one explicit lifecycle owner.
 - Twitch disconnect/recovery and terminal authentication/configuration failures need clearer
   state and focused coverage without adding a competing reconnect loop.
 - Mutable runtime data still lives under checkout-relative paths pending the platform app-data
@@ -66,9 +68,9 @@ task history; repository code remains authoritative.
 
 ## Validation baseline
 
-- TODO-001 compilation and a standard-library filter-loading smoke check passed. Focused pytest
-  was unavailable in this agent environment: the project virtualenv could not execute and fallback
-  Python lacks pytest.
+- TODO-002 changed-file Python compilation passed. Focused pytest could not run in this agent
+  environment: the project virtualenv was inaccessible, fallback Python lacks pytest and the
+  Gemini SDK, and the offline runner could not initialize its cache.
 - The latest full-suite milestone passed 119 tests; frontend typecheck/build and
   `python -m app.main --check` passed at that milestone.
 

@@ -28,20 +28,6 @@ When asked to execute a TODO:
 
 # P0 — Reliability still open
 
-## TODO-002 — Give the Gemini client one clear lifecycle owner
-
-- [ ] Inspect the current Gemini client construction/reuse path.
-- [ ] Establish one obvious application/service owner for provider client resources.
-- [ ] Reuse the client when the SDK supports it safely instead of recreating expensive resources per request.
-- [ ] Ensure credential/model changes still take effect correctly.
-- [ ] Preserve request timeout, policy, filtering, search-tool, and fallback behavior.
-- [ ] Close/release provider resources cleanly on shutdown where supported.
-- [ ] Add focused lifecycle tests where useful.
-
-**Acceptance:** client ownership is obvious, provider configuration still updates correctly, and shutdown does not leak provider resources.
-
----
-
 ## TODO-003 — Improve Twitch disconnect/recovery observability
 
 - [ ] Keep normal reconnect/recovery behavior TwitchIO-owned unless a concrete defect requires otherwise.

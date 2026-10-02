@@ -68,7 +68,8 @@ Responsibility: one application truth and one orderly lifecycle.
 - `app/container.py` is the composition root. `build_application()` wires Settings, database,
   shared HTTP client, repositories, services, `RuntimeState`, command registry, and dispatcher.
 - `Application.startup()` initializes the database and loads tracked filter rules.
-  `Application.shutdown()` closes the HTTP client and database engine.
+  `Application.shutdown()` closes the Gemini service's provider client, shared HTTP client,
+  and database engine.
 - `app/bot_runtime.py` owns Twitch-session start/stop on the asyncio loop. Its lifecycle lock
   prevents overlapping session transitions; shutdown stops the bot before closing the
   application.
@@ -137,8 +138,11 @@ Responsibility: policy and provider work remain in Python.
    context.
 3. `TwitchAPIService` supplies the current category as optional untrusted context, cached for
    90 seconds.
-4. `GeminiAIService` builds protected shared instructions plus the effective personality,
-   conditionally enables Google Search grounding, calls the selected Gemini model, and uses
+4. `GeminiAIService` owns one reusable Gemini SDK client for the effective credential. It
+   retires an old client after active calls finish if the credential changes, and the composed
+   `Application` closes provider resources during shutdown. The service builds protected shared
+   instructions plus the effective personality, conditionally enables Google Search grounding,
+   calls the selected Gemini model, and uses
    the configured fallback only for model-not-found/unsupported responses. It then filters the
    response and applies the configured response-length limit.
 5. A successfully delivered response is saved to memory only if memory remains enabled.
