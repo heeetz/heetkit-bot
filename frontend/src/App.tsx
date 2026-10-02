@@ -96,6 +96,72 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, busy }
 
 const logLevels = ['ALL', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'] as const
 
+const eventLabels: Record<string, string> = {
+  'chat.incoming': 'CHAT IN',
+  'chat.outgoing': 'CHAT OUT',
+  'chat.filtered': 'CHAT FILTERED',
+  'command.invoke': 'COMMAND',
+  'command.cooldown': 'COOLDOWN',
+  'twitch.subscribe': 'TWITCH',
+  'twitch.connected': 'TWITCH READY',
+  'twitch.disconnected': 'TWITCH LOST',
+  'twitch.reconnect': 'TWITCH RECONNECT',
+  'twitch.start': 'TWITCH START',
+  'twitch.stop': 'TWITCH STOP',
+  'twitch.shutdown': 'TWITCH STOP',
+  'ai.request_config': 'AI CONFIG',
+  'ai.request_start': 'AI REQUEST',
+  'ai.request_finish': 'AI RESPONSE',
+  'ai.fallback': 'AI FALLBACK',
+  'ai.failure': 'AI FAILURE',
+}
+
+const contextLabels: Record<string, string> = {
+  username: 'user',
+  command: 'command',
+  channel: 'channel',
+  retry_after_seconds: 'retry',
+  duration_seconds: 'duration',
+  model: 'model',
+  provider: 'provider',
+  setting: 'setting',
+  action: 'action',
+}
+
+function eventTone(eventKind: string | null) {
+  return eventKind?.split('.')[0] ?? 'generic'
+}
+
+function eventClassName(eventKind: string | null) {
+  return eventKind ? `event-${eventKind.replaceAll('.', '-')}` : ''
+}
+
+function eventLabel(eventKind: string | null) {
+  if (!eventKind) {
+    return ''
+  }
+  if (eventLabels[eventKind]) {
+    return eventLabels[eventKind]
+  }
+  if (eventKind.startsWith('settings.')) {
+    return 'SETTINGS'
+  }
+  return eventKind.replace('.', ' ').toUpperCase()
+}
+
+function formatContextValue(key: string, value: string | number | boolean) {
+  if (key === 'username') {
+    return `@${value}`
+  }
+  if (key === 'command') {
+    return `!${value}`
+  }
+  if (key === 'retry_after_seconds' || key === 'duration_seconds') {
+    return `${value}s`
+  }
+  return String(value)
+}
+
 function LogsPage() {
   const [entries, setEntries] = useState<LogEntry[]>([])
   const [level, setLevel] = useState<(typeof logLevels)[number]>('ALL')
@@ -142,6 +208,10 @@ function LogsPage() {
     const matchesSearch = !normalizedSearch
       || entry.message.toLowerCase().includes(normalizedSearch)
       || entry.source.toLowerCase().includes(normalizedSearch)
+      || entry.event_kind?.toLowerCase().includes(normalizedSearch)
+      || Object.values(entry.context).some(
+        (value) => String(value).toLowerCase().includes(normalizedSearch),
+      )
     return matchesLevel && matchesSearch
   })
 
@@ -185,11 +255,24 @@ function LogsPage() {
       <div className="log-console">
         {visibleEntries.length === 0 && <p className="log-empty">No matching log entries.</p>}
         {visibleEntries.map((entry) => (
-          <div className="log-row" key={entry.id}>
+          <div className={`log-row event-${eventTone(entry.event_kind)} ${eventClassName(entry.event_kind)}`} key={entry.id}>
             <time dateTime={entry.timestamp}>{new Date(entry.timestamp).toLocaleTimeString()}</time>
             <span className={`log-level level-${entry.level.toLowerCase()}`}>{entry.level}</span>
             <span className="log-source">{entry.source}</span>
-            <pre>{entry.message}</pre>
+            <div className="log-message">
+              {entry.event_kind && (
+                <div className="log-event-summary">
+                  <span className="log-event-kind">{eventLabel(entry.event_kind)}</span>
+                  {Object.entries(entry.context).map(([key, value]) => (
+                    <span className="log-context" key={key}>
+                      <span>{contextLabels[key] ?? key}</span>
+                      {formatContextValue(key, value)}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <pre>{entry.message}</pre>
+            </div>
           </div>
         ))}
         <div ref={bottom} />

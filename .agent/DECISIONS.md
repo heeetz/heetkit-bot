@@ -151,3 +151,17 @@ example configuration remain tracked.
 Reason:
 The repository must not leak credentials/private data or mix machine state with distributable
 source.
+
+## Decision: Semantic log metadata originates in Python
+
+Status: Active
+
+Decision:
+Important application events attach explicit semantic metadata to standard Python log records.
+The recent-log handler exposes only a small whitelist of safe fields; React presents that data
+and does not infer event meaning by parsing message text. Severity and raw messages remain the
+primary diagnostic record.
+
+Reason:
+Producer-owned metadata is stable, searchable, and safer than coupling the UI to wording while
+preserving one authoritative logging pipeline.

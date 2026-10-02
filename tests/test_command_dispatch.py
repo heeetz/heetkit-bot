@@ -101,16 +101,31 @@ async def test_ping_dispatches_and_sends_a_response() -> None:
 
 
 @pytest.mark.asyncio
-async def test_ping_cooldown_is_enforced_per_user() -> None:
+async def test_ping_cooldown_is_enforced_per_user(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     registry = CommandRegistry()
     register_fun_commands(registry)
     dispatcher = build_dispatcher(registry)
     transport = FakeChatTransport("!ping", is_moderator=True)
 
-    await dispatcher.dispatch(transport.message, cast(ApplicationServices, object()))
-    await dispatcher.dispatch(transport.message, cast(ApplicationServices, object()))
+    with caplog.at_level(logging.INFO, logger="tests.commands"):
+        await dispatcher.dispatch(transport.message, cast(ApplicationServices, object()))
+        await dispatcher.dispatch(transport.message, cast(ApplicationServices, object()))
 
     assert transport.replies == ["pong"]
+    semantic_records = [
+        record for record in caplog.records if hasattr(record, "event_kind")
+    ]
+    assert [record.event_kind for record in semantic_records] == [
+        "command.invoke",
+        "chat.outgoing",
+        "command.cooldown",
+    ]
+    cooldown_record = semantic_records[-1]
+    assert cooldown_record.event_command == "ping"
+    assert cooldown_record.event_username == "viewer"
+    assert cooldown_record.event_retry_after_seconds > 0
 
 
 @pytest.mark.asyncio

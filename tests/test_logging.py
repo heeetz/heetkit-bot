@@ -5,7 +5,12 @@ import logging
 from app.utils.logging import RecentLogBuffer, RecentLogHandler
 
 
-def emit(handler: RecentLogHandler, message: str, level: int = logging.INFO) -> None:
+def emit(
+    handler: RecentLogHandler,
+    message: str,
+    level: int = logging.INFO,
+    **extra: object,
+) -> None:
     record = logging.LogRecord(
         name="tests.source",
         level=level,
@@ -15,6 +20,8 @@ def emit(handler: RecentLogHandler, message: str, level: int = logging.INFO) -> 
         args=(),
         exc_info=None,
     )
+    for name, value in extra.items():
+        setattr(record, name, value)
     handler.emit(record)
 
 
@@ -46,3 +53,27 @@ def test_recent_log_buffer_reads_only_entries_after_cursor() -> None:
     assert len(entries) == 1
     assert entries[0]["id"] == 2
     assert entries[0]["message"] == "second"
+
+
+def test_recent_log_buffer_exposes_only_whitelisted_semantic_context() -> None:
+    buffer = RecentLogBuffer(max_entries=5)
+    handler = RecentLogHandler(buffer)
+
+    emit(
+        handler,
+        "Command cooldown rejected",
+        event_kind="command.cooldown",
+        event_command="ask",
+        event_username="viewer",
+        event_retry_after_seconds=12.5,
+        event_secret="must-not-be-exposed",
+    )
+
+    entry = buffer.recent()[0]
+    assert entry["event_kind"] == "command.cooldown"
+    assert entry["context"] == {
+        "username": "viewer",
+        "command": "ask",
+        "retry_after_seconds": 12.5,
+    }
+    assert "must-not-be-exposed" not in str(entry)

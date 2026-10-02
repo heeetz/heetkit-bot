@@ -175,9 +175,12 @@ failures do not disable unrelated commands.
 
 - Standard Python `logging` remains authoritative.
 - `app/utils/logging.py` attaches a thread-safe `RecentLogHandler` backed by a bounded
-  500-entry deque.
+  500-entry deque. Producers may attach an explicit semantic `event_kind` plus a small
+  whitelist of safe display fields; arbitrary record attributes are not exposed to React.
 - `WebUIBridge.get_recent_logs()` exposes validated cursor/limit reads. The frontend keeps a
-  separate bounded view; Clear affects only that view and does not delete persistent logs.
+  separate bounded view and presents event metadata without parsing message text. Severity and
+  the raw formatted message remain available; Clear affects only the frontend view and does not
+  delete persistent logs.
 - Secrets and authorization values must never be added to log messages.
 
 ## Credential boundary

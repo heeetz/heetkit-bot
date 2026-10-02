@@ -265,7 +265,15 @@ class WebUIBridge:
             return {"ok": False, "error": "Unknown command."}
         except (TypeError, ValueError) as error:
             return {"ok": False, "error": str(error)}
-        self._logger.info("Command runtime settings applied command=%s", command_name)
+        self._logger.info(
+            "Command runtime settings applied command=%s",
+            command_name,
+            extra={
+                "event_kind": "settings.command",
+                "event_command": command_name,
+                "event_action": "apply",
+            },
+        )
         return {"ok": True}
 
     def save_command_settings(
@@ -296,7 +304,15 @@ class WebUIBridge:
         except (OSError, RuntimeError):
             self._logger.exception("Could not save command settings command=%s", command_name)
             return {"ok": False, "error": "Could not save command settings."}
-        self._logger.info("Command settings saved command=%s", command_name)
+        self._logger.info(
+            "Command settings saved command=%s",
+            command_name,
+            extra={
+                "event_kind": "settings.command",
+                "event_command": command_name,
+                "event_action": "save",
+            },
+        )
         return {"ok": True}
 
     def reset_command_settings(self, command_name: str) -> dict[str, object]:
@@ -309,7 +325,15 @@ class WebUIBridge:
         except (OSError, RuntimeError):
             self._logger.exception("Could not reset command settings command=%s", command_name)
             return {"ok": False, "error": "Could not reset command settings."}
-        self._logger.info("Command settings reset command=%s", command_name)
+        self._logger.info(
+            "Command settings reset command=%s",
+            command_name,
+            extra={
+                "event_kind": "settings.command",
+                "event_command": command_name,
+                "event_action": "reset",
+            },
+        )
         return {"ok": True}
 
     def get_ai_status(self) -> dict[str, object]:
@@ -356,7 +380,15 @@ class WebUIBridge:
             )
         except ValueError as error:
             return {"ok": False, "error": str(error)}
-        self._logger.info("AI command runtime state changed enabled=%s", parsed_enabled)
+        self._logger.info(
+            "AI command runtime state changed enabled=%s",
+            parsed_enabled,
+            extra={
+                "event_kind": "settings.ai",
+                "event_setting": "enabled",
+                "event_action": "update",
+            },
+        )
         return {"ok": True}
 
     def set_ai_memory_enabled(self, enabled: object) -> dict[str, object]:
@@ -372,7 +404,15 @@ class WebUIBridge:
         except OSError:
             self._logger.exception("Could not save AI memory setting")
             return {"ok": False, "error": "Could not save AI memory setting."}
-        self._logger.info("AI memory setting changed enabled=%s", parsed_enabled)
+        self._logger.info(
+            "AI memory setting changed enabled=%s",
+            parsed_enabled,
+            extra={
+                "event_kind": "settings.ai",
+                "event_setting": "memory",
+                "event_action": "save",
+            },
+        )
         return {"ok": True}
 
     def apply_personality(self, personality: object, prompt: object) -> dict[str, object]:
@@ -385,7 +425,15 @@ class WebUIBridge:
             )
         except (TypeError, ValueError) as error:
             return {"ok": False, "error": str(error)}
-        self._logger.info("AI personality applied name=%s", personality)
+        self._logger.info(
+            "AI personality applied name=%s",
+            personality,
+            extra={
+                "event_kind": "settings.personality",
+                "event_setting": str(personality),
+                "event_action": "apply",
+            },
+        )
         return {"ok": True}
 
     def save_personality(self, personality: object, prompt: object) -> dict[str, object]:
@@ -401,7 +449,15 @@ class WebUIBridge:
         except (OSError, RuntimeError):
             self._logger.exception("Could not save AI personality name=%s", personality)
             return {"ok": False, "error": "Could not save AI personality."}
-        self._logger.info("AI personality override saved name=%s", personality)
+        self._logger.info(
+            "AI personality override saved name=%s",
+            personality,
+            extra={
+                "event_kind": "settings.personality",
+                "event_setting": str(personality),
+                "event_action": "save",
+            },
+        )
         return {"ok": True}
 
     def reset_personality(self, personality: object) -> dict[str, object]:
@@ -416,7 +472,15 @@ class WebUIBridge:
         except (OSError, RuntimeError):
             self._logger.exception("Could not reset AI personality name=%s", personality)
             return {"ok": False, "error": "Could not reset AI personality."}
-        self._logger.info("AI personality override reset name=%s", personality)
+        self._logger.info(
+            "AI personality override reset name=%s",
+            personality,
+            extra={
+                "event_kind": "settings.personality",
+                "event_setting": str(personality),
+                "event_action": "reset",
+            },
+        )
         return {"ok": True}
 
     def get_app_settings(self) -> dict[str, object]:
@@ -454,7 +518,13 @@ class WebUIBridge:
         except OSError:
             self._logger.exception("Could not save desktop settings")
             return {"ok": False, "error": "Could not save desktop settings."}
-        self._logger.info("Desktop application settings saved")
+        self._logger.info(
+            "Desktop application settings saved",
+            extra={
+                "event_kind": "settings.desktop",
+                "event_action": "save",
+            },
+        )
         return {"ok": True}
 
     def get_twitch_settings(self) -> dict[str, object]:
@@ -543,7 +613,14 @@ class WebUIBridge:
             or updated.twitch.channel_user_id
             != application_settings.twitch_channel_user_id
         )
-        self._logger.info("Twitch target channel settings saved")
+        self._logger.info(
+            "Twitch target channel settings saved",
+            extra={
+                "event_kind": "settings.twitch",
+                "event_channel": str(updated.twitch.channel),
+                "event_action": "save",
+            },
+        )
         return {"ok": True, "requires_reconnect": requires_reconnect}
 
     def save_twitch_preset(
@@ -573,7 +650,14 @@ class WebUIBridge:
             or updated.twitch.channel_user_id
             != application_settings.twitch_channel_user_id
         )
-        self._logger.info("Twitch connection preset saved")
+        self._logger.info(
+            "Twitch connection preset saved",
+            extra={
+                "event_kind": "settings.twitch_preset",
+                "event_channel": preset.channel,
+                "event_action": "save",
+            },
+        )
         return {
             "ok": True,
             "preset_id": preset.id,
@@ -590,7 +674,13 @@ class WebUIBridge:
         except OSError:
             self._logger.exception("Could not delete Twitch connection preset")
             return {"ok": False, "error": "Could not delete Twitch preset."}
-        self._logger.info("Twitch connection preset deleted")
+        self._logger.info(
+            "Twitch connection preset deleted",
+            extra={
+                "event_kind": "settings.twitch_preset",
+                "event_action": "delete",
+            },
+        )
         return {"ok": True}
 
     def reconnect_twitch(self) -> dict[str, object]:
@@ -616,7 +706,15 @@ class WebUIBridge:
                 type(error).__name__,
             )
             return {"ok": False, "error": "Could not reconnect Twitch."}
-        self._logger.info("Twitch target settings applied reconnected=%s", reconnected)
+        self._logger.info(
+            "Twitch target settings applied reconnected=%s",
+            reconnected,
+            extra={
+                "event_kind": "twitch.reconnect",
+                "event_channel": channel,
+                "event_action": "reconnect" if reconnected else "apply",
+            },
+        )
         return {"ok": True, "changed": reconnected}
 
     def get_ai_provider_settings(self) -> dict[str, object]:
@@ -668,6 +766,12 @@ class WebUIBridge:
             "Gemini model settings saved selected_model=%s fallback_model=%s",
             updated.ai.selected_model,
             updated.ai.fallback_model,
+            extra={
+                "event_kind": "settings.ai_model",
+                "event_provider": "Google Gemini",
+                "event_model": str(updated.ai.selected_model),
+                "event_action": "save",
+            },
         )
         return {"ok": True}
 
@@ -712,7 +816,15 @@ class WebUIBridge:
                 type(error).__name__,
             )
             return {"ok": False, "error": str(error)}
-        self._logger.info("Credential replaced name=%s", parsed_name.value)
+        self._logger.info(
+            "Credential replaced name=%s",
+            parsed_name.value,
+            extra={
+                "event_kind": "settings.credential",
+                "event_setting": parsed_name.value,
+                "event_action": "replace",
+            },
+        )
         return {"ok": True}
 
     def remove_credential(self, name: object) -> dict[str, object]:
@@ -731,7 +843,15 @@ class WebUIBridge:
             )
             return {"ok": False, "error": str(error)}
         if removed:
-            self._logger.info("Credential removed name=%s", parsed_name.value)
+            self._logger.info(
+                "Credential removed name=%s",
+                parsed_name.value,
+                extra={
+                    "event_kind": "settings.credential",
+                    "event_setting": parsed_name.value,
+                    "event_action": "remove",
+                },
+            )
         return {"ok": True, "changed": removed}
 
     def test_credential(self, name: object) -> dict[str, object]:
@@ -764,7 +884,15 @@ class WebUIBridge:
                 type(error).__name__,
             )
             return {"ok": False, "error": "Credential test failed."}
-        self._logger.info("Credential test passed name=%s", parsed_name.value)
+        self._logger.info(
+            "Credential test passed name=%s",
+            parsed_name.value,
+            extra={
+                "event_kind": "settings.credential",
+                "event_setting": parsed_name.value,
+                "event_action": "test",
+            },
+        )
         return {"ok": True}
 
     def get_recent_logs(self, after_id: int = 0, limit: int = 200) -> dict[str, object]:
@@ -785,6 +913,15 @@ class WebUIBridge:
         except Exception:
             self._logger.exception("Desktop UI could not start the bot")
             return {"ok": False, "changed": False, "error": "Could not start the bot."}
+        self._logger.info(
+            "Desktop bot start requested changed=%s",
+            started,
+            extra={
+                "event_kind": "twitch.start",
+                "event_channel": self._backend.application.settings.twitch_channel,
+                "event_action": "start",
+            },
+        )
         return {"ok": True, "changed": started}
 
     def stop_bot(self) -> dict[str, object]:
@@ -794,6 +931,15 @@ class WebUIBridge:
         except Exception:
             self._logger.exception("Desktop UI could not stop the bot")
             return {"ok": False, "changed": False, "error": "Could not stop the bot."}
+        self._logger.info(
+            "Desktop bot stop requested changed=%s",
+            stopped,
+            extra={
+                "event_kind": "twitch.stop",
+                "event_channel": self._backend.application.settings.twitch_channel,
+                "event_action": "stop",
+            },
+        )
         return {"ok": True, "changed": stopped}
 
 

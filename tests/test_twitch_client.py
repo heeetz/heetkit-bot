@@ -77,7 +77,9 @@ def build_settings() -> Settings:
 
 
 @pytest.mark.asyncio
-async def test_twitch_message_maps_to_dto_persists_user_and_sends_response() -> None:
+async def test_twitch_message_maps_to_dto_persists_user_and_sends_response(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     raw_message = FakeTwitchMessage()
     mapped = to_incoming_chat_message(cast(object, raw_message))
     users = RecordingUserRepository()
@@ -92,17 +94,25 @@ async def test_twitch_message_maps_to_dto_persists_user_and_sends_response() -> 
     assert mapped.author.is_subscriber is True
     assert mapped.author.is_moderator is True
 
-    await process_twitch_message(
-        message=cast(object, raw_message),
-        services=services,
-        dispatcher=cast(CommandDispatcher, dispatcher),
-        logger=logging.getLogger("tests.twitch"),
-    )
+    with caplog.at_level(logging.INFO, logger="tests.twitch"):
+        await process_twitch_message(
+            message=cast(object, raw_message),
+            services=services,
+            dispatcher=cast(CommandDispatcher, dispatcher),
+            logger=logging.getLogger("tests.twitch"),
+        )
 
     assert users.seen_user_ids == ["viewer-id"]
     assert filter_manager.messages == ["!ping"]
     assert dispatcher.messages[0].content == "!ping"
     assert raw_message.responses == ["pong"]
+    incoming_record = next(
+        record
+        for record in caplog.records
+        if getattr(record, "event_kind", None) == "chat.incoming"
+    )
+    assert incoming_record.event_username == "viewer"
+    assert incoming_record.event_channel == "testchannel"
 
 
 @pytest.mark.asyncio

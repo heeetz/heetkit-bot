@@ -139,6 +139,8 @@ export interface LogEntry {
   level: string
   source: string
   message: string
+  event_kind: string | null
+  context: Record<string, string | number | boolean>
 }
 
 export interface LogsResponse {

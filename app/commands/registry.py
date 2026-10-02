@@ -54,6 +54,17 @@ class CommandContext:
             return False
         try:
             await self.message.respond(content)
+            self.logger.info(
+                "Outgoing bot response channel=%s user=%s length=%d",
+                self.message.channel,
+                self.message.author.username,
+                len(content),
+                extra={
+                    "event_kind": "chat.outgoing",
+                    "event_channel": self.message.channel,
+                    "event_username": self.message.author.username,
+                },
+            )
             return True
         except Exception:
             self.logger.exception(
@@ -257,24 +268,35 @@ class CommandDispatcher:
                     user_id=message.author.twitch_user_id,
                     policy=settings.cooldown,
                 )
-                self._logger.info(
-                    "COOLDOWN DEBUG manager=%s dispatcher=%s command=%s "
-                    "global=%.2f user=%.2f allowed=%s retry_after=%.2f",
-                    id(self._cooldowns),
-                    id(self),
-                    definition.name,
-                    settings.cooldown.global_seconds,
-                    settings.cooldown.per_user_seconds,
-                    cooldown.allowed,
-                    cooldown.retry_after,
-                )
                 if not cooldown.allowed:
+                    self._logger.info(
+                        "Command cooldown rejected command=%s user=%s "
+                        "retry_after_seconds=%.2f",
+                        definition.name,
+                        message.author.username,
+                        cooldown.retry_after,
+                        extra={
+                            "event_kind": "command.cooldown",
+                            "event_command": definition.name,
+                            "event_username": message.author.username,
+                            "event_retry_after_seconds": round(
+                                cooldown.retry_after,
+                                2,
+                            ),
+                        },
+                    )
                     return True
 
             self._logger.info(
                 "Executing command name=%s user=%s",
                 definition.name,
                 message.author.username,
+                extra={
+                    "event_kind": "command.invoke",
+                    "event_command": definition.name,
+                    "event_username": message.author.username,
+                    "event_channel": message.channel,
+                },
             )
             await definition.handler(
                 CommandContext(

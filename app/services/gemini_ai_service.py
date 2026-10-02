@@ -350,9 +350,21 @@ class GeminiAIService:
                 "Gemini request config model=%s tools=%s",
                 self.settings.gemini_model,
                 [type(search_tool).__name__] if use_search else [],
+                extra={
+                    "event_kind": "ai.request_config",
+                    "event_provider": "Google Gemini",
+                    "event_model": self.settings.gemini_model,
+                },
             )
             request_started_at = time.monotonic()
-            logger.info("Gemini request start")
+            logger.info(
+                "Gemini request start",
+                extra={
+                    "event_kind": "ai.request_start",
+                    "event_provider": "Google Gemini",
+                    "event_model": self.settings.gemini_model,
+                },
+            )
             async def request_model(model: str) -> Any:
                 return await client.aio.models.generate_content(
                     model=model,
@@ -370,9 +382,26 @@ class GeminiAIService:
                     )
             finally:
                 elapsed_seconds = time.monotonic() - request_started_at
-                logger.info("Gemini request finished elapsed_seconds=%.2f", elapsed_seconds)
+                logger.info(
+                    "Gemini request finished elapsed_seconds=%.2f",
+                    elapsed_seconds,
+                    extra={
+                        "event_kind": "ai.request_finish",
+                        "event_provider": "Google Gemini",
+                        "event_model": self.settings.gemini_model,
+                        "event_duration_seconds": round(elapsed_seconds, 2),
+                    },
+                )
             if effective_model != self.settings.gemini_model:
-                logger.info("Gemini request completed with fallback model=%s", effective_model)
+                logger.info(
+                    "Gemini request completed with fallback model=%s",
+                    effective_model,
+                    extra={
+                        "event_kind": "ai.fallback",
+                        "event_provider": "Google Gemini",
+                        "event_model": effective_model,
+                    },
+                )
 
             candidates = getattr(response, "candidates", None) or []
             grounding_metadata = [
@@ -446,7 +475,15 @@ class GeminiAIService:
 
         except Exception as e:
             # Log error type safely without exposing secrets or stack traces to chat
-            logger.warning("Gemini AI generation failed: %s", type(e).__name__)
+            logger.warning(
+                "Gemini AI generation failed: %s",
+                type(e).__name__,
+                extra={
+                    "event_kind": "ai.failure",
+                    "event_provider": "Google Gemini",
+                    "event_model": self.settings.gemini_model,
+                },
+            )
             return AIReply(
                 text="",
                 is_available=False,

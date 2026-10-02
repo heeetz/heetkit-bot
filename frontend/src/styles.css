@@ -167,14 +167,28 @@ td { color: #c6cfdf; }
 .checkbox-field { display: flex !important; align-items: center; padding: 6px 4px; color: #8290aa; white-space: nowrap; }
 .log-error { padding: 0 22px; }
 .log-console { height: min(56vh, 520px); overflow: auto; border-top: 1px solid #273044; background: #090d14; font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace; }
-.log-row { display: grid; grid-template-columns: 92px 72px 150px minmax(260px, 1fr); gap: 12px; padding: 9px 16px; border-bottom: 1px solid #171e2b; font-size: 12px; }
+.log-row { display: grid; grid-template-columns: 92px 72px 150px minmax(260px, 1fr); gap: 12px; padding: 9px 16px 9px 13px; border-bottom: 1px solid #171e2b; border-left: 3px solid transparent; font-size: 12px; }
+.log-row.event-chat { border-left-color: #426d78; background: rgba(45, 88, 99, .08); }
+.log-row.event-command { border-left-color: #7052c9; }
+.log-row.event-twitch { border-left-color: #437ab0; }
+.log-row.event-ai { border-left-color: #8569c7; }
+.log-row.event-settings { border-left-color: #617087; }
+.log-row.event-chat-incoming { border-left-color: #43899a; background: rgba(45, 105, 118, .1); }
+.log-row.event-chat-outgoing { border-left-color: #6f5bb8; background: rgba(90, 70, 145, .1); }
 .log-row time, .log-source { color: #72809a; }
 .log-level { font-weight: 800; }
 .level-debug { color: #8fa1bc; }
 .level-info { color: #72b7ff; }
 .level-warning { color: #f0c66b; }
 .level-error, .level-critical { color: #ff7d96; }
-.log-row pre { margin: 0; color: #c8d1e1; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+.log-message { min-width: 0; }
+.log-event-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 5px; }
+.log-event-kind { padding: 2px 6px; border: 1px solid #3b4960; border-radius: 5px; color: #aebbd0; background: #141c29; font-size: 10px; font-weight: 800; letter-spacing: .06em; }
+.event-chat .log-event-kind { border-color: #386675; color: #91cad5; background: #10242a; }
+.event-chat-outgoing .log-event-kind { border-color: #665398; color: #c4b4f0; background: #201a34; }
+.log-context { display: inline-flex; gap: 4px; color: #b8c3d5; }
+.log-context > span { color: #66758e; }
+.log-message pre { margin: 0; color: #c8d1e1; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 .log-empty { padding: 24px; color: #71809a; }
 
 @media (max-width: 1250px) {
@@ -199,7 +213,7 @@ td { color: #c6cfdf; }
   main { height: auto; padding: 24px 18px; overflow: visible; }
   .log-toolbar { align-items: stretch; flex-direction: column; }
   .log-row { grid-template-columns: 82px 70px 1fr; }
-  .log-row pre { grid-column: 1 / -1; }
+  .log-message { grid-column: 1 / -1; }
   .command-row { grid-template-columns: 1fr; }
   .command-title { grid-column: auto; }
   .row-actions { justify-content: flex-start; }

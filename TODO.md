@@ -443,6 +443,41 @@ authentication is explicitly deferred.
 
 ---
 
+## TODO-UX5 — Improve logs with semantic event readability
+
+The severity model (`INFO`, `WARNING`, `ERROR`, etc.) must remain intact, but individual events should be easier to scan.
+
+- [x] Preserve log severity as the primary diagnostic level.
+- [x] Add lightweight semantic event information for important known events where practical, for example:
+  - incoming Twitch chat;
+  - outgoing bot message;
+  - command invocation;
+  - cooldown rejection;
+  - Twitch lifecycle/reconnect;
+  - AI request/response lifecycle;
+  - settings/action events.
+- [x] Prefer structured metadata/explicit event kinds at log creation time over fragile frontend regex parsing when changing backend logging is reasonable.
+- [x] Visually distinguish incoming vs outgoing chat without turning the entire log into a rainbow.
+- [x] Highlight useful fields such as:
+  - username;
+  - command name;
+  - cooldown duration/seconds;
+  - channel;
+  - model/provider where relevant.
+- [x] Keep severity badges/colors unchanged and readable.
+- [x] Preserve search, level filter, auto-scroll, bounded history, and local Clear behavior.
+- [x] Do not log new secrets, credentials, OAuth data, or full sensitive payloads.
+- [x] Keep raw technical information available enough for debugging.
+
+**Acceptance check:** a user can visually distinguish chat, bot output, command/cooldown, and lifecycle events without reading every gray line character-by-character.
+
+Python log producers now attach whitelisted semantic event kinds/context for chat, commands,
+Twitch lifecycle, Gemini, and settings actions. The live Logs view renders compact event labels
+and context chips while preserving severity, raw messages, filters, search, bounded history,
+auto-scroll, and local-only Clear behavior.
+
+---
+
 # P2 — Product extensibility
 
 ## TODO-009 — Configurable simple commands

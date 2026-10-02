@@ -4,12 +4,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from time import monotonic
 
-
-import logging
-
-logger = logging.getLogger(__name__)
-
-
 @dataclass(frozen=True, slots=True)
 class CooldownPolicy:
     per_user_seconds: float = 0.0
@@ -52,12 +46,6 @@ class CooldownManager:
         if remaining > 0:
             return CooldownResult(allowed=False, retry_after=remaining)
 
-        logger.info(
-            "COOLDOWN MANAGER WRITE command=%s user_id=%s now=%.2f",
-            command_name,
-            user_id,
-            now,
-        )
         self._global_uses[command_name] = now
         self._user_uses[(command_name, user_id)] = now
         return CooldownResult(allowed=True)

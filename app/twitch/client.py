@@ -65,6 +65,11 @@ async def process_twitch_message(
             "Filtered out message user=%s channel=%s",
             incoming.author.username,
             incoming.channel,
+            extra={
+                "event_kind": "chat.filtered",
+                "event_username": incoming.author.username,
+                "event_channel": incoming.channel,
+            },
         )
         return
 
@@ -73,6 +78,11 @@ async def process_twitch_message(
         incoming.channel,
         incoming.author.username,
         incoming.content,
+        extra={
+            "event_kind": "chat.incoming",
+            "event_channel": incoming.channel,
+            "event_username": incoming.author.username,
+        },
     )
     try:
         await services.users.upsert_seen(
@@ -127,7 +137,14 @@ class TwitchChatBot(commands.Bot):
         await self._subscribe_to_chat()
 
     async def _subscribe_to_chat(self) -> None:
-        self._logger.info("Subscribing to Twitch chat channel=%s", self._account.channel)
+        self._logger.info(
+            "Subscribing to Twitch chat channel=%s",
+            self._account.channel,
+            extra={
+                "event_kind": "twitch.subscribe",
+                "event_channel": self._account.channel,
+            },
+        )
         subscription = eventsub.ChatMessageSubscription(
             broadcaster_user_id=self._account.channel_user_id,
             user_id=self._account.user_id,
@@ -147,6 +164,11 @@ class TwitchChatBot(commands.Bot):
             "Twitch connection ready account=%s channel=%s",
             self._account.username,
             self._account.channel,
+            extra={
+                "event_kind": "twitch.connected",
+                "event_username": self._account.username,
+                "event_channel": self._account.channel,
+            },
         )
 
     async def event_oauth_authorized(self, payload: UserTokenPayload) -> None:
@@ -194,7 +216,14 @@ class TwitchChatBot(commands.Bot):
 
     async def event_websocket_closed(self, payload: object) -> None:
         self._set_connection_state(False)
-        self._logger.warning("Twitch EventSub WebSocket closed payload=%s", payload)
+        self._logger.warning(
+            "Twitch EventSub WebSocket closed payload=%s",
+            payload,
+            extra={
+                "event_kind": "twitch.disconnected",
+                "event_channel": self._account.channel,
+            },
+        )
 
 
 async def run_twitch_bot(
@@ -225,7 +254,13 @@ async def run_twitch_bot(
             stop_task = asyncio.create_task(close_when_requested())
         await bot.start(with_adapter=True, load_tokens=True, save_tokens=True)
     except asyncio.CancelledError:
-        logger.info("Twitch client shutdown requested")
+        logger.info(
+            "Twitch client shutdown requested",
+            extra={
+                "event_kind": "twitch.shutdown",
+                "event_channel": account.channel,
+            },
+        )
         raise
     except InvalidTokenException as error:
         logger.error(

@@ -2,12 +2,24 @@
 
 import logging
 from collections import deque
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from threading import RLock
 
 
 RECENT_LOG_LIMIT = 500
+EVENT_CONTEXT_ATTRIBUTES = {
+    "event_username": "username",
+    "event_command": "command",
+    "event_channel": "channel",
+    "event_retry_after_seconds": "retry_after_seconds",
+    "event_duration_seconds": "duration_seconds",
+    "event_model": "model",
+    "event_provider": "provider",
+    "event_setting": "setting",
+    "event_action": "action",
+}
+EventContextValue = str | int | float | bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,6 +29,8 @@ class RecentLogEntry:
     level: str
     source: str
     message: str
+    event_kind: str | None = None
+    context: dict[str, EventContextValue] = field(default_factory=dict)
 
 
 class RecentLogBuffer:
@@ -31,6 +45,14 @@ class RecentLogBuffer:
 
     def append(self, record: logging.LogRecord, message: str) -> None:
         timestamp = datetime.fromtimestamp(record.created, tz=timezone.utc)
+        event_kind = getattr(record, "event_kind", None)
+        if not isinstance(event_kind, str) or not event_kind.strip():
+            event_kind = None
+        context: dict[str, EventContextValue] = {}
+        for attribute, field_name in EVENT_CONTEXT_ATTRIBUTES.items():
+            value = getattr(record, attribute, None)
+            if isinstance(value, (str, int, float, bool)) and not isinstance(value, bytes):
+                context[field_name] = value
         with self._lock:
             self._entries.append(
                 RecentLogEntry(
@@ -41,6 +63,8 @@ class RecentLogBuffer:
                     level=record.levelname,
                     source=record.name,
                     message=message,
+                    event_kind=event_kind,
+                    context=context,
                 )
             )
             self._next_id += 1

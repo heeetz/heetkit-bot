@@ -7,7 +7,7 @@ transcript.
 
 - Branch: `main`.
 - Remote target: `origin/main`.
-- Latest completed task: **TODO-UX4 — Add named Twitch connection presets**
+- Latest completed task: **TODO-UX5 — Improve logs with semantic event readability**
   (committed with this handoff).
 - Working application path: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
 - No active partially completed task exists.
@@ -53,11 +53,15 @@ transcript.
   uptime, and AI runtime/model/personality state. Its AI toggles call the same bridge actions as
   the AI page. Gemini model discovery/selection now lives beside personalities on AI; Settings
   retains desktop/window, Twitch connection, and secure credential controls.
+- Live logs retain their bounded standard-logging pipeline and now include whitelisted semantic
+  metadata for chat direction, commands/cooldowns, Twitch lifecycle, Gemini activity, and
+  settings actions. React renders event labels and safe context fields without message regexes;
+  severity, raw messages, search/filtering, auto-scroll, and local Clear remain intact.
 
 ## TODO position
 
-- Latest completed TODO: **TODO-UX4 — Add named Twitch connection presets**.
-- The next daily-use item is **TODO-UX5 — Improve logs with semantic event readability**, but start it
+- Latest completed TODO: **TODO-UX5 — Improve logs with semantic event readability**.
+- The next daily-use item is **TODO-UX6 — Investigate and, if clear, fix scroll jank**, but start it
   only when explicitly requested.
 - The completed checkpoint is `docs/architecture-reliability-checkpoint.md`. Its high-priority
   reliability findings should be fixed in focused tasks or explicitly accepted before release.
@@ -109,6 +113,8 @@ transcript.
   so Python tests were not rerun.
 - TODO-UX4: `python -m compileall -q app tests` passed; 53 focused app-settings/desktop-host
   tests passed; frontend typecheck and production build passed.
+- TODO-UX5: `python -m compileall -q app tests` passed; 71 focused logging/command/Twitch/bridge
+  tests passed; frontend typecheck and production build passed.
 - The last full Phase 3 suite passed with 119 tests; frontend typecheck/build and
   `python -m app.main --check` also passed at that milestone.
 
@@ -129,5 +135,5 @@ transcript.
 - Twitch presets intentionally do not model authenticated bot profiles. The current process
   continues to use one configured bot identity and OAuth cache; multi-account authentication is
   deferred rather than simulated through channel presets.
-- An unrelated local edit to `AGENTS.md` and user roadmap/filter changes predate TODO-UX4 and
-  remain intentionally uncommitted except for completed TODO-UX1 through TODO-UX4 subsections.
+- An unrelated local edit to `AGENTS.md` and user roadmap/filter changes predate TODO-UX5 and
+  remain intentionally uncommitted except for completed TODO-UX1 through TODO-UX5 subsections.
