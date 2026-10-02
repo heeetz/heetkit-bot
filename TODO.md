@@ -531,6 +531,28 @@ normal pages without introducing a separate onboarding flow or settings store.
 
 ---
 
+# P1.7 — Reliability hardening follow-ups from TODO-R1
+
+These items come directly from `docs/architecture-reliability-checkpoint.md`.
+
+Resolve them before release work and preferably before major product extensibility when they touch shared lifecycle/state.
+
+## TODO-R2 — Harden shutdown timeout behavior
+
+- [x] Review the current bounded shutdown/exit timeout path identified by TODO-R1.
+- [x] Ensure a stuck Twitch/background operation cannot leave the desktop application hanging indefinitely.
+- [x] Preserve orderly cleanup as the normal path.
+- [x] Define and test the degraded path when graceful shutdown exceeds its allowed time.
+- [x] Log the degraded shutdown clearly without exposing secrets.
+- [x] Avoid multiple competing shutdown implementations.
+
+`AsyncioBackendHost` now owns one serialized shutdown future. Normal exit still awaits orderly
+`BotRuntime.shutdown()`; a deadline overrun cancels that attempt, requests bounded event-loop
+cleanup, and logs the degraded path. The backend worker is daemonized only as the last-resort
+process-exit safeguard when uncooperative work cannot be interrupted.
+
+---
+
 # P2 — Product extensibility
 
 ## TODO-009 — Configurable simple commands

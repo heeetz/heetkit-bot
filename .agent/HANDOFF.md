@@ -7,7 +7,7 @@ transcript.
 
 - Branch: `main`.
 - Remote target: `origin/main`.
-- Latest completed task: **TODO-UX7 — Review first-run journey and empty states**
+- Latest completed task: **TODO-R2 — Harden shutdown timeout behavior**
   (committed with this handoff).
 - Working application path: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
 - No active partially completed task exists.
@@ -20,6 +20,9 @@ transcript.
   settings, and a single system tray icon are implemented.
 - One background asyncio loop owns the composed application and Twitch session.
 - Normal window close, Tray Exit, and host teardown converge on the orderly shutdown path.
+  `AsyncioBackendHost` serializes that work through one shutdown future; deadline overruns cancel
+  pending asyncio work, use a bounded forced-stop grace period, and cannot keep the process alive
+  through the daemon backend worker.
 - Commands use registry defaults, optional local overrides, and canonical `RuntimeState`
   effective values.
 - `data/app_settings.json` is schema version 1 with `startup`, `window`, `ai`, and `twitch`
@@ -70,16 +73,15 @@ transcript.
 
 ## TODO position
 
-- Latest completed TODO: **TODO-UX7 — Review first-run journey and empty states**.
+- Latest completed TODO: **TODO-R2 — Harden shutdown timeout behavior**.
 - The daily-use UX sequence through TODO-UX7 is complete. The next reliability follow-up is
-  **TODO-R2 — Harden shutdown timeout behavior**, but start it only when explicitly requested.
+  **TODO-R3 — Add single-instance / local-state contention protection**, but start it only when
+  explicitly requested.
 - The completed checkpoint is `docs/architecture-reliability-checkpoint.md`. Its high-priority
   reliability findings should be fixed in focused tasks or explicitly accepted before release.
 
 ## Known issues and unfinished work
 
-- Backend shutdown timeout handling can stop the loop while shutdown is still pending and can
-  leave a hidden non-daemon process; it needs a focused lifecycle fix and real host tests.
 - Multiple application launches are not prevented and can contend for Twitch, SQLite, tokens,
   OAuth port 4343, and local JSON stores.
 - Filter loading catches I/O failures despite startup intending to fail safely, and invalid
@@ -134,6 +136,9 @@ transcript.
 - TODO-UX7: first-run Dashboard, Settings, and AI empty states plus contextual setup navigation
   were visually verified at 655 px and 1,180 px viewport widths; frontend typecheck and production
   build passed. No Python code changed, so backend tests were not rerun.
+- TODO-R2: `python -m compileall -q app tests` passed and all 31 focused desktop-host tests
+  passed, including orderly close, startup failure cleanup, repeated close, and the bounded
+  degraded path for an unresponsive shutdown.
 - The last full Phase 3 suite passed with 119 tests; frontend typecheck/build and
   `python -m app.main --check` also passed at that milestone.
 
@@ -154,5 +159,6 @@ transcript.
 - Twitch presets intentionally do not model authenticated bot profiles. The current process
   continues to use one configured bot identity and OAuth cache; multi-account authentication is
   deferred rather than simulated through channel presets.
-- An unrelated local edit to `AGENTS.md` and user roadmap/filter changes predate TODO-UX7 and
-  remain intentionally uncommitted except for completed TODO-UX1 through TODO-UX7 subsections.
+- An unrelated local edit to `AGENTS.md` and user roadmap/filter changes predate TODO-R2 and
+  remain intentionally uncommitted except for completed TODO-UX1 through TODO-UX7 and TODO-R2
+  subsections.

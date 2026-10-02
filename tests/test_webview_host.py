@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import threading
 from concurrent.futures import Future
 from types import SimpleNamespace
 from typing import cast
@@ -17,6 +18,7 @@ from app.app_settings import (
     TwitchSettings,
 )
 from app.config.settings import Settings
+from app.container import Application
 from app.credentials import CredentialStatus
 from app.runtime_state import RuntimeState
 from app.twitch.permissions import Permission
@@ -31,6 +33,107 @@ from app.webview_host import (
     resolve_auto_start,
     resolve_frontend_url,
 )
+
+
+class FakeHostApplication:
+    def __init__(self, *, startup_error: Exception | None = None) -> None:
+        self.services = SimpleNamespace(
+            runtime_state=SimpleNamespace(set_bot_running=lambda running: None)
+        )
+        self.startup_error = startup_error
+        self.startup_calls = 0
+        self.shutdown_calls = 0
+
+    async def startup(self) -> None:
+        self.startup_calls += 1
+        if self.startup_error is not None:
+            raise self.startup_error
+
+    async def shutdown(self) -> None:
+        self.shutdown_calls += 1
+
+
+class BlockingShutdownApplication(FakeHostApplication):
+    def __init__(self) -> None:
+        super().__init__()
+        self.shutdown_started = threading.Event()
+        self.release_shutdown = threading.Event()
+
+    async def shutdown(self) -> None:
+        self.shutdown_calls += 1
+        self.shutdown_started.set()
+        self.release_shutdown.wait()
+
+
+def build_backend_host(monkeypatch, application) -> AsyncioBackendHost:
+    monkeypatch.setattr(
+        "app.webview_host.build_application",
+        lambda settings: cast(Application, application),
+    )
+    return AsyncioBackendHost(cast(Settings, SimpleNamespace()))
+
+
+def test_backend_host_closes_orderly_once(monkeypatch) -> None:
+    application = FakeHostApplication()
+    backend = build_backend_host(monkeypatch, application)
+
+    backend.start(timeout=1)
+    thread = backend._thread
+    assert thread is not None
+    assert thread.daemon is True
+
+    backend.close(timeout=1, force_timeout=0.2)
+    backend.close(timeout=1, force_timeout=0.2)
+
+    assert application.startup_calls == 1
+    assert application.shutdown_calls == 1
+    assert not thread.is_alive()
+
+
+def test_backend_host_cleans_up_after_startup_failure(monkeypatch) -> None:
+    application = FakeHostApplication(startup_error=RuntimeError("startup failed"))
+    backend = build_backend_host(monkeypatch, application)
+
+    with pytest.raises(RuntimeError, match="Desktop backend startup failed"):
+        backend.start(timeout=1)
+
+    thread = backend._thread
+    assert thread is not None
+    thread.join(timeout=1)
+    backend.close(timeout=0.1, force_timeout=0.1)
+
+    assert application.startup_calls == 1
+    assert application.shutdown_calls == 1
+    assert not thread.is_alive()
+
+
+def test_backend_host_timeout_uses_bounded_degraded_shutdown(
+    monkeypatch,
+    caplog,
+) -> None:
+    application = BlockingShutdownApplication()
+    backend = build_backend_host(monkeypatch, application)
+    backend.start(timeout=1)
+    thread = backend._thread
+    assert thread is not None
+
+    with caplog.at_level(logging.ERROR, logger="app.webview"):
+        with pytest.raises(TimeoutError, match="forced cleanup"):
+            backend.close(timeout=0.05, force_timeout=0.05)
+
+    assert application.shutdown_started.is_set()
+    assert application.shutdown_calls == 1
+    assert thread.is_alive()
+    assert thread.daemon is True
+    assert "cancelling pending asyncio work" in caplog.text
+    assert "daemon thread will not block process exit" in caplog.text
+
+    application.release_shutdown.set()
+    thread.join(timeout=1)
+    backend.close(timeout=0.1, force_timeout=0.1)
+
+    assert not thread.is_alive()
+    assert application.shutdown_calls == 1
 
 
 def test_bridge_reads_shared_runtime_status() -> None:

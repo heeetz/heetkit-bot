@@ -44,9 +44,14 @@ Status: Active
 Decision:
 One `AsyncioBackendHost` owns one asyncio loop, one composed `Application`, and one
 `BotRuntime`. Desktop close and Tray Exit reuse the same idempotent orderly shutdown path.
+Backend close serializes one graceful shutdown attempt; if its deadline expires, pending asyncio
+work is cancelled and given a bounded forced-stop grace period. The backend thread is daemonized
+only so irrecoverably blocked third-party work cannot keep a headless process alive.
 
 Reason:
 Duplicate loops or lifecycle controllers would create races and inconsistent runtime state.
+A degraded timeout policy must remain bounded without replacing orderly cleanup as the normal
+path.
 
 ## Decision: One tray controller and icon exist per process
 

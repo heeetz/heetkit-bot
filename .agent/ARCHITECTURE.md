@@ -42,8 +42,11 @@ Responsibility: compose the native window with the existing Python application s
 
 - `app/webview_host.py` owns `AsyncioBackendHost`, `WebUIBridge`, `DesktopController`, and
   desktop startup.
-- `AsyncioBackendHost` creates one background thread with one asyncio loop, builds one
-  `Application`, and owns one `BotRuntime`.
+- `AsyncioBackendHost` creates one daemon background thread with one asyncio loop, builds one
+  `Application`, and owns one `BotRuntime`. Close requests are serialized and share one shutdown
+  future: orderly cleanup is awaited first, then a deadline overrun cancels pending asyncio work
+  and uses a bounded forced-stop grace period. A still-unresponsive backend thread cannot keep
+  the desktop process alive after the window and tray exit.
 - `WebUIBridge` exposes narrow application operations: status, bot start/stop, registered
   commands and command Apply/Save/Reset, AI status/toggles, personality Apply/Save/Reset,
   app settings, Twitch target/status/reconnect, Gemini model settings/discovery, masked
@@ -65,6 +68,7 @@ Responsibility: one application truth and one orderly lifecycle.
   application.
 - `DesktopController.exit_application()` is the idempotent desktop shutdown path used by Tray
   Exit and host shutdown. It closes the backend, stops the tray, and destroys a live window.
+  Graceful backend timeout/failure is logged before the tray/window teardown continues.
 - With close-to-tray enabled, the closing event hides and preserves the process. Otherwise the
   window closes and its `closed` event enters the same orderly exit path.
 

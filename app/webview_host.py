@@ -7,7 +7,7 @@ import asyncio
 import logging
 import math
 import threading
-from concurrent.futures import Future
+from concurrent.futures import Future, TimeoutError as FutureTimeoutError
 from pathlib import Path
 from typing import Any, Coroutine
 
@@ -34,6 +34,8 @@ from config import APP_SETTINGS_PATH
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_ENTRYPOINT = PROJECT_ROOT / "frontend" / "dist" / "index.html"
+FALLBACK_SHUTDOWN_TIMEOUT_SECONDS = 5.0
+FORCED_STOP_TIMEOUT_SECONDS = 2.0
 
 
 class AsyncioBackendHost:
@@ -56,6 +58,8 @@ class AsyncioBackendHost:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._application: Application | None = None
         self._bot_runtime: BotRuntime | None = None
+        self._close_lock = threading.Lock()
+        self._shutdown_future: Future[Any] | None = None
 
     @property
     def application(self) -> Application:
@@ -75,7 +79,7 @@ class AsyncioBackendHost:
         self._thread = threading.Thread(
             target=self._run,
             name="twitch-bot-asyncio",
-            daemon=False,
+            daemon=True,
         )
         self._thread.start()
         if not self._ready.wait(timeout):
@@ -103,14 +107,70 @@ class AsyncioBackendHost:
             loop.run_forever()
         except Exception as error:
             self._startup_error = error
-            self._ready.set()
             self._logger.exception("Desktop backend failed")
         finally:
             try:
-                if self._bot_runtime is not None:
-                    loop.run_until_complete(self._bot_runtime.shutdown())
+                if self._bot_runtime is not None and self._shutdown_future is None:
+                    self._run_fallback_shutdown(loop)
             finally:
+                self._cancel_pending_tasks(loop)
                 loop.close()
+                self._loop = None
+                self._ready.set()
+
+    def _run_fallback_shutdown(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Clean up when the loop exits without an externally requested shutdown."""
+        if self._bot_runtime is None:
+            return
+        task = loop.create_task(
+            self._bot_runtime.shutdown(),
+            name="desktop-backend-shutdown",
+        )
+        loop.run_until_complete(
+            asyncio.wait({task}, timeout=FALLBACK_SHUTDOWN_TIMEOUT_SECONDS)
+        )
+        if not task.done():
+            self._logger.error(
+                "Orderly desktop backend cleanup exceeded %.1f seconds; "
+                "cancelling pending work",
+                FALLBACK_SHUTDOWN_TIMEOUT_SECONDS,
+            )
+            task.cancel()
+            return
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            self._logger.warning("Desktop backend cleanup was cancelled")
+        except Exception:
+            self._logger.exception("Desktop backend cleanup failed")
+
+    def _cancel_pending_tasks(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Give cancelled loop tasks a bounded opportunity to release resources."""
+        pending = {task for task in asyncio.all_tasks(loop) if not task.done()}
+        for _ in range(2):
+            if not pending:
+                return
+            for task in pending:
+                task.cancel()
+            loop.run_until_complete(asyncio.sleep(0))
+            pending = {task for task in asyncio.all_tasks(loop) if not task.done()}
+        if pending:
+            self._logger.error(
+                "%d desktop backend task(s) did not finish cancellation before loop close",
+                len(pending),
+            )
+
+    @staticmethod
+    def _request_forced_loop_stop(loop: asyncio.AbstractEventLoop) -> None:
+        def cancel_and_stop() -> None:
+            for task in asyncio.all_tasks(loop):
+                task.cancel()
+            loop.stop()
+
+        try:
+            loop.call_soon_threadsafe(cancel_and_stop)
+        except RuntimeError:
+            pass
 
     def submit(self, coroutine: Coroutine[Any, Any, Any]) -> Future[Any]:
         loop = self._loop
@@ -119,22 +179,78 @@ class AsyncioBackendHost:
             raise RuntimeError("Desktop backend is not running.")
         return asyncio.run_coroutine_threadsafe(coroutine, loop)
 
-    def close(self, timeout: float = 20.0) -> None:
-        thread = self._thread
-        loop = self._loop
-        if thread is None or loop is None:
-            return
-        try:
-            if loop.is_running() and self._bot_runtime is not None:
-                future = self.submit(self._bot_runtime.shutdown())
-                future.result(timeout=timeout)
-        finally:
-            if loop.is_running():
-                loop.call_soon_threadsafe(loop.stop)
-            thread.join(timeout=timeout)
-        if thread.is_alive():
-            raise TimeoutError("Desktop backend shutdown timed out.")
-        self._thread = None
+    def close(
+        self,
+        timeout: float = 20.0,
+        force_timeout: float = FORCED_STOP_TIMEOUT_SECONDS,
+    ) -> None:
+        with self._close_lock:
+            thread = self._thread
+            loop = self._loop
+            if thread is None:
+                return
+            if not thread.is_alive():
+                self._thread = None
+                return
+
+            graceful_timed_out = False
+            shutdown_error: Exception | None = None
+            if (
+                loop is not None
+                and loop.is_running()
+                and self._bot_runtime is not None
+            ):
+                if self._shutdown_future is None:
+                    self._shutdown_future = self.submit(self._bot_runtime.shutdown())
+                try:
+                    self._shutdown_future.result(timeout=timeout)
+                except FutureTimeoutError:
+                    graceful_timed_out = True
+                    self._logger.error(
+                        "Graceful desktop backend shutdown exceeded %.1f seconds; "
+                        "cancelling pending asyncio work",
+                        timeout,
+                    )
+                    self._shutdown_future.cancel()
+                except Exception as error:
+                    shutdown_error = error
+
+            if loop is not None and loop.is_running():
+                if graceful_timed_out:
+                    self._request_forced_loop_stop(loop)
+                else:
+                    loop.call_soon_threadsafe(loop.stop)
+
+            thread.join(timeout=force_timeout)
+            if thread.is_alive() and not graceful_timed_out:
+                graceful_timed_out = True
+                self._logger.error(
+                    "Desktop backend thread did not stop after orderly cleanup; "
+                    "forcing cancellation"
+                )
+                if loop is not None:
+                    self._request_forced_loop_stop(loop)
+                thread.join(timeout=force_timeout)
+
+            thread_alive = thread.is_alive()
+            if not thread_alive:
+                self._thread = None
+
+            if graceful_timed_out:
+                if thread_alive:
+                    self._logger.critical(
+                        "Desktop backend thread remained alive after forced shutdown; "
+                        "the daemon thread will not block process exit"
+                    )
+                else:
+                    self._logger.warning(
+                        "Desktop backend stopped through the degraded shutdown path"
+                    )
+                raise TimeoutError(
+                    "Desktop backend graceful shutdown timed out; forced cleanup was requested."
+                )
+            if shutdown_error is not None:
+                raise shutdown_error
 
 
 class WebUIBridge:
