@@ -345,6 +345,10 @@ export default function SettingsPage({ active }: SettingsPageProps) {
   const twitchCredential = credentials.find(
     (credential) => credential.name === 'twitch_client_secret',
   )
+  const twitchTargetMissing = Boolean(
+    twitchDraft
+      && (!twitchDraft.target_channel.trim() || !twitchDraft.target_channel_user_id.trim()),
+  )
   return (
     <div className="settings-layout">
       <FeedbackToast
@@ -379,7 +383,7 @@ export default function SettingsPage({ active }: SettingsPageProps) {
         )}
       </section>
 
-      <section className="card settings-page">
+      <section className="card settings-page" id="twitch-settings">
         <div className="section-heading">
           <div>
             <p className="label">TWITCH CONNECTION</p>
@@ -390,11 +394,27 @@ export default function SettingsPage({ active }: SettingsPageProps) {
         </div>
         {!twitchDraft ? <p className="muted">Loading Twitch settings…</p> : (
           <div className="settings-list">
+            {(twitchTargetMissing || !twitchCredential?.configured) && (
+              <div className="setup-callout">
+                <div>
+                  <strong>Complete Twitch setup</strong>
+                  <p>Add a target channel, broadcaster ID, and Twitch client secret before starting the bot.</p>
+                </div>
+              </div>
+            )}
+            {!twitchTargetMissing && twitchCredential?.configured && !twitchDraft.oauth_token_available && (
+              <div className="setup-callout">
+                <div>
+                  <strong>Twitch authorization required</strong>
+                  <p>Start or reconnect the bot to complete authorization in Twitch.</p>
+                </div>
+              </div>
+            )}
             <div className="twitch-status-grid">
               <div><span>Connection</span><strong className={twitchDraft.connected ? 'status-good' : ''}>{twitchDraft.connected ? 'Connected' : twitchDraft.running ? 'Connecting / authorization required' : 'Stopped'}</strong></div>
-              <div><span>Bot account</span><strong>{twitchDraft.bot_username} ({twitchDraft.bot_user_id})</strong></div>
-              <div><span>Active target</span><strong>{activePreset ? `${activePreset.display_name} (${twitchDraft.active_channel})` : twitchDraft.active_channel}</strong></div>
-              <div><span>OAuth token cache</span><strong>{twitchDraft.oauth_token_available ? 'Available' : 'Authorization required'}</strong></div>
+              <div><span>Bot account</span><strong>{twitchDraft.bot_username && twitchDraft.bot_user_id ? `${twitchDraft.bot_username} (${twitchDraft.bot_user_id})` : 'Not configured'}</strong></div>
+              <div><span>Active target</span><strong>{activePreset ? `${activePreset.display_name} (${twitchDraft.active_channel})` : twitchDraft.active_channel || 'Not configured'}</strong></div>
+              <div><span>Twitch authorization</span><strong>{twitchDraft.oauth_token_available ? 'Ready' : 'Required'}</strong></div>
               <div><span>Client secret</span><strong>{twitchCredential?.configured ? 'Configured' : 'Missing'}</strong></div>
             </div>
             <div className="preset-editor">
@@ -422,7 +442,7 @@ export default function SettingsPage({ active }: SettingsPageProps) {
             <label className="form-field">
               Target channel login
               <input value={twitchDraft.target_channel} onChange={(event) => updateTwitchDraft({ target_channel: event.target.value })} placeholder="channel_name" />
-              <small>Non-secret. Saved in the local application settings file.</small>
+              <small>Non-secret. Saved on this computer.</small>
             </label>
             <label className="form-field">
               Target channel user ID
@@ -438,7 +458,7 @@ export default function SettingsPage({ active }: SettingsPageProps) {
         )}
       </section>
 
-      <section className="card settings-page">
+      <section className="card settings-page" id="credential-settings">
         <div className="section-heading">
           <div>
             <p className="label">SECURE CREDENTIALS</p>
@@ -446,8 +466,14 @@ export default function SettingsPage({ active }: SettingsPageProps) {
             <p className="section-copy">Values are stored in Windows Credential Manager and are never displayed. Secure values override the private .env fallback after restart.</p>
           </div>
         </div>
-        <div className="credential-list">
-          {credentials.map((credential) => {
+        {!draft ? <p className="muted">Loading credential status…</p> : credentials.length === 0 ? (
+          <div className="empty-state-inline">
+            <strong>No credential providers are available</strong>
+            <p>Credential status could not be loaded. Check Logs for details.</p>
+          </div>
+        ) : (
+          <div className="credential-list">
+            {credentials.map((credential) => {
             const replacing = busy === `${credential.name}:replace`
             const removing = busy === `${credential.name}:remove`
             const testing = busy === `${credential.name}:test`
@@ -484,8 +510,9 @@ export default function SettingsPage({ active }: SettingsPageProps) {
                 </div>
               </article>
             )
-          })}
-        </div>
+            })}
+          </div>
+        )}
       </section>
     </div>
   )

@@ -7,7 +7,7 @@ transcript.
 
 - Branch: `main`.
 - Remote target: `origin/main`.
-- Latest completed task: **TODO-UX6 — Investigate and, if clear, fix scroll jank**
+- Latest completed task: **TODO-UX7 — Review first-run journey and empty states**
   (committed with this handoff).
 - Working application path: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
 - No active partially completed task exists.
@@ -53,6 +53,10 @@ transcript.
   uptime, and AI runtime/model/personality state. Its AI toggles call the same bridge actions as
   the AI page. Gemini model discovery/selection now lives beside personalities on AI; Settings
   retains desktop/window, Twitch connection, and secure credential controls.
+- Dashboard derives a first-run checklist from the existing Twitch target, credential, AI-model,
+  and personality APIs. Contextual actions scroll to the authoritative Twitch/credential editor
+  or open AI; Settings and AI show explicit missing/not-configured states without duplicating
+  persistence or introducing a mandatory onboarding flow.
 - Live logs retain their bounded standard-logging pipeline and whitelisted semantic metadata for
   chat direction, commands/cooldowns, Twitch lifecycle, Gemini activity, and settings actions.
   React presents important values in reusable priority-aware chips without message regexes:
@@ -66,9 +70,9 @@ transcript.
 
 ## TODO position
 
-- Latest completed TODO: **TODO-UX6 — Investigate and, if clear, fix scroll jank**.
-- The next daily-use item is **TODO-UX7 — Review first-run journey and empty states**, but start it
-  only when explicitly requested.
+- Latest completed TODO: **TODO-UX7 — Review first-run journey and empty states**.
+- The daily-use UX sequence through TODO-UX7 is complete. The next reliability follow-up is
+  **TODO-R2 — Harden shutdown timeout behavior**, but start it only when explicitly requested.
 - The completed checkpoint is `docs/architecture-reliability-checkpoint.md`. Its high-priority
   reliability findings should be fixed in focused tasks or explicitly accepted before release.
 
@@ -127,6 +131,9 @@ transcript.
   page across multiple polling intervals. The 6.5-second probe recorded 354 frames (18.41 ms
   average, 19.90 ms p95, 24.60 ms maximum), no frames over 25 ms, no long tasks, and no idle
   scroll-position reset. No application code changed, so frontend/Python suites were not rerun.
+- TODO-UX7: first-run Dashboard, Settings, and AI empty states plus contextual setup navigation
+  were visually verified at 655 px and 1,180 px viewport widths; frontend typecheck and production
+  build passed. No Python code changed, so backend tests were not rerun.
 - The last full Phase 3 suite passed with 119 tests; frontend typecheck/build and
   `python -m app.main --check` also passed at that milestone.
 
@@ -147,5 +154,5 @@ transcript.
 - Twitch presets intentionally do not model authenticated bot profiles. The current process
   continues to use one configured bot identity and OAuth cache; multi-account authentication is
   deferred rather than simulated through channel presets.
-- An unrelated local edit to `AGENTS.md` and user roadmap/filter changes predate TODO-UX6 and
-  remain intentionally uncommitted except for completed TODO-UX1 through TODO-UX6 subsections.
+- An unrelated local edit to `AGENTS.md` and user roadmap/filter changes predate TODO-UX7 and
+  remain intentionally uncommitted except for completed TODO-UX1 through TODO-UX7 subsections.

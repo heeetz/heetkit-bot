@@ -13,6 +13,7 @@ import Switch from '../components/Switch'
 
 interface AIPageProps {
   active: boolean
+  onOpenSettings: () => void
 }
 
 const CUSTOM_MODEL_VALUE = '__custom_model__'
@@ -72,7 +73,7 @@ function ModelSelector({
   )
 }
 
-export default function AIPage({ active }: AIPageProps) {
+export default function AIPage({ active, onOpenSettings }: AIPageProps) {
   const [status, setStatus] = useState<AIStatus | null>(null)
   const [data, setData] = useState<PersonalitiesResponse | null>(null)
   const [selected, setSelected] = useState('')
@@ -335,11 +336,11 @@ export default function AIPage({ active }: AIPageProps) {
         </article>
         <article className="card compact-card">
           <p className="label">Gemini model</p>
-          <strong>{status?.model ?? '—'}</strong>
+          <strong>{status?.model || 'Not selected'}</strong>
         </article>
         <article className="card compact-card">
           <p className="label">Active personality</p>
-          <strong>{data?.active_personality ?? '—'}</strong>
+          <strong>{data?.active_personality || 'Not selected'}</strong>
         </article>
       </div>
       <article className="card ai-provider-card">
@@ -353,6 +354,15 @@ export default function AIPage({ active }: AIPageProps) {
         </div>
         {!providerDraft ? <p className="muted">Loading AI provider settings…</p> : (
           <div className="settings-list">
+            {!providerDraft.credential?.configured && (
+              <div className="setup-callout">
+                <div>
+                  <strong>Add a Gemini API key</strong>
+                  <p>Store a Gemini credential before testing models or using AI chat.</p>
+                </div>
+                <button className="secondary" onClick={onOpenSettings}>Add Gemini key</button>
+              </div>
+            )}
             <div className="ai-provider-status">
               <div><span>Provider</span><strong>{providerDraft.provider}</strong></div>
               <div><span>Credential</span><strong className={providerDraft.credential?.configured ? 'status-good' : ''}>{providerDraft.credential?.configured ? 'Configured' : 'Missing'}</strong></div>
@@ -398,33 +408,42 @@ export default function AIPage({ active }: AIPageProps) {
             {dirty && <span className="mini-badge dirty-badge">Edited</span>}
           </div>
         </div>
-        <label className="form-field personality-select">
-          Personality
-          <select value={selected} onChange={(event) => { setSelected(event.target.value); setError(''); setNotice('') }}>
-            {data?.personalities.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
-          </select>
-        </label>
-        <label className="form-field">
-          Editable prompt
-          <textarea
-            value={prompt}
-            maxLength={50000}
-            disabled={!personality}
-            onChange={(event) => {
-              setDrafts((current) => ({ ...current, [selected]: event.target.value }))
-              setError('')
-              setNotice('')
-            }}
-          />
-        </label>
-        <div className="editor-footer">
-          <span className="muted">{prompt.length.toLocaleString()} / 50,000 characters</span>
-          <div className="row-actions">
-            <button className="secondary" disabled={!personality || Boolean(busy) || (!dirty && isActive)} onClick={() => void runPersonalityAction('apply')}>Apply</button>
-            <button className="primary" disabled={!personality || Boolean(busy) || (!dirty && personality.prompt_saved && isActive && data?.active_personality_saved)} onClick={() => void runPersonalityAction('save')}>Save</button>
-            <button className="ghost" disabled={!personality || Boolean(busy) || !canReset} onClick={() => void runPersonalityAction('reset')}>Reset</button>
+        {data && data.personalities.length === 0 ? (
+          <div className="empty-state-inline">
+            <strong>No personalities are available</strong>
+            <p>The built-in personality resources could not be loaded. Check Logs for details.</p>
           </div>
-        </div>
+        ) : (
+          <>
+            <label className="form-field personality-select">
+              Personality
+              <select value={selected} onChange={(event) => { setSelected(event.target.value); setError(''); setNotice('') }}>
+                {data?.personalities.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
+              </select>
+            </label>
+            <label className="form-field">
+              Editable prompt
+              <textarea
+                value={prompt}
+                maxLength={50000}
+                disabled={!personality}
+                onChange={(event) => {
+                  setDrafts((current) => ({ ...current, [selected]: event.target.value }))
+                  setError('')
+                  setNotice('')
+                }}
+              />
+            </label>
+            <div className="editor-footer">
+              <span className="muted">{prompt.length.toLocaleString()} / 50,000 characters</span>
+              <div className="row-actions">
+                <button className="secondary" disabled={!personality || Boolean(busy) || (!dirty && isActive)} onClick={() => void runPersonalityAction('apply')}>Apply</button>
+                <button className="primary" disabled={!personality || Boolean(busy) || (!dirty && personality.prompt_saved && isActive && data?.active_personality_saved)} onClick={() => void runPersonalityAction('save')}>Save</button>
+                <button className="ghost" disabled={!personality || Boolean(busy) || !canReset} onClick={() => void runPersonalityAction('reset')}>Reset</button>
+              </div>
+            </div>
+          </>
+        )}
       </article>
     </section>
   )

@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  type AIProviderSettings,
   type AIStatus,
   type AppStatus,
+  type CredentialInfo,
   type LogEntry,
+  type TwitchConnectionSettings,
   waitForBridge,
 } from './bridge'
 import CommandsPage from './pages/CommandsPage'
@@ -16,6 +19,20 @@ import './styles.css'
 const sections = ['Dashboard', 'Commands', 'AI', 'Logs', 'Settings'] as const
 type Section = (typeof sections)[number]
 
+interface DashboardSetup {
+  twitch: TwitchConnectionSettings
+  credentials: CredentialInfo[]
+  aiProvider: AIProviderSettings
+}
+
+interface SetupTask {
+  title: string
+  description: string
+  action: string
+  section: Extract<Section, 'AI' | 'Settings'>
+  targetId?: string
+}
+
 function formatUptime(totalSeconds: number): string {
   const hours = Math.floor(totalSeconds / 3600)
   const minutes = Math.floor((totalSeconds % 3600) / 60)
@@ -25,14 +42,106 @@ function formatUptime(totalSeconds: number): string {
     .join(':')
 }
 
-function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, busy }: {
+function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onNavigate, busy }: {
   status: AppStatus | null
   aiStatus: AIStatus | null
   onChangeBotState: (shouldRun: boolean) => void
   onChangeAIState: (kind: 'enabled' | 'memory', enabled: boolean) => void
+  onNavigate: (section: Extract<Section, 'AI' | 'Settings'>, targetId?: string) => void
   busy: string
 }) {
+  const [setup, setSetup] = useState<DashboardSetup | null>(null)
+  const [setupError, setSetupError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    const loadSetup = async () => {
+      try {
+        const api = await waitForBridge()
+        const [twitchResponse, credentialResponse, aiResponse] = await Promise.all([
+          api.get_twitch_settings(),
+          api.get_credentials(),
+          api.get_ai_provider_settings(),
+        ])
+        if (!twitchResponse.ok || !twitchResponse.settings) {
+          throw new Error(twitchResponse.error ?? 'Twitch setup status is unavailable.')
+        }
+        if (!credentialResponse.ok || !credentialResponse.credentials) {
+          throw new Error(credentialResponse.error ?? 'Credential status is unavailable.')
+        }
+        if (!aiResponse.ok || !aiResponse.settings) {
+          throw new Error(aiResponse.error ?? 'AI setup status is unavailable.')
+        }
+        if (active) {
+          setSetup({
+            twitch: twitchResponse.settings,
+            credentials: credentialResponse.credentials,
+            aiProvider: aiResponse.settings,
+          })
+          setSetupError('')
+        }
+      } catch (reason) {
+        if (active) {
+          setSetupError(reason instanceof Error ? reason.message : 'Setup status is unavailable.')
+        }
+      }
+    }
+    void loadSetup()
+    return () => { active = false }
+  }, [])
+
   const statusLabel = status ? (status.running ? 'Running' : 'Stopped') : 'Loading…'
+  const setupTasks: SetupTask[] = []
+  if (setup) {
+    const twitchCredential = setup.credentials.find(
+      (credential) => credential.name === 'twitch_client_secret',
+    )
+    const twitchTargetReady = Boolean(
+      setup.twitch.target_channel.trim() && setup.twitch.target_channel_user_id.trim(),
+    )
+    if (!twitchTargetReady || !twitchCredential?.configured) {
+      setupTasks.push({
+        title: 'Configure Twitch',
+        description: 'Add the target channel and Twitch client secret before starting the bot.',
+        action: 'Configure Twitch',
+        section: 'Settings',
+        targetId: 'twitch-settings',
+      })
+    } else if (!setup.twitch.oauth_token_available) {
+      setupTasks.push({
+        title: 'Authorize Twitch',
+        description: 'Start the bot to complete Twitch authorization, or review the connection settings first.',
+        action: 'Review Twitch',
+        section: 'Settings',
+        targetId: 'twitch-settings',
+      })
+    }
+    if (!setup.aiProvider.credential?.configured) {
+      setupTasks.push({
+        title: 'Add a Gemini API key',
+        description: 'AI chat needs a Gemini credential stored securely on this computer.',
+        action: 'Add Gemini key',
+        section: 'Settings',
+        targetId: 'credential-settings',
+      })
+    } else if (!setup.aiProvider.selected_model.trim()) {
+      setupTasks.push({
+        title: 'Choose an AI model',
+        description: 'Select the Gemini model used for the next AI request.',
+        action: 'Open AI settings',
+        section: 'AI',
+      })
+    }
+    if (aiStatus && aiStatus.available_personalities.length === 0) {
+      setupTasks.push({
+        title: 'No AI personalities available',
+        description: 'The built-in personality list is unavailable. Open AI to review its status.',
+        action: 'Open AI settings',
+        section: 'AI',
+      })
+    }
+  }
+
   return (
     <section className="dashboard-layout">
       <article className="card dashboard-hero">
@@ -48,6 +157,34 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, busy }
           {busy === 'bot' ? 'Working…' : status?.running ? 'Stop Bot' : 'Start Bot'}
         </button>
       </article>
+      {(setupTasks.length > 0 || setupError) && (
+        <article className="card setup-card">
+          <div className="section-heading">
+            <div>
+              <p className="label">GET READY</p>
+              <h2>{setupError ? 'Setup status needs attention' : 'Finish setup'}</h2>
+              <p className="section-copy">
+                {setupError
+                  ? 'Some setup details could not be loaded. Open Settings to review the configuration.'
+                  : 'Complete these steps, then start the bot from the control above.'}
+              </p>
+            </div>
+            {!setupError && <span className="mini-badge runtime-badge">{setupTasks.length} remaining</span>}
+          </div>
+          {setupError ? (
+            <button className="secondary" onClick={() => onNavigate('Settings')}>Open Settings</button>
+          ) : (
+            <div className="setup-list">
+              {setupTasks.map((task) => (
+                <div className="setup-item" key={task.title}>
+                  <div><strong>{task.title}</strong><p>{task.description}</p></div>
+                  <button className="secondary" onClick={() => onNavigate(task.section, task.targetId)}>{task.action}</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </article>
+      )}
       <div className="dashboard-grid">
         <article className="card dashboard-card">
           <p className="label">TWITCH CONNECTION</p>
@@ -58,8 +195,8 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, busy }
         </article>
         <article className="card dashboard-card">
           <p className="label">ACTIVE CHANNEL</p>
-          <h3>{status?.channel ?? '—'}</h3>
-          <p>Bot account: {status?.account ?? '—'}</p>
+          <h3>{status?.channel || setup?.twitch.target_channel || 'Not configured'}</h3>
+          <p>Bot account: {status?.account || setup?.twitch.bot_username || 'Not configured'}</p>
         </article>
         <article className="card dashboard-card">
           <p className="label">SESSION UPTIME</p>
@@ -68,8 +205,8 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, busy }
         </article>
         <article className="card dashboard-card dashboard-ai-card">
           <div className="dashboard-card-heading">
-            <div><p className="label">AI RUNTIME</p><h3>{aiStatus?.model ?? 'Loading…'}</h3></div>
-            <span className="mini-badge">{aiStatus?.active_personality ?? '—'}</span>
+            <div><p className="label">AI RUNTIME</p><h3>{aiStatus?.model || setup?.aiProvider.selected_model || 'Not configured'}</h3></div>
+            <span className="mini-badge">{aiStatus?.active_personality || 'Not selected'}</span>
           </div>
           <div className="dashboard-switches">
             <Switch
@@ -188,7 +325,13 @@ function LogsPage() {
       </div>
       {error && <div className="inline-error log-error">{error}</div>}
       <div className="log-console">
-        {visibleEntries.length === 0 && <p className="log-empty">No matching log entries.</p>}
+        {visibleEntries.length === 0 && (
+          <p className="log-empty">
+            {entries.length === 0
+              ? 'No application activity yet. Start the bot to see connection, command, and chat events.'
+              : 'No log entries match the current level and search filters.'}
+          </p>
+        )}
         {visibleEntries.map((entry) => (
           <div className={`log-row ${logEventClassNames(entry.event_kind)}`} key={entry.id}>
             <time dateTime={entry.timestamp}>{new Date(entry.timestamp).toLocaleTimeString()}</time>
@@ -214,6 +357,18 @@ export default function App() {
   const [aiStatus, setAIStatus] = useState<AIStatus | null>(null)
   const [error, setError] = useState('')
   const [actionBusy, setActionBusy] = useState('')
+
+  const navigate = (nextSection: Section, targetId?: string) => {
+    setSection(nextSection)
+    window.requestAnimationFrame(() => {
+      if (targetId) {
+        document.getElementById(targetId)?.scrollIntoView({ block: 'start' })
+      } else {
+        document.querySelector('main')?.scrollTo({ top: 0 })
+        window.scrollTo({ top: 0 })
+      }
+    })
+  }
 
   useEffect(() => {
     let active = true
@@ -299,7 +454,7 @@ export default function App() {
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark">TB</span><div><strong>Twitch Bot</strong><small>Desktop control</small></div></div>
         <nav>
-          {sections.map((item) => <button key={item} className={section === item ? 'active' : ''} onClick={() => setSection(item)}>{item}</button>)}
+          {sections.map((item) => <button key={item} className={section === item ? 'active' : ''} onClick={() => navigate(item)}>{item}</button>)}
         </nav>
       </aside>
       <main>
@@ -312,10 +467,11 @@ export default function App() {
             busy={actionBusy}
             onChangeBotState={(shouldRun) => void changeBotState(shouldRun)}
             onChangeAIState={(kind, enabled) => void changeAIState(kind, enabled)}
+            onNavigate={navigate}
           />
         )}
         <div hidden={section !== 'Commands'}><CommandsPage active={section === 'Commands'} /></div>
-        <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} /></div>
+        <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} onOpenSettings={() => navigate('Settings', 'credential-settings')} /></div>
         {section === 'Logs' && <LogsPage />}
         <div hidden={section !== 'Settings'}><SettingsPage active={section === 'Settings'} /></div>
       </main>

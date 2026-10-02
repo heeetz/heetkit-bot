@@ -178,9 +178,9 @@ export default function CommandsPage({ active }: CommandsPageProps) {
         <div>
           <p className="label">REGISTERED COMMANDS</p>
           <h2>Runtime command settings</h2>
-          <p className="section-copy">Apply changes for this session, save them across restarts, or reset to code defaults.</p>
+          <p className="section-copy">Apply changes for this session, save them across restarts, or restore the built-in defaults.</p>
         </div>
-        <span className="read-only-badge">Registry driven</span>
+        <span className="read-only-badge">{data ? `${data.commands.length} commands` : 'Loading…'}</span>
       </div>
       {!data ? <p className="muted">Loading command registry…</p> : (
         <div className="command-list">

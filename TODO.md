@@ -506,6 +506,31 @@ changing the application.
 
 ---
 
+## TODO-UX7 — Review first-run journey and empty states
+
+Treat this as a product UX pass after TODO-UX1 through TODO-UX4 settle.
+
+- [x] Evaluate the application from the perspective of a new user who has no existing local config/token/cache knowledge.
+- [x] Ensure Dashboard makes the next useful action obvious.
+- [x] Provide useful empty/not-configured states for:
+  - Twitch authentication/connection;
+  - target channel;
+  - Gemini credential;
+  - AI model;
+  - personalities where relevant.
+- [x] Prefer contextual actions/links such as `Configure Twitch`, `Add Gemini key`, or `Open AI settings` over unexplained status text.
+- [x] Avoid a mandatory multi-step onboarding wizard unless the actual flow proves complex enough to justify one.
+- [x] Ensure technical implementation details (`registry driven`, file paths, internal terminology) are not over-emphasized in normal user-facing UI.
+- [x] Keep advanced/debug information available where appropriate without making it the first thing a new user must understand.
+- [x] Do not duplicate settings; navigation should lead to the existing authoritative editor.
+
+Dashboard now derives a short setup checklist from the existing Twitch, credential, AI-model,
+and personality state and routes each action to the relevant existing editor. Settings and AI
+show explicit missing/not-configured states, while advanced details remain available in their
+normal pages without introducing a separate onboarding flow or settings store.
+
+---
+
 # P2 — Product extensibility
 
 ## TODO-009 — Configurable simple commands
