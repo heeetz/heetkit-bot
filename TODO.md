@@ -28,19 +28,6 @@ When asked to execute a TODO:
 
 # P0 — Reliability still open
 
-## TODO-001 — Make filter loading failure-safe
-
-- [ ] Review startup/reload behavior when blocked-word, blocked-phrase, or regex files are missing, unreadable, malformed, or partially invalid.
-- [ ] A failure in one optional rule/file must not silently disable the whole filtering layer.
-- [ ] Invalid regex entries should be rejected individually and reported clearly.
-- [ ] Preserve current filtering semantics for valid rules.
-- [ ] Keep failures visible in logs/diagnostics without crashing the whole app where avoidable.
-- [ ] Add focused regression coverage for the real failure cases.
-
-**Acceptance:** one broken filter entry/file cannot silently remove otherwise valid moderation rules.
-
----
-
 ## TODO-002 — Give the Gemini client one clear lifecycle owner
 
 - [ ] Inspect the current Gemini client construction/reuse path.

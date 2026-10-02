@@ -38,18 +38,16 @@ class Application:
 
     async def startup(self) -> None:
         await self.database.initialize()
-        # Load filter rules from files
+        # Optional filter files should not prevent the rest of the app from starting.
         try:
             from app.services.filter_loader import load_filters_from_directory
             load_filters_from_directory(
                 self.services.filter_manager,
                 directory_path=str(FILTERS_DIRECTORY),
             )
-        except Exception as e:
-            # If filter loading fails, log the error and re-raise to prevent running without filters
+        except Exception:
             logger = logging.getLogger(__name__)
-            logger.error("Filter loading failed: %s", str(e))
-            raise
+            logger.exception("Filter loading failed unexpectedly; existing rules remain active")
 
     async def shutdown(self) -> None:
         await self.http_client.aclose()

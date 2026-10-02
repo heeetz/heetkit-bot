@@ -1,129 +1,65 @@
-"""Filter loader for loading rules from text files."""
+"""Load optional message-filter rules independently from text files."""
 
 import logging
-import os
+import re
+from pathlib import Path
 
-from app.services.filter_manager import FilterManager
+from app.services.filter_manager import FilterManager, FilterRule
 
 
 logger = logging.getLogger(__name__)
 
 
 def load_filters_from_directory(filter_manager: FilterManager, directory_path: str = "data/filters") -> None:
-    """
-    Load filter rules from text files in the specified directory.
-    
-    Args:
-        filter_manager: The FilterManager instance to populate with rules
-        directory_path: Path to the directory containing filter files
-    """
-    # Ensure the directory exists
-    if not os.path.exists(directory_path):
-        try:
-            os.makedirs(directory_path, exist_ok=True)
-            logger.info("Created filter directory: %s", directory_path)
-        except Exception as e:
-            logger.warning("Failed to create filter directory %s: %s", directory_path, str(e))
-            return
-    
-    # Load blocked words
-    blocked_words_file = os.path.join(directory_path, "blocked_words.txt")
-    _load_blocked_words(filter_manager, blocked_words_file)
-    
-    # Load blocked phrases  
-    blocked_phrases_file = os.path.join(directory_path, "blocked_phrases.txt")
-    _load_blocked_phrases(filter_manager, blocked_phrases_file)
-    
-    # Load blocked patterns
-    blocked_patterns_file = os.path.join(directory_path, "blocked_patterns.txt")
-    _load_blocked_patterns(filter_manager, blocked_patterns_file)
-
-
-def _load_blocked_words(filter_manager: FilterManager, file_path: str) -> None:
-    """Load blocked words from a file."""
-    if not os.path.exists(file_path):
-        # Create empty file if it doesn't exist
-        try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write("# Blocked words file\n")
-            logger.info("Created empty blocked_words.txt file")
-        except Exception as e:
-            logger.warning("Failed to create blocked_words.txt: %s", str(e))
-        return
-    
+    """Reload each readable file, retaining its previous rules if reading fails."""
+    directory = Path(directory_path)
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        
-        for line in lines:
-            # Strip whitespace and skip comments/empty lines
-            content = line.strip()
-            if not content or content.startswith('#'):
-                continue
-            
-            # Add the word to filter manager
-            filter_manager.add_blocked_word(content)
-            
-    except Exception as e:
-        logger.error("Failed to load blocked words from %s: %s", file_path, str(e))
-
-
-def _load_blocked_phrases(filter_manager: FilterManager, file_path: str) -> None:
-    """Load blocked phrases from a file."""
-    if not os.path.exists(file_path):
-        # Create empty file if it doesn't exist
-        try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write("# Blocked phrases file\n")
-            logger.info("Created empty blocked_phrases.txt file")
-        except Exception as e:
-            logger.warning("Failed to create blocked_phrases.txt: %s", str(e))
+        directory.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        logger.error("Cannot access filter directory %s; keeping existing rules: %s", directory, error)
         return
-    
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        
-        for line in lines:
-            # Strip whitespace and skip comments/empty lines
-            content = line.strip()
-            if not content or content.startswith('#'):
-                continue
-            
-            # Add the phrase to filter manager
-            filter_manager.add_blocked_phrase(content)
-            
-    except Exception as e:
-        logger.error("Failed to load blocked phrases from %s: %s", file_path, str(e))
 
-
-def _load_blocked_patterns(filter_manager: FilterManager, file_path: str) -> None:
-    """Load blocked regex patterns from a file."""
-    if not os.path.exists(file_path):
-        # Create empty file if it doesn't exist
+    for filename, replace_rules in (
+        ("blocked_words.txt", filter_manager.replace_blocked_words),
+        ("blocked_phrases.txt", filter_manager.replace_blocked_phrases),
+        ("blocked_patterns.txt", filter_manager.replace_blocked_patterns),
+    ):
+        path = directory / filename
         try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write("# Blocked patterns file\n")
-            logger.info("Created empty blocked_patterns.txt file")
-        except Exception as e:
-            logger.warning("Failed to create blocked_patterns.txt: %s", str(e))
-        return
-    
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        
-        for line_num, line in enumerate(lines, 1):
-            # Strip whitespace and skip comments/empty lines
-            content = line.strip()
-            if not content or content.startswith('#'):
+            if not path.exists():
+                logger.warning("Filter file %s is missing; keeping existing rules", path)
                 continue
-            
-            # Add the pattern to filter manager (treat as regex by default)
-            try:
-                filter_manager.add_blocked_pattern(content)
-            except Exception as e:
-                logger.warning("Invalid regex pattern in %s line %d: %s", file_path, line_num, str(e))
-                
-    except Exception as e:
-        logger.error("Failed to load blocked patterns from %s: %s", file_path, str(e))
+            rules, invalid_count = _read_rules(path, patterns=filename == "blocked_patterns.txt")
+        except OSError as error:
+            logger.error("Cannot load filter file %s; keeping existing rules: %s", path, error)
+            continue
+        if invalid_count and not rules:
+            logger.error("Filter file %s has no valid rules; keeping existing rules", path)
+            continue
+        replace_rules(rules)
+
+
+def _read_rules(path: Path, *, patterns: bool) -> tuple[list[str] | list[FilterRule], int]:
+    rules: list[str] | list[FilterRule] = []
+    invalid_count = 0
+    # Replacement decoding lets a corrupt line be rejected without losing later rules.
+    with path.open("r", encoding="utf-8", errors="replace") as source:
+        for line_number, line in enumerate(source, 1):
+            content = line.strip()
+            if not content or content.startswith("#"):
+                continue
+            if "\ufffd" in content:
+                logger.warning("Invalid UTF-8 in %s line %d; skipping rule", path, line_number)
+                invalid_count += 1
+                continue
+            if patterns:
+                try:
+                    re.compile(content, re.IGNORECASE)
+                except re.error as error:
+                    logger.warning("Invalid regex in %s line %d (%r): %s", path, line_number, content, error)
+                    invalid_count += 1
+                    continue
+                rules.append(FilterRule(pattern=content))
+            elif content not in rules:
+                rules.append(content)
+    return rules, invalid_count

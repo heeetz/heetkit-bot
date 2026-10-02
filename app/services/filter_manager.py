@@ -34,7 +34,18 @@ class FilterManager:
     def add_blocked_pattern(self, pattern: str, is_regex: bool = True, case_sensitive: bool = False) -> None:
         """Add a regex pattern to the blocked patterns list."""
         if pattern:
+            if is_regex:
+                re.compile(pattern, 0 if case_sensitive else re.IGNORECASE)
             self._blocked_patterns.append(FilterRule(pattern=pattern, is_regex=is_regex, case_sensitive=case_sensitive))
+
+    def replace_blocked_words(self, words: list[str]) -> None:
+        self._blocked_words = list(words)
+
+    def replace_blocked_phrases(self, phrases: list[str]) -> None:
+        self._blocked_phrases = list(phrases)
+
+    def replace_blocked_patterns(self, patterns: list[FilterRule]) -> None:
+        self._blocked_patterns = list(patterns)
     
     def filter_message(self, message_content: str) -> bool:
         """

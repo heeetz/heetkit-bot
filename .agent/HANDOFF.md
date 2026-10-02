@@ -6,7 +6,7 @@ task history; repository code remains authoritative.
 ## Repository state
 
 - Branch: `main`; remote target: `origin/main`.
-- Latest application-code baseline: `0b48edd` (`fix: harden bridge timeout and concurrency behavior`).
+- Latest application-code baseline: TODO-001 filter loading hardening (this commit).
 - Normal launch paths: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
 - No active partially completed implementation task exists.
 
@@ -40,20 +40,22 @@ task history; repository code remains authoritative.
   through the shared bot lifecycle. TwitchIO remains responsible for normal network recovery.
 - Standard Python logging feeds a thread-safe bounded backend buffer and bounded React view with
   whitelisted semantic metadata. Log Clear is frontend-local and secrets must never be logged.
+- Filter files load independently. Missing/unreadable files keep their previous rules on reload;
+  malformed UTF-8 lines and invalid regex entries are skipped with file/line diagnostics. An
+  invalid-only file also keeps the last valid rules; an intentionally empty file clears them.
 - The application currently runs from source. No standalone bundle, installer, or automated
   release pipeline exists yet; generated frontend/release output remains untracked.
 
 ## Active roadmap
 
 - `TODO.md` contains unfinished work only; completed implementation history is in Git.
-- Next item: **TODO-001 — Make filter loading failure-safe**. Start it only when explicitly
+- Next item: **TODO-002 — Give the Gemini client one clear lifecycle owner**. Start it only when explicitly
   requested.
 - Later work covers Gemini client ownership, Twitch recovery observability, platform app-data,
   portability/layout polish, custom commands/triggers/filter UI, and distribution.
 
 ## Important open risks
 
-- Filter loading does not yet isolate invalid/unreadable entries and files safely.
 - Gemini clients are constructed per operation without one explicit lifecycle owner.
 - Twitch disconnect/recovery and terminal authentication/configuration failures need clearer
   state and focused coverage without adding a competing reconnect loop.
@@ -64,11 +66,11 @@ task history; repository code remains authoritative.
 
 ## Validation baseline
 
-- Latest application-code validation: `python -m compileall -q app tests` passed and 62 focused
-  desktop-host/app-settings tests passed for the bridge timeout/concurrency work.
+- TODO-001 compilation and a standard-library filter-loading smoke check passed. Focused pytest
+  was unavailable in this agent environment: the project virtualenv could not execute and fallback
+  Python lacks pytest.
 - The latest full-suite milestone passed 119 tests; frontend typecheck/build and
   `python -m app.main --check` passed at that milestone.
-- This roadmap/context migration changes documentation only, so runtime suites were not rerun.
 
 ## Workspace note
 
