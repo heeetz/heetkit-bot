@@ -7,7 +7,7 @@ transcript.
 
 - Branch: `main`.
 - Remote target: `origin/main`.
-- Latest completed task: **Improve semantic readability of the desktop Logs page**
+- Latest completed task: **TODO-UX6 — Investigate and, if clear, fix scroll jank**
   (committed with this handoff).
 - Working application path: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
 - No active partially completed task exists.
@@ -59,11 +59,15 @@ transcript.
   cooldown duration, command/user, AI model/duration, and Twitch channel/action are immediately
   scannable while secondary context and raw diagnostics remain available. Severity, raw-message
   search/filtering, auto-scroll, and local Clear remain intact.
+- TODO-UX6 found no reproducible application-level scrolling defect in the production
+  pywebview/WebView2 host. The fixed sidebar and independently scrolling main pane remain
+  unchanged; any recurrence should be captured as a platform/input-specific case before code or
+  CSS is changed.
 
 ## TODO position
 
-- Latest completed TODO: **TODO-UX5 — Improve logs with semantic event readability**.
-- The next daily-use item is **TODO-UX6 — Investigate and, if clear, fix scroll jank**, but start it
+- Latest completed TODO: **TODO-UX6 — Investigate and, if clear, fix scroll jank**.
+- The next daily-use item is **TODO-UX7 — Review first-run journey and empty states**, but start it
   only when explicitly requested.
 - The completed checkpoint is `docs/architecture-reliability-checkpoint.md`. Its high-priority
   reliability findings should be fixed in focused tasks or explicitly accepted before release.
@@ -119,6 +123,10 @@ transcript.
   tests passed; frontend typecheck and production build passed.
 - Logs readability follow-up: representative semantic, generic, warning, and error rows were
   visually verified at 1440x900 and 900x800; frontend typecheck and production build passed.
+- TODO-UX6: the real production pywebview/WebView2 host was measured on the 2,127 px Settings
+  page across multiple polling intervals. The 6.5-second probe recorded 354 frames (18.41 ms
+  average, 19.90 ms p95, 24.60 ms maximum), no frames over 25 ms, no long tasks, and no idle
+  scroll-position reset. No application code changed, so frontend/Python suites were not rerun.
 - The last full Phase 3 suite passed with 119 tests; frontend typecheck/build and
   `python -m app.main --check` also passed at that milestone.
 
@@ -139,5 +147,5 @@ transcript.
 - Twitch presets intentionally do not model authenticated bot profiles. The current process
   continues to use one configured bot identity and OAuth cache; multi-account authentication is
   deferred rather than simulated through channel presets.
-- An unrelated local edit to `AGENTS.md` and user roadmap/filter changes predate TODO-UX5 and
-  remain intentionally uncommitted except for completed TODO-UX1 through TODO-UX5 subsections.
+- An unrelated local edit to `AGENTS.md` and user roadmap/filter changes predate TODO-UX6 and
+  remain intentionally uncommitted except for completed TODO-UX1 through TODO-UX6 subsections.

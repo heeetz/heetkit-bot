@@ -478,6 +478,34 @@ auto-scroll, and local-only Clear behavior.
 
 ---
 
+## TODO-UX6 — Investigate and, if clear, fix scroll jank
+
+This is intentionally lower priority than the functional UX tasks.
+
+- [x] Attempt to reproduce the jerky scrolling on long pages inside the real pywebview/WebView2 desktop host.
+- [x] Check for concrete causes such as:
+  - whole-page remounts;
+  - polling-driven parent rerenders;
+  - layout shifts;
+  - scroll-position resets;
+  - expensive shadows/layout;
+  - conflicting CSS smooth-scroll behavior.
+- [x] Measure/inspect before changing code.
+- [x] If a clear application-level cause exists, make the smallest focused fix.
+- [x] Preserve the fixed sidebar and independently scrolling main content.
+- [x] Do not replace pywebview or the frontend stack solely for this issue.
+- [x] If the issue is WebView2/platform-specific and no reliable app-level fix is identified, document the finding in project context and defer it instead of thrashing through speculative CSS changes.
+
+The reported wheel-scrolling jank was not reproducible as an application-level defect in the
+real production pywebview/WebView2 host. A 6.5-second continuous probe of the long Settings page
+crossed multiple status-poll intervals with no frames over 25 ms, no long tasks, and no scroll
+reset; the scroll position also remained exact while idle across later polls. Inspection found
+no remount, layout shift, or smooth-scroll conflict. No speculative code/CSS change was made.
+Treat any recurrence as a platform/input-specific symptom and capture a reproducible case before
+changing the application.
+
+---
+
 # P2 — Product extensibility
 
 ## TODO-009 — Configurable simple commands
