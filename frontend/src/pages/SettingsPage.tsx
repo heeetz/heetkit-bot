@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 
 import {
   type AppSettings,
+  type AppStatus,
   type CredentialInfo,
   type CredentialName,
   type TwitchConnectionSettings,
+  twitchConnectionLabel,
   waitForBridge,
 } from '../bridge'
 import FeedbackToast from '../components/FeedbackToast'
@@ -12,9 +14,10 @@ import Switch from '../components/Switch'
 
 interface SettingsPageProps {
   active: boolean
+  status: AppStatus | null
 }
 
-export default function SettingsPage({ active }: SettingsPageProps) {
+export default function SettingsPage({ active, status }: SettingsPageProps) {
   const [saved, setSaved] = useState<AppSettings | null>(null)
   const [draft, setDraft] = useState<AppSettings | null>(null)
   const [credentials, setCredentials] = useState<CredentialInfo[]>([])
@@ -402,7 +405,7 @@ export default function SettingsPage({ active }: SettingsPageProps) {
                 </div>
               </div>
             )}
-            {!twitchTargetMissing && twitchCredential?.configured && !twitchDraft.oauth_token_available && (
+            {!twitchTargetMissing && twitchCredential?.configured && !twitchDraft.oauth_token_available && !status?.twitch_connected && (
               <div className="setup-callout">
                 <div>
                   <strong>Twitch authorization required</strong>
@@ -411,10 +414,10 @@ export default function SettingsPage({ active }: SettingsPageProps) {
               </div>
             )}
             <div className="twitch-status-grid">
-              <div><span>Connection</span><strong className={twitchDraft.connected ? 'status-good' : ''}>{twitchDraft.connected ? 'Connected' : twitchDraft.running ? 'Connecting / authorization required' : 'Stopped'}</strong></div>
+              <div><span>Connection</span><strong className={status?.twitch_connected ? 'status-good' : ''}>{status ? twitchConnectionLabel(status.twitch_connection_state) : twitchDraft.connected ? 'Connected' : twitchDraft.running ? 'Connecting' : 'Stopped'}</strong></div>
               <div><span>Bot account</span><strong>{twitchDraft.bot_username && twitchDraft.bot_user_id ? `${twitchDraft.bot_username} (${twitchDraft.bot_user_id})` : 'Not configured'}</strong></div>
               <div><span>Active target</span><strong>{activePreset ? `${activePreset.display_name} (${twitchDraft.active_channel})` : twitchDraft.active_channel || 'Not configured'}</strong></div>
-              <div><span>Twitch authorization</span><strong>{twitchDraft.oauth_token_available ? 'Ready' : 'Required'}</strong></div>
+              <div><span>Twitch authorization</span><strong>{twitchDraft.oauth_token_available || status?.twitch_connected ? 'Ready' : 'Required'}</strong></div>
               <div><span>Client secret</span><strong>{twitchCredential?.configured ? 'Configured' : 'Missing'}</strong></div>
             </div>
             <div className="preset-editor">

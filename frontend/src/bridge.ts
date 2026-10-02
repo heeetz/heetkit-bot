@@ -1,9 +1,29 @@
 export interface AppStatus {
   running: boolean
   twitch_connected: boolean
+  twitch_connection_state: TwitchConnectionState
   uptime_seconds: number
   channel: string
   account: string
+}
+
+export type TwitchConnectionState =
+  | 'stopped'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'auth_required'
+  | 'failed'
+
+export function twitchConnectionLabel(state: TwitchConnectionState): string {
+  switch (state) {
+    case 'stopped': return 'Stopped'
+    case 'connecting': return 'Connecting'
+    case 'connected': return 'Connected'
+    case 'reconnecting': return 'Reconnecting'
+    case 'auth_required': return 'Authorization required'
+    case 'failed': return 'Connection failed'
+  }
 }
 
 export interface CommandInfo {

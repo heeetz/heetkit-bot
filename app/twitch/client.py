@@ -15,6 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.commands.registry import CommandDispatcher
 from app.config.settings import Settings, TwitchAccountSettings
+from app.runtime_state import TwitchConnectionState
 from app.services.facade import ApplicationServices
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 
@@ -114,6 +115,8 @@ class TwitchChatBot(commands.Bot):
         self._dispatcher = dispatcher
         self._logger = logger
         self._token_file = Path(settings.twitch_token_file)
+        self._active_socket_id: str | None = None
+        self._closing_requested = False
         super().__init__(
             client_id=settings.twitch_client_id,
             client_secret=settings.twitch_client_secret.get_secret_value(),
@@ -126,9 +129,14 @@ class TwitchChatBot(commands.Bot):
         if services.twitch is not None:
             services.twitch.bind(self, account.channel_user_id, account.user_id)
 
-    def _set_connection_state(self, connected: bool) -> None:
-        if self._services.runtime_state is not None:
-            self._services.runtime_state.set_twitch_connected(connected)
+    def _set_connection_state(self, state: TwitchConnectionState) -> None:
+        runtime_state = getattr(self._services, "runtime_state", None)
+        if runtime_state is not None:
+            runtime_state.set_twitch_connection_state(state)
+
+    async def close(self, *args, **kwargs) -> None:
+        self._closing_requested = True
+        await super().close(*args, **kwargs)
 
     async def setup_hook(self) -> None:
         if self.bot_id not in self.tokens:
@@ -153,13 +161,14 @@ class TwitchChatBot(commands.Bot):
 
     async def event_ready(self) -> None:
         if self.bot_id not in self.tokens:
-            self._set_connection_state(False)
+            self._set_connection_state("auth_required")
             self._logger.warning(
                 "Authorize the configured bot account at "
-                "http://localhost:4343/oauth?scopes=user%3Aread%3Achat%20user%3Awrite%3Achat%20user%3Abot%20moderator%3Aread%3Afollowers&force_verify=true"
+                "http://localhost:4343/oauth?scopes=user%3Aread%3Achat%20user%3Awrite%3Achat%20user%3Abot%20moderator%3Aread%3Afollowers&force_verify=true",
+                extra={"event_kind": "twitch.auth_required", "event_channel": self._account.channel},
             )
             return
-        self._set_connection_state(True)
+        self._set_connection_state("connected")
         self._logger.info(
             "Twitch connection ready account=%s channel=%s",
             self._account.username,
@@ -177,6 +186,7 @@ class TwitchChatBot(commands.Bot):
             await self.save_tokens()
             self._logger.info("Configured bot account OAuth authorization completed")
             await self._subscribe_to_chat()
+            self._set_connection_state("connected")
             return
 
         if token.user_id == self._account.channel_user_id:
@@ -185,7 +195,11 @@ class TwitchChatBot(commands.Bot):
             return
 
         await self.remove_token(token.user_id)
-        self._logger.error("OAuth authorization was for an unknown account")
+        self._set_connection_state("auth_required")
+        self._logger.error(
+            "OAuth authorization was for an unknown account",
+            extra={"event_kind": "twitch.auth_required", "event_channel": self._account.channel},
+        )
 
     async def event_token_refreshed(self, payload: TokenRefreshedPayload) -> None:
         if payload.user_id == self.bot_id:
@@ -214,11 +228,55 @@ class TwitchChatBot(commands.Bot):
         except Exception:
             self._logger.exception("Unexpected Twitch message processing failure")
 
+    async def event_websocket_welcome(self, payload: object) -> None:
+        self._active_socket_id = getattr(payload, "id", None)
+        if self.bot_id not in self.tokens or self._closing_requested:
+            return
+        runtime_state = getattr(self._services, "runtime_state", None)
+        state = runtime_state.twitch_connection_state if runtime_state is not None else None
+        if state == "reconnecting":
+            self._set_connection_state("connected")
+            self._logger.info(
+                "Twitch chat connection recovered channel=%s",
+                self._account.channel,
+                extra={"event_kind": "twitch.recovered", "event_channel": self._account.channel},
+            )
+
+    async def event_subscription_revoked(self, payload: object) -> None:
+        if getattr(payload, "type", None) != "channel.chat.message":
+            return
+        reason = getattr(getattr(payload, "status", None), "value", "unknown")
+        state: TwitchConnectionState = (
+            "auth_required"
+            if reason in ("authorization_revoked", "user_removed", "chat_user_banned")
+            else "failed"
+        )
+        self._set_connection_state(state)
+        self._logger.error(
+            "Twitch chat subscription revoked reason=%s channel=%s",
+            reason,
+            self._account.channel,
+            extra={
+                "event_kind": "twitch.auth_required" if state == "auth_required" else "twitch.failed",
+                "event_channel": self._account.channel,
+            },
+        )
+
     async def event_websocket_closed(self, payload: object) -> None:
-        self._set_connection_state(False)
+        if self._closing_requested:
+            return
+        runtime_state = getattr(self._services, "runtime_state", None)
+        if runtime_state is not None and runtime_state.twitch_connection_state in (
+            "auth_required", "failed"
+        ):
+            return
+        socket_id = getattr(getattr(payload, "socket", None), "session_id", None)
+        if socket_id is not None and socket_id != self._active_socket_id:
+            return
+        self._set_connection_state("reconnecting")
         self._logger.warning(
-            "Twitch EventSub WebSocket closed payload=%s",
-            payload,
+            "Twitch chat connection closed; TwitchIO is handling recovery channel=%s",
+            self._account.channel,
             extra={
                 "event_kind": "twitch.disconnected",
                 "event_channel": self._account.channel,
@@ -243,6 +301,18 @@ async def run_twitch_bot(
     )
     stop_task: asyncio.Task[None] | None = None
 
+    def terminal_failure(state: TwitchConnectionState, message: str) -> None:
+        runtime_state = getattr(services, "runtime_state", None)
+        if runtime_state is not None:
+            runtime_state.set_twitch_connection_state(state)
+        logger.error(
+            message,
+            extra={
+                "event_kind": "twitch.auth_required" if state == "auth_required" else "twitch.failed",
+                "event_channel": account.channel,
+            },
+        )
+
     async def close_when_requested() -> None:
         if stop_event is None:
             return
@@ -263,6 +333,7 @@ async def run_twitch_bot(
         )
         raise
     except InvalidTokenException as error:
+        terminal_failure("auth_required", "Twitch user token validation failed; authorization required")
         logger.error(
             "Twitch user token validation failed status=%s invalid_type=%s",
             error.status,
@@ -270,17 +341,17 @@ async def run_twitch_bot(
         )
         raise TwitchConnectionError("Twitch user token validation failed.") from None
     except HTTPException as error:
-        logger.error(
-            "Twitch API request failed status=%s error_type=%s",
-            error.status,
-            type(error).__name__,
-        )
+        state: TwitchConnectionState = "auth_required" if error.status in (401, 403) else "failed"
+        terminal_failure(state, "Twitch API request failed; session stopped")
+        logger.error("Twitch API failure status=%s error_type=%s", error.status, type(error).__name__)
         raise TwitchConnectionError("Twitch API request failed.") from None
     except OSError as error:
-        logger.error("Twitch network connection failed error_type=%s", type(error).__name__)
+        terminal_failure("failed", "Twitch network connection failed; session stopped")
+        logger.error("Twitch network failure error_type=%s", type(error).__name__)
         raise TwitchConnectionError("Twitch network connection failed.") from None
     except Exception as error:
-        logger.error("Unexpected Twitch client failure error_type=%s", type(error).__name__)
+        terminal_failure("failed", "Unexpected Twitch client failure; session stopped")
+        logger.error("Twitch client failure error_type=%s", type(error).__name__)
         raise TwitchConnectionError("Twitch client startup failed.") from None
     finally:
         if stop_task is not None:

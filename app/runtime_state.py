@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from threading import RLock
 from time import monotonic
+from typing import Literal
 
 from app.command_settings import (
     CommandSettings,
@@ -22,6 +23,11 @@ from app.personality_settings import (
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
 from config import AI_MEMORY_ENABLED, ACTIVE_AI_PERSONALITY
+
+
+TwitchConnectionState = Literal[
+    "stopped", "connecting", "connected", "reconnecting", "auth_required", "failed"
+]
 
 
 class RuntimeState:
@@ -56,7 +62,7 @@ class RuntimeState:
         self._persisted_active_ai_personality = personality_settings.active_personality
         self._active_ai_personality = personality_settings.active_personality
         self._bot_running = False
-        self._twitch_connected = False
+        self._twitch_connection_state: TwitchConnectionState = "stopped"
         self._started_at: float | None = None
         self._uptime_started_at = monotonic()
 
@@ -318,17 +324,24 @@ class RuntimeState:
         with self._lock:
             self._bot_running = running
             self._started_at = monotonic() if running else None
-            if not running:
-                self._twitch_connected = False
+            if running:
+                self._twitch_connection_state = "connecting"
+            elif self._twitch_connection_state not in ("auth_required", "failed"):
+                self._twitch_connection_state = "stopped"
 
     @property
     def twitch_connected(self) -> bool:
         with self._lock:
-            return self._twitch_connected
+            return self._twitch_connection_state == "connected"
 
-    def set_twitch_connected(self, connected: bool) -> None:
+    @property
+    def twitch_connection_state(self) -> TwitchConnectionState:
         with self._lock:
-            self._twitch_connected = connected
+            return self._twitch_connection_state
+
+    def set_twitch_connection_state(self, state: TwitchConnectionState) -> None:
+        with self._lock:
+            self._twitch_connection_state = state
 
     def elapsed_seconds(self) -> int:
         with self._lock:

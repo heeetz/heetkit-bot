@@ -26,20 +26,6 @@ When asked to execute a TODO:
 
 ---
 
-# P0 — Reliability still open
-
-## TODO-003 — Improve Twitch disconnect/recovery observability
-
-- [ ] Keep normal reconnect/recovery behavior TwitchIO-owned unless a concrete defect requires otherwise.
-- [ ] Make connection loss, reconnecting/recovery, recovered, and terminal auth/config failures distinguishable in application state/logs where TwitchIO exposes enough information.
-- [ ] Ensure Dashboard/Settings eventually reflect recovered connection state.
-- [ ] Preserve one reconnect mechanism; do not wrap TwitchIO in a competing reconnect loop.
-- [ ] Add focused state/observability tests rather than mocking an entire Twitch network stack.
-
-**Acceptance:** a temporary disconnect and a terminal configuration/auth failure no longer look identical to the user.
-
----
-
 # P1 — Runtime data, portability, and desktop polish
 
 ## TODO-004 — Consolidate mutable runtime data into one platform app-data root

@@ -6,7 +6,7 @@ task history; repository code remains authoritative.
 ## Repository state
 
 - Branch: `main`; remote target: `origin/main`.
-- Latest application-code baseline: TODO-002 Gemini client lifecycle ownership.
+- Latest application-code baseline: TODO-003 Twitch connection observability.
 - Normal launch paths: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
 - No active partially completed implementation task exists.
 
@@ -41,6 +41,10 @@ task history; repository code remains authoritative.
   changes are read for each request without rebuilding the client.
 - Twitch target-channel settings and named target presets contain no credentials and reconnect
   through the shared bot lifecycle. TwitchIO remains responsible for normal network recovery.
+- Twitch connection state distinguishes stopped, connecting, connected, reconnecting,
+  authorization required, and terminal failure. TwitchIO WebSocket close/welcome and chat
+  subscription revocation events update state and semantic logs where exposed; the existing
+  status poll keeps Dashboard and Settings current after recovery.
 - Standard Python logging feeds a thread-safe bounded backend buffer and bounded React view with
   whitelisted semantic metadata. Log Clear is frontend-local and secrets must never be logged.
 - Filter files load independently. Missing/unreadable files keep their previous rules on reload;
@@ -52,15 +56,15 @@ task history; repository code remains authoritative.
 ## Active roadmap
 
 - `TODO.md` contains unfinished work only; completed implementation history is in Git.
-- Next item: **TODO-003 — Improve Twitch disconnect/recovery observability**. Start it only when explicitly
+- Next item: **TODO-004 — Consolidate mutable runtime data into one platform app-data root**. Start it only when explicitly
   requested.
 - Later work covers platform app-data, portability/layout polish, custom commands/triggers/filter
   UI, and distribution.
 
 ## Important open risks
 
-- Twitch disconnect/recovery and terminal authentication/configuration failures need clearer
-  state and focused coverage without adding a competing reconnect loop.
+- TwitchIO does not emit an immediate application event for every transport interruption;
+  state changes when its WebSocket close/welcome or subscription events are dispatched.
 - Mutable runtime data still lives under checkout-relative paths pending the platform app-data
   migration.
 - Required Twitch configuration is validated before the UI opens, so first-run recovery still
@@ -68,11 +72,8 @@ task history; repository code remains authoritative.
 
 ## Validation baseline
 
-- TODO-002 changed-file Python compilation passed. Focused pytest could not run in this agent
-  environment: the project virtualenv was inaccessible, fallback Python lacks pytest and the
-  Gemini SDK, and the offline runner could not initialize its cache.
-- The latest full-suite milestone passed 119 tests; frontend typecheck/build and
-  `python -m app.main --check` passed at that milestone.
+- TODO-003 focused Twitch/runtime/bridge pytest passed (53 tests) using the project virtualenv;
+  frontend typecheck and build passed. The latest full-suite milestone passed 119 tests.
 
 ## Workspace note
 

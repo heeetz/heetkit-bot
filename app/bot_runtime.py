@@ -70,6 +70,8 @@ class BotRuntime:
             )
         finally:
             self.application.services.runtime_state.set_bot_running(False)
+            if stop_event.is_set():
+                self.application.services.runtime_state.set_twitch_connection_state("stopped")
 
     def request_stop(self) -> None:
         """Signal the current Twitch session from its owning event loop."""

@@ -10,6 +10,7 @@ from twitchio.exceptions import HTTPException, InvalidTokenException
 from app.commands.registry import CommandDispatcher
 from app.config.settings import Settings
 from app.services.facade import ApplicationServices
+from app.runtime_state import RuntimeState
 from app.twitch.client import (
     TwitchChatBot,
     TwitchConnectionError,
@@ -177,6 +178,146 @@ async def test_token_failure_is_logged_without_oauth_values(
     assert "access-secret" not in caplog.text
     assert "refresh-secret" not in caplog.text
     assert str(error.value) == "Twitch user token validation failed."
+
+
+@pytest.mark.asyncio
+async def test_websocket_loss_and_welcome_update_connection_state(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    settings = build_settings()
+    state = RuntimeState()
+    state.set_bot_running(True)
+    bot = TwitchChatBot(
+        settings=settings,
+        account=settings.primary_account,
+        services=cast(ApplicationServices, SimpleNamespace(twitch=None, runtime_state=state)),
+        dispatcher=cast(CommandDispatcher, object()),
+        logger=logging.getLogger("tests.twitch.connection"),
+    )
+    bot._http._tokens["100"] = cast(object, {})
+
+    with caplog.at_level(logging.INFO, logger="tests.twitch.connection"):
+        await bot.event_websocket_welcome(SimpleNamespace(id="first"))
+        await bot.event_ready()
+        assert state.twitch_connection_state == "connected"
+
+        await bot.event_websocket_closed(
+            SimpleNamespace(socket=SimpleNamespace(session_id="first"))
+        )
+        assert state.twitch_connection_state == "reconnecting"
+        assert state.twitch_connected is False
+
+        await bot.event_websocket_welcome(SimpleNamespace(id="second"))
+        assert state.twitch_connection_state == "connected"
+        await bot.event_websocket_closed(
+            SimpleNamespace(socket=SimpleNamespace(session_id="first"))
+        )
+        assert state.twitch_connection_state == "connected"
+
+    assert [getattr(record, "event_kind", None) for record in caplog.records].count(
+        "twitch.disconnected"
+    ) == 1
+    assert [getattr(record, "event_kind", None) for record in caplog.records].count(
+        "twitch.recovered"
+    ) == 1
+    await bot.close(save_tokens=False)
+
+
+@pytest.mark.asyncio
+async def test_missing_oauth_and_terminal_auth_failure_are_distinct_from_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = build_settings()
+    state = RuntimeState()
+    state.set_bot_running(True)
+    services = cast(ApplicationServices, SimpleNamespace(twitch=None, runtime_state=state))
+    bot = TwitchChatBot(
+        settings=settings,
+        account=settings.primary_account,
+        services=services,
+        dispatcher=cast(CommandDispatcher, object()),
+        logger=logging.getLogger("tests.twitch.auth"),
+    )
+    await bot.event_ready()
+    assert state.twitch_connection_state == "auth_required"
+    await bot.close(save_tokens=False)
+
+    class FailingBot:
+        async def start(self, **kwargs) -> None:
+            original = HTTPException("private", status=401, extra={"message": "invalid"})
+            raise InvalidTokenException("private", token="access-secret", refresh="refresh-secret", type_="token", original=original)
+
+        async def close(self, **kwargs) -> None:
+            return None
+
+    monkeypatch.setattr("app.twitch.client.TwitchChatBot", lambda **kwargs: FailingBot())
+    with pytest.raises(TwitchConnectionError):
+        await run_twitch_bot(
+            settings=settings,
+            services=services,
+            dispatcher=cast(CommandDispatcher, object()),
+            logger=logging.getLogger("tests.twitch.auth"),
+        )
+    state.set_bot_running(False)
+    assert state.twitch_connection_state == "auth_required"
+    state.set_bot_running(True)
+    assert state.twitch_connection_state == "connecting"
+
+
+@pytest.mark.asyncio
+async def test_terminal_configuration_failure_stops_in_failed_state(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    state = RuntimeState()
+    state.set_bot_running(True)
+
+    class FailingBot:
+        async def start(self, **kwargs) -> None:
+            raise HTTPException("private request detail", status=400)
+
+        async def close(self, **kwargs) -> None:
+            return None
+
+    monkeypatch.setattr("app.twitch.client.TwitchChatBot", lambda **kwargs: FailingBot())
+    with caplog.at_level(logging.ERROR), pytest.raises(TwitchConnectionError):
+        await run_twitch_bot(
+            settings=build_settings(),
+            services=cast(ApplicationServices, SimpleNamespace(runtime_state=state)),
+            dispatcher=cast(CommandDispatcher, object()),
+            logger=logging.getLogger("tests.twitch.config"),
+        )
+    state.set_bot_running(False)
+    assert state.twitch_connection_state == "failed"
+    assert "private request detail" not in caplog.text
+    assert any(getattr(record, "event_kind", None) == "twitch.failed" for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_revoked_chat_authorization_is_not_reported_as_reconnecting() -> None:
+    settings = build_settings()
+    state = RuntimeState()
+    state.set_bot_running(True)
+    bot = TwitchChatBot(
+        settings=settings,
+        account=settings.primary_account,
+        services=cast(ApplicationServices, SimpleNamespace(twitch=None, runtime_state=state)),
+        dispatcher=cast(CommandDispatcher, object()),
+        logger=logging.getLogger("tests.twitch.revoked"),
+    )
+    bot._http._tokens["100"] = cast(object, {})
+    await bot.event_websocket_welcome(SimpleNamespace(id="first"))
+    await bot.event_ready()
+
+    await bot.event_subscription_revoked(
+        SimpleNamespace(
+            type="channel.chat.message",
+            status=SimpleNamespace(value="authorization_revoked"),
+        )
+    )
+    await bot.event_websocket_closed(SimpleNamespace(socket=SimpleNamespace(session_id="first")))
+    assert state.twitch_connection_state == "auth_required"
+    await bot.close(save_tokens=False)
 
 
 @pytest.mark.asyncio

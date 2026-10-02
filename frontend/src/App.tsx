@@ -6,6 +6,7 @@ import {
   type CredentialInfo,
   type LogEntry,
   type TwitchConnectionSettings,
+  twitchConnectionLabel,
   waitForBridge,
 } from './bridge'
 import CommandsPage from './pages/CommandsPage'
@@ -107,7 +108,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onNavi
         section: 'Settings',
         targetId: 'twitch-settings',
       })
-    } else if (!setup.twitch.oauth_token_available) {
+    } else if (!setup.twitch.oauth_token_available && !status?.twitch_connected) {
       setupTasks.push({
         title: 'Authorize Twitch',
         description: 'Start the bot to complete Twitch authorization, or review the connection settings first.',
@@ -189,9 +190,17 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onNavi
         <article className="card dashboard-card">
           <p className="label">TWITCH CONNECTION</p>
           <h3 className={status?.twitch_connected ? 'success-text' : ''}>
-            {status ? (status.twitch_connected ? 'Connected' : 'Disconnected') : 'Loading…'}
+            {status ? twitchConnectionLabel(status.twitch_connection_state) : 'Loading…'}
           </h3>
-          <p>{status?.running ? 'Connection state from the active bot session.' : 'Start the bot when you are ready to connect.'}</p>
+          <p>{status?.twitch_connection_state === 'reconnecting'
+            ? 'TwitchIO is restoring the chat connection automatically.'
+            : status?.twitch_connection_state === 'auth_required'
+              ? 'Authorize the configured bot account in Twitch.'
+              : status?.twitch_connection_state === 'failed'
+                ? 'The session stopped. Check Logs, then start the bot again.'
+                : status?.running
+                  ? 'Connection state from the active bot session.'
+                  : 'Start the bot when you are ready to connect.'}</p>
         </article>
         <article className="card dashboard-card">
           <p className="label">ACTIVE CHANNEL</p>
@@ -473,7 +482,7 @@ export default function App() {
         <div hidden={section !== 'Commands'}><CommandsPage active={section === 'Commands'} /></div>
         <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} onOpenSettings={() => navigate('Settings', 'credential-settings')} /></div>
         {section === 'Logs' && <LogsPage />}
-        <div hidden={section !== 'Settings'}><SettingsPage active={section === 'Settings'} /></div>
+        <div hidden={section !== 'Settings'}><SettingsPage active={section === 'Settings'} status={status} /></div>
       </main>
     </div>
   )

@@ -422,6 +422,7 @@ class WebUIBridge:
         return {
             "running": running,
             "twitch_connected": runtime_state.twitch_connected,
+            "twitch_connection_state": runtime_state.twitch_connection_state,
             "uptime_seconds": uptime,
             "channel": application.settings.twitch_channel,
             "account": application.settings.twitch_bot_username,

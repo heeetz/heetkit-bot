@@ -14,9 +14,13 @@ from app.container import Application
 class FakeRuntimeState:
     def __init__(self) -> None:
         self.running = False
+        self.twitch_connection_state = "stopped"
 
     def set_bot_running(self, running: bool) -> None:
         self.running = running
+
+    def set_twitch_connection_state(self, state: str) -> None:
+        self.twitch_connection_state = state
 
 
 class FakeApplication:
