@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import tempfile
+import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from threading import RLock
@@ -37,9 +39,19 @@ class AISettings:
 
 
 @dataclass(frozen=True, slots=True)
+class TwitchConnectionPreset:
+    id: str
+    display_name: str
+    channel: str
+    channel_user_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class TwitchSettings:
     channel: str | None = None
     channel_user_id: str | None = None
+    presets: tuple[TwitchConnectionPreset, ...] = ()
+    selected_preset_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,7 +107,7 @@ def _read_optional_string(
     return None
 
 
-def validate_twitch_settings(channel: object, channel_user_id: object) -> TwitchSettings:
+def _validate_twitch_target(channel: object, channel_user_id: object) -> tuple[str, str]:
     if not isinstance(channel, str) or not channel.strip():
         raise ValueError("Twitch target channel must not be empty.")
     parsed_channel = channel.strip().lower().removeprefix("#")
@@ -105,10 +117,97 @@ def validate_twitch_settings(channel: object, channel_user_id: object) -> Twitch
         raise ValueError("Twitch target channel is too long.")
     if not isinstance(channel_user_id, str) or not channel_user_id.strip().isdigit():
         raise ValueError("Twitch channel user ID must contain digits only.")
+    return parsed_channel, channel_user_id.strip()
+
+
+def _validate_preset_id(preset_id: object) -> str:
+    if not isinstance(preset_id, str) or not re.fullmatch(
+        r"[A-Za-z0-9_-]{1,64}", preset_id
+    ):
+        raise ValueError("Twitch preset ID is invalid.")
+    return preset_id
+
+
+def _validate_preset_name(display_name: object) -> str:
+    if not isinstance(display_name, str) or not display_name.strip():
+        raise ValueError("Twitch preset name must not be empty.")
+    parsed_name = display_name.strip()
+    if len(parsed_name) > 80:
+        raise ValueError("Twitch preset name is too long.")
+    return parsed_name
+
+
+def validate_twitch_settings(
+    channel: object,
+    channel_user_id: object,
+    *,
+    presets: tuple[TwitchConnectionPreset, ...] = (),
+    selected_preset_id: object = None,
+) -> TwitchSettings:
+    parsed_channel, parsed_channel_user_id = _validate_twitch_target(
+        channel,
+        channel_user_id,
+    )
+    parsed_selected_preset_id: str | None = None
+    if selected_preset_id is not None:
+        parsed_selected_preset_id = _validate_preset_id(selected_preset_id)
+        selected = next(
+            (preset for preset in presets if preset.id == parsed_selected_preset_id),
+            None,
+        )
+        if selected is None:
+            raise ValueError("Unknown Twitch connection preset.")
+        if (
+            selected.channel != parsed_channel
+            or selected.channel_user_id != parsed_channel_user_id
+        ):
+            raise ValueError("Selected Twitch preset does not match the target channel.")
     return TwitchSettings(
         channel=parsed_channel,
-        channel_user_id=channel_user_id.strip(),
+        channel_user_id=parsed_channel_user_id,
+        presets=presets,
+        selected_preset_id=parsed_selected_preset_id,
     )
+
+
+def _read_twitch_presets(section: dict[str, object]) -> tuple[TwitchConnectionPreset, ...]:
+    payload = section.get("presets", [])
+    if not isinstance(payload, list):
+        logger.warning("Ignoring malformed application setting name=twitch.presets")
+        return ()
+
+    presets: list[TwitchConnectionPreset] = []
+    known_ids: set[str] = set()
+    known_names: set[str] = set()
+    for item in payload:
+        if not isinstance(item, dict):
+            logger.warning("Ignoring malformed Twitch connection preset")
+            continue
+        try:
+            preset_id = _validate_preset_id(item.get("id"))
+            display_name = _validate_preset_name(item.get("display_name"))
+            channel, channel_user_id = _validate_twitch_target(
+                item.get("channel"),
+                item.get("channel_user_id"),
+            )
+        except ValueError:
+            logger.warning("Ignoring invalid Twitch connection preset")
+            continue
+        normalized_name = display_name.casefold()
+        if preset_id in known_ids or normalized_name in known_names:
+            logger.warning("Ignoring duplicate Twitch connection preset")
+            continue
+        known_ids.add(preset_id)
+        known_names.add(normalized_name)
+        presets.append(
+            TwitchConnectionPreset(
+                id=preset_id,
+                display_name=display_name,
+                channel=channel,
+                channel_user_id=channel_user_id,
+            )
+        )
+    return tuple(presets)
 
 
 def load_app_settings(path: Path) -> AppSettings:
@@ -151,16 +250,37 @@ def load_app_settings(path: Path) -> AppSettings:
         "twitch",
         "channel_user_id",
     )
+    twitch_presets = _read_twitch_presets(twitch_payload)
+    selected_preset_id = _read_optional_string(
+        twitch_payload,
+        "twitch",
+        "selected_preset_id",
+    )
     if twitch_channel is not None and twitch_channel_user_id is not None:
         try:
-            twitch = validate_twitch_settings(twitch_channel, twitch_channel_user_id)
+            twitch = validate_twitch_settings(
+                twitch_channel,
+                twitch_channel_user_id,
+                presets=twitch_presets,
+                selected_preset_id=selected_preset_id,
+            )
         except ValueError:
-            logger.warning("Ignoring invalid Twitch application settings override")
-            twitch = TwitchSettings()
+            logger.warning("Ignoring invalid Twitch preset selection")
+            try:
+                twitch = validate_twitch_settings(
+                    twitch_channel,
+                    twitch_channel_user_id,
+                    presets=twitch_presets,
+                )
+            except ValueError:
+                logger.warning("Ignoring invalid Twitch application settings override")
+                twitch = TwitchSettings(presets=twitch_presets)
     else:
         if (twitch_channel is None) != (twitch_channel_user_id is None):
             logger.warning("Ignoring incomplete Twitch application settings override")
-        twitch = TwitchSettings()
+        if selected_preset_id is not None:
+            logger.warning("Ignoring Twitch preset selection without a target channel")
+        twitch = TwitchSettings(presets=twitch_presets)
 
     selected_model = _read_optional_string(ai_payload, "ai", "selected_model")
     fallback_model = _read_optional_string(ai_payload, "ai", "fallback_model")
@@ -362,14 +482,100 @@ class AppSettingsStore:
         *,
         channel: object,
         channel_user_id: object,
+        selected_preset_id: object = None,
     ) -> AppSettings:
-        twitch = validate_twitch_settings(channel, channel_user_id)
         with self._lock:
+            twitch = validate_twitch_settings(
+                channel,
+                channel_user_id,
+                presets=self._settings.twitch.presets,
+                selected_preset_id=selected_preset_id,
+            )
             updated = AppSettings(
                 window=self._settings.window,
                 startup=self._settings.startup,
                 ai=self._settings.ai,
                 twitch=twitch,
+            )
+            save_app_settings(self._path, updated)
+            self._settings = updated
+        return updated
+
+    def save_twitch_preset(
+        self,
+        *,
+        display_name: object,
+        channel: object,
+        channel_user_id: object,
+        preset_id: object = None,
+    ) -> tuple[AppSettings, TwitchConnectionPreset]:
+        parsed_name = _validate_preset_name(display_name)
+        parsed_channel, parsed_channel_user_id = _validate_twitch_target(
+            channel,
+            channel_user_id,
+        )
+        with self._lock:
+            existing = self._settings.twitch.presets
+            if preset_id is None:
+                parsed_id = uuid.uuid4().hex
+            else:
+                parsed_id = _validate_preset_id(preset_id)
+                if not any(preset.id == parsed_id for preset in existing):
+                    raise ValueError("Unknown Twitch connection preset.")
+            if any(
+                preset.id != parsed_id
+                and preset.display_name.casefold() == parsed_name.casefold()
+                for preset in existing
+            ):
+                raise ValueError("A Twitch preset with this name already exists.")
+            preset = TwitchConnectionPreset(
+                id=parsed_id,
+                display_name=parsed_name,
+                channel=parsed_channel,
+                channel_user_id=parsed_channel_user_id,
+            )
+            presets = tuple(
+                preset if item.id == parsed_id else item for item in existing
+            )
+            if not any(item.id == parsed_id for item in existing):
+                presets = (*presets, preset)
+            updated = AppSettings(
+                window=self._settings.window,
+                startup=self._settings.startup,
+                ai=self._settings.ai,
+                twitch=TwitchSettings(
+                    channel=parsed_channel,
+                    channel_user_id=parsed_channel_user_id,
+                    presets=presets,
+                    selected_preset_id=parsed_id,
+                ),
+            )
+            save_app_settings(self._path, updated)
+            self._settings = updated
+        return updated, preset
+
+    def delete_twitch_preset(self, preset_id: object) -> AppSettings:
+        parsed_id = _validate_preset_id(preset_id)
+        with self._lock:
+            current = self._settings.twitch
+            if not any(preset.id == parsed_id for preset in current.presets):
+                raise ValueError("Unknown Twitch connection preset.")
+            updated = AppSettings(
+                window=self._settings.window,
+                startup=self._settings.startup,
+                ai=self._settings.ai,
+                twitch=TwitchSettings(
+                    channel=current.channel,
+                    channel_user_id=current.channel_user_id,
+                    presets=tuple(
+                        preset for preset in current.presets if preset.id != parsed_id
+                    ),
+                    selected_preset_id=(
+                        None
+                        if current.selected_preset_id == parsed_id
+                        else current.selected_preset_id
+                    ),
+                ),
             )
             save_app_settings(self._path, updated)
             self._settings = updated

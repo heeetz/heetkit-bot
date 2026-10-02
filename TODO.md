@@ -419,6 +419,30 @@ desktop behavior, Twitch connection/account details, and secure credentials.
 
 ---
 
+## TODO-UX4 — Add named Twitch connection presets
+
+Goal: make switching between test/work target channels convenient without retyping connection metadata.
+
+- [x] Add named non-secret Twitch connection presets such as `Personal test` and `s_chilla`.
+- [x] A preset should contain ordinary connection metadata such as:
+  - display name;
+  - target channel login;
+  - broadcaster/user ID where required.
+- [x] Persist presets in ordinary local app settings; do not store OAuth tokens/client secrets inside preset JSON.
+- [x] Add a clear preset selector in the Twitch settings area and, if useful after TODO-UX3, a compact quick selector on Dashboard.
+- [x] Switching preset must clearly indicate whether reconnect is required and provide an explicit Apply/Save & Reconnect flow.
+- [x] Show which preset/channel is currently active.
+- [x] Design the data model so a future authenticated bot-profile reference could be added cleanly.
+- [x] **Do not fake multi-bot-account support.** If the current TwitchIO token cache/auth architecture supports only one authenticated bot identity, keep that identity fixed in this task and document multi-account authentication as a separate future feature.
+- [x] Never duplicate secrets into preset data.
+
+Implementation note: presets are stable-ID records inside the local `twitch` app-settings
+section and contain only a display name, channel login, and broadcaster ID. The existing
+authenticated bot identity and OAuth token cache remain shared and unchanged; multi-account
+authentication is explicitly deferred.
+
+---
+
 # P2 — Product extensibility
 
 ## TODO-009 — Configurable simple commands

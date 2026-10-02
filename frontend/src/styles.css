@@ -131,6 +131,9 @@ td { color: #c6cfdf; }
 .settings-option small { margin-top: 4px; color: #8491a9; line-height: 1.45; }
 .settings-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 .settings-hint { margin: 2px 0 0; color: #8491a9; font-size: 13px; line-height: 1.5; }
+.preset-editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 12px; padding: 14px; border: 1px solid #2f3a50; border-radius: 10px; background: #111722; }
+.preset-editor select { cursor: pointer; }
+.preset-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .twitch-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 8px; }
 .twitch-status-grid > div { padding: 12px; border: 1px solid #2a354a; border-radius: 9px; background: #111722; }
 .twitch-status-grid span, .twitch-status-grid strong { display: block; }
@@ -202,7 +205,8 @@ td { color: #c6cfdf; }
   .row-actions { justify-content: flex-start; }
   .ai-status-grid { grid-template-columns: 1fr; }
   .twitch-status-grid { grid-template-columns: 1fr; }
-  .ai-provider-status, .model-fields { grid-template-columns: 1fr; }
+  .ai-provider-status, .model-fields, .preset-editor { grid-template-columns: 1fr; }
+  .preset-actions { grid-column: auto; justify-content: flex-start; }
   .feedback-toast { top: 14px; right: 14px; width: calc(100vw - 28px); }
   .ai-layout > .feedback-toast, .command-editor-card > .feedback-toast, .settings-layout > .feedback-toast { top: 72px; }
   .editor-footer { align-items: flex-start; flex-direction: column; }

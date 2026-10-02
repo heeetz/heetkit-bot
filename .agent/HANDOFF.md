@@ -7,7 +7,7 @@ transcript.
 
 - Branch: `main`.
 - Remote target: `origin/main`.
-- Latest completed task: **TODO-UX3 — Rebalance Dashboard, AI, and Settings information architecture**
+- Latest completed task: **TODO-UX4 — Add named Twitch connection presets**
   (committed with this handoff).
 - Working application path: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
 - No active partially completed task exists.
@@ -32,9 +32,10 @@ transcript.
   `app/resources/personalities.json`; all existing IDs and prompt text are preserved.
 - Gemini API keys and Twitch client secrets use Windows Credential Manager through `keyring`,
   with private `.env` values retained as startup fallbacks.
-- The Settings page exposes Twitch connection/account/OAuth-cache status and persists only
-  target-channel login/user ID as ordinary local settings. Save & reconnect reuses the shared
-  `BotRuntime` lifecycle; secure credentials and TwitchIO tokens retain their existing stores.
+- The Settings page exposes Twitch connection/account/OAuth-cache status and named target
+  presets. Stable-ID presets persist only display name, channel login, and broadcaster ID in
+  ordinary local app settings. Save & reconnect reuses the shared `BotRuntime` lifecycle;
+  secure credentials, authenticated bot identity, and TwitchIO tokens retain their stores.
 - The Settings page exposes Google Gemini provider/model configuration using tracked backend
   presets, optional provider discovery, and custom IDs. Model changes apply to the next AI
   request; only model-not-found responses use the configured fallback.
@@ -55,8 +56,8 @@ transcript.
 
 ## TODO position
 
-- Latest completed TODO: **TODO-UX3 — Rebalance Dashboard, AI, and Settings information architecture**.
-- The next daily-use item is **TODO-UX4 — Add named Twitch connection presets**, but start it
+- Latest completed TODO: **TODO-UX4 — Add named Twitch connection presets**.
+- The next daily-use item is **TODO-UX5 — Improve logs with semantic event readability**, but start it
   only when explicitly requested.
 - The completed checkpoint is `docs/architecture-reliability-checkpoint.md`. Its high-priority
   reliability findings should be fixed in focused tasks or explicitly accepted before release.
@@ -106,6 +107,8 @@ transcript.
   so Python tests were not rerun.
 - TODO-UX3: frontend typecheck and production build passed. No Python or backend behavior changed,
   so Python tests were not rerun.
+- TODO-UX4: `python -m compileall -q app tests` passed; 53 focused app-settings/desktop-host
+  tests passed; frontend typecheck and production build passed.
 - The last full Phase 3 suite passed with 119 tests; frontend typecheck/build and
   `python -m app.main --check` also passed at that milestone.
 
@@ -114,7 +117,8 @@ transcript.
 - The legacy desktop migration is complete: pywebview is the only GUI path.
 - Local ordinary settings now use versioned `data/app_settings.json`. Version 1 has independent
   `startup.auto_start_bot` and `window` settings, `ai.memory_enabled`, optional
-  selected/fallback Gemini models, and optional non-secret `twitch` target-channel fields; a
+  selected/fallback Gemini models, and optional non-secret `twitch` target-channel fields and
+  named target presets; a
   legacy flat window file is read safely and the next successful save writes the versioned form.
 - Command and personality overrides intentionally remain in their dedicated JSON stores.
 - Built-in personality prompts are tracked package data; local personality selection and
@@ -122,5 +126,8 @@ transcript.
 - Windows Credential Manager is the preferred store for user-entered Gemini/Twitch client
   credentials. `.env` remains a private fallback; credential values never enter ordinary JSON.
 - Local runtime files, databases, logs, frontend build output, `.env`, and tokens are ignored.
-- An unrelated local edit to `AGENTS.md` and user roadmap/filter changes predate TODO-UX3 and
-  remain intentionally uncommitted except for the completed TODO-UX1/UX2/UX3 subsections.
+- Twitch presets intentionally do not model authenticated bot profiles. The current process
+  continues to use one configured bot identity and OAuth cache; multi-account authentication is
+  deferred rather than simulated through channel presets.
+- An unrelated local edit to `AGENTS.md` and user roadmap/filter changes predate TODO-UX4 and
+  remain intentionally uncommitted except for completed TODO-UX1 through TODO-UX4 subsections.

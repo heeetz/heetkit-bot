@@ -20,6 +20,7 @@ export default function SettingsPage({ active }: SettingsPageProps) {
   const [credentials, setCredentials] = useState<CredentialInfo[]>([])
   const [twitchSaved, setTwitchSaved] = useState<TwitchConnectionSettings | null>(null)
   const [twitchDraft, setTwitchDraft] = useState<TwitchConnectionSettings | null>(null)
+  const [presetName, setPresetName] = useState('')
   const [credentialDrafts, setCredentialDrafts] = useState<Record<CredentialName, string>>({
     gemini_api_key: '',
     twitch_client_secret: '',
@@ -61,6 +62,10 @@ export default function SettingsPage({ active }: SettingsPageProps) {
             return dirty ? current : twitchResponse.settings!
           })
           setTwitchSaved(twitchResponse.settings)
+          const selectedPreset = twitchResponse.settings.presets.find(
+            (preset) => preset.id === twitchResponse.settings!.selected_preset_id,
+          )
+          setPresetName(selectedPreset?.display_name ?? '')
           setError('')
         }
       } catch (reason) {
@@ -113,6 +118,29 @@ export default function SettingsPage({ active }: SettingsPageProps) {
     setNotice('')
   }
 
+  const selectTwitchPreset = (presetId: string) => {
+    if (!twitchDraft) {
+      return
+    }
+    if (!presetId) {
+      updateTwitchDraft({ selected_preset_id: null })
+      setPresetName('')
+      return
+    }
+    const preset = twitchDraft.presets.find((item) => item.id === presetId)
+    if (!preset) {
+      setError('The selected Twitch preset is no longer available.')
+      return
+    }
+    updateTwitchDraft({
+      selected_preset_id: preset.id,
+      target_channel: preset.target_channel,
+      target_channel_user_id: preset.target_channel_user_id,
+    })
+    setPresetName(preset.display_name)
+    setNotice('Preset selected. Save for later or save and reconnect to apply it.')
+  }
+
   const saveTwitch = async (reconnect: boolean) => {
     if (!twitchDraft) {
       return
@@ -132,7 +160,19 @@ export default function SettingsPage({ active }: SettingsPageProps) {
     setNotice('')
     try {
       const api = await waitForBridge()
-      const savedResult = await api.update_twitch_settings(channel, channelUserId)
+      const selectedPreset = twitchDraft.presets.find(
+        (preset) => preset.id === twitchDraft.selected_preset_id,
+      )
+      const selectedPresetId = selectedPreset
+        && selectedPreset.target_channel === channel.toLowerCase()
+        && selectedPreset.target_channel_user_id === channelUserId
+        ? selectedPreset.id
+        : null
+      const savedResult = await api.update_twitch_settings(
+        channel,
+        channelUserId,
+        selectedPresetId,
+      )
       if (!savedResult.ok) {
         throw new Error(savedResult.error ?? 'Twitch settings could not be saved.')
       }
@@ -148,6 +188,10 @@ export default function SettingsPage({ active }: SettingsPageProps) {
       }
       setTwitchSaved(refreshed.settings)
       setTwitchDraft(refreshed.settings)
+      const refreshedPreset = refreshed.settings.presets.find(
+        (preset) => preset.id === refreshed.settings!.selected_preset_id,
+      )
+      setPresetName(refreshedPreset?.display_name ?? '')
       setNotice(
         reconnect
           ? refreshed.settings.running
@@ -159,6 +203,82 @@ export default function SettingsPage({ active }: SettingsPageProps) {
       )
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Twitch settings could not be saved.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const saveTwitchPreset = async () => {
+    if (!twitchDraft) {
+      return
+    }
+    const name = presetName.trim()
+    if (!name) {
+      setError('Twitch preset name must not be empty.')
+      return
+    }
+    setBusy('twitch:preset-save')
+    setError('')
+    setNotice('')
+    try {
+      const api = await waitForBridge()
+      const result = await api.save_twitch_preset(
+        twitchDraft.selected_preset_id,
+        name,
+        twitchDraft.target_channel,
+        twitchDraft.target_channel_user_id,
+      )
+      if (!result.ok) {
+        throw new Error(result.error ?? 'Twitch preset could not be saved.')
+      }
+      const refreshed = await api.get_twitch_settings()
+      if (!refreshed.ok || !refreshed.settings) {
+        throw new Error(refreshed.error ?? 'Twitch settings could not be refreshed.')
+      }
+      setTwitchSaved(refreshed.settings)
+      setTwitchDraft(refreshed.settings)
+      const refreshedPreset = refreshed.settings.presets.find(
+        (preset) => preset.id === result.preset_id,
+      )
+      setPresetName(refreshedPreset?.display_name ?? name)
+      setNotice(
+        result.requires_reconnect
+          ? 'Preset saved. Save and reconnect to apply this target to the running bot.'
+          : 'Preset saved and selected.',
+      )
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Twitch preset could not be saved.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const deleteTwitchPreset = async () => {
+    if (!twitchDraft?.selected_preset_id) {
+      return
+    }
+    if (!window.confirm('Delete this Twitch connection preset? The active connection will not be changed.')) {
+      return
+    }
+    setBusy('twitch:preset-delete')
+    setError('')
+    setNotice('')
+    try {
+      const api = await waitForBridge()
+      const result = await api.delete_twitch_preset(twitchDraft.selected_preset_id)
+      if (!result.ok) {
+        throw new Error(result.error ?? 'Twitch preset could not be deleted.')
+      }
+      const refreshed = await api.get_twitch_settings()
+      if (!refreshed.ok || !refreshed.settings) {
+        throw new Error(refreshed.error ?? 'Twitch settings could not be refreshed.')
+      }
+      setTwitchSaved(refreshed.settings)
+      setTwitchDraft(refreshed.settings)
+      setPresetName('')
+      setNotice('Preset deleted. The saved target channel was left unchanged.')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Twitch preset could not be deleted.')
     } finally {
       setBusy('')
     }
@@ -209,7 +329,18 @@ export default function SettingsPage({ active }: SettingsPageProps) {
   const twitchDirty = Boolean(
     twitchDraft && twitchSaved
       && (twitchDraft.target_channel !== twitchSaved.target_channel
-        || twitchDraft.target_channel_user_id !== twitchSaved.target_channel_user_id),
+        || twitchDraft.target_channel_user_id !== twitchSaved.target_channel_user_id
+        || twitchDraft.selected_preset_id !== twitchSaved.selected_preset_id),
+  )
+  const activePreset = twitchDraft?.presets.find(
+    (preset) => preset.id === twitchDraft.active_preset_id,
+  )
+  const draftRequiresReconnect = Boolean(
+    twitchDraft
+      && (twitchDraft.target_channel.trim().toLowerCase().replace(/^#/, '')
+        !== twitchDraft.active_channel.toLowerCase()
+        || twitchDraft.target_channel_user_id.trim()
+        !== twitchDraft.active_channel_user_id),
   )
   const twitchCredential = credentials.find(
     (credential) => credential.name === 'twitch_client_secret',
@@ -262,9 +393,31 @@ export default function SettingsPage({ active }: SettingsPageProps) {
             <div className="twitch-status-grid">
               <div><span>Connection</span><strong className={twitchDraft.connected ? 'status-good' : ''}>{twitchDraft.connected ? 'Connected' : twitchDraft.running ? 'Connecting / authorization required' : 'Stopped'}</strong></div>
               <div><span>Bot account</span><strong>{twitchDraft.bot_username} ({twitchDraft.bot_user_id})</strong></div>
-              <div><span>Active channel</span><strong>{twitchDraft.active_channel}</strong></div>
+              <div><span>Active target</span><strong>{activePreset ? `${activePreset.display_name} (${twitchDraft.active_channel})` : twitchDraft.active_channel}</strong></div>
               <div><span>OAuth token cache</span><strong>{twitchDraft.oauth_token_available ? 'Available' : 'Authorization required'}</strong></div>
               <div><span>Client secret</span><strong>{twitchCredential?.configured ? 'Configured' : 'Missing'}</strong></div>
+            </div>
+            <div className="preset-editor">
+              <label className="form-field">
+                Connection preset
+                <select value={twitchDraft.selected_preset_id ?? ''} onChange={(event) => selectTwitchPreset(event.target.value)} disabled={Boolean(busy)}>
+                  <option value="">Custom target</option>
+                  {twitchDraft.presets.map((preset) => (
+                    <option value={preset.id} key={preset.id}>
+                      {preset.display_name}{preset.id === twitchDraft.active_preset_id ? ' (active)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <small>Presets store target-channel metadata only. They never contain credentials or OAuth tokens.</small>
+              </label>
+              <label className="form-field">
+                Preset name
+                <input value={presetName} onChange={(event) => { setPresetName(event.target.value); setError(''); setNotice('') }} placeholder="Personal test" disabled={Boolean(busy)} />
+              </label>
+              <div className="preset-actions">
+                <button className="secondary" disabled={Boolean(busy) || !presetName.trim()} onClick={() => void saveTwitchPreset()}>{busy === 'twitch:preset-save' ? 'Saving...' : twitchDraft.selected_preset_id ? 'Update preset' : 'Create preset'}</button>
+                <button className="ghost" disabled={Boolean(busy) || !twitchDraft.selected_preset_id} onClick={() => void deleteTwitchPreset()}>{busy === 'twitch:preset-delete' ? 'Deleting...' : 'Delete preset'}</button>
+              </div>
             </div>
             <label className="form-field">
               Target channel login
@@ -280,7 +433,7 @@ export default function SettingsPage({ active }: SettingsPageProps) {
               <button className="secondary" disabled={!twitchDirty || Boolean(busy)} onClick={() => void saveTwitch(false)}>{busy === 'twitch:save' ? 'Saving…' : 'Save for later'}</button>
               <button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch(true)}>{busy === 'twitch:reconnect' ? 'Reconnecting…' : twitchDraft.running ? 'Save & reconnect' : 'Save & apply'}</button>
             </div>
-            <p className="settings-hint">Bot identity and OAuth authorization continue to use the existing startup configuration and Twitch flow. Secure credential changes require an application restart.</p>
+            <p className="settings-hint">{draftRequiresReconnect ? 'The selected target differs from the active connection and requires Save & reconnect.' : 'This target matches the active connection.'} Bot identity and OAuth authorization stay fixed; multi-account authentication is a separate future feature.</p>
           </div>
         )}
       </section>

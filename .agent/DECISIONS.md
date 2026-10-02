@@ -100,9 +100,11 @@ Status: Active
 Decision:
 Ordinary non-secret desktop preferences use the versioned `data/app_settings.json` file.
 Schema version 1 contains independent `startup`/`window` settings, AI memory and
-selected/fallback model settings, and an optional non-secret Twitch target-channel override;
-future ordinary sections may extend this model. Command and personality overrides remain
-separate domain stores. Automatic bot startup defaults off and is opt-in local state.
+selected/fallback model settings, and an optional non-secret Twitch target-channel override
+with named target presets; future ordinary sections may extend this model. Twitch presets have
+stable IDs but do not contain credentials or represent authenticated bot accounts. Command and
+personality overrides remain separate domain stores. Automatic bot startup defaults off and is
+opt-in local state.
 
 Reason:
 One evolvable local model avoids files per checkbox while preserving clear ownership and

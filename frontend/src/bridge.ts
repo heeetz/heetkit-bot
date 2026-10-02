@@ -73,12 +73,24 @@ export interface TwitchConnectionSettings {
   target_channel: string
   target_channel_user_id: string
   active_channel: string
+  active_channel_user_id: string
+  presets: TwitchConnectionPreset[]
+  selected_preset_id: string | null
+  active_preset_id: string | null
+  requires_reconnect: boolean
   bot_username: string
   bot_user_id: string
   running: boolean
   connected: boolean
   oauth_token_available: boolean
   has_local_override: boolean
+}
+
+export interface TwitchConnectionPreset {
+  id: string
+  display_name: string
+  target_channel: string
+  target_channel_user_id: string
 }
 
 export interface TwitchSettingsResponse extends ActionResult {
@@ -150,7 +162,9 @@ interface PythonApi {
   get_app_settings(): Promise<AppSettingsResponse>
   update_app_settings(startMinimized: boolean, minimizeToTray: boolean, closeToTray: boolean, autoStartBot: boolean): Promise<ActionResult>
   get_twitch_settings(): Promise<TwitchSettingsResponse>
-  update_twitch_settings(targetChannel: string, targetChannelUserId: string): Promise<ActionResult>
+  update_twitch_settings(targetChannel: string, targetChannelUserId: string, selectedPresetId?: string | null): Promise<ActionResult>
+  save_twitch_preset(presetId: string | null, displayName: string, targetChannel: string, targetChannelUserId: string): Promise<TwitchPresetActionResult>
+  delete_twitch_preset(presetId: string): Promise<ActionResult>
   reconnect_twitch(): Promise<ActionResult>
   get_credentials(): Promise<CredentialsResponse>
   get_ai_provider_settings(): Promise<AIProviderSettingsResponse>
@@ -168,6 +182,10 @@ export interface ActionResult {
   changed?: boolean
   requires_reconnect?: boolean
   error?: string
+}
+
+export interface TwitchPresetActionResult extends ActionResult {
+  preset_id?: string
 }
 
 declare global {

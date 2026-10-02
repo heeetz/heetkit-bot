@@ -463,15 +463,47 @@ class WebUIBridge:
         application = self._backend.application
         runtime_state = application.services.runtime_state
         local = self._app_settings.snapshot().twitch
+        target_channel = local.channel or application.settings.twitch_channel
+        target_channel_user_id = (
+            local.channel_user_id or application.settings.twitch_channel_user_id
+        )
+        matching_active_presets = tuple(
+            preset
+            for preset in local.presets
+            if preset.channel == application.settings.twitch_channel
+            and preset.channel_user_id == application.settings.twitch_channel_user_id
+        )
+        active_preset = next(
+            (
+                preset
+                for preset in matching_active_presets
+                if preset.id == local.selected_preset_id
+            ),
+            matching_active_presets[0] if matching_active_presets else None,
+        )
         return {
             "ok": True,
             "settings": {
-                "target_channel": local.channel or application.settings.twitch_channel,
-                "target_channel_user_id": (
-                    local.channel_user_id
-                    or application.settings.twitch_channel_user_id
-                ),
+                "target_channel": target_channel,
+                "target_channel_user_id": target_channel_user_id,
                 "active_channel": application.settings.twitch_channel,
+                "active_channel_user_id": application.settings.twitch_channel_user_id,
+                "presets": [
+                    {
+                        "id": preset.id,
+                        "display_name": preset.display_name,
+                        "target_channel": preset.channel,
+                        "target_channel_user_id": preset.channel_user_id,
+                    }
+                    for preset in local.presets
+                ],
+                "selected_preset_id": local.selected_preset_id,
+                "active_preset_id": active_preset.id if active_preset else None,
+                "requires_reconnect": (
+                    target_channel != application.settings.twitch_channel
+                    or target_channel_user_id
+                    != application.settings.twitch_channel_user_id
+                ),
                 "bot_username": application.settings.twitch_bot_username,
                 "bot_user_id": application.settings.twitch_bot_user_id,
                 "running": runtime_state.status()[0],
@@ -490,6 +522,7 @@ class WebUIBridge:
         self,
         target_channel: object,
         target_channel_user_id: object,
+        selected_preset_id: object = None,
     ) -> dict[str, object]:
         if self._app_settings is None:
             return {"ok": False, "error": "Desktop settings are not configured."}
@@ -497,6 +530,7 @@ class WebUIBridge:
             updated = self._app_settings.update_twitch(
                 channel=target_channel,
                 channel_user_id=target_channel_user_id,
+                selected_preset_id=selected_preset_id,
             )
         except ValueError as error:
             return {"ok": False, "error": str(error)}
@@ -511,6 +545,53 @@ class WebUIBridge:
         )
         self._logger.info("Twitch target channel settings saved")
         return {"ok": True, "requires_reconnect": requires_reconnect}
+
+    def save_twitch_preset(
+        self,
+        preset_id: object,
+        display_name: object,
+        target_channel: object,
+        target_channel_user_id: object,
+    ) -> dict[str, object]:
+        if self._app_settings is None:
+            return {"ok": False, "error": "Desktop settings are not configured."}
+        try:
+            updated, preset = self._app_settings.save_twitch_preset(
+                preset_id=preset_id,
+                display_name=display_name,
+                channel=target_channel,
+                channel_user_id=target_channel_user_id,
+            )
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except OSError:
+            self._logger.exception("Could not save Twitch connection preset")
+            return {"ok": False, "error": "Could not save Twitch preset."}
+        application_settings = self._backend.application.settings
+        requires_reconnect = (
+            updated.twitch.channel != application_settings.twitch_channel
+            or updated.twitch.channel_user_id
+            != application_settings.twitch_channel_user_id
+        )
+        self._logger.info("Twitch connection preset saved")
+        return {
+            "ok": True,
+            "preset_id": preset.id,
+            "requires_reconnect": requires_reconnect,
+        }
+
+    def delete_twitch_preset(self, preset_id: object) -> dict[str, object]:
+        if self._app_settings is None:
+            return {"ok": False, "error": "Desktop settings are not configured."}
+        try:
+            self._app_settings.delete_twitch_preset(preset_id)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except OSError:
+            self._logger.exception("Could not delete Twitch connection preset")
+            return {"ok": False, "error": "Could not delete Twitch preset."}
+        self._logger.info("Twitch connection preset deleted")
+        return {"ok": True}
 
     def reconnect_twitch(self) -> dict[str, object]:
         if self._app_settings is None:

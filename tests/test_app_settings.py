@@ -13,6 +13,7 @@ from app.app_settings import (
     AppSettings,
     AppSettingsStore,
     StartupSettings,
+    TwitchConnectionPreset,
     TwitchSettings,
     WindowSettings,
     load_app_settings,
@@ -134,7 +135,12 @@ def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
             "memory_enabled": False,
             "selected_model": None,
         },
-        "twitch": {"channel": None, "channel_user_id": None},
+        "twitch": {
+            "channel": None,
+            "channel_user_id": None,
+            "presets": [],
+            "selected_preset_id": None,
+        },
     }
     assert list(tmp_path.glob(".app_settings.json.*.tmp")) == []
 
@@ -183,7 +189,97 @@ def test_twitch_app_settings_are_validated_persisted_and_reloaded(tmp_path) -> N
     assert payload["twitch"] == {
         "channel": "testchannel",
         "channel_user_id": "200",
+        "presets": [],
+        "selected_preset_id": None,
     }
+
+
+def test_twitch_presets_are_non_secret_local_metadata_and_can_be_reset(tmp_path) -> None:
+    settings_path = tmp_path / "app_settings.json"
+    store = AppSettingsStore(settings_path)
+
+    updated, preset = store.save_twitch_preset(
+        display_name=" Personal test ",
+        channel=" TestChannel ",
+        channel_user_id=" 200 ",
+    )
+
+    assert preset.display_name == "Personal test"
+    assert updated.twitch == TwitchSettings(
+        channel="testchannel",
+        channel_user_id="200",
+        presets=(preset,),
+        selected_preset_id=preset.id,
+    )
+    payload = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert payload["twitch"]["presets"] == [
+        {
+            "id": preset.id,
+            "display_name": "Personal test",
+            "channel": "testchannel",
+            "channel_user_id": "200",
+        }
+    ]
+    assert "token" not in json.dumps(payload).lower()
+    assert AppSettingsStore(settings_path).snapshot().twitch == updated.twitch
+
+    removed = store.delete_twitch_preset(preset.id)
+    assert removed.twitch == TwitchSettings(
+        channel="testchannel",
+        channel_user_id="200",
+    )
+
+
+def test_twitch_preset_validation_ignores_bad_entries_and_stale_selection(
+    tmp_path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    settings_path = tmp_path / "app_settings.json"
+    settings_path.write_text(
+        json.dumps(
+            {
+                "version": APP_SETTINGS_VERSION,
+                "twitch": {
+                    "channel": "workchannel",
+                    "channel_user_id": "300",
+                    "selected_preset_id": "missing",
+                    "presets": [
+                        {
+                            "id": "work",
+                            "display_name": "Work",
+                            "channel": "workchannel",
+                            "channel_user_id": "300",
+                        },
+                        {
+                            "id": "bad id",
+                            "display_name": "Broken",
+                            "channel": "bad channel",
+                            "channel_user_id": "secret",
+                        },
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        settings = load_app_settings(settings_path)
+
+    assert settings.twitch == TwitchSettings(
+        channel="workchannel",
+        channel_user_id="300",
+        presets=(
+            TwitchConnectionPreset(
+                id="work",
+                display_name="Work",
+                channel="workchannel",
+                channel_user_id="300",
+            ),
+        ),
+    )
+    assert "invalid Twitch connection preset" in caplog.text
+    assert "invalid Twitch preset selection" in caplog.text
 
 
 @pytest.mark.parametrize(

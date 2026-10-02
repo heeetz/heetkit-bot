@@ -161,8 +161,13 @@ failures do not disable unrelated commands.
 - `app/services/twitch.py` is the command/service-facing API boundary. It is bound to the
   authenticated TwitchIO client and exposes category and followage lookups.
 - `.env` supplies initial Twitch identity/channel defaults. A validated local target-channel
-  override is applied before application composition; Save & reconnect uses the existing
-  `BotRuntime` stop/start lifecycle on its owning asyncio loop.
+  override is applied before application composition. Named stable-ID connection presets in
+  the local app-settings `twitch` section contain only a display name, target login, and numeric
+  broadcaster ID; selection updates the same target override. Save & reconnect uses the
+  existing `BotRuntime` stop/start lifecycle on its owning asyncio loop.
+- Presets do not represent authenticated bot accounts. The configured bot identity and
+  TwitchIO OAuth cache remain process-wide; future multi-account authentication would need an
+  explicit profile reference and credential/token ownership model.
 - OAuth tokens are stored in the configured local TwitchIO token file. They are secrets and
   are ignored by Git.
 
@@ -196,7 +201,7 @@ failures do not disable unrelated commands.
 | Built-in personality prompts | `app/resources/personalities.json` | Tracked package data |
 | Protected shared AI instructions | `app/config/personalities.py` | Tracked application code |
 | Gemini model presets | `app/resources/gemini_models.json` | Tracked package data |
-| Ordinary application preferences | Versioned `data/app_settings.json` (`startup`, `window`, AI memory/models, non-secret `twitch` target) | Ignored local state |
+| Ordinary application preferences | Versioned `data/app_settings.json` (`startup`, `window`, AI memory/models, non-secret `twitch` target and named target presets) | Ignored local state |
 | Command overrides | `data/command_settings.json` | Ignored local state |
 | Personality selection/overrides | `data/personality_settings.json` | Ignored local state |
 | Twitch OAuth tokens | `data/twitchio_tokens.json` or configured path | Ignored secret state |
