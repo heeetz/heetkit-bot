@@ -7,7 +7,7 @@ transcript.
 
 - Branch: `main`.
 - Remote target: `origin/main`.
-- Latest completed task: **TODO-UX5 — Improve logs with semantic event readability**
+- Latest completed task: **Improve semantic readability of the desktop Logs page**
   (committed with this handoff).
 - Working application path: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
 - No active partially completed task exists.
@@ -53,10 +53,12 @@ transcript.
   uptime, and AI runtime/model/personality state. Its AI toggles call the same bridge actions as
   the AI page. Gemini model discovery/selection now lives beside personalities on AI; Settings
   retains desktop/window, Twitch connection, and secure credential controls.
-- Live logs retain their bounded standard-logging pipeline and now include whitelisted semantic
-  metadata for chat direction, commands/cooldowns, Twitch lifecycle, Gemini activity, and
-  settings actions. React renders event labels and safe context fields without message regexes;
-  severity, raw messages, search/filtering, auto-scroll, and local Clear remain intact.
+- Live logs retain their bounded standard-logging pipeline and whitelisted semantic metadata for
+  chat direction, commands/cooldowns, Twitch lifecycle, Gemini activity, and settings actions.
+  React presents important values in reusable priority-aware chips without message regexes:
+  cooldown duration, command/user, AI model/duration, and Twitch channel/action are immediately
+  scannable while secondary context and raw diagnostics remain available. Severity, raw-message
+  search/filtering, auto-scroll, and local Clear remain intact.
 
 ## TODO position
 
@@ -115,6 +117,8 @@ transcript.
   tests passed; frontend typecheck and production build passed.
 - TODO-UX5: `python -m compileall -q app tests` passed; 71 focused logging/command/Twitch/bridge
   tests passed; frontend typecheck and production build passed.
+- Logs readability follow-up: representative semantic, generic, warning, and error rows were
+  visually verified at 1440x900 and 900x800; frontend typecheck and production build passed.
 - The last full Phase 3 suite passed with 119 tests; frontend typecheck/build and
   `python -m app.main --check` also passed at that milestone.
 
