@@ -369,7 +369,7 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
           <span className="mini-badge saved-badge">Auto-saved</span>
         </div>
         {!draft ? <p className="muted">Loading desktop settings…</p> : (
-          <div className="settings-list">
+          <div className="settings-list desktop-settings-list">
             <Switch className="settings-option" checked={draft.auto_start_bot} disabled={Boolean(busy)} onCheckedChange={(auto_start_bot) => void updateWindowSettings({ auto_start_bot }, 'Automatic bot startup preference saved for the next launch.')}>
               <span><strong>Start bot automatically</strong><small>Saved automatically. Takes effect on the next application launch and is independent of window visibility.</small></span>
             </Switch>
@@ -442,16 +442,18 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
                 <button className="ghost" disabled={Boolean(busy) || !twitchDraft.selected_preset_id} onClick={() => void deleteTwitchPreset()}>{busy === 'twitch:preset-delete' ? 'Deleting...' : 'Delete preset'}</button>
               </div>
             </div>
-            <label className="form-field">
-              Target channel login
-              <input value={twitchDraft.target_channel} onChange={(event) => updateTwitchDraft({ target_channel: event.target.value })} placeholder="channel_name" />
-              <small>Non-secret. Saved on this computer.</small>
-            </label>
-            <label className="form-field">
-              Target channel user ID
-              <input inputMode="numeric" value={twitchDraft.target_channel_user_id} onChange={(event) => updateTwitchDraft({ target_channel_user_id: event.target.value })} placeholder="123456789" />
-              <small>The numeric Twitch broadcaster ID used for chat subscriptions and API lookups.</small>
-            </label>
+            <div className="settings-field-grid">
+              <label className="form-field">
+                Target channel login
+                <input value={twitchDraft.target_channel} onChange={(event) => updateTwitchDraft({ target_channel: event.target.value })} placeholder="channel_name" />
+                <small>Non-secret. Saved on this computer.</small>
+              </label>
+              <label className="form-field">
+                Target channel user ID
+                <input inputMode="numeric" value={twitchDraft.target_channel_user_id} onChange={(event) => updateTwitchDraft({ target_channel_user_id: event.target.value })} placeholder="123456789" />
+                <small>The numeric Twitch broadcaster ID used for chat subscriptions and API lookups.</small>
+              </label>
+            </div>
             <div className="settings-actions">
               <button className="secondary" disabled={!twitchDirty || Boolean(busy)} onClick={() => void saveTwitch(false)}>{busy === 'twitch:save' ? 'Saving…' : 'Save for later'}</button>
               <button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch(true)}>{busy === 'twitch:reconnect' ? 'Reconnecting…' : twitchDraft.running ? 'Save & reconnect' : 'Save & apply'}</button>

@@ -5,7 +5,7 @@ Repository code is authoritative. This file records the current state and next r
 ## Repository state
 
 - Branch: `main`; completed work is pushed to `origin/main`.
-- Latest application-code baseline: TODO-005 platform-aware desktop startup.
+- Latest application-code baseline: TODO-006 responsive desktop layout.
 - Normal source launch: Windows `run.bat`; all platforms `python -m app.main` or installed
   `twitch-bot` after installing dependencies and building the frontend.
 
@@ -32,13 +32,15 @@ Repository code is authoritative. This file records the current state and next r
   authorization required, and terminal failure. TwitchIO owns ordinary network recovery.
 - Standard Python logging feeds a bounded backend buffer and bounded React view. Log Clear is
   frontend-local. Filters retain prior rules after read failures or invalid-only files.
+- Settings uses responsive grids and a wider bounded layout; explanatory copy retains readable
+  line lengths. Commands cards reflow controls and actions at narrow desktop widths.
 - The application runs from source. No native distributable, installer, or automated release
   pipeline exists yet.
 
 ## Active roadmap
 
 - `TODO.md` contains unfinished work only; completed history is in Git.
-- Next item: **TODO-006 — Finish responsive layout consistency**. Start only when requested.
+- Next item: **TODO-007 — Build Custom Commands v1 around a safe template model**. Start only when requested.
 
 ## Important open risks
 
@@ -52,6 +54,6 @@ Repository code is authoritative. This file records the current state and next r
 
 ## Validation baseline
 
-- TODO-005 focused desktop, credential, and runtime-path tests passed (47 tests) on Windows.
-  Frontend type checking/build passed. `run.bat --check` passed after reinstalling declared
-  dependencies into the existing `.venv`, which supplied missing `platformdirs`.
+- TODO-006 frontend type checking/build passed. Dashboard, AI, Logs, Commands, and Settings were
+  smoke-checked with synthetic bridge data at 800px, 1180px, and 1920px browser widths; no page
+  overflow or overlapping command controls were found.

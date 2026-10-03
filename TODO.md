@@ -26,29 +26,6 @@ When asked to execute a TODO:
 
 ---
 
-# P1 — Runtime data, portability, and desktop polish
-
-## TODO-006 — Finish responsive layout consistency
-
-Fix the remaining desktop-layout inconsistencies without redesigning features.
-
-- [ ] Make Settings sections/cards use available width sensibly on large windows instead of staying as a narrow left column.
-- [ ] Use responsive grids/columns where appropriate rather than simply stretching form controls to absurd widths.
-- [ ] Keep readable maximum line lengths for explanatory text.
-- [ ] Align form actions consistently; credential actions such as Replace/Test/Remove should follow the same visual alignment rules as the rest of the app.
-- [ ] Review Commands at smaller desktop widths:
-  - no clipped fields;
-  - no overlapping labels/controls;
-  - actions remain usable;
-  - cards may reflow vertically when necessary.
-- [ ] Smoke-check Dashboard, AI, Logs, Commands, and Settings at narrow, normal, and maximized desktop widths.
-- [ ] Preserve existing semantics, navigation, fixed sidebar, and scrolling behavior.
-- [ ] Do not solve this with one-off pixel hacks for the supplied screenshots.
-
-**Acceptance:** Settings makes good use of maximized windows and Commands remains clean at smaller widths.
-
----
-
 # P2 — Industry-style extensibility
 
 ## TODO-007 — Build Custom Commands v1 around a safe template model
