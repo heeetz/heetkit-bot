@@ -5,7 +5,7 @@ Repository code is authoritative. This file records the current state and next r
 ## Repository state
 
 - Branch: `main`; completed work is pushed to `origin/main`.
-- Latest application-code baseline: TODO-008 local non-command message triggers.
+- Latest application-code baseline: TODO-009 desktop Filters management.
 - Normal source launch: Windows `run.bat`; all platforms `python -m app.main` or installed
   `twitch-bot` after installing dependencies and building the frontend.
 
@@ -38,7 +38,10 @@ Repository code is authoritative. This file records the current state and next r
 - Twitch connection state distinguishes stopped, connecting, connected, reconnecting,
   authorization required, and terminal failure. TwitchIO owns ordinary network recovery.
 - Standard Python logging feeds a bounded backend buffer and bounded React view. Log Clear is
-  frontend-local. Filters retain prior rules after read failures or invalid-only files.
+  frontend-local. The Filters page edits local blocked words, phrases, and Python regex rules.
+  Apply changes active rules for the session; Save persists the validated rules in app-data text
+  files. It identifies source-default and local rules and shows invalid entries. Loader failures
+  and invalid-only files retain prior active rules.
 - Settings uses responsive grids and a wider bounded layout; explanatory copy retains readable
   line lengths. Commands cards reflow controls and actions at narrow desktop widths.
 - The application runs from source. No native distributable, installer, or automated release
@@ -47,7 +50,7 @@ Repository code is authoritative. This file records the current state and next r
 ## Active roadmap
 
 - `TODO.md` contains unfinished work only; completed history is in Git.
-- Next item: **TODO-009 — Add a Filters management UI**. Start only when requested.
+- Next item: **TODO-010 — Clean the source-vs-release boundary**. Start only when requested.
 
 ## Important open risks
 
@@ -61,6 +64,5 @@ Repository code is authoritative. This file records the current state and next r
 
 ## Validation baseline
 
-- TODO-008 focused backend tests passed (44 tests across triggers, command dispatch, custom
-  commands, and runtime paths). They cover seeding, validation, matching, bot/command exclusion,
-  probability, cooldown, and output limiting.
+- TODO-009 focused backend tests passed (50 tests across filter loading, filter editing, and
+  desktop bridge behavior). The frontend production build passed.

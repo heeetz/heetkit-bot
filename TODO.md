@@ -26,20 +26,6 @@ When asked to execute a TODO:
 
 ---
 
-# P2 — Industry-style extensibility
-
-## TODO-009 — Add a Filters management UI
-
-- [ ] Manage blocked words, blocked phrases, and regex patterns from the desktop UI.
-- [ ] Preserve existing moderation semantics exactly.
-- [ ] Validate regex before Apply/Save.
-- [ ] Clearly show invalid entries without disabling valid rules.
-- [ ] Reuse the failure-safe loading behavior from TODO-001.
-- [ ] Keep source defaults and local user modifications distinguishable if both exist.
-- [ ] Do not weaken existing moderation behavior during the UI migration.
-
----
-
 # P3 — Source/release boundary and branding
 
 ## TODO-010 — Clean the source-vs-release boundary

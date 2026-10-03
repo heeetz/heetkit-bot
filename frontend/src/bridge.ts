@@ -79,6 +79,37 @@ export interface CustomCommandsResponse {
   commands: CustomCommandInfo[]
 }
 
+export type FilterCategoryName = 'words' | 'phrases' | 'patterns'
+
+export interface FilterEntry {
+  value: string
+  origin: 'default' | 'local'
+  valid: boolean
+  error?: string | null
+}
+
+export interface FilterCategory {
+  rules: FilterEntry[]
+  defaults: string[]
+  load_error?: string | null
+}
+
+export interface FiltersResponse {
+  words: FilterCategory
+  phrases: FilterCategory
+  patterns: FilterCategory
+}
+
+export interface FilterInput {
+  words: string[]
+  phrases: string[]
+  patterns: string[]
+}
+
+export interface FilterActionResult extends ActionResult {
+  invalid_rule?: { category: FilterCategoryName; index: number }
+}
+
 export interface AIStatus {
   enabled: boolean
   memory_enabled: boolean
@@ -195,6 +226,7 @@ interface PythonApi {
   get_app_status(): Promise<AppStatus>
   get_commands(): Promise<CommandsResponse>
   get_custom_commands(): Promise<CustomCommandsResponse>
+  get_filters(): Promise<FiltersResponse>
   get_ai_status(): Promise<AIStatus>
   get_personalities(): Promise<PersonalitiesResponse>
   get_recent_logs(after_id?: number, limit?: number): Promise<LogsResponse>
@@ -203,6 +235,8 @@ interface PythonApi {
   reset_command_settings(commandName: string): Promise<ActionResult>
   save_custom_command(command: CustomCommandInput): Promise<ActionResult>
   delete_custom_command(id: string): Promise<ActionResult>
+  apply_filters(payload: FilterInput): Promise<FilterActionResult>
+  save_filters(payload: FilterInput): Promise<FilterActionResult>
   set_ai_enabled(enabled: boolean): Promise<ActionResult>
   set_ai_memory_enabled(enabled: boolean): Promise<ActionResult>
   apply_personality(personality: string, prompt: string): Promise<ActionResult>

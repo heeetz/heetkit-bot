@@ -28,8 +28,9 @@ Responsibility: presentation and explicit user actions only.
 
 - Stack: React 19, TypeScript, and Vite under `frontend/`.
 - Pages: Dashboard is the daily bot/Twitch/AI control center; Commands owns command behavior;
-  AI owns runtime toggles, Gemini model configuration, and personalities; Logs owns diagnostics;
-  Settings owns desktop/window behavior, Twitch connection metadata, and secure credentials.
+  Filters edits global message-filter rules; AI owns runtime toggles, Gemini model configuration,
+  and personalities; Logs owns diagnostics; Settings owns desktop/window behavior, Twitch
+  connection metadata, and secure credentials.
 - `frontend/src/bridge.ts` defines the typed pywebview API surface. React does not import
   Python internals or implement command permissions, persistence, AI policy, or Twitch logic.
 - Frontend startup waits for the `pywebviewready` lifecycle event and a populated
@@ -54,7 +55,8 @@ Responsibility: compose the native window with the existing Python application s
   and uses a bounded forced-stop grace period. A still-unresponsive backend thread cannot keep
   the desktop process alive after the window and tray exit.
 - `WebUIBridge` exposes narrow application operations: status, bot start/stop, registered
-  commands and command Apply/Save/Reset, custom-command CRUD, AI status/toggles, personality Apply/Save/Reset,
+  commands and command Apply/Save/Reset, custom-command CRUD, filter inspect/Apply/Save,
+  AI status/toggles, personality Apply/Save/Reset,
   app settings, Twitch target/status/reconnect, Gemini model settings/discovery, masked
   credential status/actions, and recent logs.
 - Async bot operations are submitted to the owning loop with
@@ -70,7 +72,10 @@ Responsibility: one application truth and one orderly lifecycle.
 
 - `app/container.py` is the composition root. `build_application()` wires Settings, database,
   shared HTTP client, repositories, services, `RuntimeState`, command registry, and dispatcher.
-- `Application.startup()` initializes the database and loads tracked filter rules.
+- `Application.startup()` initializes the database and loads local filter rules, seeded from
+  tracked defaults when missing. Each filter file retains prior active rules on read failure or
+  invalid-only content. The Filters UI validates Python regex before session Apply or persistent
+  Save; it keeps the existing word, phrase, and regex matching semantics.
   `Application.shutdown()` closes the Gemini service's provider client, shared HTTP client,
   and database engine.
 - `app/bot_runtime.py` owns Twitch-session start/stop on the asyncio loop. Its lifecycle lock

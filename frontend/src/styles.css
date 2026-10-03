@@ -64,6 +64,7 @@ h1 { margin-bottom: 0; font-size: 30px; }
 .feedback-toast.error { border-color: #7e3445; color: #ffc5d0; background: #321721; }
 .feedback-toast.success { border-color: #286849; color: #a5edc8; background: #122c22; }
 .ai-layout > .feedback-toast, .commands-layout > .feedback-toast, .settings-layout > .feedback-toast { top: 86px; }
+.filters-layout > .feedback-toast { top: 86px; }
 .feedback-toast span { flex: 1; line-height: 1.45; }
 .feedback-toast button { border: 0; padding: 0 2px; color: inherit; background: transparent; font-size: 20px; line-height: 1; cursor: pointer; }
 .empty-state { max-width: 680px; }
@@ -170,6 +171,23 @@ td { color: #c6cfdf; }
 .settings-option small { margin-top: 4px; color: #8491a9; line-height: 1.45; }
 .settings-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 .settings-hint { max-width: 72ch; margin: 2px 0 0; color: #8491a9; font-size: 13px; line-height: 1.5; }
+.filters-layout { display: grid; gap: 18px; }
+.filters-intro, .filter-category-card, .filters-actions-card { min-height: 0; }
+.filters-effect-note { padding: 13px 14px; border: 1px solid #344057; border-radius: 10px; color: #aebbd0; background: #111722; line-height: 1.5; }
+.filters-effect-note strong { color: #e2e8f3; }
+.filter-load-warning { margin-bottom: 14px; padding: 11px 12px; border: 1px solid #765d30; border-radius: 8px; color: #f0c66b; background: #292214; line-height: 1.45; }
+.filter-rule-list { display: grid; gap: 10px; }
+.filter-rule-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(160px, .55fr) auto; align-items: end; gap: 12px; padding: 13px; border: 1px solid #2a354a; border-radius: 10px; background: #111722; }
+.filter-rule-row.invalid { border-color: #7e3445; box-shadow: inset 3px 0 #b94a61; }
+.filter-rule-row input.invalid { border-color: #b94a61; }
+.filter-rule-meta { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 7px; padding-bottom: 10px; }
+.filter-default-badge { color: #b8c8e4; background: #273147; }
+.filter-local-badge { color: #c6b8ff; background: #302656; }
+.filter-invalid-label { color: #ff9aae; font-size: 12px; font-weight: 750; }
+.filter-rule-error { min-width: 0; color: #ff9aae; font-size: 12px; overflow-wrap: anywhere; }
+.filter-default-summary { margin: 13px 0 0; color: #8491a9; font-size: 12px; }
+.filter-category-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+.filters-actions-card { display: flex; align-items: center; justify-content: flex-end; }
 .preset-editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 12px; padding: 14px; border: 1px solid #2f3a50; border-radius: 10px; background: #111722; }
 .preset-editor select { cursor: pointer; }
 .preset-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
@@ -266,7 +284,7 @@ td { color: #c6cfdf; }
   .app-shell { height: auto; min-height: 100vh; grid-template-columns: 1fr; overflow: visible; }
   .sidebar { z-index: 20; height: auto; overflow: visible; border-right: 0; border-bottom: 1px solid #202838; }
   .brand { padding-bottom: 18px; }
-  nav { grid-template-columns: repeat(5, minmax(max-content, 1fr)); overflow-x: auto; }
+  nav { grid-template-columns: repeat(6, minmax(max-content, 1fr)); overflow-x: auto; }
   nav button { text-align: center; }
   .dashboard-hero { align-items: flex-start; flex-direction: column; }
   .setup-item, .setup-callout { align-items: flex-start; flex-direction: column; }
@@ -281,6 +299,10 @@ td { color: #c6cfdf; }
   .custom-command-row, .custom-response-heading { align-items: flex-start; flex-direction: column; }
   .custom-command-fields { grid-template-columns: 1fr; }
   .custom-response-row { align-items: stretch; flex-direction: column; }
+  .filter-rule-row { grid-template-columns: 1fr; align-items: stretch; }
+  .filter-rule-meta { padding-bottom: 0; }
+  .filter-category-actions { justify-content: flex-start; }
+  .filters-actions-card { align-items: stretch; }
   .command-title { grid-column: auto; }
   .row-actions { justify-content: flex-start; }
   .ai-status-grid { grid-template-columns: 1fr; }

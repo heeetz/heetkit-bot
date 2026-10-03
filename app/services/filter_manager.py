@@ -46,6 +46,14 @@ class FilterManager:
 
     def replace_blocked_patterns(self, patterns: list[FilterRule]) -> None:
         self._blocked_patterns = list(patterns)
+
+    def snapshot(self) -> tuple[list[str], list[str], list[FilterRule]]:
+        """Return copies of the currently active rule lists for the desktop UI."""
+        return (
+            list(self._blocked_words),
+            list(self._blocked_phrases),
+            list(self._blocked_patterns),
+        )
     
     def filter_message(self, message_content: str) -> bool:
         """

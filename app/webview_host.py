@@ -28,6 +28,13 @@ from app.desktop_instance import (
     desktop_instance_guard,
     notify_existing_desktop,
 )
+from app.filter_settings import (
+    FilterValidationError,
+    apply_filter_settings,
+    get_filter_settings,
+    save_filter_settings,
+    validate_filter_input,
+)
 from app.runtime_paths import RuntimeDataError, prepare_runtime_data
 from app.system_tray import SystemTray
 from app.twitch.permissions import Permission
@@ -422,6 +429,45 @@ class WebUIBridge:
                 for command in application.custom_commands.list()
             ],
         }
+
+    def get_filters(self) -> dict[str, object]:
+        return get_filter_settings(self._backend.application.services.filter_manager)
+
+    async def _change_filters(self, payload: object, *, save: bool) -> None:
+        parsed = validate_filter_input(payload)
+        manager = self._backend.application.services.filter_manager
+        if save:
+            save_filter_settings(manager, parsed)
+        else:
+            apply_filter_settings(manager, parsed)
+
+    def _filter_action(self, payload: object, *, save: bool) -> dict[str, object]:
+        action = "save" if save else "apply"
+        try:
+            self._wait_for_backend(
+                self._change_filters(payload, save=save),
+                operation=f"{action} filters",
+                timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
+            )
+        except FilterValidationError as error:
+            return {
+                "ok": False,
+                "error": str(error),
+                "invalid_rule": {"category": error.category, "index": error.index},
+            }
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except (OSError, BridgeOperationTimedOut):
+            self._logger.exception("Could not %s filters", action)
+            return {"ok": False, "error": f"Could not {action} filters."}
+        self._logger.info("Global filters %s", "saved" if save else "applied")
+        return {"ok": True}
+
+    def apply_filters(self, payload: object) -> dict[str, object]:
+        return self._filter_action(payload, save=False)
+
+    def save_filters(self, payload: object) -> dict[str, object]:
+        return self._filter_action(payload, save=True)
 
     def save_custom_command(self, command: object) -> dict[str, object]:
         try:

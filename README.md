@@ -137,7 +137,7 @@ The environment variables supported by the current application are:
 `TWITCH_CLIENT_SECRET` must be available from either the system keyring or the
 private environment/`.env` fallback.
 
-Global message filters are copied from tracked `data/filters/` into app-data `config/filters/` on first launch. Edit the app-data copies for local changes; missing copies are recreated from the tracked defaults:
+Global message filters are copied from tracked `data/filters/` into app-data `config/filters/` on first launch. Manage them on the desktop **Filters** page: Apply changes the running session, while Save keeps validated changes across restarts. The page marks source-default and local rules and highlights invalid entries. You can also edit the app-data copies directly; missing copies are recreated from the tracked defaults:
 
 - `blocked_words.txt` contains whole-word matches;
 - `blocked_phrases.txt` contains literal phrase matches;
