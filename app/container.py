@@ -11,6 +11,8 @@ from app.commands.fun import register_fun_commands
 from app.commands.info import register_info_commands, register_weather_commands
 from app.commands.social import register_social_commands
 from app.commands.registry import CommandDispatcher, CommandRegistry
+from app.custom_commands import CustomCommandStore
+from app.runtime_paths import RuntimePaths
 from app.config.settings import Settings
 from app.database.database import Database
 from app.database.repository import AIMemoryRepository, UserRepository
@@ -36,6 +38,7 @@ class Application:
     services: ApplicationServices
     registry: CommandRegistry
     dispatcher: CommandDispatcher
+    custom_commands: CustomCommandStore | None = None
 
     async def startup(self) -> None:
         await self.database.initialize()
@@ -96,6 +99,10 @@ def build_application(settings: Settings) -> Application:
     register_ai_commands(registry)
     register_social_commands(registry)
     runtime_state.configure_commands(registry.definitions())
+    custom_commands = CustomCommandStore(
+        RuntimePaths.default().custom_commands,
+        {name for definition in registry.definitions() for name in (definition.name, *definition.aliases)},
+    )
     dispatcher = CommandDispatcher(
         registry=registry,
         cooldowns=CooldownManager(),
@@ -105,6 +112,7 @@ def build_application(settings: Settings) -> Application:
         output_limiter=OutputLimiter(),
         ai_cooldown_bypass_user_id=settings.ai_cooldown_bypass_user_id,
         runtime_state=runtime_state,
+        custom_commands=custom_commands,
     )
     return Application(
         settings=settings,
@@ -113,5 +121,6 @@ def build_application(settings: Settings) -> Application:
         ai_service=ai_service,
         services=services,
         registry=registry,
+        custom_commands=custom_commands,
         dispatcher=dispatcher,
     )

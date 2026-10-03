@@ -5,7 +5,7 @@ Repository code is authoritative. This file records the current state and next r
 ## Repository state
 
 - Branch: `main`; completed work is pushed to `origin/main`.
-- Latest application-code baseline: TODO-006 responsive desktop layout.
+- Latest application-code baseline: TODO-007 custom commands v1.
 - Normal source launch: Windows `run.bat`; all platforms `python -m app.main` or installed
   `twitch-bot` after installing dependencies and building the frontend.
 
@@ -28,6 +28,9 @@ Repository code is authoritative. This file records the current state and next r
   Windows tray fails to start, the window remains reachable.
 - Commands remain registry-driven with canonical thread-safe `RuntimeState` settings. Apply is
   session-only, Save persists a validated override, and Reset restores registry defaults.
+- Custom commands are separate versioned app-data templates with stable IDs, aliases, permission,
+  cooldowns, and one or more random-selected responses. The Commands page manages them; the
+  existing dispatcher applies policy and ignores malformed local entries safely.
 - Twitch connection state distinguishes stopped, connecting, connected, reconnecting,
   authorization required, and terminal failure. TwitchIO owns ordinary network recovery.
 - Standard Python logging feeds a bounded backend buffer and bounded React view. Log Clear is
@@ -40,7 +43,7 @@ Repository code is authoritative. This file records the current state and next r
 ## Active roadmap
 
 - `TODO.md` contains unfinished work only; completed history is in Git.
-- Next item: **TODO-007 — Build Custom Commands v1 around a safe template model**. Start only when requested.
+- Next item: **TODO-008 — Add lightweight non-command message triggers**. Start only when requested.
 
 ## Important open risks
 
@@ -54,6 +57,6 @@ Repository code is authoritative. This file records the current state and next r
 
 ## Validation baseline
 
-- TODO-006 frontend type checking/build passed. Dashboard, AI, Logs, Commands, and Settings were
-  smoke-checked with synthetic bridge data at 800px, 1180px, and 1920px browser widths; no page
-  overflow or overlapping command controls were found.
+- TODO-007 focused backend tests and frontend type checking/build passed. Custom command
+  persistence, matching, collisions, templates, permissions, cooldowns, and malformed input
+  have focused test coverage.

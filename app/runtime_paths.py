@@ -56,6 +56,10 @@ class RuntimePaths:
         return self.config / "command_settings.json"
 
     @property
+    def custom_commands(self) -> Path:
+        return self.config / "custom_commands.json"
+
+    @property
     def personality_settings(self) -> Path:
         return self.config / "personality_settings.json"
 

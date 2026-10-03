@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from app.app_settings import AISettings, AppSettings, AppSettingsStore
 from app.bot_runtime import BotRuntime
 from app.command_settings import CommandSettings
+from app.custom_commands import VARIABLES
 from app.config.ai_models import GEMINI_MODEL_PRESETS, GEMINI_PROVIDER_NAME
 from app.config.settings import Settings, load_settings_with_credentials
 from app.container import Application, build_application
@@ -409,6 +410,40 @@ class WebUIBridge:
             "permissions": [permission.name for permission in Permission],
             "commands": commands,
         }
+
+    def get_custom_commands(self) -> dict[str, object]:
+        application = self._backend.application
+        return {
+            "command_prefix": application.settings.command_prefix,
+            "permissions": [permission.name for permission in Permission],
+            "variables": list(VARIABLES),
+            "commands": [
+                {**command.to_json(), "response_mode": command.response_mode}
+                for command in application.custom_commands.list()
+            ],
+        }
+
+    def save_custom_command(self, command: object) -> dict[str, object]:
+        try:
+            saved = self._backend.application.custom_commands.save(command)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except OSError:
+            self._logger.exception("Could not save custom command")
+            return {"ok": False, "error": "Could not save custom command."}
+        self._logger.info("Custom command saved name=%s", saved.name)
+        return {"ok": True}
+
+    def delete_custom_command(self, identifier: str) -> dict[str, object]:
+        try:
+            self._backend.application.custom_commands.delete(identifier)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except OSError:
+            self._logger.exception("Could not delete custom command")
+            return {"ok": False, "error": "Could not delete custom command."}
+        self._logger.info("Custom command deleted id=%s", identifier)
+        return {"ok": True}
 
     @staticmethod
     def _serialize_command_settings(settings: CommandSettings) -> dict[str, object]:

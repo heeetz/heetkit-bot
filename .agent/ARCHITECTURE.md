@@ -54,7 +54,7 @@ Responsibility: compose the native window with the existing Python application s
   and uses a bounded forced-stop grace period. A still-unresponsive backend thread cannot keep
   the desktop process alive after the window and tray exit.
 - `WebUIBridge` exposes narrow application operations: status, bot start/stop, registered
-  commands and command Apply/Save/Reset, AI status/toggles, personality Apply/Save/Reset,
+  commands and command Apply/Save/Reset, custom-command CRUD, AI status/toggles, personality Apply/Save/Reset,
   app settings, Twitch target/status/reconnect, Gemini model settings/discovery, masked
   credential status/actions, and recent logs.
 - Async bot operations are submitted to the owning loop with
@@ -123,6 +123,10 @@ Responsibility: registry-driven definitions and centralized dispatch.
   valid local overrides.
 - `CommandDispatcher` consumes effective settings, validates arguments/pre-checks before
   recording cooldown where designed, checks permissions centrally, and invokes handlers.
+- `CustomCommandStore` owns validated, immutable user command snapshots. The dispatcher resolves
+  these after built-ins and applies the same permission, cooldown, and output policy. Templates
+  use a fixed variable allowlist and cannot execute code; recent users come from the existing
+  SQLite user repository.
 - Handler-specific behavior remains in handlers; for example, `tg` bypasses the global
   `OutputLimiter` without changing generic command settings.
 
@@ -134,6 +138,8 @@ Responsibility: registry-driven definitions and centralized dispatch.
   and individually invalid overrides fall back safely to registry defaults.
 - Apply changes runtime state, Save writes a minimal difference from defaults, and Reset
   removes the override and restores registry defaults.
+- Custom commands use a separate versioned app-data `config/custom_commands.json` store with
+  atomic writes. Invalid entries and unsupported versions are ignored without affecting built-ins.
 
 ## AI and Gemini flow
 
@@ -226,6 +232,7 @@ failures do not disable unrelated commands.
 | Gemini model presets | `app/resources/gemini_models.json` | Tracked package data |
 | Ordinary application preferences | App-data `config/app_settings.json` (`startup`, `window`, AI memory/models, non-secret `twitch` target and named target presets) | Outside repository |
 | Command overrides | App-data `config/command_settings.json` | Outside repository |
+| Custom commands | App-data `config/custom_commands.json` | Outside repository |
 | Personality selection/overrides | App-data `config/personality_settings.json` | Outside repository |
 | Twitch OAuth tokens | App-data `auth/twitchio_tokens.json` | Outside repository; secret |
 | Users and AI memory | App-data `data/twitch_bot.db` | Outside repository; private |
@@ -248,7 +255,7 @@ Old files are retained; the `.legacy-migration-v1` marker prevents a later reset
 reimporting them. Missing filter files are reseeded from tracked source defaults. `--check`
 does not create directories or migrate data.
 
-Delete `config/app_settings.json`, `config/command_settings.json`, or
+Delete `config/app_settings.json`, `config/command_settings.json`, `config/custom_commands.json`, or
 `config/personality_settings.json` to reset those non-secret preferences and overrides.
 Deleting a file in `config/filters/` restores its distributed default on the next launch.
 Deleting `data/twitch_bot.db` destroys saved users and AI memory. Deleting

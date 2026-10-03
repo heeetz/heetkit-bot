@@ -2,10 +2,12 @@
 
 import logging
 import asyncio
+import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from app.command_settings import CommandSettings
+from app.custom_commands import CustomCommand, CustomCommandStore, render_response
 from app.runtime_state import RuntimeState
 from app.services.facade import ApplicationServices
 from app.twitch.events import IncomingChatMessage
@@ -181,6 +183,7 @@ class CommandDispatcher:
         output_limiter: OutputLimiter | None = None,
         ai_cooldown_bypass_user_id: str | None = None,
         runtime_state: RuntimeState | None = None,
+        custom_commands: CustomCommandStore | None = None,
     ) -> None:
         self._registry = registry
         self._cooldowns = cooldowns
@@ -190,6 +193,24 @@ class CommandDispatcher:
         self._output_limiter = output_limiter
         self._ai_cooldown_bypass_user_id = ai_cooldown_bypass_user_id
         self._runtime_state = runtime_state
+        self._custom_commands = custom_commands
+
+    async def _run_custom_command(self, command: CustomCommand, context: CommandContext, arguments: str) -> None:
+        template = random.choice(command.responses)
+        sender = context.message.author.username.lstrip("@")
+        random_user = sender
+        if "{random_user}" in template:
+            try:
+                excluded = (context.message.author.twitch_user_id, context.services.settings.twitch_bot_user_id)
+                recent = await context.services.users.recent_usernames(exclude_user_ids=excluded)
+                eligible = [name for name in recent if name.casefold() != context.services.settings.twitch_bot_username.casefold()]
+                if eligible:
+                    random_user = random.choice(eligible)
+            except Exception:
+                self._logger.exception("Could not load recent chatters for custom command")
+        response = render_response(command, arguments, sender, random_user, template=template)
+        if response:
+            await context.reply(response)
 
     async def dispatch(self, message: IncomingChatMessage, services: ApplicationServices) -> bool:
         try:
@@ -199,13 +220,22 @@ class CommandDispatcher:
 
             command_name, arguments = parsed_command
             definition = self._registry.get(command_name)
+            custom = None
             if definition is None:
-                return False
-            settings = (
-                definition.default_settings
-                if self._runtime_state is None
-                else self._runtime_state.get_command_settings(definition.name)
-            )
+                custom = None if self._custom_commands is None else self._custom_commands.get_by_name(command_name)
+                if custom is None:
+                    return False
+                async def custom_handler(context: CommandContext, tail: str) -> None:
+                    await self._run_custom_command(custom, context, tail)
+                definition = CommandDefinition(name=custom.name, handler=custom_handler)
+                settings = CommandSettings(enabled=custom.enabled, permission=custom.permission, cooldown=custom.cooldown)
+            else:
+                settings = (
+                    definition.default_settings
+                    if self._runtime_state is None
+                    else self._runtime_state.get_command_settings(definition.name)
+                )
+            cooldown_key = f"custom:{custom.id}" if custom is not None else definition.name
 
             command_output_limiter = (
                 None if definition.name == "tg" else self._output_limiter
@@ -264,7 +294,7 @@ class CommandDispatcher:
             # Only perform cooldown check if not bypassed
             if not should_skip_cooldown:
                 cooldown = self._cooldowns.check_and_record(
-                    command_name=definition.name,
+                    command_name=cooldown_key,
                     user_id=message.author.twitch_user_id,
                     policy=settings.cooldown,
                 )

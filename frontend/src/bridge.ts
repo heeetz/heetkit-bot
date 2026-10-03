@@ -56,6 +56,29 @@ export interface CommandsResponse {
   commands: CommandInfo[]
 }
 
+export interface CustomCommandInput {
+  id?: string | null
+  name: string
+  enabled: boolean
+  responses: string[]
+  permission: string
+  per_user_seconds: number
+  global_seconds: number
+  aliases: string[]
+}
+
+export interface CustomCommandInfo extends CustomCommandInput {
+  id: string
+  response_mode: 'single' | 'random'
+}
+
+export interface CustomCommandsResponse {
+  command_prefix: string
+  permissions: string[]
+  variables: string[]
+  commands: CustomCommandInfo[]
+}
+
 export interface AIStatus {
   enabled: boolean
   memory_enabled: boolean
@@ -171,12 +194,15 @@ export interface LogsResponse {
 interface PythonApi {
   get_app_status(): Promise<AppStatus>
   get_commands(): Promise<CommandsResponse>
+  get_custom_commands(): Promise<CustomCommandsResponse>
   get_ai_status(): Promise<AIStatus>
   get_personalities(): Promise<PersonalitiesResponse>
   get_recent_logs(after_id?: number, limit?: number): Promise<LogsResponse>
   apply_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string): Promise<ActionResult>
   save_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string): Promise<ActionResult>
   reset_command_settings(commandName: string): Promise<ActionResult>
+  save_custom_command(command: CustomCommandInput): Promise<ActionResult>
+  delete_custom_command(id: string): Promise<ActionResult>
   set_ai_enabled(enabled: boolean): Promise<ActionResult>
   set_ai_memory_enabled(enabled: boolean): Promise<ActionResult>
   apply_personality(personality: string, prompt: string): Promise<ActionResult>

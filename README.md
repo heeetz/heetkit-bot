@@ -103,6 +103,7 @@ Configuration responsibilities remain separated:
 - `.env` contains deployment values, account identity, logging settings, and private credential fallbacks. It is loaded by `app/config/settings.py` and must remain private. Credentials stored through the Settings page in the system keyring take precedence on the next launch.
 - `config.py` contains non-secret behavioral defaults, including cooldowns, the Telegram message, AI response length, memory limits, and the active personality identifier. Built-in personality prompts live in the tracked `app/resources/personalities.json` resource; protected shared AI instructions remain application code in `app/config/personalities.py`.
 - `config/command_settings.json` under the platform app-data root contains optional local command overrides. Commands without overrides continue to use registry defaults.
+- `config/custom_commands.json` under that root contains versioned, local custom commands. Invalid entries are skipped and cannot disable built-in commands.
 - `config/personality_settings.json` under that root contains the locally selected AI personality and optional personality-specific prompt overrides. Shared AI instructions are not editable.
 - `config/app_settings.json` under that root is a versioned local application-settings file. It contains the
   opt-in automatic-start preference, window/tray preferences, AI memory and selected/fallback
@@ -191,11 +192,13 @@ All commands are configurable from the Commands page. Hidden commands are omitte
 
 Built-in cooldowns come from `config.py`; saved local overrides take precedence at runtime. `!tg` and hidden `!erase` currently have no built-in command cooldown; all other default cooldown values are explicitly configured there.
 
+The Commands page also lets you create your own commands with a name, optional aliases, permission level, per-user and global cooldowns, and one or more response templates. Multiple templates are chosen at random. Use `{sender}`, `{target}` (first argument, or sender if absent), `{args}`, `{arg1}` through `{arg9}` (missing arguments become blank), and `{random_user}` (a chatter seen in the last 30 minutes, or sender if none is available). Unknown variables are rejected when saving. Custom commands cannot take a built-in name or alias, and templates never run code. Replies are limited to 450 UTF-8 bytes and use the normal global output limiter.
+
 ## Desktop control panel
 
 `python -m app.main` opens the React UI in pywebview and controls the single composed Python application. The explicit bridge exposes only application-level lifecycle and settings operations; command rules, AI behavior, persistence, Twitch, and database access remain in Python.
 
-The Commands page is registry-driven, including hidden commands, and edits canonical enabled, permission, and cooldown settings. Apply is process-local, Save writes app-data `config/command_settings.json`, and Reset removes the override and restores registry defaults.
+The built-in Commands section is registry-driven, including hidden commands, and edits canonical enabled, permission, and cooldown settings. Apply is process-local, Save writes app-data `config/command_settings.json`, and Reset removes the override and restores registry defaults. The separate Custom Commands section saves user-created commands immediately to app-data `config/custom_commands.json`.
 
 The AI page provides a runtime AI-command toggle, a persisted memory toggle, Gemini
 selected/fallback model configuration, and the active personality selector. Personality Apply
@@ -227,6 +230,7 @@ Generated local files include:
 | App-data `auth/twitchio_tokens.json` | Twitch access/refresh credentials | Never |
 | App-data `data/twitch_bot.db` | Local user activity and AI memory | Never |
 | App-data `config/command_settings.json` | Local command overrides | Never |
+| App-data `config/custom_commands.json` | Local custom commands | Never |
 | App-data `config/personality_settings.json` | Local personality text and selection | Never |
 | App-data `config/app_settings.json` | Versioned local startup, window/tray, AI memory/model, and non-secret Twitch target/preset preferences | Never |
 | App-data `config/filters/*.txt` | Locally editable filter rules | Review before sharing |

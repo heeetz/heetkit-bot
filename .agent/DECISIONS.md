@@ -108,6 +108,20 @@ Runtime settings and the UI derive their command list from registered definition
 Reason:
 This prevents manually maintained command lists from drifting apart.
 
+## Decision: Custom commands are validated local templates
+
+Status: Active
+
+Decision:
+Built-ins remain application-owned in `CommandRegistry`. User-created commands have stable IDs
+and live in a separate versioned app-data store. Their triggers cannot collide with built-ins;
+the existing dispatcher enforces permission, cooldown, and output policy. Template variables
+come from a fixed allowlist and never execute code.
+
+Reason:
+Users can create basic chat commands without gaining an executable scripting surface or
+duplicating dispatch policy.
+
 ## Decision: Defaults, local overrides, and effective runtime state are distinct
 
 Status: Active

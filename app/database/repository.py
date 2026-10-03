@@ -1,6 +1,6 @@
 """Repositories that isolate SQLAlchemy queries from services."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -47,6 +47,19 @@ class UserRepository:
         async with self._session_factory() as session:
             statement = select(User).where(func.lower(User.username) == username.lower())
             return await session.scalar(statement)
+
+    async def recent_usernames(self, *, exclude_user_ids: tuple[str, ...] = (), limit: int = 50) -> list[str]:
+        """Recent chatters eligible for a random-user template variable."""
+        async with self._session_factory() as session:
+            statement = (
+                select(User.username)
+                .where(User.last_seen_at >= utcnow() - timedelta(minutes=30))
+                .order_by(User.last_seen_at.desc())
+                .limit(limit)
+            )
+            if exclude_user_ids:
+                statement = statement.where(User.twitch_user_id.not_in(exclude_user_ids))
+            return list((await session.scalars(statement)).all())
 
 
 class AIMemoryRepository:
