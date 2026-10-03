@@ -73,6 +73,5 @@ Desktop.ini
 *.swp
 *~
 *.png
-!/logo.png
 !/app/resources/*.png
 !/frontend/public/*.png

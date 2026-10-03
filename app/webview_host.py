@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import ctypes
 import logging
 import math
 import sys
@@ -51,6 +52,7 @@ from config import APP_SETTINGS_PATH
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_ENTRYPOINT = PROJECT_ROOT / "frontend" / "dist" / "index.html"
 ICON_ROOT = Path(__file__).resolve().parent / "resources"
+WINDOWS_APP_ID = "TwitchBot.Desktop"
 FALLBACK_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 FORCED_STOP_TIMEOUT_SECONDS = 2.0
 BRIDGE_SETTINGS_TIMEOUT_SECONDS = 10.0
@@ -1435,6 +1437,25 @@ class DesktopController:
             self._window.hide()
 
 
+def configure_windows_taskbar(window: Any) -> None:
+    """Apply the branded icon to pywebview's native WinForms window."""
+    try:
+        from System import Action
+        from System.Drawing import Icon
+
+        native = window.native
+
+        def set_icon() -> None:
+            native.Icon = Icon(str(ICON_ROOT / "icon.ico"))
+
+        if native.InvokeRequired:
+            native.Invoke(Action(set_icon))
+        else:
+            set_icon()
+    except Exception:
+        get_logger("app.webview.desktop").exception("Could not set Windows taskbar icon")
+
+
 def run_desktop_host(
     settings: Settings,
     frontend_url: str,
@@ -1443,6 +1464,16 @@ def run_desktop_host(
     credential_manager: CredentialManager | None = None,
 ) -> None:
     import webview
+
+    if sys.platform == "win32":
+        set_app_id = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
+        set_app_id.argtypes = [ctypes.c_wchar_p]
+        set_app_id.restype = ctypes.c_long
+        result = set_app_id(WINDOWS_APP_ID)
+        if result != 0:
+            get_logger("app.webview.desktop").warning(
+                "Could not set Windows taskbar application identity: %s", result
+            )
 
     app_settings = AppSettingsStore(APP_SETTINGS_PATH)
     settings_snapshot = app_settings.snapshot()
@@ -1476,6 +1507,8 @@ def run_desktop_host(
         )
         if window is None:
             raise RuntimeError("Could not create the desktop window.")
+        if sys.platform == "win32":
+            window.events.shown += configure_windows_taskbar
         controller.bind_window(window)
         controller.start_tray()
         development_mode = frontend_url.startswith(("http://", "https://"))

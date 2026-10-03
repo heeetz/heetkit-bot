@@ -252,14 +252,16 @@ Developer context is useful in source control but is not end-user application co
 runtime state outside the installation makes builds reproducible and upgrades safer without
 shipping secrets, local databases, or machine-specific configuration.
 
-## Decision: One master logo supplies platform icon assets
+## Decision: One shipped icon supplies platform assets
 
 Status: Active
 
 Decision:
-The tracked root `logo.png` is the branding master. `scripts/generate_icons.py` derives the
-runtime PNG, Windows ICO, macOS ICNS, tray, and frontend icons from it. Packaging uses these
-generated assets rather than recreating the mark in code.
+`app/resources/icon.png` is the tracked 1024 px branding source. The original supplied image
+is temporary input and is not retained in the repository. `scripts/generate_icons.py` derives
+Windows ICO, macOS ICNS, tray, and frontend icons from the shipped PNG. Windows source launches
+set the `TwitchBot.Desktop` taskbar identity; future installer shortcuts should use the same ID.
 
 Reason:
 One source keeps the desktop window, tray, UI, and future release bundles visually consistent.
+The explicit Windows identity separates a source launch from the Python interpreter taskbar group.
