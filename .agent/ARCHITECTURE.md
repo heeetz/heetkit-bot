@@ -7,7 +7,7 @@ responsibilities and boundaries, not implementation detail from entire source fi
 
 - `python -m app.main` is the canonical application entry point. The installed `twitch-bot`
   command resolves to the same function.
-- Normal Windows desktop launches acquire a named mutex keyed to the resolved local settings
+- Normal Windows desktop launches acquire a named mutex keyed to the resolved platform app-data settings
   path before loading settings or starting the host. A duplicate reports the existing instance
   and exits. The read-only `--check` mode bypasses the guard; `--dev-url` remains guarded.
 - Root `run.bat` changes to the repository directory and invokes
@@ -123,7 +123,7 @@ Responsibility: registry-driven definitions and centralized dispatch.
 ## Command settings persistence
 
 - Type/validation and JSON persistence live in `app/command_settings.py`.
-- Local file: `data/command_settings.json` (Git-ignored).
+- Local file: platform app-data `config/command_settings.json`.
 - Writes use temporary-file flush/fsync followed by replacement. Missing, malformed, stale,
   and individually invalid overrides fall back safely to registry defaults.
 - Apply changes runtime state, Save writes a minimal difference from defaults, and Reset
@@ -148,7 +148,7 @@ Responsibility: policy and provider work remain in Python.
 5. A successfully delivered response is saved to memory only if memory remains enabled.
 
 Gemini selected/fallback model defaults come from typed environment `Settings`; validated local
-overrides in `data/app_settings.json` are applied before composition and UI changes update the
+overrides in platform app-data `config/app_settings.json` are applied before composition and UI changes update the
 shared Settings object for the next request. Tracked presets live in
 `app/resources/gemini_models.json`, while provider discovery is optional. The Gemini API key is
 resolved from Windows Credential Manager first, then the private `.env` fallback. Provider
@@ -161,12 +161,12 @@ failures do not disable unrelated commands.
   shared instructions remain application code there; the active source default is in root
   `config.py`.
 - Only personality-specific text is editable. `RuntimeState` overlays local prompts and active
-  selection from `data/personality_settings.json` (Git-ignored).
+  selection from platform app-data `config/personality_settings.json`.
 - Personality Apply is runtime-only, Save is persistent, and Reset restores the built-in text.
   Shared AI instructions are never sent to the editor.
 - `AIMemoryService` uses repository-backed SQLite storage and retains the configured number of
   successful exchanges per Twitch user. AI memory enablement starts from the source default
-  overlaid by `data/app_settings.json`; UI changes persist there before updating RuntimeState.
+  overlaid by platform app-data `config/app_settings.json`; UI changes persist there before updating RuntimeState.
 
 ## Twitch boundary
 
@@ -182,8 +182,7 @@ failures do not disable unrelated commands.
 - Presets do not represent authenticated bot accounts. The configured bot identity and
   TwitchIO OAuth cache remain process-wide; future multi-account authentication would need an
   explicit profile reference and credential/token ownership model.
-- OAuth tokens are stored in the configured local TwitchIO token file. They are secrets and
-  are ignored by Git.
+- OAuth tokens are stored in platform app-data `auth/twitchio_tokens.json`. They are secrets.
 
 ## Logging
 
@@ -218,16 +217,38 @@ failures do not disable unrelated commands.
 | Built-in personality prompts | `app/resources/personalities.json` | Tracked package data |
 | Protected shared AI instructions | `app/config/personalities.py` | Tracked application code |
 | Gemini model presets | `app/resources/gemini_models.json` | Tracked package data |
-| Ordinary application preferences | Versioned `data/app_settings.json` (`startup`, `window`, AI memory/models, non-secret `twitch` target and named target presets) | Ignored local state |
-| Command overrides | `data/command_settings.json` | Ignored local state |
-| Personality selection/overrides | `data/personality_settings.json` | Ignored local state |
-| Twitch OAuth tokens | `data/twitchio_tokens.json` or configured path | Ignored secret state |
-| Users and AI memory | `data/twitch_bot.db` by default | Ignored local data |
-| Global filter resources | `data/filters/*.txt` | Tracked |
+| Ordinary application preferences | App-data `config/app_settings.json` (`startup`, `window`, AI memory/models, non-secret `twitch` target and named target presets) | Outside repository |
+| Command overrides | App-data `config/command_settings.json` | Outside repository |
+| Personality selection/overrides | App-data `config/personality_settings.json` | Outside repository |
+| Twitch OAuth tokens | App-data `auth/twitchio_tokens.json` | Outside repository; secret |
+| Users and AI memory | App-data `data/twitch_bot.db` | Outside repository; private |
+| Locally editable filters | App-data `config/filters/*.txt` | Outside repository |
+| Distributed filter defaults | `data/filters/*.txt` | Tracked, read-only at runtime |
 | Frontend source / generated build | `frontend/src`, `frontend/dist` | Source tracked; build ignored |
 
 See `docs/configuration-audit.md` for the current ownership audit and recommended future
 configuration direction.
+
+### Runtime data reference
+
+`platformdirs.user_data_path("TwitchBot", appauthor=False)` selects the root: Windows
+`%LOCALAPPDATA%\TwitchBot`, macOS `~/Library/Application Support/TwitchBot`, and Linux
+`${XDG_DATA_HOME:-~/.local/share}/TwitchBot`. Platform directory overrides may change these
+exact locations. `app/runtime_paths.py` owns the paths and first-launch migration. Before
+opening local state, a normal desktop launch copies missing legacy checkout JSON, SQLite,
+TwitchIO tokens, and filter files to the new root. SQLite is copied through its backup API.
+Old files are retained; the `.legacy-migration-v1` marker prevents a later reset from
+reimporting them. Missing filter files are reseeded from tracked source defaults. `--check`
+does not create directories or migrate data.
+
+Delete `config/app_settings.json`, `config/command_settings.json`, or
+`config/personality_settings.json` to reset those non-secret preferences and overrides.
+Deleting a file in `config/filters/` restores its distributed default on the next launch.
+Deleting `data/twitch_bot.db` destroys saved users and AI memory. Deleting
+`auth/twitchio_tokens.json` removes Twitch OAuth access/refresh tokens and requires
+reauthorization. The Gemini API key and Twitch client secret live in the OS keyring, with
+private `.env` fallbacks; they are never stored in ordinary JSON. There are no persistent
+application logs or other cache files at present; `cache/` is reserved for future use.
 
 ## Current source and release boundary
 

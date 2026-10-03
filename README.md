@@ -92,16 +92,18 @@ is intentionally ignored and recreated by `npm run build`.
 
 Configuration responsibilities remain separated:
 
-- `.env` contains deployment values, account identity, local paths, logging settings, and private credential fallbacks. It is loaded by `app/config/settings.py` and must remain private. Credentials stored through the Settings page in Windows Credential Manager take precedence on the next launch.
+- `.env` contains deployment values, account identity, logging settings, and private credential fallbacks. It is loaded by `app/config/settings.py` and must remain private. Credentials stored through the Settings page in Windows Credential Manager take precedence on the next launch.
 - `config.py` contains non-secret behavioral defaults, including cooldowns, the Telegram message, AI response length, memory limits, and the active personality identifier. Built-in personality prompts live in the tracked `app/resources/personalities.json` resource; protected shared AI instructions remain application code in `app/config/personalities.py`.
-- `data/command_settings.json` contains optional local command overrides and is ignored by Git. Commands without overrides continue to use registry defaults.
-- `data/personality_settings.json` contains the locally selected AI personality and optional personality-specific prompt overrides. Shared AI instructions are not editable.
-- `data/app_settings.json` is a versioned local application-settings file. It contains the
+- `config/command_settings.json` under the platform app-data root contains optional local command overrides. Commands without overrides continue to use registry defaults.
+- `config/personality_settings.json` under that root contains the locally selected AI personality and optional personality-specific prompt overrides. Shared AI instructions are not editable.
+- `config/app_settings.json` under that root is a versioned local application-settings file. It contains the
   opt-in automatic-start preference, window/tray preferences, AI memory and selected/fallback
   Gemini models, plus optional non-secret Twitch target-channel settings and named target
   presets. Legacy flat window settings remain readable and are rewritten in the versioned
   format on the next save.
-- Apply actions take effect for the current process; Save persists local overrides; Reset restores source-controlled defaults. All three local JSON files are ignored by Git.
+- Apply actions take effect for the current process; Save persists local overrides; Reset restores source-controlled defaults. On first normal launch, existing checkout data is copied into the platform app-data root; the old files are left in place. Deleting the new config JSON files restores defaults on the next launch.
+
+The app-data root is `%LOCALAPPDATA%\TwitchBot` on Windows, `~/Library/Application Support/TwitchBot` on macOS, and `${XDG_DATA_HOME:-~/.local/share}/TwitchBot` on Linux. It contains `config/`, `data/`, `auth/`, and `cache/`.
 
 The environment variables supported by the current application are:
 
@@ -113,11 +115,11 @@ The environment variables supported by the current application are:
 | `TWITCH_BOT_USERNAME` | Yes | Login name of the bot account. |
 | `TWITCH_CHANNEL_USER_ID` | Yes | Numeric user ID of the channel receiving the bot. |
 | `TWITCH_CHANNEL` | Yes | Channel login name. |
-| `TWITCH_TOKEN_FILE` | No | TwitchIO token storage; defaults to `data/twitchio_tokens.json`. |
+| `TWITCH_TOKEN_FILE` | No | Legacy token-file location to import on the first normal launch. New tokens use the app-data `auth/` directory. |
 | `GEMINI_API_KEY` | No | Private `.env` fallback for Gemini; a Windows Credential Manager value takes precedence. |
 | `GEMINI_MODEL` | No | Gemini model; defaults to `gemini-3.5-flash-lite`. |
 | `AI_COOLDOWN_BYPASS_USER_ID` | No | One Twitch user ID allowed to bypass only the `!ask` cooldown. |
-| `DATABASE_URL` | No | SQLAlchemy URL; defaults to local SQLite at `data/twitch_bot.db`. |
+| `DATABASE_URL` | No | Legacy SQLite URL to import on the first normal launch, or an explicit non-SQLite database URL. Local SQLite uses app-data `data/twitch_bot.db`. |
 | `LOG_LEVEL` | No | `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
 | `COMMAND_PREFIX` | No | Command prefix; defaults to `!`. |
 | `COMMAND_MAX_ARGUMENTS_LENGTH` | No | Maximum command-argument length, from 1 to 450. |
@@ -125,13 +127,13 @@ The environment variables supported by the current application are:
 `TWITCH_CLIENT_SECRET` must be available from either Windows Credential Manager or the
 private environment/`.env` fallback.
 
-Global message filters live in `data/filters/`:
+Global message filters are copied from tracked `data/filters/` into app-data `config/filters/` on first launch. Edit the app-data copies for local changes; missing copies are recreated from the tracked defaults:
 
 - `blocked_words.txt` contains whole-word matches;
 - `blocked_phrases.txt` contains literal phrase matches;
 - `blocked_patterns.txt` contains regular expressions.
 
-Blank lines and lines beginning with `#` are ignored. These text files are distributable behavior configuration, not secret runtime state. Review custom filter content before sharing it.
+Blank lines and lines beginning with `#` are ignored. The tracked files are distributable defaults; local edits in app-data stay outside the source tree. Review custom filter content before sharing it.
 
 Built-in cooldown values remain in root `config.py`; effective command cooldowns can be applied or saved from the Commands page. Available personality names currently are `vas2`, `vas`, `anime_girl`, `rapper`, `neutral`, and `gopnik`; `ACTIVE_AI_PERSONALITY` selects the developer default when no local selection has been saved.
 
@@ -148,7 +150,7 @@ Built-in cooldown values remain in root `config.py`; effective command cooldowns
 4. Start the application. If authorization is required, the log prints the local TwitchIO authorization URL served on port `4343`.
 5. Authorize the configured bot account. The application requests chat read/write, bot, and follower-read scopes used by the current implementation.
 
-TwitchIO stores generated access and refresh tokens in `TWITCH_TOKEN_FILE`. The default is `data/twitchio_tokens.json`. Token files contain credentials: never commit, publish, email, or include them in a manually created ZIP.
+TwitchIO stores generated access and refresh tokens in app-data `auth/twitchio_tokens.json`. Token files contain credentials: never commit, publish, email, or include them in a manually created ZIP.
 
 ## AI setup
 
@@ -159,7 +161,7 @@ presets, optional provider discovery, or an explicit custom model ID.
 
 `!ask` applies the local AI request policy before contacting Gemini. Requests involving current, changing, comparison, event, or named-opinion information can enable Google Search grounding. Provider responses then pass through the local response policy and configured response-length limit before delivery.
 
-When AI memory is enabled, up to `AI_MEMORY_MAX_ENTRIES` successful exchanges per Twitch user are stored in SQLite and supplied as untrusted conversation context. The AI page can disable memory without disabling Gemini, and that preference is saved in `data/app_settings.json`. Built-in personality prompts are loaded from `app/resources/personalities.json`; the editor exposes only personality-specific text and always preserves the application-owned shared system and safety instructions.
+When AI memory is enabled, up to `AI_MEMORY_MAX_ENTRIES` successful exchanges per Twitch user are stored in SQLite and supplied as untrusted conversation context. The AI page can disable memory without disabling Gemini, and that preference is saved in app-data `config/app_settings.json`. Built-in personality prompts are loaded from `app/resources/personalities.json`; the editor exposes only personality-specific text and always preserves the application-owned shared system and safety instructions.
 
 ## Commands
 
@@ -185,12 +187,12 @@ Built-in cooldowns come from `config.py`; saved local overrides take precedence 
 
 `python -m app.main` opens the React UI in pywebview and controls the single composed Python application. The explicit bridge exposes only application-level lifecycle and settings operations; command rules, AI behavior, persistence, Twitch, and database access remain in Python.
 
-The Commands page is registry-driven, including hidden commands, and edits canonical enabled, permission, and cooldown settings. Apply is process-local, Save writes `data/command_settings.json`, and Reset removes the override and restores registry defaults.
+The Commands page is registry-driven, including hidden commands, and edits canonical enabled, permission, and cooldown settings. Apply is process-local, Save writes app-data `config/command_settings.json`, and Reset removes the override and restores registry defaults.
 
 The AI page provides a runtime AI-command toggle, a persisted memory toggle, Gemini
 selected/fallback model configuration, and the active personality selector. Personality Apply
 changes the next AI request without restarting, Save writes the active selection and
-personality-specific override to `data/personality_settings.json`, and Reset restores the
+personality-specific override to app-data `config/personality_settings.json`, and Reset restores the
 built-in prompt. The shared AI instructions are never sent to the editor.
 
 Live logs use a thread-safe 500-entry backend buffer and a bounded 500-entry frontend view. Clearing the Logs page does not delete persistent logs or application state.
@@ -198,7 +200,7 @@ Live logs use a thread-safe 500-entry backend buffer and a bounded 500-entry fro
 The Settings page controls automatic bot startup, start minimized, minimize to tray, and close
 to tray. Its Twitch section shows connection, configured bot identity, OAuth-cache status, and
 the active/target channel. Target settings and named presets write only display names, channel
-logins, and numeric user IDs to `data/app_settings.json`; Save & reconnect applies the selected
+logins, and numeric user IDs to app-data `config/app_settings.json`; Save & reconnect applies the selected
 target through the existing bot lifecycle. The page also shows masked credential status for the
 Gemini API key and Twitch client secret, with Replace, Remove, and provider Test actions.
 Credential values are never returned to React; changes use Windows Credential Manager and take
@@ -214,12 +216,13 @@ Generated local files include:
 | --- | --- | --- |
 | `.env` and other local `.env.*` files | Secrets and machine-specific deployment configuration | Never |
 | Windows Credential Manager entries for service `twitch-bot` | Gemini API key and Twitch client secret | Not repository files |
-| `data/twitchio_tokens.json` or custom token path | Twitch access/refresh credentials | Never |
-| `data/twitch_bot.db` or other SQLite files | Local user activity and AI memory | Never |
-| `data/command_settings.json` | Local command overrides | Never |
-| `data/personality_settings.json` | Local personality text and selection | Never |
-| `data/app_settings.json` | Versioned local startup, window/tray, AI memory/model, and non-secret Twitch target/preset preferences | Never |
-| `data/filters/*.txt` | Intended filter configuration/defaults | Yes, after reviewing custom content |
+| App-data `auth/twitchio_tokens.json` | Twitch access/refresh credentials | Never |
+| App-data `data/twitch_bot.db` | Local user activity and AI memory | Never |
+| App-data `config/command_settings.json` | Local command overrides | Never |
+| App-data `config/personality_settings.json` | Local personality text and selection | Never |
+| App-data `config/app_settings.json` | Versioned local startup, window/tray, AI memory/model, and non-secret Twitch target/preset preferences | Never |
+| App-data `config/filters/*.txt` | Locally editable filter rules | Review before sharing |
+| Source `data/filters/*.txt` | Distributed filter defaults | Yes, after reviewing custom content |
 | `.venv/`, caches, build output, logs, IDE metadata | Generated local development state | No |
 
 The database may contain Twitch user IDs, usernames, last-seen timestamps, and recent AI exchanges. Treat it as private even if it contains no API secrets.

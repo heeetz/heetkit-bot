@@ -24,6 +24,7 @@ from app.config.ai_models import GEMINI_MODEL_PRESETS, GEMINI_PROVIDER_NAME
 from app.config.settings import Settings, load_settings_with_credentials
 from app.container import Application, build_application
 from app.credentials import CredentialError, CredentialManager
+from app.runtime_paths import RuntimeDataError, prepare_runtime_data
 from app.system_tray import SystemTray
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
@@ -1466,6 +1467,13 @@ def main() -> None:
         guard = nullcontext() if arguments.check else desktop_instance_guard(APP_SETTINGS_PATH)
         with guard:
             settings, credential_manager = load_settings_with_credentials()
+            if not arguments.check:
+                token_file, database_url = prepare_runtime_data(
+                    settings.twitch_token_file, settings.database_url
+                )
+                settings = settings.model_copy(
+                    update={"twitch_token_file": token_file, "database_url": database_url}
+                )
             configure_logging(settings.log_level)
             frontend_url = resolve_frontend_url(arguments.dev_url)
             if arguments.check:
@@ -1480,7 +1488,7 @@ def main() -> None:
     except DesktopAlreadyRunningError as error:
         notify_existing_desktop(str(error))
         parser.exit(1, f"ERROR: {error}\n")
-    except (ValidationError, FileNotFoundError) as error:
+    except (ValidationError, FileNotFoundError, RuntimeDataError) as error:
         parser.error(str(error))
 
 

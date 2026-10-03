@@ -117,6 +117,10 @@ def test_configuration_check_does_not_acquire_desktop_instance_guard(monkeypatch
         "app.webview_host.load_settings_with_credentials",
         lambda: (SimpleNamespace(log_level="INFO"), None),
     )
+    monkeypatch.setattr(
+        "app.webview_host.prepare_runtime_data",
+        lambda *args: pytest.fail("--check migrated local state"),
+    )
     monkeypatch.setattr("app.webview_host.configure_logging", lambda level: None)
 
     main()

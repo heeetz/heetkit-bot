@@ -133,7 +133,8 @@ Source rewriting is fragile, unsafe, and makes Reset and upgrades difficult.
 Status: Active
 
 Decision:
-Ordinary non-secret desktop preferences use the versioned `data/app_settings.json` file.
+Ordinary non-secret desktop preferences use the versioned platform app-data
+`config/app_settings.json` file.
 Schema version 1 contains independent `startup`/`window` settings, AI memory and
 selected/fallback model settings, and an optional non-secret Twitch target-channel override
 with named target presets; future ordinary sections may extend this model. Twitch presets have
@@ -168,7 +169,7 @@ API keys, client secrets, and OAuth tokens must not be written to ordinary appli
 User-entered Gemini and Twitch client credentials use the OS keyring (Windows Credential
 Manager) and override the private `.env` developer/deployment fallback at startup. The UI may
 show source/configuration status but must never read credential values back. TwitchIO OAuth
-tokens remain in its ignored library-managed token cache.
+tokens remain in its library-managed cache under the platform app-data `auth/` directory.
 
 Reason:
 Ordinary settings are user-editable and portable; credentials require stricter storage and
@@ -179,9 +180,10 @@ logging rules.
 Status: Active
 
 Decision:
-Local settings, tokens, databases, logs, caches, virtual environments, dependencies, and
-generated frontend output remain ignored. Safe defaults, schemas, source, lockfiles, and
-example configuration remain tracked.
+Local settings, tokens, databases, logs, and caches live outside the repository under one
+platform app-data root. Virtual environments, dependencies, and generated frontend output
+remain ignored. Safe defaults, schemas, source, lockfiles, and example configuration remain
+tracked. First normal launch copies legacy local state once; old files are not deleted.
 
 Reason:
 The repository must not leak credentials/private data or mix machine state with distributable

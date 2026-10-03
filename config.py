@@ -1,19 +1,18 @@
 """User-editable, non-secret bot behavior settings."""
 
-from pathlib import Path
-
 from app.config.personalities import (
     AI_PERSONALITY_PRESETS,
     AI_PERSONALITY_PROMPTS,
     SHARED_AI_INSTRUCTIONS,
 )
+from app.runtime_paths import RuntimePaths
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent
-FILTERS_DIRECTORY = PROJECT_ROOT / "data" / "filters"
-COMMAND_SETTINGS_PATH = PROJECT_ROOT / "data" / "command_settings.json"
-PERSONALITY_SETTINGS_PATH = PROJECT_ROOT / "data" / "personality_settings.json"
-APP_SETTINGS_PATH = PROJECT_ROOT / "data" / "app_settings.json"
+RUNTIME_PATHS = RuntimePaths.default()
+FILTERS_DIRECTORY = RUNTIME_PATHS.filters
+COMMAND_SETTINGS_PATH = RUNTIME_PATHS.command_settings
+PERSONALITY_SETTINGS_PATH = RUNTIME_PATHS.personality_settings
+APP_SETTINGS_PATH = RUNTIME_PATHS.app_settings
 
 
 # Command behavior.

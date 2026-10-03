@@ -4,15 +4,18 @@ import logging
 import re
 from pathlib import Path
 
+from app.runtime_paths import RuntimePaths
 from app.services.filter_manager import FilterManager, FilterRule
 
 
 logger = logging.getLogger(__name__)
 
 
-def load_filters_from_directory(filter_manager: FilterManager, directory_path: str = "data/filters") -> None:
+def load_filters_from_directory(
+    filter_manager: FilterManager, directory_path: str | Path | None = None
+) -> None:
     """Reload each readable file, retaining its previous rules if reading fails."""
-    directory = Path(directory_path)
+    directory = Path(directory_path) if directory_path is not None else RuntimePaths.default().filters
     try:
         directory.mkdir(parents=True, exist_ok=True)
     except OSError as error:

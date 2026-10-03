@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from app.config.settings import Settings, load_settings_with_credentials
 from app.credentials import CREDENTIAL_SERVICE_NAME, CredentialStore
+from app.runtime_paths import RuntimePaths
 
 
 class FakeKeyring:
@@ -36,7 +37,8 @@ def test_settings_create_primary_account() -> None:
     settings = Settings(_env_file=None, **valid_settings())
 
     assert settings.primary_account.username == "testbot"
-    assert settings.twitch_token_file == "data/twitchio_tokens.json"
+    assert settings.twitch_token_file == str(RuntimePaths.default().tokens)
+    assert settings.database_url.endswith(str(RuntimePaths.default().database))
     assert settings.gemini_model == "gemini-3.5-flash-lite"
     assert settings.gemini_fallback_model == "gemini-3.1-flash-lite"
 

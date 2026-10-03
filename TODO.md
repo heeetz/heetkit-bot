@@ -28,49 +28,6 @@ When asked to execute a TODO:
 
 # P1 — Runtime data, portability, and desktop polish
 
-## TODO-004 — Consolidate mutable runtime data into one platform app-data root
-
-Goal: no user-mutated state should depend on writing beside the source tree or packaged executable.
-
-- [ ] Inventory every mutable runtime artifact:
-  - app settings;
-  - command overrides/custom-command data;
-  - personality overrides;
-  - SQLite database;
-  - TwitchIO OAuth/token cache;
-  - any generated filter/user data;
-  - persistent logs/cache if they exist.
-- [ ] Introduce one platform-aware application data root using a standard solution such as `platformdirs`.
-- [ ] Keep a small number of cohesive subdirectories/files instead of scattering config across the repository.
-- [ ] Prefer a layout conceptually similar to:
-
-```text
-TwitchBot/
-├── config/
-│   ├── app_settings.json
-│   ├── command_settings.json
-│   └── personality_settings.json
-├── data/
-│   └── bot.db
-├── auth/
-│   └── <library-managed non-keyring auth cache if required>
-└── cache/
-```
-
-- [ ] Credentials/API secrets remain in the OS keyring and must not be copied into JSON.
-- [ ] Preserve safe migration from the current development/runtime paths.
-- [ ] Missing files/directories must recreate clean defaults automatically.
-- [ ] Add one internal developer/agent reference documenting:
-  - exact runtime paths per platform;
-  - which files are safe to delete to reset settings;
-  - which data is destructive to delete;
-  - which secrets live only in the OS credential store.
-- [ ] This reference is developer-facing and must not be bundled into the end-user application.
-
-**Acceptance:** deleting the non-secret config files recreates defaults, and mutable user state no longer lives throughout the source tree.
-
----
-
 ## TODO-005 — Remove accidental Windows-only assumptions from application code
 
 Windows remains the first release target, but the application core should not unnecessarily block macOS/Linux.

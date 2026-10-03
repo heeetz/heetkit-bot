@@ -1,82 +1,57 @@
 # Current handoff
 
-Replace outdated statements when the project changes. This file describes current state, not a
-task history; repository code remains authoritative.
+Repository code is authoritative. This file records the current state and next requested work.
 
 ## Repository state
 
-- Branch: `main`; remote target: `origin/main`.
-- Latest application-code baseline: TODO-003 Twitch connection observability.
+- Branch: `main`; completed work is pushed to `origin/main`.
+- Latest application-code baseline: TODO-004 platform app-data migration.
 - Normal launch paths: `run.bat`, `python -m app.main`, or installed `twitch-bot`.
-- No active partially completed implementation task exists.
 
 ## Current application state
 
 - React/TypeScript/Vite is the only desktop UI, hosted by pywebview. Python owns the application
-  and domain core behind the explicit `WebUIBridge`; Tkinter has been removed.
-- One `AsyncioBackendHost` owns one background asyncio loop, composed `Application`, and
-  `BotRuntime`. Bot start/stop/reconnect and orderly shutdown stay on that lifecycle. Window
-  close, Tray Exit, and host teardown converge on the same idempotent shutdown path.
-- One `DesktopController` owns one tray icon. Start-minimized affects initial visibility only;
-  minimize-to-tray and close-to-tray change window behavior without creating another tray or
-  shutdown path.
-- Normal Windows desktop launches hold a named single-instance mutex before local state loads.
-  Duplicate launches report the existing process and exit; read-only `--check` bypasses it.
-- Bridge calls waiting on backend work have explicit deadlines, request cancellation on timeout,
-  and observe uncancelled late completion. AI-memory and Gemini-model persist-and-apply changes
-  execute in backend-loop order.
-- Commands are registry-driven and use canonical thread-safe `RuntimeState` settings. Apply is
+  and domain core behind the explicit `WebUIBridge`.
+- One `AsyncioBackendHost` owns one asyncio loop, composed `Application`, and `BotRuntime`.
+  Window close, Tray Exit, and host teardown share an idempotent shutdown path.
+- Normal Windows desktop launches hold a named mutex keyed to the platform app-data settings
+  path. Read-only `--check` bypasses the guard and does not migrate or create runtime files.
+- `app/runtime_paths.py` owns `%LOCALAPPDATA%\TwitchBot` on Windows and the matching platformdirs
+  root on macOS/Linux. Normal startup copies legacy checkout settings, SQLite, tokens, and
+  filter files once before loading state. Old files remain; the migration marker prevents
+  deleted settings from being reimported. Filter defaults reseed missing local files.
+- Non-secret preferences and command/personality overrides live under app-data `config/`.
+  SQLite users and AI memory live under `data/`; TwitchIO OAuth tokens live under `auth/`.
+  The OS keyring still owns user-entered Gemini and Twitch client secrets, with private `.env`
+  fallback. There are no persistent application logs or cache files.
+- Commands remain registry-driven with canonical thread-safe `RuntimeState` settings. Apply is
   session-only, Save persists a validated override, and Reset restores registry defaults.
-- Ordinary non-secret preferences use versioned `data/app_settings.json`; command and personality
-  overrides remain in their dedicated ignored JSON stores. Writes are atomic and malformed or
-  stale values fall back safely where defined.
 - Built-in personality prompts and Gemini model presets are tracked resources. Shared AI
-  instructions remain protected Python-owned policy; only personality-specific local overrides
-  are editable.
-- Gemini API keys and Twitch client secrets use the OS keyring abstraction (Windows Credential
-  Manager on the current target), with private `.env` values retained as startup fallbacks.
-  TwitchIO OAuth tokens remain in its ignored local token cache.
-- `GeminiAIService` reuses one SDK client per effective credential, retires old clients after
-  active calls finish on credential change, and is closed by `Application.shutdown()`. Model
-  changes are read for each request without rebuilding the client.
-- Twitch target-channel settings and named target presets contain no credentials and reconnect
-  through the shared bot lifecycle. TwitchIO remains responsible for normal network recovery.
+  instructions remain protected Python-owned policy; only local personality overrides are editable.
 - Twitch connection state distinguishes stopped, connecting, connected, reconnecting,
-  authorization required, and terminal failure. TwitchIO WebSocket close/welcome and chat
-  subscription revocation events update state and semantic logs where exposed; the existing
-  status poll keeps Dashboard and Settings current after recovery.
-- Standard Python logging feeds a thread-safe bounded backend buffer and bounded React view with
-  whitelisted semantic metadata. Log Clear is frontend-local and secrets must never be logged.
-- Filter files load independently. Missing/unreadable files keep their previous rules on reload;
-  malformed UTF-8 lines and invalid regex entries are skipped with file/line diagnostics. An
-  invalid-only file also keeps the last valid rules; an intentionally empty file clears them.
+  authorization required, and terminal failure. TwitchIO owns ordinary network recovery.
+- Standard Python logging feeds a bounded backend buffer and bounded React view. Log Clear is
+  frontend-local. Filters load independently, retaining prior rules after read failures or
+  invalid-only files.
 - The application currently runs from source. No standalone bundle, installer, or automated
-  release pipeline exists yet; generated frontend/release output remains untracked.
+  release pipeline exists yet.
 
 ## Active roadmap
 
-- `TODO.md` contains unfinished work only; completed implementation history is in Git.
-- Next item: **TODO-004 — Consolidate mutable runtime data into one platform app-data root**. Start it only when explicitly
-  requested.
-- Later work covers platform app-data, portability/layout polish, custom commands/triggers/filter
-  UI, and distribution.
+- `TODO.md` contains unfinished work only; completed history is in Git.
+- Next item: **TODO-005 — Remove accidental Windows-only assumptions from application code**.
+  Start it only when explicitly requested.
 
 ## Important open risks
 
 - TwitchIO does not emit an immediate application event for every transport interruption;
   state changes when its WebSocket close/welcome or subscription events are dispatched.
-- Mutable runtime data still lives under checkout-relative paths pending the platform app-data
-  migration.
 - Required Twitch configuration is validated before the UI opens, so first-run recovery still
   depends on external `.env`/credential setup.
 
 ## Validation baseline
 
-- TODO-003 focused Twitch/runtime/bridge pytest passed (53 tests) using the project virtualenv;
-  frontend typecheck and build passed. The latest full-suite milestone passed 119 tests.
-
-## Workspace note
-
-- Unrelated pre-existing local edits to `AGENTS.md` and `data/filters/blocked_words.txt` are not
-  part of this migration and must remain unstaged unless a future user request explicitly owns
-  them.
+- TODO-004 Python files passed static parsing and `git diff --check`. Focused pytest could not
+  run in the agent environment: the project `.venv` interpreter was access denied, and the
+  available fallback interpreter lacks project packages. Migration tests were added for
+  existing state, SQLite rows, reset behavior, and missing files.

@@ -11,6 +11,7 @@ from app.config.ai_models import (
     validate_gemini_model_id,
 )
 from app.credentials import CredentialManager, CredentialName, CredentialStore
+from app.runtime_paths import RuntimePaths
 
 
 class TwitchAccountSettings(BaseSettings):
@@ -40,12 +41,14 @@ class Settings(BaseSettings):
     twitch_bot_username: str
     twitch_channel_user_id: str
     twitch_channel: str
-    twitch_token_file: str = "data/twitchio_tokens.json"
+    twitch_token_file: str = Field(default_factory=lambda: str(RuntimePaths.default().tokens))
     gemini_api_key: SecretStr | None = None
     gemini_model: str = "gemini-3.5-flash-lite"
     gemini_fallback_model: str = DEFAULT_GEMINI_FALLBACK_MODEL
     ai_cooldown_bypass_user_id: str | None = None
-    database_url: str = "sqlite+aiosqlite:///./data/twitch_bot.db"
+    database_url: str = Field(
+        default_factory=lambda: "sqlite+aiosqlite:///" + str(RuntimePaths.default().database)
+    )
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     command_prefix: str = "!"
     command_max_arguments_length: int = Field(default=300, ge=1, le=450)
