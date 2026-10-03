@@ -5,8 +5,8 @@ Repository code is authoritative. This file records the current state and next r
 ## Repository state
 
 - Branch: `main`; completed work is pushed to `origin/main`.
-- Latest application-code baseline: TODO-009 desktop Filters management. TODO-010 clarified
-  source sharing and the future end-user release boundary without changing application behavior.
+- Latest application-code baseline: TODO-011 final branding. The root `logo.png` is the master
+  for generated application icons, and the UI, tray, and pywebview host use that identity.
 - Normal source launch: Windows `run.bat`; all platforms `python -m app.main` or installed
   `twitch-bot` after installing dependencies and building the frontend.
 
@@ -50,11 +50,15 @@ Repository code is authoritative. This file records the current state and next r
   source release. No native distributable, installer, or automated release pipeline exists yet.
   A future app packaging spec must explicitly include runtime assets and exclude development
   material; public source publication needs a separate current-tree and Git-history secret check.
+- `scripts/generate_icons.py` regenerates icons from the tracked root `logo.png`. Python runtime
+  assets live in `app/resources/` (`icon.ico`, `icon.icns`, `icon.png`, `tray.png`); the frontend
+  uses `frontend/public/icon.png`. Windows executable, installer, and shortcuts should use
+  `app/resources/icon.ico`; future macOS/Linux bundles should use their matching assets.
 
 ## Active roadmap
 
 - `TODO.md` contains unfinished work only; completed history is in Git.
-- Next item: **TODO-011 — Establish final branding and icon assets**. Start only when requested.
+- Next item: **TODO-012 — Build a reproducible standalone Windows application**. Start only when requested.
 
 ## Important open risks
 
@@ -70,3 +74,7 @@ Repository code is authoritative. This file records the current state and next r
 
 - TODO-010 source ZIP was generated and inspected: expected developer files were present and
   excluded private/build/patch artifacts were absent. No tracked temporary artifacts were found.
+- TODO-011 generated icons contain Windows 16–256 px sizes and macOS sizes through 1024 px;
+  the 16–64 px previews were inspected. The frontend production build passed. Python syntax
+  checks passed; pytest could not run because the project virtualenv was inaccessible and the
+  fallback interpreter lacks pytest.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from threading import RLock
 from typing import Any
 
@@ -28,13 +29,10 @@ class SystemTray:
             if self._icon is not None:
                 return
             import pystray
-            from PIL import Image, ImageDraw
+            from PIL import Image
 
-            image = Image.new("RGBA", (64, 64), (11, 15, 23, 255))
-            drawing = ImageDraw.Draw(image)
-            drawing.rounded_rectangle((6, 6, 58, 58), 13, fill=(124, 77, 255, 255))
-            drawing.rectangle((19, 18, 45, 26), fill=(255, 255, 255, 255))
-            drawing.rectangle((28, 24, 36, 47), fill=(255, 255, 255, 255))
+            with Image.open(Path(__file__).resolve().parent / "resources" / "tray.png") as source:
+                image = source.copy()
 
             icon = pystray.Icon(
                 "twitch-bot",

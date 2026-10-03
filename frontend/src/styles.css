@@ -15,7 +15,7 @@ button:disabled { cursor: not-allowed; opacity: .52; }
 .app-shell { height: 100vh; display: grid; grid-template-columns: 230px 1fr; overflow: hidden; background: radial-gradient(circle at 85% 5%, #17213a 0, #0b0f17 38%); }
 .sidebar { position: sticky; top: 0; height: 100vh; padding: 26px 18px; overflow-y: auto; border-right: 1px solid #202838; background: rgba(10, 14, 22, .92); }
 .brand { display: flex; align-items: center; gap: 12px; padding: 0 8px 28px; }
-.brand-mark { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px; background: linear-gradient(135deg, #9147ff, #5f8cff); font-weight: 800; }
+.brand-mark { width: 38px; height: 38px; border-radius: 11px; object-fit: cover; }
 .brand strong, .brand small { display: block; }
 .brand small { margin-top: 2px; color: #7f8ba3; }
 nav { display: grid; gap: 7px; }

@@ -462,7 +462,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><span className="brand-mark">TB</span><div><strong>Twitch Bot</strong><small>Desktop control</small></div></div>
+        <div className="brand"><img className="brand-mark" src="./icon.png" alt="" /><div><strong>Twitch Bot</strong><small>Desktop control</small></div></div>
         <nav>
           {sections.map((item) => <button key={item} className={section === item ? 'active' : ''} onClick={() => navigate(item)}>{item}</button>)}
         </nav>

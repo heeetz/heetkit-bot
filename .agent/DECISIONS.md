@@ -251,3 +251,15 @@ Reason:
 Developer context is useful in source control but is not end-user application content. Keeping
 runtime state outside the installation makes builds reproducible and upgrades safer without
 shipping secrets, local databases, or machine-specific configuration.
+
+## Decision: One master logo supplies platform icon assets
+
+Status: Active
+
+Decision:
+The tracked root `logo.png` is the branding master. `scripts/generate_icons.py` derives the
+runtime PNG, Windows ICO, macOS ICNS, tray, and frontend icons from it. Packaging uses these
+generated assets rather than recreating the mark in code.
+
+Reason:
+One source keeps the desktop window, tray, UI, and future release bundles visually consistent.

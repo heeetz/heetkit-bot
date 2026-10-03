@@ -50,6 +50,7 @@ from config import APP_SETTINGS_PATH
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_ENTRYPOINT = PROJECT_ROOT / "frontend" / "dist" / "index.html"
+ICON_ROOT = Path(__file__).resolve().parent / "resources"
 FALLBACK_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 FORCED_STOP_TIMEOUT_SECONDS = 2.0
 BRIDGE_SETTINGS_TIMEOUT_SECONDS = 10.0
@@ -1478,7 +1479,16 @@ def run_desktop_host(
         controller.bind_window(window)
         controller.start_tray()
         development_mode = frontend_url.startswith(("http://", "https://"))
-        webview.start(debug=development_mode, http_server=not development_mode)
+        icon_name = (
+            "icon.ico" if sys.platform == "win32" else
+            "icon.icns" if sys.platform == "darwin" else
+            "icon.png"
+        )
+        webview.start(
+            debug=development_mode,
+            http_server=not development_mode,
+            icon=str(ICON_ROOT / icon_name),
+        )
     finally:
         if controller is not None:
             controller.shutdown()

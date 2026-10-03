@@ -22,25 +22,6 @@ When asked to execute a TODO:
 
 ---
 
-# P3 — Branding
-
-## TODO-011 — Establish final branding and icon assets
-
-- [ ] Inventory existing icon/logo assets and where they are used.
-- [ ] Use one master application identity across:
-  - pywebview window/taskbar;
-  - system tray;
-  - packaged executable;
-  - installer;
-  - shortcuts;
-  - future macOS/Linux bundles.
-- [ ] Generate platform-specific icon formats from one high-quality source asset.
-- [ ] Avoid shipping placeholder `TB` artwork if a final asset exists.
-- [ ] If no suitable master asset exists, **stop and ask the user for/propose a 1024×1024 transparent PNG or SVG master icon before continuing**.
-- [ ] Verify the icon at small tray/taskbar sizes, not only at full resolution.
-
----
-
 # P4 — Windows distribution first
 
 ## TODO-012 — Build a reproducible standalone Windows application
