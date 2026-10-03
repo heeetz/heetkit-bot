@@ -6,10 +6,6 @@ Completed implementation history lives in Git. Durable architectural decisions b
 `.agent/ARCHITECTURE.md` / `.agent/DECISIONS.md`, while `.agent/HANDOFF.md` should describe only
 the current state and the next task.
 
-Before removing the old TODO from the repository, verify that the agent context still records the
-important current boundaries: React/pywebview/Python ownership, settings persistence, credential
-storage, Twitch lifecycle, tray/startup behavior, logging semantics, and the current release direction.
-
 ## Agent workflow
 
 When asked to execute a TODO:
@@ -26,31 +22,7 @@ When asked to execute a TODO:
 
 ---
 
-# P3 — Source/release boundary and branding
-
-## TODO-010 — Clean the source-vs-release boundary
-
-Do not confuse “files useful to developers/agents” with “files shipped to end users”.
-
-- [ ] Audit tracked project-only material such as:
-  - `.agent/`;
-  - `AGENTS.md`;
-  - `TODO.md`;
-  - `docs/`;
-  - tests;
-  - development scripts;
-  - temporary patch/debug artifacts.
-- [ ] Remove accidental temporary files from Git.
-- [ ] Do **not** add tracked development documentation to `.gitignore` merely to hide it.
-- [ ] Decide which developer/agent files remain useful in the source repository.
-- [ ] End-user packages/releases must contain only runtime-required assets, licenses/notices, and intended user documentation.
-- [ ] Packaging manifests/specs must explicitly exclude development-only material.
-- [ ] Before any public source release, perform a secret/history hygiene check separately from normal build packaging.
-- [ ] Preserve durable project/architecture knowledge before deleting or relocating any agent-context file.
-
-**Acceptance:** the source repository may remain developer-friendly, while the downloadable app contains none of the agent/TODO/test clutter.
-
----
+# P3 — Branding
 
 ## TODO-011 — Establish final branding and icon assets
 
@@ -146,11 +118,7 @@ Do this only after the Windows packaging/storage model is stable.
 Near-term sequence:
 
 ```text
-remaining reliability
-→ runtime storage + cross-platform-safe core
-→ responsive desktop polish
-→ custom commands / triggers / filters
-→ source/release cleanup + branding
+branding
 → Windows standalone + installer + releases
 → macOS/Linux release builds
 ```

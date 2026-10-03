@@ -243,19 +243,32 @@ Generated local files include:
 
 The database may contain Twitch user IDs, usernames, last-seen timestamps, and recent AI exchanges. Treat it as private even if it contains no API secrets.
 
-## Safe project sharing
+## Developer source sharing
 
-Do not ZIP the project directory manually. `.gitignore` protects Git operations but does not protect a manual archive.
+Do not ZIP the project directory manually. `.gitignore` protects Git operations but does not
+protect a manual archive. The script below creates a **developer source archive**, not a
+standalone app or an end-user release. It deliberately includes source-only material such as
+`.agent/`, `AGENTS.md`, `TODO.md`, `docs/`, tests, and development scripts.
 
-Create a validated shareable archive from PowerShell:
+Create a developer archive from PowerShell:
 
 ```powershell
-.\scripts\package.ps1 -OutputPath .\twitch-bot-share.zip
+.\scripts\package.ps1 -OutputPath .\twitch-bot-source.zip
 ```
 
-The script packages tracked and non-ignored project files from the current working tree, so it includes current source/documentation changes. It uses a temporary staging directory and defensively excludes environment files, tokens, databases, virtual environments, caches, logs, IDE metadata, build artifacts, and existing archives. It preserves `.env.example`, source, tests, filter defaults, `README.md`, `config.py`, and `pyproject.toml`.
+The script packages tracked files from the current working tree, including edits to those files.
+Untracked files stay out of the archive. It uses a temporary staging directory and defensively
+excludes environment files, tokens, databases, virtual environments, caches, logs, IDE metadata,
+build artifacts, temporary patch/debug files, and existing archives. It preserves `.env.example`,
+source, tests, filter defaults, `README.md`, `config.py`, and `pyproject.toml`.
 
 The command refuses to overwrite an existing ZIP. Delete or rename an old archive before rerunning it.
+
+There is no standalone application download yet. A future end-user bundle must explicitly include
+only executable/runtime assets, required notices, and intended user documentation; its packaging
+spec must exclude `.agent/`, `AGENTS.md`, `TODO.md`, `docs/`, tests, development scripts, and local
+state. Before publishing any public source release, review both the current files **and Git
+history** for secrets and private data. Archive filtering does not perform that history check.
 
 ## Testing
 

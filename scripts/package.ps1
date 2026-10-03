@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string] $OutputPath = "twitch-bot-share.zip"
+    [string] $OutputPath = "twitch-bot-source.zip"
 )
 
 Set-StrictMode -Version Latest
@@ -31,7 +31,7 @@ function Test-DistributionExcluded {
     if ($path -match "(?i)(^|/)(\.coverage(?:\..*)?|coverage\.xml|[^/]*\.log|Thumbs\.db|Desktop\.ini|\.DS_Store)$") {
         return $true
     }
-    if ($path -match "(?i)\.(py[co]|tmp|temp|bak|zip)$" -or $path.EndsWith("~")) {
+    if ($path -match "(?i)\.(py[co]|tmp|temp|bak|orig|rej|patch|diff|zip)$" -or $path.EndsWith("~")) {
         return $true
     }
     if ($path.StartsWith("data/") -and -not $path.StartsWith("data/filters/")) {
@@ -61,9 +61,9 @@ if (-not (Test-Path -LiteralPath $outputDirectory -PathType Container)) {
     throw "Archive destination directory does not exist: $outputDirectory"
 }
 
-$sourceFiles = @(& git -C $projectRoot ls-files --cached --others --exclude-standard)
+$sourceFiles = @(& git -C $projectRoot ls-files --cached)
 if ($LASTEXITCODE -ne 0) {
-    throw "Could not enumerate distributable project files with Git."
+    throw "Could not enumerate tracked source files with Git."
 }
 
 $temporaryRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
@@ -144,7 +144,7 @@ try {
         $archive.Dispose()
     }
 
-    Write-Host "Created safe shareable archive: $resolvedOutput"
+    Write-Host "Created developer source archive (not an application release): $resolvedOutput"
 } catch {
     if (Test-Path -LiteralPath $resolvedOutput) {
         Remove-Item -LiteralPath $resolvedOutput -Force

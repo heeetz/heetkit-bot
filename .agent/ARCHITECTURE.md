@@ -282,14 +282,21 @@ application logs or other cache files at present; `cache/` is reserved for futur
 - The supported current workflow runs from the source checkout through `run.bat`,
   `python -m app.main`, or the installed `twitch-bot` entry point. There is no standalone
   end-user bundle or installer yet.
+- `scripts/package.ps1` creates a developer source archive from tracked working-tree files.
+  It intentionally retains agent context, TODOs, docs, tests, and development scripts; it is
+  not an app release or a substitute for a public-source secret/history review. Untracked files
+  and private/generated artifacts are excluded from this archive.
 - Vite output under `frontend/dist` is generated and ignored. Standalone packaging must rebuild
   it and include the Python runtime plus required tracked resources; it must not require Python,
   Node.js, or the development virtual environment on the target machine.
 - Root behavior configuration, packaged personality/model resources, frontend assets, and
   tracked filter defaults are runtime inputs that a future build must include explicitly.
 - Local settings, keyring credentials, Twitch tokens, SQLite data, logs, caches, tests, agent
-  context, and other development-only material must not be bundled as user data or committed as
-  generated release output.
+  context, `AGENTS.md`, `TODO.md`, `docs/`, and development scripts must not be bundled as user
+  data or committed as generated release output. The future application packaging spec must
+  explicitly exclude development-only paths and permit only runtime assets, required notices,
+  and intended user documentation. A public source release also requires a separate secret and
+  Git-history hygiene check; artifact filtering alone cannot establish that history is safe.
 - Windows x64 is the first distribution target. Any later macOS/Linux artifacts must be built
   and validated natively for their pywebview and keyring backends rather than treated as
   cross-compiled variants of a Windows bundle.

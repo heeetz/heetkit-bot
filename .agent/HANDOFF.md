@@ -5,7 +5,8 @@ Repository code is authoritative. This file records the current state and next r
 ## Repository state
 
 - Branch: `main`; completed work is pushed to `origin/main`.
-- Latest application-code baseline: TODO-009 desktop Filters management.
+- Latest application-code baseline: TODO-009 desktop Filters management. TODO-010 clarified
+  source sharing and the future end-user release boundary without changing application behavior.
 - Normal source launch: Windows `run.bat`; all platforms `python -m app.main` or installed
   `twitch-bot` after installing dependencies and building the frontend.
 
@@ -44,13 +45,16 @@ Repository code is authoritative. This file records the current state and next r
   and invalid-only files retain prior active rules.
 - Settings uses responsive grids and a wider bounded layout; explanatory copy retains readable
   line lengths. Commands cards reflow controls and actions at narrow desktop widths.
-- The application runs from source. No native distributable, installer, or automated release
-  pipeline exists yet.
+- The application runs from source. `scripts/package.ps1` creates a tracked-files developer
+  source archive, including agent notes, docs, and tests. It is not an end-user app or public
+  source release. No native distributable, installer, or automated release pipeline exists yet.
+  A future app packaging spec must explicitly include runtime assets and exclude development
+  material; public source publication needs a separate current-tree and Git-history secret check.
 
 ## Active roadmap
 
 - `TODO.md` contains unfinished work only; completed history is in Git.
-- Next item: **TODO-010 — Clean the source-vs-release boundary**. Start only when requested.
+- Next item: **TODO-011 — Establish final branding and icon assets**. Start only when requested.
 
 ## Important open risks
 
@@ -64,5 +68,5 @@ Repository code is authoritative. This file records the current state and next r
 
 ## Validation baseline
 
-- TODO-009 focused backend tests passed (50 tests across filter loading, filter editing, and
-  desktop bridge behavior). The frontend production build passed.
+- TODO-010 source ZIP was generated and inspected: expected developer files were present and
+  excluded private/build/patch artifacts were absent. No tracked temporary artifacts were found.

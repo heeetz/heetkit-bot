@@ -239,11 +239,13 @@ Status: Active
 
 Decision:
 The source repository may retain tests, agent context, TODOs, and development documentation.
+`scripts/package.ps1` is a tracked-files developer source archive, not an app release.
 Generated frontend output, frozen applications, installers, and release archives remain
-untracked build artifacts. A standalone application must include its runtime and tracked
-resources, exclude development-only/private state, and keep mutable user data and credentials
-outside the install directory. Windows is the first release target; later platform artifacts
-are built and validated on their native operating systems.
+untracked build artifacts. A standalone application packaging spec must explicitly include its
+runtime and resources, exclude development-only/private state, and keep mutable user data and
+credentials outside the install directory. Public source publication requires a separate review
+of the current tree and Git history for secrets and private data. Windows is the first release
+target; later platform artifacts are built and validated on their native operating systems.
 
 Reason:
 Developer context is useful in source control but is not end-user application content. Keeping
