@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is a single-channel Twitch chatbot with a Windows-friendly desktop interface. It receives chat through TwitchIO EventSub, records when users were last seen, applies global and AI-specific filters, and dispatches commands with permission and cooldown checks.
+This is a single-channel Twitch chatbot with a desktop interface. Windows is the first release target; the source application is designed to use supported macOS/Linux pywebview backends. It receives chat through TwitchIO EventSub, records when users were last seen, applies global and AI-specific filters, and dispatches commands with permission and cooldown checks.
 
 Major features include:
 
@@ -23,7 +23,8 @@ Python remains the application core. The web-style desktop shell uses React, Typ
 - A Twitch account for the bot and a Twitch Developer application.
 - The numeric Twitch user IDs for the bot account and target channel.
 - A Gemini API key only if `!ask` should produce AI responses.
-- A renderer supported by pywebview. Windows normally uses the installed Microsoft Edge WebView2 runtime.
+- A renderer supported by pywebview. Windows normally uses the installed Microsoft Edge WebView2 runtime. macOS uses Cocoa/WebKit; Linux requires an installed GTK/WebKit or Qt backend and its system libraries. Linux users must select the matching `pywebview[gtk]` or `pywebview[qt]` extra.
+- Optionally, a working system keyring backend for credential storage. When unavailable, private `.env` credential fallbacks remain usable.
 
 ## Installation
 
@@ -60,7 +61,8 @@ On Windows, start the desktop application from the repository root with the one-
 ```
 
 The launcher uses `.venv\Scripts\python.exe` and reports a clear error if the project virtual
-environment has not been created. The equivalent Python command is:
+environment has not been created. If dependencies change after creating `.venv`, rerun
+`.\.venv\Scripts\python.exe -m pip install -e ".[dev]"` before launching. The equivalent Python command is:
 
 ```powershell
 python -m app.main
@@ -71,6 +73,12 @@ The installed console entry point is equivalent:
 ```powershell
 twitch-bot
 ```
+
+On macOS/Linux, create a virtual environment, install this project, build the frontend with
+`npm run build` in `frontend/`, and launch with `python -m app.main`. On Linux, install the
+appropriate pywebview backend and system packages for your desktop environment. The tray and
+start-minimized options currently apply to Windows; macOS/Linux keep the window visible and
+close normally. No macOS/Linux distributables are provided yet.
 
 For frontend development, run Vite in one terminal and point the Python host at it from another:
 
@@ -92,7 +100,7 @@ is intentionally ignored and recreated by `npm run build`.
 
 Configuration responsibilities remain separated:
 
-- `.env` contains deployment values, account identity, logging settings, and private credential fallbacks. It is loaded by `app/config/settings.py` and must remain private. Credentials stored through the Settings page in Windows Credential Manager take precedence on the next launch.
+- `.env` contains deployment values, account identity, logging settings, and private credential fallbacks. It is loaded by `app/config/settings.py` and must remain private. Credentials stored through the Settings page in the system keyring take precedence on the next launch.
 - `config.py` contains non-secret behavioral defaults, including cooldowns, the Telegram message, AI response length, memory limits, and the active personality identifier. Built-in personality prompts live in the tracked `app/resources/personalities.json` resource; protected shared AI instructions remain application code in `app/config/personalities.py`.
 - `config/command_settings.json` under the platform app-data root contains optional local command overrides. Commands without overrides continue to use registry defaults.
 - `config/personality_settings.json` under that root contains the locally selected AI personality and optional personality-specific prompt overrides. Shared AI instructions are not editable.
@@ -110,13 +118,13 @@ The environment variables supported by the current application are:
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `TWITCH_CLIENT_ID` | Yes | Twitch Developer application client ID. |
-| `TWITCH_CLIENT_SECRET` | Yes* | Private `.env` fallback for the Twitch client secret; a Windows Credential Manager value may supply it instead. |
+| `TWITCH_CLIENT_SECRET` | Yes* | Private `.env` fallback for the Twitch client secret; a system keyring value may supply it instead. |
 | `TWITCH_BOT_USER_ID` | Yes | Numeric user ID of the bot account. |
 | `TWITCH_BOT_USERNAME` | Yes | Login name of the bot account. |
 | `TWITCH_CHANNEL_USER_ID` | Yes | Numeric user ID of the channel receiving the bot. |
 | `TWITCH_CHANNEL` | Yes | Channel login name. |
 | `TWITCH_TOKEN_FILE` | No | Legacy token-file location to import on the first normal launch. New tokens use the app-data `auth/` directory. |
-| `GEMINI_API_KEY` | No | Private `.env` fallback for Gemini; a Windows Credential Manager value takes precedence. |
+| `GEMINI_API_KEY` | No | Private `.env` fallback for Gemini; a system keyring value takes precedence. |
 | `GEMINI_MODEL` | No | Gemini model; defaults to `gemini-3.5-flash-lite`. |
 | `AI_COOLDOWN_BYPASS_USER_ID` | No | One Twitch user ID allowed to bypass only the `!ask` cooldown. |
 | `DATABASE_URL` | No | Legacy SQLite URL to import on the first normal launch, or an explicit non-SQLite database URL. Local SQLite uses app-data `data/twitch_bot.db`. |
@@ -124,7 +132,7 @@ The environment variables supported by the current application are:
 | `COMMAND_PREFIX` | No | Command prefix; defaults to `!`. |
 | `COMMAND_MAX_ARGUMENTS_LENGTH` | No | Maximum command-argument length, from 1 to 450. |
 
-`TWITCH_CLIENT_SECRET` must be available from either Windows Credential Manager or the
+`TWITCH_CLIENT_SECRET` must be available from either the system keyring or the
 private environment/`.env` fallback.
 
 Global message filters are copied from tracked `data/filters/` into app-data `config/filters/` on first launch. Edit the app-data copies for local changes; missing copies are recreated from the tracked defaults:
@@ -203,7 +211,7 @@ the active/target channel. Target settings and named presets write only display 
 logins, and numeric user IDs to app-data `config/app_settings.json`; Save & reconnect applies the selected
 target through the existing bot lifecycle. The page also shows masked credential status for the
 Gemini API key and Twitch client secret, with Replace, Remove, and provider Test actions.
-Credential values are never returned to React; changes use Windows Credential Manager and take
+Credential values are never returned to React; changes use the system keyring and take
 effect after restart. The pystray menu provides Open, dynamic Start Bot / Stop Bot, and Exit.
 Tray Exit and normal application shutdown reuse the same orderly backend lifecycle. The
 completed parity checklist is in `docs/desktop-feature-parity.md`.
@@ -215,7 +223,7 @@ Generated local files include:
 | Path | Classification | Share? |
 | --- | --- | --- |
 | `.env` and other local `.env.*` files | Secrets and machine-specific deployment configuration | Never |
-| Windows Credential Manager entries for service `twitch-bot` | Gemini API key and Twitch client secret | Not repository files |
+| System keyring entries for service `twitch-bot` | Gemini API key and Twitch client secret | Not repository files |
 | App-data `auth/twitchio_tokens.json` | Twitch access/refresh credentials | Never |
 | App-data `data/twitch_bot.db` | Local user activity and AI memory | Never |
 | App-data `config/command_settings.json` | Local command overrides | Never |

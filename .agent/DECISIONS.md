@@ -74,8 +74,9 @@ credential changes remain effective.
 Status: Active
 
 Decision:
-The desktop controller owns one idempotently started `SystemTray`; window settings change
-visibility behavior, not tray ownership.
+The desktop controller owns one idempotently started `SystemTray` on Windows; window settings
+change visibility behavior, not tray ownership. On macOS/Linux, no tray is started and the
+window remains reachable. A failed Windows tray startup also leaves the window visible.
 
 Reason:
 Start-minimized, minimize-to-tray, and close-to-tray combinations must never create duplicate
@@ -87,13 +88,14 @@ Status: Active
 
 Decision:
 Normal Windows desktop launches hold a named mutex derived from the resolved local app-settings
-path for the duration of the process. A duplicate launch displays a clear message and exits
-before loading local state. Read-only `--check` runs without the mutex; `--dev-url` uses it.
+path. macOS/Linux hold a nonblocking advisory file lock alongside the settings file. A duplicate
+launch exits before loading local state. Read-only `--check` runs without a guard; `--dev-url`
+uses it.
 
 Reason:
 Concurrent desktop processes would compete over SQLite, Twitch OAuth/cache state, local JSON,
-the OAuth port, and tray presence. An OS mutex is released on process termination and does not
-create or rewrite user settings.
+the OAuth port, and tray presence. Both guards release automatically on process termination;
+the POSIX lock file may remain in app-data without holding a stale lock.
 
 ## Decision: The command registry defines built-in commands
 

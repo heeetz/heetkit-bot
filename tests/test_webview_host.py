@@ -49,7 +49,6 @@ def complete_bridge_coroutine(coroutine) -> Future:
     return future
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows named mutex")
 def test_desktop_instance_guard_blocks_other_process_and_releases(tmp_path) -> None:
     settings_path = tmp_path / "data" / "app_settings.json"
     probe = (
@@ -71,7 +70,11 @@ def test_desktop_instance_guard_blocks_other_process_and_releases(tmp_path) -> N
             timeout=10,
         )
         assert blocked.returncode == 2, blocked.stderr
-        assert not settings_path.parent.exists()
+        assert not settings_path.exists()
+        if sys.platform == "win32":
+            assert not settings_path.parent.exists()
+        else:
+            assert (settings_path.parent / ".desktop-instance.lock").exists()
 
     permitted = subprocess.run(
         [sys.executable, "-c", probe, str(settings_path)],
@@ -83,7 +86,6 @@ def test_desktop_instance_guard_blocks_other_process_and_releases(tmp_path) -> N
     assert permitted.returncode == 0, permitted.stderr
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows named mutex")
 def test_duplicate_desktop_launch_fails_before_loading_local_state(
     monkeypatch, tmp_path, capsys,
 ) -> None:
@@ -1075,6 +1077,26 @@ def test_desktop_controller_hides_window_for_saved_tray_settings(tmp_path) -> No
     assert window.show_calls == 1
     assert window.restore_calls == 1
     assert backend.close_calls == 0
+
+
+def test_desktop_controller_keeps_window_reachable_when_tray_fails(tmp_path) -> None:
+    controller, backend, bridge, tray, store, window = build_desktop_controller(tmp_path)
+    store.update_window(
+        start_minimized=True,
+        minimize_to_tray=True,
+        close_to_tray=True,
+    )
+
+    def fail_start() -> None:
+        raise RuntimeError("tray backend unavailable")
+
+    tray.start = fail_start
+    controller.start_tray()
+
+    assert window.show_calls == 1
+    assert window.events.closing.handlers[0]() is None
+    window.events.minimized.handlers[0]()
+    assert window.hide_calls == 0
 
 
 def test_desktop_controller_tray_toggles_bot_and_exits_orderly(tmp_path) -> None:

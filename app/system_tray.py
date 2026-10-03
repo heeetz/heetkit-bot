@@ -1,4 +1,4 @@
-"""Small Windows system tray adapter for the desktop host."""
+"""System tray adapter for the Windows desktop host."""
 
 from __future__ import annotations
 
@@ -47,8 +47,12 @@ class SystemTray:
                     pystray.MenuItem("Exit", self._handle_exit),
                 ),
             )
+            try:
+                icon.run_detached()
+            except Exception:
+                icon.stop()
+                raise
             self._icon = icon
-            icon.run_detached()
 
     def stop(self) -> None:
         with self._lock:

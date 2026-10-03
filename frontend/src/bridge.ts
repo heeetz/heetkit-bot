@@ -83,6 +83,7 @@ export interface AppSettings {
   start_minimized: boolean
   minimize_to_tray: boolean
   close_to_tray: boolean
+  tray_available: boolean
 }
 
 export interface AppSettingsResponse extends ActionResult {

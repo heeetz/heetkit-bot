@@ -373,14 +373,14 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
             <Switch className="settings-option" checked={draft.auto_start_bot} disabled={Boolean(busy)} onCheckedChange={(auto_start_bot) => void updateWindowSettings({ auto_start_bot }, 'Automatic bot startup preference saved for the next launch.')}>
               <span><strong>Start bot automatically</strong><small>Saved automatically. Takes effect on the next application launch and is independent of window visibility.</small></span>
             </Switch>
-            <Switch className="settings-option" checked={draft.start_minimized} disabled={Boolean(busy)} onCheckedChange={(start_minimized) => void updateWindowSettings({ start_minimized }, 'Start-minimized preference saved for the next launch.')}>
-              <span><strong>Start minimized</strong><small>Saved automatically. Takes effect on the next application launch.</small></span>
+            <Switch className="settings-option" checked={draft.start_minimized} disabled={Boolean(busy) || !draft.tray_available} onCheckedChange={(start_minimized) => void updateWindowSettings({ start_minimized }, 'Start-minimized preference saved for the next launch.')}>
+              <span><strong>Start minimized</strong><small>{draft.tray_available ? 'Saved automatically. Takes effect on the next application launch.' : 'Available when the Windows system tray is supported.'}</small></span>
             </Switch>
-            <Switch className="settings-option" checked={draft.minimize_to_tray} disabled={Boolean(busy)} onCheckedChange={(minimize_to_tray) => void updateWindowSettings({ minimize_to_tray }, 'Minimize-to-tray behavior saved and active.')}>
-              <span><strong>Minimize to tray</strong><small>Saved automatically and applies immediately when the window is minimized.</small></span>
+            <Switch className="settings-option" checked={draft.minimize_to_tray} disabled={Boolean(busy) || !draft.tray_available} onCheckedChange={(minimize_to_tray) => void updateWindowSettings({ minimize_to_tray }, 'Minimize-to-tray behavior saved and active.')}>
+              <span><strong>Minimize to tray</strong><small>{draft.tray_available ? 'Saved automatically and applies immediately when the window is minimized.' : 'Available when the Windows system tray is supported.'}</small></span>
             </Switch>
-            <Switch className="settings-option" checked={draft.close_to_tray} disabled={Boolean(busy)} onCheckedChange={(close_to_tray) => void updateWindowSettings({ close_to_tray }, 'Close-to-tray behavior saved and active.')}>
-              <span><strong>Close to tray</strong><small>Saved automatically and applies immediately when the close button is used.</small></span>
+            <Switch className="settings-option" checked={draft.close_to_tray} disabled={Boolean(busy) || !draft.tray_available} onCheckedChange={(close_to_tray) => void updateWindowSettings({ close_to_tray }, 'Close-to-tray behavior saved and active.')}>
+              <span><strong>Close to tray</strong><small>{draft.tray_available ? 'Saved automatically and applies immediately when the close button is used.' : 'Available when the Windows system tray is supported.'}</small></span>
             </Switch>
           </div>
         )}
@@ -466,7 +466,7 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
           <div>
             <p className="label">SECURE CREDENTIALS</p>
             <h2>Provider credentials</h2>
-            <p className="section-copy">Values are stored in Windows Credential Manager and are never displayed. Secure values override the private .env fallback after restart.</p>
+            <p className="section-copy">Values are stored in the system keyring and are never displayed. Secure values override the private .env fallback after restart.</p>
           </div>
         </div>
         {!draft ? <p className="muted">Loading credential status…</p> : credentials.length === 0 ? (
@@ -491,7 +491,7 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
                   <div><strong>{credential.label}</strong><small>{sourceLabel}</small></div>
                   <span className={`state-pill ${credential.configured ? 'enabled' : ''}`}>{credential.configured ? 'Configured' : 'Missing'}</span>
                 </div>
-                {!credential.secure_storage_available && <p className="credential-warning">Windows credential storage is currently unavailable; the .env fallback remains active.</p>}
+                {!credential.secure_storage_available && <p className="credential-warning">System keyring storage is currently unavailable; the .env fallback remains active.</p>}
                 <label className="form-field">
                   Replacement value
                   <input

@@ -28,29 +28,6 @@ When asked to execute a TODO:
 
 # P1 — Runtime data, portability, and desktop polish
 
-## TODO-005 — Remove accidental Windows-only assumptions from application code
-
-Windows remains the first release target, but the application core should not unnecessarily block macOS/Linux.
-
-- [ ] Audit platform-specific assumptions introduced by:
-  - named mutex/single-instance behavior;
-  - filesystem paths;
-  - credential-store wording/behavior;
-  - tray/window integration;
-  - pywebview startup;
-  - launch scripts;
-  - packaging-only code.
-- [ ] Keep Windows-specific implementations behind small platform boundaries where needed.
-- [ ] Use the system keyring abstraction rather than presenting Windows Credential Manager as the universal UI concept.
-- [ ] Provide a reasonable non-Windows single-instance strategy or explicitly degrade safely when unavailable.
-- [ ] Confirm the Python core/frontend can start on supported pywebview macOS/Linux backends in principle.
-- [ ] Do not attempt to create macOS/Linux distributables in this task.
-- [ ] Record any unavoidable OS prerequisites/limitations for later packaging work.
-
-**Acceptance:** normal application code is platform-aware rather than Windows-hardcoded, while Windows behavior remains unchanged.
-
----
-
 ## TODO-006 — Finish responsive layout consistency
 
 Fix the remaining desktop-layout inconsistencies without redesigning features.

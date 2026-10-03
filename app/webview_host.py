@@ -4,16 +4,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import ctypes
-import hashlib
 import logging
 import math
 import sys
 import threading
 from concurrent.futures import Future, TimeoutError as FutureTimeoutError
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
 from pathlib import Path
-from typing import Any, Coroutine, Iterator
+from typing import Any, Coroutine
 
 from pydantic import ValidationError
 
@@ -24,6 +22,11 @@ from app.config.ai_models import GEMINI_MODEL_PRESETS, GEMINI_PROVIDER_NAME
 from app.config.settings import Settings, load_settings_with_credentials
 from app.container import Application, build_application
 from app.credentials import CredentialError, CredentialManager
+from app.desktop_instance import (
+    DesktopAlreadyRunningError,
+    desktop_instance_guard,
+    notify_existing_desktop,
+)
 from app.runtime_paths import RuntimeDataError, prepare_runtime_data
 from app.system_tray import SystemTray
 from app.twitch.permissions import Permission
@@ -47,61 +50,8 @@ BRIDGE_MODEL_DISCOVERY_TIMEOUT_SECONDS = 20.0
 BRIDGE_BOT_START_TIMEOUT_SECONDS = 10.0
 BRIDGE_BOT_STOP_TIMEOUT_SECONDS = 20.0
 BRIDGE_TWITCH_RECONNECT_TIMEOUT_SECONDS = 30.0
-ERROR_ALREADY_EXISTS = 183
-
-
-class DesktopAlreadyRunningError(RuntimeError):
-    """A desktop process already owns this checkout's local state."""
-
-
 class BridgeOperationTimedOut(RuntimeError):
     """A bounded frontend bridge wait expired."""
-
-
-@contextmanager
-def desktop_instance_guard(settings_path: Path) -> Iterator[None]:
-    """Hold a Windows mutex while a desktop process uses its local state."""
-    if sys.platform != "win32":
-        yield
-        return
-
-    # Resolve and normalize the path so differently spelled paths to the same
-    # checkout cannot start competing desktop processes.
-    identity = str(settings_path.resolve()).casefold().encode("utf-8")
-    name = f"Global\\TwitchBotDesktop-{hashlib.sha256(identity).hexdigest()[:32]}"
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    create_mutex = kernel32.CreateMutexW
-    create_mutex.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p)
-    create_mutex.restype = ctypes.c_void_p
-    close_handle = kernel32.CloseHandle
-    close_handle.argtypes = (ctypes.c_void_p,)
-    close_handle.restype = ctypes.c_int
-
-    ctypes.set_last_error(0)
-    handle = create_mutex(None, False, name)
-    error = ctypes.get_last_error()
-    if not handle:
-        raise OSError(error, "Could not establish the desktop instance guard")
-    try:
-        if error == ERROR_ALREADY_EXISTS:
-            raise DesktopAlreadyRunningError(
-                "Twitch Bot is already running for this project. Open its existing window "
-                "from the taskbar or system tray."
-            )
-        yield
-    finally:
-        close_handle(handle)
-
-
-def notify_existing_desktop(message: str) -> None:
-    """Show the collision to users who launched the desktop app by double-clicking."""
-    if sys.platform != "win32":
-        return
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
-    message_box = user32.MessageBoxW
-    message_box.argtypes = (ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint)
-    message_box.restype = ctypes.c_int
-    message_box(None, message, "Twitch Bot", 0x30)  # MB_ICONWARNING
 
 
 class AsyncioBackendHost:
@@ -766,6 +716,7 @@ class WebUIBridge:
                 "start_minimized": settings.window.start_minimized,
                 "minimize_to_tray": settings.window.minimize_to_tray,
                 "close_to_tray": settings.window.close_to_tray,
+                "tray_available": sys.platform == "win32",
             },
         }
 
@@ -1309,6 +1260,7 @@ class DesktopController:
         self._window: Any | None = None
         self._exit_requested = False
         self._tray_started = False
+        self._tray_supported = sys.platform == "win32" or tray is not None
         self._exit_lock = threading.RLock()
         self._tray = tray or SystemTray(
             on_open=self.open_window,
@@ -1325,10 +1277,16 @@ class DesktopController:
 
     def start_tray(self) -> None:
         with self._exit_lock:
-            if self._tray_started or self._exit_requested:
+            if not self._tray_supported or self._tray_started or self._exit_requested:
                 return
-            self._tray.start()
-            self._tray_started = True
+            try:
+                self._tray.start()
+            except Exception:
+                self._logger.exception("System tray is unavailable; keeping the window visible")
+                if self._window is not None:
+                    self._window.show()
+            else:
+                self._tray_started = True
 
     def is_bot_running(self) -> bool:
         return bool(self._backend.application.services.runtime_state.status()[0])
@@ -1376,7 +1334,7 @@ class DesktopController:
     def _on_closing(self) -> bool | None:
         if self._exit_requested:
             return None
-        if self._app_settings.snapshot().window.close_to_tray:
+        if self._tray_started and self._app_settings.snapshot().window.close_to_tray:
             if self._window is not None:
                 self._window.hide()
             return False
@@ -1388,7 +1346,8 @@ class DesktopController:
 
     def _on_minimized(self) -> None:
         if (
-            self._app_settings.snapshot().window.minimize_to_tray
+            self._tray_started
+            and self._app_settings.snapshot().window.minimize_to_tray
             and self._window is not None
         ):
             self._window.hide()
@@ -1429,7 +1388,7 @@ def run_desktop_host(
             width=1180,
             height=760,
             min_size=(900, 620),
-            hidden=settings_snapshot.window.start_minimized,
+            hidden=settings_snapshot.window.start_minimized and sys.platform == "win32",
             background_color="#0b0f17",
             text_select=True,
         )

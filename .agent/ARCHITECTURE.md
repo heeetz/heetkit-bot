@@ -7,11 +7,14 @@ responsibilities and boundaries, not implementation detail from entire source fi
 
 - `python -m app.main` is the canonical application entry point. The installed `twitch-bot`
   command resolves to the same function.
-- Normal Windows desktop launches acquire a named mutex keyed to the resolved platform app-data settings
-  path before loading settings or starting the host. A duplicate reports the existing instance
-  and exits. The read-only `--check` mode bypasses the guard; `--dev-url` remains guarded.
+- Normal desktop launches guard the resolved platform app-data settings path before loading state:
+  Windows uses a named mutex; macOS/Linux use a nonblocking advisory file lock in app-data
+  `config/`. A duplicate reports the existing instance and exits. The read-only `--check`
+  mode bypasses the guard; `--dev-url` remains guarded.
 - Root `run.bat` changes to the repository directory and invokes
   `.venv\Scripts\python.exe -m app.main`; it never falls back to system Python.
+- macOS/Linux source launches use `python -m app.main`; the PowerShell share-archive script is
+  development packaging tooling, not an application runtime dependency.
 - `app/main.py` delegates to `app/webview_host.py`.
 - Production mode loads the generated, Git-ignored `frontend/dist/index.html`. Development
   mode can load a Vite URL with `--dev-url`. Normal launch follows the saved
@@ -88,6 +91,9 @@ Responsibility: one tray icon and window behavior per application process.
   so repeated starts do not create another icon.
 - Tray actions are Open, Start Bot/Stop Bot, and Exit. Start/Stop delegates to `WebUIBridge`;
   Exit reuses the orderly desktop shutdown path.
+- Tray hosting is currently Windows-only. macOS/Linux keep the window visible and close normally;
+  saved start-minimized and tray options are shown as unavailable there. If the Windows tray
+  backend fails to start, the host shows the window and does not hide it on close/minimize.
 - `AppSettingsStore` supplies the versioned local application settings. Its `window` section
   owns start-minimized, minimize-to-tray, and close-to-tray behavior. Its `twitch` section may
   override the non-secret target-channel login and numeric user ID. Start minimized controls
@@ -151,7 +157,7 @@ Gemini selected/fallback model defaults come from typed environment `Settings`; 
 overrides in platform app-data `config/app_settings.json` are applied before composition and UI changes update the
 shared Settings object for the next request. Tracked presets live in
 `app/resources/gemini_models.json`, while provider discovery is optional. The Gemini API key is
-resolved from Windows Credential Manager first, then the private `.env` fallback. Provider
+resolved from the system keyring first, then the private `.env` fallback. Provider
 failures do not disable unrelated commands.
 
 ## Personalities and AI memory
@@ -198,8 +204,9 @@ failures do not disable unrelated commands.
 
 ## Credential boundary
 
-- `app/credentials.py` wraps `keyring`; on Windows its supported backend is Windows Credential
-  Manager. It owns masked status, Replace/Remove, and provider-specific credential tests.
+- `app/credentials.py` wraps the OS `keyring` backend (Windows Credential Manager, macOS
+  Keychain, or a Linux keyring where available). It owns masked status, Replace/Remove, and
+  provider-specific credential tests.
 - Supported secure entries are the Gemini API key and Twitch client secret. Secure values
   overlay private `.env` fallbacks during startup and require restart after UI changes.
 - `WebUIBridge` exposes identifiers/status/results only. Credential values are accepted for
@@ -212,7 +219,7 @@ failures do not disable unrelated commands.
 | Data | Source of truth / location | Git status |
 | --- | --- | --- |
 | Typed deployment settings | `app/config/settings.py`, loaded from environment/`.env` | `.env` ignored; `.env.example` tracked |
-| User-entered provider credentials | Windows Credential Manager via `app/credentials.py`; `.env` fallback | OS-backed/private, never ordinary JSON |
+| User-entered provider credentials | System keyring via `app/credentials.py`; `.env` fallback | OS-backed/private, never ordinary JSON |
 | Behavioral defaults and paths | root `config.py` | Tracked |
 | Built-in personality prompts | `app/resources/personalities.json` | Tracked package data |
 | Protected shared AI instructions | `app/config/personalities.py` | Tracked application code |
@@ -266,3 +273,6 @@ application logs or other cache files at present; `cache/` is reserved for futur
 - Windows x64 is the first distribution target. Any later macOS/Linux artifacts must be built
   and validated natively for their pywebview and keyring backends rather than treated as
   cross-compiled variants of a Windows bundle.
+- Source launches on macOS use the pywebview Cocoa/WebKit backend; Linux needs an installed
+  GTK/WebKit or Qt backend and its system libraries. Native tray integration and native
+  distributables remain later packaging work.
