@@ -17,6 +17,8 @@ from sqlalchemy.engine import make_url
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LEGACY_DATA = PROJECT_ROOT / "data"
 DEFAULT_TRIGGERS = PROJECT_ROOT / "app" / "resources" / "default_triggers.json"
+DEFAULT_FILTERS = PROJECT_ROOT / "data" / "filters"
+DATA_DIR_ENV = "TWITCH_BOT_DATA_DIR"
 FILTER_NAMES = ("blocked_words.txt", "blocked_phrases.txt", "blocked_patterns.txt")
 
 
@@ -26,7 +28,13 @@ class RuntimePaths:
 
     @classmethod
     def default(cls) -> RuntimePaths:
+        if override := os.environ.get(DATA_DIR_ENV):
+            return cls(Path(override).expanduser().resolve())
         return cls(user_data_path("TwitchBot", appauthor=False))
+
+    @property
+    def is_default_profile(self) -> bool:
+        return self.root.resolve() == user_data_path("TwitchBot", appauthor=False).resolve()
 
     @property
     def config(self) -> Path:
@@ -138,6 +146,7 @@ def prepare_runtime_data(
     *,
     paths: RuntimePaths | None = None,
     legacy_data: Path = LEGACY_DATA,
+    migrate_legacy: bool | None = None,
 ) -> tuple[str, str]:
     """Copy legacy state once, then return canonical token and SQLite locations.
 
@@ -146,33 +155,43 @@ def prepare_runtime_data(
     so WAL contents are included in the migration.
     """
     paths = paths or RuntimePaths.default()
+    if migrate_legacy is None:
+        migrate_legacy = paths.is_default_profile
     try:
         for directory in (paths.config, paths.data, paths.auth, paths.cache, paths.filters):
             directory.mkdir(parents=True, exist_ok=True)
-        for filename in FILTER_NAMES:
-            _copy_if_missing(legacy_data / "filters" / filename, paths.filters / filename)
-        _copy_if_missing(DEFAULT_TRIGGERS, paths.message_triggers)
         configured_database = _sqlite_file(database_url)
         if not paths.migration_marker.exists():
             for filename, destination in (
                 ("app_settings.json", paths.app_settings),
                 ("command_settings.json", paths.command_settings),
                 ("personality_settings.json", paths.personality_settings),
+                ("custom_commands.json", paths.custom_commands),
+                ("message_triggers.json", paths.message_triggers),
+                ("fun_settings.json", paths.config / "fun_settings.json"),
             ):
-                _copy_if_missing(legacy_data / filename, destination)
+                if migrate_legacy:
+                    _copy_if_missing(legacy_data / filename, destination)
+            if migrate_legacy:
+                for filename in FILTER_NAMES:
+                    _copy_if_missing(legacy_data / "filters" / filename, paths.filters / filename)
 
             configured_token = Path(token_file).resolve()
             token_source = (
                 configured_token if configured_token.is_file() else legacy_data / "twitchio_tokens.json"
             )
-            _copy_if_missing(token_source, paths.tokens, secret=True)
+            if migrate_legacy:
+                _copy_if_missing(token_source, paths.tokens, secret=True)
 
-            if configured_database is not None:
+            if migrate_legacy and configured_database is not None:
                 database_source = (
                     configured_database if configured_database.is_file() else legacy_data / "twitch_bot.db"
                 )
                 _backup_sqlite_if_missing(database_source, paths.database)
             paths.migration_marker.touch()
+        for filename in FILTER_NAMES:
+            _copy_if_missing(DEFAULT_FILTERS / filename, paths.filters / filename)
+        _copy_if_missing(DEFAULT_TRIGGERS, paths.message_triggers)
         if configured_database is None:
             return str(paths.tokens), database_url
         relocated_url = make_url(database_url).set(database=str(paths.database))

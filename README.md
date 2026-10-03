@@ -101,11 +101,11 @@ is intentionally ignored and recreated by `npm run build`.
 Configuration responsibilities remain separated:
 
 - `.env` contains deployment values, account identity, logging settings, and private credential fallbacks. It is loaded by `app/config/settings.py` and must remain private. Credentials stored through the Settings page in the system keyring take precedence on the next launch.
-- `config.py` contains non-secret behavioral defaults, including cooldowns, the Telegram message, AI response length, memory limits, and the active personality identifier. Built-in personality prompts live in the tracked `app/resources/personalities.json` resource; protected shared AI instructions remain application code in `app/config/personalities.py`.
+- `config.py` contains non-secret behavioral defaults, including cooldowns, neutral command responses, AI response length, memory limits, and the neutral personality identifier. Built-in personality prompts live in the tracked `app/resources/personalities.json` resource; protected shared AI instructions remain application code in `app/config/personalities.py`.
 - `config/command_settings.json` under the platform app-data root contains optional local command overrides. Commands without overrides continue to use registry defaults.
 - `config/custom_commands.json` under that root contains versioned, local custom commands. Invalid entries are skipped and cannot disable built-in commands.
 - `config/message_triggers.json` under that root contains local reactions to ordinary chat messages. It is seeded from `app/resources/default_triggers.json` when missing; edits take effect after restarting the app.
-- `config/personality_settings.json` under that root contains the locally selected AI personality and optional personality-specific prompt overrides. Shared AI instructions are not editable.
+- `config/personality_settings.json` under that root contains the locally selected AI personality and prompt overrides, including user-created personality IDs. Shared AI instructions are not editable.
 - `config/app_settings.json` under that root is a versioned local application-settings file. It contains the
   opt-in automatic-start preference, window/tray preferences, AI memory and selected/fallback
   Gemini models, plus optional non-secret Twitch target-channel settings and named target
@@ -119,6 +119,7 @@ The environment variables supported by the current application are:
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
+| `TWITCH_BOT_DATA_DIR` | No | Independent profile root; `--data-dir` takes priority. |
 | `TWITCH_CLIENT_ID` | Yes | Twitch Developer application client ID. |
 | `TWITCH_CLIENT_SECRET` | Yes* | Private `.env` fallback for the Twitch client secret; a system keyring value may supply it instead. |
 | `TWITCH_BOT_USER_ID` | Yes | Numeric user ID of the bot account. |
@@ -137,7 +138,7 @@ The environment variables supported by the current application are:
 `TWITCH_CLIENT_SECRET` must be available from either the system keyring or the
 private environment/`.env` fallback.
 
-Global message filters are copied from tracked `data/filters/` into app-data `config/filters/` on first launch. Manage them on the desktop **Filters** page: Apply changes the running session, while Save keeps validated changes across restarts. The page marks source-default and local rules and highlights invalid entries. You can also edit the app-data copies directly; missing copies are recreated from the tracked defaults:
+Global message filters start empty and are copied from tracked `data/filters/` into app-data `config/filters/` on first launch. Manage them on the desktop **Filters** page: Apply changes the running session, while Save keeps validated changes across restarts. The page marks source-default and local rules and highlights invalid entries. You can also edit the app-data copies directly; missing copies are recreated from the tracked defaults:
 
 - `blocked_words.txt` contains whole-word matches;
 - `blocked_phrases.txt` contains literal phrase matches;
@@ -145,7 +146,37 @@ Global message filters are copied from tracked `data/filters/` into app-data `co
 
 Blank lines and lines beginning with `#` are ignored. The tracked files are distributable defaults; local edits in app-data stay outside the source tree. Review custom filter content before sharing it.
 
-Built-in cooldown values remain in root `config.py`; effective command cooldowns can be applied or saved from the Commands page. Available personality names currently are `vas2`, `vas`, `anime_girl`, `rapper`, `neutral`, and `gopnik`; `ACTIVE_AI_PERSONALITY` selects the developer default when no local selection has been saved.
+Built-in cooldown values remain in root `config.py`; effective command cooldowns can be applied or saved from the Commands page. Only `neutral` ships. Saved local personality IDs and prompts remain available after upgrades, including IDs removed from shipped resources. Add IDs (1–64 characters) to the local `overrides` object to create additional styles, then restart. Reset restores a built-in prompt or clears a local-only prompt while retaining its ID.
+
+
+Use the same application with independent profiles:
+
+```powershell
+python -m app.main --data-dir C:\BotProfiles\Clean --stopped
+```
+
+`TWITCH_BOT_DATA_DIR` is the equivalent environment override; `--data-dir` takes priority.
+Alternate profiles load their own `<profile>/.env` (copy `.env.example` and supply required
+Twitch setup values), skip automatic legacy imports, and use their own config, database,
+OAuth cache and keyring namespace. Explicit process environment variables still apply.
+Point the override at your normal app-data root to use the existing owner profile.
+`--check --data-dir <path>` validates without creating or migrating profile files.
+
+Deleting only a profile's `config/` restores neutral defaults on the next normal launch;
+its SQLite database, OAuth cache, migration marker and OS credentials remain intact.
+Alternate-profile keyring services use `twitch-bot:<hash of resolved profile path>`;
+relocating that profile requires storing its credentials again. The normal profile retains
+service `twitch-bot`. The OAuth callback port remains 4343, so avoid simultaneous authorization
+flows in multiple profiles.
+
+For built-in `!tg` and `!forecast` responses, optionally create `config/fun_settings.json`:
+
+```json
+{"version": 1, "tg_message": "Your community link", "forecasts": ["Tomorrow brings a new opportunity."]}
+```
+
+Responses must be non-empty and at most 450 UTF-8 bytes; edits require restart. Missing or
+invalid files use neutral starters. Existing profiles are never overwritten during seeding.
 
 ## Twitch setup
 
@@ -195,7 +226,7 @@ Built-in cooldowns come from `config.py`; saved local overrides take precedence 
 
 The Commands page also lets you create your own commands with a name, optional aliases, permission level, per-user and global cooldowns, and one or more response templates. Multiple templates are chosen at random. Use `{sender}`, `{target}` (first argument, or sender if absent), `{args}`, `{arg1}` through `{arg9}` (missing arguments become blank), and `{random_user}` (a chatter seen in the last 30 minutes, or sender if none is available). Unknown variables are rejected when saving. Custom commands cannot take a built-in name or alias, and templates never run code. Replies are limited to 450 UTF-8 bytes and use the normal global output limiter.
 
-Ordinary chat can also trigger short, non-AI reactions. Edit app-data `config/message_triggers.json` to add or disable entries, then restart. Each entry needs a unique `id`, `enabled`, `match_mode` (`contains` or `exact`), `text`, `case_sensitive`, `probability` (0 to 1), `cooldown_seconds` (0 to 86400), and 1 to 10 literal `responses`. The seeded `вась` reaction shows the format and has a 10% chance with a 120-second global cooldown. Matching is in file order; at most one reaction is sent per message. Bot messages and command-prefixed messages do not trigger reactions. Responses have a 450-byte UTF-8 limit and share the global output limiter with commands. Invalid entries are skipped. Deleting the local file restores the seeded example on the next normal launch.
+Ordinary chat can also trigger short, non-AI reactions. Edit app-data `config/message_triggers.json` to add or disable entries, then restart. Each entry needs a unique `id`, `enabled`, `match_mode` (`contains` or `exact`), `text`, `case_sensitive`, `probability` (0 to 1), `cooldown_seconds` (0 to 86400), and 1 to 10 literal `responses`. The starter file has an empty `triggers` list. Matching is in file order; at most one reaction is sent per message. Bot messages and command-prefixed messages do not trigger reactions. Responses have a 450-byte UTF-8 limit and share the global output limiter with commands. Invalid entries are skipped. Deleting the local file restores the empty starter on the next normal launch.
 
 ## Desktop control panel
 
@@ -234,6 +265,7 @@ Generated local files include:
 | App-data `data/twitch_bot.db` | Local user activity and AI memory | Never |
 | App-data `config/command_settings.json` | Local command overrides | Never |
 | App-data `config/custom_commands.json` | Local custom commands | Never |
+| App-data `config/fun_settings.json` | Local built-in command responses | Never |
 | App-data `config/message_triggers.json` | Local message reactions | Never |
 | App-data `config/personality_settings.json` | Local personality text and selection | Never |
 | App-data `config/app_settings.json` | Versioned local startup, window/tray, AI memory/model, and non-secret Twitch target/preset preferences | Never |

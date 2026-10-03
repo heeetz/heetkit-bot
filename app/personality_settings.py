@@ -51,19 +51,14 @@ def load_personality_settings(
         logger.warning("Personality settings file must contain a JSON object; using defaults")
         return PersonalitySettings(default_active, {})
 
-    active = payload.get("active_personality", default_active)
-    if not isinstance(active, str) or active not in built_in_prompts:
-        logger.warning("Ignoring unknown active AI personality name=%r", active)
-        active = default_active
-
     raw_overrides = payload.get("overrides", {})
     if not isinstance(raw_overrides, dict):
         logger.warning("Ignoring malformed AI personality overrides")
         raw_overrides = {}
     overrides: dict[str, str] = {}
     for name, prompt in raw_overrides.items():
-        if name not in built_in_prompts:
-            logger.warning("Ignoring override for unknown AI personality name=%r", name)
+        if not isinstance(name, str) or not name.strip() or len(name) > 64:
+            logger.warning("Ignoring invalid AI personality name")
             continue
         try:
             parsed_prompt = validate_personality_prompt(prompt)
@@ -74,8 +69,12 @@ def load_personality_settings(
                 str(error),
             )
             continue
-        if parsed_prompt != built_in_prompts[name]:
+        if parsed_prompt != built_in_prompts.get(name):
             overrides[name] = parsed_prompt
+    active = payload.get("active_personality", default_active)
+    if not isinstance(active, str) or active not in (built_in_prompts.keys() | overrides.keys()):
+        logger.warning("Ignoring unknown active AI personality name=%r", active)
+        active = default_active
     return PersonalitySettings(active, overrides)
 
 

@@ -1,1 +1,1 @@
-# Blocked phrases file
+# Add your own rules in the Filters page. Starter rules are empty.

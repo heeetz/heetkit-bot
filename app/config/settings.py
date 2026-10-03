@@ -101,6 +101,9 @@ def load_settings_with_credentials(
     *,
     env_file: str | Path | None = ".env",
 ) -> tuple[Settings, CredentialManager]:
+    paths = RuntimePaths.default()
+    if env_file == ".env" and not paths.is_default_profile:
+        env_file = paths.root / ".env"
     environment = EnvironmentCredentialSettings(_env_file=env_file)
     manager = CredentialManager(
         {
@@ -113,7 +116,10 @@ def load_settings_with_credentials(
         },
         store=credential_store,
     )
-    settings = Settings(_env_file=env_file, **manager.settings_overrides())
+    overrides = manager.settings_overrides()
+    if not paths.is_default_profile:
+        overrides.update(twitch_token_file=str(paths.tokens), database_url="sqlite+aiosqlite:///" + str(paths.database))
+    settings = Settings(_env_file=env_file, **overrides)
     return settings, manager
 
 

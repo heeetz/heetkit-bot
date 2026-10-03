@@ -19,62 +19,172 @@ When asked to execute a TODO:
 7. Run focused checks only. Do not repeat reviews/tests after they pass unless code changed or a concrete defect remains.
 8. Perform **one** final review, update project context, commit with a semantic prefix, push to `origin/main`, and stop.
 9. Preserve unrelated local changes. Never commit secrets/runtime data and never force-push or destructive-clean the repository.
+10. Update `README.md` only when the task changes user-facing setup, installation, supported platforms, configuration, commands/features, or important usage workflows.
 
 ---
 
-# P4 — Windows distribution first
+# P5 — Release-readiness checkpoint
 
-## TODO-012 — Build a reproducible standalone Windows application
+## TODO-013 — Perform one global pre-packaging codebase review
+
+This is a deliberate checkpoint before freezing the application into distributable artifacts.
+
+- [ ] Review the **current** codebase globally once, with emphasis on release risk rather than style.
+- [ ] Check:
+  - package/module ownership and obvious dead/obsolete files;
+  - accidental development-only/runtime-path assumptions;
+  - personal/private data accidentally tracked or bundled;
+  - secrets and credential boundaries;
+  - app-data/config/database/token-cache ownership;
+  - startup/shutdown/single-instance lifecycle;
+  - pywebview/thread/async boundaries;
+  - Twitch/Gemini resource lifetimes;
+  - frontend/backend bridge API consistency;
+  - dependency declarations and unused runtime dependencies;
+  - packaging/resource path assumptions;
+  - first-run behavior with an empty profile;
+  - README/setup accuracy;
+  - tests that materially protect packaging/release behavior.
+- [ ] Do not refactor merely to reduce file count or line count.
+- [ ] Do not run multiple generic review loops.
+- [ ] Produce a short prioritized report:
+  - release blocker;
+  - should fix before v1;
+  - safe to defer.
+- [ ] Implement only tiny, isolated, high-confidence fixes during the review.
+- [ ] Turn broader findings into explicit follow-up TODOs before packaging.
+- [ ] Run the full automated test suite once at the end of the checkpoint.
+
+**Acceptance:** there are no known unclassified release blockers before packaging begins.
+
+---
+
+# P6 — Windows distribution first
+
+## TODO-014 — Build a reproducible standalone Windows application
 
 Recommended first target: Windows x64.
 
 - [ ] Build the React/Vite frontend automatically as part of packaging.
 - [ ] Freeze Python + runtime dependencies + built frontend/resources into a repeatable Windows build.
-- [ ] Prefer a predictable `onedir` application bundle first; optimize to `onefile` only if testing shows a real benefit.
+- [ ] Prefer a predictable `onedir` application bundle first; consider `onefile` only if real testing shows a benefit.
 - [ ] The packaged app must not depend on the development virtualenv, Node.js, or a locally installed Python.
-- [ ] Keep mutable config/database/auth data outside the install directory using TODO-004.
-- [ ] Include only runtime-required resources.
-- [ ] Add version metadata and final application icon.
+- [ ] Keep mutable config/database/auth data outside the install directory.
+- [ ] Include only runtime-required resources; exclude `.agent/`, TODO files, tests, development docs/scripts, local profiles, caches, and generated debug artifacts.
+- [ ] Add canonical application version metadata.
+- [ ] Add the final application icon to the executable/window/taskbar/tray where appropriate.
 - [ ] Detect/report a missing WebView2 Runtime cleanly.
-- [ ] Produce an optional portable ZIP from the same application bundle for testing/power users.
-- [ ] Validate on a clean Windows environment/user profile.
+- [ ] Produce a portable ZIP from the same tested application bundle for development/power-user testing.
+- [ ] Validate both:
+  - existing-owner profile;
+  - completely clean temporary profile.
+- [ ] Validate on a clean Windows user profile or machine/VM without the development environment.
 
-**Acceptance:** extracting the portable ZIP on a clean Windows machine is enough to run the application once required OS runtime prerequisites are present.
-
----
-
-## TODO-013 — Add a normal Windows installer
-
-The polished default distribution should be an installer; the portable ZIP may remain an alternate asset.
-
-- [ ] Build an installer around the tested standalone bundle.
-- [ ] Install to an appropriate per-user or per-machine application directory.
-- [ ] Create Start Menu shortcut and optional desktop shortcut.
-- [ ] Preserve user data/config across upgrades and uninstall unless the user explicitly chooses to remove it.
-- [ ] Detect WebView2 Runtime and bootstrap/install the Evergreen Runtime when missing using Microsoft's supported deployment flow.
-- [ ] Add application icon/version/publisher metadata.
-- [ ] Support clean uninstall without deleting user data by surprise.
-- [ ] Keep installer generation scripted/reproducible.
+**Acceptance:** extracting the portable ZIP on a clean Windows system is enough to run the application once required OS runtime prerequisites are present, and no owner-specific data is included.
 
 ---
 
-## TODO-014 — Add versioned release automation
+## TODO-015 — Add a normal Windows installer
 
-- [ ] Define application versioning and where the canonical version lives.
+The installer is the primary end-user distribution. The portable ZIP remains an alternate asset.
+
+- [ ] Build a reproducible installer around the tested standalone bundle.
+- [ ] Install application binaries to an appropriate application directory.
+- [ ] Keep mutable user profile/data outside the install directory.
+- [ ] Create a Start Menu shortcut and optional desktop shortcut.
+- [ ] Preserve user data/config/database across upgrades.
+- [ ] Uninstall must not silently delete user data.
+- [ ] Detect WebView2 Runtime and use Microsoft's supported Evergreen deployment/bootstrap flow when it is missing.
+- [ ] Add application icon, version, product name, and publisher metadata.
+- [ ] Support clean in-place upgrade from an older installed version.
+- [ ] Keep installer generation scripted and reproducible.
+- [ ] Document where the application is installed and where user data lives.
+
+**Acceptance:** installing a newer version replaces application binaries while preserving the user's existing customized profile and data.
+
+---
+
+# P7 — Versioned releases and updates
+
+## TODO-016 — Add versioned GitHub release automation
+
+- [ ] Define one canonical application version source.
 - [ ] Build/test the Windows frontend + standalone application in CI.
 - [ ] Build the Windows installer and portable ZIP as release artifacts.
-- [ ] Publish versioned GitHub Releases from tags.
+- [ ] Publish versioned GitHub Releases from version tags.
 - [ ] Do not commit generated binaries/build directories to normal source history.
-- [ ] Include checksums for downloadable artifacts.
+- [ ] Generate SHA-256 checksums for downloadable artifacts.
 - [ ] Keep release notes concise and user-facing.
+- [ ] If the source repository remains private, decide on a public release-only repository or another public update feed for end users.
+- [ ] Ensure release automation never publishes the owner's local profile, secrets, token cache, database, or private defaults.
+
+**Acceptance:** creating a release tag produces reproducible downloadable artifacts without manually rebuilding them on the developer machine.
 
 ---
 
-# P5 — Cross-platform release expansion
+## TODO-017 — Add safe in-app update checking
 
-## TODO-015 — Produce native macOS and Linux release builds
+Start with a conservative update flow; do not build a custom binary self-patcher.
 
-Do this only after the Windows packaging/storage model is stable.
+- [ ] Add a manual `Check for updates` action.
+- [ ] Optionally check for updates at startup on a low-frequency/cached basis, with a user setting if appropriate.
+- [ ] Compare the running canonical version against the latest stable published release.
+- [ ] Show:
+  - current version;
+  - available version;
+  - concise release notes;
+  - clear update action.
+- [ ] Initial acceptable flow:
+  - open the official release/download page.
+- [ ] Preferred later flow:
+  - download the signed/checksummed installer to a temporary location;
+  - verify integrity;
+  - ask the user before installation;
+  - perform orderly application shutdown;
+  - launch the installer;
+  - let the installer handle replacement/upgrade.
+- [ ] Never let the running executable directly rewrite itself.
+- [ ] Handle offline/API failure silently or with non-disruptive status.
+- [ ] Do not require GitHub authentication for normal public-user update checks.
+- [ ] If releases are hosted separately from the source repository, keep the update endpoint configurable at build time rather than hardcoding private repository assumptions.
+
+**Acceptance:** users can discover a newer stable release from inside the app and follow a safe upgrade path without losing local configuration/data.
+
+---
+
+# P8 — Final Windows release verification
+
+## TODO-018 — Perform a release-artifact audit and clean-profile smoke test
+
+This is **not** another broad architecture review.
+
+- [ ] Test the actual installer/portable artifacts, not the development checkout.
+- [ ] Verify:
+  - first launch with no prior profile;
+  - Twitch setup/auth path;
+  - Gemini credential setup;
+  - custom commands/personalities/filters persistence;
+  - app restart;
+  - tray behavior;
+  - upgrade from a previous test version;
+  - uninstall behavior;
+  - no owner-specific defaults/data;
+  - no development files bundled;
+  - version/icon metadata;
+  - update-check behavior.
+- [ ] Inspect the packaged file list for accidental source/dev/private artifacts.
+- [ ] Run one targeted security/privacy check around credentials, OAuth cache, logs, and user data.
+- [ ] Record only concrete blockers; do not reopen solved architecture questions without evidence.
+
+**Acceptance:** the Windows artifact behaves like a clean product installation rather than a packaged development checkout.
+
+---
+
+# P9 — Cross-platform release expansion
+
+## TODO-019 — Produce native macOS and Linux release builds
+
+Do this only after the Windows packaging/storage/update model is stable.
 
 - [ ] Build each OS artifact **on that OS**; do not assume one PyInstaller build is cross-platform.
 - [ ] macOS:
@@ -86,7 +196,7 @@ Do this only after the Windows packaging/storage model is stable.
   - choose and document the supported pywebview backend/runtime prerequisites (GTK or Qt);
   - integrate Secret Service/KWallet through keyring where available;
   - choose one practical initial distribution format after testing rather than promising every distro.
-- [ ] Reuse the same platform app-data layout semantics from TODO-004.
+- [ ] Reuse the same platform app-data/profile semantics established for Windows.
 - [ ] Extend CI/release workflows per OS only after local/native builds are proven.
 - [ ] Document unavoidable system prerequisites clearly.
 
@@ -96,13 +206,22 @@ Do this only after the Windows packaging/storage model is stable.
 
 # Product direction
 
+The v1 design is considered substantially complete, but it is not immutable.
+
+Change UI/UX when packaging, clean-profile testing, or real usage reveals a concrete problem.
+Do not reopen broad design work merely for cosmetic churn.
+
 Near-term sequence:
 
 ```text
-branding
-→ Windows standalone + installer + releases
-→ macOS/Linux release builds
+one global release-readiness review
+→ Windows standalone
+→ Windows installer
+→ automated releases
+→ in-app update checking
+→ release-artifact audit
+→ macOS/Linux expansion
 ```
 
-Do not add advanced chatbot features merely because competitors have them. Match the proven basics first,
-keep the execution model safe, and expand only after real usage demonstrates the need.
+One codebase, one application, many independent user profiles.
+Owner-specific presets and moderation/personality data are user data, not product defaults.

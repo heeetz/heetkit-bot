@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+from hashlib import sha256
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from enum import StrEnum
@@ -10,6 +12,7 @@ from typing import Protocol
 
 import httpx
 import keyring
+from app.runtime_paths import RuntimePaths
 from keyring.errors import KeyringError, PasswordDeleteError
 
 logger = logging.getLogger(__name__)
@@ -60,17 +63,22 @@ class CredentialStore:
 
     def __init__(self, backend: KeyringBackend = keyring) -> None:
         self._backend = backend
+        paths = RuntimePaths.default()
+        self._service_name = CREDENTIAL_SERVICE_NAME
+        if not paths.is_default_profile:
+            identity = sha256(os.path.normcase(str(paths.root.resolve())).encode("utf-8")).hexdigest()
+            self._service_name += ":" + identity
 
     def get(self, name: CredentialName) -> str | None:
         try:
-            value = self._backend.get_password(CREDENTIAL_SERVICE_NAME, name.value)
+            value = self._backend.get_password(self._service_name, name.value)
         except KeyringError as error:
             raise CredentialError("Secure credential storage is unavailable.") from error
         return value or None
 
     def replace(self, name: CredentialName, value: str) -> None:
         try:
-            self._backend.set_password(CREDENTIAL_SERVICE_NAME, name.value, value)
+            self._backend.set_password(self._service_name, name.value, value)
         except KeyringError as error:
             raise CredentialError("Could not store the credential securely.") from error
 
@@ -78,7 +86,7 @@ class CredentialStore:
         if self.get(name) is None:
             return False
         try:
-            self._backend.delete_password(CREDENTIAL_SERVICE_NAME, name.value)
+            self._backend.delete_password(self._service_name, name.value)
         except PasswordDeleteError:
             return False
         except KeyringError as error:

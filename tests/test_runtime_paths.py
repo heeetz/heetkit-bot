@@ -16,6 +16,8 @@ def test_migrates_existing_state_once_and_preserves_sqlite_rows(tmp_path: Path) 
     (legacy / "app_settings.json").write_text('{"version": 1}', encoding="utf-8")
     (legacy / "command_settings.json").write_text('{"version": 1}', encoding="utf-8")
     (legacy / "personality_settings.json").write_text('{"version": 1}', encoding="utf-8")
+    (legacy / "custom_commands.json").write_text('{"version": 1, "commands": []}', encoding="utf-8")
+    (legacy / "message_triggers.json").write_text('{"version": 1, "triggers": []}', encoding="utf-8")
     (legacy / "filters" / "blocked_words.txt").write_text("legacy rule\n", encoding="utf-8")
     (legacy / "twitchio_tokens.json").write_text("private-token", encoding="utf-8")
     old_db = legacy / "twitch_bot.db"
@@ -30,6 +32,7 @@ def test_migrates_existing_state_once_and_preserves_sqlite_rows(tmp_path: Path) 
         f"sqlite+aiosqlite:///{old_db}",
         paths=paths,
         legacy_data=legacy,
+        migrate_legacy=True,
     )
 
     assert token_file == str(paths.tokens)
@@ -37,6 +40,8 @@ def test_migrates_existing_state_once_and_preserves_sqlite_rows(tmp_path: Path) 
     assert paths.app_settings.read_text(encoding="utf-8") == '{"version": 1}'
     assert paths.command_settings.exists()
     assert paths.personality_settings.exists()
+    assert paths.custom_commands.read_bytes() == (legacy / "custom_commands.json").read_bytes()
+    assert paths.message_triggers.read_bytes() == (legacy / "message_triggers.json").read_bytes()
     assert paths.tokens.read_text(encoding="utf-8") == "private-token"
     assert (paths.filters / "blocked_words.txt").read_text(encoding="utf-8") == "legacy rule\n"
     with closing(sqlite3.connect(paths.database)) as connection:
@@ -45,7 +50,7 @@ def test_migrates_existing_state_once_and_preserves_sqlite_rows(tmp_path: Path) 
 
     paths.app_settings.unlink()
     paths.tokens.write_text("current-token", encoding="utf-8")
-    prepare_runtime_data(str(old_db), f"sqlite+aiosqlite:///{old_db}", paths=paths, legacy_data=legacy)
+    prepare_runtime_data(str(old_db), f"sqlite+aiosqlite:///{old_db}", paths=paths, legacy_data=legacy, migrate_legacy=True)
     assert not paths.app_settings.exists()
     assert paths.tokens.read_text(encoding="utf-8") == "current-token"
 
@@ -61,6 +66,7 @@ def test_missing_files_create_directories_and_seed_filter_defaults(tmp_path: Pat
         f"sqlite+aiosqlite:///{legacy / 'missing.db'}",
         paths=paths,
         legacy_data=legacy,
+        migrate_legacy=True,
     )
 
     assert all(directory.is_dir() for directory in (paths.config, paths.data, paths.auth, paths.cache))
@@ -71,4 +77,4 @@ def test_missing_files_create_directories_and_seed_filter_defaults(tmp_path: Pat
     assert make_url(database_url).database == str(paths.database)
     (paths.filters / "blocked_patterns.txt").unlink()
     prepare_runtime_data(token_file, database_url, paths=paths, legacy_data=legacy)
-    assert (paths.filters / "blocked_patterns.txt").read_text(encoding="utf-8") == "safe-pattern\n"
+    assert "safe-pattern" not in (paths.filters / "blocked_patterns.txt").read_text(encoding="utf-8")

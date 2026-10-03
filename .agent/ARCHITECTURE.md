@@ -186,7 +186,8 @@ failures do not disable unrelated commands.
 - Only personality-specific text is editable. `RuntimeState` overlays local prompts and active
   selection from platform app-data `config/personality_settings.json`.
 - Personality Apply is runtime-only, Save is persistent, and Reset restores the built-in text.
-  Shared AI instructions are never sent to the editor.
+  Only `neutral` ships. Local IDs and retired shipped IDs remain available through saved overrides;
+  local-only Reset clears text while retaining the ID. Shared AI instructions are never sent to the editor.
 - `AIMemoryService` uses repository-backed SQLite storage and retains the configured number of
   successful exchanges per Twitch user. AI memory enablement starts from the source default
   overlaid by platform app-data `config/app_settings.json`; UI changes persist there before updating RuntimeState.
@@ -237,13 +238,15 @@ failures do not disable unrelated commands.
 | --- | --- | --- |
 | Typed deployment settings | `app/config/settings.py`, loaded from environment/`.env` | `.env` ignored; `.env.example` tracked |
 | User-entered provider credentials | System keyring via `app/credentials.py`; `.env` fallback | OS-backed/private, never ordinary JSON |
-| Behavioral defaults and paths | root `config.py` | Tracked |
+| Behavioral defaults | root `config.py` | Tracked |
+| Profile path selection | `app/runtime_paths.py`, CLI/environment override | Tracked code, local root |
 | Built-in personality prompts | `app/resources/personalities.json` | Tracked package data |
 | Protected shared AI instructions | `app/config/personalities.py` | Tracked application code |
 | Gemini model presets | `app/resources/gemini_models.json` | Tracked package data |
 | Ordinary application preferences | App-data `config/app_settings.json` (`startup`, `window`, AI memory/models, non-secret `twitch` target and named target presets) | Outside repository |
 | Command overrides | App-data `config/command_settings.json` | Outside repository |
 | Custom commands | App-data `config/custom_commands.json` | Outside repository |
+| Built-in fun-command responses | App-data `config/fun_settings.json`; neutral code fallbacks | Outside repository |
 | Message triggers | App-data `config/message_triggers.json`; tracked `app/resources/default_triggers.json` seed | Local file outside repository |
 | Personality selection/overrides | App-data `config/personality_settings.json` | Outside repository |
 | Twitch OAuth tokens | App-data `auth/twitchio_tokens.json` | Outside repository; secret |
@@ -252,8 +255,19 @@ failures do not disable unrelated commands.
 | Distributed filter defaults | `data/filters/*.txt` | Tracked, read-only at runtime |
 | Frontend source / generated build | `frontend/src`, `frontend/dist` | Source tracked; build ignored |
 
-See `docs/configuration-audit.md` for the current ownership audit and recommended future
-configuration direction.
+### Shipped-default inventory (TODO-012)
+
+- Required application behavior: registry definitions/permissions/cooldowns, dispatch limits,
+  typed settings/schema validation, shared AI safety/request/response policy, OAuth scopes,
+  memory limits, desktop defaults, logging, branding and frontend assets. These remain shared code.
+- Safe public starters: `.env.example` placeholders, Gemini model presets, one `neutral` personality,
+  empty filter text files and message-trigger seed, empty custom commands and Twitch presets,
+  neutral forecast and community-link configuration reminder. No personal account is configured.
+- Owner-specific data removed from shipped defaults: additional personality prompts/selection,
+  named-person comparison/meme rules, moderation vocabulary, reaction text, Telegram link and
+  forecast responses. These were preserved only in the owner's existing local profile.
+- All saved settings, personalities, commands, filters, presets and responses are mutable profile
+  data. Runtime preparation copies only missing files; application upgrades never overwrite them.
 
 ### Runtime data reference
 
@@ -261,14 +275,25 @@ configuration direction.
 `%LOCALAPPDATA%\TwitchBot`, macOS `~/Library/Application Support/TwitchBot`, and Linux
 `${XDG_DATA_HOME:-~/.local/share}/TwitchBot`. Platform directory overrides may change these
 exact locations. `app/runtime_paths.py` owns the paths and first-launch migration. Before
-opening local state, a normal desktop launch copies missing legacy checkout JSON, SQLite,
+opening local state, a launch using the default profile copies missing legacy checkout JSON, SQLite,
 TwitchIO tokens, and filter files to the new root. SQLite is copied through its backup API.
 Old files are retained; the `.legacy-migration-v1` marker prevents a later reset from
 reimporting them. Missing filter files are reseeded from tracked source defaults. `--check`
 does not create directories or migrate data.
 
+`--data-dir <path>` overrides `TWITCH_BOT_DATA_DIR`; both select the same runtime architecture.
+Resolution occurs before credential loading, the instance guard, migration or composition.
+Alternate roots never import checkout state and always use their own SQLite/OAuth paths, ignoring
+legacy `DATABASE_URL`/`TWITCH_TOKEN_FILE` locations. They load `<profile>/.env`, while the normal
+profile loads checkout `.env`. Explicit process environment variables remain deliberate overrides.
+The standard profile retains keyring service `twitch-bot`; alternate roots use
+`twitch-bot:<SHA-256 of os.path.normcase(str(resolved_root))>`. Entry names are `gemini_api_key` and
+`twitch_client_secret`. Moving an alternate root changes its keyring namespace; config reset does not.
+Profiles isolate local state, not OS-wide resources: the TwitchIO OAuth callback still uses port 4343.
+
 Delete `config/app_settings.json`, `config/command_settings.json`, `config/custom_commands.json`, or
 `config/personality_settings.json` to reset those non-secret preferences and overrides.
+Deleting `config/fun_settings.json` restores neutral built-in command responses.
 Deleting `config/message_triggers.json` restores its distributed default on the next launch.
 Deleting a file in `config/filters/` restores its distributed default on the next launch.
 Deleting `data/twitch_bot.db` destroys saved users and AI memory. Deleting

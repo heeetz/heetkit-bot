@@ -33,8 +33,7 @@ def test_local_defaults_seed_and_remain_editable(tmp_path):
     paths = RuntimePaths(tmp_path / "appdata")
     prepare_runtime_data("missing-tokens", "sqlite+aiosqlite:///:memory:", paths=paths, legacy_data=tmp_path)
     seeded = MessageTriggerStore(paths.message_triggers).list()
-    assert len(seeded) == 1
-    assert seeded[0].text == "вась"
+    assert seeded == ()
     save(paths.message_triggers, trigger(enabled=False))
     prepare_runtime_data("missing-tokens", "sqlite+aiosqlite:///:memory:", paths=paths, legacy_data=tmp_path)
     assert MessageTriggerStore(paths.message_triggers).list()[0].enabled is False

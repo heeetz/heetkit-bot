@@ -89,9 +89,9 @@ def test_desktop_instance_guard_blocks_other_process_and_releases(tmp_path) -> N
 def test_duplicate_desktop_launch_fails_before_loading_local_state(
     monkeypatch, tmp_path, capsys,
 ) -> None:
-    settings_path = tmp_path / "app_settings.json"
+    settings_path = tmp_path / "config" / "app_settings.json"
     notices: list[str] = []
-    monkeypatch.setattr("app.webview_host.APP_SETTINGS_PATH", settings_path)
+    monkeypatch.setenv("TWITCH_BOT_DATA_DIR", str(tmp_path))
     monkeypatch.setattr("app.webview_host.notify_existing_desktop", notices.append)
     monkeypatch.setattr(
         "app.webview_host.load_settings_with_credentials",
@@ -888,7 +888,8 @@ def test_bridge_applies_saves_and_resets_personality(tmp_path) -> None:
 
     assert bridge.apply_personality("neutral", "temporary") == {"ok": True}
     assert runtime_state.get_ai_personality_prompt("neutral") == "temporary"
-    assert runtime_state.active_ai_personality_is_saved is False
+    assert runtime_state.active_ai_personality_is_saved is True
+    assert runtime_state.personality_prompt_is_saved("neutral") is False
 
     assert bridge.save_personality("neutral", "saved") == {"ok": True}
     assert runtime_state.get_ai_personality_prompt("neutral") == "saved"

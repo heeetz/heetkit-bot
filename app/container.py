@@ -5,7 +5,6 @@ from dataclasses import dataclass
 import httpx
 import logging
 
-from config import COMMAND_SETTINGS_PATH, FILTERS_DIRECTORY, PERSONALITY_SETTINGS_PATH
 from app.commands.ai import register_ai_commands
 from app.commands.fun import register_fun_commands
 from app.commands.info import register_info_commands, register_weather_commands
@@ -48,7 +47,7 @@ class Application:
             from app.services.filter_loader import load_filters_from_directory
             load_filters_from_directory(
                 self.services.filter_manager,
-                directory_path=str(FILTERS_DIRECTORY),
+                directory_path=str(RuntimePaths.default().filters),
             )
         except Exception:
             logger = logging.getLogger(__name__)
@@ -65,6 +64,7 @@ class Application:
 
 
 def build_application(settings: Settings) -> Application:
+    paths = RuntimePaths.default()
     database = Database(settings.database_url)
     http_client = httpx.AsyncClient(timeout=httpx.Timeout(8.0))
     user_repository = UserRepository(database.session_factory)
@@ -74,8 +74,8 @@ def build_application(settings: Settings) -> Application:
     twitch_api = TwitchAPIService()
     memory = AIMemoryService(memory_repository)
     runtime_state = RuntimeState(
-        command_settings_path=COMMAND_SETTINGS_PATH,
-        personality_settings_path=PERSONALITY_SETTINGS_PATH,
+        command_settings_path=paths.command_settings,
+        personality_settings_path=paths.personality_settings,
     )
     ai_service = GeminiAIService(
         settings,
@@ -101,10 +101,10 @@ def build_application(settings: Settings) -> Application:
     register_social_commands(registry)
     runtime_state.configure_commands(registry.definitions())
     custom_commands = CustomCommandStore(
-        RuntimePaths.default().custom_commands,
+        paths.custom_commands,
         {name for definition in registry.definitions() for name in (definition.name, *definition.aliases)},
     )
-    message_triggers = MessageTriggerStore(RuntimePaths.default().message_triggers)
+    message_triggers = MessageTriggerStore(paths.message_triggers)
     dispatcher = CommandDispatcher(
         registry=registry,
         cooldowns=CooldownManager(),

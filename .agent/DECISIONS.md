@@ -182,8 +182,9 @@ settings file.
 Status: Active
 
 Decision:
-Built-in personality-specific text is tracked non-executable data in
-`app/resources/personalities.json`. Users edit only local personality-specific overrides.
+One neutral built-in personality is tracked non-executable data in
+`app/resources/personalities.json`. Users edit local personality-specific overrides, including
+their own IDs and IDs removed from the shipped resource.
 Shared system/safety instructions remain application-owned Python code and are combined with
 the effective personality by Python.
 
@@ -218,6 +219,21 @@ tracked. First normal launch copies legacy local state once; old files are not d
 Reason:
 The repository must not leak credentials/private data or mix machine state with distributable
 source.
+
+## Decision: One runtime supports independent profiles
+
+Status: Active
+
+Decision:
+Shipped resources contain neutral starters only. Owner tuning is local profile data.
+`--data-dir` or `TWITCH_BOT_DATA_DIR` selects the root before any local state or credentials
+are loaded. The normal root preserves legacy migration and its original keyring service;
+alternate roots skip automatic imports, use profile-local deployment `.env`, and use keyring
+namespaces derived from the resolved root. Existing config is never overwritten during seeding.
+
+Reason:
+One shared application can serve customized and clean installations without shipping private
+defaults or contaminating disposable profiles with the owner's database, OAuth cache or credentials.
 
 ## Decision: Semantic log metadata originates in Python
 

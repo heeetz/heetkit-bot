@@ -1,6 +1,8 @@
 """Lightweight fun commands."""
 
 from random import choice
+import json
+import logging
 
 from config import (
     FORECAST_COOLDOWN_SECONDS,
@@ -11,6 +13,7 @@ from config import (
 from app.commands.registry import CommandRegistry
 from app.utils.cooldown import CooldownPolicy
 from app.twitch.permissions import Permission
+from app.runtime_paths import RuntimePaths
 
 
 
@@ -23,40 +26,38 @@ def _valid_tg_arguments(arguments: str) -> bool:
 
 
 FORECASTS = (
-    "завтра тебе кто-то кринет ГАНДОООООООООООНЫ",
-    "завтра буде циркумфлекс коса рыска коса рыска",
-    "завтра хз че будет еще не придумал отдыхай пацан",
-    "завтра тебя отстрапонит альтушечка",
-    "завтра сева выйдет в +120 эло",
-    "завтра сева не выйдет в +эло",
-    "завтра севе будут мешать комары",
-    "возможно завтра все модеры перестануть быть даунами",
-    "возможно можно",
-    "ВАСЬ",
-    "завтра будет завозик WW",
-    "монеси уже голенький",
-    "пацан",
-    "завтра монеси наденет носки",
-    "монеси возможно уже оделся но это не точно",
-    "завтра чат будет закрыт на переучет пацанов",
-    "комары снова возьмут контроль над этим чертовым судном",
-    "хис тен ечпи йес йес а ой сори май бед",
-    "мид дочекайте",
-    "в определенный момент жизненного цикла вася неизбежно перейдет в состояние BaCuJIuu",
-    "вашей матери следовало бы обеспечить базовый комплект нижнего белья, ибо ситуация постепенно выходит за рамки приемлемого",
-    "вась процесс процесс необратим, колеса крутятся",
-    "кто то попытается заруинить игру донку",
-    "чат жбт не загрузился попробуй позже вася",
-    "фраметаймер возьмет бетку",
-    "гектор саламанка взорвется в 13ой серии 4го сезона",
+    'Tomorrow brings a new opportunity.',
 )
 
 
-def random_forecast() -> str:
-    return choice(FORECASTS)
+def random_forecast(forecasts: tuple[str, ...] = FORECASTS) -> str:
+    return choice(forecasts)
+
+
+def load_fun_settings() -> tuple[str, tuple[str, ...]]:
+    """Local responses for built-in commands; absent files use neutral starters."""
+    path = RuntimePaths.default().config / "fun_settings.json"
+    if not path.exists():
+        return TG_MESSAGE, FORECASTS
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or payload.get("version") != 1:
+            raise ValueError("Unsupported fun settings")
+        message = payload.get("tg_message", TG_MESSAGE)
+        forecasts = payload.get("forecasts", list(FORECASTS))
+        if not isinstance(forecasts, list) or not 1 <= len(forecasts) <= 1000:
+            raise ValueError("Invalid forecasts")
+        if any(not isinstance(value, str) or not value.strip() or len(value.encode("utf-8")) > 450
+               for value in [message, *forecasts]):
+            raise ValueError("Invalid command response")
+        return message, tuple(forecasts)
+    except (OSError, UnicodeError, ValueError):
+        logging.getLogger(__name__).warning("Could not load local fun settings; using neutral defaults")
+        return TG_MESSAGE, FORECASTS
 
 
 def register_fun_commands(registry: CommandRegistry) -> None:
+    tg_message, forecasts = load_fun_settings()
     @registry.command(
         "ping",
         help_text="!ping",
@@ -83,7 +84,7 @@ def register_fun_commands(registry: CommandRegistry) -> None:
             await context.reply("Количество должно быть от 1 до 10.")
             return
 
-        await context.reply_burst(TG_MESSAGE, count, delay=TG_BURST_DELAY)
+        await context.reply_burst(tg_message, count, delay=TG_BURST_DELAY)
 
     @registry.command(
         "forecast",
@@ -96,4 +97,4 @@ def register_fun_commands(registry: CommandRegistry) -> None:
             await context.reply("Usage: !forecast")
             return
         username = context.message.author.username.lstrip("@")
-        await context.reply(f"@{username}, {random_forecast()}")
+        await context.reply(f"@{username}, {random_forecast(forecasts)}")

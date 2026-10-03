@@ -8,7 +8,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from app.runtime_paths import FILTER_NAMES, LEGACY_DATA, RuntimePaths
+from app.runtime_paths import DEFAULT_FILTERS, FILTER_NAMES, RuntimePaths
 from app.services.filter_manager import FilterManager, FilterRule
 
 
@@ -44,7 +44,7 @@ def _entries(path: Path, *, patterns: bool) -> list[dict[str, object]]:
 def get_filter_settings(
     manager: FilterManager,
     directory: Path | None = None,
-    defaults_directory: Path = LEGACY_DATA / "filters",
+    defaults_directory: Path = DEFAULT_FILTERS,
 ) -> dict[str, object]:
     """Describe local lines, including invalid ones, and their source defaults."""
     directory = directory or RuntimePaths.default().filters

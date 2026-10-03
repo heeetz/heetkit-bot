@@ -13,7 +13,7 @@ from app.command_settings import (
     load_command_overrides,
     save_command_overrides,
 )
-from app.config.personalities import AI_PERSONALITY_PRESETS, AI_PERSONALITY_PROMPTS
+from app.config.personalities import AI_PERSONALITY_PROMPTS
 from app.personality_settings import (
     PersonalitySettings,
     load_personality_settings,
@@ -68,7 +68,8 @@ class RuntimeState:
 
     @property
     def available_personalities(self) -> tuple[str, ...]:
-        return tuple(AI_PERSONALITY_PRESETS)
+        with self._lock:
+            return tuple(self._personality_prompts)
 
     @property
     def runtime_toggleable_commands(self) -> tuple[str, ...]:
@@ -235,7 +236,7 @@ class RuntimeState:
             return self._active_ai_personality
 
     def set_active_ai_personality(self, personality: str) -> None:
-        if personality not in AI_PERSONALITY_PRESETS:
+        if personality not in self.available_personalities:
             raise ValueError(f"Unknown AI personality: {personality}")
         with self._lock:
             self._active_ai_personality = personality
@@ -248,10 +249,8 @@ class RuntimeState:
                 raise ValueError(f"Unknown AI personality: {personality}") from error
 
     def get_builtin_ai_personality_prompt(self, personality: str) -> str:
-        try:
-            return AI_PERSONALITY_PROMPTS[personality]
-        except KeyError as error:
-            raise ValueError(f"Unknown AI personality: {personality}") from error
+        self.get_ai_personality_prompt(personality)
+        return AI_PERSONALITY_PROMPTS.get(personality, "")
 
     def personality_prompt_is_saved(self, personality: str) -> bool:
         with self._lock:
@@ -274,17 +273,20 @@ class RuntimeState:
 
     def apply_ai_personality(self, personality: str, prompt: object) -> None:
         parsed_prompt = validate_personality_prompt(prompt)
-        self.get_builtin_ai_personality_prompt(personality)
+        if not isinstance(personality, str) or not personality.strip() or len(personality) > 64:
+            raise ValueError("Invalid AI personality name.")
         with self._lock:
             self._personality_prompts[personality] = parsed_prompt
             self._active_ai_personality = personality
 
     def save_ai_personality(self, personality: str, prompt: object) -> None:
         parsed_prompt = validate_personality_prompt(prompt)
-        built_in_prompt = self.get_builtin_ai_personality_prompt(personality)
+        if not isinstance(personality, str) or not personality.strip() or len(personality) > 64:
+            raise ValueError("Invalid AI personality name.")
+        built_in_prompt = AI_PERSONALITY_PROMPTS.get(personality)
         with self._lock:
             overrides = dict(self._persisted_personality_overrides)
-            if parsed_prompt == built_in_prompt:
+            if personality in AI_PERSONALITY_PROMPTS and parsed_prompt == built_in_prompt:
                 overrides.pop(personality, None)
             else:
                 overrides[personality] = parsed_prompt
@@ -298,7 +300,10 @@ class RuntimeState:
         built_in_prompt = self.get_builtin_ai_personality_prompt(personality)
         with self._lock:
             overrides = dict(self._persisted_personality_overrides)
-            overrides.pop(personality, None)
+            if personality in AI_PERSONALITY_PROMPTS:
+                overrides.pop(personality, None)
+            else:
+                overrides[personality] = built_in_prompt
             if self._personality_settings_path is not None:
                 self._save_personality_settings(
                     self._persisted_active_ai_personality,

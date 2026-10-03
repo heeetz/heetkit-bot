@@ -5,19 +5,11 @@ from app.config.personalities import (
     AI_PERSONALITY_PROMPTS,
     SHARED_AI_INSTRUCTIONS,
 )
-from app.runtime_paths import RuntimePaths
-
-
-RUNTIME_PATHS = RuntimePaths.default()
-FILTERS_DIRECTORY = RUNTIME_PATHS.filters
-COMMAND_SETTINGS_PATH = RUNTIME_PATHS.command_settings
-PERSONALITY_SETTINGS_PATH = RUNTIME_PATHS.personality_settings
-APP_SETTINGS_PATH = RUNTIME_PATHS.app_settings
 
 
 # Command behavior.
 TG_BURST_DELAY = 0.01
-TG_MESSAGE = "t.me/sch1lla <- 🍑🍑🍑"
+TG_MESSAGE = "Configure your community link in config/fun_settings.json."
 PING_COOLDOWN_SECONDS = 10.0
 HELP_COOLDOWN_SECONDS = 10.0
 COMMANDS_COOLDOWN_SECONDS = 15.0
@@ -33,7 +25,7 @@ ASK_COOLDOWN_SECONDS = 25.0
 AI_MAX_RESPONSE_LENGTH = 220
 AI_MEMORY_ENABLED = True
 AI_MEMORY_MAX_ENTRIES = 5
-ACTIVE_AI_PERSONALITY = "vas2"
+ACTIVE_AI_PERSONALITY = "neutral"
 
 
 
@@ -74,10 +66,9 @@ def build_ai_system_instruction(
     from datetime import datetime, timezone
 
     selected_personality = personality_name or ACTIVE_AI_PERSONALITY
-    try:
-        built_in_prompt = AI_PERSONALITY_PROMPTS[selected_personality]
-    except KeyError as error:
-        raise ValueError(f"Unknown AI personality: {selected_personality}") from error
+    built_in_prompt = AI_PERSONALITY_PROMPTS.get(selected_personality)
+    if built_in_prompt is None and personality_prompt is None:
+        raise ValueError(f"Unknown AI personality: {selected_personality}")
     current_datetime = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC (%A)")
     shared_instructions = SHARED_AI_INSTRUCTIONS.format(
         current_datetime=current_datetime,

@@ -7,6 +7,7 @@ import asyncio
 import ctypes
 import logging
 import math
+import os
 import sys
 import threading
 from concurrent.futures import Future, TimeoutError as FutureTimeoutError
@@ -36,7 +37,7 @@ from app.filter_settings import (
     save_filter_settings,
     validate_filter_input,
 )
-from app.runtime_paths import RuntimeDataError, prepare_runtime_data
+from app.runtime_paths import DATA_DIR_ENV, RuntimePaths, RuntimeDataError, prepare_runtime_data
 from app.system_tray import SystemTray
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
@@ -46,7 +47,6 @@ from app.utils.logging import (
     get_logger,
     get_recent_log_buffer,
 )
-from config import APP_SETTINGS_PATH
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -1475,7 +1475,7 @@ def run_desktop_host(
                 "Could not set Windows taskbar application identity: %s", result
             )
 
-    app_settings = AppSettingsStore(APP_SETTINGS_PATH)
+    app_settings = AppSettingsStore(RuntimePaths.default().app_settings)
     settings_snapshot = app_settings.snapshot()
     settings = apply_twitch_app_settings(settings, settings_snapshot)
     settings = apply_ai_app_settings(settings, settings_snapshot)
@@ -1531,6 +1531,7 @@ def run_desktop_host(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the Twitch bot web desktop UI.")
+    parser.add_argument("--data-dir", type=Path, help="Use an independent profile directory (or TWITCH_BOT_DATA_DIR).")
     parser.add_argument(
         "--dev-url",
         help="Load a running Vite development server instead of built frontend assets.",
@@ -1546,8 +1547,10 @@ def main() -> None:
         help="Validate configuration and locate the requested frontend entry point.",
     )
     arguments = parser.parse_args()
+    if arguments.data_dir is not None:
+        os.environ[DATA_DIR_ENV] = str(arguments.data_dir.expanduser().resolve())
     try:
-        guard = nullcontext() if arguments.check else desktop_instance_guard(APP_SETTINGS_PATH)
+        guard = nullcontext() if arguments.check else desktop_instance_guard(RuntimePaths.default().app_settings)
         with guard:
             settings, credential_manager = load_settings_with_credentials()
             if not arguments.check:
