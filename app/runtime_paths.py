@@ -16,6 +16,7 @@ from sqlalchemy.engine import make_url
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LEGACY_DATA = PROJECT_ROOT / "data"
+DEFAULT_TRIGGERS = PROJECT_ROOT / "app" / "resources" / "default_triggers.json"
 FILTER_NAMES = ("blocked_words.txt", "blocked_phrases.txt", "blocked_patterns.txt")
 
 
@@ -58,6 +59,10 @@ class RuntimePaths:
     @property
     def custom_commands(self) -> Path:
         return self.config / "custom_commands.json"
+
+    @property
+    def message_triggers(self) -> Path:
+        return self.config / "message_triggers.json"
 
     @property
     def personality_settings(self) -> Path:
@@ -146,6 +151,7 @@ def prepare_runtime_data(
             directory.mkdir(parents=True, exist_ok=True)
         for filename in FILTER_NAMES:
             _copy_if_missing(legacy_data / "filters" / filename, paths.filters / filename)
+        _copy_if_missing(DEFAULT_TRIGGERS, paths.message_triggers)
         configured_database = _sqlite_file(database_url)
         if not paths.migration_marker.exists():
             for filename, destination in (

@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "triggers": [
+    {
+      "id": "vas",
+      "enabled": true,
+      "match_mode": "contains",
+      "text": "вась",
+      "case_sensitive": false,
+      "probability": 0.1,
+      "cooldown_seconds": 120,
+      "responses": ["вась", "чё там, вась"]
+    }
+  ]
+}

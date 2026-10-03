@@ -12,6 +12,7 @@ from app.commands.info import register_info_commands, register_weather_commands
 from app.commands.social import register_social_commands
 from app.commands.registry import CommandDispatcher, CommandRegistry
 from app.custom_commands import CustomCommandStore
+from app.message_triggers import MessageTriggerStore
 from app.runtime_paths import RuntimePaths
 from app.config.settings import Settings
 from app.database.database import Database
@@ -103,6 +104,7 @@ def build_application(settings: Settings) -> Application:
         RuntimePaths.default().custom_commands,
         {name for definition in registry.definitions() for name in (definition.name, *definition.aliases)},
     )
+    message_triggers = MessageTriggerStore(RuntimePaths.default().message_triggers)
     dispatcher = CommandDispatcher(
         registry=registry,
         cooldowns=CooldownManager(),
@@ -113,6 +115,7 @@ def build_application(settings: Settings) -> Application:
         ai_cooldown_bypass_user_id=settings.ai_cooldown_bypass_user_id,
         runtime_state=runtime_state,
         custom_commands=custom_commands,
+        message_triggers=message_triggers,
     )
     return Application(
         settings=settings,

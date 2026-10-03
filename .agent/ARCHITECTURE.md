@@ -127,6 +127,9 @@ Responsibility: registry-driven definitions and centralized dispatch.
   these after built-ins and applies the same permission, cooldown, and output policy. Templates
   use a fixed variable allowlist and cannot execute code; recent users come from the existing
   SQLite user repository.
+- `MessageTriggerStore` loads bounded, validated local reactions at composition. The dispatcher
+  checks ordinary non-command messages in file order, excludes the bot account, and shares the
+  command cooldown manager and global output limiter. Reactions are literal text, never code or AI.
 - Handler-specific behavior remains in handlers; for example, `tg` bypasses the global
   `OutputLimiter` without changing generic command settings.
 
@@ -140,6 +143,9 @@ Responsibility: registry-driven definitions and centralized dispatch.
   removes the override and restores registry defaults.
 - Custom commands use a separate versioned app-data `config/custom_commands.json` store with
   atomic writes. Invalid entries and unsupported versions are ignored without affecting built-ins.
+- Message triggers use versioned app-data `config/message_triggers.json`, seeded when missing from
+  tracked `app/resources/default_triggers.json`. Local edits take effect on restart; invalid
+  entries are skipped.
 
 ## AI and Gemini flow
 
@@ -233,6 +239,7 @@ failures do not disable unrelated commands.
 | Ordinary application preferences | App-data `config/app_settings.json` (`startup`, `window`, AI memory/models, non-secret `twitch` target and named target presets) | Outside repository |
 | Command overrides | App-data `config/command_settings.json` | Outside repository |
 | Custom commands | App-data `config/custom_commands.json` | Outside repository |
+| Message triggers | App-data `config/message_triggers.json`; tracked `app/resources/default_triggers.json` seed | Local file outside repository |
 | Personality selection/overrides | App-data `config/personality_settings.json` | Outside repository |
 | Twitch OAuth tokens | App-data `auth/twitchio_tokens.json` | Outside repository; secret |
 | Users and AI memory | App-data `data/twitch_bot.db` | Outside repository; private |
@@ -257,6 +264,7 @@ does not create directories or migrate data.
 
 Delete `config/app_settings.json`, `config/command_settings.json`, `config/custom_commands.json`, or
 `config/personality_settings.json` to reset those non-secret preferences and overrides.
+Deleting `config/message_triggers.json` restores its distributed default on the next launch.
 Deleting a file in `config/filters/` restores its distributed default on the next launch.
 Deleting `data/twitch_bot.db` destroys saved users and AI memory. Deleting
 `auth/twitchio_tokens.json` removes Twitch OAuth access/refresh tokens and requires

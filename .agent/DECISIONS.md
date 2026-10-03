@@ -122,6 +122,20 @@ Reason:
 Users can create basic chat commands without gaining an executable scripting surface or
 duplicating dispatch policy.
 
+## Decision: Message reactions are bounded local data
+
+Status: Active
+
+Decision:
+Non-command reactions live in a separate versioned app-data JSON file seeded from a tracked
+example. Python validates exact/contains rules and literal responses at startup. The existing
+dispatcher excludes the bot account and command messages, sends at most one reaction per chat
+message, and applies its cooldown and global output policy. Editing the file requires restart.
+
+Reason:
+Simple chat reactions need predictable matching and safe local customization without an
+executable rule language or a second output path.
+
 ## Decision: Defaults, local overrides, and effective runtime state are distinct
 
 Status: Active

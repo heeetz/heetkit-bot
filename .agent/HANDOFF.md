@@ -5,7 +5,7 @@ Repository code is authoritative. This file records the current state and next r
 ## Repository state
 
 - Branch: `main`; completed work is pushed to `origin/main`.
-- Latest application-code baseline: TODO-007 custom commands v1.
+- Latest application-code baseline: TODO-008 local non-command message triggers.
 - Normal source launch: Windows `run.bat`; all platforms `python -m app.main` or installed
   `twitch-bot` after installing dependencies and building the frontend.
 
@@ -31,6 +31,10 @@ Repository code is authoritative. This file records the current state and next r
 - Custom commands are separate versioned app-data templates with stable IDs, aliases, permission,
   cooldowns, and one or more random-selected responses. The Commands page manages them; the
   existing dispatcher applies policy and ignores malformed local entries safely.
+- Ordinary chat reactions load from versioned app-data `config/message_triggers.json`, seeded
+  from a tracked `вась` example. Matching supports contains/exact and case sensitivity, with
+  probability, global cooldown, literal responses, and one reply at most per message. Bot and
+  command messages are excluded; the existing output limiter applies. Edits require restart.
 - Twitch connection state distinguishes stopped, connecting, connected, reconnecting,
   authorization required, and terminal failure. TwitchIO owns ordinary network recovery.
 - Standard Python logging feeds a bounded backend buffer and bounded React view. Log Clear is
@@ -43,7 +47,7 @@ Repository code is authoritative. This file records the current state and next r
 ## Active roadmap
 
 - `TODO.md` contains unfinished work only; completed history is in Git.
-- Next item: **TODO-008 — Add lightweight non-command message triggers**. Start only when requested.
+- Next item: **TODO-009 — Add a Filters management UI**. Start only when requested.
 
 ## Important open risks
 
@@ -57,6 +61,6 @@ Repository code is authoritative. This file records the current state and next r
 
 ## Validation baseline
 
-- TODO-007 focused backend tests and frontend type checking/build passed. Custom command
-  persistence, matching, collisions, templates, permissions, cooldowns, and malformed input
-  have focused test coverage.
+- TODO-008 focused backend tests passed (44 tests across triggers, command dispatch, custom
+  commands, and runtime paths). They cover seeding, validation, matching, bot/command exclusion,
+  probability, cooldown, and output limiting.

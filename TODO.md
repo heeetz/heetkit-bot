@@ -28,25 +28,6 @@ When asked to execute a TODO:
 
 # P2 — Industry-style extensibility
 
-## TODO-008 — Add lightweight non-command message triggers
-
-- [ ] Add local data-driven triggers for simple chat reactions that do not require Gemini.
-- [ ] Initial fields:
-  - enabled;
-  - match mode (`contains`, `exact`, or another deliberately small set);
-  - case sensitivity if genuinely useful;
-  - probability;
-  - cooldown;
-  - one or more responses.
-- [ ] Prevent bot/self-feedback loops.
-- [ ] Reuse existing output limiting/spam protections.
-- [ ] Keep trigger matching cheap and predictable.
-- [ ] First real use case can remain `вась` → probabilistic response.
-- [ ] No arbitrary regex unless there is a clear reason and validation story.
-- [ ] Persist alongside other user-defined behavior in the consolidated runtime data location.
-
----
-
 ## TODO-009 — Add a Filters management UI
 
 - [ ] Manage blocked words, blocked phrases, and regex patterns from the desktop UI.

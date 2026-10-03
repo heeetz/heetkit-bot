@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from app.command_settings import CommandSettings
 from app.custom_commands import CustomCommand, CustomCommandStore, render_response
+from app.message_triggers import MessageTriggerStore
 from app.runtime_state import RuntimeState
 from app.services.facade import ApplicationServices
 from app.twitch.events import IncomingChatMessage
@@ -184,6 +185,7 @@ class CommandDispatcher:
         ai_cooldown_bypass_user_id: str | None = None,
         runtime_state: RuntimeState | None = None,
         custom_commands: CustomCommandStore | None = None,
+        message_triggers: MessageTriggerStore | None = None,
     ) -> None:
         self._registry = registry
         self._cooldowns = cooldowns
@@ -194,6 +196,27 @@ class CommandDispatcher:
         self._ai_cooldown_bypass_user_id = ai_cooldown_bypass_user_id
         self._runtime_state = runtime_state
         self._custom_commands = custom_commands
+        self._message_triggers = message_triggers
+
+    async def _dispatch_trigger(self, message: IncomingChatMessage, services: ApplicationServices) -> bool:
+        if self._message_triggers is None or message.author.twitch_user_id == services.settings.twitch_bot_user_id:
+            return False
+        for trigger in self._message_triggers.list():
+            if not trigger.enabled or not trigger.matches(message.content):
+                continue
+            if random.random() >= trigger.probability:
+                continue
+            cooldown = self._cooldowns.check_and_record(
+                command_name=f"trigger:{trigger.id}",
+                user_id=message.author.twitch_user_id,
+                policy=CooldownPolicy(global_seconds=trigger.cooldown_seconds),
+            )
+            if not cooldown.allowed:
+                continue
+            response = random.choice(trigger.responses)
+            await CommandContext(message, services, self._logger, self._output_limiter).reply(response)
+            return True
+        return False
 
     async def _run_custom_command(self, command: CustomCommand, context: CommandContext, arguments: str) -> None:
         template = random.choice(command.responses)
@@ -216,7 +239,9 @@ class CommandDispatcher:
         try:
             parsed_command = parse_command(message.content, self._command_prefix)
             if parsed_command is None:
-                return False
+                if message.content.strip().startswith(self._command_prefix):
+                    return False
+                return await self._dispatch_trigger(message, services)
 
             command_name, arguments = parsed_command
             definition = self._registry.get(command_name)
