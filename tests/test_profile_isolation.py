@@ -4,14 +4,79 @@ import json
 import shutil
 import sys
 from types import SimpleNamespace
+import pytest
 
 from app.app_settings import AppSettingsStore
 from app.commands.fun import FORECASTS, load_fun_settings
-from app.config.settings import load_settings_with_credentials
+from app.config.settings import Settings, load_settings_with_credentials
 from app.credentials import CredentialName, CredentialStore
 from app.runtime_paths import DEFAULT_FILTERS, FILTER_NAMES, RuntimePaths, prepare_runtime_data
 from app.runtime_state import RuntimeState
 from app import webview_host
+
+
+def clear_deployment_environment(monkeypatch):
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)
+
+
+def test_entirely_clean_settings_load_without_credentials(tmp_path, monkeypatch):
+    clear_deployment_environment(monkeypatch)
+    monkeypatch.setenv('TWITCH_BOT_DATA_DIR', str(tmp_path / 'clean'))
+    monkeypatch.chdir(tmp_path)
+    settings, manager = load_settings_with_credentials(SimpleNamespace(get=lambda name: None))
+    assert settings.twitch_client_secret is None
+    assert settings.twitch_client_id == settings.twitch_bot_username == settings.twitch_bot_user_id == ''
+    assert settings.twitch_channel == settings.twitch_channel_user_id == ''
+    assert all(not status.configured for status in manager.statuses())
+    assert not (tmp_path / 'clean').exists()
+
+
+@pytest.mark.parametrize('auto_start', [False, True])
+def test_clean_cli_launch_reaches_desktop_with_disconnected_backend(tmp_path, monkeypatch, auto_start):
+    clear_deployment_environment(monkeypatch)
+    monkeypatch.setenv('TWITCH_BOT_DATA_DIR', str(tmp_path / 'unused'))
+    root = tmp_path / 'clean'
+    monkeypatch.chdir(tmp_path)
+    # Neither the checkout deployment nor normal-profile keyring may leak into this profile.
+    (tmp_path / '.env').write_text('TWITCH_BOT_USERNAME=owner\nTWITCH_CLIENT_SECRET=owner-secret\n')
+    monkeypatch.setattr('app.credentials.keyring.get_password',
+                        lambda service, name: 'owner-secret' if service == 'twitch-bot' else None)
+    monkeypatch.setattr(sys, 'argv', ['twitch-bot', '--data-dir', str(root)])
+    monkeypatch.setattr(webview_host, 'resolve_frontend_url', lambda dev_url: 'frontend/index.html')
+    monkeypatch.setattr(webview_host, 'configure_logging', lambda level: None)
+    desktop_calls = []
+
+    def desktop(settings, frontend_url, **kwargs):
+        desktop_calls.append(frontend_url)
+        assert settings.twitch_client_secret is None
+        backend = webview_host.AsyncioBackendHost(settings, auto_start=auto_start)
+        try:
+            backend.start()
+            bridge = webview_host.WebUIBridge(
+                backend, app_settings=AppSettingsStore(root / 'config' / 'app_settings.json'),
+                credential_manager=kwargs['credential_manager'],
+            )
+            status = bridge.get_app_status()
+            assert status['running'] is False and status['twitch_connected'] is False
+            assert status['account'] == status['channel'] == ''
+            # These existing bridge values keep the dashboard's Configure Twitch task visible.
+            target = bridge.get_twitch_settings()['settings']
+            assert target['target_channel'] == target['target_channel_user_id'] == ''
+            assert target['bot_username'] == ''
+            assert all(not item.configured for item in kwargs['credential_manager'].statuses())
+            result = bridge.start_bot()
+            assert result['ok'] is False and result['changed'] is False
+            assert 'Configure Twitch' in result['error']
+            assert backend.application.services.runtime_state.twitch_connection_state == 'stopped'
+        finally:
+            backend.close()
+
+    monkeypatch.setattr(webview_host, 'run_desktop_host', desktop)
+    webview_host.main()
+    assert desktop_calls == ['frontend/index.html']
+    assert (root / 'data' / 'twitch_bot.db').exists()
+    assert not (root / 'auth' / 'twitchio_tokens.json').exists()
 
 
 def prepare(paths, legacy):

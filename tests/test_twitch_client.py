@@ -8,7 +8,7 @@ import pytest
 from twitchio.exceptions import HTTPException, InvalidTokenException
 
 from app.commands.registry import CommandDispatcher
-from app.config.settings import Settings
+from app.config.settings import Settings, TwitchConfigurationError
 from app.services.facade import ApplicationServices
 from app.runtime_state import RuntimeState
 from app.twitch.client import (
@@ -91,6 +91,7 @@ async def test_twitch_message_maps_to_dto_persists_user_and_sends_response(
         SimpleNamespace(users=users, filter_manager=filter_manager),
     )
 
+
     assert mapped.channel == "testchannel"
     assert mapped.author.is_subscriber is True
     assert mapped.author.is_moderator is True
@@ -114,6 +115,16 @@ async def test_twitch_message_maps_to_dto_persists_user_and_sends_response(
     )
     assert incoming_record.event_username == "viewer"
     assert incoming_record.event_channel == "testchannel"
+
+
+@pytest.mark.asyncio
+async def test_direct_twitch_start_requires_credentials_before_creating_client(monkeypatch) -> None:
+    settings = build_settings()
+    settings.twitch_client_secret = None
+    monkeypatch.setattr('app.twitch.client.TwitchChatBot', lambda **kwargs: pytest.fail('Client created'))
+    with pytest.raises(TwitchConfigurationError, match='TWITCH_CLIENT_SECRET'):
+        await run_twitch_bot(settings, cast(ApplicationServices, object()),
+                             cast(CommandDispatcher, object()), logging.getLogger(__name__))
 
 
 @pytest.mark.asyncio

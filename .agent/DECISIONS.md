@@ -230,6 +230,9 @@ Shipped resources contain neutral starters only. Owner tuning is local profile d
 are loaded. The normal root preserves legacy migration and its original keyring service;
 alternate roots skip automatic imports, use profile-local deployment `.env`, and use keyring
 namespaces derived from the resolved root. Existing config is never overwritten during seeding.
+An unconfigured profile must open the desktop with no Twitch identity or credentials. Twitch
+connection requirements are enforced before creating a session; incomplete automatic start
+leaves the desktop usable. Missing client secrets are optional secret values, never placeholders.
 
 Reason:
 One shared application can serve customized and clean installations without shipping private

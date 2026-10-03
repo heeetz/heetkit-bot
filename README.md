@@ -115,7 +115,10 @@ Configuration responsibilities remain separated:
 
 The app-data root is `%LOCALAPPDATA%\TwitchBot` on Windows, `~/Library/Application Support/TwitchBot` on macOS, and `${XDG_DATA_HOME:-~/.local/share}/TwitchBot` on Linux. It contains `config/`, `data/`, `auth/`, and `cache/`.
 
-The environment variables supported by the current application are:
+The environment variables supported by the current application are listed below. Values marked
+required are needed to start Twitch; a fresh desktop profile opens without them and shows
+**Configure Twitch**. Missing setup blocks Start Bot with a configuration message. Incomplete
+automatic startup leaves the desktop open with Twitch stopped.
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
@@ -136,7 +139,7 @@ The environment variables supported by the current application are:
 | `COMMAND_MAX_ARGUMENTS_LENGTH` | No | Maximum command-argument length, from 1 to 450. |
 
 `TWITCH_CLIENT_SECRET` must be available from either the system keyring or the
-private environment/`.env` fallback.
+private environment/`.env` fallback before starting a Twitch connection.
 
 Global message filters start empty and are copied from tracked `data/filters/` into app-data `config/filters/` on first launch. Manage them on the desktop **Filters** page: Apply changes the running session, while Save keeps validated changes across restarts. The page marks source-default and local rules and highlights invalid entries. You can also edit the app-data copies directly; missing copies are recreated from the tracked defaults:
 
@@ -156,8 +159,8 @@ python -m app.main --data-dir C:\BotProfiles\Clean --stopped
 ```
 
 `TWITCH_BOT_DATA_DIR` is the equivalent environment override; `--data-dir` takes priority.
-Alternate profiles load their own `<profile>/.env` (copy `.env.example` and supply required
-Twitch setup values), skip automatic legacy imports, and use their own config, database,
+Alternate profiles can launch before setup. They load their own `<profile>/.env` (copy
+`.env.example` and supply Twitch values before connecting), skip automatic legacy imports, and use their own config, database,
 OAuth cache and keyring namespace. Explicit process environment variables still apply.
 Point the override at your normal app-data root to use the existing owner profile.
 `--check --data-dir <path>` validates without creating or migrating profile files.
@@ -321,7 +324,7 @@ npm run build
 
 ## Troubleshooting
 
-- Missing or invalid `.env`: copy `.env.example`, fill every required Twitch value, and run `python -m app.main --check` to see validation errors.
+- Missing Twitch setup: the desktop opens disconnected. Copy `.env.example` to the profile's deployment `.env`, fill the required Twitch values, and restart before Start Bot. `--check` checks desktop configuration and frontend availability; Twitch-required values are checked when connecting.
 - Twitch authentication failure: verify the client credentials, numeric account IDs, callback URL, and that the intended bot account completed OAuth. Remove a stale local token file only when you intentionally want to authorize again.
 - Import or command not found: activate `.venv` and rerun `python -m pip install -e ".[dev]"`.
 - No control panel: verify that the process has access to a graphical desktop and that the Microsoft Edge WebView2 runtime is installed. `python -m app.main --check` intentionally does not open the GUI.

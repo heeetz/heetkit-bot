@@ -14,6 +14,10 @@ from app.credentials import CredentialManager, CredentialName, CredentialStore
 from app.runtime_paths import RuntimePaths
 
 
+class TwitchConfigurationError(ValueError):
+    """Safe setup error with field names only, never credential values."""
+
+
 class TwitchAccountSettings(BaseSettings):
     """Identity and channel information for one bot account."""
 
@@ -35,12 +39,12 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    twitch_client_id: str
-    twitch_client_secret: SecretStr
-    twitch_bot_user_id: str
-    twitch_bot_username: str
-    twitch_channel_user_id: str
-    twitch_channel: str
+    twitch_client_id: str = ""
+    twitch_client_secret: SecretStr | None = None
+    twitch_bot_user_id: str = ""
+    twitch_bot_username: str = ""
+    twitch_channel_user_id: str = ""
+    twitch_channel: str = ""
     twitch_token_file: str = Field(default_factory=lambda: str(RuntimePaths.default().tokens))
     gemini_api_key: SecretStr | None = None
     gemini_model: str = "gemini-3.5-flash-lite"
@@ -64,6 +68,28 @@ class Settings(BaseSettings):
     @classmethod
     def validate_gemini_model(cls, value: str) -> str:
         return validate_gemini_model_id(value)
+
+    @field_validator("twitch_client_secret")
+    @classmethod
+    def normalize_twitch_secret(cls, value: SecretStr | None) -> SecretStr | None:
+        return value if value is not None and value.get_secret_value().strip() else None
+
+    def validate_twitch_configuration(self) -> None:
+        """Require complete Twitch setup only when a connection is requested."""
+        missing = [
+            name.upper()
+            for name in (
+                "twitch_client_id", "twitch_bot_user_id", "twitch_bot_username",
+                "twitch_channel_user_id", "twitch_channel",
+            )
+            if not getattr(self, name).strip()
+        ]
+        if self.twitch_client_secret is None or not self.twitch_client_secret.get_secret_value().strip():
+            missing.append("TWITCH_CLIENT_SECRET")
+        if missing:
+            raise TwitchConfigurationError(
+                "Configure Twitch before starting the bot. Missing: " + ", ".join(missing) + "."
+            )
 
     @property
     def primary_account(self) -> TwitchAccountSettings:

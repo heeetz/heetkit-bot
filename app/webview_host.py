@@ -22,7 +22,7 @@ from app.bot_runtime import BotRuntime
 from app.command_settings import CommandSettings
 from app.custom_commands import VARIABLES
 from app.config.ai_models import GEMINI_MODEL_PRESETS, GEMINI_PROVIDER_NAME
-from app.config.settings import Settings, load_settings_with_credentials
+from app.config.settings import Settings, TwitchConfigurationError, load_settings_with_credentials
 from app.container import Application, build_application
 from app.credentials import CredentialError, CredentialManager
 from app.desktop_instance import (
@@ -129,7 +129,10 @@ class AsyncioBackendHost:
             self._bot_runtime = bot_runtime
             loop.run_until_complete(bot_runtime.startup())
             if self._auto_start:
-                loop.run_until_complete(bot_runtime.start_bot())
+                try:
+                    loop.run_until_complete(bot_runtime.start_bot())
+                except TwitchConfigurationError as error:
+                    self._logger.warning("Automatic Twitch start skipped: %s", error)
             self._ready.set()
             loop.run_forever()
         except Exception as error:
@@ -1008,6 +1011,8 @@ class WebUIBridge:
                 operation="reconnect_twitch",
                 timeout=BRIDGE_TWITCH_RECONNECT_TIMEOUT_SECONDS,
             )
+        except TwitchConfigurationError as error:
+            return {"ok": False, "error": str(error)}
         except BridgeOperationTimedOut:
             return {
                 "ok": False,
@@ -1239,6 +1244,8 @@ class WebUIBridge:
                 operation="start_bot",
                 timeout=BRIDGE_BOT_START_TIMEOUT_SECONDS,
             )
+        except TwitchConfigurationError as error:
+            return {"ok": False, "changed": False, "error": str(error)}
         except BridgeOperationTimedOut:
             return {
                 "ok": False,

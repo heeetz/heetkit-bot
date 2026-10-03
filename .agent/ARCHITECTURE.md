@@ -194,6 +194,11 @@ failures do not disable unrelated commands.
 
 ## Twitch boundary
 
+- Desktop `Settings` supports blank Twitch identity fields and an absent (`None`) client secret.
+  `Settings.validate_twitch_configuration()` requires all connection fields before session creation;
+  the runtime validates starts and active reconnects, and the Twitch adapter guards direct entry.
+  Incomplete automatic startup leaves the desktop open and stopped; manual starts return a safe
+  Configure Twitch error. Existing bridge values preserve first-run dashboard setup guidance.
 - `app/twitch/client.py` owns TwitchIO lifecycle, OAuth adapter/scopes, token load/save, chat
   subscription, incoming-message mapping, and connection-state updates.
 - `app/services/twitch.py` is the command/service-facing API boundary. It is bound to the

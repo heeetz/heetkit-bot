@@ -9,6 +9,7 @@ import pytest
 
 from app.bot_runtime import BotRuntime
 from app.container import Application
+from app.config.settings import Settings, TwitchConfigurationError
 
 
 class FakeRuntimeState:
@@ -25,7 +26,12 @@ class FakeRuntimeState:
 
 class FakeApplication:
     def __init__(self) -> None:
-        self.settings = SimpleNamespace(
+        self.settings = Settings(
+            _env_file=None,
+            twitch_client_id="client-id",
+            twitch_client_secret="client-secret",
+            twitch_bot_user_id="200",
+            twitch_bot_username="testbot",
             twitch_channel="oldchannel",
             twitch_channel_user_id="100",
         )
@@ -40,6 +46,19 @@ class FakeApplication:
     async def shutdown(self) -> None:
         self.shutdown_calls += 1
 
+
+@pytest.mark.asyncio
+async def test_unconfigured_start_does_not_create_twitch_session(monkeypatch) -> None:
+    application = FakeApplication()
+    application.settings.twitch_client_secret = None
+    monkeypatch.setattr("app.bot_runtime.run_twitch_bot", lambda **kwargs: pytest.fail("Twitch was started"))
+    runtime = BotRuntime(cast(Application, application), logging.getLogger("tests.runtime"))
+    await runtime.startup()
+    with pytest.raises(TwitchConfigurationError, match="TWITCH_CLIENT_SECRET"):
+        await runtime.start_bot()
+    assert application.services.runtime_state.running is False
+    assert application.services.runtime_state.twitch_connection_state == "stopped"
+    await runtime.shutdown()
 
 @pytest.mark.asyncio
 async def test_runtime_starts_and_stops_one_bot_session(monkeypatch) -> None:

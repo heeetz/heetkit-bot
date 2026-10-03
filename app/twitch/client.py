@@ -110,6 +110,8 @@ class TwitchChatBot(commands.Bot):
         dispatcher: CommandDispatcher,
         logger: logging.Logger,
     ) -> None:
+        settings.validate_twitch_configuration()
+        assert settings.twitch_client_secret is not None
         self._account = account
         self._services = services
         self._dispatcher = dispatcher
@@ -291,6 +293,7 @@ async def run_twitch_bot(
     logger: logging.Logger,
     stop_event: asyncio.Event | None = None,
 ) -> None:
+    settings.validate_twitch_configuration()
     account = settings.primary_account
     bot = TwitchChatBot(
         settings=settings,

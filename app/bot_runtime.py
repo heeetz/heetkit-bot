@@ -50,6 +50,7 @@ class BotRuntime:
             self._stop_requested = False
             return False
 
+        self.application.settings.validate_twitch_configuration()
         self._stop_requested = False
         self._stop_event = asyncio.Event()
         self.application.services.runtime_state.set_bot_running(True)
@@ -112,6 +113,10 @@ class BotRuntime:
                 raise RuntimeError("Application startup has not completed.")
             task = self._bot_task
             was_running = task is not None and not task.done()
+            if was_running:
+                self.application.settings.model_copy(update={
+                    "twitch_channel": channel, "twitch_channel_user_id": channel_user_id,
+                }).validate_twitch_configuration()
             if was_running:
                 self.request_stop()
                 with suppress(Exception):

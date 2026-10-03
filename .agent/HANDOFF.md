@@ -7,6 +7,8 @@ Repository code is authoritative. This file records the current state and next r
 - Branch: `main`; completed work is pushed to `origin/main`.
 - TODO-012 is complete: one application supports independent profiles with neutral shipped
   defaults. The existing roadmap revision is retained; no later TODO was executed.
+- The TODO-012 clean-profile startup regression is fixed: empty Twitch identity and absent
+  credentials permit desktop launch; complete setup is required before creating a Twitch session.
 - Source launch: Windows `run.bat`; all platforms `python -m app.main` or installed `twitch-bot`.
   Build the frontend before production source launch. Native bundles/installers remain future work.
 
@@ -44,12 +46,17 @@ Repository code is authoritative. This file records the current state and next r
 
 ## Open risks and validation
 
-- Required Twitch deployment settings are still validated before the UI opens. An empty profile
-  needs its own setup values; startup onboarding and native release verification remain future work.
+- Fresh profiles open stopped/disconnected and retain the dashboard's Configure Twitch guidance.
+  Missing client secrets are `None`. Start/reconnect validate complete connection setup and return
+  safe field-name errors; incomplete automatic startup is skipped while the UI remains usable.
+  Twitch identity/client ID still use profile deployment settings; credential edits require restart.
 - macOS/Linux source startup has not been run natively. Linux requires a pywebview backend/system
   libraries; credential backend availability depends on the desktop environment.
 - No standalone executable exists yet; TODO-012 validates the shared source runtime's profile semantics.
 - TODO-012: 116 focused profile/migration/reset/personality/credential/command/desktop/filter tests
   passed. Python compilation and whitespace validation passed. No frontend source changed.
+- Startup regression: 88 focused settings/profile/runtime/Twitch-client/desktop/credential tests
+  passed, including actual backend startup with no deployment values and both auto-start settings.
+  Python compile checks passed. The native window was not opened by automated tests.
 - The sandbox cannot launch the venv's base interpreter; checks used the same project venv
   with approved execution outside the sandbox. This is an agent environment limitation.

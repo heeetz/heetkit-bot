@@ -1,9 +1,7 @@
 """Tests for typed environment configuration."""
 
 import pytest
-from pydantic import ValidationError
-
-from app.config.settings import Settings, load_settings_with_credentials
+from app.config.settings import Settings, TwitchConfigurationError, load_settings_with_credentials
 from app.credentials import CREDENTIAL_SERVICE_NAME, CredentialStore
 from app.runtime_paths import RuntimePaths
 
@@ -41,14 +39,33 @@ def test_settings_create_primary_account() -> None:
     assert settings.database_url.endswith(str(RuntimePaths.default().database))
     assert settings.gemini_model == "gemini-3.5-flash-lite"
     assert settings.gemini_fallback_model == "gemini-3.1-flash-lite"
+    settings.validate_twitch_configuration()
 
 
-def test_settings_require_twitch_identity() -> None:
+def test_twitch_start_requires_identity(monkeypatch) -> None:
+    monkeypatch.delenv("TWITCH_CLIENT_ID", raising=False)
     values = valid_settings()
     del values["twitch_client_id"]
 
-    with pytest.raises(ValidationError):
-        Settings(_env_file=None, **values)
+    settings = Settings(_env_file=None, **values)
+    with pytest.raises(TwitchConfigurationError, match="TWITCH_CLIENT_ID"):
+        settings.validate_twitch_configuration()
+
+
+@pytest.mark.parametrize("field", list(valid_settings()))
+@pytest.mark.parametrize("value", ["", "   "])
+def test_twitch_start_rejects_each_blank_required_field(field, value) -> None:
+    settings = Settings(_env_file=None, **(valid_settings() | {field: value}))
+    with pytest.raises(TwitchConfigurationError, match=field.upper()):
+        settings.validate_twitch_configuration()
+
+
+def test_twitch_start_rejects_missing_secret_without_exposing_values() -> None:
+    settings = Settings(_env_file=None, **(valid_settings() | {"twitch_client_secret": None}))
+    assert settings.twitch_client_secret is None
+    with pytest.raises(TwitchConfigurationError, match="TWITCH_CLIENT_SECRET") as error:
+        settings.validate_twitch_configuration()
+    assert "client-id" not in str(error.value)
 
 
 def test_secure_credentials_override_environment_fallbacks(monkeypatch) -> None:
