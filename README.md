@@ -38,6 +38,9 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
+Installation includes the tested Gemini SDK pin, `google-genai==1.75.0`. Rerun the install
+command when upgrading an existing environment from the older SDK.
+
 Install and build the frontend once:
 
 ```powershell

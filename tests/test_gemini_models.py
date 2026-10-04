@@ -24,7 +24,7 @@ class FakeGeminiClient:
         self.async_closed = False
         self.sync_closed = False
 
-    async def list(self):
+    async def list(self, *, config):
         async def models():
             yield SimpleNamespace(
                 name="models/gemini-discovered",
@@ -128,7 +128,7 @@ async def test_discovery_and_generation_reuse_client_with_live_model_settings(mo
 
     clients: list[FakeGeminiClient] = []
 
-    def create_client(*, api_key: str) -> FakeGeminiClient:
+    def create_client(*, api_key: str, **kwargs) -> FakeGeminiClient:
         client = FakeGeminiClient(api_key)
         clients.append(client)
         return client
@@ -162,7 +162,7 @@ async def test_credential_rotation_waits_for_old_client_users(monkeypatch) -> No
 
     clients: list[FakeGeminiClient] = []
 
-    def create_client(*, api_key: str) -> FakeGeminiClient:
+    def create_client(*, api_key: str, **kwargs) -> FakeGeminiClient:
         client = FakeGeminiClient(api_key)
         clients.append(client)
         return client
@@ -192,7 +192,7 @@ async def test_application_shutdown_waits_for_gemini_and_closes_resources(monkey
     from google import genai
 
     client = FakeGeminiClient("key")
-    monkeypatch.setattr(genai, "Client", lambda *, api_key: client)
+    monkeypatch.setattr(genai, "Client", lambda **kwargs: client)
     service = GeminiAIService(SimpleNamespace(gemini_api_key=SecretStr("key")))
     closed: list[str] = []
 

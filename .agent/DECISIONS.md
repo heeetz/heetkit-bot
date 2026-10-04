@@ -64,10 +64,19 @@ Decision:
 The composed `GeminiAIService` reuses one SDK client for its current credential and closes
 retired clients after active calls finish. `Application.shutdown()` closes the service before
 its other resources. Model settings remain per-request values and do not rebuild the client.
+The supported contract is pinned to `google-genai==1.75.0`, with native async HTTPX/aiohttp
+transport and explicit `client.aio.aclose()` / `client.close()`. Both transport and total-operation
+deadlines apply; total deadlines include fallback, discovery pagination and transport-internal
+retries, with `retry_options.attempts=1`. Shutdown retires clients before waiting, so cancelled shutdown retains lease
+cleanup responsibility. Async close is bounded and sync cleanup always runs.
 
 Reason:
 Provider connections need one clear owner and deterministic cleanup while live model and
-credential changes remain effective.
+credential changes remain effective. Coroutine cancellation alone could not stop the former
+0.8.0 SDK's blocking Requests workers. The pinned contract is verified offline against real
+SDK socket I/O and subprocess exit, rather than inferred from fake close methods.
+
+Reference: [Google SDK transport and cleanup contract](https://github.com/googleapis/python-genai/tree/v1.75.0/google/genai).
 
 ## Decision: One tray controller and icon exist per process
 

@@ -174,12 +174,20 @@ Responsibility: policy and provider work remain in Python.
    90 seconds.
 4. `GeminiAIService` owns one reusable Gemini SDK client for the effective credential. It
    retires an old client after active calls finish if the credential changes, and the composed
-   `Application` closes provider resources during shutdown. The service builds protected shared
+   `Application` retires all clients and waits for active leases during shutdown. Retired leases
+   close on release even if the shutdown waiter is cancelled. The service builds protected shared
    instructions plus the effective personality, conditionally enables Google Search grounding,
    calls the selected Gemini model, and uses
    the configured fallback only for model-not-found/unsupported responses. It then filters the
    response and applies the configured response-length limit.
 5. A successfully delivered response is saved to memory only if memory remains enabled.
+
+The SDK contract is pinned to `google-genai==1.75.0`: native HTTPX/aiohttp async transport,
+`client.aio.aclose()` and `client.close()`. Gemini Developer API mode is explicit. Client HTTP
+timeout is 45 seconds with `retry_options.attempts=1`; generation's 60-second total deadline includes
+fallback. Discovery overrides HTTP timeout to 10 seconds and bounds all pages to 15 seconds.
+Async client close is bounded to five seconds and sync cleanup runs in `finally`. Real SDK
+loopback tests exercise both native transports and subprocess exit without live credentials.
 
 Gemini selected/fallback model defaults come from typed environment `Settings`; validated local
 overrides in platform app-data `config/app_settings.json` are applied before composition and UI changes update the

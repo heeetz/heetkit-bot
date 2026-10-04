@@ -42,7 +42,12 @@ async def test_local_protection_filters_chat_and_ai_replies_without_leaking_to_c
     generate = AsyncMock(return_value=SimpleNamespace(text=response_text, candidates=[]))
 
     class FakeClient:
-        aio = SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+        aio = SimpleNamespace(
+            models=SimpleNamespace(generate_content=generate), aclose=AsyncMock(),
+        )
+
+        def close(self):
+            pass
 
     client = FakeClient()
     monkeypatch.setattr(genai, "Client", lambda **kwargs: client)

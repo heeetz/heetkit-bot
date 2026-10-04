@@ -17,6 +17,10 @@ from app.services.filter_manager import FilterManager
 
 logger = logging.getLogger(__name__)
 GEMINI_REQUEST_TIMEOUT_SECONDS = 60.0
+GEMINI_TRANSPORT_TIMEOUT_SECONDS = 45.0
+GEMINI_DISCOVERY_TIMEOUT_SECONDS = 15.0
+GEMINI_DISCOVERY_TRANSPORT_TIMEOUT_SECONDS = 10.0
+GEMINI_CLOSE_TIMEOUT_SECONDS = 5.0
 _NON_CHAT_MODEL_MARKERS = (
     "embedding",
     "image",
@@ -254,13 +258,10 @@ class GeminiAIService:
     @staticmethod
     async def _close_client(client: Any) -> None:
         try:
-            close_async = getattr(client.aio, "aclose", None)
-            if close_async is not None:
-                await close_async()
+            async with asyncio.timeout(GEMINI_CLOSE_TIMEOUT_SECONDS):
+                await client.aio.aclose()
         finally:
-            close_sync = getattr(client, "close", None)
-            if close_sync is not None:
-                close_sync()
+            client.close()
 
     @asynccontextmanager
     async def _provider_client(self) -> AsyncIterator[Any]:
@@ -273,8 +274,18 @@ class GeminiAIService:
                 raise RuntimeError("Gemini API key is not configured.")
             if self._client is None or self._client_key != key:
                 from google import genai
+                from google.genai import types
 
-                replacement = genai.Client(api_key=key.get_secret_value())
+                # The pinned SDK uses cancellable async socket I/O (HTTPX or aiohttp),
+                # not the uninterruptible Requests workers used by SDK 0.8.0.
+                replacement = genai.Client(
+                    vertexai=False,
+                    api_key=key.get_secret_value(),
+                    http_options=types.HttpOptions(
+                        timeout=int(GEMINI_TRANSPORT_TIMEOUT_SECONDS * 1000),
+                        retry_options=types.HttpRetryOptions(attempts=1),
+                    ),
+                )
                 previous = self._client
                 self._client = replacement
                 self._client_key = key
@@ -301,30 +312,39 @@ class GeminiAIService:
                     self._client_condition.notify_all()
 
     async def aclose(self) -> None:
-        """Release provider resources after all active requests complete."""
+        """Retire clients; active calls have total deadlines and close on release."""
         async with self._client_condition:
             self._closed = True
-            await self._client_condition.wait_for(
-                lambda: not any(self._client_users.values())
-            )
-            clients = list(self._client_users)
-            self._client_users.clear()
-            self._retired_clients.clear()
             self._client = None
             self._client_key = None
-            for client in clients:
-                await self._close_client(client)
+            # Retire before waiting so cancelled shutdown still leaves active leases
+            # responsible for cleanup when they finish or are cancelled by the host.
+            self._retired_clients.update(self._client_users)
+            for client, users in list(self._client_users.items()):
+                if not users:
+                    self._retired_clients.remove(client)
+                    del self._client_users[client]
+                    await self._close_client(client)
+            await self._client_condition.wait_for(lambda: not self._client_users)
 
     async def discover_models(self) -> list[str]:
         """Return provider models suitable for text generation with the configured key."""
         try:
+            from google.genai import types
+
             async with self._provider_client() as client:
-                pager = await client.models.list()
-                discovered: set[str] = set()
-                async for model in pager:
-                    model_id = self._normalize_discovered_model(model)
-                    if model_id is not None:
-                        discovered.add(model_id)
+                # Bound the whole traversal as well as each page's socket I/O.
+                async with asyncio.timeout(GEMINI_DISCOVERY_TIMEOUT_SECONDS):
+                    pager = await client.models.list(config=types.ListModelsConfig(
+                        http_options=types.HttpOptions(
+                            timeout=int(GEMINI_DISCOVERY_TRANSPORT_TIMEOUT_SECONDS * 1000),
+                        ),
+                    ))
+                    discovered: set[str] = set()
+                    async for model in pager:
+                        model_id = self._normalize_discovered_model(model)
+                        if model_id is not None:
+                            discovered.add(model_id)
         except ImportError as error:
             raise RuntimeError("google-genai package is not available.") from error
         return sorted(discovered)

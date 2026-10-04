@@ -28,8 +28,8 @@ When asked to execute a TODO:
 
 TODO-013 is complete. Its single-pass report is in `.agent/HANDOFF.md`; implementation
 history is in Git. The checkpoint classified release risks, not approval to package.
-TODO-013A–013B are complete. Resolve TODO-013C before beginning TODO-014, and address
-TODO-013D before the packaging freeze. Execute follow-ups only when requested.
+TODO-013A–013C are complete. TODO-013D remains required before the packaging freeze and
+the retained final checkpoint is still pending. Execute follow-ups only when requested.
 
 BEFORE YOU COMPLETE ALL TODO-13 SUBTASKS - DO NOT DELETE RECORDS OF THEM AND FOLLOW:
 
@@ -94,22 +94,30 @@ automation, standalone artifacts and clean-machine verification remain TODO-014 
 
 ## TODO-013C — Bound Gemini transport work and verify the real SDK contract
 
-**Priority: release blocker — provider lifetime and process exit.**
+**Status: complete — 2026-10-04.**
 
-The installed, declared `google-genai` 0.8.0 dispatches Requests work with `asyncio.to_thread`
-and defaults its HTTP timeout to `None`. The application's coroutine/bridge timeouts cannot
-stop that worker. A stalled generation/discovery can outlive shutdown and prevent process
-exit. Existing lifetime tests use fake SDK clients with close methods absent in this SDK.
+**Priority: release blocker resolved — provider lifetime and process exit.**
 
-- [ ] Set finite provider transport deadlines as well as coroutine deadlines for generation
+Declared and installed `google-genai==1.75.0` uses native async HTTPX/aiohttp transport rather
+than the former 0.8.0 Requests workers. Generation has a 45-second transport timeout and a
+60-second total deadline including fallback; discovery has 10-second transport timeouts and
+a 15-second total deadline across all pages. SDK retry attempts are explicitly limited to one.
+Supported async/sync close methods replace optional fake-only cleanup; async close is bounded
+to five seconds. Shutdown retires clients before waiting so active leases still clean up if
+the shutdown waiter is cancelled.
+
+- [x] Set finite provider transport deadlines as well as coroutine deadlines for generation
   and discovery; ensure cancellation/shutdown cannot leave indefinite network workers.
-- [ ] Select/declare an SDK version whose request/close contract is actually supported, or
+- [x] Select/declare an SDK version whose request/close contract is actually supported, or
   adapt to the existing supported contract without relying on fake-only methods.
-- [ ] Add an offline test against the real installed SDK transport for stalled requests,
+- [x] Add an offline test against the real installed SDK transport for stalled requests,
   credential rotation, and shutdown; never use real credentials for automated checks.
 
-**Acceptance:** declared SDK behavior and tests agree, and provider work has a finite
-lifetime after cancellation or application shutdown.
+**Acceptance met:** 144 focused Python tests pass. Real SDK loopback tests cover both native
+transports, stalled/trickling responses, later discovery pages, cancellation, live model/fallback
+behavior, credential rotation, normal/cancelled shutdown and subprocess exit. All credentials
+are synthetic. Related policy, optional-AI, credential, command, bridge and lifecycle checks pass.
+No frontend changes, live provider calls, broad review or standalone artifacts were made.
 
 ---
 

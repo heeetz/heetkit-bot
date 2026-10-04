@@ -5,11 +5,13 @@ Repository code is authoritative. This file records current state and next reque
 ## Repository state
 
 - Branch: `main`; completed work is pushed to `origin/main`.
-- TODO-013's pre-packaging review and TODO-013A–013B are complete. Do not repeat the broad review.
+- TODO-013's pre-packaging review and TODO-013A–013C are complete. Do not repeat the broad review.
 - TODO-013A removed personal name rules from shared AI policy; desired protection remains only
   in local profile filters. Shared prompt, credential and content safeguards remain intact.
 - TODO-013B declares root `config.py` and required package resources explicitly, makes resource
   and deployment discovery independent of cwd, and supplies complete profile-owned Twitch setup.
+- TODO-013C pins and verifies `google-genai==1.75.0`, adds transport/total deadlines and uses
+  supported provider cleanup. The former Requests-worker/process-exit blocker is resolved.
 - TODO.md retains TODO-013A–013D outcomes and the user's final-checkpoint instructions. Preserve
   those records until the remaining outcomes can be assessed. No standalone artifacts were built.
 
@@ -41,15 +43,17 @@ Repository code is authoritative. This file records current state and next reque
 - Clean profiles open stopped/disconnected. Start requires complete Twitch setup. Gemini remains
   optional; unavailable AI requests consume no policy, memory, cooldown or provider work. Gemini
   credentials apply live without losing saved enabled preferences.
+- Gemini uses native HTTPX/aiohttp async I/O with `retry_options.attempts=1`. Generation transport/total
+  limits are 45/60 seconds (total includes fallback); discovery limits are 10/15 seconds (total
+  includes pagination). Clients are reused by credential; retired leases close on release.
+  Async close is bounded to five seconds and sync close always runs. Shutdown retires all clients
+  before waiting, preserving lease cleanup if the host cancels the shutdown waiter.
 - Neutral starters remain one personality, forecasts/link reminder, and empty commands, triggers,
   filters and presets. Seeding copies missing files only. Config reset preserves SQLite, OAuth
   cache, keyring credentials and migration marker. Forecast editing preserves other local fields.
 
 ## Remaining TODO-013 findings
 
-- **TODO-013C remains a release blocker:** declared/installed `google-genai` 0.8.0 dispatches
-  Requests work with `asyncio.to_thread` and no HTTP timeout unless supplied. Coroutine timeouts
-  cannot bound stalled network workers; fake close-method tests do not establish real SDK cleanup.
 - **TODO-013D must precede packaging freeze:** ordinary Save can replace unrecovered/future-version
   app/custom-command settings; command/personality read failures have a similar preservation risk.
   Startup recovery and atomic writes do not alone prevent this loss. Fun settings already block it.
@@ -58,17 +62,17 @@ Repository code is authoritative. This file records current state and next reque
 
 ## Validation and next requested work
 
-- **147 focused Python tests pass** across runtime distribution/migration, first-run setup,
-  settings, profile isolation, filters, triggers, AI policy, bridge, bot lifecycle and credentials.
-  Temporary installs are built from declarations with synthetic frontend fixtures; actual
-  `app.main --check` and a clean normal-profile backend run from unrelated cwd, ignore legacy/
-  `.env` decoys, and leave install-file contents unchanged. Setup/restart/start uses offline fakes.
-- TypeScript checking and Vite production build pass; output remains ignored. Existing Python 3.14
-  dependency deprecation warnings remain. Checks used the existing venv and frontend tooling with
-  approved execution outside the sandbox where required. Dependencies were not changed.
+- **144 focused Python tests pass**: 37 Gemini contract/model tests and 107 related AI policy,
+  optional-AI, credential, command, bridge and bot-lifecycle regressions. Real installed SDK
+  loopback tests exercise both HTTPX and aiohttp, finite stalled/trickling requests, whole-page
+  traversal deadlines, cancellation, rotation, normal/cancelled shutdown and subprocess exit.
+  Provider calls use only synthetic credentials and a local HTTP server; no live API calls occur.
+- The existing project venv was upgraded to the declared SDK pin and editable metadata refreshed.
+  Python 3.14 dependency deprecation warnings remain. Frontend code did not change, so no frontend
+  checks were repeated. TODO-013B's resource/setup validation remains recorded in TODO.md.
 - One final focused diff review completed. Native WebView/tray rendering, real Twitch OAuth,
-  provider network requests, actual wheel/frozen artifacts and clean-machine execution remain
-  unexercised. No broad codebase audit or standalone packaging was performed.
-- Next only when requested: **TODO-013C**. TODO-013D remains required before packaging freeze.
+  live provider calls, actual wheel/frozen artifacts and clean-machine execution remain unexercised.
+  No broad codebase audit or standalone packaging was performed.
+- Next only when requested: **TODO-013D**. It remains required before packaging freeze.
   After TODO-013A–013D outcomes are available, apply the retained checkpoint instructions without
-  another broad review. The application is not cleared for packaging. Stop after TODO-013B.
+  another broad review. The application is not cleared for packaging. Stop after TODO-013C.
