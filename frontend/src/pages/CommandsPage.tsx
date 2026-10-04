@@ -424,6 +424,99 @@ export default function CommandsPage({ active }: CommandsPageProps) {
     <section className="card command-editor-card">
       <div className="section-heading">
         <div>
+          <p className="label">CUSTOM COMMANDS</p>
+          <h2>Your commands</h2>
+          <p className="section-copy">Create chat responses using safe text templates. Changes here are saved across restarts.</p>
+        </div>
+        <button className="primary" disabled={!customData || busyCustom} onClick={() => setCustomDraft(newCustomDraft(customData?.permissions[0] ?? 'EVERYONE'))}>New command</button>
+      </div>
+      {customDraft && customData && (
+        <div className="custom-command-editor">
+          <div className="section-heading">
+            <div>
+              <h3>{customDraft.id ? 'Edit command' : 'New command'}</h3>
+              <p className="section-copy">Write the name without the {customData.command_prefix} prefix. Separate aliases with commas.</p>
+            </div>
+            <button className="ghost" disabled={busyCustom} onClick={() => setCustomDraft(null)}>Cancel</button>
+          </div>
+          <div className="custom-command-fields">
+            <label className="form-field">Command name
+              <span className="custom-name-input"><span>{customData.command_prefix}</span><input value={customDraft.name} onChange={(event) => updateCustomDraft({ name: event.target.value })} placeholder="hello" /></span>
+            </label>
+            <label className="form-field">Aliases, separated by commas
+              <input value={customDraft.aliases} onChange={(event) => updateCustomDraft({ aliases: event.target.value })} placeholder="hi, hey" />
+            </label>
+            <label className="form-field">Permission
+              <select value={customDraft.permission} onChange={(event) => updateCustomDraft({ permission: event.target.value })}>
+                {customData.permissions.map((permission) => <option key={permission} value={permission}>{permission.toLowerCase()}</option>)}
+              </select>
+            </label>
+            <Switch checked={customDraft.enabled} ariaLabel="Enable custom command" onCheckedChange={(enabled) => updateCustomDraft({ enabled })}>
+              <span>{customDraft.enabled ? 'Enabled' : 'Disabled'}</span>
+            </Switch>
+            <label className="form-field">Per-user cooldown (seconds)
+              <input type="number" min="0" step="0.5" value={customDraft.perUserSeconds} onChange={(event) => updateCustomDraft({ perUserSeconds: event.target.value })} />
+            </label>
+            <label className="form-field">Global cooldown (seconds)
+              <input type="number" min="0" step="0.5" value={customDraft.globalSeconds} onChange={(event) => updateCustomDraft({ globalSeconds: event.target.value })} />
+            </label>
+          </div>
+          <div className="custom-response-heading">
+            <div>
+              <h3>Response templates</h3>
+              <p className="section-copy">Enter 1 to 10 templates, one per non-empty line. Blank lines are ignored; commas are preserved. The bot chooses one at random.</p>
+            </div>
+          </div>
+          <label className="form-field custom-response-field">Responses
+            <textarea className="custom-response-textarea" rows={7} value={customDraft.responses} onChange={(event) => updateCustomDraft({ responses: event.target.value })} placeholder="Hello, {sender}!" />
+          </label>
+          <div className="custom-variable-help">
+            <strong>Available variables</strong>
+            <p>Insert these into any response. Other variable names are rejected when you save.</p>
+            <div className="custom-variable-list">
+              {customData.variables.map((variable) => {
+                const name = variable.replace(/^\{|\}$/g, '')
+                return <div key={variable}><code>{variable.startsWith('{') ? variable : `{${variable}}`}</code><span>{variableHelp[name] ?? 'A positional argument from the command.'}</span></div>
+              })}
+            </div>
+          </div>
+          <div className="settings-actions">
+            <button className="primary" disabled={busyCustom} onClick={() => void saveCustom()}>{busyCustom ? 'Saving…' : 'Save command'}</button>
+          </div>
+        </div>
+      )}
+      {!customData ? <p className="muted">Loading custom commands…</p> : customData.commands.length === 0 ? (
+        <div className="empty-state-inline">
+          <strong>No custom commands yet</strong>
+          <p>Create a command to add a response to chat.</p>
+        </div>
+      ) : (
+        <div className="custom-command-list">
+          {customData.commands.map((command) => (
+            <article className="custom-command-row" key={command.id}>
+              <div className="custom-command-summary">
+                <div className="custom-command-heading">
+                  <strong>{customData.command_prefix}{command.name}</strong>
+                  <span className={`state-pill ${command.enabled ? 'enabled' : ''}`}>{command.enabled ? 'Enabled' : 'Disabled'}</span>
+                  {command.response_mode === 'random' && <span className="mini-badge">Random response</span>}
+                </div>
+                {command.aliases.length > 0 && <p className="command-meta">Aliases: {command.aliases.map((alias) => `${customData.command_prefix}${alias}`).join(', ')}</p>}
+                <p className="custom-command-response">{command.responses[0]}</p>
+                {command.responses.length > 1 && <small className="muted">{command.responses.length} response templates · one chosen at random</small>}
+              </div>
+              <div className="row-actions">
+                <button className="secondary" disabled={busyCustom} onClick={() => setCustomDraft(customDraftFromCommand(command))}>Edit</button>
+                <button className="secondary" disabled={busyCustom} onClick={() => void toggleCustom(command)}>{command.enabled ? 'Disable' : 'Enable'}</button>
+                <button className="ghost" disabled={busyCustom} onClick={() => void deleteCustom(command)}>Delete</button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+    <section className="card command-editor-card">
+      <div className="section-heading">
+        <div>
           <p className="label">BUILT-IN COMMANDS</p>
           <h2>Built-in commands</h2>
           <p className="section-copy">Apply changes for this session, save them across restarts, or restore the built-in defaults.</p>
@@ -553,99 +646,6 @@ export default function CommandsPage({ active }: CommandsPageProps) {
               </article>
             )
           })}
-        </div>
-      )}
-    </section>
-    <section className="card command-editor-card">
-      <div className="section-heading">
-        <div>
-          <p className="label">CUSTOM COMMANDS</p>
-          <h2>Your commands</h2>
-          <p className="section-copy">Create chat responses using safe text templates. Changes here are saved across restarts.</p>
-        </div>
-        <button className="primary" disabled={!customData || busyCustom} onClick={() => setCustomDraft(newCustomDraft(customData?.permissions[0] ?? 'EVERYONE'))}>New command</button>
-      </div>
-      {customDraft && customData && (
-        <div className="custom-command-editor">
-          <div className="section-heading">
-            <div>
-              <h3>{customDraft.id ? 'Edit command' : 'New command'}</h3>
-              <p className="section-copy">Write the name without the {customData.command_prefix} prefix. Separate aliases with commas.</p>
-            </div>
-            <button className="ghost" disabled={busyCustom} onClick={() => setCustomDraft(null)}>Cancel</button>
-          </div>
-          <div className="custom-command-fields">
-            <label className="form-field">Command name
-              <span className="custom-name-input"><span>{customData.command_prefix}</span><input value={customDraft.name} onChange={(event) => updateCustomDraft({ name: event.target.value })} placeholder="hello" /></span>
-            </label>
-            <label className="form-field">Aliases, separated by commas
-              <input value={customDraft.aliases} onChange={(event) => updateCustomDraft({ aliases: event.target.value })} placeholder="hi, hey" />
-            </label>
-            <label className="form-field">Permission
-              <select value={customDraft.permission} onChange={(event) => updateCustomDraft({ permission: event.target.value })}>
-                {customData.permissions.map((permission) => <option key={permission} value={permission}>{permission.toLowerCase()}</option>)}
-              </select>
-            </label>
-            <Switch checked={customDraft.enabled} ariaLabel="Enable custom command" onCheckedChange={(enabled) => updateCustomDraft({ enabled })}>
-              <span>{customDraft.enabled ? 'Enabled' : 'Disabled'}</span>
-            </Switch>
-            <label className="form-field">Per-user cooldown (seconds)
-              <input type="number" min="0" step="0.5" value={customDraft.perUserSeconds} onChange={(event) => updateCustomDraft({ perUserSeconds: event.target.value })} />
-            </label>
-            <label className="form-field">Global cooldown (seconds)
-              <input type="number" min="0" step="0.5" value={customDraft.globalSeconds} onChange={(event) => updateCustomDraft({ globalSeconds: event.target.value })} />
-            </label>
-          </div>
-          <div className="custom-response-heading">
-            <div>
-              <h3>Response templates</h3>
-              <p className="section-copy">Enter 1 to 10 templates, one per non-empty line. Blank lines are ignored; commas are preserved. The bot chooses one at random.</p>
-            </div>
-          </div>
-          <label className="form-field custom-response-field">Responses
-            <textarea className="custom-response-textarea" rows={7} value={customDraft.responses} onChange={(event) => updateCustomDraft({ responses: event.target.value })} placeholder="Hello, {sender}!" />
-          </label>
-          <div className="custom-variable-help">
-            <strong>Available variables</strong>
-            <p>Insert these into any response. Other variable names are rejected when you save.</p>
-            <div className="custom-variable-list">
-              {customData.variables.map((variable) => {
-                const name = variable.replace(/^\{|\}$/g, '')
-                return <div key={variable}><code>{variable.startsWith('{') ? variable : `{${variable}}`}</code><span>{variableHelp[name] ?? 'A positional argument from the command.'}</span></div>
-              })}
-            </div>
-          </div>
-          <div className="settings-actions">
-            <button className="primary" disabled={busyCustom} onClick={() => void saveCustom()}>{busyCustom ? 'Saving…' : 'Save command'}</button>
-          </div>
-        </div>
-      )}
-      {!customData ? <p className="muted">Loading custom commands…</p> : customData.commands.length === 0 ? (
-        <div className="empty-state-inline">
-          <strong>No custom commands yet</strong>
-          <p>Create a command to add a response to chat.</p>
-        </div>
-      ) : (
-        <div className="custom-command-list">
-          {customData.commands.map((command) => (
-            <article className="custom-command-row" key={command.id}>
-              <div className="custom-command-summary">
-                <div className="custom-command-heading">
-                  <strong>{customData.command_prefix}{command.name}</strong>
-                  <span className={`state-pill ${command.enabled ? 'enabled' : ''}`}>{command.enabled ? 'Enabled' : 'Disabled'}</span>
-                  {command.response_mode === 'random' && <span className="mini-badge">Random response</span>}
-                </div>
-                {command.aliases.length > 0 && <p className="command-meta">Aliases: {command.aliases.map((alias) => `${customData.command_prefix}${alias}`).join(', ')}</p>}
-                <p className="custom-command-response">{command.responses[0]}</p>
-                {command.responses.length > 1 && <small className="muted">{command.responses.length} response templates · one chosen at random</small>}
-              </div>
-              <div className="row-actions">
-                <button className="secondary" disabled={busyCustom} onClick={() => setCustomDraft(customDraftFromCommand(command))}>Edit</button>
-                <button className="secondary" disabled={busyCustom} onClick={() => void toggleCustom(command)}>{command.enabled ? 'Disable' : 'Enable'}</button>
-                <button className="ghost" disabled={busyCustom} onClick={() => void deleteCustom(command)}>Delete</button>
-              </div>
-            </article>
-          ))}
         </div>
       )}
     </section>
