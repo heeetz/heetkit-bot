@@ -1,7 +1,6 @@
 # Twitch Bot — TODO
 
-This file contains unfinished work and the retained TODO-013 follow-up outcomes until
-their final checkpoint is complete.
+This file contains unfinished work and retained TODO-013 follow-up/checkpoint outcomes.
 
 Completed implementation history lives in Git. Durable architectural decisions belong in
 `.agent/ARCHITECTURE.md` / `.agent/DECISIONS.md`, while `.agent/HANDOFF.md` should describe only
@@ -28,8 +27,9 @@ When asked to execute a TODO:
 
 TODO-013 is complete. Its single-pass report is in `.agent/HANDOFF.md`; implementation
 history is in Git. The checkpoint classified release risks, not approval to package.
-TODO-013A–013C are complete. TODO-013D remains required before the packaging freeze and
-the retained final checkpoint is still pending. Execute follow-ups only when requested.
+TODO-013A–013D and their retained final checkpoint are complete. No classified TODO-013
+release blocker remains unresolved. TODO-013E is safe to defer; TODO-014 is next only when
+requested. No standalone packaging has been performed.
 
 BEFORE YOU COMPLETE ALL TODO-13 SUBTASKS - DO NOT DELETE RECORDS OF THEM AND FOLLOW:
 
@@ -41,6 +41,11 @@ Do not perform another broad codebase review.
 Do not modify code unless there is a concrete regression introduced by these fixes.
 
 If clear, update HANDOFF so TODO-014 is next and STOP.
+
+**Final checkpoint: complete — 2026-10-04.** Reviewed the retained TODO-013A–013D outcomes
+against the original TODO-013 findings: neutral shared policy, installed resources/first-run
+setup, provider transport/lifetime and profile-save preservation are resolved. TODO-013E
+remains explicitly deferred. No broad codebase review or further implementation was performed.
 
 ## TODO-013A — Remove owner-specific AI policy from shipped code
 
@@ -123,20 +128,29 @@ No frontend changes, live provider calls, broad review or standalone artifacts w
 
 ## TODO-013D — Preserve unreadable or unsupported profile settings on save
 
-**Priority: should fix before v1; schedule before the packaging freeze.**
+**Status: complete — 2026-10-04.**
 
-Application/custom-command loaders recover with defaults after unreadable, malformed, or
-unsupported files, but their next Save rewrites only the recovered snapshot. This can discard
-the user's original data or future-schema fields. Command/personality recovery has a similar
-read-failure risk. `FunSettingsStore` already refuses saves after a failed/unsupported load.
+**Priority: pre-freeze profile-preservation finding resolved.**
 
-- [ ] Keep startup recovery, but prevent ordinary Save from silently replacing unrecovered
+App/custom-command, built-in-command and personality saves now preflight the existing file.
+Unreadable/malformed JSON and unsupported app/custom-command versions cannot be replaced.
+Supported files with unknown fields, skipped entries or externally changed data receive a
+unique exact-byte `.recovery` copy before atomic replacement; preservation failures abort the
+save. Reset/Delete obey the same guard. README and bridge errors explain manual repair/reset
+with the app stopped. Legacy flat app settings remain compatible. Fun settings retain their
+existing refusal and in-place preservation of unknown fields.
+
+- [x] Keep startup recovery, but prevent ordinary Save from silently replacing unrecovered
   settings; provide an explicit repair/reset path or preserved recovery copy.
-- [ ] Define handling of unsupported versions and unknown fields for versioned stores.
-- [ ] Test that saving an unrelated setting cannot erase unreadable/future-version data,
+- [x] Define handling of unsupported versions and unknown fields for versioned stores.
+- [x] Test that saving an unrelated setting cannot erase unreadable/future-version data,
   and that ordinary supported files still save atomically.
 
-**Acceptance:** recovery never turns an ordinary Save into silent loss of unrecovered user data.
+**Acceptance met:** 166 focused Python tests pass across preservation, app/command/custom/
+personality/fun settings, bridge, profile isolation and runtime paths. Coverage includes denied
+reads, invalid UTF-8/JSON/duplicate keys, future versions, nested unknown fields/skipped entries,
+transient access failures, unique exact-byte copies, failed copy/replace, restart and supported
+atomic saves. No frontend code changed; no frontend checks, broad review or artifacts were made.
 
 ---
 

@@ -188,6 +188,26 @@ One evolvable local model avoids files per checkbox while preserving clear owner
 recoverable source defaults. Domain-specific override semantics do not belong in a generic
 settings file.
 
+## Decision: Recovery must preserve settings before replacement
+
+Status: Active
+
+Decision:
+Startup may recover valid settings or defaults without blocking the desktop. App/custom-command,
+built-in-command and personality writes re-read the source before atomic replacement. Unreadable
+or malformed JSON and unsupported app/custom-command versions refuse writes, including Reset
+and Delete. Supported data not represented by the recovered snapshot, including unknown fields
+and skipped entries, must first receive a unique exact-byte recovery copy in the same profile
+config directory. Copy failure aborts the save; recovery copies are private and never
+automatically removed. Legacy flat app settings remain supported. Fun settings retain their
+existing failed-load refusal and preservation of other fields. Manual repair/reset uses a
+backed-up file with the app stopped, followed by restart.
+
+Reason:
+Atomic replacement prevents partial writes but cannot protect data omitted during recovery.
+Preserving originals allows unrelated edits without losing unknown or invalid user data;
+refusing unsupported versions avoids silently downgrading future profiles.
+
 ## Decision: Personality overrides cannot replace protected shared instructions
 
 Status: Active

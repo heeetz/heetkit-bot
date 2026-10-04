@@ -15,6 +15,7 @@ from threading import RLock
 from uuid import UUID, uuid4
 
 from app.twitch.permissions import Permission
+from app.settings_recovery import preserve_settings_recovery
 from app.utils.cooldown import CooldownPolicy
 from app.utils.text import normalize_command_name
 
@@ -221,6 +222,11 @@ class CustomCommandStore:
                 output.write("\n")
                 output.flush()
                 os.fsync(output.fileno())
+            preserve_settings_recovery(
+                self._path,
+                {"version": SCHEMA_VERSION, "commands": [command.to_json() for command in self._commands.values()]},
+                version=SCHEMA_VERSION,
+            )
             temporary_path.replace(self._path)
         finally:
             if temporary_path is not None:

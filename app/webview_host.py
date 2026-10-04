@@ -658,6 +658,8 @@ class WebUIBridge:
             )
         except (KeyError, TypeError):
             return {"ok": False, "error": "Unknown command."}
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
         except (OSError, RuntimeError):
             self._logger.exception("Could not reset command settings command=%s", command_name)
             return {"ok": False, "error": "Could not reset command settings."}

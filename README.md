@@ -125,6 +125,20 @@ Configuration responsibilities remain separated:
 
 The app-data root is `%LOCALAPPDATA%\TwitchBot` on Windows, `~/Library/Application Support/TwitchBot` on macOS, and `${XDG_DATA_HOME:-~/.local/share}/TwitchBot` on Linux. It contains `config/`, `data/`, `auth/`, and `cache/`.
 
+App, command, custom-command and personality settings still recover at startup when a file
+cannot be loaded. Save, Reset and Delete refuse to replace unreadable or malformed JSON
+(including duplicate keys); versioned app/custom-command files with unsupported versions also
+remain untouched. To repair or reset, quit the app, back up the named file under this profile's
+`config/`, then repair it or move it aside and restart. Moving aside only that JSON resets its
+settings while preserving the original file, database, OAuth cache and credentials.
+
+When a supported file contains unknown fields, skipped entries or customization not recovered
+by the current session, a save first preserves its exact original bytes beside it as
+`<filename>.<unique-id>.recovery`. Logs report the recovery path. These copies are private
+profile data and are never automatically overwritten or deleted. To restore one, quit the app,
+back up the current JSON, copy the recovery file over its original filename and restart.
+Ordinary fully recovered settings retain atomic saves without creating recovery copies.
+
 The environment variables supported by the current application are listed below. Twitch identity
 and channel values can also be saved in Settings; saved profile values override deployment defaults.
 Values marked required are needed to start Twitch; a fresh desktop profile opens without them and shows
@@ -304,6 +318,7 @@ Generated local files include:
 | App-data `config/message_triggers.json` | Local message reactions | Never |
 | App-data `config/personality_settings.json` | Local personality text and selection | Never |
 | App-data `config/app_settings.json` | Versioned local startup, window/tray, AI memory/model, and non-secret Twitch identity/target/preset preferences | Never |
+| App-data `config/*.recovery` | Exact originals preserved before settings recovery saves | Never |
 | App-data `config/filters/*.txt` | Locally editable filter rules | Review before sharing |
 | `app/resources/filters/*.txt` | Neutral distributed filter starters | Yes |
 | Legacy checkout `data/filters/*.txt` | Private migration input | Never |

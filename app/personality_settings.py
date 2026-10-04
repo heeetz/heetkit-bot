@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+from app.config.personalities import AI_PERSONALITY_PROMPTS
+from app.settings_recovery import preserve_settings_recovery
+
 logger = logging.getLogger(__name__)
 
 MAX_PERSONALITY_PROMPT_LENGTH = 50_000
@@ -78,7 +81,9 @@ def load_personality_settings(
     return PersonalitySettings(active, overrides)
 
 
-def save_personality_settings(path: Path, settings: PersonalitySettings) -> None:
+def save_personality_settings(
+    path: Path, settings: PersonalitySettings, *, recovered_settings: PersonalitySettings | None = None,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "active_personality": settings.active_personality,
@@ -99,6 +104,13 @@ def save_personality_settings(path: Path, settings: PersonalitySettings) -> None
             temporary_file.write("\n")
             temporary_file.flush()
             os.fsync(temporary_file.fileno())
+        preserve_settings_recovery(
+            path,
+            None if recovered_settings is None else {
+                "active_personality": recovered_settings.active_personality,
+                "overrides": {**AI_PERSONALITY_PROMPTS, **recovered_settings.overrides},
+            },
+        )
         os.replace(temporary_path, path)
         temporary_path = None
     finally:

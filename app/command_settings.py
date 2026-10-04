@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from app.twitch.permissions import Permission
+from app.settings_recovery import preserve_settings_recovery
 from app.utils.cooldown import CooldownPolicy
 
 logger = logging.getLogger(__name__)
@@ -127,6 +128,8 @@ def load_command_overrides(
 def save_command_overrides(
     path: Path,
     overrides: Mapping[str, CommandSettingsOverride],
+    *,
+    recovered_overrides: Mapping[str, CommandSettingsOverride] | None = None,
 ) -> None:
     """Atomically replace the local command override file."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -150,6 +153,12 @@ def save_command_overrides(
             temporary_file.write("\n")
             temporary_file.flush()
             os.fsync(temporary_file.fileno())
+        preserve_settings_recovery(
+            path,
+            None if recovered_overrides is None else {
+                name: override.to_json() for name, override in recovered_overrides.items()
+            },
+        )
         os.replace(temporary_path, path)
         temporary_path = None
     finally:

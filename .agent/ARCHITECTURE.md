@@ -154,6 +154,14 @@ Responsibility: registry-driven definitions and centralized dispatch.
   removes the override and restores registry defaults.
 - Custom commands use a separate versioned app-data `config/custom_commands.json` store with
   atomic writes. Invalid entries and unsupported versions are ignored without affecting built-ins.
+- App/custom-command, command-override and personality writes call the narrow file preflight
+  in `app/settings_recovery.py` under their existing locks. Unreadable/malformed JSON (including
+  duplicate keys) and unsupported app/custom-command versions refuse replacement. Unknown fields,
+  skipped entries or data absent from the session's recovered snapshot get a unique exact-byte
+  `<filename>.<unique-id>.recovery` copy beside the source before atomic replacement. Copy failure
+  aborts publication; fully recovered data needs no copy. Reset/Delete use the same write paths.
+  Manual repair/reset requires quitting, backing up and repairing/moving aside the named JSON,
+  then restarting. Legacy flat app settings remain readable and upgrade on save.
 - Message triggers use versioned app-data `config/message_triggers.json`, seeded when missing from
   tracked `app/resources/default_triggers.json`. Local edits take effect on restart; invalid
   entries are skipped.
@@ -280,6 +288,7 @@ changes still require restart.
 | Built-in fun-command responses | App-data `config/fun_settings.json`; neutral code fallbacks | Outside repository |
 | Message triggers | App-data `config/message_triggers.json`; tracked `app/resources/default_triggers.json` seed | Local file outside repository |
 | Personality selection/overrides | App-data `config/personality_settings.json` | Outside repository |
+| Settings recovery originals | App-data `config/*.recovery`; unique exact-byte copies, never automatically removed | Outside repository; private |
 | Twitch OAuth tokens | App-data `auth/twitchio_tokens.json` | Outside repository; secret |
 | Users and AI memory | App-data `data/twitch_bot.db` | Outside repository; private |
 | Locally editable filters | App-data `config/filters/*.txt` | Outside repository |

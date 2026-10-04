@@ -184,7 +184,10 @@ class RuntimeState:
                 overrides.pop(command_name, None)
             else:
                 overrides[command_name] = override
-            save_command_overrides(self._command_settings_path, overrides)
+            save_command_overrides(
+                self._command_settings_path, overrides,
+                recovered_overrides=self._persisted_command_overrides,
+            )
             self._persisted_command_overrides = overrides
 
     def reset_command_settings(self, command_name: str) -> CommandSettings:
@@ -196,7 +199,10 @@ class RuntimeState:
             overrides = dict(self._persisted_command_overrides)
             overrides.pop(command_name, None)
             if self._command_settings_path is not None:
-                save_command_overrides(self._command_settings_path, overrides)
+                save_command_overrides(
+                    self._command_settings_path, overrides,
+                    recovered_overrides=self._persisted_command_overrides,
+                )
             self._persisted_command_overrides = overrides
             self._command_settings[command_name] = defaults
             return defaults
@@ -323,6 +329,9 @@ class RuntimeState:
         save_personality_settings(
             self._personality_settings_path,
             PersonalitySettings(active_personality, overrides),
+            recovered_settings=PersonalitySettings(
+                self._persisted_active_ai_personality, self._persisted_personality_overrides,
+            ),
         )
 
     def set_bot_running(self, running: bool) -> None:

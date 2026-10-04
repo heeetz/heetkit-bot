@@ -13,6 +13,7 @@ from pathlib import Path
 from threading import RLock
 
 from app.config.ai_models import validate_gemini_model_settings
+from app.settings_recovery import preserve_settings_recovery
 from config import AI_MEMORY_ENABLED
 
 logger = logging.getLogger(__name__)
@@ -366,7 +367,9 @@ def load_app_settings(path: Path) -> AppSettings:
     )
 
 
-def save_app_settings(path: Path, settings: AppSettings) -> None:
+def save_app_settings(
+    path: Path, settings: AppSettings, *, recovered_settings: AppSettings | None = None,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path: Path | None = None
     try:
@@ -384,6 +387,12 @@ def save_app_settings(path: Path, settings: AppSettings) -> None:
             temporary_file.write("\n")
             temporary_file.flush()
             os.fsync(temporary_file.fileno())
+        preserve_settings_recovery(
+            path,
+            None if recovered_settings is None else {"version": APP_SETTINGS_VERSION, **asdict(recovered_settings)},
+            version=APP_SETTINGS_VERSION,
+            allow_legacy=True,
+        )
         os.replace(temporary_path, path)
         temporary_path = None
     finally:
@@ -423,7 +432,7 @@ class AppSettingsStore:
                 ai=self._settings.ai,
                 twitch=self._settings.twitch,
             )
-            save_app_settings(self._path, updated)
+            save_app_settings(self._path, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated
 
@@ -454,7 +463,7 @@ class AppSettingsStore:
                 ai=self._settings.ai,
                 twitch=self._settings.twitch,
             )
-            save_app_settings(self._path, updated)
+            save_app_settings(self._path, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated
 
@@ -472,7 +481,7 @@ class AppSettingsStore:
                 ),
                 twitch=self._settings.twitch,
             )
-            save_app_settings(self._path, updated)
+            save_app_settings(self._path, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated
 
@@ -497,7 +506,7 @@ class AppSettingsStore:
                 ),
                 twitch=self._settings.twitch,
             )
-            save_app_settings(self._path, updated)
+            save_app_settings(self._path, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated
 
@@ -531,7 +540,7 @@ class AppSettingsStore:
                 ai=self._settings.ai,
                 twitch=twitch,
             )
-            save_app_settings(self._path, updated)
+            save_app_settings(self._path, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated
 
@@ -585,7 +594,7 @@ class AppSettingsStore:
                     selected_preset_id=parsed_id,
                 ),
             )
-            save_app_settings(self._path, updated)
+            save_app_settings(self._path, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated, preset
 
@@ -613,6 +622,6 @@ class AppSettingsStore:
                     ),
                 ),
             )
-            save_app_settings(self._path, updated)
+            save_app_settings(self._path, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated
