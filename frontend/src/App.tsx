@@ -46,11 +46,12 @@ function formatUptime(totalSeconds: number): string {
     .join(':')
 }
 
-function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onNavigate, busy }: {
+function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuthorizeTwitch, onNavigate, busy }: {
   status: AppStatus | null
   aiStatus: AIStatus | null
   onChangeBotState: (shouldRun: boolean) => void
   onChangeAIState: (kind: 'enabled' | 'memory', enabled: boolean) => void
+  onAuthorizeTwitch: () => void
   onNavigate: (section: Extract<Section, 'AI' | 'Settings'>, targetId?: string) => void
   busy: string
 }) {
@@ -210,12 +211,19 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onNavi
           <p>{status?.twitch_connection_state === 'reconnecting'
             ? 'TwitchIO is restoring the chat connection automatically.'
             : status?.twitch_connection_state === 'auth_required'
-              ? 'Authorize the configured bot account in Twitch.'
+              ? status.running
+                ? 'Authorize the configured bot account in your browser.'
+                : 'Start Bot again, then authorize the configured bot account.'
               : status?.twitch_connection_state === 'failed'
                 ? 'The session stopped. Check Logs, then start the bot again.'
                 : status?.running
                   ? 'Connection state from the active bot session.'
                   : 'Start the bot when you are ready to connect.'}</p>
+          {status?.twitch_connection_state === 'auth_required' && (
+            <button className="primary" disabled={Boolean(busy) || !status.running} onClick={onAuthorizeTwitch}>
+              {busy === 'twitch:authorize' ? 'Opening…' : 'Authorize Twitch'}
+            </button>
+          )}
         </article>
         <article className="card dashboard-card">
           <p className="label">ACTIVE CHANNEL</p>
@@ -473,6 +481,22 @@ export default function App() {
     }
   }
 
+  const authorizeTwitch = async () => {
+    setError('')
+    setActionBusy('twitch:authorize')
+    try {
+      const api = await waitForBridge()
+      const result = await api.open_external_link('twitch_authorization')
+      if (!result.ok) {
+        throw new Error(result.error ?? 'Could not open Twitch authorization.')
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not open Twitch authorization.')
+    } finally {
+      setActionBusy('')
+    }
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -491,6 +515,7 @@ export default function App() {
             busy={actionBusy}
             onChangeBotState={(shouldRun) => void changeBotState(shouldRun)}
             onChangeAIState={(kind, enabled) => void changeAIState(kind, enabled)}
+            onAuthorizeTwitch={() => void authorizeTwitch()}
             onNavigate={navigate}
           />
         )}

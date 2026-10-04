@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 interface FeedbackToastProps {
   error?: string
@@ -8,14 +8,19 @@ interface FeedbackToastProps {
 
 export default function FeedbackToast({ error = '', notice = '', onDismiss }: FeedbackToastProps) {
   const message = error || notice
+  const dismiss = useRef(onDismiss)
 
   useEffect(() => {
-    if (!notice || error) {
+    dismiss.current = onDismiss
+  }, [onDismiss])
+
+  useEffect(() => {
+    if (!message) {
       return
     }
-    const timer = window.setTimeout(onDismiss, 4500)
+    const timer = window.setTimeout(() => dismiss.current(), 10000)
     return () => window.clearTimeout(timer)
-  }, [error, notice, onDismiss])
+  }, [message])
 
   if (!message) {
     return null

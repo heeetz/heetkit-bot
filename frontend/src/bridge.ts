@@ -169,6 +169,7 @@ export interface TwitchConnectionSettings {
   running: boolean
   connected: boolean
   oauth_token_available: boolean
+  oauth_callback_url: string
   has_local_override: boolean
 }
 
@@ -284,7 +285,7 @@ interface PythonApi {
   test_credential(name: CredentialName): Promise<ActionResult>
   start_bot(): Promise<ActionResult>
   stop_bot(): Promise<ActionResult>
-  open_external_link(destination: 'repository' | 'license' | 'third_party_notices'): Promise<ActionResult>
+  open_external_link(destination: 'repository' | 'license' | 'third_party_notices' | 'twitch_developer_console' | 'twitch_authorization'): Promise<ActionResult>
 }
 
 export interface ActionResult {

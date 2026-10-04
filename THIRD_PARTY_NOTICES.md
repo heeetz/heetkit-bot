@@ -168,13 +168,15 @@ the app's tracked icon assets are project resources.
 
 ### Frontend development / build-only lockfile inventory
 
-All remaining 116 lockfile packages are listed below, including optional platform binary
+All remaining 122 lockfile packages are listed below, including optional platform binary
 variants. Licenses are the exact npm lockfile metadata. They are not deployed wholesale in
 the production frontend; generated output must still be checked for incorporated code.
 `@vitejs/plugin-react` generates calls into React; react-refresh/Babel tooling is development
 or build work. The browser-support data `caniuse-lite` is CC-BY-4.0; distributing that dataset
 or the build toolchain requires its attribution. TypeScript is Apache-2.0.
 Vite's own package bundles tools under additional licenses listed in its copied LICENSE.md.
+Playwright and its optional dependency support development browser tests only; neither the
+test runner nor test browsers are part of the application frontend bundle.
 
 | Package | Locked version | License metadata | Optional platform variant |
 | --- | --- | --- | --- |
@@ -229,6 +231,7 @@ Vite's own package bundles tools under additional licenses listed in its copied 
 | @jridgewell/sourcemap-codec | 1.6.0 | MIT | No |
 | @jridgewell/trace-mapping | 0.3.31 | MIT | No |
 | @napi-rs/lzma-linux-x64-gnu | 1.5.1 | MIT | Yes |
+| @playwright/test | 1.62.1 | Apache-2.0 | No |
 | @rolldown/pluginutils | 1.0.0-rc.3 | MIT | No |
 | @rollup/rollup-android-arm-eabi | 4.63.5 | MIT | Yes |
 | @rollup/rollup-android-arm64 | 4.63.5 | MIT | Yes |
@@ -260,6 +263,7 @@ Vite's own package bundles tools under additional licenses listed in its copied 
 | @types/babel__template | 7.4.4 | MIT | No |
 | @types/babel__traverse | 7.28.0 | MIT | No |
 | @types/estree | 1.0.9 | MIT | No |
+| @types/node | 24.0.0 | MIT | No |
 | @types/react | 19.3.0 | MIT | No |
 | @types/react-dom | 19.3.0 | MIT | No |
 | @vitejs/plugin-react | 5.2.0 | MIT | No |
@@ -284,6 +288,9 @@ Vite's own package bundles tools under additional licenses listed in its copied 
 | node-releases | 2.0.57 | MIT | No |
 | picocolors | 1.1.1 | ISC | No |
 | picomatch | 4.0.7 | MIT | No |
+| playwright | 1.62.1 | Apache-2.0 | No |
+| playwright-core | 1.62.1 | Apache-2.0 | No |
+| playwright/node_modules/fsevents | 2.3.2 | MIT | Yes |
 | postcss | 8.5.28 | MIT | No |
 | react-refresh | 0.18.0 | MIT | No |
 | rollup | 4.63.5 | MIT | No |
@@ -291,6 +298,7 @@ Vite's own package bundles tools under additional licenses listed in its copied 
 | source-map-js | 1.2.1 | BSD-3-Clause | No |
 | tinyglobby | 0.2.17 | MIT | No |
 | typescript | 5.9.3 | Apache-2.0 | No |
+| undici-types | 7.8.0 | MIT | No |
 | update-browserslist-db | 1.3.3 | MIT | No |
 | vite | 7.3.6 | MIT | No |
 | yallist | 3.1.1 | ISC | No |

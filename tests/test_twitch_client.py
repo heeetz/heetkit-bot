@@ -3,6 +3,7 @@
 import logging
 from types import SimpleNamespace
 from typing import cast
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from twitchio.exceptions import HTTPException, InvalidTokenException
@@ -12,12 +13,29 @@ from app.config.settings import Settings, TwitchConfigurationError
 from app.services.facade import ApplicationServices
 from app.runtime_state import RuntimeState
 from app.twitch.client import (
+    CHAT_SCOPES,
+    OAUTH_AUTHORIZATION_URL,
+    OAUTH_REDIRECT_URI,
     TwitchChatBot,
     TwitchConnectionError,
     process_twitch_message,
     run_twitch_bot,
     to_incoming_chat_message,
 )
+
+
+def test_local_authorization_url_uses_the_existing_chat_scopes() -> None:
+    authorization = urlsplit(OAUTH_AUTHORIZATION_URL)
+    callback = urlsplit(OAUTH_REDIRECT_URI)
+    assert authorization.scheme == callback.scheme == "http"
+    assert authorization.netloc == callback.netloc == "localhost:4343"
+    assert authorization.path == "/oauth"
+    assert callback.path == "/oauth/callback"
+    query = parse_qs(authorization.query)
+    assert set(query["scopes"][0].split()) == set(CHAT_SCOPES.selected) == {
+        "user:read:chat", "user:write:chat", "user:bot", "moderator:read:followers",
+    }
+    assert query["force_verify"] == ["true"]
 
 
 class FakeTwitchMessage:
@@ -237,6 +255,7 @@ async def test_websocket_loss_and_welcome_update_connection_state(
 @pytest.mark.asyncio
 async def test_missing_oauth_and_terminal_auth_failure_are_distinct_from_recovery(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     settings = build_settings()
     state = RuntimeState()
@@ -251,6 +270,7 @@ async def test_missing_oauth_and_terminal_auth_failure_are_distinct_from_recover
     )
     await bot.event_ready()
     assert state.twitch_connection_state == "auth_required"
+    assert OAUTH_AUTHORIZATION_URL in caplog.text
     await bot.close(save_tokens=False)
 
     class FailingBot:

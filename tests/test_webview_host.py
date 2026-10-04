@@ -23,6 +23,7 @@ from app.config.settings import Settings
 from app.container import Application
 from app.credentials import CredentialStatus
 from app.runtime_state import RuntimeState
+from app.twitch.client import OAUTH_AUTHORIZATION_URL, OAUTH_REDIRECT_URI
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
 from app.utils.logging import RecentLogBuffer, RecentLogHandler
@@ -269,16 +270,115 @@ def test_bridge_exposes_about_metadata_and_fixed_external_destinations(monkeypat
     assert about["author"] == "heeetz"
     assert about["discord_contact"] == "de.tected"
     assert about["license_name"] == "Apache-2.0"
-    for destination in ("repository", "license", "third_party_notices"):
+    for destination in ("repository", "license", "third_party_notices", "twitch_developer_console"):
         assert bridge.open_external_link(destination) == {"ok": True}
     assert opened == [
         ("https://github.com/heeetz/twitch-bot", 2),
         ("https://github.com/heeetz/twitch-bot/blob/main/LICENSE", 2),
         ("https://github.com/heeetz/twitch-bot/blob/main/THIRD_PARTY_NOTICES.md", 2),
+        ("https://dev.twitch.tv/console/apps", 2),
     ]
     assert bridge.open_external_link("https://example.com") == {
         "ok": False,
         "error": "That external link is not available.",
+    }
+
+
+def twitch_authorization_bridge(tmp_path, *, running=True, state="auth_required", **overrides):
+    settings = Settings(
+        twitch_client_id="synthetic-client",
+        twitch_client_secret="synthetic-secret",
+        twitch_bot_user_id="100",
+        twitch_bot_username="testbot",
+        twitch_channel_user_id="200",
+        twitch_channel="testchannel",
+        twitch_token_file=str(tmp_path / "tokens.json"),
+    )
+    for name, value in overrides.items():
+        setattr(settings, name, value)
+    runtime_state = RuntimeState()
+    runtime_state.set_bot_running(running)
+    runtime_state.set_twitch_connection_state(state)
+    application = SimpleNamespace(
+        services=SimpleNamespace(runtime_state=runtime_state), settings=settings,
+    )
+    return WebUIBridge(
+        cast(AsyncioBackendHost, SimpleNamespace(application=application)),
+        app_settings=AppSettingsStore(tmp_path / "app_settings.json"),
+    )
+
+
+def test_twitch_authorization_opens_only_on_explicit_action(monkeypatch, tmp_path) -> None:
+    opened = []
+    monkeypatch.setattr(
+        "app.webview_host.webbrowser.open",
+        lambda url, *, new: opened.append((url, new)) or True,
+    )
+    bridge = twitch_authorization_bridge(tmp_path)
+
+    assert bridge.get_app_status()["twitch_connection_state"] == "auth_required"
+    assert bridge.get_twitch_settings()["settings"]["oauth_callback_url"] == OAUTH_REDIRECT_URI
+    assert opened == []
+    assert bridge.open_external_link("twitch_authorization") == {"ok": True}
+    assert opened == [(OAUTH_AUTHORIZATION_URL, 2)]
+
+
+@pytest.mark.parametrize("running,state", [
+    (False, "stopped"), (False, "auth_required"), (True, "connecting"),
+    (True, "connected"), (True, "reconnecting"), (True, "failed"),
+])
+def test_twitch_authorization_requires_a_running_auth_required_session(
+    monkeypatch, tmp_path, running, state,
+) -> None:
+    monkeypatch.setattr(
+        "app.webview_host.webbrowser.open", lambda *args, **kwargs: pytest.fail("opened browser"),
+    )
+    bridge = twitch_authorization_bridge(tmp_path, running=running, state=state)
+    assert bridge.open_external_link("twitch_authorization")["ok"] is False
+
+
+@pytest.mark.parametrize("missing", ["twitch_client_id", "twitch_bot_user_id", "twitch_client_secret"])
+def test_twitch_authorization_requires_configured_identity_and_secret(
+    monkeypatch, tmp_path, missing,
+) -> None:
+    monkeypatch.setattr(
+        "app.webview_host.webbrowser.open", lambda *args, **kwargs: pytest.fail("opened browser"),
+    )
+    bridge = twitch_authorization_bridge(tmp_path, **{missing: None if missing.endswith("secret") else ""})
+    result = bridge.open_external_link("twitch_authorization")
+    assert result["ok"] is False
+    assert missing.upper() in result["error"]
+
+
+def test_twitch_authorization_rejects_pending_identity_changes(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "app.webview_host.webbrowser.open", lambda *args, **kwargs: pytest.fail("opened browser"),
+    )
+    bridge = twitch_authorization_bridge(tmp_path)
+    saved = bridge.update_twitch_settings(
+        "testchannel", "200", client_id="different-client", bot_username="testbot", bot_user_id="100",
+    )
+    assert saved["ok"] is True
+    assert saved["requires_restart"] is True
+    result = bridge.open_external_link("twitch_authorization")
+    assert result["ok"] is False
+    assert "Restart" in result["error"]
+
+
+@pytest.mark.parametrize("destination", ["twitch_developer_console", "twitch_authorization"])
+@pytest.mark.parametrize("raises", [False, True])
+def test_twitch_external_actions_report_browser_failure(
+    monkeypatch, tmp_path, destination, raises,
+) -> None:
+    def failed_open(*args, **kwargs):
+        if raises:
+            raise OSError("synthetic browser failure")
+        return False
+
+    monkeypatch.setattr("app.webview_host.webbrowser.open", failed_open)
+    bridge = twitch_authorization_bridge(tmp_path)
+    assert bridge.open_external_link(destination) == {
+        "ok": False, "error": "Could not open the external link.",
     }
 
 
@@ -606,6 +706,7 @@ def test_bridge_exposes_and_saves_non_secret_twitch_settings(tmp_path) -> None:
         "running": True,
         "connected": True,
         "oauth_token_available": True,
+        "oauth_callback_url": OAUTH_REDIRECT_URI,
         "has_local_override": False,
     }
     assert bridge.update_twitch_settings("NewChannel", "300") == {

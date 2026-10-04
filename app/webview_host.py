@@ -45,6 +45,7 @@ from app.runtime_paths import (
     RuntimePaths, RuntimeDataError, prepare_runtime_data,
 )
 from app.system_tray import SystemTray
+from app.twitch.client import OAUTH_AUTHORIZATION_URL, OAUTH_REDIRECT_URI
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
 from app.utils.logging import (
@@ -73,6 +74,8 @@ EXTERNAL_LINKS = {
     "repository": "https://github.com/heeetz/twitch-bot",
     "license": "https://github.com/heeetz/twitch-bot/blob/main/LICENSE",
     "third_party_notices": "https://github.com/heeetz/twitch-bot/blob/main/THIRD_PARTY_NOTICES.md",
+    "twitch_developer_console": "https://dev.twitch.tv/console/apps",
+    "twitch_authorization": OAUTH_AUTHORIZATION_URL,
 }
 
 
@@ -430,6 +433,21 @@ class WebUIBridge:
     def open_external_link(self, destination: object) -> dict[str, object]:
         if not isinstance(destination, str) or destination not in EXTERNAL_LINKS:
             return {"ok": False, "error": "That external link is not available."}
+        if destination == "twitch_authorization":
+            application = self._backend.application
+            runtime_state = application.services.runtime_state
+            if not runtime_state.status()[0]:
+                return {"ok": False, "error": "Start Bot before authorizing Twitch."}
+            if runtime_state.twitch_connection_state != "auth_required":
+                return {"ok": False, "error": "Twitch authorization is not currently required."}
+            try:
+                application.settings.validate_twitch_configuration()
+            except TwitchConfigurationError as error:
+                return {"ok": False, "error": str(error)}
+            if self._app_settings is not None and self._twitch_identity_requires_restart(
+                self._app_settings.snapshot().twitch
+            ):
+                return {"ok": False, "error": "Restart the application to apply the saved Twitch client ID and bot identity."}
         try:
             opened = webbrowser.open(EXTERNAL_LINKS[destination], new=2)
         except Exception:
@@ -975,6 +993,7 @@ class WebUIBridge:
                 "oauth_token_available": Path(
                     application.settings.twitch_token_file
                 ).is_file(),
+                "oauth_callback_url": OAUTH_REDIRECT_URI,
                 "has_local_override": (
                     local.channel is not None
                     and local.channel_user_id is not None

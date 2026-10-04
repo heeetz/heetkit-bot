@@ -124,6 +124,58 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
     setNotice('')
   }
 
+  const openTwitchLink = async (destination: 'twitch_developer_console' | 'twitch_authorization') => {
+    setBusy(`external:${destination}`)
+    setError('')
+    setNotice('')
+    try {
+      const api = await waitForBridge()
+      const result = await api.open_external_link(destination)
+      if (!result.ok) {
+        throw new Error(result.error ?? 'Could not open the Twitch page.')
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not open the Twitch page.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const copyCallback = async () => {
+    if (!twitchDraft) {
+      return
+    }
+    setError('')
+    setNotice('')
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(twitchDraft.oauth_callback_url)
+      } else {
+        const previousFocus = document.activeElement
+        const input = document.createElement('textarea')
+        input.value = twitchDraft.oauth_callback_url
+        input.setAttribute('readonly', '')
+        input.style.position = 'fixed'
+        input.style.opacity = '0'
+        document.body.appendChild(input)
+        try {
+          input.select()
+          if (!document.execCommand('copy')) {
+            throw new Error('Clipboard access is unavailable.')
+          }
+        } finally {
+          input.remove()
+          if (previousFocus instanceof HTMLElement) {
+            previousFocus.focus()
+          }
+        }
+      }
+      setNotice('OAuth callback URL copied.')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not copy the callback URL.')
+    }
+  }
+
   const selectTwitchPreset = (presetId: string) => {
     if (!twitchDraft) {
       return
@@ -415,24 +467,31 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
               <div className="setup-callout">
                 <div>
                   <strong>Complete Twitch setup</strong>
-                  <p>Enter the Twitch application client ID, bot login and numeric user ID, and target channel login and ID. Save the client secret below, then restart and Start Bot.</p>
+                  <p>Create a Twitch Developer Application and register the callback URL below. Enter its Client ID and bot/target logins and numeric IDs, save setup, and store its Client Secret under Secure credentials. Restart if required, Start Bot, then Authorize Twitch as the configured bot account.</p>
                 </div>
               </div>
             )}
             {twitchDraft.requires_restart && <p className="settings-hint">Saved client ID or bot identity is pending. Restart the application before connecting.</p>}
-            {!twitchTargetMissing && !twitchDraft.requires_restart && twitchCredential?.configured && !twitchDraft.oauth_token_available && !status?.twitch_connected && (
+            {(status?.twitch_connection_state === 'auth_required' || (!twitchTargetMissing && !twitchDraft.requires_restart && twitchCredential?.configured && !twitchDraft.oauth_token_available && !status?.twitch_connected)) && (
               <div className="setup-callout">
                 <div>
                   <strong>Twitch authorization required</strong>
-                  <p>Register http://localhost:4343/oauth/callback in the Twitch Developer Console. Start Bot, then open the authorization URL shown in Logs and sign in as the configured bot account.</p>
+                  <p>{status?.running && status.twitch_connection_state === 'auth_required'
+                    ? 'Authorize Twitch opens in your browser. Sign in as the configured bot account.'
+                    : 'Start Bot from Dashboard, then choose Authorize Twitch here or on Dashboard. Sign in as the configured bot account.'}</p>
                 </div>
+                {status?.twitch_connection_state === 'auth_required' && (
+                  <button className="primary" disabled={Boolean(busy) || !status.running || twitchDraft.requires_restart} onClick={() => void openTwitchLink('twitch_authorization')}>
+                    {busy === 'external:twitch_authorization' ? 'Opening…' : 'Authorize Twitch'}
+                  </button>
+                )}
               </div>
             )}
             <div className="twitch-status-grid">
               <div><span>Connection</span><strong className={status?.twitch_connected ? 'status-good' : ''}>{status ? twitchConnectionLabel(status.twitch_connection_state) : twitchDraft.connected ? 'Connected' : twitchDraft.running ? 'Connecting' : 'Stopped'}</strong></div>
               <div><span>Active bot account</span><strong>{status?.account || 'Not configured'}</strong></div>
               <div><span>Active target</span><strong>{activePreset ? `${activePreset.display_name} (${twitchDraft.active_channel})` : twitchDraft.active_channel || 'Not configured'}</strong></div>
-              <div><span>Twitch authorization</span><strong>{twitchDraft.oauth_token_available || status?.twitch_connected ? 'Ready' : 'Required'}</strong></div>
+              <div><span>Twitch authorization</span><strong>{status?.twitch_connection_state === 'auth_required' ? 'Required' : twitchDraft.oauth_token_available || status?.twitch_connected ? 'Ready' : 'Required'}</strong></div>
               <div><span>Client secret</span><strong>{twitchCredential?.configured ? 'Configured' : 'Missing'}</strong></div>
             </div>
             <div className="preset-editor">
@@ -458,11 +517,21 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
               </div>
             </div>
             <div className="settings-field-grid">
-              <label className="form-field">
-                Twitch application client ID
-                <input value={twitchDraft.client_id} onChange={(event) => updateTwitchDraft({ client_id: event.target.value })} placeholder="Client ID from the Twitch Developer Console" />
-                <small>Non-secret. Register the callback URL http://localhost:4343/oauth/callback for this application.</small>
-              </label>
+              <div className="twitch-application-setup">
+                <label className="form-field">
+                  Twitch application client ID
+                  <input value={twitchDraft.client_id} onChange={(event) => updateTwitchDraft({ client_id: event.target.value })} placeholder="Client ID from the Twitch Developer Console" />
+                  <small>From your Twitch Developer Application. Store its Client Secret securely below.</small>
+                </label>
+                <button className="secondary" disabled={Boolean(busy)} onClick={() => void openTwitchLink('twitch_developer_console')}>Open Twitch Developer Console</button>
+                <div className="oauth-callback">
+                  <span>Register this OAuth callback URL in your application:</span>
+                  <div>
+                    <code>{twitchDraft.oauth_callback_url}</code>
+                    <button className="ghost" aria-label="Copy OAuth callback URL" onClick={() => void copyCallback()}>Copy</button>
+                  </div>
+                </div>
+              </div>
               <label className="form-field">
                 Bot account login
                 <input value={twitchDraft.bot_username} onChange={(event) => updateTwitchDraft({ bot_username: event.target.value })} placeholder="bot_name" />

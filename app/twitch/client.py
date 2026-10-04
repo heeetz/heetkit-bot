@@ -26,6 +26,10 @@ class TwitchConnectionError(RuntimeError):
 
 OAUTH_REDIRECT_URI = "http://localhost:4343/oauth/callback"
 CHAT_SCOPES = Scopes(["user:read:chat", "user:write:chat", "user:bot", "moderator:read:followers"])
+OAUTH_AUTHORIZATION_URL = (
+    f"{OAUTH_REDIRECT_URI.removesuffix('/callback')}"
+    f"?scopes={CHAT_SCOPES.urlsafe()}&force_verify=true"
+)
 
 
 def to_incoming_chat_message(message: ChatMessage) -> IncomingChatMessage:
@@ -165,8 +169,8 @@ class TwitchChatBot(commands.Bot):
         if self.bot_id not in self.tokens:
             self._set_connection_state("auth_required")
             self._logger.warning(
-                "Authorize the configured bot account at "
-                "http://localhost:4343/oauth?scopes=user%3Aread%3Achat%20user%3Awrite%3Achat%20user%3Abot%20moderator%3Aread%3Afollowers&force_verify=true",
+                "Authorize the configured bot account at %s",
+                OAUTH_AUTHORIZATION_URL,
                 extra={"event_kind": "twitch.auth_required", "event_channel": self._account.channel},
             )
             return

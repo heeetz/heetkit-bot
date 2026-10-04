@@ -241,16 +241,16 @@ Existing profiles are never overwritten during seeding.
 
 ## Twitch setup
 
-1. Create a Twitch Developer application. Launch the desktop and open **Settings → Twitch connection**.
-2. Register this exact OAuth callback URL in the Twitch Developer Console:
+1. Launch the desktop and open **Settings → Twitch connection**. Select **Open Twitch Developer Console** beside the Client ID field to create a Twitch Developer Application in your external browser. Its Client ID and Client Secret identify the application.
+2. Use **Copy** beside the callback URL in Settings and register this exact URL in your Twitch Developer Application:
 
    ```text
    http://localhost:4343/oauth/callback
    ```
 
 3. Enter the application client ID, bot account login and numeric user ID, and destination channel login and numeric user ID. Save the setup. These non-secret values belong to this profile. Named presets contain target-channel metadata only.
-4. Under **Secure credentials**, replace the Twitch client secret. Restart the application to apply the saved client ID, bot identity and secret. Use **Start Bot**; if authorization is required, Logs shows the local TwitchIO authorization URL served on port `4343`.
-5. Authorize the configured bot account. The application requests chat read/write, bot, and follower-read scopes used by the current implementation.
+4. Under **Secure credentials**, replace the Twitch client secret. Restart the application to apply the saved client ID, bot identity and secret, then use **Start Bot**.
+5. When the connection shows **Authorization required**, select **Authorize Twitch** on Dashboard or in Settings. This opens the existing local TwitchIO authorization page in your external browser; sign in as the configured bot account. Authorization opens only when you choose the action, including after automatic bot startup. The application requests chat read/write, bot, and follower-read scopes used by the current implementation.
 
 TwitchIO stores generated access and refresh tokens in app-data `auth/twitchio_tokens.json`. Token files contain credentials: never commit, publish, email, or include them in a manually created ZIP. Configure the client secret through Settings; advanced process environment overrides are available for development and deployment workflows. The app never writes setup into its installation directory.
 
@@ -407,9 +407,14 @@ git diff --check
 Validate and build the frontend from `frontend/`:
 
 ```powershell
+npm test
 npm run typecheck
 npm run build
 ```
+
+The focused browser tests use synthetic setup and mocked external actions. On Windows they
+run headless in installed Microsoft Edge. On other development platforms, install the test
+browser first with `npx playwright install chromium`.
 
 ## Troubleshooting
 
