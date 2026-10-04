@@ -4,7 +4,7 @@ from app.commands.registry import CommandRegistry
 from app.services.ai_request_policy import PolicyDecision
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
-from config import ASK_COOLDOWN_SECONDS
+from app.config.commands import ASK_COOLDOWN_SECONDS
 
 
 def register_ai_commands(registry: CommandRegistry) -> None:

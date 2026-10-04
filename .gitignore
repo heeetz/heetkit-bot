@@ -11,7 +11,6 @@
 # Secrets
 .env
 .env.*
-!.env.example
 
 # Twitch tokens
 .tio.tokens.json

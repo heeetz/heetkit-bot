@@ -16,10 +16,11 @@ Coordinate disclosure with the maintainer so a fix can be prepared before public
 ## Credentials and private data
 
 Gemini keys and Twitch client secrets are stored in the OS keyring when configured
-through Settings. Private deployment `.env` fallbacks are also supported. Twitch OAuth
-tokens, settings, recovery copies, and SQLite activity/conversation data live in the
-selected profile. Do not attach these files to issues or source archives. Redact logs
-and screenshots before sharing; local filesystem protection depends on your OS account.
+through Settings. Advanced deployments may provide process environment fallbacks; the
+application does not discover or load dotenv files. Twitch OAuth tokens, settings, recovery
+copies, and SQLite activity/conversation data live in the selected profile. Do not attach
+these files or process environment contents to issues or source archives. Redact logs and
+screenshots before sharing; local filesystem protection depends on your OS account.
 
 If a real credential enters Git history, logs, or a shared archive, revoke/rotate it
 at the provider even if the file is later deleted. Removing a file from the current

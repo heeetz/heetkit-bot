@@ -143,6 +143,7 @@ def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
         },
         "startup": {"auto_start_bot": True},
         "ai": {
+            "cooldown_bypass_user_id": None,
             "fallback_model": None,
             "memory_enabled": False,
             "selected_model": None,
@@ -347,6 +348,7 @@ def test_gemini_model_settings_are_validated_persisted_and_reloaded(tmp_path) ->
     )
     assert AppSettingsStore(settings_path).snapshot().ai == updated.ai
     assert json.loads(settings_path.read_text(encoding="utf-8"))["ai"] == {
+        "cooldown_bypass_user_id": None,
         "fallback_model": "gemini-3.1-flash-lite",
         "memory_enabled": True,
         "selected_model": "custom-gemini-model",

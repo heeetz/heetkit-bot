@@ -81,7 +81,6 @@ def test_secure_credentials_override_environment_fallbacks(monkeypatch) -> None:
 
     settings, _ = load_settings_with_credentials(
         CredentialStore(backend),
-        env_file=None,
     )
 
     assert settings.twitch_client_secret.get_secret_value() == "secure-twitch"
@@ -96,10 +95,38 @@ def test_empty_optional_environment_credential_is_treated_as_missing(monkeypatch
 
     settings, manager = load_settings_with_credentials(
         CredentialStore(FakeKeyring({})),
-        env_file=None,
     )
 
     assert settings.gemini_api_key is None
     gemini_status = manager.statuses()[0]
     assert gemini_status.configured is False
     assert gemini_status.source == "missing"
+
+
+def test_intentional_process_environment_defaults_without_dotenv(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("app.runtime_paths.user_data_path", lambda *args, **kwargs: tmp_path)
+    values = valid_settings() | {
+        "gemini_api_key": "synthetic-process-key",
+        "gemini_model": "gemini-process-selected",
+        "gemini_fallback_model": "gemini-process-fallback",
+        "ai_cooldown_bypass_user_id": "123",
+        "log_level": "DEBUG",
+        "command_prefix": "?",
+        "command_max_arguments_length": "250",
+        "database_url": "sqlite+aiosqlite:///advanced.db",
+        "twitch_token_file": "advanced-tokens.json",
+    }
+    for name, value in values.items():
+        monkeypatch.setenv(name.upper(), value)
+    settings, manager = load_settings_with_credentials(CredentialStore(FakeKeyring({})))
+
+    settings.validate_twitch_configuration()
+    for name, value in values.items():
+        if name.endswith("secret") or name.endswith("api_key"):
+            assert getattr(settings, name).get_secret_value() == value
+        elif name == "command_max_arguments_length":
+            assert getattr(settings, name) == int(value)
+        else:
+            assert getattr(settings, name) == value
+    assert all(status.source == "environment" for status in manager.statuses())
+    assert not list(tmp_path.iterdir())

@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 from threading import RLock
 
-from config import TG_MESSAGE
+from app.config.commands import TG_MESSAGE
 
 FORECASTS = ("Tomorrow brings a new opportunity.",)
 

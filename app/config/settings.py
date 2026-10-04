@@ -1,6 +1,9 @@
-"""Typed configuration loaded from the environment."""
+"""Typed runtime defaults and intentional process environment overrides.
 
-from pathlib import Path
+Normal startup never reads dotenv files. Desktop settings overlay non-secret
+defaults in the host; credentials come from the profile's OS keyring first.
+"""
+
 from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator
@@ -11,7 +14,7 @@ from app.config.ai_models import (
     validate_gemini_model_id,
 )
 from app.credentials import CredentialManager, CredentialName, CredentialStore
-from app.runtime_paths import RuntimePaths, SOURCE_ROOT
+from app.runtime_paths import RuntimePaths
 
 
 class TwitchConfigurationError(ValueError):
@@ -34,7 +37,6 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_file=None,
-        env_file_encoding="utf-8",
         env_prefix="",
         extra="ignore",
     )
@@ -102,11 +104,10 @@ class Settings(BaseSettings):
 
 
 class EnvironmentCredentialSettings(BaseSettings):
-    """Private `.env`/environment fallbacks for OS-backed credentials."""
+    """Advanced process environment fallbacks for OS-backed credentials."""
 
     model_config = SettingsConfigDict(
         env_file=None,
-        env_file_encoding="utf-8",
         env_prefix="",
         extra="ignore",
     )
@@ -124,17 +125,9 @@ def _read_environment_secret(value: SecretStr | None) -> str | None:
 
 def load_settings_with_credentials(
     credential_store: CredentialStore | None = None,
-    *,
-    env_file: str | Path | None = ".env",
 ) -> tuple[Settings, CredentialManager]:
     paths = RuntimePaths.default()
-    if env_file == ".env":
-        # Only the original profile retains a recognized checkout's private
-        # fallback. The profile file wins; the working directory is never read.
-        env_file = paths.root / ".env"
-        if paths.is_default_profile and SOURCE_ROOT is not None:
-            env_file = (SOURCE_ROOT / ".env", env_file)
-    environment = EnvironmentCredentialSettings(_env_file=env_file)
+    environment = EnvironmentCredentialSettings()
     manager = CredentialManager(
         {
             CredentialName.TWITCH_CLIENT_SECRET: _read_environment_secret(
@@ -149,7 +142,7 @@ def load_settings_with_credentials(
     overrides = manager.settings_overrides()
     if not paths.is_default_profile:
         overrides.update(twitch_token_file=str(paths.tokens), database_url="sqlite+aiosqlite:///" + str(paths.database))
-    settings = Settings(_env_file=env_file, **overrides)
+    settings = Settings(**overrides)
     return settings, manager
 
 

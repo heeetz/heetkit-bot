@@ -91,7 +91,8 @@ def test_runtime_resources_are_declared_and_source_defaults_are_package_local() 
     setuptools = project["tool"]["setuptools"]
     package_data = setuptools["package-data"]["app.resources"]
 
-    assert "config" in setuptools["py-modules"]
+    assert setuptools["py-modules"] == []
+    assert not (REPOSITORY_ROOT / "config.py").exists()
     assert "filters/*.txt" in package_data
     assert "frontend/*.html" in package_data
     assert "frontend/*.png" in package_data
@@ -112,12 +113,13 @@ def test_installed_tree_runs_check_and_clean_backend_without_checkout_or_install
 ) -> None:
     install_root = tmp_path / "installed"
     _materialize_declared_install(install_root)
-    assert (install_root / "config.py").is_file()
+    assert not (install_root / "config.py").exists()
     assert not (install_root / "pyproject.toml").exists()
     assert not (install_root / "frontend").exists()
     assert not (install_root / "tests").exists()
     assert not (install_root / ".agent").exists()
     assert not (install_root / "README.md").exists()
+    (install_root / ".env").write_text("TWITCH_BOT_USERNAME=install-decoy\nTWITCH_CLIENT_SECRET=install-secret\n", encoding="utf-8")
 
     # These decoys model a sibling install/data directory and must remain outside runtime inputs.
     (install_root / "data" / "filters").mkdir(parents=True)
@@ -187,11 +189,15 @@ try:
     assert bridge.get_twitch_settings()["settings"]["client_id"] == ""
     assert bridge.update_twitch_settings("target", "200", None, "client-id", "bot", "100")["ok"]
     assert bridge.get_twitch_settings()["settings"]["requires_restart"]
+    assert bridge.update_ai_provider_settings("gemini-installed", "gemini-installed-fallback")["ok"]
 finally:
     backend.close()
 saved = AppSettingsStore(paths.app_settings).snapshot()
 applied = webview_host.apply_twitch_app_settings(settings, saved)
+applied = webview_host.apply_ai_app_settings(applied, saved)
 assert applied.twitch_bot_username == "bot"
+assert applied.gemini_model == "gemini-installed"
+assert "config" not in __import__("sys").modules
 assert paths.database.is_file()
 assert not paths.tokens.exists()
 assert paths.message_triggers.is_file()

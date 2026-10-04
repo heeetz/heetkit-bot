@@ -1,7 +1,7 @@
 """Informational commands."""
 
 from app.commands.registry import CommandRegistry
-from config import (
+from app.config.commands import (
     COMMANDS_COOLDOWN_SECONDS,
     HELP_COOLDOWN_SECONDS,
     UPTIME_COOLDOWN_SECONDS,

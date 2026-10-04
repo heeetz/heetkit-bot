@@ -515,7 +515,7 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
             const sourceLabel = credential.source === 'credential_store'
               ? 'Stored securely'
               : credential.source === 'environment'
-                ? 'Using .env fallback'
+                ? 'Using process environment'
                 : 'Not configured'
             return (
               <article className="credential-row" key={credential.name}>
@@ -523,7 +523,7 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
                   <div><strong>{credential.label}</strong><small>{sourceLabel}</small></div>
                   <span className={`state-pill ${credential.configured ? 'enabled' : ''}`}>{credential.configured ? 'Configured' : 'Missing'}</span>
                 </div>
-                {!credential.secure_storage_available && <p className="credential-warning">System keyring storage is currently unavailable; the .env fallback remains active.</p>}
+                {!credential.secure_storage_available && <p className="credential-warning">OS keyring storage is unavailable; an advanced process environment fallback is active when configured.</p>}
                 <label className="form-field">
                   Replacement value
                   <input

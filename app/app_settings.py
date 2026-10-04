@@ -14,7 +14,7 @@ from threading import RLock
 
 from app.config.ai_models import validate_gemini_model_settings
 from app.settings_recovery import preserve_settings_recovery
-from config import AI_MEMORY_ENABLED
+from app.config.ai import AI_MEMORY_ENABLED
 
 logger = logging.getLogger(__name__)
 APP_SETTINGS_VERSION = 1
@@ -37,6 +37,8 @@ class AISettings:
     memory_enabled: bool = AI_MEMORY_ENABLED
     selected_model: str | None = None
     fallback_model: str | None = None
+    # Optional per-account policy; internal AI/output bounds remain code-owned.
+    cooldown_bypass_user_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -309,6 +311,10 @@ def load_app_settings(path: Path) -> AppSettings:
 
     selected_model = _read_optional_string(ai_payload, "ai", "selected_model")
     fallback_model = _read_optional_string(ai_payload, "ai", "fallback_model")
+    cooldown_bypass_user_id = _read_optional_string(ai_payload, "ai", "cooldown_bypass_user_id")
+    if cooldown_bypass_user_id is not None and re.fullmatch(r"[0-9]+", cooldown_bypass_user_id) is None:
+        logger.warning("Ignoring invalid application setting name=ai.cooldown_bypass_user_id")
+        cooldown_bypass_user_id = None
     if selected_model is not None and fallback_model is not None:
         try:
             selected_model, fallback_model = validate_gemini_model_settings(
@@ -362,6 +368,7 @@ def load_app_settings(path: Path) -> AppSettings:
             ),
             selected_model=selected_model,
             fallback_model=fallback_model,
+            cooldown_bypass_user_id=cooldown_bypass_user_id,
         ),
         twitch=twitch,
     )
@@ -474,11 +481,7 @@ class AppSettingsStore:
             updated = AppSettings(
                 window=self._settings.window,
                 startup=self._settings.startup,
-                ai=AISettings(
-                    memory_enabled=enabled,
-                    selected_model=self._settings.ai.selected_model,
-                    fallback_model=self._settings.ai.fallback_model,
-                ),
+                ai=replace(self._settings.ai, memory_enabled=enabled),
                 twitch=self._settings.twitch,
             )
             save_app_settings(self._path, updated, recovered_settings=self._settings)
@@ -499,11 +502,7 @@ class AppSettingsStore:
             updated = AppSettings(
                 window=self._settings.window,
                 startup=self._settings.startup,
-                ai=AISettings(
-                    memory_enabled=self._settings.ai.memory_enabled,
-                    selected_model=selected,
-                    fallback_model=fallback,
-                ),
+                ai=replace(self._settings.ai, selected_model=selected, fallback_model=fallback),
                 twitch=self._settings.twitch,
             )
             save_app_settings(self._path, updated, recovered_settings=self._settings)

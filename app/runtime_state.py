@@ -22,7 +22,8 @@ from app.personality_settings import (
 )
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
-from config import AI_MEMORY_ENABLED, ACTIVE_AI_PERSONALITY
+from app.config.ai import AI_MEMORY_ENABLED
+from app.config.personalities import ACTIVE_AI_PERSONALITY
 
 
 TwitchConnectionState = Literal[

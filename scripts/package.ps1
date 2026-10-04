@@ -16,10 +16,10 @@ function Test-DistributionExcluded {
     if ($path -match "^docs/(architecture-reliability-checkpoint|configuration-audit|desktop-feature-parity)\.md$") {
         return $true
     }
-    if ($path -eq ".env.example") {
-        return $false
-    }
     if ($path -eq ".env" -or $path -like ".env.*") {
+        return $true
+    }
+    if ($path -eq "config.py") {
         return $true
     }
     if ($path -match "(^|/)(\.git|\.idea|\.vscode|\.venv|venv|env|__pycache__|\.pytest_cache|htmlcov|build|dist)(/|$)") {
@@ -104,14 +104,15 @@ try {
     }
 
     $requiredFiles = @(
-        ".env.example",
         ".gitignore",
         "README.md",
         "LICENSE",
         "NOTICE",
         "THIRD_PARTY_NOTICES.md",
-        "config.py",
         "pyproject.toml",
+        "app/config/ai.py",
+        "app/config/commands.py",
+        "app/config/personalities.py",
         "app/main.py",
         "scripts/package.ps1",
         "tests/test_main.py",

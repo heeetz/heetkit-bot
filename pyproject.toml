@@ -45,7 +45,7 @@ asyncio_mode = "auto"
 include = ["app*"]
 
 [tool.setuptools]
-py-modules = ["config"]
+py-modules = []
 include-package-data = false
 license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "third_party_licenses/**/*"]
 

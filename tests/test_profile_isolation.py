@@ -127,7 +127,7 @@ def test_profile_upgrade_preserves_all_local_files_and_custom_personalities(tmp_
     assert restored.active_ai_personality == 'my-style'
     assert restored.get_ai_personality_prompt('my-style') == 'User style with {literal braces}'
     assert restored.available_personalities == ('neutral', 'my-style')
-    from config import build_ai_system_instruction
+    from app.config.personalities import build_ai_system_instruction
     assert 'User style' in build_ai_system_instruction('my-style', restored.get_ai_personality_prompt('my-style'))
 
 
@@ -161,7 +161,7 @@ def test_cli_profile_is_resolved_before_checks_without_creating_it(tmp_path, mon
     assert not root.exists()
 
 
-def test_alternate_profile_uses_its_env_and_canonical_storage(tmp_path, monkeypatch):
+def test_alternate_profile_ignores_dotenv_and_forces_canonical_storage(tmp_path, monkeypatch):
     root = tmp_path / 'clean'
     root.mkdir()
     monkeypatch.setenv('TWITCH_BOT_DATA_DIR', str(root))
@@ -176,9 +176,13 @@ def test_alternate_profile_uses_its_env_and_canonical_storage(tmp_path, monkeypa
     for name in ('TWITCH_CLIENT_ID', 'TWITCH_CLIENT_SECRET', 'TWITCH_BOT_USER_ID', 'TWITCH_BOT_USERNAME',
                  'TWITCH_CHANNEL_USER_ID', 'TWITCH_CHANNEL', 'GEMINI_API_KEY'):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv('DATABASE_URL', 'sqlite+aiosqlite:///foreign-process.db')
+    monkeypatch.setenv('TWITCH_TOKEN_FILE', 'foreign-process.json')
+    monkeypatch.setenv('TWITCH_BOT_USERNAME', 'intentional-process-bot')
     store = SimpleNamespace(get=lambda name: None)
     settings, _ = load_settings_with_credentials(store)
-    assert settings.twitch_bot_username == 'clean'
+    assert settings.twitch_bot_username == 'intentional-process-bot'
+    assert settings.twitch_client_secret is None
     assert settings.gemini_api_key is None
     assert settings.twitch_token_file == str(root / 'auth' / 'twitchio_tokens.json')
     assert settings.database_url.endswith(str(root / 'data' / 'twitch_bot.db'))

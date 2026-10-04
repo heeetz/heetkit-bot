@@ -2,7 +2,7 @@
 
 from random import choice
 
-from config import (
+from app.config.commands import (
     FORECAST_COOLDOWN_SECONDS,
     PING_COOLDOWN_SECONDS,
     TG_BURST_DELAY,

@@ -14,7 +14,7 @@ from app.config.personalities import (
 )
 from app.runtime_state import RuntimeState
 from app.services.gemini_ai_service import GeminiAIService
-from config import ACTIVE_AI_PERSONALITY, build_ai_system_instruction
+from app.config.personalities import ACTIVE_AI_PERSONALITY, build_ai_system_instruction
 
 
 def test_only_neutral_personality_is_shipped() -> None:

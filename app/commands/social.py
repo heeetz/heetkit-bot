@@ -4,7 +4,7 @@ from calendar import monthrange
 from datetime import datetime, timezone
 
 from app.commands.registry import CommandRegistry
-from config import FOLLOWAGE_COOLDOWN_SECONDS, SEEN_COOLDOWN_SECONDS
+from app.config.commands import FOLLOWAGE_COOLDOWN_SECONDS, SEEN_COOLDOWN_SECONDS
 from app.utils.cooldown import CooldownPolicy
 
 
