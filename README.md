@@ -1,5 +1,12 @@
 # Twitch Bot
 
+Created and maintained by **heeetz**. Official repository:
+[github.com/heeetz/twitch-bot](https://github.com/heeetz/twitch-bot).
+Discord contact: **de.tected**.
+
+Licensed under [Apache License 2.0](LICENSE), with original attribution in [NOTICE](NOTICE).
+Dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
+
 ## Overview
 
 This is a single-channel Twitch chatbot with a desktop interface. Windows is the first release target; the source application is designed to use supported macOS/Linux pywebview backends. It receives chat through TwitchIO EventSub, records when users were last seen, applies global and AI-specific filters, and dispatches commands with permission and cooldown checks.
@@ -299,8 +306,10 @@ Credential values are never returned to React; changes use the system keyring. G
 apply to AI features immediately; removing a stored key uses the private environment fallback
 when present. Twitch client-secret changes take effect after restart. The pystray menu provides
 Open, dynamic Start Bot / Stop Bot, and Exit.
-Tray Exit and normal application shutdown reuse the same orderly backend lifecycle. The
-completed parity checklist is in `docs/desktop-feature-parity.md`.
+Tray Exit and normal application shutdown reuse the same orderly backend lifecycle.
+
+The **About** page shows the app version, creator, Discord contact with Copy, project
+license and third-party notices. Project/license/notice links open in your external browser.
 
 ## Runtime data and privacy
 
@@ -326,12 +335,20 @@ Generated local files include:
 
 The database may contain Twitch user IDs, usernames, last-seen timestamps, and recent AI exchanges. Treat it as private even if it contains no API secrets.
 
+Gemini is optional. When enabled and requested, AI replies send the prompt, configured
+personality instructions, stream category, and recent exchanges when AI memory is enabled
+to Google. Requests needing current information may use Google Search grounding. Credential
+Test and model discovery also contact Google. Google's provider terms and data handling apply
+to that external processing; avoid sending private chat content or secrets. Turning AI memory
+off prevents conversation context from being added to future requests. Local profiles and
+credentials are excluded from the repository and source archives.
+
 ## Developer source sharing
 
 Do not ZIP the project directory manually. `.gitignore` protects Git operations but does not
 protect a manual archive. The script below creates a **developer source archive**, not a
-standalone app or an end-user release. It deliberately includes source-only material such as
-`.agent/`, `AGENTS.md`, `TODO.md`, `docs/`, tests, and development scripts.
+standalone app or an end-user release. It includes public source, tests, contribution documents,
+license texts and development scripts. Private development context stays local.
 
 Create a developer archive from PowerShell:
 
@@ -342,16 +359,24 @@ Create a developer archive from PowerShell:
 The script packages tracked files from the current working tree, including edits to those files.
 Untracked files stay out of the archive. It uses a temporary staging directory and defensively
 excludes environment files, tokens, databases, virtual environments, caches, logs, IDE metadata,
-build artifacts, temporary patch/debug files, and existing archives. It preserves `.env.example`,
-source, tests, filter defaults, `README.md`, `config.py`, and `pyproject.toml`.
+build artifacts, private development notes, temporary patch/debug files, and existing archives.
+It preserves `.env.example`, source, tests, shipped filter defaults and required notices.
 
 The command refuses to overwrite an existing ZIP. Delete or rename an old archive before rerunning it.
 
 There is no standalone application download yet. A future end-user bundle must explicitly include
 only executable/runtime assets, required notices, and intended user documentation; its packaging
-spec must exclude `.agent/`, `AGENTS.md`, `TODO.md`, `docs/`, tests, development scripts, and local
+spec must exclude private development context, tests, development scripts, and local
 state. Before publishing any public source release, review both the current files **and Git
 history** for secrets and private data. Archive filtering does not perform that history check.
+
+## Contributing and reporting
+
+Use the [bug report or feature request forms](https://github.com/heeetz/twitch-bot/issues/new/choose)
+and see [CONTRIBUTING.md](CONTRIBUTING.md) for the lightweight development workflow.
+Report vulnerabilities privately through [SECURITY.md](SECURITY.md), using GitHub private
+reporting when available or Discord **de.tected**. Keep security details and credentials out
+of public Issues, logs and screenshots.
 
 ## Testing
 

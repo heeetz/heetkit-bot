@@ -1,0 +1,33 @@
+name: Bug report
+description: Report a reproducible application problem. Use SECURITY.md for vulnerabilities.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: "For vulnerabilities, use [private reporting](https://github.com/heeetz/twitch-bot/blob/main/SECURITY.md). Do not include credentials, profiles, databases, or private chat data."
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Find the version in About; source users can include the commit.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Operating system and launch method
+      placeholder: Windows 11, source launch with run.bat
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include expected and actual behavior using synthetic data.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      description: Optional logs or screenshots. Remove secrets, identifiers, and private content first.

@@ -10,6 +10,12 @@ function Test-DistributionExcluded {
     param([Parameter(Mandatory)][string] $RelativePath)
 
     $path = $RelativePath.Replace("\", "/")
+    if ($path -match "^(AGENTS\.md|TODO\.md)$" -or $path -match "^(\.agent|\.agents|\.codex)(/|$)") {
+        return $true
+    }
+    if ($path -match "^docs/(architecture-reliability-checkpoint|configuration-audit|desktop-feature-parity)\.md$") {
+        return $true
+    }
     if ($path -eq ".env.example") {
         return $false
     }
@@ -34,7 +40,7 @@ function Test-DistributionExcluded {
     if ($path -match "(?i)\.(py[co]|tmp|temp|bak|orig|rej|patch|diff|zip)$" -or $path.EndsWith("~")) {
         return $true
     }
-    if ($path.StartsWith("data/") -and -not $path.StartsWith("data/filters/")) {
+    if ($path.StartsWith("data/")) {
         return $true
     }
     return $false
@@ -101,14 +107,17 @@ try {
         ".env.example",
         ".gitignore",
         "README.md",
+        "LICENSE",
+        "NOTICE",
+        "THIRD_PARTY_NOTICES.md",
         "config.py",
         "pyproject.toml",
         "app/main.py",
         "scripts/package.ps1",
         "tests/test_main.py",
-        "data/filters/blocked_words.txt",
-        "data/filters/blocked_phrases.txt",
-        "data/filters/blocked_patterns.txt"
+        "app/resources/filters/blocked_words.txt",
+        "app/resources/filters/blocked_phrases.txt",
+        "app/resources/filters/blocked_patterns.txt"
     )
     foreach ($requiredFile in $requiredFiles) {
         $requiredPath = Join-Path $stagingDirectory $requiredFile

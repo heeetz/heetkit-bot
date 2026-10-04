@@ -251,6 +251,37 @@ def test_bridge_reads_shared_runtime_status() -> None:
     }
 
 
+def test_bridge_exposes_about_metadata_and_fixed_external_destinations(monkeypatch) -> None:
+    opened: list[tuple[str, int]] = []
+
+    def fake_open(url: str, *, new: int) -> bool:
+        opened.append((url, new))
+        return True
+
+    monkeypatch.setattr("app.webview_host.webbrowser.open", fake_open)
+    monkeypatch.setattr("app.webview_host.importlib.metadata.version", lambda name: "9.8.7")
+    bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace()))
+
+    about = bridge.get_about_info()
+
+    assert about["application_name"] == "Twitch Bot"
+    assert about["version"] == "9.8.7"
+    assert about["author"] == "heeetz"
+    assert about["discord_contact"] == "de.tected"
+    assert about["license_name"] == "Apache-2.0"
+    for destination in ("repository", "license", "third_party_notices"):
+        assert bridge.open_external_link(destination) == {"ok": True}
+    assert opened == [
+        ("https://github.com/heeetz/twitch-bot", 2),
+        ("https://github.com/heeetz/twitch-bot/blob/main/LICENSE", 2),
+        ("https://github.com/heeetz/twitch-bot/blob/main/THIRD_PARTY_NOTICES.md", 2),
+    ]
+    assert bridge.open_external_link("https://example.com") == {
+        "ok": False,
+        "error": "That external link is not available.",
+    }
+
+
 def test_twitch_app_settings_override_environment_defaults() -> None:
     settings = Settings(
         _env_file=None,

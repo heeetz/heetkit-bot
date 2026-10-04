@@ -1,0 +1,3 @@
+# Preserve canonical/upstream license texts, including their original whitespace.
+LICENSE -text -whitespace
+third_party_licenses/** -text -whitespace

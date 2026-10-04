@@ -13,12 +13,13 @@ import CommandsPage from './pages/CommandsPage'
 import AIPage from './pages/AIPage'
 import FiltersPage from './pages/FiltersPage'
 import SettingsPage from './pages/SettingsPage'
+import AboutPage from './pages/AboutPage'
 import FeedbackToast from './components/FeedbackToast'
 import LogEventSummary, { logEventClassNames } from './components/LogEventSummary'
 import Switch from './components/Switch'
 import './styles.css'
 
-const sections = ['Dashboard', 'Commands', 'Filters', 'AI', 'Logs', 'Settings'] as const
+const sections = ['Dashboard', 'Commands', 'Filters', 'AI', 'Logs', 'Settings', 'About'] as const
 type Section = (typeof sections)[number]
 
 interface DashboardSetup {
@@ -498,6 +499,7 @@ export default function App() {
         <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} onOpenSettings={() => navigate('Settings', 'credential-settings')} /></div>
         {section === 'Logs' && <LogsPage />}
         <div hidden={section !== 'Settings'}><SettingsPage active={section === 'Settings'} status={status} /></div>
+        {section === 'About' && <AboutPage />}
       </main>
     </div>
   )

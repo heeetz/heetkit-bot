@@ -6,6 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "twitch-bot-foundation"
 version = "0.1.0"
 description = "Scalable foundation for a Twitch chatbot."
+authors = [{name = "heeetz"}]
+license = {text = "Apache-2.0"}
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -31,6 +33,10 @@ dev = [
 [project.scripts]
 twitch-bot = "app.main:main"
 
+[project.urls]
+Repository = "https://github.com/heeetz/twitch-bot"
+Issues = "https://github.com/heeetz/twitch-bot/issues"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
@@ -41,6 +47,7 @@ include = ["app*"]
 [tool.setuptools]
 py-modules = ["config"]
 include-package-data = false
+license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "third_party_licenses/**/*"]
 
 [tool.setuptools.package-data]
 "app.resources" = [

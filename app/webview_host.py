@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import ctypes
+import importlib.metadata
 import logging
 import math
 import os
 import sys
 import threading
+import webbrowser
 from concurrent.futures import Future, TimeoutError as FutureTimeoutError
 from contextlib import nullcontext
 from pathlib import Path
@@ -64,6 +66,23 @@ BRIDGE_MODEL_DISCOVERY_TIMEOUT_SECONDS = 20.0
 BRIDGE_BOT_START_TIMEOUT_SECONDS = 10.0
 BRIDGE_BOT_STOP_TIMEOUT_SECONDS = 20.0
 BRIDGE_TWITCH_RECONNECT_TIMEOUT_SECONDS = 30.0
+APPLICATION_NAME = "Twitch Bot"
+APPLICATION_PACKAGE_NAME = "twitch-bot-foundation"
+APPLICATION_VERSION_FALLBACK = "0.1.0"
+EXTERNAL_LINKS = {
+    "repository": "https://github.com/heeetz/twitch-bot",
+    "license": "https://github.com/heeetz/twitch-bot/blob/main/LICENSE",
+    "third_party_notices": "https://github.com/heeetz/twitch-bot/blob/main/THIRD_PARTY_NOTICES.md",
+}
+
+
+def application_version() -> str:
+    try:
+        return importlib.metadata.version(APPLICATION_PACKAGE_NAME)
+    except importlib.metadata.PackageNotFoundError:
+        return APPLICATION_VERSION_FALLBACK
+
+
 class BridgeOperationTimedOut(RuntimeError):
     """A bounded frontend bridge wait expired."""
 
@@ -395,6 +414,31 @@ class WebUIBridge:
             "channel": application.settings.twitch_channel,
             "account": application.settings.twitch_bot_username,
         }
+
+    def get_about_info(self) -> dict[str, str]:
+        return {
+            "application_name": APPLICATION_NAME,
+            "version": application_version(),
+            "author": "heeetz",
+            "repository_url": EXTERNAL_LINKS["repository"],
+            "discord_contact": "de.tected",
+            "license_name": "Apache-2.0",
+            "license_url": EXTERNAL_LINKS["license"],
+            "third_party_notices_url": EXTERNAL_LINKS["third_party_notices"],
+        }
+
+    def open_external_link(self, destination: object) -> dict[str, object]:
+        if not isinstance(destination, str) or destination not in EXTERNAL_LINKS:
+            return {"ok": False, "error": "That external link is not available."}
+        try:
+            opened = webbrowser.open(EXTERNAL_LINKS[destination], new=2)
+        except Exception:
+            self._logger.exception("Could not open external link destination=%s", destination)
+            return {"ok": False, "error": "Could not open the external link."}
+        if not opened:
+            return {"ok": False, "error": "Could not open the external link."}
+        self._logger.info("Opened external link destination=%s", destination)
+        return {"ok": True}
 
     def get_commands(self) -> dict[str, object]:
         application = self._backend.application

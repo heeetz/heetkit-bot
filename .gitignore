@@ -1,3 +1,13 @@
+# Local-only development context (preserve working copies)
+/AGENTS.md
+/TODO.md
+/.agent/
+/.agents/
+/.codex/
+/docs/architecture-reliability-checkpoint.md
+/docs/configuration-audit.md
+/docs/desktop-feature-parity.md
+
 # Secrets
 .env
 .env.*

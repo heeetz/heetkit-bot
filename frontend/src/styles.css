@@ -89,6 +89,17 @@ th { color: #78869f; font-size: 11px; letter-spacing: .1em; text-transform: uppe
 td { color: #c6cfdf; }
 .command-meta { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 6px; font-size: 12px; }
 .section-copy { max-width: 72ch; margin: 8px 0 0; color: #8e9ab0; }
+.about-layout { display: grid; width: min(100%, 920px); gap: 18px; }
+.about-card, .about-links-card { min-height: 0; }
+.about-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.about-heading h2 { margin-bottom: 0; }
+.about-details { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 26px 0 0; }
+.about-details > div { padding: 13px 14px; border: 1px solid #2a354a; border-radius: 10px; background: #111722; }
+.about-details dt { color: #7f8ba3; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.about-details dd { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin: 7px 0 0; color: #e2e8f3; }
+.about-details code { color: #c6b8ff; font: inherit; }
+.about-details .ghost { margin: -6px 0 -6px auto; padding: 6px 8px; }
+.about-link-list { display: flex; flex-wrap: wrap; gap: 9px; }
 .command-editor-card { min-height: 0; }
 .commands-layout { display: grid; gap: 18px; }
 .command-list { display: grid; gap: 12px; }
@@ -304,7 +315,7 @@ td { color: #c6cfdf; }
   .app-shell { height: auto; min-height: 100vh; grid-template-columns: 1fr; overflow: visible; }
   .sidebar { z-index: 20; height: auto; overflow: visible; border-right: 0; border-bottom: 1px solid #202838; }
   .brand { padding-bottom: 18px; }
-  nav { grid-template-columns: repeat(6, minmax(max-content, 1fr)); overflow-x: auto; }
+  nav { grid-template-columns: repeat(7, minmax(max-content, 1fr)); overflow-x: auto; }
   nav button { text-align: center; }
   .dashboard-hero { align-items: flex-start; flex-direction: column; }
   .setup-item, .setup-callout { align-items: flex-start; flex-direction: column; }
@@ -334,6 +345,10 @@ td { color: #c6cfdf; }
   .ai-provider-status, .model-fields, .preset-editor { grid-template-columns: 1fr; }
   .preset-actions { grid-column: auto; justify-content: flex-start; }
   .feedback-toast { top: 14px; right: 14px; width: calc(100vw - 28px); }
+  .about-heading { align-items: flex-start; flex-direction: column; }
+  .about-details { grid-template-columns: 1fr; }
+  .about-link-list { align-items: stretch; flex-direction: column; }
+  .about-link-list button { text-align: left; }
   .settings-page[id] { scroll-margin-top: 170px; }
   .ai-layout > .feedback-toast, .commands-layout > .feedback-toast, .settings-layout > .feedback-toast { top: 72px; }
   .editor-footer { align-items: flex-start; flex-direction: column; }

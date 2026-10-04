@@ -215,6 +215,17 @@ export interface AIProviderSettingsResponse extends ActionResult {
   settings?: AIProviderSettings
 }
 
+export interface AboutInfo {
+  application_name: string
+  version: string
+  author: string
+  repository_url: string
+  discord_contact: string
+  license_name: string
+  license_url: string
+  third_party_notices_url: string
+}
+
 export interface ModelDiscoveryResponse extends ActionResult {
   models?: string[]
 }
@@ -235,6 +246,7 @@ export interface LogsResponse {
 
 interface PythonApi {
   get_app_status(): Promise<AppStatus>
+  get_about_info(): Promise<AboutInfo>
   get_commands(): Promise<CommandsResponse>
   get_custom_commands(): Promise<CustomCommandsResponse>
   get_filters(): Promise<FiltersResponse>
@@ -272,6 +284,7 @@ interface PythonApi {
   test_credential(name: CredentialName): Promise<ActionResult>
   start_bot(): Promise<ActionResult>
   stop_bot(): Promise<ActionResult>
+  open_external_link(destination: 'repository' | 'license' | 'third_party_notices'): Promise<ActionResult>
 }
 
 export interface ActionResult {
