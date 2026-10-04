@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.config.settings import Settings
+from app.runtime_state import RuntimeState
 from app.container import build_application
 from app.filter_settings import save_filter_settings, validate_filter_input
 from app.runtime_paths import DEFAULT_FILTERS, FILTER_NAMES, RuntimePaths, prepare_runtime_data
@@ -14,6 +15,34 @@ from app.services.ai_request_policy import AIRequestPolicy, PolicyDecision
 from app.services.filter_manager import FilterManager
 from app.services.gemini_ai_service import GeminiAIService
 from app.twitch.client import process_twitch_message
+
+
+@pytest.mark.asyncio
+async def test_provider_request_uses_protected_profile_and_personality_order(monkeypatch) -> None:
+    from google import genai
+
+    generate = AsyncMock(return_value=SimpleNamespace(text="A friendly response.", candidates=[]))
+    class FakeClient:
+        aio = SimpleNamespace(models=SimpleNamespace(generate_content=generate), aclose=AsyncMock())
+
+        def close(self):
+            pass
+
+    client = FakeClient()
+    monkeypatch.setattr(genai, "Client", lambda **kwargs: client)
+    state = RuntimeState()
+    state.apply_profile_instructions("Use this synthetic community vocabulary {literally}.")
+    state.apply_ai_personality("local", "Use a cheerful tone.")
+    service = GeminiAIService(Settings(gemini_api_key="synthetic-test-key"), runtime_state=state)
+    try:
+        await service.generate_reply("Tell me a story", "viewer")
+        instruction = generate.call_args.kwargs["config"].system_instruction
+        assert instruction.startswith("You are a Twitch chat assistant.")
+        assert instruction.index("Never:") < instruction.index(state.profile_instructions)
+        assert instruction.index(state.profile_instructions) < instruction.index("Use a cheerful tone.")
+        assert instruction.endswith("Use a cheerful tone.")
+    finally:
+        await service.aclose()
 
 
 @pytest.mark.asyncio

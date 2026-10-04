@@ -122,7 +122,7 @@ Configuration responsibilities remain separated:
 - `config/command_settings.json` under the platform app-data root contains optional local command overrides. Commands without overrides continue to use registry defaults.
 - `config/custom_commands.json` under that root contains versioned, local custom commands. Invalid entries are skipped and cannot disable built-in commands.
 - `config/message_triggers.json` under that root contains local reactions to ordinary chat messages. It is seeded from `app/resources/default_triggers.json` when missing; edits take effect after restarting the app.
-- `config/personality_settings.json` under that root contains the locally selected AI personality and prompt overrides, including user-created personality IDs. Shared AI instructions are not editable.
+- `config/personality_settings.json` under that root contains the locally selected AI personality, prompt overrides (including user-created personality IDs), and optional `profile_instructions`. Profile instructions default to empty and apply to every personality; protected shared instructions remain application-owned and immutable.
 - `config/app_settings.json` under that root is a versioned local application-settings file. It contains the
   opt-in automatic-start preference, window/tray preferences, AI memory and selected/fallback
   Gemini models, plus non-secret Twitch client ID, bot login/user ID, target-channel settings and named target
@@ -272,7 +272,7 @@ presets, optional provider discovery, or an explicit custom model ID.
 
 `!ask` applies the local AI request policy before contacting Gemini. Requests involving current, changing, comparison, event, or named-opinion information can enable Google Search grounding. Provider responses then pass through the local response policy and configured response-length limit before delivery.
 
-When AI memory is enabled, up to `AI_MEMORY_MAX_ENTRIES` successful exchanges per Twitch user are stored in SQLite and supplied as untrusted conversation context. The AI page can disable memory without disabling Gemini, and that preference is saved in app-data `config/app_settings.json`. Built-in personality prompts are loaded from `app/resources/personalities.json`; the editor exposes only personality-specific text and always preserves the application-owned shared system and safety instructions.
+When AI memory is enabled, up to `AI_MEMORY_MAX_ENTRIES` successful exchanges per Twitch user are stored in SQLite and supplied as untrusted conversation context. The AI page can disable memory without disabling Gemini, and that preference is saved in app-data `config/app_settings.json`. Built-in personality prompts are loaded from `app/resources/personalities.json`. Python composes each request's instructions in this order: protected shared instructions, non-empty profile instructions, then the selected personality prompt. User-authored instructions cannot override protected system and safety rules.
 
 ## Commands
 
@@ -313,7 +313,13 @@ The AI page provides a runtime AI-command toggle, a persisted memory toggle, Gem
 selected/fallback model configuration, and the active personality selector. Personality Apply
 changes the next AI request without restarting, Save writes the active selection and
 personality-specific override to app-data `config/personality_settings.json`, and Reset restores the
-built-in prompt. The shared AI instructions are never sent to the editor.
+built-in prompt (or clears a local-only style while retaining its ID).
+Below the Personality Editor, Profile instructions applies to every personality in the selected
+profile. Apply affects this session, Save persists the text in the same personality settings file,
+and Reset saves an empty field. These actions preserve personality overrides and selection;
+personality actions also preserve profile instructions. New profiles start with an empty field,
+and separate `--data-dir` roots keep their instructions independent. The collapsed Protected shared
+instructions section displays the current backend policy read-only, with no editing controls.
 
 Live logs use a thread-safe 500-entry backend buffer and a bounded 500-entry frontend view. Clearing the Logs page does not delete persistent logs or application state.
 
@@ -347,7 +353,7 @@ Generated local files include:
 | App-data `config/custom_commands.json` | Local custom commands | Never |
 | App-data `config/fun_settings.json` | Local built-in command responses | Never |
 | App-data `config/message_triggers.json` | Local message reactions | Never |
-| App-data `config/personality_settings.json` | Local personality text and selection | Never |
+| App-data `config/personality_settings.json` | Local profile instructions, personality text and selection | Never |
 | App-data `config/app_settings.json` | Versioned local startup, window/tray, AI memory/model, and non-secret Twitch identity/target/preset preferences | Never |
 | App-data `config/*.recovery` | Exact originals preserved before settings recovery saves | Never |
 | App-data `config/filters/*.txt` | Locally editable filter rules | Review before sharing |
@@ -361,7 +367,8 @@ Accidentally created `.env` and `.env.*` files remain ignored by Git and exclude
 source archives; the application never loads them.
 
 Gemini is optional. When enabled and requested, AI replies send the prompt, configured
-personality instructions, stream category, and recent exchanges when AI memory is enabled
+protected shared instructions, profile instructions, selected personality prompt, stream category,
+and recent exchanges when AI memory is enabled
 to Google. Requests needing current information may use Google Search grounding. Credential
 Test and model discovery also contact Google. Google's provider terms and data handling apply
 to that external processing; avoid sending private chat content or secrets. Turning AI memory

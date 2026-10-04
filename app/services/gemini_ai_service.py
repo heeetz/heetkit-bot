@@ -12,7 +12,10 @@ from typing import Any, AsyncIterator
 from app.config.settings import Settings
 from app.services.contracts import AIReply
 from app.config.ai import AI_MAX_RESPONSE_LENGTH
-from app.config.personalities import build_ai_system_instruction as build_system_instruction
+from app.config.personalities import (
+    AI_PERSONALITY_PROMPTS,
+    build_ai_system_instruction as build_system_instruction,
+)
 from app.runtime_state import RuntimeState
 from app.services.filter_manager import FilterManager
 
@@ -249,11 +252,12 @@ class GeminiAIService:
             return build_system_instruction()
         personality = self.runtime_state.active_ai_personality
         prompt = self.runtime_state.get_ai_personality_prompt(personality)
-        if prompt == self.runtime_state.get_builtin_ai_personality_prompt(personality):
-            return build_system_instruction(personality)
+        if prompt == AI_PERSONALITY_PROMPTS.get(personality):
+            prompt = None
         return build_system_instruction(
             personality,
             prompt,
+            self.runtime_state.profile_instructions,
         )
 
     @staticmethod

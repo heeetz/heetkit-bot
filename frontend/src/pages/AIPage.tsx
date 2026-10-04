@@ -78,6 +78,7 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
   const [data, setData] = useState<PersonalitiesResponse | null>(null)
   const [selected, setSelected] = useState('')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [profileDraft, setProfileDraft] = useState('')
   const [providerSaved, setProviderSaved] = useState<AIProviderSettings | null>(null)
   const [providerDraft, setProviderDraft] = useState<AIProviderSettings | null>(null)
   const [discoveredModels, setDiscoveredModels] = useState<string[]>([])
@@ -85,7 +86,11 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
-  const mergeData = (response: PersonalitiesResponse, completedPersonality = '') => {
+  const mergeData = (
+    response: PersonalitiesResponse,
+    completedPersonality = '',
+    completedProfile = false,
+  ) => {
     setDrafts((currentDrafts) => Object.fromEntries(response.personalities.map((personality) => {
       const previous = data?.personalities.find((item) => item.name === personality.name)
       const currentDraft = currentDrafts[personality.name]
@@ -95,18 +100,25 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
         && currentDraft !== previous.prompt
       return [personality.name, keepDraft ? currentDraft : personality.prompt]
     })))
+    setProfileDraft((currentDraft) => {
+      const previous = data?.profile_instructions
+      const keepDraft = !completedProfile
+        && previous !== undefined
+        && currentDraft !== previous
+      return keepDraft ? currentDraft : response.profile_instructions
+    })
     setData(response)
     setSelected((current) => current || response.active_personality)
   }
 
-  const refresh = async (completedPersonality = '') => {
+  const refresh = async (completedPersonality = '', completedProfile = false) => {
     const api = await waitForBridge()
     const [nextStatus, response] = await Promise.all([
       api.get_ai_status(),
       api.get_personalities(),
     ])
     setStatus(nextStatus)
-    mergeData(response, completedPersonality)
+    mergeData(response, completedPersonality, completedProfile)
   }
 
   useEffect(() => {
@@ -284,6 +296,39 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
     }
   }
 
+  const runProfileAction = async (action: 'apply' | 'save' | 'reset') => {
+    if (!data) {
+      return
+    }
+    if (action === 'reset' && !window.confirm('Reset profile instructions to empty?')) {
+      return
+    }
+    setBusy(`profile:${action}`)
+    setError('')
+    setNotice('')
+    try {
+      const api = await waitForBridge()
+      const result = action === 'apply'
+        ? await api.apply_profile_instructions(profileDraft)
+        : action === 'save'
+          ? await api.save_profile_instructions(profileDraft)
+          : await api.reset_profile_instructions()
+      if (!result.ok) {
+        throw new Error(result.error ?? 'Profile instructions could not be updated.')
+      }
+      await refresh('', true)
+      setNotice(action === 'apply'
+        ? 'Applied profile instructions for this session.'
+        : action === 'save'
+          ? 'Saved profile instructions.'
+          : 'Reset profile instructions to empty.')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Profile instructions could not be updated.')
+    } finally {
+      setBusy('')
+    }
+  }
+
   const personality: PersonalityInfo | undefined = data?.personalities.find(
     (item) => item.name === selected,
   )
@@ -293,6 +338,11 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
   const canReset = Boolean(
     personality
       && (dirty || personality.has_saved_override || personality.prompt !== personality.built_in_prompt),
+  )
+  const profileValue = data ? profileDraft : ''
+  const profileDirty = data ? profileValue !== data.profile_instructions : false
+  const profileCanReset = Boolean(
+    data && (profileDirty || !data.profile_instructions_saved || profileValue.length > 0),
   )
   const providerDirty = Boolean(
     providerDraft && providerSaved
@@ -446,6 +496,61 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
           </>
         )}
       </article>
+      <article className="card profile-instructions-editor">
+        <div className="section-heading">
+          <div>
+            <p className="label">PROFILE INSTRUCTIONS</p>
+            <h2>Profile instructions</h2>
+            <p className="section-copy">Applies to every personality and follows the protected shared policy.</p>
+          </div>
+          <div className="personality-badges">
+            {data?.profile_instructions_saved && <span className="mini-badge saved-badge">Saved</span>}
+            {data && !data.profile_instructions_saved && <span className="mini-badge runtime-badge">Runtime only</span>}
+            {profileDirty && <span className="mini-badge dirty-badge">Edited</span>}
+          </div>
+        </div>
+        <label className="form-field">
+          Profile instructions
+          <textarea
+            value={profileValue}
+            maxLength={50000}
+            disabled={!data}
+            onChange={(event) => {
+              setProfileDraft(event.target.value)
+              setError('')
+              setNotice('')
+            }}
+          />
+        </label>
+        <div className="editor-footer">
+          <span className="muted">{profileValue.length.toLocaleString()} / 50,000 characters</span>
+          <div className="row-actions">
+            <button className="secondary" disabled={!data || Boolean(busy) || !profileDirty} onClick={() => void runProfileAction('apply')}>{busy === 'profile:apply' ? 'Applying…' : 'Apply'}</button>
+            <button className="primary" disabled={!data || Boolean(busy) || (!profileDirty && Boolean(data.profile_instructions_saved))} onClick={() => void runProfileAction('save')}>{busy === 'profile:save' ? 'Saving…' : 'Save'}</button>
+            <button className="ghost" disabled={!data || Boolean(busy) || !profileCanReset} onClick={() => void runProfileAction('reset')}>{busy === 'profile:reset' ? 'Resetting…' : 'Reset'}</button>
+          </div>
+        </div>
+      </article>
+      <details className="card protected-instructions-card">
+        <summary className="protected-instructions-summary">
+          <div>
+            <p className="label">PROTECTED SHARED INSTRUCTIONS</p>
+            <h2>Protected shared instructions</h2>
+            <p className="section-copy">These instructions are managed by the application and cannot be edited here.</p>
+          </div>
+          <span className="mini-badge">Application-owned</span>
+        </summary>
+        <div className="protected-instructions-details">
+          <label className="form-field">
+            Shared instructions
+            <textarea
+              value={data?.protected_shared_instructions ?? ''}
+              readOnly
+              aria-label="Protected shared instructions"
+            />
+          </label>
+        </div>
+      </details>
     </section>
   )
 }

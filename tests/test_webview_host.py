@@ -1022,6 +1022,46 @@ def test_bridge_exposes_only_personality_specific_editable_prompts(tmp_path) -> 
     )
     assert "You are a Twitch chat assistant." not in neutral["prompt"]
     assert neutral["prompt"] == neutral["built_in_prompt"]
+    assert result["profile_instructions"] == ""
+    assert result["profile_instructions_saved"] is True
+    from app.config.personalities import build_protected_shared_instructions
+    assert result["protected_shared_instructions"] == build_protected_shared_instructions()
+    assert not hasattr(bridge, "save_protected_shared_instructions")
+
+
+def test_bridge_applies_saves_resets_profile_instructions_without_saving_personality(tmp_path, caplog) -> None:
+    bridge, state = build_ai_bridge(tmp_path)
+    state.save_ai_personality("custom", "Saved style")
+    state.apply_ai_personality("neutral", "Session style")
+    with caplog.at_level(logging.INFO):
+        assert bridge.apply_profile_instructions("PRIVATE SAMPLE INSTRUCTIONS") == {"ok": True}
+        assert bridge.get_personalities()["profile_instructions"] == "PRIVATE SAMPLE INSTRUCTIONS"
+        assert bridge.get_personalities()["profile_instructions_saved"] is False
+        assert bridge.save_profile_instructions("Saved profile instructions") == {"ok": True}
+        assert bridge.get_personalities()["profile_instructions_saved"] is True
+        assert bridge.reset_profile_instructions() == {"ok": True}
+    assert "PRIVATE SAMPLE INSTRUCTIONS" not in caplog.text
+    assert "Saved profile instructions" not in caplog.text
+    restored = RuntimeState(personality_settings_path=tmp_path / "personality_settings.json")
+    assert restored.active_ai_personality == "custom"
+    assert restored.get_ai_personality_prompt("custom") == "Saved style"
+    assert restored.profile_instructions == ""
+    assert state.active_ai_personality == "neutral"
+    assert state.get_ai_personality_prompt("neutral") == "Session style"
+
+
+def test_bridge_profile_instructions_failure_retains_state_and_explains_repair(tmp_path) -> None:
+    bridge, state = build_ai_bridge(tmp_path)
+    state.save_profile_instructions("Saved text")
+    assert bridge.apply_profile_instructions(123)["ok"] is False
+    assert bridge.save_profile_instructions("x" * 50001)["ok"] is False
+    path = tmp_path / "personality_settings.json"
+    path.write_bytes(b"{broken")
+    for result in (bridge.save_profile_instructions("New text"), bridge.reset_profile_instructions()):
+        assert result["ok"] is False
+        assert "Quit the app, back up and repair" in result["error"]
+        assert state.profile_instructions == "Saved text"
+        assert path.read_bytes() == b"{broken"
 
 
 def test_bridge_applies_saves_and_resets_personality(tmp_path) -> None:

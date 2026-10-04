@@ -97,6 +97,7 @@ def test_clean_profile_never_imports_checkout_state_and_config_reset_preserves_a
     assert not paths.tokens.exists() and not paths.database.exists()
     assert AppSettingsStore(paths.app_settings).snapshot().twitch.presets == ()
     assert RuntimeState(personality_settings_path=paths.personality_settings).available_personalities == ('neutral',)
+    assert RuntimeState(personality_settings_path=paths.personality_settings).profile_instructions == ''
     assert json.loads(paths.message_triggers.read_text())['triggers'] == []
     for filename in FILTER_NAMES:
         assert (paths.filters / filename).read_bytes() == (DEFAULT_FILTERS / filename).read_bytes()
@@ -146,6 +147,24 @@ def test_keyring_namespaces_are_independent_and_config_reset_leaves_credentials(
     two.replace(CredentialName.GEMINI_API_KEY, 'two-key')
     assert one.get(CredentialName.GEMINI_API_KEY) == 'one-key'
     assert two.get(CredentialName.GEMINI_API_KEY) == 'two-key'
+
+
+def test_data_dir_profiles_do_not_share_instructions_or_personalities(tmp_path, monkeypatch):
+    states = []
+    for name in ('one', 'two'):
+        monkeypatch.setenv('TWITCH_BOT_DATA_DIR', str(tmp_path / name))
+        paths = RuntimePaths.default()
+        states.append(RuntimeState(personality_settings_path=paths.personality_settings))
+    one, two = states
+    one.save_ai_personality('local', 'Local style')
+    one.save_profile_instructions('First profile instructions')
+    assert two.profile_instructions == ''
+    assert two.available_personalities == ('neutral',)
+    two.save_profile_instructions('Second profile instructions')
+    for name, text in (('one', 'First profile instructions'), ('two', 'Second profile instructions')):
+        monkeypatch.setenv('TWITCH_BOT_DATA_DIR', str(tmp_path / name))
+        restored = RuntimeState(personality_settings_path=RuntimePaths.default().personality_settings)
+        assert restored.profile_instructions == text
 
 
 def test_cli_profile_is_resolved_before_checks_without_creating_it(tmp_path, monkeypatch):

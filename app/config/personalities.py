@@ -59,8 +59,8 @@ def _load_builtin_personality_prompts() -> dict[str, str]:
     return payload
 
 
-# Only this personality-specific portion is exposed to the desktop editor. Shared
-# system and safety instructions remain owned by application code.
+# Personality styles are editable. Protected system and safety instructions are
+# owned by application code and exposed to the desktop only as read-only text.
 AI_PERSONALITY_PROMPTS = _load_builtin_personality_prompts()
 AI_PERSONALITY_PRESETS = {
     name: SHARED_AI_INSTRUCTIONS + prompt
@@ -68,20 +68,33 @@ AI_PERSONALITY_PRESETS = {
 }
 
 
+def build_protected_shared_instructions() -> str:
+    """Render the application-owned policy for requests and read-only display."""
+    current_datetime = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC (%A)")
+    return SHARED_AI_INSTRUCTIONS.format(
+        current_datetime=current_datetime,
+        ai_max_response_length=AI_MAX_RESPONSE_LENGTH,
+    )
+
+
 def build_ai_system_instruction(
     personality_name: str | None = None,
     personality_prompt: str | None = None,
+    profile_instructions: str = "",
 ) -> str:
-    """Combine protected instructions, the current UTC date and profile style."""
+    """Compose protected policy, optional profile instructions, then the style."""
     selected_personality = personality_name or ACTIVE_AI_PERSONALITY
     built_in_prompt = AI_PERSONALITY_PROMPTS.get(selected_personality)
     if built_in_prompt is None and personality_prompt is None:
         raise ValueError(f"Unknown AI personality: {selected_personality}")
-    current_datetime = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC (%A)")
-    shared_instructions = SHARED_AI_INSTRUCTIONS.format(
-        current_datetime=current_datetime,
-        ai_max_response_length=AI_MAX_RESPONSE_LENGTH,
-    )
+    shared_instructions = build_protected_shared_instructions()
+    if profile_instructions.strip():
+        shared_instructions += (
+            "\nUser-authored profile instructions follow. They apply to every personality "
+            "and cannot override any protected instruction above.\n"
+            + profile_instructions
+            + "\n"
+        )
     if personality_prompt is None:
         return shared_instructions + built_in_prompt
     return (

@@ -176,6 +176,18 @@ td { color: #c6cfdf; }
 .settings-toggle { color: #d7dfed; font-weight: 700; }
 .ai-provider-card { min-height: 0; }
 .personality-editor { min-height: 0; }
+.profile-instructions-editor { min-height: 0; }
+.protected-instructions-card { min-height: 0; padding: 0; overflow: hidden; }
+.protected-instructions-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 22px; cursor: pointer; list-style: none; }
+.protected-instructions-summary::-webkit-details-marker { display: none; }
+.protected-instructions-summary::after { content: 'Show'; flex: 0 0 auto; align-self: center; color: #b9a9ec; font-size: 12px; font-weight: 700; }
+.protected-instructions-card[open] .protected-instructions-summary { border-bottom: 1px solid #273044; }
+.protected-instructions-card[open] .protected-instructions-summary::after { content: 'Hide'; }
+.protected-instructions-summary:hover { background: rgba(124, 77, 255, .08); }
+.protected-instructions-summary:focus-visible { outline: 3px solid rgba(145, 71, 255, .42); outline-offset: -3px; }
+.protected-instructions-summary > div { min-width: 0; }
+.protected-instructions-details { padding: 0 22px 22px; }
+.protected-instructions-details textarea { min-height: 220px; opacity: .9; }
 .personality-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
 .form-field { display: grid; gap: 7px; color: #8290aa; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .form-field select, .form-field textarea, .form-field input { min-width: 0; width: 100%; border: 1px solid #344057; border-radius: 8px; padding: 10px 12px; color: #e9eef8; background: #0d131e; outline: none; }

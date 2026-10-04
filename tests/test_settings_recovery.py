@@ -14,7 +14,7 @@ from app.runtime_state import RuntimeState
 from app.webview_host import WebUIBridge
 
 
-KINDS = ("app", "command", "personality", "custom")
+KINDS = ("app", "command", "personality", "profile_instructions", "custom")
 CUSTOM_ID = "d309228e-92a3-422a-8284-70f52c41cce7"
 
 
@@ -31,6 +31,10 @@ def source_payload(kind):
         "app": {"version": 1, "window": {"start_minimized": True}},
         "command": {"alpha": {"enabled": False}},
         "personality": {"active_personality": "neutral", "overrides": {"neutral": "Original prompt"}},
+        "profile_instructions": {
+            "active_personality": "neutral", "overrides": {"neutral": "Original prompt"},
+            "profile_instructions": "Original profile instructions",
+        },
         "custom": {"version": 1, "commands": [custom_payload()]},
     }[kind]
 
@@ -51,8 +55,15 @@ def editor(kind, path):
         )
     state = RuntimeState(
         command_settings_path=path if kind == "command" else None,
-        personality_settings_path=path if kind == "personality" else None,
+        personality_settings_path=path if kind in ("personality", "profile_instructions") else None,
     )
+    if kind == "profile_instructions":
+        return SimpleNamespace(
+            snapshot=lambda: (state.active_ai_personality, state.get_ai_personality_prompt("neutral"),
+                              state.profile_instructions, state.profile_instructions_are_saved),
+            save=lambda: state.save_profile_instructions("New profile instructions"),
+            reset=state.reset_profile_instructions, state=state,
+        )
     if kind == "personality":
         return SimpleNamespace(
             snapshot=lambda: (state.active_ai_personality, state.get_ai_personality_prompt("neutral")),
@@ -155,8 +166,9 @@ def lossy_payload(kind):
     elif kind == "command":
         payload["alpha"]["cooldown"] = {"global_seconds": -1, "future_field": 2}
         payload["retired_command"] = {"enabled": False}
-    elif kind == "personality":
+    elif kind in ("personality", "profile_instructions"):
         payload["overrides"]["broken"] = ["invalid prompt"]
+        payload["profile_instructions"] = ["invalid profile instructions"]
     else:
         payload["commands"][0]["future_field"] = {"metadata": "é"}
         payload["commands"].append({"id": "unrecoverable"})
@@ -247,7 +259,7 @@ def test_command_reset_bridge_explains_repair_instead_of_losing_file(tmp_path):
     assert path.read_bytes() == b"{bad"
 
 
-@pytest.mark.parametrize("kind", ("command", "personality", "custom"))
+@pytest.mark.parametrize("kind", ("command", "personality", "profile_instructions", "custom"))
 def test_reset_or_delete_refuses_file_that_became_unreadable(tmp_path, kind):
     path = tmp_path / f"{kind}_settings.json"
     write_source(path, source_payload(kind))

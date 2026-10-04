@@ -25,6 +25,7 @@ from app.command_settings import CommandSettings
 from app.commands.registry import command_unavailable_reason
 from app.custom_commands import VARIABLES
 from app.config.ai_models import GEMINI_MODEL_PRESETS, GEMINI_PROVIDER_NAME
+from app.config.personalities import build_protected_shared_instructions
 from app.config.settings import Settings, TwitchConfigurationError, load_settings_with_credentials
 from app.container import Application, build_application
 from app.credentials import CredentialError, CredentialManager, CredentialName
@@ -754,6 +755,9 @@ class WebUIBridge:
         return {
             "active_personality": runtime_state.active_ai_personality,
             "active_personality_saved": runtime_state.active_ai_personality_is_saved,
+            "profile_instructions": runtime_state.profile_instructions,
+            "profile_instructions_saved": runtime_state.profile_instructions_are_saved,
+            "protected_shared_instructions": build_protected_shared_instructions(),
             "personalities": [
                 {
                     "name": name,
@@ -767,6 +771,46 @@ class WebUIBridge:
                 for name in runtime_state.available_personalities
             ],
         }
+
+    def apply_profile_instructions(self, prompt: object) -> dict[str, object]:
+        try:
+            self._backend.application.services.runtime_state.apply_profile_instructions(prompt)
+        except (TypeError, ValueError) as error:
+            return {"ok": False, "error": str(error)}
+        self._log_profile_instructions_action("apply")
+        return {"ok": True}
+
+    def save_profile_instructions(self, prompt: object) -> dict[str, object]:
+        try:
+            self._backend.application.services.runtime_state.save_profile_instructions(prompt)
+        except (TypeError, ValueError) as error:
+            return {"ok": False, "error": str(error)}
+        except (OSError, RuntimeError):
+            self._logger.exception("Could not save AI profile instructions")
+            return {"ok": False, "error": "Could not save AI profile instructions."}
+        self._log_profile_instructions_action("save")
+        return {"ok": True}
+
+    def reset_profile_instructions(self) -> dict[str, object]:
+        try:
+            self._backend.application.services.runtime_state.reset_profile_instructions()
+        except (TypeError, ValueError) as error:
+            return {"ok": False, "error": str(error)}
+        except (OSError, RuntimeError):
+            self._logger.exception("Could not reset AI profile instructions")
+            return {"ok": False, "error": "Could not reset AI profile instructions."}
+        self._log_profile_instructions_action("reset")
+        return {"ok": True}
+
+    def _log_profile_instructions_action(self, action: str) -> None:
+        self._logger.info(
+            "AI profile instructions updated action=%s", action,
+            extra={
+                "event_kind": "settings.ai",
+                "event_setting": "profile_instructions",
+                "event_action": action,
+            },
+        )
 
     @staticmethod
     def _validate_toggle(enabled: object) -> bool:

@@ -141,6 +141,9 @@ export interface PersonalitiesResponse {
   active_personality: string
   active_personality_saved: boolean
   personalities: PersonalityInfo[]
+  profile_instructions: string
+  profile_instructions_saved: boolean
+  protected_shared_instructions: string
 }
 
 export interface AppSettings {
@@ -271,6 +274,9 @@ interface PythonApi {
   apply_personality(personality: string, prompt: string): Promise<ActionResult>
   save_personality(personality: string, prompt: string): Promise<ActionResult>
   reset_personality(personality: string): Promise<ActionResult>
+  apply_profile_instructions(prompt: string): Promise<ActionResult>
+  save_profile_instructions(prompt: string): Promise<ActionResult>
+  reset_profile_instructions(): Promise<ActionResult>
   get_app_settings(): Promise<AppSettingsResponse>
   update_app_settings(startMinimized: boolean, minimizeToTray: boolean, closeToTray: boolean, autoStartBot: boolean): Promise<ActionResult>
   get_twitch_settings(): Promise<TwitchSettingsResponse>

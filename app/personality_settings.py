@@ -1,4 +1,4 @@
-"""Local AI personality overrides and active-selection persistence."""
+"""Profile-owned AI instructions, personality overrides and selection."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ MAX_PERSONALITY_PROMPT_LENGTH = 50_000
 class PersonalitySettings:
     active_personality: str
     overrides: dict[str, str]
+    profile_instructions: str = ""
 
 
 def validate_personality_prompt(prompt: object) -> str:
@@ -32,6 +33,16 @@ def validate_personality_prompt(prompt: object) -> str:
             f"Personality prompt must not exceed {MAX_PERSONALITY_PROMPT_LENGTH} characters."
         )
     return prompt
+
+
+def validate_profile_instructions(instructions: object) -> str:
+    if not isinstance(instructions, str):
+        raise TypeError("Profile instructions must be text.")
+    if len(instructions) > MAX_PERSONALITY_PROMPT_LENGTH:
+        raise ValueError(
+            f"Profile instructions must not exceed {MAX_PERSONALITY_PROMPT_LENGTH} characters."
+        )
+    return instructions
 
 
 def load_personality_settings(
@@ -72,13 +83,19 @@ def load_personality_settings(
                 str(error),
             )
             continue
-        if parsed_prompt != built_in_prompts.get(name):
-            overrides[name] = parsed_prompt
+        # Retain explicit saved entries, even when they match a shipped default.
+        # Saving profile instructions must not normalize unrelated personalities.
+        overrides[name] = parsed_prompt
     active = payload.get("active_personality", default_active)
     if not isinstance(active, str) or active not in (built_in_prompts.keys() | overrides.keys()):
         logger.warning("Ignoring unknown active AI personality name=%r", active)
         active = default_active
-    return PersonalitySettings(active, overrides)
+    try:
+        profile_instructions = validate_profile_instructions(payload.get("profile_instructions", ""))
+    except (TypeError, ValueError):
+        logger.warning("Ignoring invalid AI profile instructions")
+        profile_instructions = ""
+    return PersonalitySettings(active, overrides, profile_instructions)
 
 
 def save_personality_settings(
@@ -88,6 +105,7 @@ def save_personality_settings(
     payload = {
         "active_personality": settings.active_personality,
         "overrides": dict(sorted(settings.overrides.items())),
+        "profile_instructions": settings.profile_instructions,
     }
     temporary_path: Path | None = None
     try:
@@ -109,6 +127,7 @@ def save_personality_settings(
             None if recovered_settings is None else {
                 "active_personality": recovered_settings.active_personality,
                 "overrides": {**AI_PERSONALITY_PROMPTS, **recovered_settings.overrides},
+                "profile_instructions": recovered_settings.profile_instructions,
             },
         )
         os.replace(temporary_path, path)

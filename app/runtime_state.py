@@ -19,6 +19,7 @@ from app.personality_settings import (
     load_personality_settings,
     save_personality_settings,
     validate_personality_prompt,
+    validate_profile_instructions,
 )
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
@@ -62,6 +63,8 @@ class RuntimeState:
         self._personality_prompts.update(self._persisted_personality_overrides)
         self._persisted_active_ai_personality = personality_settings.active_personality
         self._active_ai_personality = personality_settings.active_personality
+        self._persisted_profile_instructions = personality_settings.profile_instructions
+        self._profile_instructions = personality_settings.profile_instructions
         self._bot_running = False
         self._twitch_connection_state: TwitchConnectionState = "stopped"
         self._started_at: float | None = None
@@ -324,16 +327,50 @@ class RuntimeState:
         self,
         active_personality: str,
         overrides: dict[str, str],
+        profile_instructions: str | None = None,
     ) -> None:
         if self._personality_settings_path is None:
             raise RuntimeError("Personality settings persistence is not configured.")
         save_personality_settings(
             self._personality_settings_path,
-            PersonalitySettings(active_personality, overrides),
+            PersonalitySettings(
+                active_personality, overrides,
+                self._persisted_profile_instructions if profile_instructions is None else profile_instructions,
+            ),
             recovered_settings=PersonalitySettings(
                 self._persisted_active_ai_personality, self._persisted_personality_overrides,
+                self._persisted_profile_instructions,
             ),
         )
+
+    @property
+    def profile_instructions(self) -> str:
+        with self._lock:
+            return self._profile_instructions
+
+    @property
+    def profile_instructions_are_saved(self) -> bool:
+        with self._lock:
+            return self._profile_instructions == self._persisted_profile_instructions
+
+    def apply_profile_instructions(self, instructions: object) -> None:
+        parsed = validate_profile_instructions(instructions)
+        with self._lock:
+            self._profile_instructions = parsed
+
+    def save_profile_instructions(self, instructions: object) -> None:
+        parsed = validate_profile_instructions(instructions)
+        with self._lock:
+            self._save_personality_settings(
+                self._persisted_active_ai_personality,
+                self._persisted_personality_overrides,
+                parsed,
+            )
+            self._persisted_profile_instructions = parsed
+            self._profile_instructions = parsed
+
+    def reset_profile_instructions(self) -> None:
+        self.save_profile_instructions("")
 
     def set_bot_running(self, running: bool) -> None:
         with self._lock:
