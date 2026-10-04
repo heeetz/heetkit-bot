@@ -192,7 +192,7 @@ key/provider, `!ask` is unavailable, while its enabled preference is retained. A
 key in Settings restores AI availability immediately; a deliberately disabled command stays disabled.
 Use the credential Test action to verify the key with the provider.
 
-Global message filters start empty and are copied from shipped `app/resources/filters/` into app-data `config/filters/` on first launch. Manage them on the desktop **Filters** page: Apply changes the running session, while Save keeps validated changes across restarts. The page marks source-default and local rules and highlights invalid entries. You can also edit the app-data copies directly; missing copies are recreated from the shipped defaults:
+Global message filters start empty and are copied from shipped `app/resources/filters/` into app-data `config/filters/` on first launch. Manage them on the desktop **Filters** page: expand a category to edit its rules; categories start collapsed and show rule counts. Words and phrases use one non-empty line per rule, with whitespace trimmed and commas kept as text. Regex patterns retain individual editors and validation errors. Apply changes the running session, while Save keeps validated changes across restarts. The page marks source-default and local rules and highlights invalid entries. You can also edit the app-data copies directly; missing copies are recreated from the shipped defaults:
 
 - `blocked_words.txt` contains whole-word matches;
 - `blocked_phrases.txt` contains literal phrase matches;

@@ -67,6 +67,10 @@ function categoryIsDirty(category: FilterCategory | undefined, rules: FilterDraf
     !== JSON.stringify(category.rules.map((rule) => rule.value.trim()).filter(Boolean))
 }
 
+function configuredRules(rules: FilterDraft[]): FilterDraft[] {
+  return rules.filter((rule) => rule.value.trim() && !rule.value.trim().startsWith('#'))
+}
+
 export default function FiltersPage({ active }: FiltersPageProps) {
   const [data, setData] = useState<FiltersResponse | null>(null)
   const [drafts, setDrafts] = useState<Drafts>(emptyDrafts)
@@ -74,6 +78,7 @@ export default function FiltersPage({ active }: FiltersPageProps) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [expanded, setExpanded] = useState<Record<FilterCategoryName, boolean>>({ words: false, phrases: false, patterns: false })
   const hasLoaded = useRef(false)
 
   const loadFilters = async () => {
@@ -125,6 +130,27 @@ export default function FiltersPage({ active }: FiltersPageProps) {
     setNotice('')
   }
 
+  const updateTextRules = (name: 'words' | 'phrases', value: string) => {
+    setDrafts((current) => {
+      const previousRules = new Map(current[name].map((rule) => [rule.value.trim(), rule]))
+      return {
+        ...current,
+        [name]: value.split(/\r?\n/).map((line, index) => {
+          const previous = previousRules.get(line.trim())
+          return {
+            id: index,
+            value: line,
+            origin: data?.[name].defaults.includes(line.trim()) ? 'default' : 'local',
+            valid: previous?.valid ?? true,
+            error: previous?.error ?? null,
+          }
+        }),
+      }
+    })
+    setError('')
+    setNotice('')
+  }
+
   const addRule = (name: FilterCategoryName) => {
     setDrafts((current) => ({
       ...current,
@@ -154,6 +180,7 @@ export default function FiltersPage({ active }: FiltersPageProps) {
       if (!result.ok) {
         if (result.invalid_rule) {
           const { category, index } = result.invalid_rule
+          setExpanded((current) => ({ ...current, [category]: true }))
           const nonblankRules = drafts[category].filter((rule) => rule.value.trim())
           const invalidId = nonblankRules[index]?.id
           if (invalidId !== undefined) {
@@ -205,55 +232,97 @@ export default function FiltersPage({ active }: FiltersPageProps) {
         const category = data[name]
         const info = categoryInfo[name]
         const rules = drafts[name]
+        const configured = configuredRules(rules)
+        const count = name === 'patterns' ? configured.length : new Set(configured.map((rule) => rule.value.trim())).size
+        const invalidCount = rules.filter((rule) => !rule.valid || rule.error).length
+        const defaultLines = rules.flatMap((rule, index) => rule.value.trim() && !rule.value.trim().startsWith('#') && rule.origin === 'default' ? [index + 1] : [])
+        const defaultCount = new Set(configured.filter((rule) => rule.origin === 'default').map((rule) => rule.value.trim())).size
+        const detailsId = `filter-details-${name}`
         return (
-          <section className="card filter-category-card" key={name}>
-            <div className="section-heading">
-              <div>
-                <p className="label">{name === 'patterns' ? 'REGULAR EXPRESSIONS' : 'TEXT MATCHING'}</p>
-                <h2>{info.label}</h2>
-                <p className="section-copy">{info.description}</p>
-              </div>
-              <span className="read-only-badge">{rules.length} {rules.length === 1 ? 'rule' : 'rules'}</span>
-            </div>
-            {category.load_error && (
-              <div className="filter-load-warning" role="status">
-                Could not load the latest file: {category.load_error}. Existing rules remain available.
-              </div>
-            )}
-            {rules.length === 0 ? (
-              <div className="empty-state-inline"><strong>{info.empty}</strong><p>Add a rule below to update this category.</p></div>
-            ) : (
-              <div className="filter-rule-list">
-                {rules.map((rule, index) => (
-                  <div className={`filter-rule-row ${!rule.valid ? 'invalid' : ''}`} key={rule.id}>
-                    <label className="form-field">
-                      {info.label} {index + 1}
-                      <input
-                        aria-invalid={!rule.valid || Boolean(rule.error)}
-                        className={!rule.valid || rule.error ? 'invalid' : ''}
-                        value={rule.value}
-                        onChange={(event) => updateRule(name, rule.id, event.target.value)}
-                        placeholder={name === 'patterns' ? String.raw`\bexample\b` : 'Enter a rule'}
-                      />
-                    </label>
-                    <div className="filter-rule-meta">
-                      <span className={`mini-badge ${rule.origin === 'default' ? 'filter-default-badge' : 'filter-local-badge'}`}>
-                        {rule.origin === 'default' ? 'Built-in default' : 'Local rule'}
-                      </span>
-                      {!rule.valid && <span className="filter-invalid-label">Invalid</span>}
-                      {rule.error && <span className="filter-rule-error">{rule.error}</span>}
-                    </div>
-                    <button className="ghost" type="button" disabled={busy} onClick={() => removeRule(name, rule.id)}>Remove</button>
+          <section className="card filter-category-card" data-category={name} key={name}>
+            <h2 className="filter-category-heading">
+              <button
+                type="button"
+                className="filter-category-summary"
+                aria-expanded={expanded[name]}
+                aria-controls={detailsId}
+                onClick={() => setExpanded((current) => ({ ...current, [name]: !current[name] }))}
+              >
+                <span>{info.label}</span>
+                <span className="filter-category-status">
+                  <span className="read-only-badge">{count} {count === 1 ? 'rule' : 'rules'}</span>
+                  {invalidCount > 0 && <span className="filter-invalid-label">{invalidCount} invalid</span>}
+                  {category.load_error && <span className="filter-warning-label">File warning</span>}
+                  <span className="filter-expand-label">{expanded[name] ? 'Hide rules' : 'Show rules'}</span>
+                </span>
+              </button>
+            </h2>
+            {expanded[name] && <div className="filter-category-details" id={detailsId}>
+              <p className="section-copy">{info.description}</p>
+              {category.load_error && (
+                <div className="filter-load-warning" role="status">
+                  Could not load the latest file: {category.load_error}. Existing rules remain available.
+                </div>
+              )}
+              {name !== 'patterns' ? (
+                <div className="filter-text-editor">
+                  <label className="form-field">
+                    {info.label}, one rule per line
+                    <textarea
+                      className={`filter-textarea ${invalidCount ? 'invalid' : ''}`}
+                      rows={6}
+                      aria-invalid={invalidCount > 0}
+                      aria-describedby={`filter-help-${name}${invalidCount ? ` filter-errors-${name}` : ''}`}
+                      value={rules.map((rule) => rule.value).join('\n')}
+                      onChange={(event) => updateTextRules(name, event.target.value)}
+                      placeholder={info.empty}
+                    />
+                  </label>
+                  <p className="settings-hint" id={`filter-help-${name}`}>One non-empty line = one rule. Whitespace is trimmed; blank lines and lines starting with # are ignored. Commas remain part of the rule.</p>
+                  <div className="filter-text-meta">
+                    <span className="mini-badge filter-default-badge">{defaultCount} built-in {defaultCount === 1 ? 'default' : 'defaults'}</span>
+                    <span className="mini-badge filter-local-badge">{count - defaultCount} local {count - defaultCount === 1 ? 'rule' : 'rules'}</span>
+                    {defaultLines.length > 0 && <span>Built-in defaults on {defaultLines.length === 1 ? 'line' : 'lines'} {defaultLines.join(', ')}. Other rules are local.</span>}
                   </div>
-                ))}
-              </div>
-            )}
-            {category.defaults.length > 0 && (
-              <p className="filter-default-summary">{category.defaults.length} built-in {category.defaults.length === 1 ? 'default is' : 'defaults are'} available in this category.</p>
-            )}
-            <div className="filter-category-actions">
-              <button className="secondary" type="button" disabled={busy} onClick={() => addRule(name)}>Add rule</button>
-            </div>
+                  {invalidCount > 0 && <ul className="filter-text-errors" id={`filter-errors-${name}`}>
+                    {rules.map((rule, index) => (!rule.valid || rule.error) && <li key={rule.id}>Line {index + 1}: {rule.error ?? 'Invalid rule.'}</li>)}
+                  </ul>}
+                </div>
+              ) : rules.length === 0 ? (
+                <div className="empty-state-inline"><strong>{info.empty}</strong><p>Add a rule below to update this category.</p></div>
+              ) : (
+                <div className="filter-rule-list">
+                  {rules.map((rule, index) => (
+                    <div className={`filter-rule-row ${!rule.valid ? 'invalid' : ''}`} key={rule.id}>
+                      <label className="form-field">
+                        {info.label} {index + 1}
+                        <input
+                          aria-invalid={!rule.valid || Boolean(rule.error)}
+                          className={!rule.valid || rule.error ? 'invalid' : ''}
+                          value={rule.value}
+                          onChange={(event) => updateRule(name, rule.id, event.target.value)}
+                          placeholder={name === 'patterns' ? String.raw`\bexample\b` : 'Enter a rule'}
+                        />
+                      </label>
+                      <div className="filter-rule-meta">
+                        <span className={`mini-badge ${rule.origin === 'default' ? 'filter-default-badge' : 'filter-local-badge'}`}>
+                          {rule.origin === 'default' ? 'Built-in default' : 'Local rule'}
+                        </span>
+                        {!rule.valid && <span className="filter-invalid-label">Invalid</span>}
+                        {rule.error && <span className="filter-rule-error">{rule.error}</span>}
+                      </div>
+                      <button className="ghost" type="button" disabled={busy} onClick={() => removeRule(name, rule.id)}>Remove</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {category.defaults.length > 0 && (
+                <p className="filter-default-summary">{category.defaults.length} built-in {category.defaults.length === 1 ? 'default is' : 'defaults are'} available in this category.</p>
+              )}
+              {name === 'patterns' && <div className="filter-category-actions">
+                <button className="secondary" type="button" disabled={busy} onClick={() => addRule(name)}>Add rule</button>
+              </div>}
+            </div>}
           </section>
         )
       })}
