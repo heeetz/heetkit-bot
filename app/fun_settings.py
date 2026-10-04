@@ -15,12 +15,24 @@ FORECASTS = ("Tomorrow brings a new opportunity.",)
 
 
 def validate_forecasts(values: object) -> tuple[str, ...]:
-    if not isinstance(values, list) or not 1 <= len(values) <= 1000:
-        raise ValueError("Provide between 1 and 1000 forecast responses.")
+    return _validate_responses(values, max_responses=1000)
+
+
+def _validate_responses(values: object, *, max_responses: int) -> tuple[str, ...]:
+    if not isinstance(values, list) or not 1 <= len(values) <= max_responses:
+        raise ValueError(f"Provide between 1 and {max_responses} command responses.")
     if any(not isinstance(value, str) or not value.strip() or len(value.encode("utf-8")) > 450
            for value in values):
         raise ValueError("Each response must contain text and be at most 450 UTF-8 bytes.")
     return tuple(values)
+
+
+def _response_options(command_name: str) -> tuple[str, tuple[str, ...], int]:
+    if command_name == "forecast":
+        return "forecasts", FORECASTS, 1000
+    if command_name == "tg":
+        return "tg_message", (TG_MESSAGE,), 1
+    raise ValueError("This command has no editable responses.")
 
 
 class FunSettingsStore:
@@ -50,40 +62,59 @@ class FunSettingsStore:
         except ValueError:
             logging.getLogger(__name__).warning("Invalid local forecast responses; using neutral defaults")
         self._saved_forecasts = self._forecasts
+        self._saved_tg_message = self.tg_message
 
     @property
     def forecasts(self) -> tuple[str, ...]:
         with self._lock:
             return self._forecasts
 
-    def snapshot(self) -> dict[str, object]:
+    def snapshot(self, command_name: str = "forecast") -> dict[str, object]:
+        field, defaults, max_responses = _response_options(command_name)
         with self._lock:
+            responses = (self.tg_message,) if command_name == "tg" else self._forecasts
+            saved_responses = (self._saved_tg_message,) if command_name == "tg" else self._saved_forecasts
             return {
-                "responses": list(self._forecasts), "defaults": list(FORECASTS),
-                "saved": self._forecasts == self._saved_forecasts,
-                "has_saved_override": "forecasts" in self._payload,
+                "responses": list(responses), "defaults": list(defaults),
+                "saved": responses == saved_responses,
+                "has_saved_override": field in self._payload,
+                "response_mode": "single" if command_name == "tg" else "random",
+                "max_responses": max_responses,
             }
 
-    def apply(self, responses: object) -> None:
-        parsed = validate_forecasts(responses)
+    def apply(self, responses: object, command_name: str = "forecast") -> None:
+        _, _, max_responses = _response_options(command_name)
+        parsed = _validate_responses(responses, max_responses=max_responses)
         with self._lock:
-            self._forecasts = parsed
+            self._set_responses(command_name, parsed, saved=False)
 
-    def save(self, responses: object) -> None:
-        parsed = validate_forecasts(responses)
+    def save(self, responses: object, command_name: str = "forecast") -> None:
+        field, _, max_responses = _response_options(command_name)
+        parsed = _validate_responses(responses, max_responses=max_responses)
         with self._lock:
-            payload = {**self._payload, "forecasts": list(parsed)}
+            payload = {**self._payload, field: parsed[0] if command_name == "tg" else list(parsed)}
             self._write(payload)
             self._payload = payload
-            self._forecasts = self._saved_forecasts = parsed
+            self._set_responses(command_name, parsed, saved=True)
 
-    def reset(self) -> None:
+    def reset(self, command_name: str = "forecast") -> None:
+        field, defaults, _ = _response_options(command_name)
         with self._lock:
             payload = dict(self._payload)
-            payload.pop("forecasts", None)
+            payload.pop(field, None)
             self._write(payload)
             self._payload = payload
-            self._forecasts = self._saved_forecasts = FORECASTS
+            self._set_responses(command_name, defaults, saved=True)
+
+    def _set_responses(self, command_name: str, responses: tuple[str, ...], *, saved: bool) -> None:
+        if command_name == "tg":
+            self.tg_message = responses[0]
+            if saved:
+                self._saved_tg_message = responses[0]
+        else:
+            self._forecasts = responses
+            if saved:
+                self._saved_forecasts = responses
 
     def _write(self, payload: dict[str, object]) -> None:
         if self._load_error:

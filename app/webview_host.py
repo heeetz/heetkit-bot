@@ -474,7 +474,8 @@ class WebUIBridge:
                     "enabled": settings.enabled,
                     "available": unavailable_reason is None,
                     "unavailable_reason": unavailable_reason,
-                    "response_pool": fun_settings.snapshot() if definition.name == "forecast" and fun_settings else None,
+                    "response_pool": fun_settings.snapshot(definition.name)
+                    if definition.name in ("forecast", "tg") and fun_settings else None,
                     "permission": settings.permission.name,
                     "cooldown": {
                         "per_user_seconds": settings.cooldown.per_user_seconds,
@@ -496,19 +497,19 @@ class WebUIBridge:
 
     def _command_response_action(self, name: object, responses: object, action: str) -> dict[str, object]:
         store = getattr(self._backend.application, "fun_settings", None)
-        if name != "forecast" or store is None:
-            return {"ok": False, "error": "This command has no editable response pool."}
+        if name not in ("forecast", "tg") or store is None:
+            return {"ok": False, "error": "This command has no editable responses."}
         try:
             if action == "reset":
-                store.reset()
+                store.reset(name)
             elif action == "save":
-                store.save(responses)
+                store.save(responses, name)
             else:
-                store.apply(responses)
+                store.apply(responses, name)
         except ValueError as error:
             return {"ok": False, "error": str(error)}
         except OSError:
-            self._logger.exception("Could not %s command response pool", action)
+            self._logger.exception("Could not %s command responses", action)
             return {"ok": False, "error": "Could not save command responses."}
         return {"ok": True}
 

@@ -17,7 +17,7 @@ interface CommandDraft {
   permission: string
   perUserSeconds: string
   globalSeconds: string
-  responsePool: string[] | null
+  responsePool: string | null
 }
 
 type Drafts = Record<string, CommandDraft>
@@ -26,7 +26,7 @@ interface CustomDraft {
   id: string | null
   name: string
   enabled: boolean
-  responses: string[]
+  responses: string
   permission: string
   perUserSeconds: string
   globalSeconds: string
@@ -43,8 +43,21 @@ function draftFromCommand(command: CommandInfo): CommandDraft {
     permission: command.permission,
     perUserSeconds: String(command.cooldown.per_user_seconds),
     globalSeconds: String(command.cooldown.global_seconds),
-    responsePool: command.response_pool ? [...command.response_pool.responses] : null,
+    responsePool: command.response_pool ? responsePoolText(command.response_pool) : null,
   }
+}
+
+function responsePoolText(responsePool: NonNullable<CommandInfo['response_pool']>): string {
+  return responsePool.response_mode === 'random'
+    ? responsePool.responses.join('\n')
+    : responsePool.responses[0] ?? ''
+}
+
+function parseResponsePool(responsePool: NonNullable<CommandInfo['response_pool']>, draft: string): string[] {
+  if (responsePool.response_mode === 'random') {
+    return draft.split(/\r?\n/).map((response) => response.trim()).filter(Boolean)
+  }
+  return draft.trim() === '' ? [] : [draft]
 }
 
 function parsedCooldown(value: string): number | null {
@@ -63,11 +76,9 @@ function settingsDraftIsDirty(command: CommandInfo, draft: CommandDraft): boolea
 }
 
 function responseDraftIsDirty(command: CommandInfo, draft: CommandDraft): boolean {
-  const savedResponses = command.response_pool?.responses
-  return savedResponses !== undefined
+  return command.response_pool !== null
     && draft.responsePool !== null
-    && (savedResponses.length !== draft.responsePool.length
-      || savedResponses.some((response, index) => response !== draft.responsePool?.[index]))
+    && responsePoolText(command.response_pool) !== draft.responsePool
 }
 
 function draftIsDirty(command: CommandInfo, draft: CommandDraft): boolean {
@@ -81,7 +92,7 @@ function newCustomDraft(permission: string): CustomDraft {
     id: null,
     name: '',
     enabled: true,
-    responses: [''],
+    responses: '',
     permission,
     perUserSeconds: '0',
     globalSeconds: '0',
@@ -94,7 +105,7 @@ function customDraftFromCommand(command: CustomCommandInfo): CustomDraft {
     id: command.id,
     name: command.name,
     enabled: command.enabled,
-    responses: [...command.responses],
+    responses: command.response_mode === 'random' ? command.responses.join('\n') : command.responses[0] ?? '',
     permission: command.permission,
     perUserSeconds: String(command.per_user_seconds),
     globalSeconds: String(command.global_seconds),
@@ -274,12 +285,13 @@ export default function CommandsPage({ active }: CommandsPageProps) {
     if (!draft || !responsePool || draft.responsePool === null) {
       return
     }
-    const responses = draft.responsePool.map((response) => response.trim()).filter(Boolean)
+    const responses = parseResponsePool(responsePool, draft.responsePool)
+    const responseNoun = responsePool.response_mode === 'random' ? 'responses' : 'message'
     if (action !== 'reset' && responses.length === 0) {
-      setError('Keep at least one non-empty forecast response.')
+      setError(`Keep at least one non-empty ${responseNoun}.`)
       return
     }
-    if (action === 'reset' && !window.confirm('Reset forecast responses to the built-in defaults?')) {
+    if (action === 'reset' && !window.confirm(`Reset !${command.name} ${responseNoun} to the built-in defaults?`)) {
       return
     }
 
@@ -297,16 +309,16 @@ export default function CommandsPage({ active }: CommandsPageProps) {
         result = await api.apply_command_responses(command.name, responses)
       }
       if (!result.ok) {
-        throw new Error(result.error ?? 'Forecast responses could not be updated.')
+        throw new Error(result.error ?? `Command ${responseNoun} could not be updated.`)
       }
       await loadCommands(command.name, 'responses')
       setNotice(action === 'apply'
-        ? 'Applied forecast responses for this session.'
+        ? `Applied !${command.name} ${responseNoun} for this session.`
         : action === 'save'
-          ? 'Saved forecast responses.'
-          : 'Reset forecast responses to built-in defaults.')
+          ? `Saved !${command.name} ${responseNoun}.`
+          : `Reset !${command.name} ${responseNoun} to built-in defaults.`)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Forecast responses could not be updated.')
+      setError(reason instanceof Error ? reason.message : `Command ${responseNoun} could not be updated.`)
     } finally {
       setBusyCommand('')
     }
@@ -321,7 +333,7 @@ export default function CommandsPage({ active }: CommandsPageProps) {
   const saveCustom = async () => {
     if (!customDraft) return
     const name = customDraft.name.trim()
-    const responses = customDraft.responses.map((response) => response.trim()).filter(Boolean)
+    const responses = customDraft.responses.split(/\r?\n/).map((response) => response.trim()).filter(Boolean)
     const perUserSeconds = parsedCooldown(customDraft.perUserSeconds)
     const globalSeconds = parsedCooldown(customDraft.globalSeconds)
     if (!name || responses.length === 0 || perUserSeconds === null || globalSeconds === null) {
@@ -429,7 +441,9 @@ export default function CommandsPage({ active }: CommandsPageProps) {
             const dirty = settingsDirty || responseDirty
             const responsePool = command.response_pool
             const responseDraft = draft.responsePool
-            const responseValid = responseDraft !== null && responseDraft.some((response) => response.trim() !== '')
+            const parsedResponses = responsePool && responseDraft !== null ? parseResponsePool(responsePool, responseDraft) : []
+            const responseValid = parsedResponses.length > 0
+            const isRandom = responsePool?.response_mode === 'random'
             const expanded = Boolean(expandedCommands[command.name])
             const busy = busyCommand !== ''
             const detailsId = `command-details-${command.name}`
@@ -504,8 +518,10 @@ export default function CommandsPage({ active }: CommandsPageProps) {
                   {responsePool && responseDraft !== null && <div className="command-response-editor">
                     <div className="custom-response-heading">
                       <div>
-                        <h3>Forecast responses</h3>
-                        <p className="section-copy">The bot chooses one response at random. Built-in defaults: {responsePool.defaults.length}.</p>
+                        <h3>{isRandom ? 'Response pool' : 'Command message'}</h3>
+                        <p className="section-copy">{isRandom
+                          ? `One non-empty trimmed line is one response; blank lines are ignored. The bot chooses one at random. Built-in defaults: ${responsePool.defaults.length}. Maximum: ${responsePool.max_responses}.`
+                          : 'Edit the message sent by this command. New lines are preserved.'}</p>
                       </div>
                       <div className="command-response-badges">
                         {responsePool.has_saved_override && <span className="mini-badge saved-badge">Saved override</span>}
@@ -513,19 +529,20 @@ export default function CommandsPage({ active }: CommandsPageProps) {
                         {responseDirty && <span className="mini-badge dirty-badge">Edited</span>}
                       </div>
                     </div>
-                    <div className="custom-response-list">
-                      {responseDraft.map((response, index) => (
-                        <div className="custom-response-row" key={index}>
-                          <label className="form-field">Response {index + 1}
-                            <textarea disabled={busy} rows={2} value={response} onChange={(event) => updateDraft(command.name, { responsePool: responseDraft.map((item, itemIndex) => itemIndex === index ? event.target.value : item) })} placeholder="Forecast response" />
-                          </label>
-                          <button className="ghost" disabled={busy || responseDraft.length === 1} onClick={() => updateDraft(command.name, { responsePool: responseDraft.filter((_, itemIndex) => itemIndex !== index) })}>Remove</button>
-                        </div>
-                      ))}
-                    </div>
+                    <label className="form-field command-response-field">{isRandom ? 'Responses' : 'Message'}
+                      <textarea
+                        className="command-response-textarea"
+                        disabled={busy}
+                        rows={isRandom ? 7 : 5}
+                        value={responseDraft}
+                        onChange={(event) => updateDraft(command.name, { responsePool: event.target.value })}
+                        placeholder={isRandom ? 'One response per line' : 'Command message'}
+                      />
+                    </label>
+                    <p className="command-meta">{isRandom ? `${parsedResponses.length} responses ready` : responseValid ? 'Message ready' : 'Message required'}</p>
                     <div className="command-response-footer">
-                      <button className="secondary" disabled={busy} onClick={() => updateDraft(command.name, { responsePool: [...responseDraft, ''] })}>Add response</button>
-                      <div className="command-action-group" aria-label="Forecast response actions">
+                      <span className="command-action-hint">{isRandom ? 'Commas are preserved inside each response.' : 'The full message is saved as one response.'}</span>
+                      <div className="command-action-group" aria-label={`${data.command_prefix}${command.name} response actions`}>
                         <button className="secondary" disabled={busy || !responseDirty || !responseValid} onClick={() => void runResponseAction(command, 'apply')}>Apply</button>
                         <button className="primary" disabled={busy || (!responseDirty && responsePool.saved) || !responseValid} onClick={() => void runResponseAction(command, 'save')}>Save</button>
                         <button className="ghost" disabled={busy || (!responseDirty && !responsePool.has_saved_override && responsePool.saved)} onClick={() => void runResponseAction(command, 'reset')}>Reset</button>
@@ -548,34 +565,6 @@ export default function CommandsPage({ active }: CommandsPageProps) {
         </div>
         <button className="primary" disabled={!customData || busyCustom} onClick={() => setCustomDraft(newCustomDraft(customData?.permissions[0] ?? 'EVERYONE'))}>New command</button>
       </div>
-      {!customData ? <p className="muted">Loading custom commands…</p> : customData.commands.length === 0 ? (
-        <div className="empty-state-inline">
-          <strong>No custom commands yet</strong>
-          <p>Create a command to add a response to chat.</p>
-        </div>
-      ) : (
-        <div className="custom-command-list">
-          {customData.commands.map((command) => (
-            <article className="custom-command-row" key={command.id}>
-              <div className="custom-command-summary">
-                <div className="custom-command-heading">
-                  <strong>{customData.command_prefix}{command.name}</strong>
-                  <span className={`state-pill ${command.enabled ? 'enabled' : ''}`}>{command.enabled ? 'Enabled' : 'Disabled'}</span>
-                  {command.response_mode === 'random' && <span className="mini-badge">Random response</span>}
-                </div>
-                {command.aliases.length > 0 && <p className="command-meta">Aliases: {command.aliases.map((alias) => `${customData.command_prefix}${alias}`).join(', ')}</p>}
-                <p className="custom-command-response">{command.responses[0]}</p>
-                {command.responses.length > 1 && <small className="muted">{command.responses.length} response templates · one chosen at random</small>}
-              </div>
-              <div className="row-actions">
-                <button className="secondary" disabled={busyCustom} onClick={() => setCustomDraft(customDraftFromCommand(command))}>Edit</button>
-                <button className="secondary" disabled={busyCustom} onClick={() => void toggleCustom(command)}>{command.enabled ? 'Disable' : 'Enable'}</button>
-                <button className="ghost" disabled={busyCustom} onClick={() => void deleteCustom(command)}>Delete</button>
-              </div>
-            </article>
-          ))}
-        </div>
-      )}
       {customDraft && customData && (
         <div className="custom-command-editor">
           <div className="section-heading">
@@ -610,20 +599,12 @@ export default function CommandsPage({ active }: CommandsPageProps) {
           <div className="custom-response-heading">
             <div>
               <h3>Response templates</h3>
-              <p className="section-copy">When you add more than one response, the bot chooses one at random.</p>
+              <p className="section-copy">Enter 1 to 10 templates, one per non-empty line. Blank lines are ignored; commas are preserved. The bot chooses one at random.</p>
             </div>
-            <button className="secondary" disabled={busyCustom} onClick={() => updateCustomDraft({ responses: [...customDraft.responses, ''] })}>Add response</button>
           </div>
-          <div className="custom-response-list">
-            {customDraft.responses.map((response, index) => (
-              <div className="custom-response-row" key={index}>
-                <label className="form-field">Response {index + 1}
-                  <textarea rows={3} value={response} onChange={(event) => updateCustomDraft({ responses: customDraft.responses.map((item, itemIndex) => itemIndex === index ? event.target.value : item) })} placeholder="Hello, {sender}!" />
-                </label>
-                <button className="ghost" disabled={busyCustom || customDraft.responses.length === 1} onClick={() => updateCustomDraft({ responses: customDraft.responses.filter((_, itemIndex) => itemIndex !== index) })}>Remove</button>
-              </div>
-            ))}
-          </div>
+          <label className="form-field custom-response-field">Responses
+            <textarea className="custom-response-textarea" rows={7} value={customDraft.responses} onChange={(event) => updateCustomDraft({ responses: event.target.value })} placeholder="Hello, {sender}!" />
+          </label>
           <div className="custom-variable-help">
             <strong>Available variables</strong>
             <p>Insert these into any response. Other variable names are rejected when you save.</p>
@@ -637,6 +618,34 @@ export default function CommandsPage({ active }: CommandsPageProps) {
           <div className="settings-actions">
             <button className="primary" disabled={busyCustom} onClick={() => void saveCustom()}>{busyCustom ? 'Saving…' : 'Save command'}</button>
           </div>
+        </div>
+      )}
+      {!customData ? <p className="muted">Loading custom commands…</p> : customData.commands.length === 0 ? (
+        <div className="empty-state-inline">
+          <strong>No custom commands yet</strong>
+          <p>Create a command to add a response to chat.</p>
+        </div>
+      ) : (
+        <div className="custom-command-list">
+          {customData.commands.map((command) => (
+            <article className="custom-command-row" key={command.id}>
+              <div className="custom-command-summary">
+                <div className="custom-command-heading">
+                  <strong>{customData.command_prefix}{command.name}</strong>
+                  <span className={`state-pill ${command.enabled ? 'enabled' : ''}`}>{command.enabled ? 'Enabled' : 'Disabled'}</span>
+                  {command.response_mode === 'random' && <span className="mini-badge">Random response</span>}
+                </div>
+                {command.aliases.length > 0 && <p className="command-meta">Aliases: {command.aliases.map((alias) => `${customData.command_prefix}${alias}`).join(', ')}</p>}
+                <p className="custom-command-response">{command.responses[0]}</p>
+                {command.responses.length > 1 && <small className="muted">{command.responses.length} response templates · one chosen at random</small>}
+              </div>
+              <div className="row-actions">
+                <button className="secondary" disabled={busyCustom} onClick={() => setCustomDraft(customDraftFromCommand(command))}>Edit</button>
+                <button className="secondary" disabled={busyCustom} onClick={() => void toggleCustom(command)}>{command.enabled ? 'Disable' : 'Enable'}</button>
+                <button className="ghost" disabled={busyCustom} onClick={() => void deleteCustom(command)}>Delete</button>
+              </div>
+            </article>
+          ))}
         </div>
       )}
     </section>

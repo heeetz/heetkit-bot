@@ -232,10 +232,11 @@ For built-in `!tg` and `!forecast` responses, optionally create `config/fun_sett
 {"version": 1, "tg_message": "Your community link", "forecasts": ["Tomorrow brings a new opportunity."]}
 ```
 
-Responses must be non-empty and at most 450 UTF-8 bytes. Expand `!forecast` in Commands to
-edit its response pool: Apply changes this session, Save persists it atomically in the selected
-profile, and Reset restores neutral shipped responses. These actions preserve `tg_message` and
-other fields. Direct file edits, including `tg_message`, require restart. Missing or invalid
+Responses must be non-empty and at most 450 UTF-8 bytes. Expand `!forecast` or `!tg` in Commands to
+edit its responses or message/link: Apply changes this session, Save persists it atomically in the selected
+profile, and Reset restores neutral shipped responses. Forecast responses use one non-empty line
+per response; blank lines are ignored and commas remain part of the text. Each command's actions
+preserve the other command and unrelated fields. Direct file edits require restart. Missing or invalid
 files use neutral starters; unreadable/unsupported files must be repaired before saving from the UI.
 Existing profiles are never overwritten during seeding.
 
@@ -285,7 +286,7 @@ All commands are configurable from the Commands page. Hidden commands are omitte
 
 Built-in cooldowns come from `app/config/commands.py`; saved local overrides take precedence at runtime. `!tg` and hidden `!erase` currently have no built-in command cooldown; all other default cooldown values are explicitly configured there. The moderator-only `!tg` burst also bypasses the global output limiter; other outgoing commands and message reactions use it.
 
-The Commands page also lets you create your own commands with a name, optional aliases, permission level, per-user and global cooldowns, and one or more response templates. Multiple templates are chosen at random. Use `{sender}`, `{target}` (first argument, or sender if absent), `{args}`, `{arg1}` through `{arg9}` (missing arguments become blank), and `{random_user}` (a chatter seen in the last 30 minutes, or sender if none is available). Unknown variables are rejected when saving. Custom commands cannot take a built-in name or alias, and templates never run code. Replies are limited to 450 UTF-8 bytes and use the normal global output limiter.
+The Commands page also lets you create your own commands with a name, optional aliases, permission level, per-user and global cooldowns, and 1 to 10 response templates. The creator/editor appears above your existing commands. Enter one template per non-empty line; blank lines are ignored and commas remain part of the template. Multiple templates are chosen at random. Use `{sender}`, `{target}` (first argument, or sender if absent), `{args}`, `{arg1}` through `{arg9}` (missing arguments become blank), and `{random_user}` (a chatter seen in the last 30 minutes, or sender if none is available). Unknown variables are rejected when saving. Custom commands cannot take a built-in name or alias, and templates never run code. Replies are limited to 450 UTF-8 bytes and use the normal global output limiter.
 
 Ordinary chat can also trigger short, non-AI reactions. Edit app-data `config/message_triggers.json` to add or disable entries, then restart. Each entry needs a unique `id`, `enabled`, `match_mode` (`contains` or `exact`), `text`, `case_sensitive`, `probability` (0 to 1), `cooldown_seconds` (0 to 86400), and 1 to 10 literal `responses`. The starter file has an empty `triggers` list. Matching is in file order; at most one reaction is sent per message. Bot messages and command-prefixed messages do not trigger reactions. Responses have a 450-byte UTF-8 limit and share the global output limiter with commands. Invalid entries are skipped. Deleting the local file restores the empty starter on the next normal launch.
 
@@ -296,7 +297,7 @@ Ordinary chat can also trigger short, non-AI reactions. Edit app-data `config/me
 The built-in Commands section is registry-driven, including hidden commands. Cards start collapsed
 with enabled/availability, permission, and cooldown summaries; expand a card to edit its settings.
 Apply is process-local, Save writes app-data `config/command_settings.json`, and Reset removes the
-override and restores registry defaults. Forecast responses have separate Apply / Save / Reset
+override and restores registry defaults. Forecast responses and the `!tg` message have separate Apply / Save / Reset
 actions in the expanded editor. Weather and uptime continue to use runtime data. The separate
 Custom Commands section saves user-created commands immediately to app-data `config/custom_commands.json`.
 

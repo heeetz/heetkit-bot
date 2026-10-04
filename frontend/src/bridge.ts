@@ -37,6 +37,8 @@ export interface CommandInfo {
     defaults: string[]
     saved: boolean
     has_saved_override: boolean
+    response_mode: 'single' | 'random'
+    max_responses: number
   } | null
   permission: string
   cooldown: {
