@@ -192,7 +192,6 @@ td { color: #c6cfdf; }
 .settings-layout { display: grid; width: min(100%, 1240px); gap: 18px; }
 .settings-list { display: grid; gap: 10px; }
 .desktop-settings-list { grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); }
-.settings-field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 12px; }
 .settings-option { align-items: flex-start; gap: 13px; padding: 16px; border: 1px solid #2a354a; border-radius: 10px; background: #111722; }
 .settings-option .switch-track { margin-top: 1px; }
 .settings-option span, .settings-option strong, .settings-option small { display: block; }
@@ -217,8 +216,14 @@ td { color: #c6cfdf; }
 .filter-default-summary { margin: 13px 0 0; color: #8491a9; font-size: 12px; }
 .filter-category-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
 .filters-actions-card { display: flex; align-items: center; justify-content: flex-end; }
-.preset-editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 10px 12px; padding: 14px; border: 1px solid #2f3a50; border-radius: 10px; background: #111722; }
+.twitch-settings-list { gap: 20px; }
+.twitch-settings-group { display: grid; gap: 12px; min-width: 0; }
+.twitch-settings-group + .twitch-settings-group { padding-top: 20px; border-top: 1px solid #2a354a; }
+.twitch-settings-group h3 { margin: 0; color: #dce4f2; font-size: 15px; }
+.twitch-field-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 12px; }
+.twitch-field-pair > .form-field { grid-row: span 3; grid-template-rows: subgrid; align-items: start; min-width: 0; }
 .twitch-application-setup { display: grid; align-content: start; gap: 10px; min-width: 0; }
+.twitch-application-setup > button { justify-self: start; }
 .oauth-callback { display: grid; gap: 6px; color: #8f9bb0; font-size: 13px; }
 .oauth-callback > div { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .oauth-callback code { overflow-wrap: anywhere; }
@@ -346,7 +351,7 @@ td { color: #c6cfdf; }
   .filters-actions-card { align-items: stretch; }
   .ai-status-grid { grid-template-columns: 1fr; }
   .twitch-status-grid { grid-template-columns: 1fr; }
-  .ai-provider-status, .model-fields, .preset-editor { grid-template-columns: 1fr; }
+  .ai-provider-status, .model-fields, .twitch-field-pair { grid-template-columns: 1fr; }
   .preset-actions { grid-column: auto; justify-content: flex-start; }
   .feedback-toast { top: 14px; right: 14px; width: calc(100vw - 28px); }
   .about-heading { align-items: flex-start; flex-direction: column; }

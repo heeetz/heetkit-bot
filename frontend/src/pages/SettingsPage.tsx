@@ -462,61 +462,42 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
           {twitchDirty && <span className="mini-badge dirty-badge">Edited</span>}
         </div>
         {!twitchDraft ? <p className="muted">Loading Twitch settings…</p> : (
-          <div className="settings-list">
-            {(twitchTargetMissing || !twitchCredential?.configured) && (
-              <div className="setup-callout">
-                <div>
-                  <strong>Complete Twitch setup</strong>
-                  <p>Create a Twitch Developer Application and register the callback URL below. Enter its Client ID and bot/target logins and numeric IDs, save setup, and store its Client Secret under Secure credentials. Restart if required, Start Bot, then Authorize Twitch as the configured bot account.</p>
+          <div className="settings-list twitch-settings-list">
+            <section className="twitch-settings-group" aria-labelledby="twitch-preset-heading">
+              <h3 id="twitch-preset-heading">Connection preset</h3>
+              <div className="preset-editor twitch-field-pair">
+                <label className="form-field">
+                  <span>Connection preset</span>
+                  <select value={twitchDraft.selected_preset_id ?? ''} onChange={(event) => selectTwitchPreset(event.target.value)} disabled={Boolean(busy)}>
+                    <option value="">Custom target</option>
+                    {twitchDraft.presets.map((preset) => (
+                      <option value={preset.id} key={preset.id}>
+                        {preset.display_name}{preset.id === twitchDraft.active_preset_id ? ' (active)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <small>Presets store target-channel metadata only. They never contain credentials or OAuth tokens.</small>
+                </label>
+                <label className="form-field">
+                  <span>Preset name</span>
+                  <input value={presetName} onChange={(event) => { setPresetName(event.target.value); setError(''); setNotice('') }} placeholder="Personal test" disabled={Boolean(busy)} />
+                </label>
+                <div className="preset-actions">
+                  <button className="secondary" disabled={Boolean(busy) || !presetName.trim()} onClick={() => void saveTwitchPreset()}>{busy === 'twitch:preset-save' ? 'Saving...' : twitchDraft.selected_preset_id ? 'Update preset' : 'Create preset'}</button>
+                  <button className="ghost" disabled={Boolean(busy) || !twitchDraft.selected_preset_id} onClick={() => void deleteTwitchPreset()}>{busy === 'twitch:preset-delete' ? 'Deleting...' : 'Delete preset'}</button>
                 </div>
               </div>
-            )}
-            {twitchDraft.requires_restart && <p className="settings-hint">Saved client ID or bot identity is pending. Restart the application before connecting.</p>}
-            {(status?.twitch_connection_state === 'auth_required' || (!twitchTargetMissing && !twitchDraft.requires_restart && twitchCredential?.configured && !twitchDraft.oauth_token_available && !status?.twitch_connected)) && (
-              <div className="setup-callout">
-                <div>
-                  <strong>Twitch authorization required</strong>
-                  <p>{status?.running && status.twitch_connection_state === 'auth_required'
-                    ? 'Authorize Twitch opens in your browser. Sign in as the configured bot account.'
-                    : 'Start Bot from Dashboard, then choose Authorize Twitch here or on Dashboard. Sign in as the configured bot account.'}</p>
+            </section>
+            <section className="twitch-settings-group" aria-labelledby="twitch-application-heading">
+              <h3 id="twitch-application-heading">Twitch application</h3>
+              {(twitchTargetMissing || !twitchCredential?.configured) && (
+                <div className="setup-callout">
+                  <div>
+                    <strong>Complete Twitch setup</strong>
+                    <p>Create a Twitch Developer Application and register the callback URL below. Enter its Client ID and bot/target logins and numeric IDs, save setup, and store its Client Secret under Secure credentials. Restart if required, Start Bot, then Authorize Twitch as the configured bot account.</p>
+                  </div>
                 </div>
-                {status?.twitch_connection_state === 'auth_required' && (
-                  <button className="primary" disabled={Boolean(busy) || !status.running || twitchDraft.requires_restart} onClick={() => void openTwitchLink('twitch_authorization')}>
-                    {busy === 'external:twitch_authorization' ? 'Opening…' : 'Authorize Twitch'}
-                  </button>
-                )}
-              </div>
-            )}
-            <div className="twitch-status-grid">
-              <div><span>Connection</span><strong className={status?.twitch_connected ? 'status-good' : ''}>{status ? twitchConnectionLabel(status.twitch_connection_state) : twitchDraft.connected ? 'Connected' : twitchDraft.running ? 'Connecting' : 'Stopped'}</strong></div>
-              <div><span>Active bot account</span><strong>{status?.account || 'Not configured'}</strong></div>
-              <div><span>Active target</span><strong>{activePreset ? `${activePreset.display_name} (${twitchDraft.active_channel})` : twitchDraft.active_channel || 'Not configured'}</strong></div>
-              <div><span>Twitch authorization</span><strong>{status?.twitch_connection_state === 'auth_required' ? 'Required' : twitchDraft.oauth_token_available || status?.twitch_connected ? 'Ready' : 'Required'}</strong></div>
-              <div><span>Client secret</span><strong>{twitchCredential?.configured ? 'Configured' : 'Missing'}</strong></div>
-            </div>
-            <div className="preset-editor">
-              <label className="form-field">
-                Connection preset
-                <select value={twitchDraft.selected_preset_id ?? ''} onChange={(event) => selectTwitchPreset(event.target.value)} disabled={Boolean(busy)}>
-                  <option value="">Custom target</option>
-                  {twitchDraft.presets.map((preset) => (
-                    <option value={preset.id} key={preset.id}>
-                      {preset.display_name}{preset.id === twitchDraft.active_preset_id ? ' (active)' : ''}
-                    </option>
-                  ))}
-                </select>
-                <small>Presets store target-channel metadata only. They never contain credentials or OAuth tokens.</small>
-              </label>
-              <label className="form-field">
-                Preset name
-                <input value={presetName} onChange={(event) => { setPresetName(event.target.value); setError(''); setNotice('') }} placeholder="Personal test" disabled={Boolean(busy)} />
-              </label>
-              <div className="preset-actions">
-                <button className="secondary" disabled={Boolean(busy) || !presetName.trim()} onClick={() => void saveTwitchPreset()}>{busy === 'twitch:preset-save' ? 'Saving...' : twitchDraft.selected_preset_id ? 'Update preset' : 'Create preset'}</button>
-                <button className="ghost" disabled={Boolean(busy) || !twitchDraft.selected_preset_id} onClick={() => void deleteTwitchPreset()}>{busy === 'twitch:preset-delete' ? 'Deleting...' : 'Delete preset'}</button>
-              </div>
-            </div>
-            <div className="settings-field-grid">
+              )}
               <div className="twitch-application-setup">
                 <label className="form-field">
                   Twitch application client ID
@@ -532,32 +513,68 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
                   </div>
                 </div>
               </div>
-              <label className="form-field">
-                Bot account login
-                <input value={twitchDraft.bot_username} onChange={(event) => updateTwitchDraft({ bot_username: event.target.value })} placeholder="bot_name" />
-                <small>The account you will authorize in Twitch.</small>
-              </label>
-              <label className="form-field">
-                Bot account user ID
-                <input inputMode="numeric" value={twitchDraft.bot_user_id} onChange={(event) => updateTwitchDraft({ bot_user_id: event.target.value })} placeholder="123456789" />
-                <small>The numeric Twitch ID for the bot login.</small>
-              </label>
-              <label className="form-field">
-                Target channel login
-                <input value={twitchDraft.target_channel} onChange={(event) => updateTwitchDraft({ target_channel: event.target.value })} placeholder="channel_name" />
-                <small>Non-secret. Saved on this computer.</small>
-              </label>
-              <label className="form-field">
-                Target channel user ID
-                <input inputMode="numeric" value={twitchDraft.target_channel_user_id} onChange={(event) => updateTwitchDraft({ target_channel_user_id: event.target.value })} placeholder="123456789" />
-                <small>The numeric Twitch broadcaster ID used for chat subscriptions and API lookups.</small>
-              </label>
-            </div>
-            <div className="settings-actions">
-              <button className="secondary" disabled={!twitchDirty || Boolean(busy)} onClick={() => void saveTwitch(false)}>{busy === 'twitch:save' ? 'Saving…' : 'Save for later'}</button>
-              <button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch(true)}>{busy === 'twitch:reconnect' ? 'Reconnecting…' : twitchDraft.running ? 'Save & reconnect' : 'Save & apply'}</button>
-            </div>
-            <p className="settings-hint">{draftRequiresReconnect ? 'The selected target differs from the active connection and requires Save & reconnect.' : 'This target matches the active connection.'} Bot identity and OAuth authorization stay fixed; multi-account authentication is a separate future feature.</p>
+            </section>
+            <section className="twitch-settings-group" aria-labelledby="twitch-bot-heading">
+              <h3 id="twitch-bot-heading">Bot account</h3>
+              <div className="twitch-field-pair">
+                <label className="form-field">
+                  <span>Bot account login</span>
+                  <input value={twitchDraft.bot_username} onChange={(event) => updateTwitchDraft({ bot_username: event.target.value })} placeholder="bot_name" />
+                  <small>The account you will authorize in Twitch.</small>
+                </label>
+                <label className="form-field">
+                  <span>Bot account user ID</span>
+                  <input inputMode="numeric" value={twitchDraft.bot_user_id} onChange={(event) => updateTwitchDraft({ bot_user_id: event.target.value })} placeholder="123456789" />
+                  <small>The numeric Twitch ID for the bot login.</small>
+                </label>
+              </div>
+            </section>
+            <section className="twitch-settings-group" aria-labelledby="twitch-target-heading">
+              <h3 id="twitch-target-heading">Target channel</h3>
+              <div className="twitch-field-pair">
+                <label className="form-field">
+                  <span>Target channel login</span>
+                  <input value={twitchDraft.target_channel} onChange={(event) => updateTwitchDraft({ target_channel: event.target.value })} placeholder="channel_name" />
+                  <small>Non-secret. Saved on this computer.</small>
+                </label>
+                <label className="form-field">
+                  <span>Target channel user ID</span>
+                  <input inputMode="numeric" value={twitchDraft.target_channel_user_id} onChange={(event) => updateTwitchDraft({ target_channel_user_id: event.target.value })} placeholder="123456789" />
+                  <small>The numeric Twitch broadcaster ID used for chat subscriptions and API lookups.</small>
+                </label>
+              </div>
+            </section>
+            <section className="twitch-settings-group" aria-labelledby="twitch-actions-heading">
+              <h3 id="twitch-actions-heading">Actions and status</h3>
+              <div className="twitch-status-grid">
+                <div><span>Connection</span><strong className={status?.twitch_connected ? 'status-good' : ''}>{status ? twitchConnectionLabel(status.twitch_connection_state) : twitchDraft.connected ? 'Connected' : twitchDraft.running ? 'Connecting' : 'Stopped'}</strong></div>
+                <div><span>Active bot account</span><strong>{status?.account || 'Not configured'}</strong></div>
+                <div><span>Active target</span><strong>{activePreset ? `${activePreset.display_name} (${twitchDraft.active_channel})` : twitchDraft.active_channel || 'Not configured'}</strong></div>
+                <div><span>Twitch authorization</span><strong>{status?.twitch_connection_state === 'auth_required' ? 'Required' : twitchDraft.oauth_token_available || status?.twitch_connected ? 'Ready' : 'Required'}</strong></div>
+                <div><span>Client secret</span><strong>{twitchCredential?.configured ? 'Configured' : 'Missing'}</strong></div>
+              </div>
+              {twitchDraft.requires_restart && <p className="settings-hint">Saved client ID or bot identity is pending. Restart the application before connecting.</p>}
+              {(status?.twitch_connection_state === 'auth_required' || (!twitchTargetMissing && !twitchDraft.requires_restart && twitchCredential?.configured && !twitchDraft.oauth_token_available && !status?.twitch_connected)) && (
+                <div className="setup-callout">
+                  <div>
+                    <strong>Twitch authorization required</strong>
+                    <p>{status?.running && status.twitch_connection_state === 'auth_required'
+                      ? 'Authorize Twitch opens in your browser. Sign in as the configured bot account.'
+                      : 'Start Bot from Dashboard, then choose Authorize Twitch here or on Dashboard. Sign in as the configured bot account.'}</p>
+                  </div>
+                  {status?.twitch_connection_state === 'auth_required' && (
+                    <button className="primary" disabled={Boolean(busy) || !status.running || twitchDraft.requires_restart} onClick={() => void openTwitchLink('twitch_authorization')}>
+                      {busy === 'external:twitch_authorization' ? 'Opening…' : 'Authorize Twitch'}
+                    </button>
+                  )}
+                </div>
+              )}
+              <div className="settings-actions">
+                <button className="secondary" disabled={!twitchDirty || Boolean(busy)} onClick={() => void saveTwitch(false)}>{busy === 'twitch:save' ? 'Saving…' : 'Save for later'}</button>
+                <button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch(true)}>{busy === 'twitch:reconnect' ? 'Reconnecting…' : twitchDraft.running ? 'Save & reconnect' : 'Save & apply'}</button>
+              </div>
+              <p className="settings-hint">{draftRequiresReconnect ? 'The selected target differs from the active connection and requires Save & reconnect.' : 'This target matches the active connection.'} Bot identity and OAuth authorization stay fixed; multi-account authentication is a separate future feature.</p>
+            </section>
           </div>
         )}
       </section>

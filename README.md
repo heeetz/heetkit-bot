@@ -241,7 +241,7 @@ Existing profiles are never overwritten during seeding.
 
 ## Twitch setup
 
-1. Launch the desktop and open **Settings → Twitch connection**. Select **Open Twitch Developer Console** beside the Client ID field to create a Twitch Developer Application in your external browser. Its Client ID and Client Secret identify the application.
+1. Launch the desktop and open **Settings → Twitch connection**. Select **Open Twitch Developer Console** in the **Twitch application** section to create a Twitch Developer Application in your external browser. Its Client ID and Client Secret identify the application.
 2. Use **Copy** beside the callback URL in Settings and register this exact URL in your Twitch Developer Application:
 
    ```text

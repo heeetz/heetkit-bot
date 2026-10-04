@@ -71,20 +71,31 @@ test('browser opening failures retain accessible error feedback', async ({ page 
   await expect(page.getByRole('alert')).toHaveText(/Could not open the external link/)
 })
 
-for (const width of [1280, 900, 390]) {
-  test(`preset controls align responsively at ${width}px`, async ({ page }) => {
+for (const width of [1280, 900, 761, 760, 390, 320]) {
+  test(`Twitch field pairs align responsively at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 })
     await page.goto('/tests/fixture.html?settings')
-    const preset = page.getByLabel('Connection preset')
-    const name = page.getByRole('textbox', { name: 'Preset name', exact: true })
-    await expect(name).toBeVisible()
-    const presetBounds = (await preset.boundingBox())!
-    const nameBounds = (await name.boundingBox())!
-    if (width > 800) {
-      expect(Math.abs(presetBounds.y - nameBounds.y)).toBeLessThanOrEqual(1)
-    } else {
-      expect(nameBounds.y).toBeGreaterThan(presetBounds.y + presetBounds.height)
-      expect(nameBounds.x).toBe(presetBounds.x)
+    for (const [firstLabel, secondLabel] of [
+      ['Connection preset', 'Preset name'],
+      ['Bot account login', 'Bot account user ID'],
+      ['Target channel login', 'Target channel user ID'],
+    ]) {
+      const first = page.getByRole(firstLabel === 'Connection preset' ? 'combobox' : 'textbox', { name: firstLabel })
+      const second = page.getByRole('textbox', { name: secondLabel })
+      await expect(second).toBeVisible()
+      const firstBounds = (await first.boundingBox())!
+      const secondBounds = (await second.boundingBox())!
+      if (width > 760) {
+        expect(Math.abs(firstBounds.y - secondBounds.y)).toBeLessThanOrEqual(1)
+        expect(secondBounds.x).toBeGreaterThan(firstBounds.x + firstBounds.width)
+      } else {
+        expect(secondBounds.y).toBeGreaterThan(firstBounds.y + firstBounds.height)
+        expect(secondBounds.x).toBe(firstBounds.x)
+      }
+      for (const field of [first, second]) {
+        // Helper text must not stretch the input's grid row.
+        expect((await field.boundingBox())!.height).toBeLessThan(50)
+      }
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
   })
