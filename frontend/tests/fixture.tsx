@@ -57,6 +57,14 @@ window.pywebview = { api: {
     auto_start_bot: authRequired, start_minimized: false, minimize_to_tray: false,
     close_to_tray: false, tray_available: false,
   } }),
+  get_profile_info: async () => {
+    if (query.has('profileLocationError')) throw new Error('The profile location is unavailable.')
+    return { path: query.get('profilePath') ?? 'C:\\Synthetic profiles\\TwitchBot' }
+  },
+  open_profile_folder: async () => {
+    opened.push('profile_folder')
+    return query.has('folderOpenError') ? { ok: false, error: 'Could not open the profile folder in the system file manager.' } : { ok: true }
+  },
   get_twitch_settings: async () => ({ ok: true, settings: twitch }),
   get_credentials: async () => ({ ok: true, credentials }),
   get_ai_provider_settings: async () => ({ ok: true, settings: {

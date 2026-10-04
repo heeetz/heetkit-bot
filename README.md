@@ -137,6 +137,11 @@ stores.
 
 The app-data root is `%LOCALAPPDATA%\TwitchBot` on Windows, `~/Library/Application Support/TwitchBot` on macOS, and `${XDG_DATA_HOME:-~/.local/share}/TwitchBot` on Linux. It contains `config/`, `data/`, `auth/`, and `cache/`.
 
+In **Settings → Data & diagnostics**, view the resolved current profile location, choose
+**Open profile folder** to open it in the system file manager, or **Copy path** to copy its
+location. This uses the selected profile, including `--data-dir` and `TWITCH_BOT_DATA_DIR`
+overrides. The folder may contain private authentication and application data; do not share it.
+
 Personality and built-in response settings belong in `config/personality_settings.json` and
 `config/fun_settings.json` inside the selected profile. The `.legacy-migration-v1` marker records
 a one-time migration attempt; it does not certify that these optional files exist. Missing

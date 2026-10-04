@@ -31,6 +31,31 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [profilePath, setProfilePath] = useState('')
+  const [profileError, setProfileError] = useState('')
+
+  useEffect(() => {
+    if (!active) return
+    let mounted = true
+    const loadProfile = async () => {
+      try {
+        const api = await waitForBridge()
+        const profile = await api.get_profile_info()
+        if (!profile.path) throw new Error('The profile location is unavailable.')
+        if (mounted) {
+          setProfilePath(profile.path)
+          setProfileError('')
+        }
+      } catch (reason) {
+        if (mounted) {
+          setProfilePath('')
+          setProfileError(reason instanceof Error ? reason.message : 'Could not load the profile location.')
+        }
+      }
+    }
+    void loadProfile()
+    return () => { mounted = false }
+  }, [active])
 
   useEffect(() => {
     if (!active) {
@@ -141,19 +166,16 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
     }
   }
 
-  const copyCallback = async () => {
-    if (!twitchDraft) {
-      return
-    }
+  const copyText = async (value: string, successMessage: string, failureMessage: string) => {
     setError('')
     setNotice('')
     try {
       if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(twitchDraft.oauth_callback_url)
+        await navigator.clipboard.writeText(value)
       } else {
         const previousFocus = document.activeElement
         const input = document.createElement('textarea')
-        input.value = twitchDraft.oauth_callback_url
+        input.value = value
         input.setAttribute('readonly', '')
         input.style.position = 'fixed'
         input.style.opacity = '0'
@@ -170,9 +192,25 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
           }
         }
       }
-      setNotice('OAuth callback URL copied.')
+      setNotice(successMessage)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not copy the callback URL.')
+      setError(reason instanceof Error ? reason.message : failureMessage)
+    }
+  }
+
+  const openProfileFolder = async () => {
+    setBusy('profile:open')
+    setError('')
+    setNotice('')
+    try {
+      const api = await waitForBridge()
+      const result = await api.open_profile_folder()
+      if (!result.ok) throw new Error(result.error ?? 'Could not open the profile folder.')
+      setNotice('Profile folder opened.')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not open the profile folder.')
+    } finally {
+      setBusy('')
     }
   }
 
@@ -509,7 +547,7 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
                   <span>Register this OAuth callback URL in your application:</span>
                   <div>
                     <code>{twitchDraft.oauth_callback_url}</code>
-                    <button className="ghost" aria-label="Copy OAuth callback URL" onClick={() => void copyCallback()}>Copy</button>
+                    <button className="ghost" aria-label="Copy OAuth callback URL" onClick={() => void copyText(twitchDraft.oauth_callback_url, 'OAuth callback URL copied.', 'Could not copy the callback URL.')}>Copy</button>
                   </div>
                 </div>
               </div>
@@ -634,6 +672,23 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
             })}
           </div>
         )}
+      </section>
+      <section className="card settings-page" aria-labelledby="profile-location-heading">
+        <div className="section-heading">
+          <div>
+            <h2 id="profile-location-heading">Data &amp; diagnostics</h2>
+            <p className="section-copy">This folder may contain private authentication and application data. Do not share it.</p>
+          </div>
+        </div>
+        <div className="profile-location">
+          <span className="label">CURRENT PROFILE FOLDER</span>
+          {profileError ? <p className="credential-warning" role="alert">{profileError}</p>
+            : profilePath ? <code>{profilePath}</code> : <p className="muted">Loading profile location…</p>}
+          <div className="profile-location-actions">
+            <button className="secondary" disabled={!profilePath || Boolean(busy)} onClick={() => void openProfileFolder()}>{busy === 'profile:open' ? 'Opening…' : 'Open profile folder'}</button>
+            <button className="ghost" disabled={!profilePath || Boolean(busy)} onClick={() => void copyText(profilePath, 'Profile path copied.', 'Could not copy the profile path.')}>Copy path</button>
+          </div>
+        </div>
       </section>
     </div>
   )

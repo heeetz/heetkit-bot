@@ -9,6 +9,7 @@ import importlib.metadata
 import logging
 import math
 import os
+import subprocess
 import sys
 import threading
 import webbrowser
@@ -324,6 +325,7 @@ class WebUIBridge:
         self._log_buffer = log_buffer or get_recent_log_buffer()
         self._app_settings = app_settings
         self._credential_manager = credential_manager
+        self._profile_root = RuntimePaths.default().root.resolve()
 
     def _wait_for_backend(
         self,
@@ -430,6 +432,29 @@ class WebUIBridge:
             "license_url": EXTERNAL_LINKS["license"],
             "third_party_notices_url": EXTERNAL_LINKS["third_party_notices"],
         }
+
+    def get_profile_info(self) -> dict[str, str]:
+        return {"path": str(self._profile_root)}
+
+    def open_profile_folder(self) -> dict[str, object]:
+        """Open only this desktop's selected profile, never a frontend-supplied path."""
+        try:
+            if not self._profile_root.is_dir():
+                return {"ok": False, "error": "The profile folder is no longer available."}
+            if sys.platform == "win32":
+                os.startfile(str(self._profile_root), "explore")
+            else:
+                subprocess.run(
+                    ["open" if sys.platform == "darwin" else "xdg-open", str(self._profile_root)],
+                    check=True,
+                    timeout=5,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+        except (OSError, subprocess.SubprocessError):
+            self._logger.warning("Could not open the profile folder")
+            return {"ok": False, "error": "Could not open the profile folder in the system file manager."}
+        return {"ok": True}
 
     def open_external_link(self, destination: object) -> dict[str, object]:
         if not isinstance(destination, str) or destination not in EXTERNAL_LINKS:

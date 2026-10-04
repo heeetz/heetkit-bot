@@ -158,6 +158,10 @@ export interface AppSettingsResponse extends ActionResult {
   settings?: AppSettings
 }
 
+export interface ProfileInfo {
+  path: string
+}
+
 export interface TwitchConnectionSettings {
   target_channel: string
   target_channel_user_id: string
@@ -278,6 +282,8 @@ interface PythonApi {
   save_profile_instructions(prompt: string): Promise<ActionResult>
   reset_profile_instructions(): Promise<ActionResult>
   get_app_settings(): Promise<AppSettingsResponse>
+  get_profile_info(): Promise<ProfileInfo>
+  open_profile_folder(): Promise<ActionResult>
   update_app_settings(startMinimized: boolean, minimizeToTray: boolean, closeToTray: boolean, autoStartBot: boolean): Promise<ActionResult>
   get_twitch_settings(): Promise<TwitchSettingsResponse>
   update_twitch_settings(targetChannel: string, targetChannelUserId: string, selectedPresetId?: string | null, clientId?: string, botUsername?: string, botUserId?: string): Promise<ActionResult>

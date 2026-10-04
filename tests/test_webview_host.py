@@ -22,6 +22,7 @@ from app.app_settings import (
 from app.config.settings import Settings
 from app.container import Application
 from app.credentials import CredentialStatus
+from app.runtime_paths import DATA_DIR_ENV
 from app.runtime_state import RuntimeState
 from app.twitch.client import OAUTH_AUTHORIZATION_URL, OAUTH_REDIRECT_URI
 from app.twitch.permissions import Permission
@@ -282,6 +283,108 @@ def test_bridge_exposes_about_metadata_and_fixed_external_destinations(monkeypat
         "ok": False,
         "error": "That external link is not available.",
     }
+
+
+def test_bridge_profile_location_uses_default_runtime_owner(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv(DATA_DIR_ENV, raising=False)
+    root = tmp_path / "default profile"
+    monkeypatch.setattr("app.runtime_paths.user_data_path", lambda *args, **kwargs: root)
+    bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace()))
+
+    assert bridge.get_profile_info() == {"path": str(root.resolve())}
+    assert not root.exists()  # Reading diagnostics must not create or migrate data.
+
+
+def test_desktop_cli_profile_location_uses_data_dir_over_environment(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path / "environment profile"))
+    root = tmp_path / "CLI profile"
+    settings = Settings()
+    monkeypatch.setattr(sys, "argv", [
+        "twitch-bot", "--data-dir", root.name, "--stopped", "--dev-url", "http://localhost:5173",
+    ])
+    monkeypatch.setattr("app.webview_host.load_settings_with_credentials", lambda: (settings, None))
+    monkeypatch.setattr("app.webview_host.configure_logging", lambda level: None)
+    opened = []
+    monkeypatch.setattr("app.webview_host.os.startfile", lambda *args: opened.append(args), raising=False)
+    monkeypatch.setattr("app.webview_host.subprocess.run", lambda command, **kwargs: opened.append(tuple(command)))
+
+    def capture_desktop(settings, frontend_url, **kwargs):
+        bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace()))
+        assert bridge.get_profile_info() == {"path": str(root.resolve())}
+        assert bridge.open_profile_folder() == {"ok": True}
+        assert settings.twitch_token_file == str(root / "auth" / "twitchio_tokens.json")
+        assert kwargs["auto_start"] is False
+
+    monkeypatch.setattr("app.webview_host.run_desktop_host", capture_desktop)
+    main()
+    assert len(opened) == 1
+    assert str(root.resolve()) in opened[0]
+    assert not (tmp_path / "environment profile").exists()
+
+
+@pytest.mark.parametrize("platform,launcher", [("win32", None), ("darwin", "open"), ("linux", "xdg-open")])
+def test_bridge_opens_captured_selected_profile(tmp_path, monkeypatch, platform, launcher) -> None:
+    monkeypatch.chdir(tmp_path)
+    root = tmp_path / "Selected profile & 日本語"
+    root.mkdir()
+    monkeypatch.setenv(DATA_DIR_ENV, root.name)
+    bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace()))
+    # An environment/cwd change after startup must not select another profile.
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path / "other"))
+    monkeypatch.chdir(root)
+    assert bridge.get_profile_info() == {"path": str(root.resolve())}
+    monkeypatch.setattr("app.webview_host.sys.platform", platform)
+    calls = []
+    monkeypatch.setattr("app.webview_host.os.startfile", lambda *args: calls.append(args), raising=False)
+    monkeypatch.setattr("app.webview_host.subprocess.run", lambda *args, **kwargs: calls.append((args, kwargs)))
+
+    assert bridge.open_profile_folder() == {"ok": True}
+    if launcher is None:
+        assert calls == [(str(root.resolve()), "explore")]
+    else:
+        assert calls == [(([launcher, str(root.resolve())],), {
+            "check": True, "timeout": 5, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL,
+        })]
+    assert list(root.iterdir()) == []
+
+
+@pytest.mark.parametrize("as_file", [False, True])
+def test_bridge_refuses_to_open_missing_or_replaced_profile(tmp_path, monkeypatch, as_file) -> None:
+    root = tmp_path / "missing profile"
+    if as_file:
+        root.write_text("synthetic data", encoding="utf-8")
+    monkeypatch.setenv(DATA_DIR_ENV, str(root))
+    bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace()))
+    monkeypatch.setattr("app.webview_host.os.startfile", lambda *args: pytest.fail("opened a non-directory"), raising=False)
+    monkeypatch.setattr("app.webview_host.subprocess.run", lambda *args, **kwargs: pytest.fail("opened a non-directory"))
+
+    assert bridge.open_profile_folder() == {
+        "ok": False, "error": "The profile folder is no longer available.",
+    }
+
+
+@pytest.mark.parametrize("platform,error", [
+    ("win32", OSError("synthetic private path")),
+    ("linux", FileNotFoundError("xdg-open")),
+    ("linux", subprocess.CalledProcessError(1, "xdg-open")),
+    ("darwin", subprocess.TimeoutExpired("open", 5)),
+])
+def test_bridge_reports_file_manager_failure_without_private_details(tmp_path, monkeypatch, caplog, platform, error) -> None:
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path))
+    bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace()))
+    monkeypatch.setattr("app.webview_host.sys.platform", platform)
+
+    def fail(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr("app.webview_host.os.startfile", fail, raising=False)
+    monkeypatch.setattr("app.webview_host.subprocess.run", fail)
+    assert bridge.open_profile_folder() == {
+        "ok": False, "error": "Could not open the profile folder in the system file manager.",
+    }
+    assert "synthetic private path" not in caplog.text
+    assert str(tmp_path) not in caplog.text
 
 
 def twitch_authorization_bridge(tmp_path, *, running=True, state="auth_required", **overrides):
