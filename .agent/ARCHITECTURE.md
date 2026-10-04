@@ -16,7 +16,8 @@ responsibilities and boundaries, not implementation detail from entire source fi
 - macOS/Linux source launches use `python -m app.main`; the PowerShell share-archive script is
   development packaging tooling, not an application runtime dependency.
 - `app/main.py` delegates to `app/webview_host.py`.
-- Production mode loads the generated, Git-ignored `frontend/dist/index.html`. Development
+- Production mode prefers packaged `app/resources/frontend/index.html`; a recognized source
+  checkout falls back to generated, Git-ignored `frontend/dist/index.html`. Development
   mode can load a Vite URL with `--dev-url`. Normal launch follows the saved
   `startup.auto_start_bot` preference (default off); `--stopped` explicitly overrides it off.
   `--check` validates configuration/build availability without opening the UI.
@@ -101,7 +102,8 @@ Responsibility: one tray icon and window behavior per application process.
   backend fails to start, the host shows the window and does not hide it on close/minimize.
 - `AppSettingsStore` supplies the versioned local application settings. Its `window` section
   owns start-minimized, minimize-to-tray, and close-to-tray behavior. Its `twitch` section may
-  override the non-secret target-channel login and numeric user ID. Start minimized controls
+  override non-secret client ID, bot login/user ID, and target-channel login/user ID. Identity
+  changes are saved for restart; target-only reconnect preserves them. Start minimized controls
   only initial window visibility. Its `startup.auto_start_bot` setting independently controls
   whether the bot connection starts on the next normal desktop launch and defaults to false.
 
@@ -217,8 +219,10 @@ changes still require restart.
   subscription, incoming-message mapping, and connection-state updates.
 - `app/services/twitch.py` is the command/service-facing API boundary. It is bound to the
   authenticated TwitchIO client and exposes category and followage lookups.
-- `.env` supplies initial Twitch identity/channel defaults. A validated local target-channel
-  override is applied before application composition. Named stable-ID connection presets in
+- Environment/profile `.env` supplies initial Twitch identity/channel defaults. Validated local
+  identity and target overrides are applied before composition; old target-only files retain
+  deployment identity. Settings exposes complete setup and pending identity changes; reconnect
+  refuses a pending identity change until restart. Named stable-ID connection presets in
   the local app-settings `twitch` section contain only a display name, target login, and numeric
   broadcaster ID; selection updates the same target override. Save & reconnect uses the
   existing `BotRuntime` stop/start lifecycle on its owning asyncio loop.
@@ -262,7 +266,7 @@ changes still require restart.
 | Built-in personality prompts | `app/resources/personalities.json` | Tracked package data |
 | Protected shared AI instructions | `app/config/personalities.py` | Tracked application code |
 | Gemini model presets | `app/resources/gemini_models.json` | Tracked package data |
-| Ordinary application preferences | App-data `config/app_settings.json` (`startup`, `window`, AI memory/models, non-secret `twitch` target and named target presets) | Outside repository |
+| Ordinary application preferences | App-data `config/app_settings.json` (`startup`, `window`, AI memory/models, non-secret Twitch identity/target and named target presets) | Outside repository |
 | Command overrides | App-data `config/command_settings.json` | Outside repository |
 | Custom commands | App-data `config/custom_commands.json` | Outside repository |
 | Built-in fun-command responses | App-data `config/fun_settings.json`; neutral code fallbacks | Outside repository |
@@ -271,8 +275,8 @@ changes still require restart.
 | Twitch OAuth tokens | App-data `auth/twitchio_tokens.json` | Outside repository; secret |
 | Users and AI memory | App-data `data/twitch_bot.db` | Outside repository; private |
 | Locally editable filters | App-data `config/filters/*.txt` | Outside repository |
-| Distributed filter defaults | `data/filters/*.txt` | Tracked, read-only at runtime |
-| Frontend source / generated build | `frontend/src`, `frontend/dist` | Source tracked; build ignored |
+| Distributed filter defaults | `app/resources/filters/*.txt` | Tracked, read-only at runtime |
+| Frontend source / generated build | `frontend/src`, `frontend/dist`; staged installed assets in `app/resources/frontend` | Source tracked; generated/staged builds ignored |
 
 ### Shipped-default inventory (TODO-012)
 
@@ -296,15 +300,20 @@ changes still require restart.
 exact locations. `app/runtime_paths.py` owns the paths and first-launch migration. Before
 opening local state, a launch using the default profile copies missing legacy checkout JSON, SQLite,
 TwitchIO tokens, and filter files to the new root. SQLite is copied through its backup API.
-Old files are retained; the `.legacy-migration-v1` marker prevents a later reset from
-reimporting them. Missing filter files are reseeded from tracked source defaults. `--check`
+Legacy discovery is limited to a recognized source checkout (`pyproject.toml` plus
+`frontend/package.json`); install-directory siblings never supply migration data. Old files
+are retained; the `.legacy-migration-v1` marker prevents a later reset from reimporting them.
+Missing filter files are reseeded from package-owned starters. `--check`
 does not create directories or migrate data.
 
 `--data-dir <path>` overrides `TWITCH_BOT_DATA_DIR`; both select the same runtime architecture.
 Resolution occurs before credential loading, the instance guard, migration or composition.
 Alternate roots never import checkout state and always use their own SQLite/OAuth paths, ignoring
-legacy `DATABASE_URL`/`TWITCH_TOKEN_FILE` locations. They load `<profile>/.env`, while the normal
-profile loads checkout `.env`. Explicit process environment variables remain deliberate overrides.
+legacy `DATABASE_URL`/`TWITCH_TOKEN_FILE` locations. Every root loads `<profile>/.env`; only the
+normal source profile also retains checkout `.env` as a lower-priority compatibility fallback.
+Environment discovery never uses cwd. Relative legacy storage inputs resolve against the source
+root for the normal source profile, otherwise the selected profile. Explicit process environment
+variables override deployment files; saved Twitch identity/target overrides are applied afterward.
 The standard profile retains keyring service `twitch-bot`; alternate roots use
 `twitch-bot:<SHA-256 of os.path.normcase(str(resolved_root))>`. Entry names are `gemini_api_key` and
 `twitch_client_secret`. Moving an alternate root changes its keyring namespace; config reset does not.
@@ -323,14 +332,16 @@ application logs or other cache files at present; `cache/` is reserved for futur
 
 ## Current source and release boundary
 
-- The supported current workflow runs from the source checkout through `run.bat`,
-  `python -m app.main`, or the installed `twitch-bot` entry point. There is no standalone
-  end-user bundle or installer yet.
+- Source launch uses `run.bat`, `python -m app.main`, or `twitch-bot`. Runtime declarations
+  explicitly include root `config.py`, `app*` packages and required `app.resources` data;
+  implicit package data is disabled. A non-editable distribution requires prebuilt frontend
+  staging under `app/resources/frontend`. No standalone end-user bundle or installer exists yet.
 - `scripts/package.ps1` creates a developer source archive from tracked working-tree files.
   It intentionally retains agent context, TODOs, docs, tests, and development scripts; it is
   not an app release or a substitute for a public-source secret/history review. Untracked files
   and private/generated artifacts are excluded from this archive.
-- Vite output under `frontend/dist` is generated and ignored. Standalone packaging must rebuild
+- Vite output under `frontend/dist` and staged `app/resources/frontend` files are generated and
+  ignored. Frontend build/staging automation remains TODO-014. Standalone packaging must rebuild
   it and include the Python runtime plus required tracked resources; it must not require Python,
   Node.js, or the development virtual environment on the target machine.
 - Root behavior configuration, packaged personality/model resources, frontend assets, and

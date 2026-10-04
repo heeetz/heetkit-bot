@@ -166,8 +166,10 @@ Decision:
 Ordinary non-secret desktop preferences use the versioned platform app-data
 `config/app_settings.json` file.
 Schema version 1 contains independent `startup`/`window` settings, AI memory and
-selected/fallback model settings, and an optional non-secret Twitch target-channel override
-with named target presets; future ordinary sections may extend this model. Twitch presets have
+selected/fallback model settings, and optional non-secret Twitch client-ID, bot-identity and
+target-channel overrides with named target presets. Identity/client-ID edits require restart;
+target-only reconnect uses the current identity. Legacy target-only data remains compatible.
+Twitch presets have
 stable IDs but do not contain credentials or represent authenticated bot accounts. Command and
 personality overrides remain separate domain stores. Automatic bot startup defaults off and is
 opt-in local state.
@@ -245,8 +247,11 @@ Decision:
 Shipped resources contain neutral starters only. Owner tuning is local profile data.
 `--data-dir` or `TWITCH_BOT_DATA_DIR` selects the root before any local state or credentials
 are loaded. The normal root preserves legacy migration and its original keyring service;
-alternate roots skip automatic imports, use profile-local deployment `.env`, and use keyring
-namespaces derived from the resolved root. Existing config is never overwritten during seeding.
+alternate roots skip automatic imports and use keyring
+namespaces derived from the resolved root. All roots load profile-local deployment `.env`;
+only a recognized normal source launch also reads checkout `.env` as a lower-priority fallback.
+Neither installed defaults nor deployment discovery depend on cwd or install-directory siblings.
+Existing config is never overwritten during seeding.
 An unconfigured profile must open the desktop with no Twitch identity or credentials. Twitch
 connection requirements are enforced before creating a session; incomplete automatic start
 leaves the desktop usable. Missing client secrets are optional secret values, never placeholders.
@@ -277,7 +282,11 @@ Decision:
 The source repository may retain tests, agent context, TODOs, and development documentation.
 `scripts/package.ps1` is a tracked-files developer source archive, not an app release.
 Generated frontend output, frozen applications, installers, and release archives remain
-untracked build artifacts. A standalone application packaging spec must explicitly include its
+untracked build artifacts. Setuptools explicitly declares root `config.py`, `app*` packages and
+runtime package data, with implicit data disabled. Neutral starters belong to `app/resources`;
+legacy checkout data is migration input only. Installed frontend assets belong to
+`app/resources/frontend`, with a recognized source fallback to `frontend/dist`. Build/staging
+automation and freezing remain TODO-014. A standalone application packaging spec must explicitly include its
 runtime and resources, exclude development-only/private state, and keep mutable user data and
 credentials outside the install directory. Public source publication requires a separate review
 of the current tree and Git history for secrets and private data. Windows is the first release

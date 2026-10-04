@@ -164,6 +164,8 @@ export interface TwitchConnectionSettings {
   requires_reconnect: boolean
   bot_username: string
   bot_user_id: string
+  client_id: string
+  requires_restart: boolean
   running: boolean
   connected: boolean
   oauth_token_available: boolean
@@ -257,7 +259,7 @@ interface PythonApi {
   get_app_settings(): Promise<AppSettingsResponse>
   update_app_settings(startMinimized: boolean, minimizeToTray: boolean, closeToTray: boolean, autoStartBot: boolean): Promise<ActionResult>
   get_twitch_settings(): Promise<TwitchSettingsResponse>
-  update_twitch_settings(targetChannel: string, targetChannelUserId: string, selectedPresetId?: string | null): Promise<ActionResult>
+  update_twitch_settings(targetChannel: string, targetChannelUserId: string, selectedPresetId?: string | null, clientId?: string, botUsername?: string, botUserId?: string): Promise<ActionResult>
   save_twitch_preset(presetId: string | null, displayName: string, targetChannel: string, targetChannelUserId: string): Promise<TwitchPresetActionResult>
   delete_twitch_preset(presetId: string): Promise<ActionResult>
   reconnect_twitch(): Promise<ActionResult>
@@ -276,6 +278,7 @@ export interface ActionResult {
   ok: boolean
   changed?: boolean
   requires_reconnect?: boolean
+  requires_restart?: boolean
   error?: string
 }
 

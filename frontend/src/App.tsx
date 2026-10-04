@@ -100,13 +100,22 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onNavi
       (credential) => credential.name === 'twitch_client_secret',
     )
     const twitchTargetReady = Boolean(
-      setup.twitch.target_channel.trim() && setup.twitch.target_channel_user_id.trim(),
+      setup.twitch.target_channel.trim() && setup.twitch.target_channel_user_id.trim()
+        && setup.twitch.client_id.trim() && setup.twitch.bot_username.trim() && setup.twitch.bot_user_id.trim(),
     )
     if (!twitchTargetReady || !twitchCredential?.configured) {
       setupTasks.push({
         title: 'Configure Twitch',
-        description: 'Add the target channel and Twitch client secret before starting the bot.',
+        description: 'Add the Twitch client ID, bot identity, target channel and client secret in Settings, then restart.',
         action: 'Configure Twitch',
+        section: 'Settings',
+        targetId: 'twitch-settings',
+      })
+    } else if (setup.twitch.requires_restart) {
+      setupTasks.push({
+        title: 'Restart to apply Twitch setup',
+        description: 'The saved client ID or bot identity is pending. Restart the application before connecting.',
+        action: 'Review setup',
         section: 'Settings',
         targetId: 'twitch-settings',
       })

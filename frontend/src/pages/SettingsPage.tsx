@@ -61,7 +61,10 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
           setTwitchDraft((current) => {
             const dirty = current && twitchSaved
               && (current.target_channel !== twitchSaved.target_channel
-                || current.target_channel_user_id !== twitchSaved.target_channel_user_id)
+                || current.target_channel_user_id !== twitchSaved.target_channel_user_id
+                || current.client_id !== twitchSaved.client_id
+                || current.bot_username !== twitchSaved.bot_username
+                || current.bot_user_id !== twitchSaved.bot_user_id)
             return dirty ? current : twitchResponse.settings!
           })
           setTwitchSaved(twitchResponse.settings)
@@ -175,11 +178,14 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
         channel,
         channelUserId,
         selectedPresetId,
+        twitchDraft.client_id,
+        twitchDraft.bot_username,
+        twitchDraft.bot_user_id,
       )
       if (!savedResult.ok) {
         throw new Error(savedResult.error ?? 'Twitch settings could not be saved.')
       }
-      if (reconnect) {
+      if (reconnect && !savedResult.requires_restart) {
         const reconnectResult = await api.reconnect_twitch()
         if (!reconnectResult.ok) {
           throw new Error(reconnectResult.error ?? 'Twitch could not reconnect.')
@@ -196,7 +202,9 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
       )
       setPresetName(refreshedPreset?.display_name ?? '')
       setNotice(
-        reconnect
+        savedResult.requires_restart
+          ? 'Twitch setup saved. Restart the application to apply the client ID and bot identity, then Start Bot to authorize Twitch.'
+          : reconnect
           ? refreshed.settings.running
             ? 'Twitch settings saved and the connection was restarted.'
             : 'Twitch settings saved and applied for the next bot start.'
@@ -239,10 +247,11 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
         throw new Error(refreshed.error ?? 'Twitch settings could not be refreshed.')
       }
       setTwitchSaved(refreshed.settings)
-      setTwitchDraft(refreshed.settings)
       const refreshedPreset = refreshed.settings.presets.find(
         (preset) => preset.id === result.preset_id,
       )
+      setTwitchDraft({ ...refreshed.settings, client_id: twitchDraft.client_id,
+        bot_username: twitchDraft.bot_username, bot_user_id: twitchDraft.bot_user_id })
       setPresetName(refreshedPreset?.display_name ?? name)
       setNotice(
         result.requires_reconnect
@@ -277,9 +286,10 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
         throw new Error(refreshed.error ?? 'Twitch settings could not be refreshed.')
       }
       setTwitchSaved(refreshed.settings)
-      setTwitchDraft(refreshed.settings)
       setPresetName('')
       setNotice('Preset deleted. The saved target channel was left unchanged.')
+      setTwitchDraft({ ...refreshed.settings, client_id: twitchDraft.client_id,
+        bot_username: twitchDraft.bot_username, bot_user_id: twitchDraft.bot_user_id })
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Twitch preset could not be deleted.')
     } finally {
@@ -333,6 +343,9 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
     twitchDraft && twitchSaved
       && (twitchDraft.target_channel !== twitchSaved.target_channel
         || twitchDraft.target_channel_user_id !== twitchSaved.target_channel_user_id
+        || twitchDraft.client_id !== twitchSaved.client_id
+        || twitchDraft.bot_username !== twitchSaved.bot_username
+        || twitchDraft.bot_user_id !== twitchSaved.bot_user_id
         || twitchDraft.selected_preset_id !== twitchSaved.selected_preset_id),
   )
   const activePreset = twitchDraft?.presets.find(
@@ -350,7 +363,8 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
   )
   const twitchTargetMissing = Boolean(
     twitchDraft
-      && (!twitchDraft.target_channel.trim() || !twitchDraft.target_channel_user_id.trim()),
+      && (!twitchDraft.target_channel.trim() || !twitchDraft.target_channel_user_id.trim()
+        || !twitchDraft.client_id.trim() || !twitchDraft.bot_username.trim() || !twitchDraft.bot_user_id.trim()),
   )
   return (
     <div className="settings-layout">
@@ -391,7 +405,7 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
           <div>
             <p className="label">TWITCH CONNECTION</p>
             <h2>Channel and account</h2>
-            <p className="section-copy">Channel changes are stored locally. Save and reconnect to apply them to a running bot.</p>
+            <p className="section-copy">Setup belongs to this profile. Client ID and bot identity changes require an application restart. Channel changes can be applied with reconnect.</p>
           </div>
           {twitchDirty && <span className="mini-badge dirty-badge">Edited</span>}
         </div>
@@ -401,21 +415,22 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
               <div className="setup-callout">
                 <div>
                   <strong>Complete Twitch setup</strong>
-                  <p>Add a target channel, broadcaster ID, and Twitch client secret before starting the bot.</p>
+                  <p>Enter the Twitch application client ID, bot login and numeric user ID, and target channel login and ID. Save the client secret below, then restart and Start Bot.</p>
                 </div>
               </div>
             )}
-            {!twitchTargetMissing && twitchCredential?.configured && !twitchDraft.oauth_token_available && !status?.twitch_connected && (
+            {twitchDraft.requires_restart && <p className="settings-hint">Saved client ID or bot identity is pending. Restart the application before connecting.</p>}
+            {!twitchTargetMissing && !twitchDraft.requires_restart && twitchCredential?.configured && !twitchDraft.oauth_token_available && !status?.twitch_connected && (
               <div className="setup-callout">
                 <div>
                   <strong>Twitch authorization required</strong>
-                  <p>Start or reconnect the bot to complete authorization in Twitch.</p>
+                  <p>Register http://localhost:4343/oauth/callback in the Twitch Developer Console. Start Bot, then open the authorization URL shown in Logs and sign in as the configured bot account.</p>
                 </div>
               </div>
             )}
             <div className="twitch-status-grid">
               <div><span>Connection</span><strong className={status?.twitch_connected ? 'status-good' : ''}>{status ? twitchConnectionLabel(status.twitch_connection_state) : twitchDraft.connected ? 'Connected' : twitchDraft.running ? 'Connecting' : 'Stopped'}</strong></div>
-              <div><span>Bot account</span><strong>{twitchDraft.bot_username && twitchDraft.bot_user_id ? `${twitchDraft.bot_username} (${twitchDraft.bot_user_id})` : 'Not configured'}</strong></div>
+              <div><span>Active bot account</span><strong>{status?.account || 'Not configured'}</strong></div>
               <div><span>Active target</span><strong>{activePreset ? `${activePreset.display_name} (${twitchDraft.active_channel})` : twitchDraft.active_channel || 'Not configured'}</strong></div>
               <div><span>Twitch authorization</span><strong>{twitchDraft.oauth_token_available || status?.twitch_connected ? 'Ready' : 'Required'}</strong></div>
               <div><span>Client secret</span><strong>{twitchCredential?.configured ? 'Configured' : 'Missing'}</strong></div>
@@ -443,6 +458,21 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
               </div>
             </div>
             <div className="settings-field-grid">
+              <label className="form-field">
+                Twitch application client ID
+                <input value={twitchDraft.client_id} onChange={(event) => updateTwitchDraft({ client_id: event.target.value })} placeholder="Client ID from the Twitch Developer Console" />
+                <small>Non-secret. Register the callback URL http://localhost:4343/oauth/callback for this application.</small>
+              </label>
+              <label className="form-field">
+                Bot account login
+                <input value={twitchDraft.bot_username} onChange={(event) => updateTwitchDraft({ bot_username: event.target.value })} placeholder="bot_name" />
+                <small>The account you will authorize in Twitch.</small>
+              </label>
+              <label className="form-field">
+                Bot account user ID
+                <input inputMode="numeric" value={twitchDraft.bot_user_id} onChange={(event) => updateTwitchDraft({ bot_user_id: event.target.value })} placeholder="123456789" />
+                <small>The numeric Twitch ID for the bot login.</small>
+              </label>
               <label className="form-field">
                 Target channel login
                 <input value={twitchDraft.target_channel} onChange={(event) => updateTwitchDraft({ target_channel: event.target.value })} placeholder="channel_name" />

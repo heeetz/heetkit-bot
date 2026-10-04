@@ -570,6 +570,8 @@ def test_bridge_exposes_and_saves_non_secret_twitch_settings(tmp_path) -> None:
         "requires_reconnect": False,
         "bot_username": "testbot",
         "bot_user_id": "100",
+        "client_id": "",
+        "requires_restart": False,
         "running": True,
         "connected": True,
         "oauth_token_available": True,
@@ -578,6 +580,7 @@ def test_bridge_exposes_and_saves_non_secret_twitch_settings(tmp_path) -> None:
     assert bridge.update_twitch_settings("NewChannel", "300") == {
         "ok": True,
         "requires_reconnect": True,
+        "requires_restart": False,
     }
     assert store.snapshot().twitch == TwitchSettings(
         channel="newchannel",
@@ -633,6 +636,7 @@ def test_bridge_manages_twitch_presets_without_changing_bot_identity(tmp_path) -
     assert bridge.update_twitch_settings("testchannel", "300", preset_id) == {
         "ok": True,
         "requires_reconnect": True,
+        "requires_restart": False,
     }
     assert bridge.delete_twitch_preset(preset_id) == {"ok": True}
     assert store.snapshot().twitch.presets == ()
@@ -946,6 +950,10 @@ def test_bridge_reads_bounded_logs_with_validated_cursor_arguments() -> None:
 
 
 def test_production_frontend_requires_a_built_entrypoint(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.webview_host.PACKAGED_FRONTEND",
+        SimpleNamespace(is_file=lambda: False),
+    )
     monkeypatch.setattr(
         "app.webview_host.FRONTEND_ENTRYPOINT",
         SimpleNamespace(is_file=lambda: False),

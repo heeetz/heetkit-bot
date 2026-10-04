@@ -148,6 +148,9 @@ def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
             "selected_model": None,
         },
         "twitch": {
+            "client_id": None,
+            "bot_username": None,
+            "bot_user_id": None,
             "channel": None,
             "channel_user_id": None,
             "presets": [],
@@ -199,6 +202,9 @@ def test_twitch_app_settings_are_validated_persisted_and_reloaded(tmp_path) -> N
     assert AppSettingsStore(settings_path).snapshot().twitch == updated.twitch
     payload = json.loads(settings_path.read_text(encoding="utf-8"))
     assert payload["twitch"] == {
+        "client_id": None,
+        "bot_username": None,
+        "bot_user_id": None,
         "channel": "testchannel",
         "channel_user_id": "200",
         "presets": [],

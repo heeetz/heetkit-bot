@@ -36,7 +36,6 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
-Copy-Item .env.example .env
 ```
 
 Install and build the frontend once:
@@ -48,7 +47,7 @@ npm run build
 Pop-Location
 ```
 
-Edit `.env` with the required Twitch values, then validate configuration and the frontend build:
+Validate desktop configuration and frontend availability (Twitch setup can be completed after launch):
 
 ```powershell
 python -m app.main --check
@@ -96,11 +95,19 @@ off. Use `--stopped` to force the desktop shell to open without connecting even 
 preference is enabled. Production mode loads generated `frontend/dist/` assets; the directory
 is intentionally ignored and recreated by `npm run build`.
 
+Runtime distribution declarations include root `config.py` and the resources under
+`app/resources/`, including neutral filters, triggers, personalities, models and icons.
+Installed launches load prebuilt frontend files from `app/resources/frontend/`; a recognized
+source checkout can use `frontend/dist/`. Both paths are independent of the working directory.
+Before creating a Python distribution, stage the contents of `frontend/dist/` in
+`app/resources/frontend/`. Generated frontend files remain ignored. Automatic frontend staging,
+standalone freezing and release artifacts are future packaging work; no standalone release is available yet.
+
 ## Configuration
 
 Configuration responsibilities remain separated:
 
-- `.env` contains deployment values, account identity, logging settings, and private credential fallbacks. It is loaded by `app/config/settings.py` and must remain private. Credentials stored through the Settings page in the system keyring take precedence; Gemini changes apply immediately, while Twitch client-secret changes require restart.
+- Optional `<profile>/.env` contains deployment defaults, logging settings and private credential fallbacks. The normal source profile also reads the recognized checkout's `.env` as a compatibility fallback; profile-file values take precedence. Installed launches and alternate profiles never search the working directory or install directory for `.env`. Explicit process environment values override file defaults. Credentials stored through Settings in the system keyring take precedence; Gemini changes apply immediately, while Twitch client-secret changes require restart.
 - `config.py` contains non-secret behavioral defaults, including cooldowns, neutral command responses, AI response length, memory limits, and the neutral personality identifier. Built-in personality prompts live in the tracked `app/resources/personalities.json` resource; protected shared AI instructions remain application code in `app/config/personalities.py`.
 - `config/command_settings.json` under the platform app-data root contains optional local command overrides. Commands without overrides continue to use registry defaults.
 - `config/custom_commands.json` under that root contains versioned, local custom commands. Invalid entries are skipped and cannot disable built-in commands.
@@ -108,15 +115,16 @@ Configuration responsibilities remain separated:
 - `config/personality_settings.json` under that root contains the locally selected AI personality and prompt overrides, including user-created personality IDs. Shared AI instructions are not editable.
 - `config/app_settings.json` under that root is a versioned local application-settings file. It contains the
   opt-in automatic-start preference, window/tray preferences, AI memory and selected/fallback
-  Gemini models, plus optional non-secret Twitch target-channel settings and named target
+  Gemini models, plus non-secret Twitch client ID, bot login/user ID, target-channel settings and named target
   presets. Legacy flat window settings remain readable and are rewritten in the versioned
   format on the next save.
 - Apply actions take effect for the current process; Save persists local overrides; Reset restores source-controlled defaults. On first normal launch, existing checkout data is copied into the platform app-data root; the old files are left in place. Deleting the new config JSON files restores defaults on the next launch.
 
 The app-data root is `%LOCALAPPDATA%\TwitchBot` on Windows, `~/Library/Application Support/TwitchBot` on macOS, and `${XDG_DATA_HOME:-~/.local/share}/TwitchBot` on Linux. It contains `config/`, `data/`, `auth/`, and `cache/`.
 
-The environment variables supported by the current application are listed below. Values marked
-required are needed to start Twitch; a fresh desktop profile opens without them and shows
+The environment variables supported by the current application are listed below. Twitch identity
+and channel values can also be saved in Settings; saved profile values override deployment defaults.
+Values marked required are needed to start Twitch; a fresh desktop profile opens without them and shows
 **Configure Twitch**. Missing setup blocks Start Bot with a configuration message. Incomplete
 automatic startup leaves the desktop open with Twitch stopped.
 
@@ -147,7 +155,7 @@ key/provider, `!ask` is unavailable, while its enabled preference is retained. A
 key in Settings restores AI availability immediately; a deliberately disabled command stays disabled.
 Use the credential Test action to verify the key with the provider.
 
-Global message filters start empty and are copied from tracked `data/filters/` into app-data `config/filters/` on first launch. Manage them on the desktop **Filters** page: Apply changes the running session, while Save keeps validated changes across restarts. The page marks source-default and local rules and highlights invalid entries. You can also edit the app-data copies directly; missing copies are recreated from the tracked defaults:
+Global message filters start empty and are copied from shipped `app/resources/filters/` into app-data `config/filters/` on first launch. Manage them on the desktop **Filters** page: Apply changes the running session, while Save keeps validated changes across restarts. The page marks source-default and local rules and highlights invalid entries. You can also edit the app-data copies directly; missing copies are recreated from the shipped defaults:
 
 - `blocked_words.txt` contains whole-word matches;
 - `blocked_phrases.txt` contains literal phrase matches;
@@ -168,8 +176,8 @@ python -m app.main --data-dir C:\BotProfiles\Clean --stopped
 ```
 
 `TWITCH_BOT_DATA_DIR` is the equivalent environment override; `--data-dir` takes priority.
-Alternate profiles can launch before setup. They load their own `<profile>/.env` (copy
-`.env.example` and supply Twitch values before connecting), skip automatic legacy imports, and use their own config, database,
+Alternate profiles can launch before setup. Configure Twitch in Settings, or optionally copy
+`.env.example` to `<profile>/.env` for deployment defaults. They skip automatic legacy imports and use their own config, database,
 OAuth cache and keyring namespace. Explicit process environment variables still apply.
 Point the override at your normal app-data root to use the existing owner profile.
 `--check --data-dir <path>` validates without creating or migrating profile files.
@@ -196,18 +204,18 @@ Existing profiles are never overwritten during seeding.
 
 ## Twitch setup
 
-1. Create a Twitch Developer application and place its client ID and secret in `.env`.
+1. Create a Twitch Developer application. Launch the desktop and open **Settings → Twitch connection**.
 2. Register this exact OAuth callback URL in the Twitch Developer Console:
 
    ```text
    http://localhost:4343/oauth/callback
    ```
 
-3. Set the bot account username/user ID and initial destination channel name/user ID in `.env`. The Settings page can later save a local target-channel override without moving credentials into ordinary JSON.
-4. Start the application. If authorization is required, the log prints the local TwitchIO authorization URL served on port `4343`.
+3. Enter the application client ID, bot account login and numeric user ID, and destination channel login and numeric user ID. Save the setup. These non-secret values belong to this profile. Named presets contain target-channel metadata only.
+4. Under **Secure credentials**, replace the Twitch client secret. Restart the application to apply the saved client ID, bot identity and secret. Use **Start Bot**; if authorization is required, Logs shows the local TwitchIO authorization URL served on port `4343`.
 5. Authorize the configured bot account. The application requests chat read/write, bot, and follower-read scopes used by the current implementation.
 
-TwitchIO stores generated access and refresh tokens in app-data `auth/twitchio_tokens.json`. Token files contain credentials: never commit, publish, email, or include them in a manually created ZIP.
+TwitchIO stores generated access and refresh tokens in app-data `auth/twitchio_tokens.json`. Token files contain credentials: never commit, publish, email, or include them in a manually created ZIP. The `.env` deployment path remains available for source users or systems without keyring storage; use the private profile file and restart after edits. The app never writes setup into its installation directory.
 
 ## AI setup
 
@@ -265,8 +273,9 @@ Live logs use a thread-safe 500-entry backend buffer and a bounded 500-entry fro
 
 The Settings page controls automatic bot startup, start minimized, minimize to tray, and close
 to tray. Its Twitch section shows connection, configured bot identity, OAuth-cache status, and
-the active/target channel. Target settings and named presets write only display names, channel
-logins, and numeric user IDs to app-data `config/app_settings.json`; Save & reconnect applies the selected
+the active/target channel. Non-secret identity and target settings write to app-data
+`config/app_settings.json`; identity/client-ID changes require restart. Named presets store only
+display names, target logins and numeric broadcaster IDs. Save & reconnect applies the selected
 target through the existing bot lifecycle. The page also shows masked credential status for the
 Gemini API key and Twitch client secret, with Replace, Remove, and provider Test actions.
 Credential values are never returned to React; changes use the system keyring. Gemini changes
@@ -291,9 +300,10 @@ Generated local files include:
 | App-data `config/fun_settings.json` | Local built-in command responses | Never |
 | App-data `config/message_triggers.json` | Local message reactions | Never |
 | App-data `config/personality_settings.json` | Local personality text and selection | Never |
-| App-data `config/app_settings.json` | Versioned local startup, window/tray, AI memory/model, and non-secret Twitch target/preset preferences | Never |
+| App-data `config/app_settings.json` | Versioned local startup, window/tray, AI memory/model, and non-secret Twitch identity/target/preset preferences | Never |
 | App-data `config/filters/*.txt` | Locally editable filter rules | Review before sharing |
-| Source `data/filters/*.txt` | Distributed filter defaults | Yes, after reviewing custom content |
+| `app/resources/filters/*.txt` | Neutral distributed filter starters | Yes |
+| Legacy checkout `data/filters/*.txt` | Private migration input | Never |
 | `.venv/`, caches, build output, logs, IDE metadata | Generated local development state | No |
 
 The database may contain Twitch user IDs, usernames, last-seen timestamps, and recent AI exchanges. Treat it as private even if it contains no API secrets.
@@ -344,10 +354,10 @@ npm run build
 
 ## Troubleshooting
 
-- Missing Twitch setup: the desktop opens disconnected. For the normal source-launch profile, copy `.env.example` to `.env` in the repository root and launch from that directory. For an alternate profile, copy it to `<profile>/.env`. Fill the required Twitch values and restart before Start Bot. The client ID and bot username/user ID still require deployment configuration; Settings edits the target channel and credentials. `--check` checks desktop configuration and frontend availability; Twitch-required values are checked when connecting.
+- Missing Twitch setup: the desktop opens disconnected. Enter the client ID, bot login/user ID and target login/user ID in Settings, save the Twitch client secret under Secure credentials, then restart before Start Bot. Optional deployment defaults can be supplied in `<profile>/.env`; the original source profile retains its checkout `.env` fallback. `--check` checks desktop configuration and frontend availability; Twitch-required values are checked when connecting.
 - Twitch authentication failure: verify the client credentials, numeric account IDs, callback URL, and that the intended bot account completed OAuth. Remove a stale local token file only when you intentionally want to authorize again.
 - Import or command not found: activate `.venv` and rerun `python -m pip install -e ".[dev]"`.
 - No control panel: verify that the process has access to a graphical desktop and that the Microsoft Edge WebView2 runtime is installed. `python -m app.main --check` intentionally does not open the GUI.
-- Web UI build missing: run `npm install` and `npm run build` in `frontend/`, then retry `python -m app.main`.
+- Web UI build missing: for source launches, run `npm install` and `npm run build` in `frontend/`. Installed distributions must supply the declared prebuilt files under `app/resources/frontend/`.
 - Web UI development server unavailable: start `npm run dev` in `frontend/` before using `--dev-url http://localhost:5173`.
 - Gemini unavailable: verify `GEMINI_API_KEY`, the selected model, network access, and package installation. Other non-AI commands continue to work without Gemini.

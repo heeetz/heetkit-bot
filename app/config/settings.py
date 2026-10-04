@@ -11,7 +11,7 @@ from app.config.ai_models import (
     validate_gemini_model_id,
 )
 from app.credentials import CredentialManager, CredentialName, CredentialStore
-from app.runtime_paths import RuntimePaths
+from app.runtime_paths import RuntimePaths, SOURCE_ROOT
 
 
 class TwitchConfigurationError(ValueError):
@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     """Runtime settings for the primary bot process."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=None,
         env_file_encoding="utf-8",
         env_prefix="",
         extra="ignore",
@@ -105,7 +105,7 @@ class EnvironmentCredentialSettings(BaseSettings):
     """Private `.env`/environment fallbacks for OS-backed credentials."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=None,
         env_file_encoding="utf-8",
         env_prefix="",
         extra="ignore",
@@ -128,8 +128,12 @@ def load_settings_with_credentials(
     env_file: str | Path | None = ".env",
 ) -> tuple[Settings, CredentialManager]:
     paths = RuntimePaths.default()
-    if env_file == ".env" and not paths.is_default_profile:
+    if env_file == ".env":
+        # Only the original profile retains a recognized checkout's private
+        # fallback. The profile file wins; the working directory is never read.
         env_file = paths.root / ".env"
+        if paths.is_default_profile and SOURCE_ROOT is not None:
+            env_file = (SOURCE_ROOT / ".env", env_file)
     environment = EnvironmentCredentialSettings(_env_file=env_file)
     manager = CredentialManager(
         {

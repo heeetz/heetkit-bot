@@ -37,8 +37,6 @@ htmlcov/
 # Runtime data
 data/*
 !data/.gitkeep
-!data/filters/
-!data/filters/*.txt
 *.db
 *.db-wal
 *.db-shm
@@ -62,6 +60,7 @@ dist/
 # Frontend dependencies and generated assets
 node_modules/
 .vite/
+/app/resources/frontend/
 
 # Editor, OS, and temporary files
 .DS_Store

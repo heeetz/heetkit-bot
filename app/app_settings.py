@@ -8,7 +8,7 @@ import os
 import re
 import tempfile
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from threading import RLock
 
@@ -52,6 +52,9 @@ class TwitchSettings:
     channel_user_id: str | None = None
     presets: tuple[TwitchConnectionPreset, ...] = ()
     selected_preset_id: str | None = None
+    client_id: str | None = None
+    bot_username: str | None = None
+    bot_user_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +129,18 @@ def _validate_preset_id(preset_id: object) -> str:
     ):
         raise ValueError("Twitch preset ID is invalid.")
     return preset_id
+
+
+def validate_twitch_identity(
+    client_id: object, bot_username: object, bot_user_id: object,
+) -> tuple[str, str, str]:
+    if not isinstance(client_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", client_id.strip()):
+        raise ValueError("Twitch client ID must contain only letters, digits, underscores or hyphens.")
+    if not isinstance(bot_username, str) or not re.fullmatch(r"[A-Za-z0-9_]{1,25}", bot_username.strip()):
+        raise ValueError("Twitch bot username must be a login name with letters, digits or underscores.")
+    if not isinstance(bot_user_id, str) or not re.fullmatch(r"[0-9]{1,20}", bot_user_id.strip()):
+        raise ValueError("Twitch bot user ID must contain digits only.")
+    return client_id.strip(), bot_username.strip().lower(), bot_user_id.strip()
 
 
 def _validate_preset_name(display_name: object) -> str:
@@ -281,6 +296,15 @@ def load_app_settings(path: Path) -> AppSettings:
         if selected_preset_id is not None:
             logger.warning("Ignoring Twitch preset selection without a target channel")
         twitch = TwitchSettings(presets=twitch_presets)
+
+    identity = tuple(_read_optional_string(twitch_payload, "twitch", name)
+                     for name in ("client_id", "bot_username", "bot_user_id"))
+    if any(value is not None for value in identity):
+        try:
+            client_id, bot_username, bot_user_id = validate_twitch_identity(*identity)
+            twitch = replace(twitch, client_id=client_id, bot_username=bot_username, bot_user_id=bot_user_id)
+        except ValueError:
+            logger.warning("Ignoring invalid or incomplete Twitch identity override")
 
     selected_model = _read_optional_string(ai_payload, "ai", "selected_model")
     fallback_model = _read_optional_string(ai_payload, "ai", "fallback_model")
@@ -483,6 +507,9 @@ class AppSettingsStore:
         channel: object,
         channel_user_id: object,
         selected_preset_id: object = None,
+        client_id: object = None,
+        bot_username: object = None,
+        bot_user_id: object = None,
     ) -> AppSettings:
         with self._lock:
             twitch = validate_twitch_settings(
@@ -491,6 +518,13 @@ class AppSettingsStore:
                 presets=self._settings.twitch.presets,
                 selected_preset_id=selected_preset_id,
             )
+            identity = (client_id, bot_username, bot_user_id)
+            if any(value is not None for value in identity):
+                client_id, bot_username, bot_user_id = validate_twitch_identity(*identity)
+            else:
+                current = self._settings.twitch
+                client_id, bot_username, bot_user_id = current.client_id, current.bot_username, current.bot_user_id
+            twitch = replace(twitch, client_id=client_id, bot_username=bot_username, bot_user_id=bot_user_id)
             updated = AppSettings(
                 window=self._settings.window,
                 startup=self._settings.startup,
@@ -543,7 +577,8 @@ class AppSettingsStore:
                 window=self._settings.window,
                 startup=self._settings.startup,
                 ai=self._settings.ai,
-                twitch=TwitchSettings(
+                twitch=replace(
+                    self._settings.twitch,
                     channel=parsed_channel,
                     channel_user_id=parsed_channel_user_id,
                     presets=presets,
@@ -564,7 +599,8 @@ class AppSettingsStore:
                 window=self._settings.window,
                 startup=self._settings.startup,
                 ai=self._settings.ai,
-                twitch=TwitchSettings(
+                twitch=replace(
+                    current,
                     channel=current.channel,
                     channel_user_id=current.channel_user_id,
                     presets=tuple(

@@ -17,7 +17,7 @@ from typing import Any, Coroutine
 
 from pydantic import SecretStr, ValidationError
 
-from app.app_settings import AISettings, AppSettings, AppSettingsStore
+from app.app_settings import AISettings, AppSettings, AppSettingsStore, TwitchSettings
 from app.bot_runtime import BotRuntime
 from app.command_settings import CommandSettings
 from app.commands.registry import command_unavailable_reason
@@ -38,7 +38,10 @@ from app.filter_settings import (
     save_filter_settings,
     validate_filter_input,
 )
-from app.runtime_paths import DATA_DIR_ENV, RuntimePaths, RuntimeDataError, prepare_runtime_data
+from app.runtime_paths import (
+    DATA_DIR_ENV, PACKAGED_FRONTEND, SOURCE_ROOT,
+    RuntimePaths, RuntimeDataError, prepare_runtime_data,
+)
 from app.system_tray import SystemTray
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
@@ -50,8 +53,7 @@ from app.utils.logging import (
 )
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-FRONTEND_ENTRYPOINT = PROJECT_ROOT / "frontend" / "dist" / "index.html"
+FRONTEND_ENTRYPOINT = SOURCE_ROOT / "frontend" / "dist" / "index.html" if SOURCE_ROOT is not None else PACKAGED_FRONTEND
 ICON_ROOT = Path(__file__).resolve().parent / "resources"
 WINDOWS_APP_ID = "TwitchBot.Desktop"
 FALLBACK_SHUTDOWN_TIMEOUT_SECONDS = 5.0
@@ -918,8 +920,10 @@ class WebUIBridge:
                     or target_channel_user_id
                     != application.settings.twitch_channel_user_id
                 ),
-                "bot_username": application.settings.twitch_bot_username,
-                "bot_user_id": application.settings.twitch_bot_user_id,
+                "client_id": local.client_id or getattr(application.settings, "twitch_client_id", ""),
+                "bot_username": local.bot_username or application.settings.twitch_bot_username,
+                "bot_user_id": local.bot_user_id or application.settings.twitch_bot_user_id,
+                "requires_restart": self._twitch_identity_requires_restart(local),
                 "running": runtime_state.status()[0],
                 "connected": runtime_state.twitch_connected,
                 "oauth_token_available": Path(
@@ -937,6 +941,9 @@ class WebUIBridge:
         target_channel: object,
         target_channel_user_id: object,
         selected_preset_id: object = None,
+        client_id: object = None,
+        bot_username: object = None,
+        bot_user_id: object = None,
     ) -> dict[str, object]:
         if self._app_settings is None:
             return {"ok": False, "error": "Desktop settings are not configured."}
@@ -945,6 +952,9 @@ class WebUIBridge:
                 channel=target_channel,
                 channel_user_id=target_channel_user_id,
                 selected_preset_id=selected_preset_id,
+                client_id=client_id,
+                bot_username=bot_username,
+                bot_user_id=bot_user_id,
             )
         except ValueError as error:
             return {"ok": False, "error": str(error)}
@@ -965,7 +975,20 @@ class WebUIBridge:
                 "event_action": "save",
             },
         )
-        return {"ok": True, "requires_reconnect": requires_reconnect}
+        return {
+            "ok": True, "requires_reconnect": requires_reconnect,
+            "requires_restart": self._twitch_identity_requires_restart(updated.twitch),
+        }
+
+    def _twitch_identity_requires_restart(self, local: TwitchSettings) -> bool:
+        active = self._backend.application.settings
+        return any(
+            value is not None and value != getattr(active, f"twitch_{name}", "")
+            for name, value in (
+                ("client_id", local.client_id), ("bot_username", local.bot_username),
+                ("bot_user_id", local.bot_user_id),
+            )
+        )
 
     def save_twitch_preset(
         self,
@@ -1032,6 +1055,8 @@ class WebUIBridge:
             return {"ok": False, "error": "Desktop settings are not configured."}
         application = self._backend.application
         local = self._app_settings.snapshot().twitch
+        if self._twitch_identity_requires_restart(local):
+            return {"ok": False, "error": "Restart the application to apply the saved Twitch client ID and bot identity."}
         channel = local.channel or application.settings.twitch_channel
         channel_user_id = (
             local.channel_user_id or application.settings.twitch_channel_user_id
@@ -1348,23 +1373,24 @@ class WebUIBridge:
 def resolve_frontend_url(dev_url: str | None) -> str:
     if dev_url:
         return dev_url
+    if PACKAGED_FRONTEND.is_file():
+        return str(PACKAGED_FRONTEND)
     if not FRONTEND_ENTRYPOINT.is_file():
         raise FileNotFoundError(
-            "Frontend build is missing. Run 'npm install' and 'npm run build' in frontend/."
+            "Frontend build is missing. Source launches require 'npm install' and 'npm run build' in frontend/. "
+            "Installed distributions require prebuilt assets in app/resources/frontend/."
         )
     return str(FRONTEND_ENTRYPOINT)
 
 
 def apply_twitch_app_settings(settings: Settings, app_settings: AppSettings) -> Settings:
     twitch = app_settings.twitch
-    if twitch.channel is None or twitch.channel_user_id is None:
-        return settings
-    return settings.model_copy(
-        update={
-            "twitch_channel": twitch.channel,
-            "twitch_channel_user_id": twitch.channel_user_id,
-        }
-    )
+    overrides = {
+        f"twitch_{name}": value
+        for name in ("client_id", "bot_username", "bot_user_id", "channel", "channel_user_id")
+        if (value := getattr(twitch, name)) is not None
+    }
+    return settings.model_copy(update=overrides)
 
 
 def apply_ai_app_settings(settings: Settings, app_settings: AppSettings) -> Settings:

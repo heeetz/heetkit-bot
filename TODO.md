@@ -28,7 +28,7 @@ When asked to execute a TODO:
 
 TODO-013 is complete. Its single-pass report is in `.agent/HANDOFF.md`; implementation
 history is in Git. The checkpoint classified release risks, not approval to package.
-TODO-013A is complete. Resolve TODO-013B–013C before beginning TODO-014, and address
+TODO-013A–013B are complete. Resolve TODO-013C before beginning TODO-014, and address
 TODO-013D before the packaging freeze. Execute follow-ups only when requested.
 
 BEFORE YOU COMPLETE ALL TODO-13 SUBTASKS - DO NOT DELETE RECORDS OF THEM AND FOLLOW:
@@ -64,24 +64,31 @@ rules. Focused checks cover profile isolation, incoming/response filters, and un
 
 ## TODO-013B — Make runtime resources and first-run setup independent of the checkout
 
-**Priority: release blocker — installed startup and usable clean profile.**
+**Status: complete — 2026-10-04.**
 
-`pyproject.toml` declares only `app*` packages, although runtime imports require root
-`config.py`. The frontend and default filters use sibling checkout paths. The normal profile
-loads `.env` relative to the working directory; Settings cannot enter the Twitch client ID
-or bot username/user ID. An editable checkout hides these installation/setup gaps.
+**Priority: release blocker resolved — runtime/setup contract.**
 
-- [ ] Declare the runtime behavior module and required resources explicitly; keep source-only
+Root `config.py` and package-owned resources are explicitly declared. Installed frontend assets
+resolve under `app/resources/frontend`; a recognized source checkout retains `frontend/dist`.
+Neutral filter starters are separate from legacy migration inputs. Every profile owns its
+deployment `.env`, with only the normal source profile retaining a checkout fallback. Settings
+now saves client ID, bot login/user ID and target metadata locally; identity changes require
+restart, and secrets remain in the existing credential boundary.
+
+- [x] Declare the runtime behavior module and required resources explicitly; keep source-only
   material outside the runtime distribution. Do not build standalone artifacts in this task.
-- [ ] Make default-filter/trigger/frontend discovery deterministic outside the checkout;
+- [x] Make default-filter/trigger/frontend discovery deterministic outside the checkout;
   distinguish shipped starters from legacy migration sources.
-- [ ] Provide profile-owned Twitch identity/client-ID setup and accurate first-run guidance;
+- [x] Provide profile-owned Twitch identity/client-ID setup and accurate first-run guidance;
   keep secrets in the existing credential boundary and preserve source/profile compatibility.
-- [ ] Add focused checks for launch from an unrelated working directory, declared runtime
+- [x] Add focused checks for launch from an unrelated working directory, declared runtime
   resources, and clean setup without checkout files or writing into the install directory.
 
-**Acceptance:** the runtime/setup contract is explicit and testable without a development
-checkout. Freezing, frontend build automation, and artifact generation remain TODO-014.
+**Acceptance met:** 147 focused tests pass, including temporary installed-tree `--check`,
+normal clean-profile startup/setup, unrelated-working-directory and migration-decoy checks,
+and unchanged install-file contents. TypeScript/Vite build passes. Temporary frontend fixtures
+are synthetic; generated frontend output stays ignored. Freezing, frontend build/staging
+automation, standalone artifacts and clean-machine verification remain TODO-014 onward.
 
 ---
 

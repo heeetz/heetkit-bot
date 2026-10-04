@@ -38,5 +38,18 @@ asyncio_mode = "auto"
 [tool.setuptools.packages.find]
 include = ["app*"]
 
+[tool.setuptools]
+py-modules = ["config"]
+include-package-data = false
+
 [tool.setuptools.package-data]
-"app.resources" = ["*.json", "*.png", "*.ico", "*.icns"]
+"app.resources" = [
+    "*.json",
+    "*.png",
+    "*.ico",
+    "*.icns",
+    "filters/*.txt",
+    "frontend/*.html",
+    "frontend/*.png",
+    "frontend/assets/*",
+]
