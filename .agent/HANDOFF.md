@@ -5,7 +5,7 @@ Repository code is authoritative. This file records current state and next reque
 ## Repository state
 
 - Branch: `main`; completed work is pushed to `origin/main`.
-- TODO-013's pre-packaging review, TODO-013A–013D and their final checkpoint are complete.
+- TODO-013's pre-packaging review, TODO-013A–013E and the final A–D checkpoint are complete.
   Do not repeat the broad review. No classified TODO-013 release blocker remains unresolved.
 - TODO-013A removed personal name rules from shared AI policy; desired protection remains only
   in local profile filters. Shared prompt, credential and content safeguards remain intact.
@@ -14,8 +14,9 @@ Repository code is authoritative. This file records current state and next reque
 - TODO-013C pins and verifies `google-genai==1.75.0`, adds transport/total deadlines and uses
   supported provider cleanup. The former Requests-worker/process-exit blocker is resolved.
 - TODO-013D preserves settings originals before lossy recovery saves and refuses unreadable or
-  unsupported files. TODO.md retains TODO-013A–013D outcomes and the completed checkpoint.
-  TODO-013E remains safe to defer. No standalone artifacts were built.
+  unsupported files. TODO.md retains TODO-013A–013E outcomes and the completed checkpoint.
+- TODO-013E bounds cooldown history and cleanup work within the existing utility. No standalone
+  artifacts were built.
 
 ## Current application state
 
@@ -45,6 +46,12 @@ Repository code is authoritative. This file records current state and next reque
 - Clean profiles open stopped/disconnected. Start requires complete Twitch setup. Gemini remains
   optional; unavailable AI requests consume no policy, memory, cooldown or provider work. Gemini
   credentials apply live without losing saved enabled preferences.
+- `CooldownManager` records only positive global/per-user windows. Each check rotates through
+  at most 64 uses, reclaiming expired entries and unreferenced command-policy metadata without
+  accumulating expiration records. Rejected and zero-cooldown requests also advance cleanup.
+  Active windows are never evicted for capacity. The latest effective command policy applies to
+  all retained uses; later overrides cannot revive expired history already reclaimed. Cleanup
+  is lazy during dispatch and adds no service, background task or lifecycle owner.
 - Gemini uses native HTTPX/aiohttp async I/O with `retry_options.attempts=1`. Generation transport/total
   limits are 45/60 seconds (total includes fallback); discovery limits are 10/15 seconds (total
   includes pagination). Clients are reused by credential; retired leases close on release.
@@ -66,22 +73,22 @@ Repository code is authoritative. This file records current state and next reque
 - Reviewed the recorded TODO-013A–013D outcomes against TODO-013's original findings: owner-specific
   shared policy, checkout-dependent runtime/setup, provider transport/process lifetime and settings
   preservation are resolved. No additional codebase audit was performed. TODO-014 can be requested.
-- **TODO-013E is safe to defer:** bound long-session cooldown bookkeeping. Native platform and
-  actual clean-machine artifact checks remain distribution work under TODO-014–019.
+- TODO-013E was deferred at that checkpoint and is now complete. Native platform and actual
+  clean-machine artifact checks remain distribution work under TODO-014–019.
 
 ## Validation and next requested work
 
-- **166 focused Python tests pass** for TODO-013D: preservation, app/command/custom/personality/fun
-  settings, bridge, profile isolation and runtime paths. Checks cover denied/transient reads,
-  invalid UTF-8/JSON/duplicate keys, future versions, nested unknown fields/skipped entries, unique
-  byte-exact recovery copies, failed copy/replace, restart and ordinary atomic saves.
+- **75 focused Python tests pass** for TODO-013E: cooldowns, command dispatch/settings, custom
+  commands, message triggers and optional AI. Checks cover 40,000 distinct chatters across 20
+  elapsed windows, zero/global-only policies, bounded idle cleanup, removed command metadata,
+  preservation of long active windows, repeated successes, live overrides and alias dispatch.
 - Checks used the existing project venv with approved execution outside the sandbox; sandbox
   interpreter access was denied and no default Python was available. Python 3.14 dependency
   deprecation warnings remain. Frontend code did not change, so frontend checks were not run.
-  TODO-013A–013C's completed validation remains recorded in TODO.md; no live API calls occurred.
+  TODO-013A–013D's completed validation remains recorded in TODO.md; no live API calls occurred.
 - One final focused diff review completed. Native WebView/tray rendering, real Twitch OAuth,
   live provider calls, actual wheel/frozen artifacts and clean-machine execution remain unexercised.
   No broad codebase audit or standalone packaging was performed.
 - Next only when requested: **TODO-014**, reproducible standalone Windows packaging. The
   classified pre-packaging blockers are resolved; release-artifact/clean-machine validation
-  remains future distribution work. Stop after TODO-013D; do not start packaging or TODO-013E.
+  remains future distribution work. Stop after TODO-013E; do not start packaging.

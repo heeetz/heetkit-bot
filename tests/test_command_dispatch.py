@@ -394,6 +394,50 @@ async def test_dispatcher_consumes_runtime_cooldown_setting() -> None:
 
 
 @pytest.mark.asyncio
+async def test_dispatcher_preserves_live_cooldown_overrides_and_alias_windows() -> None:
+    registry = CommandRegistry()
+
+    @registry.command(
+        "runtime", aliases=("alias",),
+        cooldown=CooldownPolicy(global_seconds=30.0, per_user_seconds=20.0),
+    )
+    async def runtime_command(context, arguments: str) -> None:
+        await context.reply("allowed")
+
+    now = 0.0
+    manager = CooldownManager(clock=lambda: now)
+    runtime_state = RuntimeState()
+    runtime_state.configure_commands(registry.definitions())
+    dispatcher = build_dispatcher(registry, runtime_state=runtime_state, cooldowns=manager)
+    services = cast(ApplicationServices, object())
+    first = FakeChatTransport("!runtime")
+    await dispatcher.dispatch(first.message, services)
+
+    runtime_state.apply_command_settings(
+        "runtime", cooldown=CooldownPolicy(global_seconds=5.0, per_user_seconds=40.0),
+    )
+    now = 6.0
+    alias = FakeChatTransport("!alias")
+    await dispatcher.dispatch(alias.message, services)
+    assert alias.replies == []
+
+    second = FakeChatTransport("!runtime")
+    second.message = replace(
+        second.message, author=ChatAuthor(twitch_user_id="second", username="second"),
+    )
+    await dispatcher.dispatch(second.message, services)
+    assert second.replies == ["allowed"]
+
+    now = 11.0
+    await dispatcher.dispatch(alias.message, services)
+    assert alias.replies == []
+    now = 40.0
+    await dispatcher.dispatch(alias.message, services)
+    assert alias.replies == ["allowed"]
+    assert first.replies == ["allowed"]
+
+
+@pytest.mark.asyncio
 async def test_invalid_arguments_do_not_consume_runtime_cooldown() -> None:
     registry = CommandRegistry()
 

@@ -28,7 +28,7 @@ When asked to execute a TODO:
 TODO-013 is complete. Its single-pass report is in `.agent/HANDOFF.md`; implementation
 history is in Git. The checkpoint classified release risks, not approval to package.
 TODO-013A–013D and their retained final checkpoint are complete. No classified TODO-013
-release blocker remains unresolved. TODO-013E is safe to defer; TODO-014 is next only when
+release blocker remains unresolved. TODO-013E is now complete; TODO-014 is next only when
 requested. No standalone packaging has been performed.
 
 BEFORE YOU COMPLETE ALL TODO-13 SUBTASKS - DO NOT DELETE RECORDS OF THEM AND FOLLOW:
@@ -45,7 +45,8 @@ If clear, update HANDOFF so TODO-014 is next and STOP.
 **Final checkpoint: complete — 2026-10-04.** Reviewed the retained TODO-013A–013D outcomes
 against the original TODO-013 findings: neutral shared policy, installed resources/first-run
 setup, provider transport/lifetime and profile-save preservation are resolved. TODO-013E
-remains explicitly deferred. No broad codebase review or further implementation was performed.
+was deferred at this checkpoint and completed separately below. No broad codebase review or
+further implementation was performed during the checkpoint.
 
 ## TODO-013A — Remove owner-specific AI policy from shipped code
 
@@ -156,16 +157,24 @@ atomic saves. No frontend code changed; no frontend checks, broad review or arti
 
 ## TODO-013E — Bound long-session cooldown bookkeeping
 
-**Priority: safe to defer beyond the packaging checkpoint.**
+**Status: complete — 2026-10-04.**
 
-`CooldownManager` retains every `(command, user)` entry for the process lifetime, including
-commands with zero per-user cooldown. Large, long-lived channels can grow this cache indefinitely.
+**Priority: deferred long-session reliability finding resolved.**
 
-- [ ] Expire inactive cooldown entries with bounded bookkeeping, preserving global/per-user
+`CooldownManager` records only positive global/per-user windows and rotates through at most
+64 retained entries per request. Expired uses and unused command-policy metadata are reclaimed;
+refreshes add no expiration queue or stale records. Live effective overrides apply to retained
+uses, including other chatters. Reclaimed expired history cannot be revived by a later override.
+
+- [x] Expire inactive cooldown entries with bounded bookkeeping, preserving global/per-user
   cooldown semantics and active overrides.
-- [ ] Test many distinct chatters and elapsed cooldown windows without adding a new service layer.
+- [x] Test many distinct chatters and elapsed cooldown windows without adding a new service layer.
 
-**Acceptance:** historical chatters cannot cause unbounded cooldown-cache growth.
+**Acceptance met:** 75 focused Python tests pass across cooldowns, command dispatch/settings,
+custom commands, message triggers and optional AI. Coverage includes 40,000 distinct chatters
+over 20 elapsed windows, zero/global-only policies, bounded idle cleanup, removed command keys,
+long active windows, repeated successes, live extension/reduction/disabling and alias dispatch.
+The fix stays within the existing utility. No frontend changes, broad review or packaging occurred.
 
 ---
 
