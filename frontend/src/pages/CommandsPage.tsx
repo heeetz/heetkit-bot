@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
   type ActionResult,
@@ -17,6 +17,7 @@ interface CommandDraft {
   permission: string
   perUserSeconds: string
   globalSeconds: string
+  responsePool: string[] | null
 }
 
 type Drafts = Record<string, CommandDraft>
@@ -42,6 +43,7 @@ function draftFromCommand(command: CommandInfo): CommandDraft {
     permission: command.permission,
     perUserSeconds: String(command.cooldown.per_user_seconds),
     globalSeconds: String(command.cooldown.global_seconds),
+    responsePool: command.response_pool ? [...command.response_pool.responses] : null,
   }
 }
 
@@ -53,12 +55,26 @@ function parsedCooldown(value: string): number | null {
   return Number.isFinite(number) && number >= 0 ? number : null
 }
 
-function draftIsDirty(command: CommandInfo, draft: CommandDraft): boolean {
+function settingsDraftIsDirty(command: CommandInfo, draft: CommandDraft): boolean {
   return draft.enabled !== command.enabled
     || draft.permission !== command.permission
     || parsedCooldown(draft.perUserSeconds) !== command.cooldown.per_user_seconds
     || parsedCooldown(draft.globalSeconds) !== command.cooldown.global_seconds
 }
+
+function responseDraftIsDirty(command: CommandInfo, draft: CommandDraft): boolean {
+  const savedResponses = command.response_pool?.responses
+  return savedResponses !== undefined
+    && draft.responsePool !== null
+    && (savedResponses.length !== draft.responsePool.length
+      || savedResponses.some((response, index) => response !== draft.responsePool?.[index]))
+}
+
+function draftIsDirty(command: CommandInfo, draft: CommandDraft): boolean {
+  return settingsDraftIsDirty(command, draft) || responseDraftIsDirty(command, draft)
+}
+
+type CompletedCommandArea = 'settings' | 'responses'
 
 function newCustomDraft(permission: string): CustomDraft {
   return {
@@ -102,22 +118,41 @@ export default function CommandsPage({ active }: CommandsPageProps) {
   const [customDraft, setCustomDraft] = useState<CustomDraft | null>(null)
   const [busyCommand, setBusyCommand] = useState('')
   const [busyCustom, setBusyCustom] = useState(false)
+  const [expandedCommands, setExpandedCommands] = useState<Record<string, boolean>>({})
+  const commandSnapshot = useRef<Record<string, CommandInfo>>({})
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
-  const loadCommands = async (completedCommand: string) => {
+  const loadCommands = async (completedCommand = '', completedArea?: CompletedCommandArea) => {
     const api = await waitForBridge()
     const response = await api.get_commands()
+    const previousCommands = commandSnapshot.current
     setData(response)
     setDrafts((currentDrafts) => Object.fromEntries(response.commands.map((command) => {
-      const previousCommand = data?.commands.find((item) => item.name === command.name)
+      const previousCommand = previousCommands[command.name]
       const previousDraft = currentDrafts[command.name]
-      const keepDraft = command.name !== completedCommand
-        && previousCommand
-        && previousDraft
-        && draftIsDirty(previousCommand, previousDraft)
-      return [command.name, keepDraft ? previousDraft : draftFromCommand(command)]
+      const nextDraft = draftFromCommand(command)
+      if (command.name !== completedCommand && previousCommand && previousDraft) {
+        if (settingsDraftIsDirty(previousCommand, previousDraft)) {
+          nextDraft.enabled = previousDraft.enabled
+          nextDraft.permission = previousDraft.permission
+          nextDraft.perUserSeconds = previousDraft.perUserSeconds
+          nextDraft.globalSeconds = previousDraft.globalSeconds
+        }
+        if (responseDraftIsDirty(previousCommand, previousDraft)) {
+          nextDraft.responsePool = previousDraft.responsePool
+        }
+      } else if (command.name === completedCommand && completedArea === 'settings' && previousCommand && previousDraft && responseDraftIsDirty(previousCommand, previousDraft)) {
+        nextDraft.responsePool = previousDraft.responsePool
+      } else if (command.name === completedCommand && completedArea === 'responses' && previousCommand && previousDraft && settingsDraftIsDirty(previousCommand, previousDraft)) {
+        nextDraft.enabled = previousDraft.enabled
+        nextDraft.permission = previousDraft.permission
+        nextDraft.perUserSeconds = previousDraft.perUserSeconds
+        nextDraft.globalSeconds = previousDraft.globalSeconds
+      }
+      return [command.name, nextDraft]
     })))
+    commandSnapshot.current = Object.fromEntries(response.commands.map((command) => [command.name, command]))
   }
 
   const loadCustomCommands = async () => {
@@ -140,14 +175,16 @@ export default function CommandsPage({ active }: CommandsPageProps) {
         if (mounted) {
           setData(response)
           setCustomData(customResponse)
+          const previousCommands = commandSnapshot.current
           setDrafts((currentDrafts) => Object.fromEntries(response.commands.map((command) => {
-            const previousCommand = data?.commands.find((item) => item.name === command.name)
+            const previousCommand = previousCommands[command.name]
             const previousDraft = currentDrafts[command.name]
             const keepDraft = previousCommand
               && previousDraft
               && draftIsDirty(previousCommand, previousDraft)
             return [command.name, keepDraft ? previousDraft : draftFromCommand(command)]
           })))
+          commandSnapshot.current = Object.fromEntries(response.commands.map((command) => [command.name, command]))
           setError('')
         }
       } catch (reason) {
@@ -215,7 +252,7 @@ export default function CommandsPage({ active }: CommandsPageProps) {
       if (!result.ok) {
         throw new Error(result.error ?? 'Command settings could not be updated.')
       }
-      await loadCommands(command.name)
+      await loadCommands(command.name, 'settings')
       setNotice(action === 'apply'
         ? `Applied !${command.name} for this session.`
         : action === 'save'
@@ -223,6 +260,53 @@ export default function CommandsPage({ active }: CommandsPageProps) {
           : `Reset !${command.name} to built-in defaults.`)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Command settings could not be updated.')
+    } finally {
+      setBusyCommand('')
+    }
+  }
+
+  const runResponseAction = async (
+    command: CommandInfo,
+    action: 'apply' | 'save' | 'reset',
+  ) => {
+    const draft = drafts[command.name]
+    const responsePool = command.response_pool
+    if (!draft || !responsePool || draft.responsePool === null) {
+      return
+    }
+    const responses = draft.responsePool.map((response) => response.trim()).filter(Boolean)
+    if (action !== 'reset' && responses.length === 0) {
+      setError('Keep at least one non-empty forecast response.')
+      return
+    }
+    if (action === 'reset' && !window.confirm('Reset forecast responses to the built-in defaults?')) {
+      return
+    }
+
+    setBusyCommand(command.name)
+    setError('')
+    setNotice('')
+    try {
+      const api = await waitForBridge()
+      let result: ActionResult
+      if (action === 'reset') {
+        result = await api.reset_command_responses(command.name)
+      } else if (action === 'save') {
+        result = await api.save_command_responses(command.name, responses)
+      } else {
+        result = await api.apply_command_responses(command.name, responses)
+      }
+      if (!result.ok) {
+        throw new Error(result.error ?? 'Forecast responses could not be updated.')
+      }
+      await loadCommands(command.name, 'responses')
+      setNotice(action === 'apply'
+        ? 'Applied forecast responses for this session.'
+        : action === 'save'
+          ? 'Saved forecast responses.'
+          : 'Reset forecast responses to built-in defaults.')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Forecast responses could not be updated.')
     } finally {
       setBusyCommand('')
     }
@@ -340,53 +424,115 @@ export default function CommandsPage({ active }: CommandsPageProps) {
             const draft = drafts[command.name] ?? draftFromCommand(command)
             const perUserValid = parsedCooldown(draft.perUserSeconds) !== null
             const globalValid = parsedCooldown(draft.globalSeconds) !== null
-            const dirty = draftIsDirty(command, draft)
-            const busy = busyCommand === command.name
+            const settingsDirty = settingsDraftIsDirty(command, draft)
+            const responseDirty = responseDraftIsDirty(command, draft)
+            const dirty = settingsDirty || responseDirty
+            const responsePool = command.response_pool
+            const responseDraft = draft.responsePool
+            const responseValid = responseDraft !== null && responseDraft.some((response) => response.trim() !== '')
+            const expanded = Boolean(expandedCommands[command.name])
+            const busy = busyCommand !== ''
+            const detailsId = `command-details-${command.name}`
             return (
-              <article className={`command-row ${dirty ? 'dirty' : ''}`} key={command.name}>
-                <div className="command-title">
-                  <strong>{data.command_prefix}{command.name}</strong>
-                  <div className="command-meta">
-                    {command.hidden && <span className="mini-badge">Hidden</span>}
-                    {command.has_saved_override && <span className="mini-badge saved-badge">Saved override</span>}
-                    {!command.saved && <span className="mini-badge runtime-badge">Runtime only</span>}
-                    {dirty && <span className="mini-badge dirty-badge">Edited</span>}
-                    {command.aliases.length > 0 && <span>Aliases: {command.aliases.map((alias) => `${data.command_prefix}${alias}`).join(', ')}</span>}
+              <article className={`command-card ${dirty ? 'dirty' : ''}`} key={command.name}>
+                <div className="command-summary-row">
+                  <button
+                    type="button"
+                    className="command-summary"
+                    aria-expanded={expanded}
+                    aria-controls={detailsId}
+                    onClick={() => setExpandedCommands((current) => ({ ...current, [command.name]: !expanded }))}
+                  >
+                    <span className="command-summary-title">
+                      <strong>{data.command_prefix}{command.name}</strong>
+                      <span className={`state-pill ${draft.enabled ? 'enabled' : ''}`}>{draft.enabled ? 'Enabled' : 'Disabled'}</span>
+                      {!command.available && <span className="state-pill unavailable-pill">Unavailable</span>}
+                    </span>
+                    <span className="command-summary-meta">
+                      {command.hidden && <span className="mini-badge">Hidden</span>}
+                      {(command.has_saved_override || responsePool?.has_saved_override) && <span className="mini-badge saved-badge">Saved override</span>}
+                      {(!command.saved || (responsePool && !responsePool.saved)) && <span className="mini-badge runtime-badge">Runtime only</span>}
+                      {dirty && <span className="mini-badge dirty-badge">Edited</span>}
+                      <span>Permission: {draft.permission.toLowerCase()}</span>
+                      <span>Cooldown: {draft.perUserSeconds}s / {draft.globalSeconds}s</span>
+                      {command.aliases.length > 0 && <span>Aliases: {command.aliases.map((alias) => `${data.command_prefix}${alias}`).join(', ')}</span>}
+                    </span>
+                    <span className="command-expand-label">{expanded ? 'Hide settings' : 'Show settings'}</span>
+                  </button>
+                </div>
+                {expanded && <div className="command-details" id={detailsId}>
+                  <div className="command-fields">
+                    <Switch
+                      className="toggle-field"
+                      checked={draft.enabled}
+                      disabled={busy}
+                      ariaLabel={`Enable ${data.command_prefix}${command.name}`}
+                      onCheckedChange={(enabled) => updateDraft(command.name, { enabled })}
+                    >
+                      <span>{draft.enabled ? 'Enabled' : 'Disabled'}</span>
+                    </Switch>
+                    <label>
+                      Permission
+                      <select disabled={busy} value={draft.permission} onChange={(event) => updateDraft(command.name, { permission: event.target.value })}>
+                        {data.permissions.map((permission) => <option key={permission} value={permission}>{permission.toLowerCase()}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      Per-user cooldown
+                      <span className="number-with-unit">
+                        <input disabled={busy} className={perUserValid ? '' : 'invalid'} type="number" min="0" step="0.5" value={draft.perUserSeconds} onChange={(event) => updateDraft(command.name, { perUserSeconds: event.target.value })} />
+                        <span>sec</span>
+                      </span>
+                    </label>
+                    <label>
+                      Global cooldown
+                      <span className="number-with-unit">
+                        <input disabled={busy} className={globalValid ? '' : 'invalid'} type="number" min="0" step="0.5" value={draft.globalSeconds} onChange={(event) => updateDraft(command.name, { globalSeconds: event.target.value })} />
+                        <span>sec</span>
+                      </span>
+                    </label>
                   </div>
-                </div>
-                <Switch
-                  className="toggle-field"
-                  checked={draft.enabled}
-                  ariaLabel={`Enable ${data.command_prefix}${command.name}`}
-                  onCheckedChange={(enabled) => updateDraft(command.name, { enabled })}
-                >
-                  <span>{draft.enabled ? 'Enabled' : 'Disabled'}</span>
-                </Switch>
-                <label>
-                  Permission
-                  <select value={draft.permission} onChange={(event) => updateDraft(command.name, { permission: event.target.value })}>
-                    {data.permissions.map((permission) => <option key={permission} value={permission}>{permission.toLowerCase()}</option>)}
-                  </select>
-                </label>
-                <label>
-                  Per-user cooldown
-                  <span className="number-with-unit">
-                    <input className={perUserValid ? '' : 'invalid'} type="number" min="0" step="0.5" value={draft.perUserSeconds} onChange={(event) => updateDraft(command.name, { perUserSeconds: event.target.value })} />
-                    <span>sec</span>
-                  </span>
-                </label>
-                <label>
-                  Global cooldown
-                  <span className="number-with-unit">
-                    <input className={globalValid ? '' : 'invalid'} type="number" min="0" step="0.5" value={draft.globalSeconds} onChange={(event) => updateDraft(command.name, { globalSeconds: event.target.value })} />
-                    <span>sec</span>
-                  </span>
-                </label>
-                <div className="row-actions">
-                  <button className="secondary" disabled={busy || !dirty || !perUserValid || !globalValid} onClick={() => void runAction(command, 'apply')}>Apply</button>
-                  <button className="primary" disabled={busy || (!dirty && command.saved) || !perUserValid || !globalValid} onClick={() => void runAction(command, 'save')}>Save</button>
-                  <button className="ghost" disabled={busy || (!dirty && !command.has_saved_override && command.saved)} onClick={() => void runAction(command, 'reset')}>Reset</button>
-                </div>
+                  {!command.available && <p className="command-unavailable"><strong>Unavailable:</strong> {command.unavailable_reason ?? 'The optional AI provider is not configured. Add a key to enable AI features.'}</p>}
+                  <div className="command-action-footer">
+                    <span className="command-action-hint">Changes affect this command's {command.saved ? 'saved settings' : 'current runtime'}.</span>
+                    <div className="command-action-group" aria-label={`${data.command_prefix}${command.name} settings actions`}>
+                      <button className="secondary" disabled={busy || !settingsDirty || !perUserValid || !globalValid} onClick={() => void runAction(command, 'apply')}>Apply</button>
+                      <button className="primary" disabled={busy || (!settingsDirty && command.saved) || !perUserValid || !globalValid} onClick={() => void runAction(command, 'save')}>Save</button>
+                      <button className="ghost" disabled={busy || (!settingsDirty && !command.has_saved_override && command.saved)} onClick={() => void runAction(command, 'reset')}>Reset</button>
+                    </div>
+                  </div>
+                  {responsePool && responseDraft !== null && <div className="command-response-editor">
+                    <div className="custom-response-heading">
+                      <div>
+                        <h3>Forecast responses</h3>
+                        <p className="section-copy">The bot chooses one response at random. Built-in defaults: {responsePool.defaults.length}.</p>
+                      </div>
+                      <div className="command-response-badges">
+                        {responsePool.has_saved_override && <span className="mini-badge saved-badge">Saved override</span>}
+                        {!responsePool.saved && <span className="mini-badge runtime-badge">Runtime only</span>}
+                        {responseDirty && <span className="mini-badge dirty-badge">Edited</span>}
+                      </div>
+                    </div>
+                    <div className="custom-response-list">
+                      {responseDraft.map((response, index) => (
+                        <div className="custom-response-row" key={index}>
+                          <label className="form-field">Response {index + 1}
+                            <textarea disabled={busy} rows={2} value={response} onChange={(event) => updateDraft(command.name, { responsePool: responseDraft.map((item, itemIndex) => itemIndex === index ? event.target.value : item) })} placeholder="Forecast response" />
+                          </label>
+                          <button className="ghost" disabled={busy || responseDraft.length === 1} onClick={() => updateDraft(command.name, { responsePool: responseDraft.filter((_, itemIndex) => itemIndex !== index) })}>Remove</button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="command-response-footer">
+                      <button className="secondary" disabled={busy} onClick={() => updateDraft(command.name, { responsePool: [...responseDraft, ''] })}>Add response</button>
+                      <div className="command-action-group" aria-label="Forecast response actions">
+                        <button className="secondary" disabled={busy || !responseDirty || !responseValid} onClick={() => void runResponseAction(command, 'apply')}>Apply</button>
+                        <button className="primary" disabled={busy || (!responseDirty && responsePool.saved) || !responseValid} onClick={() => void runResponseAction(command, 'save')}>Save</button>
+                        <button className="ghost" disabled={busy || (!responseDirty && !responsePool.has_saved_override && responsePool.saved)} onClick={() => void runResponseAction(command, 'reset')}>Reset</button>
+                      </div>
+                    </div>
+                  </div>}
+                </div>}
               </article>
             )
           })}

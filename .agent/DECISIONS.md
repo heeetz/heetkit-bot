@@ -198,13 +198,30 @@ Status: Active
 Decision:
 API keys, client secrets, and OAuth tokens must not be written to ordinary application JSON.
 User-entered Gemini and Twitch client credentials use the OS keyring (Windows Credential
-Manager) and override the private `.env` developer/deployment fallback at startup. The UI may
+Manager) and override the private `.env` developer/deployment fallback at startup. Gemini
+Replace/Remove also applies the effective key on the backend loop for the next AI request;
+Twitch-secret changes require restart. The UI may
 show source/configuration status but must never read credential values back. TwitchIO OAuth
 tokens remain in its library-managed cache under the platform app-data `auth/` directory.
 
 Reason:
 Ordinary settings are user-editable and portable; credentials require stricter storage and
 logging rules.
+
+## Decision: AI availability is separate from user preferences
+
+Status: Active
+
+Decision:
+Gemini setup is optional. Only commands that generate AI replies require an available provider.
+Missing credentials/provider never overwrite a command's saved enabled state; adding a key
+restores availability while respecting that preference. Setup guidance distinguishes required
+Twitch configuration from optional AI features. Existing forecast pools remain profile-owned
+versioned data with separate response editing actions, preserving neutral public defaults.
+
+Reason:
+Users can run the ordinary bot without AI and later add AI without losing their configuration
+or importing another profile's responses.
 
 ## Decision: Local runtime and user state is not committed
 

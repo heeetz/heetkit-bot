@@ -238,6 +238,17 @@ class GeminiAIService:
             ),
         ]
 
+    @property
+    def is_available(self) -> bool:
+        key = getattr(self.settings, "gemini_api_key", None)
+        if self._closed or key is None or not key.get_secret_value().strip():
+            return False
+        try:
+            from google import genai
+        except ImportError:
+            return False
+        return callable(getattr(genai, "Client", None))
+
     def _build_system_instruction(self) -> str:
         if self.runtime_state is None:
             return build_system_instruction()
@@ -375,7 +386,7 @@ class GeminiAIService:
         """Generate a reply using the Gemini model with Google Search grounding."""
         try:
             # If no API key is configured, return unavailable but don't crash
-            if self.settings.gemini_api_key is None:
+            if not self.is_available:
                 return AIReply(
                     text="",
                     is_available=False,

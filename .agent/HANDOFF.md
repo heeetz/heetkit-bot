@@ -9,6 +9,8 @@ Repository code is authoritative. This file records the current state and next r
   defaults. The existing roadmap revision is retained; no later TODO was executed.
 - The TODO-012 clean-profile startup regression is fixed: empty Twitch identity and absent
   credentials permit desktop launch; complete setup is required before creating a Twitch session.
+- TODO-012A is complete: optional Gemini availability, compact expandable command cards,
+  live profile-owned forecast editing, and responsive Commands controls. No later TODO was executed.
 - Source launch: Windows `run.bat`; all platforms `python -m app.main` or installed `twitch-bot`.
   Build the frontend before production source launch. Native bundles/installers remain future work.
 
@@ -36,7 +38,15 @@ Repository code is authoritative. This file records the current state and next r
   `.legacy-migration-v1` remains outside config, preventing config reset from reimporting state.
   Database, OAuth cache, and keyring credentials survive deletion of only `config/`.
 - `config/fun_settings.json` optionally stores version-1 `tg_message` and `forecasts` for existing
-  built-ins; edits take effect after restart. No alternate owner build exists.
+  built-ins. The expanded forecast editor applies live, saves atomically, and resets only that
+  pool to neutral defaults; existing local responses and other fields survive. Direct file edits
+  still require restart. No alternate owner build exists.
+- Gemini is optional. `ask` reports provider availability separately from configured enabled
+  state; unavailable requests consume no cooldown and do no policy/memory/provider work. Ordinary
+  commands and memory erasure remain usable. Gemini Replace/Remove refreshes the effective key
+  on the backend loop, preserving enabled preferences. Twitch-secret changes require restart.
+- Setup labels Twitch required and Gemini optional. Built-in Commands start collapsed with
+  summary badges; expanded controls retain canonical backend permission/cooldown ownership.
 - Command policy, filter editing, Twitch recovery, Gemini client ownership, tray behavior and
   branding remain as documented in `.agent/ARCHITECTURE.md`.
 
@@ -49,14 +59,17 @@ Repository code is authoritative. This file records the current state and next r
 - Fresh profiles open stopped/disconnected and retain the dashboard's Configure Twitch guidance.
   Missing client secrets are `None`. Start/reconnect validate complete connection setup and return
   safe field-name errors; incomplete automatic startup is skipped while the UI remains usable.
-  Twitch identity/client ID still use profile deployment settings; credential edits require restart.
+  Twitch identity/client ID still use profile deployment settings; Twitch-secret edits require restart.
 - macOS/Linux source startup has not been run natively. Linux requires a pywebview backend/system
   libraries; credential backend availability depends on the desktop environment.
 - No standalone executable exists yet; TODO-012 validates the shared source runtime's profile semantics.
-- TODO-012: 116 focused profile/migration/reset/personality/credential/command/desktop/filter tests
-  passed. Python compilation and whitespace validation passed. No frontend source changed.
-- Startup regression: 88 focused settings/profile/runtime/Twitch-client/desktop/credential tests
-  passed, including actual backend startup with no deployment values and both auto-start settings.
-  Python compile checks passed. The native window was not opened by automated tests.
+- TODO-012A: 129 focused backend tests passed, including clean backend startup, live Gemini
+  changes preserving saved enabled/disabled preferences, forecast isolation/live dispatch,
+  owner-file preservation, invalid edits, and failed atomic replacement. Frontend typecheck/build
+  and Python compile checks passed.
+- Edge smoke checks with neutral mock bridge data passed at 600, 1180, 1920 CSS pixels and
+  800 CSS pixels at 1.5 device scale: collapsed/expanded containment, no overlap or horizontal
+  overflow, right-aligned actions, setup labels, response save/reset, and draft preservation.
+  The native WebView window and real provider credentials were not used by these checks.
 - The sandbox cannot launch the venv's base interpreter; checks used the same project venv
   with approved execution outside the sandbox. This is an agent environment limitation.

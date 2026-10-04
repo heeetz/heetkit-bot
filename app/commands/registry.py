@@ -35,6 +35,7 @@ class CommandDefinition:
     silent_invalid_arguments: bool = False
     hidden: bool = False
     enabled_by_default: bool = True
+    requires_ai: bool = False
 
     @property
     def default_settings(self) -> CommandSettings:
@@ -105,6 +106,7 @@ class CommandRegistry:
         argument_validator: ArgumentValidator | None = None,
         silent_invalid_arguments: bool = False,
         hidden: bool = False,
+        requires_ai: bool = False,
     ) -> Callable[[CommandHandler], CommandHandler]:
         def decorator(handler: CommandHandler) -> CommandHandler:
             self.register(
@@ -120,6 +122,7 @@ class CommandRegistry:
                     argument_validator=argument_validator,
                     silent_invalid_arguments=silent_invalid_arguments,
                     hidden=hidden,
+                    requires_ai=requires_ai,
                 )
             )
             return handler
@@ -149,6 +152,7 @@ class CommandRegistry:
             argument_validator=definition.argument_validator,
             silent_invalid_arguments=definition.silent_invalid_arguments,
             hidden=definition.hidden,
+            requires_ai=definition.requires_ai,
         )
         for command_name in normalized_names:
             self._commands[command_name] = normalized_definition
@@ -171,6 +175,15 @@ class CommandRegistry:
             for definition in self.definitions()
             if not definition.hidden
         )
+
+
+def command_unavailable_reason(definition: CommandDefinition, services: ApplicationServices) -> str | None:
+    if not definition.requires_ai:
+        return None
+    provider = getattr(services, "ai", None)
+    if provider is None or not getattr(provider, "is_available", False):
+        return "AI features are optional. Configure a usable Gemini API key/provider to use this command."
+    return None
 
 
 class CommandDispatcher:
@@ -266,7 +279,7 @@ class CommandDispatcher:
                 None if definition.name == "tg" else self._output_limiter
             )
 
-            if not settings.enabled:
+            if not settings.enabled or command_unavailable_reason(definition, services) is not None:
                 return True
 
             if len(arguments) > self._max_arguments_length:

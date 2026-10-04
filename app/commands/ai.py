@@ -22,6 +22,7 @@ def register_ai_commands(registry: CommandRegistry) -> None:
         help_text="!ask <question>",
         cooldown=CooldownPolicy(per_user_seconds=0.0, global_seconds=ASK_COOLDOWN_SECONDS),
         pre_check=ask_pre_check,
+        requires_ai=True,
     )
     async def ask(context, arguments: str) -> None:
         clean_args = arguments.strip()

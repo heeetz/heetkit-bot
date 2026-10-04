@@ -15,16 +15,17 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Coroutine
 
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 from app.app_settings import AISettings, AppSettings, AppSettingsStore
 from app.bot_runtime import BotRuntime
 from app.command_settings import CommandSettings
+from app.commands.registry import command_unavailable_reason
 from app.custom_commands import VARIABLES
 from app.config.ai_models import GEMINI_MODEL_PRESETS, GEMINI_PROVIDER_NAME
 from app.config.settings import Settings, TwitchConfigurationError, load_settings_with_credentials
 from app.container import Application, build_application
-from app.credentials import CredentialError, CredentialManager
+from app.credentials import CredentialError, CredentialManager, CredentialName
 from app.desktop_instance import (
     DesktopAlreadyRunningError,
     desktop_instance_guard,
@@ -400,11 +401,16 @@ class WebUIBridge:
         for definition in application.registry.definitions():
             settings = runtime_state.get_command_settings(definition.name)
             defaults = runtime_state.get_command_default_settings(definition.name)
+            unavailable_reason = command_unavailable_reason(definition, application.services)
+            fun_settings = getattr(application, "fun_settings", None)
             commands.append(
                 {
                     "name": definition.name,
                     "aliases": list(definition.aliases),
                     "enabled": settings.enabled,
+                    "available": unavailable_reason is None,
+                    "unavailable_reason": unavailable_reason,
+                    "response_pool": fun_settings.snapshot() if definition.name == "forecast" and fun_settings else None,
                     "permission": settings.permission.name,
                     "cooldown": {
                         "per_user_seconds": settings.cooldown.per_user_seconds,
@@ -423,6 +429,33 @@ class WebUIBridge:
             "permissions": [permission.name for permission in Permission],
             "commands": commands,
         }
+
+    def _command_response_action(self, name: object, responses: object, action: str) -> dict[str, object]:
+        store = getattr(self._backend.application, "fun_settings", None)
+        if name != "forecast" or store is None:
+            return {"ok": False, "error": "This command has no editable response pool."}
+        try:
+            if action == "reset":
+                store.reset()
+            elif action == "save":
+                store.save(responses)
+            else:
+                store.apply(responses)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except OSError:
+            self._logger.exception("Could not %s command response pool", action)
+            return {"ok": False, "error": "Could not save command responses."}
+        return {"ok": True}
+
+    def apply_command_responses(self, name: object, responses: object) -> dict[str, object]:
+        return self._command_response_action(name, responses, "apply")
+
+    def save_command_responses(self, name: object, responses: object) -> dict[str, object]:
+        return self._command_response_action(name, responses, "save")
+
+    def reset_command_responses(self, name: object) -> dict[str, object]:
+        return self._command_response_action(name, None, "reset")
 
     def get_custom_commands(self) -> dict[str, object]:
         application = self._backend.application
@@ -642,6 +675,7 @@ class WebUIBridge:
         runtime_state = application.services.runtime_state
         return {
             "enabled": runtime_state.ai_enabled,
+            "available": bool(getattr(getattr(application.services, "ai", None), "is_available", False)),
             "memory_enabled": runtime_state.ai_memory_enabled,
             "active_personality": runtime_state.active_ai_personality,
             "available_personalities": list(runtime_state.available_personalities),
@@ -1127,12 +1161,26 @@ class WebUIBridge:
             ],
         }
 
+    async def _refresh_gemini_credential(self) -> None:
+        value = self._credential_manager.effective_value(CredentialName.GEMINI_API_KEY)
+        self._backend.application.settings.gemini_api_key = SecretStr(value) if value else None
+
+    def _apply_credential_change(self, name: CredentialName) -> None:
+        if name is CredentialName.GEMINI_API_KEY:
+            self._wait_for_backend(
+                self._refresh_gemini_credential(), operation="apply_gemini_credential",
+                timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
+            )
+
     def replace_credential(self, name: object, value: object) -> dict[str, object]:
         if self._credential_manager is None:
             return {"ok": False, "error": "Credential storage is not configured."}
         try:
             parsed_name = self._credential_manager.parse_name(name)
             self._credential_manager.replace(parsed_name.value, value)
+            self._apply_credential_change(parsed_name)
+        except BridgeOperationTimedOut:
+            return {"ok": False, "error": "Credential stored securely. Restart to apply it; the backend timed out."}
         except ValueError as error:
             return {"ok": False, "error": str(error)}
         except CredentialError as error:
@@ -1159,6 +1207,9 @@ class WebUIBridge:
         try:
             parsed_name = self._credential_manager.parse_name(name)
             removed = self._credential_manager.remove(parsed_name.value)
+            self._apply_credential_change(parsed_name)
+        except BridgeOperationTimedOut:
+            return {"ok": False, "error": "Credential removed. Restart to apply the fallback; the backend timed out."}
         except ValueError as error:
             return {"ok": False, "error": str(error)}
         except CredentialError as error:

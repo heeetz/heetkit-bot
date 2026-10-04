@@ -33,6 +33,7 @@ interface SetupTask {
   action: string
   section: Extract<Section, 'AI' | 'Settings'>
   targetId?: string
+  optional?: boolean
 }
 
 function formatUptime(totalSeconds: number): string {
@@ -121,7 +122,8 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onNavi
     if (!setup.aiProvider.credential?.configured) {
       setupTasks.push({
         title: 'Add a Gemini API key',
-        description: 'AI chat needs a Gemini credential stored securely on this computer.',
+        description: 'Optional: add a Gemini credential to enable AI replies. Other bot commands work without it.',
+        optional: true,
         action: 'Add Gemini key',
         section: 'Settings',
         targetId: 'credential-settings',
@@ -129,6 +131,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onNavi
     } else if (!setup.aiProvider.selected_model.trim()) {
       setupTasks.push({
         title: 'Choose an AI model',
+        optional: true,
         description: 'Select the Gemini model used for the next AI request.',
         action: 'Open AI settings',
         section: 'AI',
@@ -137,6 +140,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onNavi
     if (aiStatus && aiStatus.available_personalities.length === 0) {
       setupTasks.push({
         title: 'No AI personalities available',
+        optional: true,
         description: 'The built-in personality list is unavailable. Open AI to review its status.',
         action: 'Open AI settings',
         section: 'AI',
@@ -164,14 +168,14 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onNavi
           <div className="section-heading">
             <div>
               <p className="label">GET READY</p>
-              <h2>{setupError ? 'Setup status needs attention' : 'Finish setup'}</h2>
+              <h2>{setupError ? 'Setup status needs attention' : setupTasks.some((task) => !task.optional) ? 'Finish Twitch setup' : 'Optional AI setup'}</h2>
               <p className="section-copy">
                 {setupError
                   ? 'Some setup details could not be loaded. Open Settings to review the configuration.'
-                  : 'Complete these steps, then start the bot from the control above.'}
+                  : 'Twitch setup is required to connect. Gemini is optional and enables AI features.'}
               </p>
             </div>
-            {!setupError && <span className="mini-badge runtime-badge">{setupTasks.length} remaining</span>}
+            {!setupError && <span className="mini-badge runtime-badge">{setupTasks.filter((task) => !task.optional).length} required · {setupTasks.filter((task) => task.optional).length} optional</span>}
           </div>
           {setupError ? (
             <button className="secondary" onClick={() => onNavigate('Settings')}>Open Settings</button>
@@ -179,7 +183,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onNavi
             <div className="setup-list">
               {setupTasks.map((task) => (
                 <div className="setup-item" key={task.title}>
-                  <div><strong>{task.title}</strong><p>{task.description}</p></div>
+                  <div><strong>{task.title}</strong> <span className="mini-badge">{task.optional ? 'Optional' : 'Required for Twitch'}</span><p>{task.description}</p></div>
                   <button className="secondary" onClick={() => onNavigate(task.section, task.targetId)}>{task.action}</button>
                 </div>
               ))}
@@ -225,7 +229,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onNavi
               ariaLabel="Enable AI command"
               onCheckedChange={(enabled) => onChangeAIState('enabled', enabled)}
             >
-              <span><strong>AI command</strong><small>{aiStatus?.enabled ? 'Enabled' : 'Disabled'}</small></span>
+              <span><strong>AI command</strong><small>{!aiStatus?.available ? 'Unavailable · Gemini optional' : aiStatus?.enabled ? 'Enabled' : 'Disabled'}</small></span>
             </Switch>
             <Switch
               checked={aiStatus?.memory_enabled ?? false}

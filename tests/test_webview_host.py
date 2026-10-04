@@ -684,6 +684,7 @@ def test_bridge_gets_commands_from_registry_and_effective_runtime_settings() -> 
         name="erase",
         aliases=("forget",),
         hidden=True,
+        requires_ai=False,
     )
     settings = SimpleNamespace(
         enabled=False,
@@ -719,6 +720,9 @@ def test_bridge_gets_commands_from_registry_and_effective_runtime_settings() -> 
                 "name": "erase",
                 "aliases": ["forget"],
                 "enabled": False,
+                "available": True,
+                "unavailable_reason": None,
+                "response_pool": None,
                 "permission": "BROADCASTER",
                 "cooldown": {
                     "per_user_seconds": 3.0,
@@ -834,6 +838,7 @@ def test_bridge_gets_ai_state_without_exposing_personality_prompts() -> None:
 
     assert bridge.get_ai_status() == {
         "enabled": True,
+        "available": False,
         "memory_enabled": False,
         "active_personality": "neutral",
         "available_personalities": ["neutral", "vas"],

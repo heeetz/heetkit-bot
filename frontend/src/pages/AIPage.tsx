@@ -320,6 +320,7 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
             <span>{status?.enabled ? 'Enabled' : 'Disabled'}</span>
           </Switch>
           <p className="setting-effect">Applies immediately for this session. Save the Ask command on the Commands page to persist it.</p>
+          {status && !status.available && <p className="setting-effect">AI replies are unavailable. Gemini is optional; add a usable API key to enable AI features. Your enabled preference is retained.</p>}
         </article>
         <article className="card compact-card">
           <p className="label">Conversation memory</p>

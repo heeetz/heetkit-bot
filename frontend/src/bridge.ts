@@ -30,6 +30,14 @@ export interface CommandInfo {
   name: string
   aliases: string[]
   enabled: boolean
+  available: boolean
+  unavailable_reason: string | null
+  response_pool: {
+    responses: string[]
+    defaults: string[]
+    saved: boolean
+    has_saved_override: boolean
+  } | null
   permission: string
   cooldown: {
     per_user_seconds: number
@@ -112,6 +120,7 @@ export interface FilterActionResult extends ActionResult {
 
 export interface AIStatus {
   enabled: boolean
+  available: boolean
   memory_enabled: boolean
   active_personality: string
   available_personalities: string[]
@@ -233,6 +242,9 @@ interface PythonApi {
   apply_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string): Promise<ActionResult>
   save_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string): Promise<ActionResult>
   reset_command_settings(commandName: string): Promise<ActionResult>
+  apply_command_responses(commandName: string, responses: string[]): Promise<ActionResult>
+  save_command_responses(commandName: string, responses: string[]): Promise<ActionResult>
+  reset_command_responses(commandName: string): Promise<ActionResult>
   save_custom_command(command: CustomCommandInput): Promise<ActionResult>
   delete_custom_command(id: string): Promise<ActionResult>
   apply_filters(payload: FilterInput): Promise<FilterActionResult>

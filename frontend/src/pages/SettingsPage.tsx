@@ -317,9 +317,9 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
       }
       setNotice(
         action === 'replace'
-          ? 'Credential stored securely. Restart the application to use it.'
+          ? name === 'gemini_api_key' ? 'Gemini credential stored securely and applied to AI features.' : 'Credential stored securely. Restart the application to use it.'
           : action === 'remove'
-            ? 'Secure credential removed. Restart to apply the remaining fallback state.'
+            ? name === 'gemini_api_key' ? 'Gemini secure value removed. Any configured fallback now applies.' : 'Secure credential removed. Restart to apply the remaining fallback state.'
             : 'Credential test passed.',
       )
     } catch (reason) {
@@ -468,7 +468,7 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
           <div>
             <p className="label">SECURE CREDENTIALS</p>
             <h2>Provider credentials</h2>
-            <p className="section-copy">Values are stored in the system keyring and are never displayed. Secure values override the private .env fallback after restart.</p>
+            <p className="section-copy">Values are stored in the system keyring and are never displayed. Gemini is optional and changes apply immediately. Twitch credential changes require restart.</p>
           </div>
         </div>
         {!draft ? <p className="muted">Loading credential status…</p> : credentials.length === 0 ? (

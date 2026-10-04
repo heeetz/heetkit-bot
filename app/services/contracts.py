@@ -12,6 +12,9 @@ class AIReply:
 
 
 class AIService(Protocol):
+    @property
+    def is_available(self) -> bool: ...
+
     async def generate_reply(
         self,
         prompt: str,

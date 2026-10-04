@@ -137,6 +137,10 @@ Responsibility: registry-driven definitions and centralized dispatch.
   command cooldown manager and global output limiter. Reactions are literal text, never code or AI.
 - Handler-specific behavior remains in handlers; for example, `tg` bypasses the global
   `OutputLimiter` without changing generic command settings.
+- Definitions mark AI generation dependencies (`ask` only). Provider availability is separate
+  from configured enabled state; unavailable commands exit before policy, memory and cooldown work.
+  Non-AI commands and memory erasure do not require Gemini. The bridge reports availability
+  alongside canonical settings; React starts built-in cards collapsed and retains form drafts.
 
 ## Command settings persistence
 
@@ -151,6 +155,11 @@ Responsibility: registry-driven definitions and centralized dispatch.
 - Message triggers use versioned app-data `config/message_triggers.json`, seeded when missing from
   tracked `app/resources/default_triggers.json`. Local edits take effect on restart; invalid
   entries are skipped.
+- `FunSettingsStore` in `app/fun_settings.py` owns the existing version-1 profile file
+  `config/fun_settings.json`. Forecast handlers read its locked immutable pool each invocation.
+  Apply is session-only; Save uses flush/fsync + atomic replacement; Reset removes only the
+  forecast override. Existing `tg_message` and other fields survive saves/resets. Unreadable or
+  unsupported files fall back to neutral responses but cannot be overwritten by editor actions.
 
 ## AI and Gemini flow
 
@@ -176,6 +185,11 @@ shared Settings object for the next request. Tracked presets live in
 `app/resources/gemini_models.json`, while provider discovery is optional. The Gemini API key is
 resolved from the system keyring first, then the private `.env` fallback. Provider
 failures do not disable unrelated commands.
+Gemini is optional. Service availability requires a non-blank key, an SDK provider, and an open
+service, independently of the user's saved command preference. Credential Replace/Remove refreshes
+the effective key on the backend loop for the next request; existing client retirement handles
+rotation. Credential tests verify provider acceptance without exposing values. Twitch-secret
+changes still require restart.
 
 ## Personalities and AI memory
 

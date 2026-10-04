@@ -100,7 +100,7 @@ is intentionally ignored and recreated by `npm run build`.
 
 Configuration responsibilities remain separated:
 
-- `.env` contains deployment values, account identity, logging settings, and private credential fallbacks. It is loaded by `app/config/settings.py` and must remain private. Credentials stored through the Settings page in the system keyring take precedence on the next launch.
+- `.env` contains deployment values, account identity, logging settings, and private credential fallbacks. It is loaded by `app/config/settings.py` and must remain private. Credentials stored through the Settings page in the system keyring take precedence; Gemini changes apply immediately, while Twitch client-secret changes require restart.
 - `config.py` contains non-secret behavioral defaults, including cooldowns, neutral command responses, AI response length, memory limits, and the neutral personality identifier. Built-in personality prompts live in the tracked `app/resources/personalities.json` resource; protected shared AI instructions remain application code in `app/config/personalities.py`.
 - `config/command_settings.json` under the platform app-data root contains optional local command overrides. Commands without overrides continue to use registry defaults.
 - `config/custom_commands.json` under that root contains versioned, local custom commands. Invalid entries are skipped and cannot disable built-in commands.
@@ -141,6 +141,11 @@ automatic startup leaves the desktop open with Twitch stopped.
 `TWITCH_CLIENT_SECRET` must be available from either the system keyring or the
 private environment/`.env` fallback before starting a Twitch connection.
 
+Gemini is optional. Twitch and non-AI commands work without a Gemini key. Without a configured
+key/provider, `!ask` is unavailable, while its enabled preference is retained. Adding a Gemini
+key in Settings restores AI availability immediately; a deliberately disabled command stays disabled.
+Use the credential Test action to verify the key with the provider.
+
 Global message filters start empty and are copied from tracked `data/filters/` into app-data `config/filters/` on first launch. Manage them on the desktop **Filters** page: Apply changes the running session, while Save keeps validated changes across restarts. The page marks source-default and local rules and highlights invalid entries. You can also edit the app-data copies directly; missing copies are recreated from the tracked defaults:
 
 - `blocked_words.txt` contains whole-word matches;
@@ -178,8 +183,12 @@ For built-in `!tg` and `!forecast` responses, optionally create `config/fun_sett
 {"version": 1, "tg_message": "Your community link", "forecasts": ["Tomorrow brings a new opportunity."]}
 ```
 
-Responses must be non-empty and at most 450 UTF-8 bytes; edits require restart. Missing or
-invalid files use neutral starters. Existing profiles are never overwritten during seeding.
+Responses must be non-empty and at most 450 UTF-8 bytes. Expand `!forecast` in Commands to
+edit its response pool: Apply changes this session, Save persists it atomically in the selected
+profile, and Reset restores neutral shipped responses. These actions preserve `tg_message` and
+other fields. Direct file edits, including `tg_message`, require restart. Missing or invalid
+files use neutral starters; unreadable/unsupported files must be repaired before saving from the UI.
+Existing profiles are never overwritten during seeding.
 
 ## Twitch setup
 
@@ -235,7 +244,12 @@ Ordinary chat can also trigger short, non-AI reactions. Edit app-data `config/me
 
 `python -m app.main` opens the React UI in pywebview and controls the single composed Python application. The explicit bridge exposes only application-level lifecycle and settings operations; command rules, AI behavior, persistence, Twitch, and database access remain in Python.
 
-The built-in Commands section is registry-driven, including hidden commands, and edits canonical enabled, permission, and cooldown settings. Apply is process-local, Save writes app-data `config/command_settings.json`, and Reset removes the override and restores registry defaults. The separate Custom Commands section saves user-created commands immediately to app-data `config/custom_commands.json`.
+The built-in Commands section is registry-driven, including hidden commands. Cards start collapsed
+with enabled/availability, permission, and cooldown summaries; expand a card to edit its settings.
+Apply is process-local, Save writes app-data `config/command_settings.json`, and Reset removes the
+override and restores registry defaults. Forecast responses have separate Apply / Save / Reset
+actions in the expanded editor. Weather and uptime continue to use runtime data. The separate
+Custom Commands section saves user-created commands immediately to app-data `config/custom_commands.json`.
 
 The AI page provides a runtime AI-command toggle, a persisted memory toggle, Gemini
 selected/fallback model configuration, and the active personality selector. Personality Apply
@@ -251,8 +265,10 @@ the active/target channel. Target settings and named presets write only display 
 logins, and numeric user IDs to app-data `config/app_settings.json`; Save & reconnect applies the selected
 target through the existing bot lifecycle. The page also shows masked credential status for the
 Gemini API key and Twitch client secret, with Replace, Remove, and provider Test actions.
-Credential values are never returned to React; changes use the system keyring and take
-effect after restart. The pystray menu provides Open, dynamic Start Bot / Stop Bot, and Exit.
+Credential values are never returned to React; changes use the system keyring. Gemini changes
+apply to AI features immediately; removing a stored key uses the private environment fallback
+when present. Twitch client-secret changes take effect after restart. The pystray menu provides
+Open, dynamic Start Bot / Stop Bot, and Exit.
 Tray Exit and normal application shutdown reuse the same orderly backend lifecycle. The
 completed parity checklist is in `docs/desktop-feature-parity.md`.
 

@@ -13,6 +13,7 @@ from app.commands.registry import CommandDispatcher, CommandRegistry
 from app.custom_commands import CustomCommandStore
 from app.message_triggers import MessageTriggerStore
 from app.runtime_paths import RuntimePaths
+from app.fun_settings import FunSettingsStore
 from app.config.settings import Settings
 from app.database.database import Database
 from app.database.repository import AIMemoryRepository, UserRepository
@@ -39,6 +40,7 @@ class Application:
     registry: CommandRegistry
     dispatcher: CommandDispatcher
     custom_commands: CustomCommandStore | None = None
+    fun_settings: FunSettingsStore | None = None
 
     async def startup(self) -> None:
         await self.database.initialize()
@@ -94,7 +96,8 @@ def build_application(settings: Settings) -> Application:
         twitch=twitch_api,
     )
     registry = CommandRegistry()
-    register_fun_commands(registry)
+    fun_settings = FunSettingsStore(paths.config / "fun_settings.json")
+    register_fun_commands(registry, fun_settings)
     register_weather_commands(registry)
     register_info_commands(registry)
     register_ai_commands(registry)
@@ -126,4 +129,5 @@ def build_application(settings: Settings) -> Application:
         registry=registry,
         custom_commands=custom_commands,
         dispatcher=dispatcher,
+        fun_settings=fun_settings,
     )
