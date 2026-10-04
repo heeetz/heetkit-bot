@@ -501,19 +501,6 @@ class AIRequestPolicy:
             ),
         ]
 
-                # Owner-name protection.
-        # Any direct reference to the owner should be silently ignored.
-        self._owner_patterns: List[Pattern] = [
-            re.compile(
-                r"(?<![a-z0-9_])(heet[_\s-]?ok|heet)(?![a-z0-9_])",
-                re.IGNORECASE,
-            ),
-            re.compile(
-                r"(?<![а-яёіїєґ])хит(?:ок)?[а-яёіїєґ]*",
-                re.IGNORECASE,
-            ),
-        ]
-
         # Derogatory / insulting / provocative names/nicknames for countries or nationalities (EN, RU, UK)
         self._derogatory_nation_patterns: List[Pattern] = [
             # English
@@ -598,11 +585,6 @@ class AIRequestPolicy:
 
         # Check explicit sexual / fetish requests.
         for pattern in self._sexual_fetish_patterns:
-            if pattern.search(clean_prompt):
-                return PolicyDecision.IGNORE
-
-        # Any request mentioning the owner is silently ignored.
-        for pattern in self._owner_patterns:
             if pattern.search(clean_prompt):
                 return PolicyDecision.IGNORE
 

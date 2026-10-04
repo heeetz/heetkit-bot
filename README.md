@@ -155,6 +155,9 @@ Global message filters start empty and are copied from tracked `data/filters/` i
 
 Blank lines and lines beginning with `#` are ignored. The tracked files are distributable defaults; local edits in app-data stay outside the source tree. Review custom filter content before sharing it.
 
+These rules filter incoming chat and Gemini response text. Configure name or topic protection
+in each profile's local filters; shared AI safeguards contain no personal name rules.
+
 Built-in cooldown values remain in root `config.py`; effective command cooldowns can be applied or saved from the Commands page. Only `neutral` ships. Saved local personality IDs and prompts remain available after upgrades, including IDs removed from shipped resources. Add IDs (1–64 characters) to the local `overrides` object to create additional styles, then restart. Reset restores a built-in prompt or clears a local-only prompt while retaining its ID.
 
 

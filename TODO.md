@@ -1,6 +1,7 @@
 # Twitch Bot — TODO
 
-This file contains **only unfinished work**.
+This file contains unfinished work and the retained TODO-013 follow-up outcomes until
+their final checkpoint is complete.
 
 Completed implementation history lives in Git. Durable architectural decisions belong in
 `.agent/ARCHITECTURE.md` / `.agent/DECISIONS.md`, while `.agent/HANDOFF.md` should describe only
@@ -27,23 +28,37 @@ When asked to execute a TODO:
 
 TODO-013 is complete. Its single-pass report is in `.agent/HANDOFF.md`; implementation
 history is in Git. The checkpoint classified release risks, not approval to package.
-Resolve TODO-013A–013C before beginning TODO-014. Execute follow-ups only when requested.
+TODO-013A is complete. Resolve TODO-013B–013C before beginning TODO-014, and address
+TODO-013D before the packaging freeze. Execute follow-ups only when requested.
+
+BEFORE YOU COMPLETE ALL TODO-13 SUBTASKS - DO NOT DELETE RECORDS OF THEM AND FOLLOW:
+
+Review TODO-013A through TODO-013D outcomes.
+
+Confirm whether any release blocker from TODO-013 remains unresolved.
+
+Do not perform another broad codebase review.
+Do not modify code unless there is a concrete regression introduced by these fixes.
+
+If clear, update HANDOFF so TODO-014 is next and STOP.
 
 ## TODO-013A — Remove owner-specific AI policy from shipped code
 
-**Priority: release blocker — neutral-profile/privacy boundary.**
+**Status: complete — 2026-10-04.**
 
-`app/services/ai_request_policy.py` still silently ignores references to the original
-owner's identifiers, and `app/services/gemini_ai_service.py` hardcodes the same names in
-response filtering. Empty local filters and neutral personalities do not remove those rules.
+**Priority: release blocker resolved — neutral-profile/privacy boundary.**
 
-- [ ] Remove personal identifiers from shared request/response policy.
-- [ ] Preserve any desired owner protection in that owner's local profile through the existing
+Shared request/response code no longer embeds personal name rules. Protection was preserved
+only in the existing owner's local pattern file; shipped starters remain empty.
+
+- [x] Remove personal identifiers from shared request/response policy.
+- [x] Preserve any desired owner protection in that owner's local profile through the existing
   filter mechanism; do not put personal values into shared defaults, tests, or project memory.
-- [ ] Keep shared prompt/credential/content safeguards intact.
-- [ ] Test that an unrelated clean profile has no owner-specific policy and local filters still work.
+- [x] Keep shared prompt/credential/content safeguards intact.
+- [x] Test that an unrelated clean profile has no owner-specific policy and local filters still work.
 
-**Acceptance:** runtime code and shipped defaults contain no original-owner moderation rules.
+**Acceptance met:** runtime code and shipped defaults contain no original-owner moderation
+rules. Focused checks cover profile isolation, incoming/response filters, and unchanged safeguards.
 
 ---
 

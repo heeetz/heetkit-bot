@@ -69,16 +69,6 @@ class GeminiAIService:
                 re.IGNORECASE,
             ),
 
-            # Owner references
-            re.compile(
-                r"(?<![a-z0-9_])(heet[_\s-]?ok|heet)(?![a-z0-9_])",
-                re.IGNORECASE,
-            ),
-            re.compile(
-                r"(?<![а-яёіїєґ])хит(?:ок)?(?![а-яёіїєґ])",
-                re.IGNORECASE,
-            ),
-
             # Internal information / secrets
             re.compile(
                 r"\b(system\s+prompt|hidden\s+instructions?|developer\s+instructions?|"
