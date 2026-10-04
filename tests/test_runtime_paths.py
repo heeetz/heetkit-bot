@@ -186,3 +186,52 @@ def test_interrupted_migration_retries_without_replacing_recovered_files(tmp_pat
     assert paths.migration_marker.exists()
     assert paths.personality_settings.read_bytes() == recovered
     assert (paths.config / "fun_settings.json").read_bytes() == (legacy / "fun_settings.json").read_bytes()
+
+
+def test_default_profile_marker_does_not_prove_optional_settings_were_recovered(tmp_path: Path, monkeypatch) -> None:
+    from app import runtime_paths
+    from app.fun_settings import FORECASTS
+
+    paths = RuntimePaths(tmp_path / "default-profile")
+    paths.config.mkdir(parents=True)
+    paths.migration_marker.write_bytes(b"previous migration attempt")
+    monkeypatch.delenv(runtime_paths.DATA_DIR_ENV, raising=False)
+    monkeypatch.setattr(runtime_paths, "user_data_path", lambda *args, **kwargs: paths.root)
+    assert RuntimePaths.default() == paths
+    assert paths.is_default_profile
+
+    legacy = tmp_path / "checkout" / "data"
+    legacy.mkdir(parents=True)
+    (legacy / "personality_settings.json").write_text(json.dumps({
+        "active_personality": "archived-style",
+        "overrides": {"archived-style": "An editable local style"},
+    }), encoding="utf-8")
+    (legacy / "fun_settings.json").write_text(json.dumps({
+        "version": 1, "forecasts": ["An exact archived response"],
+        "tg_message": "An archived community message",
+    }), encoding="utf-8")
+
+    # Even a real default profile skips old JSON once the marker exists.
+    prepare_runtime_data("tokens.json", "sqlite+aiosqlite:///missing.db", legacy_data=legacy)
+    assert not paths.personality_settings.exists()
+    assert not (paths.config / "fun_settings.json").exists()
+    assert RuntimeState(personality_settings_path=paths.personality_settings).available_personalities == ("neutral",)
+    assert FunSettingsStore(paths.config / "fun_settings.json").forecasts == FORECASTS
+    assert paths.migration_marker.read_bytes() == b"previous migration attempt"
+
+    # Explicit private recovery restores only the selected profile; initialization
+    # keeps those files instead of using shipped starters or repeating migration.
+    recovered = {}
+    for filename in ("personality_settings.json", "fun_settings.json"):
+        destination = paths.config / filename
+        recovered[destination] = (legacy / filename).read_bytes()
+        destination.write_bytes(recovered[destination])
+    prepare_runtime_data("tokens.json", "sqlite+aiosqlite:///missing.db", legacy_data=legacy)
+    assert all(path.read_bytes() == raw for path, raw in recovered.items())
+    state = RuntimeState(personality_settings_path=paths.personality_settings)
+    assert state.available_personalities == ("neutral", "archived-style")
+    assert state.active_ai_personality == "archived-style"
+    assert state.get_ai_personality_prompt("archived-style") == "An editable local style"
+    fun = FunSettingsStore(paths.config / "fun_settings.json")
+    assert fun.forecasts == ("An exact archived response",)
+    assert fun.tg_message == "An archived community message"

@@ -137,6 +137,14 @@ stores.
 
 The app-data root is `%LOCALAPPDATA%\TwitchBot` on Windows, `~/Library/Application Support/TwitchBot` on macOS, and `${XDG_DATA_HOME:-~/.local/share}/TwitchBot` on Linux. It contains `config/`, `data/`, `auth/`, and `cache/`.
 
+Personality and built-in response settings belong in `config/personality_settings.json` and
+`config/fun_settings.json` inside the selected profile. The `.legacy-migration-v1` marker records
+a one-time migration attempt; it does not certify that these optional files exist. Missing
+files use neutral defaults and are not imported again automatically. To recover customization,
+quit the app, back up the profile, restore only the needed settings files into its `config/`,
+and restart. Leave the marker, unrelated settings, filters, database, OAuth cache and credentials
+in place. Restore editable personality styles rather than old shared/system instructions.
+
 App, command, custom-command and personality settings still recover at startup when a file
 cannot be loaded. Save, Reset and Delete refuse to replace unreadable or malformed JSON
 (including duplicate keys); versioned app/custom-command files with unsupported versions also

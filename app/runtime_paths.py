@@ -167,8 +167,10 @@ def prepare_runtime_data(
 ) -> tuple[str, str]:
     """Copy legacy state once, then return canonical token and SQLite locations.
 
-    Old files remain in place. A marker prevents deleted settings from being
-    restored from the old checkout on a later launch. SQLite uses its backup API
+    Old files remain in place. The marker records the one-shot migration attempt,
+    not the presence of every optional settings file. It prevents deleted settings
+    from being restored from the old checkout on a later launch; missing user
+    settings require explicit recovery from a backup. SQLite uses its backup API
     so WAL contents are included in the migration.
     """
     paths = paths or RuntimePaths.default()
