@@ -132,6 +132,7 @@ automatic startup leaves the desktop open with Twitch stopped.
 | `TWITCH_TOKEN_FILE` | No | Legacy token-file location to import on the first normal launch. New tokens use the app-data `auth/` directory. |
 | `GEMINI_API_KEY` | No | Private `.env` fallback for Gemini; a system keyring value takes precedence. |
 | `GEMINI_MODEL` | No | Gemini model; defaults to `gemini-3.5-flash-lite`. |
+| `GEMINI_FALLBACK_MODEL` | No | Model used when the selected model returns 404; defaults to `gemini-3.1-flash-lite`. |
 | `AI_COOLDOWN_BYPASS_USER_ID` | No | One Twitch user ID allowed to bypass only the `!ask` cooldown. |
 | `DATABASE_URL` | No | Legacy SQLite URL to import on the first normal launch, or an explicit non-SQLite database URL. Local SQLite uses app-data `data/twitch_bot.db`. |
 | `LOG_LEVEL` | No | `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
@@ -234,7 +235,7 @@ All commands are configurable from the Commands page. Hidden commands are omitte
 | `!uptime` | Show elapsed time since application composition. | Moderator | No | Yes |
 | `!weather <city>` | Show current weather with English, Russian, or Ukrainian localization. | User | No | Yes |
 
-Built-in cooldowns come from `config.py`; saved local overrides take precedence at runtime. `!tg` and hidden `!erase` currently have no built-in command cooldown; all other default cooldown values are explicitly configured there.
+Built-in cooldowns come from `config.py`; saved local overrides take precedence at runtime. `!tg` and hidden `!erase` currently have no built-in command cooldown; all other default cooldown values are explicitly configured there. The moderator-only `!tg` burst also bypasses the global output limiter; other outgoing commands and message reactions use it.
 
 The Commands page also lets you create your own commands with a name, optional aliases, permission level, per-user and global cooldowns, and one or more response templates. Multiple templates are chosen at random. Use `{sender}`, `{target}` (first argument, or sender if absent), `{args}`, `{arg1}` through `{arg9}` (missing arguments become blank), and `{random_user}` (a chatter seen in the last 30 minutes, or sender if none is available). Unknown variables are rejected when saving. Custom commands cannot take a built-in name or alias, and templates never run code. Replies are limited to 450 UTF-8 bytes and use the normal global output limiter.
 
@@ -340,7 +341,7 @@ npm run build
 
 ## Troubleshooting
 
-- Missing Twitch setup: the desktop opens disconnected. Copy `.env.example` to the profile's deployment `.env`, fill the required Twitch values, and restart before Start Bot. `--check` checks desktop configuration and frontend availability; Twitch-required values are checked when connecting.
+- Missing Twitch setup: the desktop opens disconnected. For the normal source-launch profile, copy `.env.example` to `.env` in the repository root and launch from that directory. For an alternate profile, copy it to `<profile>/.env`. Fill the required Twitch values and restart before Start Bot. The client ID and bot username/user ID still require deployment configuration; Settings edits the target channel and credentials. `--check` checks desktop configuration and frontend availability; Twitch-required values are checked when connecting.
 - Twitch authentication failure: verify the client credentials, numeric account IDs, callback URL, and that the intended bot account completed OAuth. Remove a stale local token file only when you intentionally want to authorize again.
 - Import or command not found: activate `.venv` and rerun `python -m pip install -e ".[dev]"`.
 - No control panel: verify that the process has access to a graphical desktop and that the Microsoft Edge WebView2 runtime is installed. `python -m app.main --check` intentionally does not open the GUI.

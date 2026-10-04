@@ -1,8 +1,10 @@
 """Tests for dispatching registered commands through a fake chat transport."""
 
 import logging
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import cast
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -83,6 +85,31 @@ class FakeWeatherService:
         if self.error is not None:
             raise self.error
         return self.report
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content", ["!erase", "!erase   ", "!erase @"])
+async def test_erase_without_a_target_leaves_memory_untouched(content, caplog) -> None:
+    registry = CommandRegistry()
+    register_ai_commands(registry)
+    transport = FakeChatTransport(content)
+    transport.message = replace(
+        transport.message,
+        author=replace(transport.message.author, is_broadcaster=True),
+    )
+    lookup = AsyncMock()
+    erase = AsyncMock()
+    services = SimpleNamespace(
+        users=SimpleNamespace(get_by_username=lookup),
+        memory=SimpleNamespace(erase_for_user=erase),
+    )
+
+    assert await build_dispatcher(registry).dispatch(transport.message, services)
+
+    lookup.assert_not_awaited()
+    erase.assert_not_awaited()
+    assert transport.replies == []
+    assert not any(record.levelno >= logging.ERROR for record in caplog.records)
 
 
 @pytest.mark.asyncio

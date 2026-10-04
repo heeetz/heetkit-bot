@@ -5,71 +5,91 @@ Repository code is authoritative. This file records the current state and next r
 ## Repository state
 
 - Branch: `main`; completed work is pushed to `origin/main`.
-- TODO-012 is complete: one application supports independent profiles with neutral shipped
-  defaults. The existing roadmap revision is retained; no later TODO was executed.
-- The TODO-012 clean-profile startup regression is fixed: empty Twitch identity and absent
-  credentials permit desktop launch; complete setup is required before creating a Twitch session.
-- TODO-012A is complete: optional Gemini availability, compact expandable command cards,
-  live profile-owned forecast editing, and responsive Commands controls. No later TODO was executed.
-- Source launch: Windows `run.bat`; all platforms `python -m app.main` or installed `twitch-bot`.
-  Build the frontend before production source launch. Native bundles/installers remain future work.
+- TODO-013 is complete: the one global pre-packaging review is finished. Every known finding
+  has a priority and follow-up. Packaging was not started; no build/release artifacts were made.
+- Only the isolated empty-target `!erase` error, a stale desktop-settings test expectation,
+  and README accuracy were changed. Empty or `@`-only targets now leave memory untouched
+  without logging an exception; the bridge test includes its existing `tray_available` field.
+- TODO.md contains unfinished follow-ups; do not run another generic review or start the next
+  task automatically. No architecture/ownership boundary or durable decision changed.
 
 ## Current application state
 
-- Python owns domain behavior, persistence, Twitch/Gemini, and lifecycle. React/pywebview is
-  presentation; one backend host owns one asyncio loop, composed application, and bot runtime.
-- Normal launches guard the selected profile before reading data. `--check` bypasses the guard
-  and performs no migration or directory creation. Shutdown is shared and idempotent.
-- `app/runtime_paths.py` selects platform app-data by default. `--data-dir <path>` takes priority
-  over `TWITCH_BOT_DATA_DIR`. Config, filters, SQLite, OAuth cache, and the instance guard use
-  that profile. Alternate profiles never automatically import checkout state.
-- The normal profile retains the original keyring service. Alternate roots get independent,
-  stable keyring namespaces and use `<profile>/.env` instead of checkout `.env`.
-  Explicit process environment variables still override deployment settings.
-- Shipped starters: one neutral personality, empty filters/reactions/custom commands/Twitch
-  presets, a neutral forecast, and a community-link configuration reminder. Personal style
-  and named-person instructions are local data. Shared prompt safety remains application code.
-- The owner's former shipped personalities, named-person style rules, fun-command responses,
-  filters, and reactions were preserved in the normal local profile before defaults changed.
-  Existing local overrides were retained. No profile values or credentials were committed.
-- User personalities (including retired shipped IDs) survive through local overrides. Built-in
-  Reset restores the shipped prompt; local-only Reset clears its text and retains its ID.
-- Missing configs recover neutral starters; existing files are never overwritten by seeding.
-  `.legacy-migration-v1` remains outside config, preventing config reset from reimporting state.
-  Database, OAuth cache, and keyring credentials survive deletion of only `config/`.
-- `config/fun_settings.json` optionally stores version-1 `tg_message` and `forecasts` for existing
-  built-ins. The expanded forecast editor applies live, saves atomically, and resets only that
-  pool to neutral defaults; existing local responses and other fields survive. Direct file edits
-  still require restart. No alternate owner build exists.
-- Gemini is optional. `ask` reports provider availability separately from configured enabled
-  state; unavailable requests consume no cooldown and do no policy/memory/provider work. Ordinary
-  commands and memory erasure remain usable. Gemini Replace/Remove refreshes the effective key
-  on the backend loop, preserving enabled preferences. Twitch-secret changes require restart.
-- Setup labels Twitch required and Gemini optional. Built-in Commands start collapsed with
-  summary badges; expanded controls retain canonical backend permission/cooldown ownership.
-- Command policy, filter editing, Twitch recovery, Gemini client ownership, tray behavior and
-  branding remain as documented in `.agent/ARCHITECTURE.md`.
+- Python owns behavior, persistence, Twitch/Gemini and lifecycle; React/pywebview is presentation.
+  One backend thread owns the application and asyncio loop. Shared runtime/store snapshots use
+  locks; async bridge operations submit to that loop with bounded UI waits.
+- Source launch: Windows `run.bat`, or `python -m app.main` / installed `twitch-bot` from the
+  checkout. Production source launch needs a built `frontend/dist/`. Standalone bundles are future work.
+- `RuntimePaths` selects platform app-data; `--data-dir` overrides `TWITCH_BOT_DATA_DIR`.
+  Config, SQLite, OAuth cache and instance guard belong to that profile. Alternate profiles skip
+  legacy imports and use their own `.env`/hashed keyring service. The normal profile retains
+  service `twitch-bot` and currently reads working-directory `.env`.
+- Normal launches acquire the profile guard before reading/migrating state. `--check` neither
+  locks nor creates/migrates files. Shared shutdown is idempotent with a bounded degraded path.
+- Clean profiles launch stopped/disconnected without credentials. Start requires complete Twitch
+  setup. Settings edits target channels/presets and secrets; client ID and bot identity still
+  require deployment configuration. Twitch secret edits require restart; Gemini edits apply live.
+- Gemini is optional; unavailable `ask` requests consume no cooldown/policy/memory/provider work.
+  Enabled preferences survive key changes. Existing stores own local command/personality/filter/
+  forecast overrides; seeding does not overwrite existing files. Config reset preserves SQLite,
+  OAuth cache, keyring credentials and the migration marker.
+- Shipped starters are neutral personality/forecast/link reminder and empty commands/triggers/
+  filters/presets. Remaining owner-specific AI policy is a classified release blocker below.
+- Built-in command cards start collapsed. Forecast Apply/Save/Reset uses its profile store and
+  preserves other fields. Non-AI commands and memory erasure work without Gemini.
 
-## Next requested work
+## TODO-013 prioritized report — 2026-10-04
 
-- **TODO-013 — Perform one global pre-packaging codebase review**. Start only when requested.
+**Release blockers, resolve before TODO-014:**
 
-## Open risks and validation
+1. **TODO-013A:** request/response policy still embeds the original owner's name rules
+   (`app/services/ai_request_policy.py`, `app/services/gemini_ai_service.py`). Neutral local
+   defaults do not remove this personal behavior from a distributed runtime.
+2. **TODO-013B:** installation/setup assumes the checkout. Runtime imports need root `config.py`,
+   but setuptools declares only `app*`; frontend/default filters use sibling paths. Default-profile
+   `.env` discovery depends on working directory, and the GUI cannot configure client ID/bot identity.
+3. **TODO-013C:** declared/installed `google-genai` 0.8.0 uses Requests in `asyncio.to_thread`
+   with no HTTP timeout unless supplied. Coroutine deadlines cannot stop a stalled network worker;
+   that worker can survive backend shutdown and hold process exit. Lifetime mocks expose close
+   methods absent from this installed SDK, so passing mock tests do not establish transport cleanup.
 
-- Fresh profiles open stopped/disconnected and retain the dashboard's Configure Twitch guidance.
-  Missing client secrets are `None`. Start/reconnect validate complete connection setup and return
-  safe field-name errors; incomplete automatic startup is skipped while the UI remains usable.
-  Twitch identity/client ID still use profile deployment settings; Twitch-secret edits require restart.
-- macOS/Linux source startup has not been run natively. Linux requires a pywebview backend/system
-  libraries; credential backend availability depends on the desktop environment.
-- No standalone executable exists yet; TODO-012 validates the shared source runtime's profile semantics.
-- TODO-012A: 129 focused backend tests passed, including clean backend startup, live Gemini
-  changes preserving saved enabled/disabled preferences, forecast isolation/live dispatch,
-  owner-file preservation, invalid edits, and failed atomic replacement. Frontend typecheck/build
-  and Python compile checks passed.
-- Edge smoke checks with neutral mock bridge data passed at 600, 1180, 1920 CSS pixels and
-  800 CSS pixels at 1.5 device scale: collapsed/expanded containment, no overlap or horizontal
-  overflow, right-aligned actions, setup labels, response save/reset, and draft preservation.
-  The native WebView window and real provider credentials were not used by these checks.
-- The sandbox cannot launch the venv's base interpreter; checks used the same project venv
-  with approved execution outside the sandbox. This is an agent environment limitation.
+**Should fix before v1:** **TODO-013D** protects unrecovered profile files. App/custom-command
+load failures fall back to defaults, then ordinary Save can replace the original/future-version
+file. Command/personality read failures have the same preservation risk. Atomic writes alone
+prevent partial writes, not loss of unrecovered data; the fun-settings store already blocks this.
+
+**Safe to defer:** **TODO-013E** bounds lifetime cooldown entries for very large/long-lived
+channels. Native macOS/Linux verification remains **TODO-019**. Reproducible runtime dependencies,
+version/icon/WebView2 handling, and actual clean-machine artifact verification
+remain the scoped distribution work in **TODO-014–018**, without another architecture audit.
+
+The pass covered module ownership/obsolete-file risk, paths/resources, tracked privacy,
+credential boundaries, storage/migration, first run, lifecycle/single instance, thread/async
+ownership, Twitch/Gemini lifetimes, bridge signatures/payload consumers, dependencies, README
+and release-relevant tests. Existing audit docs/developer scripts are intentional source material;
+exclude them from runtime artifacts. All declared runtime dependencies have consumers; Pillow is
+currently supplied transitively by pystray. No file-count refactor or unrelated cleanup was done.
+Current tracked-file inventory and a redacted credential-pattern scan found no credentials,
+OAuth caches, databases, local profiles or private absolute user paths. This was a current-tree
+review, not Git-history sanitization or a dependency-vulnerability audit.
+
+## Validation and next requested work
+
+- Full automated suite ran once: **250 passed, 1 failed**. The sole failure was an obsolete
+  expected bridge response missing `tray_available`; its isolated correction passed the one
+  targeted rerun (**1 passed**). No second full-suite run or generic review was performed.
+- Read-only validation passed: syntax for all **79 tracked Python files**, parsing of all
+  **8 tracked JSON files**, and **38 public bridge method names/argument signatures**.
+  The three new empty-target erasure cases passed in the full run. Dependency deprecation
+  warnings on Python 3.14 remain; no dependency changes/installations were made.
+- Existing automated coverage protects empty-profile launch/isolation, migration/reset survival,
+  credential redaction, instance guard, bounded host/bridge waits, tray fallback, Twitch auth/
+  reconnect, SDK lease rotation, atomic saves and frontend-entrypoint presence.
+- Frontend sources were unchanged; no frontend build/typecheck or packaging was run.
+- Actual native WebView/tray UI, real provider authorization, a Python 3.12 environment and
+  clean-machine artifacts were not exercised by this checkpoint. The available venv uses Python
+  3.14; sandbox execution of its base interpreter is restricted, so checks require approved
+  execution of the same project venv outside the sandbox.
+- Next only when requested: **TODO-013A**, followed by the remaining classified follow-ups.
+  TODO-014 is gated on TODO-013A–013C. The review checkpoint is complete; the app is not yet
+  cleared for packaging. Stop here.

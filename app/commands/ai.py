@@ -78,7 +78,10 @@ def register_ai_commands(registry: CommandRegistry) -> None:
         hidden=True,
     )
     async def erase_memory(context, arguments: str) -> None:
-        target_username = arguments.strip().split(maxsplit=1)[0].lstrip("@")
+        parts = arguments.strip().split(maxsplit=1)
+        if not parts:
+            return
+        target_username = parts[0].lstrip("@")
         if not target_username:
             return
 

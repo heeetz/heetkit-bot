@@ -25,37 +25,103 @@ When asked to execute a TODO:
 
 # P5 — Release-readiness checkpoint
 
-## TODO-013 — Perform one global pre-packaging codebase review
+TODO-013 is complete. Its single-pass report is in `.agent/HANDOFF.md`; implementation
+history is in Git. The checkpoint classified release risks, not approval to package.
+Resolve TODO-013A–013C before beginning TODO-014. Execute follow-ups only when requested.
 
-This is a deliberate checkpoint before freezing the application into distributable artifacts.
+## TODO-013A — Remove owner-specific AI policy from shipped code
 
-- [ ] Review the **current** codebase globally once, with emphasis on release risk rather than style.
-- [ ] Check:
-  - package/module ownership and obvious dead/obsolete files;
-  - accidental development-only/runtime-path assumptions;
-  - personal/private data accidentally tracked or bundled;
-  - secrets and credential boundaries;
-  - app-data/config/database/token-cache ownership;
-  - startup/shutdown/single-instance lifecycle;
-  - pywebview/thread/async boundaries;
-  - Twitch/Gemini resource lifetimes;
-  - frontend/backend bridge API consistency;
-  - dependency declarations and unused runtime dependencies;
-  - packaging/resource path assumptions;
-  - first-run behavior with an empty profile;
-  - README/setup accuracy;
-  - tests that materially protect packaging/release behavior.
-- [ ] Do not refactor merely to reduce file count or line count.
-- [ ] Do not run multiple generic review loops.
-- [ ] Produce a short prioritized report:
-  - release blocker;
-  - should fix before v1;
-  - safe to defer.
-- [ ] Implement only tiny, isolated, high-confidence fixes during the review.
-- [ ] Turn broader findings into explicit follow-up TODOs before packaging.
-- [ ] Run the full automated test suite once at the end of the checkpoint.
+**Priority: release blocker — neutral-profile/privacy boundary.**
 
-**Acceptance:** there are no known unclassified release blockers before packaging begins.
+`app/services/ai_request_policy.py` still silently ignores references to the original
+owner's identifiers, and `app/services/gemini_ai_service.py` hardcodes the same names in
+response filtering. Empty local filters and neutral personalities do not remove those rules.
+
+- [ ] Remove personal identifiers from shared request/response policy.
+- [ ] Preserve any desired owner protection in that owner's local profile through the existing
+  filter mechanism; do not put personal values into shared defaults, tests, or project memory.
+- [ ] Keep shared prompt/credential/content safeguards intact.
+- [ ] Test that an unrelated clean profile has no owner-specific policy and local filters still work.
+
+**Acceptance:** runtime code and shipped defaults contain no original-owner moderation rules.
+
+---
+
+## TODO-013B — Make runtime resources and first-run setup independent of the checkout
+
+**Priority: release blocker — installed startup and usable clean profile.**
+
+`pyproject.toml` declares only `app*` packages, although runtime imports require root
+`config.py`. The frontend and default filters use sibling checkout paths. The normal profile
+loads `.env` relative to the working directory; Settings cannot enter the Twitch client ID
+or bot username/user ID. An editable checkout hides these installation/setup gaps.
+
+- [ ] Declare the runtime behavior module and required resources explicitly; keep source-only
+  material outside the runtime distribution. Do not build standalone artifacts in this task.
+- [ ] Make default-filter/trigger/frontend discovery deterministic outside the checkout;
+  distinguish shipped starters from legacy migration sources.
+- [ ] Provide profile-owned Twitch identity/client-ID setup and accurate first-run guidance;
+  keep secrets in the existing credential boundary and preserve source/profile compatibility.
+- [ ] Add focused checks for launch from an unrelated working directory, declared runtime
+  resources, and clean setup without checkout files or writing into the install directory.
+
+**Acceptance:** the runtime/setup contract is explicit and testable without a development
+checkout. Freezing, frontend build automation, and artifact generation remain TODO-014.
+
+---
+
+## TODO-013C — Bound Gemini transport work and verify the real SDK contract
+
+**Priority: release blocker — provider lifetime and process exit.**
+
+The installed, declared `google-genai` 0.8.0 dispatches Requests work with `asyncio.to_thread`
+and defaults its HTTP timeout to `None`. The application's coroutine/bridge timeouts cannot
+stop that worker. A stalled generation/discovery can outlive shutdown and prevent process
+exit. Existing lifetime tests use fake SDK clients with close methods absent in this SDK.
+
+- [ ] Set finite provider transport deadlines as well as coroutine deadlines for generation
+  and discovery; ensure cancellation/shutdown cannot leave indefinite network workers.
+- [ ] Select/declare an SDK version whose request/close contract is actually supported, or
+  adapt to the existing supported contract without relying on fake-only methods.
+- [ ] Add an offline test against the real installed SDK transport for stalled requests,
+  credential rotation, and shutdown; never use real credentials for automated checks.
+
+**Acceptance:** declared SDK behavior and tests agree, and provider work has a finite
+lifetime after cancellation or application shutdown.
+
+---
+
+## TODO-013D — Preserve unreadable or unsupported profile settings on save
+
+**Priority: should fix before v1; schedule before the packaging freeze.**
+
+Application/custom-command loaders recover with defaults after unreadable, malformed, or
+unsupported files, but their next Save rewrites only the recovered snapshot. This can discard
+the user's original data or future-schema fields. Command/personality recovery has a similar
+read-failure risk. `FunSettingsStore` already refuses saves after a failed/unsupported load.
+
+- [ ] Keep startup recovery, but prevent ordinary Save from silently replacing unrecovered
+  settings; provide an explicit repair/reset path or preserved recovery copy.
+- [ ] Define handling of unsupported versions and unknown fields for versioned stores.
+- [ ] Test that saving an unrelated setting cannot erase unreadable/future-version data,
+  and that ordinary supported files still save atomically.
+
+**Acceptance:** recovery never turns an ordinary Save into silent loss of unrecovered user data.
+
+---
+
+## TODO-013E — Bound long-session cooldown bookkeeping
+
+**Priority: safe to defer beyond the packaging checkpoint.**
+
+`CooldownManager` retains every `(command, user)` entry for the process lifetime, including
+commands with zero per-user cooldown. Large, long-lived channels can grow this cache indefinitely.
+
+- [ ] Expire inactive cooldown entries with bounded bookkeeping, preserving global/per-user
+  cooldown semantics and active overrides.
+- [ ] Test many distinct chatters and elapsed cooldown windows without adding a new service layer.
+
+**Acceptance:** historical chatters cannot cause unbounded cooldown-cache growth.
 
 ---
 
@@ -214,7 +280,7 @@ Do not reopen broad design work merely for cosmetic churn.
 Near-term sequence:
 
 ```text
-one global release-readiness review
+classified release-readiness follow-ups
 → Windows standalone
 → Windows installer
 → automated releases

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import sys
 from concurrent.futures import Future
 from types import SimpleNamespace
 from typing import cast
@@ -403,6 +404,7 @@ def test_bridge_reads_and_updates_desktop_settings(tmp_path) -> None:
             "minimize_to_tray": False,
             "close_to_tray": False,
             "auto_start_bot": False,
+            "tray_available": sys.platform == "win32",
         },
     }
     assert bridge.update_app_settings(True, True, False, True) == {"ok": True}
