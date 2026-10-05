@@ -1,0 +1,126 @@
+name: Windows build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# C1 produces workflow artifacts only; release publication belongs to C2.
+permissions:
+  contents: read
+
+jobs:
+  windows-build:
+    name: Test and package Windows x64
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Windows x64 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14.7'
+          architecture: x64
+
+      - name: Set up Node for the existing frontend builder
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.20.0'
+          architecture: x64
+          package-manager-cache: false
+
+      - name: Read canonical application version
+        id: version
+        run: |
+          $version = python -c "from app.version import VERSION; print(VERSION)"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read the canonical application version.' }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Install pinned Python runtime and test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r packaging/windows/requirements.txt pytest==8.4.2 pytest-asyncio==0.26.0
+          if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed.' }
+          python -m pip check
+
+      - name: Run packaging, prerequisite and profile isolation tests
+        run: >-
+          python -m pytest -q
+          tests/test_windows_packaging.py
+          tests/test_windows_installer.py
+          tests/test_windows_runtime.py
+          tests/test_runtime_distribution.py
+          tests/test_profile_isolation.py
+
+      - name: Install the pinned Inno Setup compiler
+        id: inno
+        run: |
+          $innoVersion = python -c "from scripts.build_installer import INNO_VERSION; print(INNO_VERSION)"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read the installer compiler version.' }
+          $tag = 'is-' + $innoVersion.Replace('.', '_')
+          $download = Join-Path $env:RUNNER_TEMP "innosetup-$innoVersion.exe"
+          $toolchain = Join-Path $env:RUNNER_TEMP "inno-$innoVersion"
+          Invoke-WebRequest -Uri "https://github.com/jrsoftware/issrc/releases/download/$tag/innosetup-$innoVersion.exe" -OutFile $download
+          # Digest of the official 6.7.3 release asset, verified before execution.
+          $expected = '9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732'
+          if ((Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+            throw 'Inno Setup download checksum mismatch.'
+          }
+          $setup = Start-Process -FilePath $download -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/CURRENTUSER', "/DIR=`"$toolchain`"") -WindowStyle Hidden -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "Inno Setup installation failed ($($setup.ExitCode))." }
+          $compiler = Join-Path $toolchain 'ISCC.exe'
+          if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) { throw 'Inno Setup compiler missing.' }
+          # HeetKit.iss also rejects a compiler that is not exactly 6.7.3.
+          "compiler=$compiler" >> $env:GITHUB_OUTPUT
+
+      - name: Build, inspect and archive the standalone application
+        # Owns its isolated pinned venv, npm ci/build, licenses, PyInstaller,
+        # inspect_windows_bundle.py, portable ZIP and ZIP SHA-256 sidecar.
+        run: python scripts/build_windows.py
+
+      - name: Ensure the frontend test browser is available
+        working-directory: frontend
+        # playwright.config.ts selects Microsoft Edge on Windows.
+        run: npx --no-install playwright install msedge
+
+      - name: Run frontend tests using the builder-installed dependencies
+        working-directory: frontend
+        run: npm test -- --reporter=line
+
+      - name: Build installer from the verified portable ZIP
+        env:
+          INNO_COMPILER: ${{ steps.inno.outputs.compiler }}
+        # Reuses bundle inspection and writes the installer SHA-256/traceability.
+        run: python scripts/build_installer.py --inno-compiler "$env:INNO_COMPILER"
+
+      - name: Verify all expected outputs before upload
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $base = "HeetKit-$env:APP_VERSION-windows-x64"
+          foreach ($suffix in @('.zip', '.zip.sha256', '-setup.exe', '-setup.exe.sha256', '-setup.exe.build.json')) {
+            $path = Join-Path 'dist' "$base$suffix"
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing artifact: $path" }
+          }
+
+      - name: Upload application artifacts and script-generated checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeetKit-${{ steps.version.outputs.version }}-windows-x64
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+          # Exact outputs only: never upload the checkout, build trees or profiles.
+          path: |
+            dist/HeetKit-${{ steps.version.outputs.version }}-windows-x64.zip
+            dist/HeetKit-${{ steps.version.outputs.version }}-windows-x64.zip.sha256
+            dist/HeetKit-${{ steps.version.outputs.version }}-windows-x64-setup.exe
+            dist/HeetKit-${{ steps.version.outputs.version }}-windows-x64-setup.exe.sha256
+            dist/HeetKit-${{ steps.version.outputs.version }}-windows-x64-setup.exe.build.json

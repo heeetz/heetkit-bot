@@ -571,6 +571,33 @@ Automated silent lifecycle checks do not complete this wizard/native/clean-machi
 checkpoint. Remaining Phase A fresh browser download, normal Explorer extraction without
 Unblock, tray, full exit/relaunch and clean-profile checks require explicit manual results.
 
+## Windows CI artifacts
+
+The [Windows build workflow](https://github.com/heeetz/heetkit-bot/actions/workflows/windows-build.yml)
+runs on pushes to `main` and manually through **Actions → Windows build → Run workflow**.
+It uses `windows-2022`, Windows x64 Python **3.14.7**, Node **24.20.0** and a
+SHA-256-verified installation of Inno Setup **6.7.3**. It needs no personal secrets
+or existing profile. Dependency caching is disabled.
+
+CI runs focused Python packaging/prerequisite/profile tests, calls the existing
+`scripts/build_windows.py` (including frontend install/build, license staging,
+bundle inspection, portable ZIP and checksum), runs the frontend tests in Edge,
+then calls `scripts/build_installer.py` to verify and wrap that same ZIP.
+`app/version.py` remains the only application version source.
+
+After a successful run, download **HeetKit-<version>-windows-x64** from the run's
+**Artifacts** section (retained for 14 days). Extract the Actions download to get
+the portable `.zip`, setup `.exe`, their `.sha256` sidecars and the installer's
+`.exe.build.json` traceability file. Only these named outputs are uploaded.
+`scripts/package.ps1` remains a developer source archive tool and is not used here.
+CI creates no tags or GitHub Releases; these are test candidates pending manual
+validation and the remaining redistribution review.
+
+First-run manual check: confirm the push/manual workflow starts and succeeds and
+the artifacts appear; extract the downloaded portable ZIP and launch it outside
+the checkout, run the downloaded installer and launch the installed app, then
+check that both show the canonical About version and expected icon.
+
 ## Contributing and reporting
 
 Use the [bug report or feature request forms](https://github.com/heeetz/twitch-bot/issues/new/choose)
