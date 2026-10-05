@@ -2,6 +2,8 @@
 
 import logging
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -89,3 +91,22 @@ def test_invalid_only_reload_does_not_clear_last_valid_patterns(tmp_path: Path) 
     load_filters_from_directory(manager, str(tmp_path))
 
     assert not manager.filter_message("original123")
+
+
+def test_pathological_regex_times_out_and_fails_closed_in_child_process() -> None:
+    script = """
+from app.services.filter_manager import FilterManager
+
+manager = FilterManager()
+manager.add_blocked_pattern(r"^(a|aa)+$")
+print("blocked" if manager.contains_blocked_content("a" * 450 + "!") else "allowed")
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).parents[1],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=True,
+    )
+    assert completed.stdout.strip() == "blocked"

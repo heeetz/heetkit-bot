@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 from app.runtime_paths import RuntimePaths
-from app.services.filter_manager import FilterManager, FilterRule
+from app.services.filter_manager import FilterManager, FilterRule, compile_filter_pattern
 
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ def _read_rules(path: Path, *, patterns: bool) -> tuple[list[str] | list[FilterR
                 continue
             if patterns:
                 try:
-                    re.compile(content, re.IGNORECASE)
+                    compile_filter_pattern(content)
                 except re.error as error:
                     logger.warning("Invalid regex in %s line %d (%r): %s", path, line_number, content, error)
                     invalid_count += 1

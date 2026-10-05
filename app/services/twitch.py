@@ -35,6 +35,12 @@ class TwitchAPIService:
         self._cached_category = None
         self._category_cached_at = None
 
+    async def begin_authorization(self) -> str:
+        """Issue state on the backend loop for the currently bound bot session."""
+        if self._client is None:
+            raise ValueError("Twitch authorization is not ready. Try again after starting the bot.")
+        return self._client.begin_authorization()
+
     async def get_current_category(self) -> str | None:
         """Return the live channel category, caching successful and empty lookups."""
         now = self._clock()

@@ -14,7 +14,8 @@ from app.services.facade import ApplicationServices
 from app.runtime_state import RuntimeState
 from app.twitch.client import (
     CHAT_SCOPES,
-    OAUTH_AUTHORIZATION_URL,
+    DesktopOAuthAdapter,
+    OAUTH_STATE_TTL_SECONDS,
     OAUTH_REDIRECT_URI,
     TwitchChatBot,
     TwitchConnectionError,
@@ -24,18 +25,142 @@ from app.twitch.client import (
 )
 
 
-def test_local_authorization_url_uses_the_existing_chat_scopes() -> None:
-    authorization = urlsplit(OAUTH_AUTHORIZATION_URL)
-    callback = urlsplit(OAUTH_REDIRECT_URI)
-    assert authorization.scheme == callback.scheme == "http"
-    assert authorization.netloc == callback.netloc == "localhost:4343"
-    assert authorization.path == "/oauth"
-    assert callback.path == "/oauth/callback"
-    query = parse_qs(authorization.query)
-    assert set(query["scopes"][0].split()) == set(CHAT_SCOPES.selected) == {
+def test_desktop_authorization_preserves_scopes_callback_and_consent(monkeypatch) -> None:
+    adapter = DesktopOAuthAdapter(host="localhost", port=4343)
+    calls = []
+
+    def authorization_url(**kwargs):
+        calls.append(kwargs)
+        return {"url": "https://id.twitch.tv/oauth2/authorize?state=" + kwargs["state"]}
+
+    adapter.client = SimpleNamespace(http=SimpleNamespace(get_authorization_url=authorization_url))
+    first = adapter.begin_authorization()
+    second = adapter.begin_authorization()
+    assert first != second
+    assert len(calls[0]["state"]) >= 32
+    assert calls[0]["redirect_uri"] == OAUTH_REDIRECT_URI
+    assert calls[0]["force_verify"] is True
+    assert set(calls[0]["scopes"].selected) == {
         "user:read:chat", "user:write:chat", "user:bot", "moderator:read:followers",
     }
-    assert query["force_verify"] == ["true"]
+
+
+def oauth_adapter_probe(monkeypatch, clock=lambda: 0.0):
+    from aiohttp import web
+
+    adapter = DesktopOAuthAdapter(host="localhost", port=4343, clock=clock)
+    adapter.client = SimpleNamespace(http=SimpleNamespace(
+        get_authorization_url=lambda **kwargs: {"url": "https://id.twitch.tv/oauth2/authorize?state=" + kwargs["state"]},
+    ))
+    exchanges = []
+
+    async def fetch_token(request):
+        exchanges.append(request.query.get("code"))
+        return SimpleNamespace(response=web.Response(status=200))
+
+    monkeypatch.setattr(adapter, "fetch_token", fetch_token)
+    return adapter, exchanges
+
+
+def oauth_request(query):
+    from aiohttp.test_utils import make_mocked_request
+
+    return make_mocked_request("GET", "/oauth/callback?" + query, headers={"Host": "localhost:4343"})
+
+
+@pytest.mark.asyncio
+async def test_oauth_state_requires_desktop_initiation_and_is_single_use(monkeypatch) -> None:
+    adapter, exchanges = oauth_adapter_probe(monkeypatch)
+    assert (await adapter.oauth_redirect(oauth_request("scopes=user:read:chat"))).status == 403
+    assert (await adapter.oauth_callback(oauth_request("code=synthetic&state=uninitiated"))).status == 400
+    assert exchanges == []
+
+    state = parse_qs(urlsplit(adapter.begin_authorization()).query)["state"][0]
+    for query in ("code=synthetic", "code=synthetic&state=wrong", "code=synthetic&state=%C3%A9", f"code=synthetic&state={state}&state={state}"):
+        assert (await adapter.oauth_callback(oauth_request(query))).status == 400
+    assert exchanges == []
+    request = oauth_request(f"code=synthetic&state={state}")
+    assert (await adapter.oauth_callback(request)).status == 200
+    assert (await adapter.oauth_callback(request)).status == 400
+    assert exchanges == ["synthetic"]
+
+
+@pytest.mark.asyncio
+async def test_oauth_state_expires_and_cannot_cross_attempts_or_profiles(monkeypatch) -> None:
+    now = 0.0
+    adapter, exchanges = oauth_adapter_probe(monkeypatch, clock=lambda: now)
+    other, _ = oauth_adapter_probe(monkeypatch)
+    first = parse_qs(urlsplit(adapter.begin_authorization()).query)["state"][0]
+    second = parse_qs(urlsplit(adapter.begin_authorization()).query)["state"][0]
+    assert (await adapter.oauth_callback(oauth_request(f"code=synthetic&state={first}"))).status == 400
+    other.begin_authorization()
+    assert (await other.oauth_callback(oauth_request(f"code=synthetic&state={second}"))).status == 400
+    now = OAUTH_STATE_TTL_SECONDS
+    assert (await adapter.oauth_callback(oauth_request(f"code=synthetic&state={second}"))).status == 400
+    assert exchanges == []
+
+
+@pytest.mark.asyncio
+async def test_oauth_state_is_consumed_before_exchange_yields_and_on_close(monkeypatch) -> None:
+    import asyncio
+    from aiohttp import web
+
+    adapter, _ = oauth_adapter_probe(monkeypatch)
+    state = parse_qs(urlsplit(adapter.begin_authorization()).query)["state"][0]
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def fetch_token(request):
+        entered.set()
+        await release.wait()
+        return SimpleNamespace(response=web.Response(status=200))
+
+    monkeypatch.setattr(adapter, "fetch_token", fetch_token)
+    request = oauth_request(f"code=synthetic&state={state}")
+    task = asyncio.create_task(adapter.oauth_callback(request))
+    await entered.wait()
+    assert (await adapter.oauth_callback(request)).status == 400
+    release.set()
+    assert (await task).status == 200
+    state = parse_qs(urlsplit(adapter.begin_authorization()).query)["state"][0]
+    await adapter.close()
+    assert (await adapter.oauth_callback(oauth_request(f"code=synthetic&state={state}"))).status == 400
+
+
+@pytest.mark.asyncio
+async def test_oauth_denial_consumes_state_without_exchanging_a_token(monkeypatch) -> None:
+    adapter, exchanges = oauth_adapter_probe(monkeypatch)
+    monkeypatch.setattr(adapter, "fetch_token", DesktopOAuthAdapter.fetch_token.__get__(adapter))
+    state = parse_qs(urlsplit(adapter.begin_authorization()).query)["state"][0]
+    assert (await adapter.oauth_callback(oauth_request(f"error=access_denied&state={state}"))).status == 400
+    assert (await adapter.oauth_callback(oauth_request(f"code=synthetic&state={state}"))).status == 400
+    assert exchanges == []
+
+
+@pytest.mark.asyncio
+async def test_bot_only_issues_state_for_a_running_authorization_required_session() -> None:
+    settings = build_settings()
+    state = RuntimeState()
+    bot = TwitchChatBot(
+        settings=settings, account=settings.primary_account,
+        services=cast(ApplicationServices, SimpleNamespace(twitch=None, runtime_state=state)),
+        dispatcher=cast(CommandDispatcher, object()), logger=logging.getLogger("tests.twitch"),
+    )
+    try:
+        with pytest.raises(ValueError, match="not currently required"):
+            bot.begin_authorization()
+        state.set_bot_running(True)
+        state.set_twitch_connection_state("auth_required")
+        url = urlsplit(bot.begin_authorization())
+        assert url.scheme == "https" and url.netloc == "id.twitch.tv"
+        assert parse_qs(url.query)["state"]
+        state.set_twitch_connection_state("connected")
+        with pytest.raises(ValueError, match="not currently required"):
+            bot.begin_authorization()
+    finally:
+        await bot.close(save_tokens=False)
+    state.set_twitch_connection_state("auth_required")
+    with pytest.raises(ValueError, match="not currently required"):
+        bot.begin_authorization()
 
 
 class FakeTwitchMessage:
@@ -270,7 +395,7 @@ async def test_missing_oauth_and_terminal_auth_failure_are_distinct_from_recover
     )
     await bot.event_ready()
     assert state.twitch_connection_state == "auth_required"
-    assert OAUTH_AUTHORIZATION_URL in caplog.text
+    assert "Authorize Twitch in HeetKit" in caplog.text
     await bot.close(save_tokens=False)
 
     class FailingBot:

@@ -51,6 +51,9 @@ from the repository root in another terminal:
 python -m app.main --dev-url http://localhost:5173
 ```
 
+`--dev-url` accepts only HTTP(S) loopback servers from a source checkout. Packaged
+applications use their bundled frontend and reject this option.
+
 Normal source launches use `frontend/dist/`. Installed Python distributions load staged
 assets from `app/resources/frontend/`; stage the built frontend there before making a
 Python distribution. The Windows builder handles this automatically. Generated assets

@@ -114,6 +114,7 @@ licenses and notices. Runtime inclusion in a frozen bundle must be confirmed dur
 | [pywebview](https://pypi.org/project/pywebview/6.2.1/) | 6.2.1 | Direct | BSD-3-Clause | [Texts](third_party_licenses/python/pywebview/) |
 | [pywin32-ctypes](https://pypi.org/project/pywin32-ctypes/0.2.3/) | 0.2.3 | Transitive | BSD-3-Clause | [Texts](third_party_licenses/python/pywin32-ctypes/) |
 | [requests](https://pypi.org/project/requests/2.34.2/) | 2.34.2 | Transitive | Apache-2.0 | [Texts](third_party_licenses/python/requests/) |
+| [regex](https://pypi.org/project/regex/2026.9.29/) | 2026.9.29 | Direct (security hardening, 2026-10-05) | Apache-2.0 AND CNRI-Python | [Text](third_party_licenses/python/regex/LICENSE.txt) |
 | [six](https://pypi.org/project/six/1.17.0/) | 1.17.0 | Transitive | MIT | [Texts](third_party_licenses/python/six/) |
 | [sniffio](https://pypi.org/project/sniffio/1.3.1/) | 1.3.1 | Transitive | MIT OR Apache-2.0 | [Texts](third_party_licenses/python/sniffio/) |
 | [sqlalchemy](https://pypi.org/project/sqlalchemy/2.0.52/) | 2.0.52 | Direct | MIT | [Texts](third_party_licenses/python/sqlalchemy/) |

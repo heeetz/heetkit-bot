@@ -66,6 +66,9 @@ current information may use Google Search grounding. Credential **Test** and **D
 models** also contact Google. Google's terms and data handling apply; see the live
 [Gemini pricing and data-use information](https://ai.google.dev/gemini-api/docs/pricing).
 
+The `!weather` command sends the supplied place query to Open-Meteo's geocoding
+service, then sends the returned coordinates to its forecast service.
+
 Turning memory off stops stored context being included in later requests; it does not
 erase existing exchanges. The broadcaster-only `!erase <username>` command deletes
 stored AI memory for a known user. It does not remove that user's activity record.

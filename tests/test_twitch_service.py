@@ -24,6 +24,15 @@ class FakeTwitchClient:
 
 
 @pytest.mark.asyncio
+async def test_authorization_delegates_only_to_the_bound_bot() -> None:
+    service = TwitchAPIService()
+    with pytest.raises(ValueError, match="not ready"):
+        await service.begin_authorization()
+    service.bind(SimpleNamespace(begin_authorization=lambda: "synthetic-attempt"), "channel", "bot")
+    assert await service.begin_authorization() == "synthetic-attempt"
+
+
+@pytest.mark.asyncio
 async def test_current_category_is_cached_until_ttl_expires() -> None:
     now = 100.0
     client = FakeTwitchClient(["Counter-Strike 2", "Just Chatting"])

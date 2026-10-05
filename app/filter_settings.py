@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 from app.runtime_paths import DEFAULT_FILTERS, FILTER_NAMES, RuntimePaths
-from app.services.filter_manager import FilterManager, FilterRule
+from app.services.filter_manager import FilterManager, FilterRule, compile_filter_pattern
 
 
 FILTER_KEYS = ("words", "phrases", "patterns")
@@ -34,7 +34,7 @@ def _entries(path: Path, *, patterns: bool) -> list[dict[str, object]]:
                 error = "Invalid UTF-8; edit or remove this rule."
             elif patterns:
                 try:
-                    re.compile(value, re.IGNORECASE)
+                    compile_filter_pattern(value)
                 except re.error as reason:
                     error = f"Invalid regex: {reason}"
             entries.append({"value": value, "valid": error is None, "error": error})
@@ -97,7 +97,7 @@ def validate_filter_input(payload: object) -> tuple[list[str], list[str], list[F
                 raise FilterValidationError(key, index - 1, f"{key.capitalize()} rule {index} contains invalid text.")
             if key == "patterns":
                 try:
-                    re.compile(value, re.IGNORECASE)
+                    compile_filter_pattern(value)
                 except re.error as error:
                     raise FilterValidationError(
                         key, index - 1, f"Invalid regex in pattern {index}: {error}"

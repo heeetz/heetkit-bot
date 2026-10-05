@@ -3,7 +3,12 @@
 import asyncio
 import logging
 import os
+import secrets
+from collections.abc import Callable
 from pathlib import Path
+from time import monotonic
+
+from aiohttp import web
 
 from twitchio import ChatMessage, Scopes, eventsub
 from twitchio.authentication import UserTokenPayload
@@ -26,10 +31,50 @@ class TwitchConnectionError(RuntimeError):
 
 OAUTH_REDIRECT_URI = "http://localhost:4343/oauth/callback"
 CHAT_SCOPES = Scopes(["user:read:chat", "user:write:chat", "user:bot", "moderator:read:followers"])
-OAUTH_AUTHORIZATION_URL = (
-    f"{OAUTH_REDIRECT_URI.removesuffix('/callback')}"
-    f"?scopes={CHAT_SCOPES.urlsafe()}&force_verify=true"
-)
+OAUTH_STATE_TTL_SECONDS = 300.0
+
+
+class DesktopOAuthAdapter(AiohttpAdapter):
+    """Bind TwitchIO's existing code exchange to one explicit desktop attempt."""
+
+    def __init__(self, *, clock: Callable[[], float] = monotonic, **kwargs) -> None:
+        self._clock = clock
+        self._pending_state: tuple[str, float] | None = None
+        super().__init__(**kwargs)
+
+    def begin_authorization(self) -> str:
+        state = secrets.token_urlsafe(32)
+        payload = self.client.http.get_authorization_url(
+            scopes=CHAT_SCOPES,
+            state=state,
+            redirect_uri=OAUTH_REDIRECT_URI,
+            force_verify=True,
+        )
+        self._pending_state = (state, self._clock() + OAUTH_STATE_TTL_SECONDS)
+        return payload["url"]
+
+    async def oauth_redirect(self, request: web.Request) -> web.Response:
+        # A public HTTP request must never create a pending desktop attempt.
+        return web.Response(status=403, text="Start Twitch authorization from HeetKit.")
+
+    async def oauth_callback(self, request: web.Request) -> web.Response:
+        pending = self._pending_state
+        if pending is None:
+            return web.Response(status=400, text="No pending authorization attempt.")
+        expected, expires_at = pending
+        if self._clock() >= expires_at:
+            self._pending_state = None
+            return web.Response(status=400, text="Authorization attempt expired. Try again from HeetKit.")
+        values = request.query.getall("state", [])
+        if len(values) != 1 or not values[0].isascii() or not secrets.compare_digest(expected, values[0]):
+            return web.Response(status=400, text="Invalid authorization state.")
+        # Consume before token exchange yields, including denial/error callbacks.
+        self._pending_state = None
+        return await super().oauth_callback(request)
+
+    async def close(self, *args, **kwargs) -> None:
+        self._pending_state = None
+        await super().close(*args, **kwargs)
 
 
 def to_incoming_chat_message(message: ChatMessage) -> IncomingChatMessage:
@@ -130,7 +175,7 @@ class TwitchChatBot(commands.Bot):
             prefix=settings.command_prefix,
             redirect_uri=OAUTH_REDIRECT_URI,
             scopes=CHAT_SCOPES,
-            adapter=AiohttpAdapter(host="localhost", port=4343),
+            adapter=DesktopOAuthAdapter(host="localhost", port=4343),
         )
         if services.twitch is not None:
             services.twitch.bind(self, account.channel_user_id, account.user_id)
@@ -139,6 +184,12 @@ class TwitchChatBot(commands.Bot):
         runtime_state = getattr(self._services, "runtime_state", None)
         if runtime_state is not None:
             runtime_state.set_twitch_connection_state(state)
+
+    def begin_authorization(self) -> str:
+        state = self._services.runtime_state
+        if self._closing_requested or state is None or not state.status()[0] or state.twitch_connection_state != "auth_required":
+            raise ValueError("Twitch authorization is not currently required.")
+        return self.adapter.begin_authorization()
 
     async def close(self, *args, **kwargs) -> None:
         self._closing_requested = True
@@ -169,8 +220,7 @@ class TwitchChatBot(commands.Bot):
         if self.bot_id not in self.tokens:
             self._set_connection_state("auth_required")
             self._logger.warning(
-                "Authorize the configured bot account at %s",
-                OAUTH_AUTHORIZATION_URL,
+                "Authorize the configured bot account using Authorize Twitch in HeetKit",
                 extra={"event_kind": "twitch.auth_required", "event_channel": self._account.channel},
             )
             return

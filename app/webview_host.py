@@ -12,6 +12,9 @@ import subprocess
 import sys
 import threading
 import webbrowser
+from functools import wraps
+from inspect import signature
+from urllib.parse import urlsplit
 from concurrent.futures import Future, TimeoutError as FutureTimeoutError
 from contextlib import ExitStack
 from pathlib import Path
@@ -47,7 +50,7 @@ from app.runtime_paths import (
 )
 from app.system_tray import SystemTray
 from app.windows_runtime import DesktopPrerequisiteError, ensure_windows_runtime
-from app.twitch.client import OAUTH_AUTHORIZATION_URL, OAUTH_REDIRECT_URI
+from app.twitch.client import OAUTH_REDIRECT_URI
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
 from app.utils.logging import (
@@ -79,8 +82,26 @@ EXTERNAL_LINKS = {
     "third_party_notices": "https://github.com/heeetz/twitch-bot/blob/main/THIRD_PARTY_NOTICES.md",
     "author_twitch": "https://www.twitch.tv/heet_ok",
     "twitch_developer_console": "https://dev.twitch.tv/console/apps",
-    "twitch_authorization": OAUTH_AUTHORIZATION_URL,
 }
+
+# Register functions by exact name; never give pywebview an object to traverse.
+FRONTEND_OPERATIONS = (
+    "get_app_status", "get_about_info", "get_commands", "get_custom_commands",
+    "get_filters", "get_ai_status", "get_personalities", "get_recent_logs",
+    "apply_command_settings", "save_command_settings", "reset_command_settings",
+    "apply_command_responses", "save_command_responses", "reset_command_responses",
+    "save_custom_command", "delete_custom_command", "apply_filters", "save_filters",
+    "set_ai_enabled", "set_ai_memory_enabled", "apply_personality", "create_personality",
+    "rename_personality", "delete_personality", "set_active_personality",
+    "save_personality", "reset_personality", "apply_profile_instructions",
+    "save_profile_instructions", "reset_profile_instructions", "get_app_settings",
+    "get_profile_info", "open_profile_folder", "update_app_settings",
+    "get_twitch_settings", "update_twitch_settings", "save_twitch_preset",
+    "delete_twitch_preset", "reconnect_twitch", "get_credentials",
+    "get_ai_provider_settings", "update_ai_provider_settings", "discover_gemini_models",
+    "replace_credential", "remove_credential", "test_credential", "start_bot", "stop_bot",
+    "open_external_link",
+)
 
 
 def application_version() -> str:
@@ -458,8 +479,9 @@ class WebUIBridge:
         return {"ok": True}
 
     def open_external_link(self, destination: object) -> dict[str, object]:
-        if not isinstance(destination, str) or destination not in EXTERNAL_LINKS:
+        if not isinstance(destination, str) or destination not in (*EXTERNAL_LINKS, "twitch_authorization"):
             return {"ok": False, "error": "That external link is not available."}
+        url = EXTERNAL_LINKS.get(destination, "")
         if destination == "twitch_authorization":
             application = self._backend.application
             runtime_state = application.services.runtime_state
@@ -475,8 +497,23 @@ class WebUIBridge:
                 self._app_settings.snapshot().twitch
             ):
                 return {"ok": False, "error": "Restart the application to apply the saved Twitch client ID and bot identity."}
+            try:
+                if application.services.twitch is None:
+                    return {"ok": False, "error": "Twitch authorization is not ready."}
+                url = self._wait_for_backend(
+                    application.services.twitch.begin_authorization(),
+                    operation="begin_twitch_authorization",
+                    timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
+                )
+            except ValueError as error:
+                return {"ok": False, "error": str(error)}
+            except BridgeOperationTimedOut:
+                return {"ok": False, "error": "Twitch authorization timed out. Try again."}
+            except Exception as error:
+                self._logger.warning("Could not begin Twitch authorization error_type=%s", type(error).__name__)
+                return {"ok": False, "error": "Could not begin Twitch authorization."}
         try:
-            opened = webbrowser.open(EXTERNAL_LINKS[destination], new=2)
+            opened = webbrowser.open(url, new=2)
         except Exception:
             self._logger.exception("Could not open external link destination=%s", destination)
             return {"ok": False, "error": "Could not open the external link."}
@@ -1554,6 +1591,12 @@ class WebUIBridge:
 
 def resolve_frontend_url(dev_url: str | None) -> str:
     if dev_url:
+        if getattr(sys, "frozen", False) or SOURCE_ROOT is None:
+            raise ValueError("--dev-url is available only in a source checkout.")
+        origin = _frontend_origin(dev_url)
+        parsed = urlsplit(dev_url)
+        if origin is None or origin[1] not in {"localhost", "127.0.0.1", "::1"} or parsed.username is not None or parsed.password is not None:
+            raise ValueError("--dev-url must be an HTTP(S) loopback development server URL.")
         return dev_url
     if PACKAGED_FRONTEND.is_file():
         return str(PACKAGED_FRONTEND)
@@ -1563,6 +1606,42 @@ def resolve_frontend_url(dev_url: str | None) -> str:
             "Installed distributions require prebuilt assets in app/resources/frontend/."
         )
     return str(FRONTEND_ENTRYPOINT)
+
+
+def _frontend_origin(url: str | None) -> tuple[str, str, int] | None:
+    try:
+        parsed = urlsplit(url or "")
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return None
+        return parsed.scheme, parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
+    except ValueError:
+        return None
+
+
+def expose_frontend_operations(window: Any, bridge: WebUIBridge) -> None:
+    """Expose only named operations, bound to the initial frontend origin."""
+    trusted_origin: tuple[str, str, int] | None = None
+
+    def pin_origin(renderer: str) -> None:
+        nonlocal trusted_origin
+        # pywebview resolves the bundled file to its loopback server at initialize.
+        trusted_origin = _frontend_origin(window.real_url)
+
+    window.events.initialized += pin_origin
+
+    def guarded(name: str) -> Any:
+        operation = getattr(bridge, name)
+        @wraps(operation)
+        def call(*args: Any, **kwargs: Any) -> Any:
+            if trusted_origin is None or _frontend_origin(window.get_current_url()) != trusted_origin:
+                return {"ok": False, "error": "This page cannot access the application bridge."}
+            return operation(*args, **kwargs)
+
+        call.__signature__ = signature(operation)
+        call.__name__ = name
+        return call
+
+    window.expose(*(guarded(name) for name in FRONTEND_OPERATIONS))
 
 
 def apply_twitch_app_settings(settings: Settings, app_settings: AppSettings) -> Settings:
@@ -1729,6 +1808,9 @@ def run_desktop_host(
 ) -> None:
     import webview
 
+    if frontend_url.startswith(("http://", "https://")):
+        resolve_frontend_url(frontend_url)
+
     if sys.platform == "win32":
         set_app_id = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
         set_app_id.argtypes = [ctypes.c_wchar_p]
@@ -1761,7 +1843,6 @@ def run_desktop_host(
         window = webview.create_window(
             APPLICATION_NAME,
             frontend_url,
-            js_api=bridge,
             width=1180,
             height=760,
             min_size=(900, 620),
@@ -1771,6 +1852,7 @@ def run_desktop_host(
         )
         if window is None:
             raise RuntimeError("Could not create the desktop window.")
+        expose_frontend_operations(window, bridge)
         if sys.platform == "win32":
             window.events.shown += configure_windows_taskbar
         controller.bind_window(window)
@@ -1812,6 +1894,11 @@ def main() -> None:
         help="Validate desktop libraries, configuration and frontend availability without opening the UI.",
     )
     arguments = parser.parse_args()
+    if arguments.dev_url:
+        try:
+            resolve_frontend_url(arguments.dev_url)
+        except ValueError as error:
+            parser.error(str(error))
     if arguments.data_dir is not None:
         os.environ[DATA_DIR_ENV] = str(arguments.data_dir.expanduser().resolve())
     try:

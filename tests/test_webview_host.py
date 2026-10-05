@@ -5,6 +5,7 @@ import logging
 import subprocess
 import sys
 import threading
+from pathlib import Path
 from concurrent.futures import Future, ThreadPoolExecutor
 from types import SimpleNamespace
 from typing import cast
@@ -24,7 +25,7 @@ from app.container import Application
 from app.credentials import CredentialStatus
 from app.runtime_paths import DATA_DIR_ENV
 from app.runtime_state import RuntimeState
-from app.twitch.client import OAUTH_AUTHORIZATION_URL, OAUTH_REDIRECT_URI
+from app.twitch.client import OAUTH_REDIRECT_URI
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
 from app.utils.logging import RecentLogBuffer, RecentLogHandler
@@ -32,10 +33,12 @@ from app.webview_host import (
     AsyncioBackendHost,
     DesktopAlreadyRunningError,
     DesktopController,
+    FRONTEND_OPERATIONS,
     WebUIBridge,
     apply_ai_app_settings,
     apply_twitch_app_settings,
     desktop_instance_guard,
+    expose_frontend_operations,
     main,
     resolve_auto_start,
     resolve_frontend_url,
@@ -437,11 +440,14 @@ def twitch_authorization_bridge(tmp_path, *, running=True, state="auth_required"
     runtime_state = RuntimeState()
     runtime_state.set_bot_running(running)
     runtime_state.set_twitch_connection_state(state)
+    async def begin_authorization():
+        return "https://id.twitch.tv/oauth2/authorize?state=synthetic-desktop-attempt"
+
     application = SimpleNamespace(
-        services=SimpleNamespace(runtime_state=runtime_state), settings=settings,
+        services=SimpleNamespace(runtime_state=runtime_state, twitch=SimpleNamespace(begin_authorization=begin_authorization)), settings=settings,
     )
     return WebUIBridge(
-        cast(AsyncioBackendHost, SimpleNamespace(application=application)),
+        cast(AsyncioBackendHost, SimpleNamespace(application=application, submit=complete_bridge_coroutine)),
         app_settings=AppSettingsStore(tmp_path / "app_settings.json"),
     )
 
@@ -458,7 +464,7 @@ def test_twitch_authorization_opens_only_on_explicit_action(monkeypatch, tmp_pat
     assert bridge.get_twitch_settings()["settings"]["oauth_callback_url"] == OAUTH_REDIRECT_URI
     assert opened == []
     assert bridge.open_external_link("twitch_authorization") == {"ok": True}
-    assert opened == [(OAUTH_AUTHORIZATION_URL, 2)]
+    assert opened == [("https://id.twitch.tv/oauth2/authorize?state=synthetic-desktop-attempt", 2)]
 
 
 @pytest.mark.parametrize("running,state", [
@@ -1343,6 +1349,91 @@ def test_production_frontend_requires_a_built_entrypoint(monkeypatch) -> None:
 
 def test_development_frontend_url_does_not_require_build() -> None:
     assert resolve_frontend_url("http://localhost:5173") == "http://localhost:5173"
+
+
+@pytest.mark.parametrize("url", [
+    "http://127.0.0.1:5173", "http://[::1]:5173", "https://localhost:5173",
+])
+def test_development_frontend_accepts_only_loopback_servers(url) -> None:
+    assert resolve_frontend_url(url) == url
+
+
+@pytest.mark.parametrize("url", [
+    "https://example.com", "http://localhost.attacker.test:5173",
+    "http://localhost@attacker.test", "http://attacker@localhost:5173",
+    "file:///tmp/frontend.html", "javascript:alert(1)", "http://localhost:invalid",
+])
+def test_remote_or_unsafe_development_frontend_is_rejected(url) -> None:
+    with pytest.raises(ValueError, match="loopback"):
+        resolve_frontend_url(url)
+
+
+@pytest.mark.parametrize("frozen", [False, True])
+def test_installed_frontend_rejects_development_override(monkeypatch, frozen) -> None:
+    monkeypatch.setattr(sys, "frozen", frozen, raising=False)
+    if not frozen:
+        monkeypatch.setattr("app.webview_host.SOURCE_ROOT", None)
+    with pytest.raises(ValueError, match="source checkout"):
+        resolve_frontend_url("http://localhost:5173")
+
+
+def test_remote_development_url_is_rejected_before_loading_credentials(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["heetkit", "--dev-url", "https://attacker.test"])
+    monkeypatch.setattr("app.webview_host.load_settings_with_credentials", lambda: pytest.fail("loaded credentials"))
+    with pytest.raises(SystemExit) as error:
+        main()
+    assert error.value.code == 2
+
+
+def test_frontend_allowlist_matches_the_typed_operations() -> None:
+    import re
+
+    source = (Path(__file__).parents[1] / "frontend/src/bridge.ts").read_text(encoding="utf-8")
+    interface = source.split("interface PythonApi {", 1)[1].split("\n}", 1)[0]
+    assert set(FRONTEND_OPERATIONS) == set(re.findall(r"^  (\w+)\(", interface, re.MULTILINE))
+    assert len(FRONTEND_OPERATIONS) == len(set(FRONTEND_OPERATIONS))
+
+
+def test_pywebview_dispatch_cannot_traverse_to_credentials(tmp_path, monkeypatch) -> None:
+    from webview.util import js_bridge_call
+    from webview.window import Window
+
+    bridge = twitch_authorization_bridge(tmp_path)
+    bridge._credential_manager = SimpleNamespace(settings_overrides=lambda: pytest.fail("exposed credentials"))
+    bridge.unlisted_secret = lambda: pytest.fail("exposed an unlisted method")
+    window = Window("security-test", "Security test", "http://127.0.0.1:54321/index.html")
+    returned = []
+    monkeypatch.setattr(window, "evaluate_js", returned.append)
+    expose_frontend_operations(window, bridge)
+
+    assert window._js_api is None
+    assert set(window._functions) == set(FRONTEND_OPERATIONS)
+    for path in (
+        "_credential_manager.settings_overrides", "_credential_manager.effective_value",
+        "_backend.application.settings.gemini_api_key.get_secret_value",
+        "get_credentials.__self__._credential_manager.settings_overrides", "unlisted_secret",
+    ):
+        js_bridge_call(window, path, [], "security-probe")
+    assert returned == []
+
+
+def test_exposed_operations_require_the_initial_frontend_origin(tmp_path, monkeypatch) -> None:
+    from webview.window import Window
+
+    bridge = twitch_authorization_bridge(tmp_path)
+    calls = []
+    monkeypatch.setattr(bridge, "get_credentials", lambda: calls.append("status") or {"ok": True})
+    window = Window("origin-test", "Origin test", "http://127.0.0.1:54321/index.html")
+    window.real_url = window.original_url
+    current_url = window.real_url
+    monkeypatch.setattr(window, "get_current_url", lambda: current_url)
+    expose_frontend_operations(window, bridge)
+    assert window._functions["get_credentials"]()["ok"] is False
+    window.events.initialized.set("edgechromium")
+    assert window._functions["get_credentials"]() == {"ok": True}
+    for current_url in ("https://attacker.test", "http://127.0.0.1:54322/index.html", "file:///tmp/page.html"):
+        assert window._functions["get_credentials"]()["ok"] is False
+    assert calls == ["status"]
 
 
 class FakeEvent:
