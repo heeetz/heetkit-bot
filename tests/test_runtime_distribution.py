@@ -40,14 +40,13 @@ def _materialize_declared_install(install_root: Path) -> None:
     setuptools = project["tool"]["setuptools"]
     package_find = setuptools["packages"]["find"]
     assert package_find["include"] == ["app*"]
+    assert package_find.get("namespaces", True)
 
-    for init_file in (REPOSITORY_ROOT / "app").rglob("__init__.py"):
-        package_directory = init_file.parent
-        relative_package = package_directory.relative_to(REPOSITORY_ROOT)
-        target_directory = install_root / relative_package
-        target_directory.mkdir(parents=True, exist_ok=True)
-        for source_file in package_directory.glob("*.py"):
-            shutil.copy2(source_file, target_directory / source_file.name)
+    # app* uses namespace discovery, including app.config without __init__.py.
+    for source_file in (REPOSITORY_ROOT / "app").rglob("*.py"):
+        target_file = install_root / source_file.relative_to(REPOSITORY_ROOT)
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_file, target_file)
 
     for module_name in setuptools["py-modules"]:
         source_file = REPOSITORY_ROOT / f"{module_name}.py"
@@ -169,6 +168,7 @@ def test_installed_tree_runs_check_and_clean_backend_without_checkout_or_install
 from pathlib import Path
 from types import SimpleNamespace
 import os
+import sys
 
 from app.config.settings import load_settings_with_credentials
 from app.app_settings import AppSettingsStore
@@ -205,6 +205,11 @@ applied = webview_host.apply_ai_app_settings(applied, saved)
 assert applied.twitch_bot_username == "bot"
 assert applied.gemini_model == "gemini-installed"
 assert "config" not in __import__("sys").modules
+install_root = Path(os.environ["PYTHONPATH"]).resolve()
+for name, module in tuple(sys.modules.items()):
+    source = getattr(module, "__file__", None)
+    if (name == "app" or name.startswith("app.")) and source:
+        assert Path(source).resolve().is_relative_to(install_root), (name, source)
 assert paths.database.is_file()
 assert not paths.tokens.exists()
 assert paths.message_triggers.is_file()
