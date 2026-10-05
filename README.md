@@ -27,8 +27,8 @@ Python remains the application core. The web-style desktop shell uses React, Typ
 
 ## Requirements
 
-The requirements below apply to source development. A portable Windows candidate bundles
-Python and the frontend; it needs Windows 10/11 x64, .NET Framework 4.6.2 or newer and
+The requirements below apply to source development. Windows installer/portable candidates bundle
+Python and the frontend; they need Windows 10/11 x64, .NET Framework 4.6.2 or newer and
 [Microsoft Edge WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
 
 - Python 3.12 or newer. Python 3.12 is the recommended baseline.
@@ -39,7 +39,37 @@ Python and the frontend; it needs Windows 10/11 x64, .NET Framework 4.6.2 or new
 - A renderer supported by pywebview. Windows normally uses the installed Microsoft Edge WebView2 runtime. macOS uses Cocoa/WebKit; Linux requires an installed GTK/WebKit or Qt backend and its system libraries. Linux users must select the matching `pywebview[gtk]` or `pywebview[qt]` extra.
 - A working system keyring backend is recommended for credential storage. Advanced deployments can provide process environment overrides when needed.
 
-## Installation
+## Windows installer candidate
+
+The primary Windows distribution is one `HeetKit-<version>-windows-x64-setup.exe`.
+Local installer candidates are available for manual testing; there is no public download yet.
+Run setup normally for a per-user installation, without administrator rights. The wizard
+shows the Apache-2.0 license and dependency notices, lets you choose a writable application
+directory (default `%LOCALAPPDATA%\Programs\HeetKit`), creates Start Menu shortcuts,
+offers an optional desktop shortcut, and offers to launch HeetKit when finished.
+
+Setup checks .NET Framework 4.6.2+ and WebView2 Evergreen. When either is missing, it
+provides links to Microsoft's supported downloads and waits for installation. For WebView2,
+use the **Evergreen Bootstrapper** online or the **x64 Evergreen Standalone Installer**
+offline, as described in [Microsoft's deployment guidance](https://learn.microsoft.com/microsoft-edge/webview2/concepts/distribution).
+Complete any required Windows restart before retrying setup. Python, Node.js and a source
+checkout are not required on the target machine. These local candidates are unsigned;
+Windows may show an unknown-publisher warning.
+
+Application files include `HeetKit.exe`, its adjacent `.exe.config`, `_internal`, notices
+and uninstall tooling. Profiles remain under `%LOCALAPPDATA%\HeetKit` and credentials
+remain in Windows Credential Manager. A fresh launch seeds only missing neutral defaults
+and leaves the bot stopped; existing profiles keep their saved preferences and data.
+
+Quit HeetKit with **tray Exit** before upgrading, reinstalling or uninstalling. Run the
+newer setup to upgrade in the existing application directory. Run the same version again
+to reinstall its application files; there is no separate Repair command. Downgrades are
+refused. To move the installation, uninstall first, then reinstall in the new directory.
+Uninstall through **Settings → Apps → Installed apps → HeetKit**. Profiles, OAuth state,
+databases and keyring credentials are retained, and Microsoft runtimes are left installed.
+Reinstalling uses the retained profile. Setup never offers or performs profile deletion.
+
+## Source installation
 
 From Windows PowerShell:
 
@@ -116,8 +146,9 @@ under `app/resources/`, including neutral filters, triggers, personalities, mode
 Installed launches load prebuilt frontend files from `app/resources/frontend/`; a recognized
 source checkout can use `frontend/dist/`. Both paths are independent of the working directory.
 Before creating a Python distribution, stage the contents of `frontend/dist/` in
-`app/resources/frontend/`. Generated frontend files remain ignored. Automatic frontend staging,
-standalone freezing and release artifacts are future packaging work; no standalone release is available yet.
+`app/resources/frontend/`. Generated frontend files remain ignored. Automatic frontend staging and
+standalone freezing are implemented by the Windows build commands below; public release
+automation and downloads remain separate work.
 
 ## Configuration
 
@@ -495,7 +526,50 @@ The frozen process config has passed a controlled outside-checkout load test; th
 browser-download/Explorer extraction acceptance test remains pending for this candidate.
 `--check` is read-only and does not open the desktop.
 These local candidates require manual validation and the artifact-specific redistribution
-review in `THIRD_PARTY_NOTICES.md` before publication. Installer/release/update work is separate.
+review in `THIRD_PARTY_NOTICES.md` before publication. Release automation and update checking
+remain separate work.
+
+## Building and testing a Windows installer
+
+Install the pinned [Inno Setup **6.7.3** compiler](https://github.com/jrsoftware/issrc/releases/tag/is-6_7_3)
+on the build machine. Keep its original license/copyright notices. Build the portable
+candidate first, then wrap that exact ZIP (no second freeze or frontend build):
+
+```powershell
+.\scripts\build_windows.ps1
+.\scripts\build_installer.ps1
+```
+
+Use `-InnoCompiler 'C:\path\to\ISCC.exe'` for a non-default compiler location and
+`-PythonPath` for a different build interpreter with the pinned PyInstaller installed.
+`-PortableZip` selects an existing ZIP; its checksum, manifest hashes, inventory and
+canonical version must pass inspection. The compiler version is enforced. Outputs are
+`dist/HeetKit-<version>-windows-x64-setup.exe`, `.exe.sha256` and `.exe.build.json`
+(input ZIP/manifest/compiler traceability). Existing setup files are never overwritten.
+Only source/build instructions are tracked; generated binaries remain ignored.
+
+For the Phase B manual checkpoint, use a disposable Windows user/VM with no Python,
+Node or checkout, and keep a private backup before testing an existing profile:
+
+1. Install test build A (0.1.2) normally. Read notices, try the directory chooser and
+   optional desktop shortcut; verify Installed apps and both shortcut targets.
+2. Launch from a shortcut with a clean profile. Check neutral defaults, stopped bot,
+   About version/icon, tray Open/minimize/close/Exit, full exit and relaunch. Verify
+   no manual Unblock or DLL movement is needed.
+3. Save representative settings, custom commands, filters, personalities and profile
+   instructions; exercise database, OAuth and credential persistence where configured.
+   Quit fully, install test build B (0.1.3) into the same directory, and launch again.
+   Check version 0.1.3 and all retained state; try a same-version reinstall too.
+4. Uninstall using Installed apps. Check application files/shortcuts are removed and
+   the profile and credentials remain. Reinstall B and confirm the saved state returns.
+5. Where possible, test missing .NET/WebView2 in a disposable VM: setup must show the
+   Microsoft guidance, permit retry after runtime installation, and leave the profile
+   untouched while prerequisites are missing. An offline user can use the supported
+   standalone installers.
+
+Automated silent lifecycle checks do not complete this wizard/native/clean-machine
+checkpoint. Remaining Phase A fresh browser download, normal Explorer extraction without
+Unblock, tray, full exit/relaunch and clean-profile checks require explicit manual results.
 
 ## Contributing and reporting
 

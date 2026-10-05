@@ -1,0 +1,38 @@
+HeetKit Windows x64 installer
+
+Created and maintained by heeetz. Not affiliated with or endorsed by Twitch.
+
+This is a per-user installation. The default application directory is
+%LOCALAPPDATA%\Programs\HeetKit; the setup wizard allows a different writable
+application directory. Start Menu and optional desktop shortcuts launch HeetKit.exe.
+Python, Node.js and the source checkout are not needed.
+
+Requires Windows 10/11 x64, .NET Framework 4.6.2 or newer and Edge WebView2
+Evergreen Runtime. Setup detects these prerequisites. If missing, use its links
+to Microsoft's downloads: Evergreen Bootstrapper for online installation, or the
+x64 Evergreen Standalone Installer for an offline machine. Complete Microsoft's
+installation and any required restart before retrying HeetKit Setup.
+
+Keep HeetKit.exe.config beside HeetKit.exe and preserve the complete _internal
+directory. LICENSE, NOTICE, THIRD_PARTY_NOTICES.md and dependency license texts
+are installed under _internal. Inno Setup's license is under _internal\licenses.
+The setup wizard provides these notices without adding a separate EULA.
+
+Normal launch prepares only missing neutral defaults under %LOCALAPPDATA%\HeetKit.
+An existing profile remains authoritative. Explicit profile overrides continue to
+work; credentials remain in Windows Credential Manager, outside the application.
+
+Quit HeetKit completely with tray Exit before upgrade, reinstall or uninstall.
+Run a newer setup to upgrade in the same application directory. Running the same
+version again reinstalls application files; it is not a separate Windows Repair
+command. Downgrades are refused. To change install directory, uninstall first.
+
+Uninstall through Windows Settings > Apps > Installed apps > HeetKit, or run
+unins000.exe in the application directory. Uninstall removes installed binaries
+and shortcuts, preserves profiles and credentials, and leaves Microsoft runtimes
+installed. Reinstalling reuses your existing profile. No user-data deletion is
+offered. Back up private profile data before manual upgrade testing.
+
+This local candidate is unsigned and is not yet cleared for public release.
+Manual install/upgrade/uninstall, native window/tray and clean-machine checks
+remain necessary. Redistribution questions remain in THIRD_PARTY_NOTICES.md.

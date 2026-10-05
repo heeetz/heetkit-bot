@@ -22,6 +22,15 @@ Exact build/runtime pins are in `packaging/windows/requirements.txt`. The bundle
 the Python license collection, these preserved texts and installed distribution license files
 under `_internal/licenses/`. `BUILD-MANIFEST.json` records its file hashes.
 
+Phase B adds a local Inno Setup **6.7.3** setup executable around that same onedir
+payload. The compiler is pinned and its unmodified installer/uninstaller engine retains
+upstream copyright/site notices. Its [license](https://github.com/jrsoftware/issrc/blob/is-6_7_3/license.txt)
+is preserved in `third_party_licenses/inno-setup/LICENSE.txt`, shown in the setup notices,
+and installed under `_internal/licenses/Inno-Setup-LICENSE.txt`. .NET Framework and
+WebView2 Runtime installers are not bundled: missing prerequisites direct the user to
+Microsoft's supported downloads. Existing payload redistribution reviews below remain
+open; producing an installer does not establish public-release clearance.
+
 The candidate keeps pystray's redistributed modules as exact, replaceable `.py` files outside
 the frozen PYZ, alongside GPL/LGPL texts; no pystray modifications are made. certifi's Python
 source and exact CA bundle are also supplied outside PYZ. WebView2 ships only its Core/WinForms
