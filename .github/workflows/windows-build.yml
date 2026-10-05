@@ -3,6 +3,16 @@ name: Windows build
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'README.md'
+      - 'CONTRIBUTING.md'
+      - 'SECURITY.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'NOTICE'
+      - 'THIRD_PARTY_NOTICES.md'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/pull_request_template.md'
   workflow_dispatch:
 
 # C1 produces workflow artifacts only; release publication belongs to C2.
