@@ -458,6 +458,23 @@ Extract the entire `HeetKit` folder outside the checkout and keep `_internal` be
 portable instructions are under `_internal`. User state remains in `%LOCALAPPDATA%\HeetKit`;
 portable describes the application files, not moving the user's credentials/profile with them.
 
+Windows may mark transferred/downloaded ZIP contents as coming from the internet,
+which can prevent .NET from loading `Python.Runtime.dll`. If you trust the archive,
+right-click the ZIP → Properties → **Unblock** → Apply, then extract into a **new**
+folder. Unblocking the ZIP does not change files already extracted. For an existing
+trusted extraction, quit HeetKit and run PowerShell with the exact application path:
+
+```powershell
+Get-ChildItem -LiteralPath 'C:\path\to\HeetKit' -Recurse -File | Unblock-File
+```
+
+This removes download markers only from that folder and requires no administrator
+rights or system-wide security changes. See [Microsoft's Unblock-File documentation](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/unblock-file).
+HeetKit detects marked managed DLLs and tests .NET/WebView2 library loading before
+opening profile state. `--check` performs these same library checks without opening
+a window or changing profile files. If it still fails, include the loader detail
+from the message when reporting the issue.
+
 For a disconnected, isolated smoke test, launch:
 
 ```powershell
@@ -467,7 +484,8 @@ For a disconnected, isolated smoke test, launch:
 Confirm a neutral first launch, About version/icon, settings persistence after restart,
 close/minimize-to-tray, tray Open and tray Exit. Then test the default existing profile and
 representative legacy migration with private backups, and test a clean Windows user/VM
-without development tooling. `--check` is read-only and does not open the desktop.
+without development tooling. Test a transferred/downloaded ZIP as well as a local copy.
+`--check` is read-only and does not open the desktop.
 These local candidates require manual validation and the artifact-specific redistribution
 review in `THIRD_PARTY_NOTICES.md` before publication. Installer/release/update work is separate.
 

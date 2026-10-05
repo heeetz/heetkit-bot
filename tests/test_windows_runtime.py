@@ -9,6 +9,7 @@ from app import windows_runtime, webview_host
 
 
 def registry(monkeypatch, *, version=None, release=394802, machine=False):
+    monkeypatch.setattr(windows_runtime, "_ensure_renderer_loads", lambda: None)
     class Handle:
         def __init__(self, hive, key, view):
             self.hive, self.key, self.view = hive, key, view
@@ -57,7 +58,50 @@ def test_missing_net_has_distinct_guidance(monkeypatch):
 def test_non_windows_does_not_require_registry(monkeypatch):
     monkeypatch.setattr(windows_runtime.sys, "platform", "linux")
     monkeypatch.setitem(sys.modules, "winreg", None)
+    monkeypatch.setattr(windows_runtime, "_ensure_renderer_loads", lambda: pytest.fail("loaded Windows renderer"))
     windows_runtime.ensure_windows_runtime()
+
+
+def test_preflight_loads_desktop_libraries_after_registry_checks(monkeypatch):
+    registry(monkeypatch, version="145.0.1.2")
+    calls = []
+    monkeypatch.setattr(windows_runtime, "_ensure_renderer_loads", lambda: calls.append("renderer"))
+    windows_runtime.ensure_windows_runtime()
+    assert calls == ["renderer"]
+
+
+@pytest.mark.parametrize("relative", ["pythonnet/runtime/Python.Runtime.dll", "webview/lib/Microsoft.Web.WebView2.Core.dll"])
+def test_blocked_managed_dll_reports_unblock_without_loading_or_modifying_it(monkeypatch, tmp_path, relative):
+    dll = tmp_path / relative
+    dll.parent.mkdir(parents=True)
+    dll.write_bytes(b"synthetic DLL")
+    zone = type(dll)(f"{dll}:Zone.Identifier")
+    zone.write_text("[ZoneTransfer]\nZoneId=3\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    monkeypatch.setattr(windows_runtime.importlib, "import_module", lambda name: pytest.fail("loaded blocked DLL"))
+    with pytest.raises(windows_runtime.DesktopPrerequisiteError, match="Windows has marked.*Unblock.*new folder"):
+        windows_runtime._ensure_renderer_loads()
+    assert zone.read_text(encoding="utf-8") == "[ZoneTransfer]\nZoneId=3\n"
+    assert dll.read_bytes() == b"synthetic DLL"
+
+
+def test_renderer_load_failure_has_actionable_details(monkeypatch):
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    def fail(name):
+        raise RuntimeError("Failed to resolve Python.Runtime.Loader.Initialize")
+    monkeypatch.setattr(windows_runtime.importlib, "import_module", fail)
+    with pytest.raises(windows_runtime.DesktopPrerequisiteError, match="Unblock.*Loader detail: Failed to resolve"):
+        windows_runtime._ensure_renderer_loads()
+
+
+def test_unblocked_bundle_checks_clr_and_webview_assemblies(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    calls = []
+    monkeypatch.setattr(windows_runtime.importlib, "import_module", calls.append)
+    windows_runtime._ensure_renderer_loads()
+    assert calls == ["clr", "webview.platforms.edgechromium"]
 
 
 @pytest.mark.parametrize("check", [False, True])

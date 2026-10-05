@@ -6,6 +6,17 @@ Requires Windows 10/11 x64, Microsoft .NET Framework 4.6.2 or newer, and the
 Microsoft Edge WebView2 Evergreen Runtime:
 https://developer.microsoft.com/microsoft-edge/webview2/
 
+If Windows blocks Python.Runtime.dll or another desktop library, and you trust
+this ZIP, right-click the ZIP -> Properties -> Unblock -> Apply before extracting
+into a new folder. Unblocking the ZIP does not change an already extracted folder.
+For an existing trusted extraction, quit HeetKit and run this in PowerShell,
+replacing the path with the exact HeetKit application folder:
+Get-ChildItem -LiteralPath 'C:\path\to\HeetKit' -Recurse -File | Unblock-File
+This changes only download markers in that application folder. No administrator
+rights, Python installation or system-wide security changes are needed.
+HeetKit.exe --check loads the desktop DLLs without opening a window or modifying
+profile files. If it still fails, retain the full loader detail for a bug report.
+
 Settings and private state live under %LOCALAPPDATA%\HeetKit, outside this folder.
 Legacy %LOCALAPPDATA%\TwitchBot state imports once; the old folder remains as rollback.
 Use HeetKit.exe --stopped for a disconnected launch, or

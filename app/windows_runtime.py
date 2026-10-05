@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib
+from pathlib import Path
 import sys
 
 
@@ -11,7 +13,44 @@ _NET_KEY = r"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"
 
 
 class DesktopPrerequisiteError(RuntimeError):
-    """A required Windows desktop runtime is missing."""
+    """A required Windows desktop runtime is missing or cannot be loaded."""
+
+
+_UNBLOCK_GUIDANCE = (
+    "If you trust the HeetKit ZIP, right-click the ZIP, choose Properties, "
+    "tick Unblock if shown, then Apply and extract into a new folder. "
+    "Unblocking the ZIP does not repair files already extracted. "
+    "See _internal/PORTABLE.txt for instructions for an existing folder."
+)
+
+
+def _ensure_renderer_loads() -> None:
+    # Downloaded ZIPs can propagate Mark of the Web to managed DLLs. Report this
+    # before CLR's native loader hides the FileLoadException behind a NULL result.
+    if getattr(sys, "frozen", False):
+        internal = Path(sys._MEIPASS)
+        for directory in (internal / "pythonnet/runtime", internal / "webview/lib"):
+            for dll in directory.rglob("*.dll"):
+                try:
+                    zone = Path(f"{dll}:Zone.Identifier").read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                if any(line.strip() in ("ZoneId=3", "ZoneId=4") for line in zone.splitlines()):
+                    raise DesktopPrerequisiteError(
+                        f"Windows has marked a HeetKit DLL as downloaded: {dll.name}. "
+                        + _UNBLOCK_GUIDANCE
+                    )
+    try:
+        importlib.import_module("clr")
+        importlib.import_module("webview.platforms.edgechromium")
+    except Exception as error:
+        raise DesktopPrerequisiteError(
+            "HeetKit could not load its .NET/WebView2 desktop libraries. "
+            + _UNBLOCK_GUIDANCE
+            + " If the files are unblocked, verify the complete ZIP was extracted and "
+            "repair the Microsoft .NET Framework/WebView2 installations. "
+            f"Loader detail: {error}"
+        ) from error
 
 
 def ensure_windows_runtime() -> None:
@@ -40,6 +79,7 @@ def ensure_windows_runtime() -> None:
         if isinstance(version, str):
             parts = version.split(".")
             if len(parts) == 4 and all(part.isdecimal() for part in parts) and any(int(part) for part in parts):
+                _ensure_renderer_loads()
                 return
     raise DesktopPrerequisiteError(
         "HeetKit requires Microsoft Edge WebView2 Evergreen Runtime. "

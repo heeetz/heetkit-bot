@@ -1809,7 +1809,7 @@ def main() -> None:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Validate configuration and locate the requested frontend entry point.",
+        help="Validate desktop libraries, configuration and frontend availability without opening the UI.",
     )
     arguments = parser.parse_args()
     if arguments.data_dir is not None:
