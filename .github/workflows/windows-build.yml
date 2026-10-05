@@ -3,6 +3,7 @@ name: Windows build
 on:
   push:
     branches: [main]
+    tags: ['v*']
     paths-ignore:
       - 'README.md'
       - 'CONTRIBUTING.md'
@@ -15,7 +16,7 @@ on:
       - '.github/pull_request_template.md'
   workflow_dispatch:
 
-# C1 produces workflow artifacts only; release publication belongs to C2.
+# Builds remain read-only; only the tag-gated publication job can write releases.
 permissions:
   contents: read
 
@@ -24,6 +25,9 @@ jobs:
     name: Test and package Windows x64
     runs-on: windows-2022
     timeout-minutes: 45
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     defaults:
       run:
         shell: pwsh
@@ -47,12 +51,23 @@ jobs:
           architecture: x64
           package-manager-cache: false
 
-      - name: Read canonical application version
+      - name: Read canonical application version and validate release tag
         id: version
         run: |
           $version = python -c "from app.version import VERSION; print(VERSION)"
           if ($LASTEXITCODE -ne 0) { throw 'Cannot read the canonical application version.' }
+          $prerelease = 'false'
+          if ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF_TYPE -eq 'tag') {
+            if ($env:GITHUB_REF_NAME -cne "v$version") {
+              throw "Release tag '$env:GITHUB_REF_NAME' must match canonical version 'v$version'."
+            }
+            if ($version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
+              throw 'Release versions must use major.minor.patch numeric format.'
+            }
+            $prerelease = ($version.Split('.')[0] -eq '0').ToString().ToLowerInvariant()
+          }
           "version=$version" >> $env:GITHUB_OUTPUT
+          "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
 
       - name: Install pinned Python runtime and test dependencies
         run: |
@@ -138,3 +153,58 @@ jobs:
             dist/HeetKit-${{ steps.version.outputs.version }}-windows-x64-setup.exe
             dist/HeetKit-${{ steps.version.outputs.version }}-windows-x64-setup.exe.sha256
             dist/HeetKit-${{ steps.version.outputs.version }}-windows-x64-setup.exe.build.json
+
+  publish-release:
+    name: Publish the verified tag build
+    needs: windows-build
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-2022
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Download only this run's verified Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: HeetKit-${{ needs.windows-build.outputs.version }}-windows-x64
+          path: release-artifacts
+
+      - name: Verify downloads and publish the existing tag
+        env:
+          APP_VERSION: ${{ needs.windows-build.outputs.version }}
+          PRERELEASE: ${{ needs.windows-build.outputs.prerelease }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ($env:RELEASE_TAG -cne "v$env:APP_VERSION") { throw 'Release tag/version mismatch.' }
+          $base = "HeetKit-$env:APP_VERSION-windows-x64"
+          $suffixes = @('.zip', '.zip.sha256', '-setup.exe', '-setup.exe.sha256', '-setup.exe.build.json')
+          $assets = @($suffixes | ForEach-Object { Join-Path 'release-artifacts' "$base$_" })
+          foreach ($asset in $assets) {
+            if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) { throw "Missing release artifact: $asset" }
+          }
+          if (@(Get-ChildItem -LiteralPath 'release-artifacts' -Force).Count -ne $assets.Count) {
+            throw 'Unexpected files in the release artifact download.'
+          }
+          $hashes = @{}
+          foreach ($suffix in @('.zip', '-setup.exe')) {
+            $file = "$base$suffix"
+            $path = Join-Path 'release-artifacts' $file
+            $hashes[$suffix] = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            $checksum = (Get-Content -LiteralPath "$path.sha256" -Raw).Trim()
+            if ($checksum -cne "$($hashes[$suffix])  $file") { throw "Release checksum mismatch: $file" }
+          }
+          $trace = Get-Content -LiteralPath "release-artifacts/$base-setup.exe.build.json" -Raw | ConvertFrom-Json
+          if ($trace.version -cne $env:APP_VERSION -or $trace.portable_zip -cne "$base.zip" -or
+              $trace.portable_sha256 -cne $hashes['.zip'] -or $trace.installer_sha256 -cne $hashes['-setup.exe']) {
+            throw 'Installer traceability does not match the release artifacts.'
+          }
+          $releaseArgs = @('release', 'create', $env:RELEASE_TAG, '--verify-tag', '--generate-notes')
+          if ($env:PRERELEASE -eq 'true') { $releaseArgs += @('--prerelease', '--latest=false') }
+          gh @releaseArgs @assets
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub Release publication failed.' }

@@ -4,16 +4,19 @@ Windows 10/11 x64 is the current distribution target. The installer is the prima
 download and the portable ZIP is an alternative. Public downloads belong on
 [GitHub Releases](https://github.com/heeetz/heetkit-bot/releases).
 
-The current [Windows build workflow](https://github.com/heeetz/heetkit-bot/actions/workflows/windows-build.yml)
-creates test artifacts on `main` pushes and manual runs. It does not create tags or
-publish GitHub Releases. Tagged release publication and in-app update checking remain
-unimplemented; a successful build alone does not establish public-release readiness.
+The [Windows build workflow](https://github.com/heeetz/heetkit-bot/actions/workflows/windows-build.yml)
+creates Actions artifacts on `main` pushes and manual runs; documentation-only pushes
+remain ignored. A manually pushed matching version tag runs the same pipeline and,
+after success, publishes its five verified files as a GitHub Release. A successful
+build alone does not establish public-release readiness. In-app update checking
+remains unimplemented.
 
 ## Build inputs and version
 
 `app/version.py` is the canonical application version source. Runtime/About, Python
 metadata, executable metadata and artifact names consume it. Do not maintain a separate
-release version. Any future tagged-release workflow must reject a tag/version mismatch.
+release version. Tagged builds fail before publication if the tag differs from
+`v<version>` or the version does not use numeric `major.minor.patch` format.
 
 The Windows builder requires Windows x64 CPython **3.14.7** and a Vite-compatible Node
 version (**20.19+**; CI uses **24.20.0**). Python/runtime/build dependencies are pinned in
@@ -63,6 +66,25 @@ run, download **HeetKit-<version>-windows-x64** from **Artifacts** within its 14
 retention period. Extract the Actions download to obtain the five files above.
 Only those files are uploaded; the source archive tool is not part of this workflow.
 
+## Publish a versioned release
+
+1. Update `VERSION` in `app/version.py` to the intended release version.
+2. Commit and push the release-ready state to `main`.
+3. Create the matching tag, for example `git tag v0.1.3` for version `0.1.3`.
+4. Push that tag: `git push origin v0.1.3`.
+5. GitHub Actions tests and builds that tagged commit. If all checks pass, it downloads
+   the five artifacts from that same run, verifies both SHA-256 checksums and installer
+   traceability, and publishes them with GitHub-generated release notes. It does not rebuild.
+
+Versions below `1.0.0`, such as `v0.1.3`, publish as pre-releases; normal versions
+`v1.0.0` and later publish as stable releases. Only the publication job receives
+`contents: write` through `GITHUB_TOKEN`; the build remains read-only. A `main` push
+or manual build never publishes a release, even if the manual run selects a tag.
+Failed builds, artifact checks or tag/version validation prevent publication.
+
+The first tagged publication still needs to be observed on GitHub and its actual
+downloads inspected; local workflow validation does not verify hosted publication.
+
 ## Windows runtime and installation
 
 Target machines need .NET Framework 4.6.2+ and
@@ -95,8 +117,8 @@ Verify checksums, complete extraction and the absence of private or development 
 
 Review the actual payload against [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)
 and bundled license texts; unresolved artifact-specific redistribution reviews block
-publication. Keep release notes concise and user-facing. Tag creation or publication
-needs a separately authorized release task; this workflow currently uploads candidates only.
+publication. Keep release notes concise and user-facing. The maintainer updates the
+version and creates/pushes each release tag manually using the steps above.
 
 macOS/Linux builds must be produced and tested on those platforms with their native
 renderer and credential backends before adding release automation or claiming support.
