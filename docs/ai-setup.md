@@ -49,6 +49,21 @@ credential that lets HeetKit send requests to Google's Gemini service.
    command here, save the Ask command on **Commands** to keep it enabled after restart.
    Permissions, cooldowns and filters still apply.
 
+## Personality editing
+
+**Save** keeps a prompt without changing the active personality. **Set active** saves
+the selection separately and uses it for future replies; it does not save an unsaved
+prompt draft. **New personality** creates a local name and prompt without activating it.
+Custom personalities can be renamed or deleted; deleting the active one selects
+`neutral`. Built-ins cannot be renamed or deleted, but their prompts can be overridden;
+**Reset** restores the shipped prompt.
+
+Profile instructions apply to every personality in the current profile. **Reset** clears
+that field without changing personality prompts or selection. Protected shared
+instructions are read-only. Separate profiles keep their own styles and instructions.
+See [data and privacy](data-and-privacy.md) for memory, provider processing and backups,
+and [commands](commands.md) for filters, permissions and cooldowns.
+
 ## Free Tier and billing
 
 Google provides a **Gemini API Free Tier** for supported models within their limits.
@@ -64,4 +79,4 @@ for current requirements. API usage is billed by **Google**, not HeetKit.
 If `!ask` fails, test the key, check the model and Google's quota/billing status, and read
 HeetKit's Logs for the error. Normal commands remain available without Gemini.
 
-[Twitch setup](twitch-setup.md) · [Back to README](../README.md#quick-start).
+[Twitch setup](twitch-setup.md) · [Back to README](../README.md#getting-started).

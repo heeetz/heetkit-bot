@@ -1,10 +1,10 @@
 # Contributing
 
 HeetKit is maintained by **heeetz** at
-[heeetz/twitch-bot](https://github.com/heeetz/twitch-bot).
+[heeetz/heetkit-bot](https://github.com/heeetz/heetkit-bot).
 Small fixes, documentation improvements, and focused feature proposals are welcome.
 
-- Use the [issue forms](https://github.com/heeetz/twitch-bot/issues/new/choose) for bugs
+- Use the [issue forms](https://github.com/heeetz/heetkit-bot/issues/new/choose) for bugs
   and feature requests. Include your version/commit and OS for bugs.
 - Report vulnerabilities privately using [SECURITY.md](SECURITY.md).
 - Discuss substantial changes in an issue before building them. A small fix can go
@@ -12,7 +12,7 @@ Small fixes, documentation improvements, and focused feature proposals are welco
 
 ## Development
 
-Follow [README setup](README.md#installation), including the frontend build.
+Follow [development setup](docs/development.md#source-setup), including the frontend build.
 Create a branch and keep the pull request focused. Python owns behavior, validation,
 providers, persistence, and lifecycle; React presents backend state through the typed
 `WebUIBridge`. Reuse the existing application/profile boundaries. Keep settings and

@@ -3,7 +3,7 @@
 Please report suspected vulnerabilities privately. Do not open a public issue or
 pull request containing exploit details, credentials, tokens, or private profiles.
 
-Use [GitHub private vulnerability reporting](https://github.com/heeetz/twitch-bot/security/advisories/new)
+Use [GitHub private vulnerability reporting](https://github.com/heeetz/heetkit-bot/security/advisories/new)
 when available. If GitHub does not offer that option, contact maintainer **heeetz**
 privately on Discord at **de.tected**. Send a short description first; agree on a
 private way to share sensitive details. Never send working credentials.
@@ -29,7 +29,7 @@ tree does not remove older copies from Git history, forks, or clones.
 Gemini is optional. Enabled AI requests send chat prompts, configured personality
 instructions, and recent conversation context when memory is enabled to Google.
 Search grounding can involve Google Search. Provider Test and model discovery also
-contact Google. See the [README privacy note](README.md#runtime-data-and-privacy).
+contact Google. See [data and privacy](docs/data-and-privacy.md#ai-processing-and-memory).
 
 ## Scope
 

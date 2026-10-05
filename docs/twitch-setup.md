@@ -74,4 +74,4 @@ If connection fails, check that each login matches its numeric ID, the callback 
 exactly, the bot has channel access and you authorized the bot account. Do not share your
 local profile folder: it contains Twitch authorization credentials.
 
-Optional: [AI / Gemini setup](ai-setup.md). [Back to README](../README.md#quick-start).
+Optional: [AI / Gemini setup](ai-setup.md). [Back to README](../README.md#getting-started).
