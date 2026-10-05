@@ -99,6 +99,7 @@ td { color: #c6cfdf; }
 .about-details dd { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin: 7px 0 0; color: #e2e8f3; }
 .about-details code { color: #c6b8ff; font: inherit; }
 .about-details .ghost { margin: -6px 0 -6px auto; padding: 6px 8px; }
+.about-details dd > .ghost:only-child { margin-left: -9px; }
 .about-disclaimer { margin: 18px 0 0; color: #71809a; font-size: 12px; }
 .about-link-list { display: flex; flex-wrap: wrap; gap: 9px; }
 .command-editor-card { min-height: 0; }
