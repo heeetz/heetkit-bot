@@ -59,6 +59,10 @@ jobs:
           python -m pip install --disable-pip-version-check -r packaging/windows/requirements.txt pytest==8.4.2 pytest-asyncio==0.26.0
           if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed.' }
           python -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'Python dependency check failed.' }
+          # The shared requirements pin the version; enforce the patched urllib3 minimum.
+          python -c "from importlib.metadata import version; from packaging.version import Version; resolved = version('urllib3'); print(f'urllib3 {resolved}'); assert Version(resolved) >= Version('2.8.0'), 'urllib3 must be >= 2.8.0'"
+          if ($LASTEXITCODE -ne 0) { throw 'urllib3 security version check failed.' }
 
       - name: Run packaging, prerequisite and profile isolation tests
         run: >-
