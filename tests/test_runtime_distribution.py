@@ -88,6 +88,9 @@ def _materialize_declared_install(install_root: Path) -> None:
 
 def test_runtime_resources_are_declared_and_source_defaults_are_package_local() -> None:
     project = _project_configuration()
+    assert project["project"]["name"] == "heetkit"
+    assert project["project"]["description"] == "HeetKit — Desktop control center for Twitch chat"
+    assert project["project"]["scripts"] == {"heetkit": "app.main:main"}
     setuptools = project["tool"]["setuptools"]
     package_data = setuptools["package-data"]["app.resources"]
 
@@ -142,7 +145,7 @@ def test_installed_tree_runs_check_and_clean_backend_without_checkout_or_install
         {
             "PYTHONPATH": str(install_root),
             "PYTHONDONTWRITEBYTECODE": "1",
-            "TWITCH_BOT_DATA_DIR": str(profile),
+            "HEETKIT_DATA_DIR": str(profile),
         }
     )
     for name in Settings.model_fields:
@@ -169,7 +172,7 @@ from app import runtime_paths, webview_host
 from app.runtime_paths import DEFAULT_FILTERS, LEGACY_DATA, PACKAGED_FRONTEND, SOURCE_ROOT, RuntimePaths, prepare_runtime_data
 
 # Exercise an installed normal profile, including its usual legacy-migration flag.
-profile = Path(os.environ["TWITCH_BOT_DATA_DIR"])
+profile = Path(os.environ["HEETKIT_DATA_DIR"])
 runtime_paths.user_data_path = lambda *args, **kwargs: profile
 settings, credentials = load_settings_with_credentials(SimpleNamespace(get=lambda name: None))
 assert SOURCE_ROOT is None

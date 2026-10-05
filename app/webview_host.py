@@ -14,7 +14,7 @@ import sys
 import threading
 import webbrowser
 from concurrent.futures import Future, TimeoutError as FutureTimeoutError
-from contextlib import nullcontext
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, Coroutine
 
@@ -29,7 +29,7 @@ from app.config.ai_models import GEMINI_MODEL_PRESETS, GEMINI_PROVIDER_NAME
 from app.config.personalities import AI_PERSONALITY_PROMPTS, build_protected_shared_instructions
 from app.config.settings import Settings, TwitchConfigurationError, load_settings_with_credentials
 from app.container import Application, build_application
-from app.credentials import CredentialError, CredentialManager, CredentialName
+from app.credentials import CredentialError, CredentialManager, CredentialName, CredentialStore
 from app.desktop_instance import (
     DesktopAlreadyRunningError,
     desktop_instance_guard,
@@ -60,7 +60,7 @@ from app.utils.logging import (
 
 FRONTEND_ENTRYPOINT = SOURCE_ROOT / "frontend" / "dist" / "index.html" if SOURCE_ROOT is not None else PACKAGED_FRONTEND
 ICON_ROOT = Path(__file__).resolve().parent / "resources"
-WINDOWS_APP_ID = "TwitchBot.Desktop"
+WINDOWS_APP_ID = "HeetKit.Desktop"
 FALLBACK_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 FORCED_STOP_TIMEOUT_SECONDS = 2.0
 BRIDGE_SETTINGS_TIMEOUT_SECONDS = 10.0
@@ -69,13 +69,16 @@ BRIDGE_MODEL_DISCOVERY_TIMEOUT_SECONDS = 20.0
 BRIDGE_BOT_START_TIMEOUT_SECONDS = 10.0
 BRIDGE_BOT_STOP_TIMEOUT_SECONDS = 20.0
 BRIDGE_TWITCH_RECONNECT_TIMEOUT_SECONDS = 30.0
-APPLICATION_NAME = "Twitch Bot"
-APPLICATION_PACKAGE_NAME = "twitch-bot-foundation"
+APPLICATION_NAME = "HeetKit"
+APPLICATION_SUBTITLE = "Desktop control center for Twitch chat"
+APPLICATION_PACKAGE_NAME = "heetkit"
 APPLICATION_VERSION_FALLBACK = "0.1.0"
 EXTERNAL_LINKS = {
+    # Repository address remains unchanged until a separately requested remote rename.
     "repository": "https://github.com/heeetz/twitch-bot",
     "license": "https://github.com/heeetz/twitch-bot/blob/main/LICENSE",
     "third_party_notices": "https://github.com/heeetz/twitch-bot/blob/main/THIRD_PARTY_NOTICES.md",
+    "author_twitch": "https://www.twitch.tv/heet_ok",
     "twitch_developer_console": "https://dev.twitch.tv/console/apps",
     "twitch_authorization": OAUTH_AUTHORIZATION_URL,
 }
@@ -132,7 +135,7 @@ class AsyncioBackendHost:
             return
         self._thread = threading.Thread(
             target=self._run,
-            name="twitch-bot-asyncio",
+            name="heetkit-asyncio",
             daemon=True,
         )
         self._thread.start()
@@ -424,8 +427,10 @@ class WebUIBridge:
     def get_about_info(self) -> dict[str, str]:
         return {
             "application_name": APPLICATION_NAME,
+            "application_subtitle": APPLICATION_SUBTITLE,
             "version": application_version(),
             "author": "heeetz",
+            "author_twitch": "@heet_ok",
             "repository_url": EXTERNAL_LINKS["repository"],
             "discord_contact": "de.tected",
             "license_name": "Apache-2.0",
@@ -1758,7 +1763,7 @@ def run_desktop_host(
         )
         controller = DesktopController(backend, bridge, app_settings)
         window = webview.create_window(
-            "Twitch Bot",
+            APPLICATION_NAME,
             frontend_url,
             js_api=bridge,
             width=1180,
@@ -1793,8 +1798,8 @@ def run_desktop_host(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the Twitch bot web desktop UI.")
-    parser.add_argument("--data-dir", type=Path, help="Use an independent profile directory (or TWITCH_BOT_DATA_DIR).")
+    parser = argparse.ArgumentParser(description="HeetKit — Desktop control center for Twitch chat")
+    parser.add_argument("--data-dir", type=Path, help="Use an independent profile directory (or HEETKIT_DATA_DIR).")
     parser.add_argument(
         "--dev-url",
         help="Load a running Vite development server instead of built frontend assets.",
@@ -1813,9 +1818,23 @@ def main() -> None:
     if arguments.data_dir is not None:
         os.environ[DATA_DIR_ENV] = str(arguments.data_dir.expanduser().resolve())
     try:
-        guard = nullcontext() if arguments.check else desktop_instance_guard(RuntimePaths.default().app_settings)
-        with guard:
-            settings, credential_manager = load_settings_with_credentials()
+        with ExitStack() as guards:
+            paths = RuntimePaths.default()
+            if not arguments.check:
+                guards.enter_context(desktop_instance_guard(paths.app_settings))
+                if sys.platform == "win32" and not paths.brand_migration_marker.exists():
+                    # Legacy compatibility: the former desktop could also be
+                    # running against this same explicit profile directory.
+                    guards.enter_context(desktop_instance_guard(paths.app_settings, legacy_identity=True))
+                if paths.is_default_profile and not paths.brand_migration_marker.exists() and paths.former_default_root.is_dir():
+                    guards.enter_context(desktop_instance_guard(
+                        paths.former_default_root / "config" / "app_settings.json",
+                        legacy_identity=True,
+                    ))
+            settings, credential_manager = (
+                load_settings_with_credentials(CredentialStore(migrate_legacy=False))
+                if arguments.check else load_settings_with_credentials()
+            )
             if not arguments.check:
                 token_file, database_url = prepare_runtime_data(
                     settings.twitch_token_file, settings.database_url

@@ -228,8 +228,10 @@ export interface AIProviderSettingsResponse extends ActionResult {
 
 export interface AboutInfo {
   application_name: string
+  application_subtitle: string
   version: string
   author: string
+  author_twitch: string
   repository_url: string
   discord_contact: string
   license_name: string
@@ -304,7 +306,7 @@ interface PythonApi {
   test_credential(name: CredentialName): Promise<ActionResult>
   start_bot(): Promise<ActionResult>
   stop_bot(): Promise<ActionResult>
-  open_external_link(destination: 'repository' | 'license' | 'third_party_notices' | 'twitch_developer_console' | 'twitch_authorization'): Promise<ActionResult>
+  open_external_link(destination: 'repository' | 'license' | 'third_party_notices' | 'author_twitch' | 'twitch_developer_console' | 'twitch_authorization'): Promise<ActionResult>
 }
 
 export interface ActionResult {

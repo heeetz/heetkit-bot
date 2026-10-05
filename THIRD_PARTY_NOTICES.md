@@ -1,6 +1,6 @@
 # Third-party notices
 
-Twitch Bot is licensed under Apache-2.0; dependencies retain their own licenses.
+HeetKit is licensed under Apache-2.0; dependencies retain their own licenses.
 This audit snapshot is dated **2026-10-04**, for application version **0.1.0**.
 It inventories the 54-package Windows runtime dependency closure in the existing
 Python 3.14 environment and all 119 packages in `frontend/package-lock.json`.

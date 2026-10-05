@@ -224,7 +224,7 @@ async def test_fun_commands_report_usage_when_arguments_are_missing(
 
 @pytest.mark.asyncio
 async def test_forecast_replies_with_a_known_prediction(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("TWITCH_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("HEETKIT_DATA_DIR", str(tmp_path))
     registry = CommandRegistry()
     register_fun_commands(registry)
     transport = FakeChatTransport("!forecast")

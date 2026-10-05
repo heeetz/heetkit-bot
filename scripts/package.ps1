@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string] $OutputPath = "twitch-bot-source.zip"
+    [string] $OutputPath = "heetkit-source.zip"
 )
 
 Set-StrictMode -Version Latest
@@ -48,7 +48,7 @@ function Test-DistributionExcluded {
 
 $projectRootText = & git rev-parse --show-toplevel 2>$null
 if ($LASTEXITCODE -ne 0 -or -not $projectRootText) {
-    throw "Run this script from inside the Twitch Bot Git repository."
+    throw "Run this script from inside the HeetKit Git repository."
 }
 
 $projectRoot = [IO.Path]::GetFullPath($projectRootText.Trim())
@@ -74,7 +74,7 @@ if ($LASTEXITCODE -ne 0) {
 
 $temporaryRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
 $stagingDirectory = [IO.Path]::GetFullPath(
-    (Join-Path $temporaryRoot ("twitch-bot-package-" + [guid]::NewGuid().ToString("N")))
+    (Join-Path $temporaryRoot ("heetkit-package-" + [guid]::NewGuid().ToString("N")))
 )
 if (-not $stagingDirectory.StartsWith($temporaryRoot, [StringComparison]::OrdinalIgnoreCase)) {
     throw "Refusing to create a staging directory outside the system temporary directory."

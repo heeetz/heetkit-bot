@@ -27,7 +27,8 @@ class MemoryKeyring:
 def clear_environment(monkeypatch):
     for name in Settings.model_fields:
         monkeypatch.delenv(name.upper(), raising=False)
-    monkeypatch.delenv("TWITCH_BOT_DATA_DIR", raising=False)
+    monkeypatch.delenv("HEETKIT_DATA_DIR", raising=False)
+    monkeypatch.delenv("TWITCH_BOT_DATA_DIR", raising=False)  # Legacy compatibility alias.
 
 
 def test_normal_profile_ignores_all_legacy_dotenv_locations(tmp_path, monkeypatch):
@@ -54,7 +55,7 @@ def test_normal_profile_ignores_all_legacy_dotenv_locations(tmp_path, monkeypatc
 def test_clean_profile_setup_restart_and_start_without_checkout_data(tmp_path, monkeypatch):
     clear_environment(monkeypatch)
     paths = RuntimePaths(tmp_path / "profile")
-    monkeypatch.setenv("TWITCH_BOT_DATA_DIR", str(paths.root))
+    monkeypatch.setenv("HEETKIT_DATA_DIR", str(paths.root))
     monkeypatch.chdir(tmp_path)
     credential_store = CredentialStore(MemoryKeyring())
     settings, manager = load_settings_with_credentials(credential_store)
@@ -176,6 +177,7 @@ def test_existing_owner_profile_and_keyring_survive_without_legacy_files(tmp_pat
     monkeypatch.setenv("GEMINI_MODEL", "gemini-process")
     monkeypatch.setenv("AI_COOLDOWN_BYPASS_USER_ID", "999")
     keyring = MemoryKeyring()
+    # Legacy compatibility fixture: former unscoped keyring service.
     keyring.values = {("twitch-bot", "twitch_client_secret"): "synthetic-owner-secret",
                       ("twitch-bot", "gemini_api_key"): "synthetic-owner-key"}
     settings, manager = load_settings_with_credentials(CredentialStore(keyring))

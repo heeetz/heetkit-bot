@@ -35,9 +35,9 @@ class SystemTray:
                 image = source.copy()
 
             icon = pystray.Icon(
-                "twitch-bot",
+                "heetkit",
                 image,
-                "Twitch Bot",
+                "HeetKit",
                 menu=pystray.Menu(
                     pystray.MenuItem("Open", self._handle_open, default=True),
                     pystray.MenuItem(self._toggle_label, self._handle_toggle),

@@ -1,4 +1,6 @@
-# Twitch Bot
+# HeetKit
+
+Desktop control center for Twitch chat
 
 Created and maintained by **heeetz**. Official repository:
 [github.com/heeetz/twitch-bot](https://github.com/heeetz/twitch-bot).
@@ -9,7 +11,7 @@ Dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NO
 
 ## Overview
 
-This is a single-channel Twitch chatbot with a desktop interface. Windows is the first release target; the source application is designed to use supported macOS/Linux pywebview backends. It receives chat through TwitchIO EventSub, records when users were last seen, applies global and AI-specific filters, and dispatches commands with permission and cooldown checks.
+HeetKit controls a single-channel Twitch chatbot through a desktop interface. Windows is the first release target; the source application is designed to use supported macOS/Linux pywebview backends. It receives chat through TwitchIO EventSub, records when users were last seen, applies global and AI-specific filters, and dispatches commands with permission and cooldown checks.
 
 Major features include:
 
@@ -38,7 +40,7 @@ Python remains the application core. The web-style desktop shell uses React, Typ
 From Windows PowerShell:
 
 ```powershell
-cd "C:\path\to\Twitch Bot"
+cd "C:\path\to\HeetKit"
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
@@ -80,7 +82,7 @@ python -m app.main
 The installed console entry point is equivalent:
 
 ```powershell
-twitch-bot
+heetkit
 ```
 
 On macOS/Linux, create a virtual environment, install this project, build the frontend with
@@ -135,11 +137,22 @@ Settings and store Twitch/Gemini secrets through the OS keyring. The application
 or load dotenv files; advanced overrides belong in the process environment or the existing profile
 stores.
 
-The app-data root is `%LOCALAPPDATA%\TwitchBot` on Windows, `~/Library/Application Support/TwitchBot` on macOS, and `${XDG_DATA_HOME:-~/.local/share}/TwitchBot` on Linux. It contains `config/`, `data/`, `auth/`, and `cache/`.
+The app-data root is `%LOCALAPPDATA%\HeetKit` on Windows, `~/Library/Application Support/HeetKit` on macOS, and `${XDG_DATA_HOME:-~/.local/share}/HeetKit` on Linux. It contains `config/`, `data/`, `auth/`, and `cache/`.
+
+Legacy brand compatibility: on the first normal default-profile launch, the former
+`TwitchBot` root is copied in full into HeetKit, including settings, personalities,
+instructions, commands, filters, OAuth state and cache. SQLite is backed up to `data/heetkit.db`,
+including any committed WAL data. The old root is retained as rollback data and is never deleted.
+Existing HeetKit files take precedence; only missing files are recovered. Unsafe links or
+file/directory conflicts stop startup with a migration error. Quit both versions before restoring
+or repairing a profile. A `.heetkit-migration-v1` marker prevents later deleted state from being
+reimported. Existing profiles also migrate their own legacy `data/twitch_bot.db` once; an arbitrary
+`--data-dir` never imports the former default profile. A copied default profile skips older
+checkout migration so the two imports cannot compete. Keep the markers when resetting settings.
 
 In **Settings → Data & diagnostics**, view the resolved current profile location, choose
 **Open profile folder** to open it in the system file manager, or **Copy path** to copy its
-location. This uses the selected profile, including `--data-dir` and `TWITCH_BOT_DATA_DIR`
+location. This uses the selected profile, including `--data-dir` and `HEETKIT_DATA_DIR`
 overrides. The folder may contain private authentication and application data; do not share it.
 
 Personality and built-in response settings belong in `config/personality_settings.json` and
@@ -180,7 +193,7 @@ automatic startup leaves the desktop open with Twitch stopped.
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `TWITCH_BOT_DATA_DIR` | No | Independent profile root; `--data-dir` takes priority. |
+| `HEETKIT_DATA_DIR` | No | Independent profile root; `--data-dir` takes priority. |
 | `TWITCH_CLIENT_ID` | Yes | Twitch Developer application client ID. |
 | `TWITCH_CLIENT_SECRET` | Yes* | Process environment fallback for the Twitch client secret; an OS keyring value may supply it instead. |
 | `TWITCH_BOT_USER_ID` | Yes | Numeric user ID of the bot account. |
@@ -192,7 +205,7 @@ automatic startup leaves the desktop open with Twitch stopped.
 | `GEMINI_MODEL` | No | Gemini model; defaults to `gemini-3.5-flash-lite`. |
 | `GEMINI_FALLBACK_MODEL` | No | Model used when the selected model returns 404; defaults to `gemini-3.1-flash-lite`. |
 | `AI_COOLDOWN_BYPASS_USER_ID` | No | One Twitch user ID allowed to bypass only the `!ask` cooldown. |
-| `DATABASE_URL` | No | Legacy SQLite URL to import on the first normal launch, or an explicit non-SQLite database URL. Local SQLite uses app-data `data/twitch_bot.db`. |
+| `DATABASE_URL` | No | Legacy SQLite URL to import on the first normal launch, or an explicit non-SQLite database URL. Local SQLite uses app-data `data/heetkit.db`. |
 | `LOG_LEVEL` | No | `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
 | `COMMAND_PREFIX` | No | Command prefix; defaults to `!`. |
 | `COMMAND_MAX_ARGUMENTS_LENGTH` | No | Maximum command-argument length, from 1 to 450. |
@@ -225,7 +238,9 @@ Use the same application with independent profiles:
 python -m app.main --data-dir C:\BotProfiles\Clean --stopped
 ```
 
-`TWITCH_BOT_DATA_DIR` is the equivalent environment override; `--data-dir` takes priority.
+`HEETKIT_DATA_DIR` is the equivalent environment override; `--data-dir` takes priority.
+Legacy compatibility only: `TWITCH_BOT_DATA_DIR` is accepted when `HEETKIT_DATA_DIR` is
+not set. The HeetKit variable wins when both are set.
 Alternate profiles can launch before setup. Configure Twitch in Settings; each profile uses its own
 config, database, OAuth cache and keyring namespace. Explicit process environment variables remain
 available as advanced defaults, while `--data-dir` forces the selected profile's own paths.
@@ -234,9 +249,12 @@ Point the override at your normal app-data root to use the existing owner profil
 
 Deleting only a profile's `config/` restores neutral defaults on the next normal launch;
 its SQLite database, OAuth cache, migration marker and OS credentials remain intact.
-Alternate-profile keyring services use `twitch-bot:<hash of resolved profile path>`;
-relocating that profile requires storing its credentials again. The normal profile retains
-service `twitch-bot`. The OAuth callback port remains 4343, so avoid simultaneous authorization
+Alternate-profile keyring services use `heetkit:<hash of resolved profile path>`;
+relocating that profile requires storing its credentials again. The normal profile uses
+service `heetkit`. Legacy credential compatibility copies missing Gemini/Twitch entries from
+`twitch-bot` (or its matching profile hash) into `heetkit`, retaining the originals. Per-entry
+keyring migration markers prevent Remove from restoring old credentials on restart.
+The OAuth callback port remains 4343, so avoid simultaneous authorization
 flows in multiple profiles.
 
 For built-in `!tg` and `!forecast` responses, optionally create `config/fun_settings.json`:
@@ -347,8 +365,10 @@ when present. Twitch client-secret changes take effect after restart. The pystra
 Open, dynamic Start Bot / Stop Bot, and Exit.
 Tray Exit and normal application shutdown reuse the same orderly backend lifecycle.
 
-The **About** page shows the app version, creator, Discord contact with Copy, project
-license and third-party notices. Project/license/notice links open in your external browser.
+The **About** page shows HeetKit, its subtitle and version, creator **heeetz**, Twitch
+**@heet_ok**, Discord **de.tected** with Copy, and **Apache-2.0**. The Twitch profile,
+repository, license and third-party notice links open in your external browser.
+HeetKit is not affiliated with or endorsed by Twitch.
 
 ## Runtime data and privacy
 
@@ -357,9 +377,9 @@ Generated local files include:
 | Path | Classification | Share? |
 | --- | --- | --- |
 | Process environment | Advanced deployment defaults and optional credential fallbacks | Never record or share |
-| System keyring entries for service `twitch-bot` | Gemini API key and Twitch client secret | Not repository files |
+| System keyring entries for service `heetkit` | Gemini API key and Twitch client secret | Not repository files |
 | App-data `auth/twitchio_tokens.json` | Twitch access/refresh credentials | Never |
-| App-data `data/twitch_bot.db` | Local user activity and AI memory | Never |
+| App-data `data/heetkit.db` | Local user activity and AI memory | Never |
 | App-data `config/command_settings.json` | Local command overrides | Never |
 | App-data `config/custom_commands.json` | Local custom commands | Never |
 | App-data `config/fun_settings.json` | Local built-in command responses | Never |
@@ -396,7 +416,7 @@ license texts and development scripts. Private development context stays local.
 Create a developer archive from PowerShell:
 
 ```powershell
-.\scripts\package.ps1 -OutputPath .\twitch-bot-source.zip
+.\scripts\package.ps1 -OutputPath .\heetkit-source.zip
 ```
 
 The script packages tracked files from the current working tree, including edits to those files.

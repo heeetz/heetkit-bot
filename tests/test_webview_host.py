@@ -93,13 +93,13 @@ def test_duplicate_desktop_launch_fails_before_loading_local_state(
 ) -> None:
     settings_path = tmp_path / "config" / "app_settings.json"
     notices: list[str] = []
-    monkeypatch.setenv("TWITCH_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("HEETKIT_DATA_DIR", str(tmp_path))
     monkeypatch.setattr("app.webview_host.notify_existing_desktop", notices.append)
     monkeypatch.setattr(
         "app.webview_host.load_settings_with_credentials",
         lambda: pytest.fail("duplicate launch loaded local settings"),
     )
-    monkeypatch.setattr(sys, "argv", ["twitch-bot", "--dev-url", "http://localhost:5173"])
+    monkeypatch.setattr(sys, "argv", ["heetkit", "--dev-url", "http://localhost:5173"])
 
     with desktop_instance_guard(settings_path):
         with pytest.raises(SystemExit) as exit_info:
@@ -111,15 +111,47 @@ def test_duplicate_desktop_launch_fails_before_loading_local_state(
     assert "already running" in capsys.readouterr().err
 
 
+def test_default_brand_migration_refuses_a_running_former_desktop(monkeypatch, tmp_path):
+    from app import runtime_paths
+
+    monkeypatch.delenv(runtime_paths.DATA_DIR_ENV, raising=False)
+    monkeypatch.delenv(runtime_paths.LEGACY_DATA_DIR_ENV, raising=False)
+    monkeypatch.setattr(runtime_paths, "user_data_path", lambda name, **kwargs: tmp_path / name)
+    former = tmp_path / runtime_paths.LEGACY_APP_NAME
+    former.mkdir()
+    monkeypatch.setattr("app.webview_host.notify_existing_desktop", lambda message: None)
+    monkeypatch.setattr("app.webview_host.load_settings_with_credentials", lambda: pytest.fail("loaded state while former desktop was running"))
+    monkeypatch.setattr(sys, "argv", ["heetkit", "--stopped"])
+    with desktop_instance_guard(former / "config" / "app_settings.json", legacy_identity=True):
+        with pytest.raises(SystemExit) as error:
+            main()
+        assert error.value.code == 1
+    assert not (tmp_path / "HeetKit" / ".heetkit-migration-v1").exists()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="POSIX reuses the same advisory profile lock")
+def test_explicit_profile_migration_refuses_former_windows_mutex(monkeypatch, tmp_path):
+    root = tmp_path / "explicit"
+    monkeypatch.setenv(DATA_DIR_ENV, str(root))
+    monkeypatch.setattr("app.webview_host.notify_existing_desktop", lambda message: None)
+    monkeypatch.setattr("app.webview_host.load_settings_with_credentials", lambda: pytest.fail("loaded an in-use explicit profile"))
+    monkeypatch.setattr(sys, "argv", ["heetkit", "--data-dir", str(root)])
+    with desktop_instance_guard(root / "config" / "app_settings.json", legacy_identity=True):
+        with pytest.raises(SystemExit) as error:
+            main()
+        assert error.value.code == 1
+    assert not (root / ".heetkit-migration-v1").exists()
+
+
 def test_configuration_check_does_not_acquire_desktop_instance_guard(monkeypatch) -> None:
-    monkeypatch.setattr(sys, "argv", ["twitch-bot", "--check", "--dev-url", "http://localhost:5173"])
+    monkeypatch.setattr(sys, "argv", ["heetkit", "--check", "--dev-url", "http://localhost:5173"])
     monkeypatch.setattr(
         "app.webview_host.desktop_instance_guard",
         lambda path: pytest.fail("--check acquired the desktop instance guard"),
     )
     monkeypatch.setattr(
         "app.webview_host.load_settings_with_credentials",
-        lambda: (SimpleNamespace(log_level="INFO"), None),
+        lambda *args: (SimpleNamespace(log_level="INFO"), None),
     )
     monkeypatch.setattr(
         "app.webview_host.prepare_runtime_data",
@@ -266,18 +298,21 @@ def test_bridge_exposes_about_metadata_and_fixed_external_destinations(monkeypat
 
     about = bridge.get_about_info()
 
-    assert about["application_name"] == "Twitch Bot"
+    assert about["application_name"] == "HeetKit"
+    assert about["application_subtitle"] == "Desktop control center for Twitch chat"
+    assert about["author_twitch"] == "@heet_ok"
     assert about["version"] == "9.8.7"
     assert about["author"] == "heeetz"
     assert about["discord_contact"] == "de.tected"
     assert about["license_name"] == "Apache-2.0"
-    for destination in ("repository", "license", "third_party_notices", "twitch_developer_console"):
+    for destination in ("repository", "license", "third_party_notices", "twitch_developer_console", "author_twitch"):
         assert bridge.open_external_link(destination) == {"ok": True}
     assert opened == [
         ("https://github.com/heeetz/twitch-bot", 2),
         ("https://github.com/heeetz/twitch-bot/blob/main/LICENSE", 2),
         ("https://github.com/heeetz/twitch-bot/blob/main/THIRD_PARTY_NOTICES.md", 2),
         ("https://dev.twitch.tv/console/apps", 2),
+        ("https://www.twitch.tv/heet_ok", 2),
     ]
     assert bridge.open_external_link("https://example.com") == {
         "ok": False,
@@ -301,7 +336,7 @@ def test_desktop_cli_profile_location_uses_data_dir_over_environment(tmp_path, m
     root = tmp_path / "CLI profile"
     settings = Settings()
     monkeypatch.setattr(sys, "argv", [
-        "twitch-bot", "--data-dir", root.name, "--stopped", "--dev-url", "http://localhost:5173",
+        "heetkit", "--data-dir", root.name, "--stopped", "--dev-url", "http://localhost:5173",
     ])
     monkeypatch.setattr("app.webview_host.load_settings_with_credentials", lambda: (settings, None))
     monkeypatch.setattr("app.webview_host.configure_logging", lambda level: None)

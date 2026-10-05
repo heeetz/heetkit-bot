@@ -93,12 +93,13 @@ td { color: #c6cfdf; }
 .about-card, .about-links-card { min-height: 0; }
 .about-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .about-heading h2 { margin-bottom: 0; }
-.about-details { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 26px 0 0; }
+.about-details { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 26px 0 0; }
 .about-details > div { padding: 13px 14px; border: 1px solid #2a354a; border-radius: 10px; background: #111722; }
 .about-details dt { color: #7f8ba3; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .about-details dd { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin: 7px 0 0; color: #e2e8f3; }
 .about-details code { color: #c6b8ff; font: inherit; }
 .about-details .ghost { margin: -6px 0 -6px auto; padding: 6px 8px; }
+.about-disclaimer { margin: 18px 0 0; color: #71809a; font-size: 12px; }
 .about-link-list { display: flex; flex-wrap: wrap; gap: 9px; }
 .command-editor-card { min-height: 0; }
 .commands-layout { display: grid; gap: 18px; }
@@ -344,6 +345,7 @@ td { color: #c6cfdf; }
   .ai-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-ai-card { grid-column: 1 / -1; }
+  .about-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (min-width: 761px) and (max-width: 900px) {

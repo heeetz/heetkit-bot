@@ -56,7 +56,7 @@ class BotRuntime:
         self.application.services.runtime_state.set_bot_running(True)
         self._bot_task = asyncio.create_task(
             self._run_bot_session(self._stop_event),
-            name="twitch-bot-session",
+            name="heetkit-twitch-session",
         )
         return True
 

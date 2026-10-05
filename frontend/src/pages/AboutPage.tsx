@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { type AboutInfo, waitForBridge } from '../bridge'
 
-type ExternalDestination = 'repository' | 'license' | 'third_party_notices'
+type ExternalDestination = 'repository' | 'license' | 'third_party_notices' | 'author_twitch'
 
 function AboutPage() {
   const [about, setAbout] = useState<AboutInfo | null>(null)
@@ -81,16 +81,18 @@ function AboutPage() {
         <div className="about-heading">
           <div>
             <p className="label">ABOUT</p>
-            <h2>{about?.application_name ?? 'Twitch Bot'}</h2>
-            <p className="section-copy">A desktop control center for your Twitch bot.</p>
+            <h2>{about?.application_name ?? 'HeetKit'}</h2>
+            <p className="section-copy">{about?.application_subtitle ?? 'Desktop control center for Twitch chat'}</p>
           </div>
           <span className="mini-badge">Version {about?.version ?? '…'}</span>
         </div>
         <dl className="about-details">
           <div><dt>Created by</dt><dd>{about?.author ?? 'heeetz'}</dd></div>
-          <div><dt>License</dt><dd>{about?.license_name ?? 'Apache-2.0'}</dd></div>
+          <div><dt>Twitch</dt><dd><button className="ghost" onClick={() => void openExternal('author_twitch')} disabled={Boolean(opening)} aria-label={`Open Twitch profile ${about?.author_twitch ?? '@heet_ok'}`}>{about?.author_twitch ?? '@heet_ok'} {opening === 'author_twitch' ? '…' : '↗'}</button></dd></div>
           <div className="about-contact"><dt>Discord</dt><dd><code>{about?.discord_contact ?? 'de.tected'}</code><button className="ghost" onClick={() => void copyDiscord}>{copyLabel}</button></dd></div>
+          <div><dt>License</dt><dd>{about?.license_name ?? 'Apache-2.0'}</dd></div>
         </dl>
+        <p className="about-disclaimer">Not affiliated with or endorsed by Twitch.</p>
       </article>
 
       <article className="card about-links-card">

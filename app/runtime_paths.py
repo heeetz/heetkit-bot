@@ -26,7 +26,11 @@ LEGACY_DATA: Path | None = SOURCE_ROOT / "data" if SOURCE_ROOT is not None else 
 DEFAULT_TRIGGERS = _PACKAGE_ROOT / "resources" / "default_triggers.json"
 DEFAULT_FILTERS = _PACKAGE_ROOT / "resources" / "filters"
 PACKAGED_FRONTEND = _PACKAGE_ROOT / "resources" / "frontend" / "index.html"
-DATA_DIR_ENV = "TWITCH_BOT_DATA_DIR"
+DATA_DIR_ENV = "HEETKIT_DATA_DIR"
+# Legacy compatibility only: former canonical profile, override and database name.
+LEGACY_DATA_DIR_ENV = "TWITCH_BOT_DATA_DIR"
+LEGACY_APP_NAME = "TwitchBot"
+LEGACY_DATABASE_NAME = "twitch_bot.db"
 FILTER_NAMES = ("blocked_words.txt", "blocked_phrases.txt", "blocked_patterns.txt")
 
 
@@ -36,13 +40,17 @@ class RuntimePaths:
 
     @classmethod
     def default(cls) -> RuntimePaths:
-        if override := os.environ.get(DATA_DIR_ENV):
+        if override := os.environ.get(DATA_DIR_ENV, os.environ.get(LEGACY_DATA_DIR_ENV)):
             return cls(Path(override).expanduser().resolve())
-        return cls(user_data_path("TwitchBot", appauthor=False))
+        return cls(user_data_path("HeetKit", appauthor=False))
 
     @property
     def is_default_profile(self) -> bool:
-        return self.root.resolve() == user_data_path("TwitchBot", appauthor=False).resolve()
+        return self.root.resolve() == user_data_path("HeetKit", appauthor=False).resolve()
+
+    @property
+    def former_default_root(self) -> Path:
+        return user_data_path(LEGACY_APP_NAME, appauthor=False)
 
     @property
     def config(self) -> Path:
@@ -86,7 +94,7 @@ class RuntimePaths:
 
     @property
     def database(self) -> Path:
-        return self.data / "twitch_bot.db"
+        return self.data / "heetkit.db"
 
     @property
     def tokens(self) -> Path:
@@ -95,6 +103,10 @@ class RuntimePaths:
     @property
     def migration_marker(self) -> Path:
         return self.root / ".legacy-migration-v1"
+
+    @property
+    def brand_migration_marker(self) -> Path:
+        return self.root / ".heetkit-migration-v1"
 
 
 class RuntimeDataError(RuntimeError):
@@ -141,6 +153,66 @@ def _backup_sqlite_if_missing(source: Path, destination: Path) -> None:
             temporary.unlink(missing_ok=True)
 
 
+def _is_link(path: Path) -> bool:
+    return path.is_symlink() or path.is_junction()
+
+
+def _copy_profile_tree(source: Path, destination: Path, paths: RuntimePaths) -> None:
+    """Recover missing profile files, preserving authoritative destination bytes.
+
+    Refuse links and file/directory conflicts rather than importing outside state.
+    SQLite backup incorporates WAL; its old sidecars must not accompany the backup.
+    """
+    if _is_link(source) or _is_link(destination):
+        raise RuntimeDataError("Profile migration cannot safely copy symbolic links or junctions.")
+    if source.is_dir():
+        if destination.exists() and not destination.is_dir():
+            raise RuntimeDataError("Profile migration found a file/directory conflict. Restore from backup with HeetKit stopped.")
+        destination.mkdir(parents=True, exist_ok=True)
+        # Copy a canonical database first if both database names are present.
+        for entry in sorted(source.iterdir(), key=lambda entry: (entry.name == LEGACY_DATABASE_NAME, entry.name)):
+            target = destination / entry.name
+            # Completion belongs to this destination and is published last.
+            if target == paths.brand_migration_marker:
+                continue
+            if destination == paths.data:
+                if entry.name in {LEGACY_DATABASE_NAME + "-wal", LEGACY_DATABASE_NAME + "-shm", "heetkit.db-wal", "heetkit.db-shm"}:
+                    continue
+                if entry.name in {LEGACY_DATABASE_NAME, "heetkit.db"}:
+                    if not entry.is_file() or _is_link(entry) or _is_link(paths.database) or paths.database.is_dir():
+                        raise RuntimeDataError("Profile database migration encountered an unsafe path.")
+                    _backup_sqlite_if_missing(entry, paths.database)
+                    continue
+            _copy_profile_tree(entry, target, paths)
+    elif source.is_file():
+        if destination.is_dir():
+            raise RuntimeDataError("Profile migration found a file/directory conflict. Restore from backup with HeetKit stopped.")
+        _copy_if_missing(source, destination, secret=True)
+    else:
+        raise RuntimeDataError("Profile migration encountered an unsupported file.")
+
+
+def _migrate_product_identity(paths: RuntimePaths) -> None:
+    """One-shot brand migration; arbitrary profiles only migrate their own DB."""
+    if paths.brand_migration_marker.exists():
+        return
+    former = paths.former_default_root
+    if paths.is_default_profile and former.resolve() != paths.root.resolve() and former.exists():
+        _copy_profile_tree(former, paths.root, paths)
+        # An existing canonical profile must never be reconstructed from checkout
+        # defaults, even if its earlier migration marker is missing.
+        if not paths.migration_marker.exists():
+            paths.migration_marker.touch()
+    if _is_link(paths.root) or _is_link(paths.data) or _is_link(paths.database):
+        raise RuntimeDataError("Profile database migration encountered an unsafe path.")
+    old_database = paths.data / LEGACY_DATABASE_NAME
+    if _is_link(old_database) or old_database.is_dir() or paths.database.is_dir():
+        raise RuntimeDataError("Profile database migration encountered an unsafe path.")
+    _backup_sqlite_if_missing(old_database, paths.database)
+    paths.root.mkdir(parents=True, exist_ok=True)
+    paths.brand_migration_marker.touch()
+
+
 def _profile_relative_path(value: str | Path, paths: RuntimePaths) -> Path:
     path = Path(value)
     if path.is_absolute():
@@ -178,6 +250,7 @@ def prepare_runtime_data(
         migrate_legacy = paths.is_default_profile
     legacy_source = Path(legacy_data) if legacy_data is not None else None
     try:
+        _migrate_product_identity(paths)
         for directory in (paths.config, paths.data, paths.auth, paths.cache, paths.filters):
             directory.mkdir(parents=True, exist_ok=True)
         configured_database = _sqlite_file(
@@ -211,7 +284,7 @@ def prepare_runtime_data(
                 database_source = (
                     configured_database
                     if configured_database.is_file()
-                    else legacy_source / "twitch_bot.db"
+                    else legacy_source / LEGACY_DATABASE_NAME
                 )
                 _backup_sqlite_if_missing(database_source, paths.database)
             paths.migration_marker.touch()

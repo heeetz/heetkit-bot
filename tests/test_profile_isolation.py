@@ -22,7 +22,7 @@ def clear_deployment_environment(monkeypatch):
 
 def test_entirely_clean_settings_load_without_credentials(tmp_path, monkeypatch):
     clear_deployment_environment(monkeypatch)
-    monkeypatch.setenv('TWITCH_BOT_DATA_DIR', str(tmp_path / 'clean'))
+    monkeypatch.setenv('HEETKIT_DATA_DIR', str(tmp_path / 'clean'))
     monkeypatch.chdir(tmp_path)
     settings, manager = load_settings_with_credentials(SimpleNamespace(get=lambda name: None))
     assert settings.twitch_client_secret is None
@@ -35,14 +35,14 @@ def test_entirely_clean_settings_load_without_credentials(tmp_path, monkeypatch)
 @pytest.mark.parametrize('auto_start', [False, True])
 def test_clean_cli_launch_reaches_desktop_with_disconnected_backend(tmp_path, monkeypatch, auto_start):
     clear_deployment_environment(monkeypatch)
-    monkeypatch.setenv('TWITCH_BOT_DATA_DIR', str(tmp_path / 'unused'))
+    monkeypatch.setenv('HEETKIT_DATA_DIR', str(tmp_path / 'unused'))
     root = tmp_path / 'clean'
     monkeypatch.chdir(tmp_path)
-    # Neither the checkout deployment nor normal-profile keyring may leak into this profile.
+    # Neither checkout deployment nor legacy default keyring may leak into this profile.
     (tmp_path / '.env').write_text('TWITCH_BOT_USERNAME=owner\nTWITCH_CLIENT_SECRET=owner-secret\n')
     monkeypatch.setattr('app.credentials.keyring.get_password',
                         lambda service, name: 'owner-secret' if service == 'twitch-bot' else None)
-    monkeypatch.setattr(sys, 'argv', ['twitch-bot', '--data-dir', str(root)])
+    monkeypatch.setattr(sys, 'argv', ['heetkit', '--data-dir', str(root)])
     monkeypatch.setattr(webview_host, 'resolve_frontend_url', lambda dev_url: 'frontend/index.html')
     monkeypatch.setattr(webview_host, 'configure_logging', lambda level: None)
     desktop_calls = []
@@ -75,7 +75,7 @@ def test_clean_cli_launch_reaches_desktop_with_disconnected_backend(tmp_path, mo
     monkeypatch.setattr(webview_host, 'run_desktop_host', desktop)
     webview_host.main()
     assert desktop_calls == ['frontend/index.html']
-    assert (root / 'data' / 'twitch_bot.db').exists()
+    assert (root / 'data' / 'heetkit.db').exists()
     assert not (root / 'auth' / 'twitchio_tokens.json').exists()
 
 
@@ -113,7 +113,7 @@ def test_clean_profile_never_imports_checkout_state_and_config_reset_preserves_a
 
 def test_profile_upgrade_preserves_all_local_files_and_custom_personalities(tmp_path, monkeypatch):
     paths = RuntimePaths(tmp_path / 'profile')
-    monkeypatch.setenv('TWITCH_BOT_DATA_DIR', str(paths.root))
+    monkeypatch.setenv('HEETKIT_DATA_DIR', str(paths.root))
     prepare(paths, tmp_path)
     state = RuntimeState(personality_settings_path=paths.personality_settings)
     state.create_ai_personality('my-style', 'User style with {literal braces}')
@@ -139,10 +139,10 @@ def test_keyring_namespaces_are_independent_and_config_reset_leaves_credentials(
         get_password=lambda service, name: values.get((service, name)),
         set_password=lambda service, name, value: values.__setitem__((service, name), value),
     )
-    monkeypatch.setenv('TWITCH_BOT_DATA_DIR', str(tmp_path / 'one'))
+    monkeypatch.setenv('HEETKIT_DATA_DIR', str(tmp_path / 'one'))
     one = CredentialStore(backend)
     one.replace(CredentialName.GEMINI_API_KEY, 'one-key')
-    monkeypatch.setenv('TWITCH_BOT_DATA_DIR', str(tmp_path / 'two'))
+    monkeypatch.setenv('HEETKIT_DATA_DIR', str(tmp_path / 'two'))
     two = CredentialStore(backend)
     assert two.get(CredentialName.GEMINI_API_KEY) is None
     two.replace(CredentialName.GEMINI_API_KEY, 'two-key')
@@ -153,7 +153,7 @@ def test_keyring_namespaces_are_independent_and_config_reset_leaves_credentials(
 def test_data_dir_profiles_do_not_share_instructions_or_personalities(tmp_path, monkeypatch):
     states = []
     for name in ('one', 'two'):
-        monkeypatch.setenv('TWITCH_BOT_DATA_DIR', str(tmp_path / name))
+        monkeypatch.setenv('HEETKIT_DATA_DIR', str(tmp_path / name))
         paths = RuntimePaths.default()
         states.append(RuntimeState(personality_settings_path=paths.personality_settings))
     one, two = states
@@ -169,16 +169,16 @@ def test_data_dir_profiles_do_not_share_instructions_or_personalities(tmp_path, 
     assert one.active_ai_personality == 'neutral'
     assert (tmp_path / 'two' / 'config' / 'personality_settings.json').read_bytes() == second_original
     for name, text in (('one', 'First profile instructions'), ('two', 'Second profile instructions')):
-        monkeypatch.setenv('TWITCH_BOT_DATA_DIR', str(tmp_path / name))
+        monkeypatch.setenv('HEETKIT_DATA_DIR', str(tmp_path / name))
         restored = RuntimeState(personality_settings_path=RuntimePaths.default().personality_settings)
         assert restored.profile_instructions == text
 
 
 def test_cli_profile_is_resolved_before_checks_without_creating_it(tmp_path, monkeypatch):
     root = tmp_path / 'clean'
-    monkeypatch.setenv('TWITCH_BOT_DATA_DIR', str(tmp_path / 'other'))
-    monkeypatch.setattr(sys, 'argv', ['twitch-bot', '--data-dir', str(root), '--check', '--dev-url', 'http://localhost:5173'])
-    def load():
+    monkeypatch.setenv('HEETKIT_DATA_DIR', str(tmp_path / 'other'))
+    monkeypatch.setattr(sys, 'argv', ['heetkit', '--data-dir', str(root), '--check', '--dev-url', 'http://localhost:5173'])
+    def load(*args):
         assert RuntimePaths.default().root == root
         return SimpleNamespace(log_level='INFO'), None
     monkeypatch.setattr(webview_host, 'load_settings_with_credentials', load)
@@ -190,7 +190,7 @@ def test_cli_profile_is_resolved_before_checks_without_creating_it(tmp_path, mon
 def test_alternate_profile_ignores_dotenv_and_forces_canonical_storage(tmp_path, monkeypatch):
     root = tmp_path / 'clean'
     root.mkdir()
-    monkeypatch.setenv('TWITCH_BOT_DATA_DIR', str(root))
+    monkeypatch.setenv('HEETKIT_DATA_DIR', str(root))
     monkeypatch.chdir(tmp_path)
     (tmp_path / '.env').write_text('TWITCH_BOT_USERNAME=owner\nGEMINI_API_KEY=owner-secret\n', encoding='utf-8')
     (root / '.env').write_text('\n'.join([
@@ -211,11 +211,11 @@ def test_alternate_profile_ignores_dotenv_and_forces_canonical_storage(tmp_path,
     assert settings.twitch_client_secret is None
     assert settings.gemini_api_key is None
     assert settings.twitch_token_file == str(root / 'auth' / 'twitchio_tokens.json')
-    assert settings.database_url.endswith(str(root / 'data' / 'twitch_bot.db'))
+    assert settings.database_url.endswith(str(root / 'data' / 'heetkit.db'))
 
 
 def test_fun_responses_are_local_and_neutral_when_missing_or_invalid(tmp_path, monkeypatch):
-    monkeypatch.setenv('TWITCH_BOT_DATA_DIR', str(tmp_path))
+    monkeypatch.setenv('HEETKIT_DATA_DIR', str(tmp_path))
     assert load_fun_settings()[1] == FORECASTS
     path = tmp_path / 'config' / 'fun_settings.json'
     path.parent.mkdir()

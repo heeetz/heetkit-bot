@@ -1,6 +1,6 @@
 # Contributing
 
-Twitch Bot is maintained by **heeetz** at
+HeetKit is maintained by **heeetz** at
 [heeetz/twitch-bot](https://github.com/heeetz/twitch-bot).
 Small fixes, documentation improvements, and focused feature proposals are welcome.
 

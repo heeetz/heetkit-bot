@@ -61,7 +61,7 @@ test('file manager and clipboard failures keep the displayed path and allow retr
   await expect(open).toBeEnabled()
   await section.getByRole('button', { name: 'Copy path', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('Clipboard permission denied.')
-  await expect(section.locator('code')).toHaveText('C:\\Synthetic profiles\\TwitchBot')
+  await expect(section.locator('code')).toHaveText('C:\\Synthetic profiles\\HeetKit')
 })
 
 test('an unavailable profile location disables actions while other Settings sections load', async ({ page }) => {

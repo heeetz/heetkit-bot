@@ -16,15 +16,15 @@ class DesktopAlreadyRunningError(RuntimeError):
 
 
 ALREADY_RUNNING_MESSAGE = (
-    "Twitch Bot is already running for this user. Open its existing window."
+    "HeetKit is already running for this user. Open its existing window."
 )
 
 
 @contextmanager
-def desktop_instance_guard(settings_path: Path) -> Iterator[None]:
+def desktop_instance_guard(settings_path: Path, *, legacy_identity: bool = False) -> Iterator[None]:
     """Keep one normal desktop process per resolved local settings path."""
     if sys.platform == "win32":
-        with _windows_mutex(settings_path):
+        with _windows_mutex(settings_path, legacy_identity=legacy_identity):
             yield
     else:
         with _posix_file_lock(settings_path):
@@ -32,9 +32,11 @@ def desktop_instance_guard(settings_path: Path) -> Iterator[None]:
 
 
 @contextmanager
-def _windows_mutex(settings_path: Path) -> Iterator[None]:
+def _windows_mutex(settings_path: Path, *, legacy_identity: bool = False) -> Iterator[None]:
     identity = str(settings_path.resolve()).casefold().encode("utf-8")
-    name = f"Global\\TwitchBotDesktop-{hashlib.sha256(identity).hexdigest()[:32]}"
+    # Legacy compatibility: block a still-running former desktop during copying.
+    prefix = "TwitchBotDesktop" if legacy_identity else "HeetKitDesktop"
+    name = f"Global\\{prefix}-{hashlib.sha256(identity).hexdigest()[:32]}"
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     create_mutex = kernel32.CreateMutexW
     create_mutex.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p)
@@ -83,4 +85,4 @@ def notify_existing_desktop(message: str) -> None:
     message_box = user32.MessageBoxW
     message_box.argtypes = (ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint)
     message_box.restype = ctypes.c_int
-    message_box(None, message, "Twitch Bot", 0x30)  # MB_ICONWARNING
+    message_box(None, message, "HeetKit", 0x30)  # MB_ICONWARNING

@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest an improvement to Twitch Bot.
+description: Suggest an improvement to HeetKit.
 title: "[Feature]: "
 body:
   - type: textarea

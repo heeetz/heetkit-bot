@@ -3,9 +3,9 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "twitch-bot-foundation"
+name = "heetkit"
 version = "0.1.0"
-description = "Scalable foundation for a Twitch chatbot."
+description = "HeetKit — Desktop control center for Twitch chat"
 authors = [{name = "heeetz"}]
 license = {text = "Apache-2.0"}
 readme = "README.md"
@@ -31,7 +31,7 @@ dev = [
 ]
 
 [project.scripts]
-twitch-bot = "app.main:main"
+heetkit = "app.main:main"
 
 [project.urls]
 Repository = "https://github.com/heeetz/twitch-bot"

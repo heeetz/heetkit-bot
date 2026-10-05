@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from '../src/App'
+import AboutPage from '../src/pages/AboutPage'
 import FeedbackToast from '../src/components/FeedbackToast'
 import SettingsPage from '../src/pages/SettingsPage'
 import type { AppStatus, PersonalitiesResponse, TwitchConnectionSettings, waitForBridge } from '../src/bridge'
@@ -59,7 +60,7 @@ window.pywebview = { api: {
   } }),
   get_profile_info: async () => {
     if (query.has('profileLocationError')) throw new Error('The profile location is unavailable.')
-    return { path: query.get('profilePath') ?? 'C:\\Synthetic profiles\\TwitchBot' }
+    return { path: query.get('profilePath') ?? 'C:\\Synthetic profiles\\HeetKit' }
   },
   open_profile_folder: async () => {
     opened.push('profile_folder')
@@ -70,6 +71,12 @@ window.pywebview = { api: {
   get_ai_provider_settings: async () => ({ ok: true, settings: {
     provider: 'Gemini', selected_model: '', fallback_model: '', presets: [], credential: credentials[1],
   } }),
+  get_about_info: async () => ({
+    application_name: 'HeetKit', version: '0.1.0', author: 'heeetz', repository_url: 'https://github.com/heeetz/twitch-bot',
+    application_subtitle: 'Desktop control center for Twitch chat', author_twitch: '@heet_ok',
+    discord_contact: 'de.tected', license_name: 'Apache-2.0', license_url: 'https://www.apache.org/licenses/LICENSE-2.0',
+    third_party_notices_url: 'https://github.com/heeetz/twitch-bot/blob/main/THIRD_PARTY_NOTICES.md',
+  }),
   start_bot: async () => {
     status = { ...status, running: true, twitch_connection_state: 'auth_required' }
     return { ok: true }
@@ -197,5 +204,6 @@ function ToastFixture() {
 
 createRoot(document.getElementById('root')!).render(
   query.has('toast') ? <ToastFixture />
+    : query.has('about') ? <AboutPage />
     : query.has('settings') ? <main><SettingsPage active status={status} /></main> : <App />,
 )

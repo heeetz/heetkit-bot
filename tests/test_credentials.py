@@ -16,6 +16,7 @@ from app.credentials import (
     CredentialManager,
     CredentialName,
     CredentialStore,
+    LEGACY_CREDENTIAL_SERVICE_NAME,
 )
 from app.webview_host import AsyncioBackendHost, WebUIBridge
 
@@ -40,6 +41,97 @@ class FakeKeyring:
             del self.values[(service_name, username)]
         except KeyError as error:
             raise PasswordDeleteError("missing") from error
+
+
+@pytest.mark.parametrize("profile", ["default", "alternate", "former-default"])
+def test_known_credentials_migrate_once_with_profile_isolation(tmp_path, monkeypatch, caplog, profile):
+    from hashlib import sha256
+    import os
+    from app import runtime_paths
+
+    monkeypatch.setattr(runtime_paths, "user_data_path", lambda name, **kwargs: tmp_path / name)
+    monkeypatch.delenv(runtime_paths.DATA_DIR_ENV, raising=False)
+    monkeypatch.delenv(runtime_paths.LEGACY_DATA_DIR_ENV, raising=False)
+    suffix = ""
+    legacy_suffix = ""
+    if profile != "default":
+        root = tmp_path / (runtime_paths.LEGACY_APP_NAME if profile == "former-default" else "alternate")
+        monkeypatch.setenv(runtime_paths.DATA_DIR_ENV, str(root))
+        suffix = ":" + sha256(os.path.normcase(str(root.resolve())).encode()).hexdigest()
+        legacy_suffix = suffix if profile == "alternate" else ""
+    backend = FakeKeyring()
+    old_service = LEGACY_CREDENTIAL_SERVICE_NAME + legacy_suffix
+    new_service = CREDENTIAL_SERVICE_NAME + suffix
+    original = {}
+    for name in CredentialName:
+        original[(old_service, name.value)] = "synthetic-private-" + name.value
+    backend.values.update(original)
+    backend.values[(LEGACY_CREDENTIAL_SERVICE_NAME + ":other-profile", "gemini_api_key")] = "unrelated-private"
+    store = CredentialStore(backend)
+    for name in CredentialName:
+        assert store.get(name) == original[(old_service, name.value)]
+        assert backend.values[(new_service, name.value)] == original[(old_service, name.value)]
+    assert all(backend.values[key] == value for key, value in original.items())
+    status = CredentialManager({}, store=store).statuses()
+    assert all(item.configured and item.source == "credential_store" for item in status)
+    assert "synthetic-private" not in repr(status) + caplog.text
+    assert "unrelated-private" not in repr(status) + caplog.text
+    store.remove(CredentialName.GEMINI_API_KEY)
+    assert CredentialStore(backend).get(CredentialName.GEMINI_API_KEY) is None
+    assert backend.values[(old_service, "gemini_api_key")] == original[(old_service, "gemini_api_key")]
+    store.replace(CredentialName.TWITCH_CLIENT_SECRET, "new-secret")
+    assert CredentialStore(backend).get(CredentialName.TWITCH_CLIENT_SECRET) == "new-secret"
+
+
+def test_existing_new_credentials_win_and_removal_does_not_reimport(tmp_path, monkeypatch):
+    from app import runtime_paths
+
+    monkeypatch.setattr(runtime_paths, "user_data_path", lambda name, **kwargs: tmp_path / name)
+    monkeypatch.delenv(runtime_paths.DATA_DIR_ENV, raising=False)
+    monkeypatch.delenv(runtime_paths.LEGACY_DATA_DIR_ENV, raising=False)
+    backend = FakeKeyring()
+    name = CredentialName.GEMINI_API_KEY
+    backend.values[(LEGACY_CREDENTIAL_SERVICE_NAME, name.value)] = "old synthetic key"
+    backend.values[(CREDENTIAL_SERVICE_NAME, name.value)] = "new synthetic key"
+    store = CredentialStore(backend)
+    assert store.get(name) == "new synthetic key"
+    assert store.remove(name)
+    assert CredentialStore(backend).get(name) is None
+    assert backend.values[(LEGACY_CREDENTIAL_SERVICE_NAME, name.value)] == "old synthetic key"
+
+
+def test_migration_failure_logs_only_safe_error_type_and_keeps_original(tmp_path, monkeypatch, caplog):
+    from app import runtime_paths
+
+    monkeypatch.setattr(runtime_paths, "user_data_path", lambda name, **kwargs: tmp_path / name)
+    monkeypatch.delenv(runtime_paths.DATA_DIR_ENV, raising=False)
+    monkeypatch.delenv(runtime_paths.LEGACY_DATA_DIR_ENV, raising=False)
+    backend = FakeKeyring()
+    name = CredentialName.GEMINI_API_KEY
+    backend.values[(LEGACY_CREDENTIAL_SERVICE_NAME, name.value)] = "never-log-migrating-key"
+
+    def reject_write(service, username, password):
+        raise KeyringError("never-log-migrating-key")
+
+    backend.set_password = reject_write
+    manager = CredentialManager({}, store=CredentialStore(backend))
+    assert manager.effective_value(name) is None
+    assert not manager.statuses()[0].secure_storage_available
+    assert "never-log-migrating-key" not in caplog.text
+    assert backend.values[(LEGACY_CREDENTIAL_SERVICE_NAME, name.value)] == "never-log-migrating-key"
+
+
+def test_read_only_credential_store_does_not_migrate(tmp_path, monkeypatch):
+    from app import runtime_paths
+
+    monkeypatch.setattr(runtime_paths, "user_data_path", lambda name, **kwargs: tmp_path / name)
+    monkeypatch.delenv(runtime_paths.DATA_DIR_ENV, raising=False)
+    monkeypatch.delenv(runtime_paths.LEGACY_DATA_DIR_ENV, raising=False)
+    backend = FakeKeyring()
+    original = {(LEGACY_CREDENTIAL_SERVICE_NAME, "gemini_api_key"): "legacy synthetic key"}
+    backend.values.update(original)
+    assert CredentialStore(backend, migrate_legacy=False).get(CredentialName.GEMINI_API_KEY) is None
+    assert backend.values == original
 
 
 class FakeHTTPClient:

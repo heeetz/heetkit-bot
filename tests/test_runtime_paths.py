@@ -13,6 +13,165 @@ from app.runtime_paths import RuntimeDataError, RuntimePaths, prepare_runtime_da
 from app.runtime_state import RuntimeState
 
 
+@pytest.fixture
+def branded_roots(tmp_path, monkeypatch):
+    from app import runtime_paths
+
+    monkeypatch.delenv(runtime_paths.DATA_DIR_ENV, raising=False)
+    monkeypatch.delenv(runtime_paths.LEGACY_DATA_DIR_ENV, raising=False)
+    monkeypatch.setattr(runtime_paths, "user_data_path", lambda name, **kwargs: tmp_path / name)
+    # Former name is intentional legacy compatibility input.
+    former = tmp_path / runtime_paths.LEGACY_APP_NAME
+    return former, RuntimePaths.default()
+
+
+def test_brand_migration_copies_complete_profile_and_wal_once(branded_roots):
+    former, paths = branded_roots
+    assert paths.root.name == "HeetKit"
+    files = {
+        "config/personality_settings.json": b'{"active_personality":"custom","overrides":{"custom":"local style"},"profile_instructions":"local instructions"}',
+        "config/app_settings.json": b'{"version":1,"twitch":{"channel":"local"}}',
+        "config/fun_settings.json": b'{"version":1,"forecasts":["local forecast"]}',
+        "config/custom_commands.json": b'{"version":1,"commands":[]}',
+        "config/command_settings.json": b'{"ask":{"enabled":false}}',
+        "config/filters/blocked_patterns.txt": b"private synthetic rule",
+        "auth/twitchio_tokens.json": b"synthetic oauth state",
+        "cache/extra/nested.bin": b"arbitrary profile cache",
+        "other-profile-state.bin": b"unknown legitimate state",
+        ".legacy-migration-v1": b"previous checkout migration",
+    }
+    for relative, content in files.items():
+        target = former / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+    old_database = former / "data" / "twitch_bot.db"  # Legacy database input.
+    old_database.parent.mkdir()
+    with closing(sqlite3.connect(old_database)) as connection:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("CREATE TABLE remembered (value TEXT)")
+        connection.execute("INSERT INTO remembered VALUES ('wal row')")
+        connection.commit()
+        assert Path(str(old_database) + "-wal").exists()
+        prepare_runtime_data("tokens.json", "sqlite+aiosqlite:///missing.db", paths=paths, legacy_data=None)
+        with closing(sqlite3.connect(paths.database)) as migrated:
+            assert migrated.execute("SELECT value FROM remembered").fetchone() == ("wal row",)
+    assert paths.database.name == "heetkit.db"
+    assert not (paths.data / "twitch_bot.db").exists()  # No newly created old-brand file.
+    assert not Path(str(paths.database) + "-wal").exists()
+    assert all((paths.root / relative).read_bytes() == content for relative, content in files.items())
+    assert all((former / relative).read_bytes() == content for relative, content in files.items())
+    assert paths.brand_migration_marker.exists()
+    state = RuntimeState(personality_settings_path=paths.personality_settings)
+    assert state.active_ai_personality == "custom"
+    assert state.profile_instructions == "local instructions"
+    paths.personality_settings.unlink()
+    paths.database.unlink()
+    prepare_runtime_data("tokens.json", "sqlite+aiosqlite:///missing.db", paths=paths, legacy_data=former)
+    assert not paths.personality_settings.exists()
+    assert not paths.database.exists()
+    assert former.is_dir() and old_database.exists()
+
+
+def test_brand_migration_preserves_authoritative_new_profile_and_recovers_missing_files(branded_roots):
+    former, paths = branded_roots
+    (former / "config").mkdir(parents=True)
+    (former / "config" / "app_settings.json").write_bytes(b"old settings")
+    (former / "extra.bin").write_bytes(b"missing state")
+    paths.config.mkdir(parents=True)
+    paths.app_settings.write_bytes(b"authoritative HeetKit settings")
+    paths.data.mkdir()
+    paths.database.write_bytes(b"authoritative database: never open for migration")
+    prepare_runtime_data("tokens.json", "sqlite+aiosqlite:///missing.db", paths=paths, legacy_data=None)
+    assert paths.app_settings.read_bytes() == b"authoritative HeetKit settings"
+    assert paths.database.read_bytes() == b"authoritative database: never open for migration"
+    assert (paths.root / "extra.bin").read_bytes() == b"missing state"
+    (paths.root / "extra.bin").unlink()
+    prepare_runtime_data("tokens.json", "sqlite+aiosqlite:///missing.db", paths=paths, legacy_data=None)
+    assert not (paths.root / "extra.bin").exists()
+
+
+def test_brand_migration_reports_conflict_without_completing_marker(branded_roots):
+    former, paths = branded_roots
+    (former / "config").mkdir(parents=True)
+    paths.root.mkdir()
+    paths.config.write_bytes(b"existing file")
+    with pytest.raises(RuntimeDataError, match="file/directory conflict"):
+        prepare_runtime_data("tokens.json", "sqlite+aiosqlite:///missing.db", paths=paths, legacy_data=None)
+    assert paths.config.read_bytes() == b"existing file"
+    assert not paths.brand_migration_marker.exists()
+
+
+def test_brand_migration_rejects_links_without_following_them(branded_roots, monkeypatch):
+    from app import runtime_paths
+
+    former, paths = branded_roots
+    former.mkdir()
+    (former / "linked").mkdir()
+    (former / "linked" / "private.bin").write_bytes(b"outside state")
+    monkeypatch.setattr(runtime_paths, "_is_link", lambda path: path.name == "linked")
+    with pytest.raises(RuntimeDataError, match="symbolic links or junctions"):
+        prepare_runtime_data("tokens.json", "sqlite+aiosqlite:///missing.db", paths=paths, legacy_data=None)
+    assert not (paths.root / "linked").exists()
+    assert not paths.brand_migration_marker.exists()
+
+
+def test_brand_migration_retries_failed_copy_without_overwriting(branded_roots, monkeypatch):
+    from app import runtime_paths
+
+    former, paths = branded_roots
+    former.mkdir()
+    (former / paths.brand_migration_marker.name).touch()
+    (former / "a.bin").write_bytes(b"first copy")
+    (former / "b.bin").write_bytes(b"second copy")
+    original = runtime_paths._copy_if_missing
+
+    def fail_second(source, destination, **kwargs):
+        if source.name == "b.bin":
+            raise OSError("synthetic copy failure")
+        return original(source, destination, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(runtime_paths, "_copy_if_missing", fail_second)
+        with pytest.raises(RuntimeDataError):
+            prepare_runtime_data("tokens.json", "sqlite+aiosqlite:///missing.db", paths=paths, legacy_data=None)
+    assert not paths.brand_migration_marker.exists()
+    (paths.root / "a.bin").write_bytes(b"newer current data")
+    prepare_runtime_data("tokens.json", "sqlite+aiosqlite:///missing.db", paths=paths, legacy_data=None)
+    assert (paths.root / "a.bin").read_bytes() == b"newer current data"
+    assert (paths.root / "b.bin").read_bytes() == b"second copy"
+
+
+def test_explicit_old_named_profile_is_isolated_and_migrates_only_its_database(branded_roots, tmp_path):
+    former, _ = branded_roots
+    former.mkdir()
+    (former / "owner.bin").write_bytes(b"must not import")
+    paths = RuntimePaths(tmp_path / "explicit" / "TwitchBot")  # Arbitrary legacy-looking name.
+    paths.data.mkdir(parents=True)
+    old_database = paths.data / "twitch_bot.db"  # This profile's legacy database only.
+    with closing(sqlite3.connect(old_database)) as connection:
+        connection.execute("CREATE TABLE own (value TEXT)")
+        connection.execute("INSERT INTO own VALUES ('explicit profile')")
+        connection.commit()
+    prepare_runtime_data("tokens.json", "sqlite+aiosqlite:///missing.db", paths=paths, legacy_data=former)
+    assert not (paths.root / "owner.bin").exists()
+    with closing(sqlite3.connect(paths.database)) as connection:
+        assert connection.execute("SELECT value FROM own").fetchone() == ("explicit profile",)
+    assert old_database.exists()
+    paths.database.unlink()
+    prepare_runtime_data("tokens.json", "sqlite+aiosqlite:///missing.db", paths=paths, legacy_data=former)
+    assert not paths.database.exists()
+
+
+def test_data_directory_environment_legacy_fallback_and_new_precedence(tmp_path, monkeypatch):
+    from app.runtime_paths import DATA_DIR_ENV, LEGACY_DATA_DIR_ENV
+
+    monkeypatch.delenv(DATA_DIR_ENV, raising=False)
+    monkeypatch.setenv(LEGACY_DATA_DIR_ENV, str(tmp_path / "legacy-override"))
+    assert RuntimePaths.default().root == (tmp_path / "legacy-override").resolve()
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path / "canonical-override"))
+    assert RuntimePaths.default().root == (tmp_path / "canonical-override").resolve()
+
+
 def test_migrates_existing_state_once_and_preserves_sqlite_rows(tmp_path: Path) -> None:
     legacy = tmp_path / "checkout" / "data"
     legacy.mkdir(parents=True)

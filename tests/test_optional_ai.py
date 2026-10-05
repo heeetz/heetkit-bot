@@ -38,7 +38,7 @@ def test_gemini_availability_handles_absent_blank_and_missing_provider(monkeypat
 
 @pytest.mark.parametrize("enabled", [True, False])
 def test_clean_backend_provider_changes_restore_availability_and_preserve_saved_state(tmp_path, monkeypatch, enabled):
-    monkeypatch.setenv("TWITCH_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("HEETKIT_DATA_DIR", str(tmp_path))
     settings = Settings(_env_file=None, gemini_api_key=None, twitch_client_secret=None)
     values = {}
     def remove(service, name):
@@ -81,7 +81,7 @@ def test_clean_backend_provider_changes_restore_availability_and_preserve_saved_
 
 @pytest.mark.asyncio
 async def test_unavailable_ai_does_not_consume_cooldown_or_block_normal_commands(tmp_path, monkeypatch):
-    monkeypatch.setenv("TWITCH_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("HEETKIT_DATA_DIR", str(tmp_path))
     registry = CommandRegistry()
     register_ai_commands(registry)
     register_fun_commands(registry, FunSettingsStore(tmp_path / "fun_settings.json"))
