@@ -1,6 +1,6 @@
 # HeetKit
 
-Desktop control center for Twitch chat
+AI personalities and interactive Twitch chat from your desktop
 
 Created and maintained by **heeetz**. Official repository:
 [github.com/heeetz/twitch-bot](https://github.com/heeetz/twitch-bot).
@@ -11,19 +11,40 @@ Dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NO
 
 ## Overview
 
-HeetKit controls a single-channel Twitch chatbot through a desktop interface. Windows is the first release target; the source application is designed to use supported macOS/Linux pywebview backends. It receives chat through TwitchIO EventSub, records when users were last seen, applies global and AI-specific filters, and dispatches commands with permission and cooldown checks.
+HeetKit is a compact, configurable desktop Twitch bot focused on entertainment and interactive
+chat. Shape Gemini-powered replies with custom AI personalities and profile-wide instructions,
+create chat commands, and manage useful chat features from one local desktop interface.
+
+Each running bot connects to one channel. Windows is the first release target; the source
+application is designed to use compatible macOS/Linux pywebview backends.
 
 Major features include:
 
-- Twitch chat commands, role-based permissions, cooldowns, and output limiting;
-- current weather through Open-Meteo;
-- followage lookups through the Twitch API;
-- optional Gemini responses with conditional Google Search grounding;
-- per-user Gemini conversation memory in SQLite;
-- configurable blocked words, phrases, and regular expressions;
-- a React/TypeScript desktop control panel hosted by pywebview, with dashboard, command, AI, live-log, settings, and tray controls.
+- **Configurable Gemini AI chat responder** — optional `!ask` replies with model selection,
+  conversation memory and conditional Google Search grounding.
+- **Custom AI personalities and profile instructions** — write personality prompts and shared
+  instructions for every personality in a profile.
+- **Built-in and custom Twitch commands** — create commands with aliases and response templates.
+- **Useful chat utilities** — followage, weather, last-seen lookups, bot uptime and configurable
+  forecast responses and community messages.
+- **Per-command permissions and cooldowns** — control who can use a command and how often.
+- **Configurable filters** — word, phrase and pattern rules for incoming chat and AI replies.
+- **Local desktop control panel** — configuration, live logs and Windows tray controls.
+- **Independent local profiles** — keep separate settings, personalities, commands and chat data.
 
-Python remains the application core. The web-style desktop shell uses React, TypeScript, Vite, pywebview, and pystray; TwitchIO, asyncio, SQLAlchemy 2 with SQLite, HTTPX, Pydantic Settings, Google Gen AI, and Open-Meteo remain behind the Python UI bridge.
+Permissions, cooldowns and filters support the chat experience; HeetKit's focus is a configurable
+entertainment bot with local desktop management.
+
+## Quick start
+
+1. Download and install a Windows test candidate from [Windows CI artifacts](#windows-ci-artifacts), or extract the portable ZIP.
+2. Configure a Twitch Developer application, bot account and target channel in Settings.
+3. Give the bot access to your target channel using the [Twitch setup guide](docs/twitch-setup.md).
+4. Optional: add a Gemini API key for AI replies using the [AI setup guide](docs/ai-setup.md).
+5. Restart if prompted, select **Start Bot**, then **Authorize Twitch** as the configured bot account when requested.
+
+Follow the short [Twitch setup](docs/twitch-setup.md) and [AI / Gemini setup](docs/ai-setup.md)
+guides for the full steps. Normal Twitch commands work without Gemini.
 
 ## Requirements
 
@@ -306,39 +327,13 @@ preserve the other command and unrelated fields. Direct file edits require resta
 files use neutral starters; unreadable/unsupported files must be repaired before saving from the UI.
 Existing profiles are never overwritten during seeding.
 
-## Twitch setup
-
-1. Launch the desktop and open **Settings → Twitch connection**. Select **Open Twitch Developer Console** in the **Twitch application** section to create a Twitch Developer Application in your external browser. Its Client ID and Client Secret identify the application.
-2. Use **Copy** beside the callback URL in Settings and register this exact URL in your Twitch Developer Application:
-
-   ```text
-   http://localhost:4343/oauth/callback
-   ```
-
-3. Enter the application client ID, bot account login and numeric user ID, and destination channel login and numeric user ID. Save the setup. These non-secret values belong to this profile. Named presets contain target-channel metadata only.
-4. Under **Secure credentials**, replace the Twitch client secret. Restart the application to apply the saved client ID, bot identity and secret, then use **Start Bot**.
-5. When the connection shows **Authorization required**, select **Authorize Twitch** on Dashboard or in Settings. This opens the existing local TwitchIO authorization page in your external browser; sign in as the configured bot account. Authorization opens only when you choose the action, including after automatic bot startup. The application requests chat read/write, bot, and follower-read scopes used by the current implementation.
-
-TwitchIO stores generated access and refresh tokens in app-data `auth/twitchio_tokens.json`. Token files contain credentials: never commit, publish, email, or include them in a manually created ZIP. Configure the client secret through Settings; advanced process environment overrides are available for development and deployment workflows. The app never writes setup into its installation directory.
-
-## AI setup
-
-Store the Gemini API key from the Settings page. Advanced deployments can set `GEMINI_API_KEY`
-in the process environment as a fallback to enable AI replies. `GEMINI_MODEL` supplies the deployment default. The AI page can
-save validated selected and fallback model IDs locally for subsequent requests, using shipped
-presets, optional provider discovery, or an explicit custom model ID.
-
-`!ask` applies the local AI request policy before contacting Gemini. Requests involving current, changing, comparison, event, or named-opinion information can enable Google Search grounding. Provider responses then pass through the local response policy and configured response-length limit before delivery.
-
-When AI memory is enabled, up to `AI_MEMORY_MAX_ENTRIES` successful exchanges per Twitch user are stored in SQLite and supplied as untrusted conversation context. The AI page can disable memory without disabling Gemini, and that preference is saved in app-data `config/app_settings.json`. Built-in personality prompts are loaded from `app/resources/personalities.json`. Python composes each request's instructions in this order: protected shared instructions, non-empty profile instructions, then the selected personality prompt. User-authored instructions cannot override protected system and safety rules.
-
 ## Commands
 
 All commands are configurable from the Commands page. Hidden commands are omitted from public `!help` output but remain available to authorized users when enabled.
 
 | Command | Purpose | Permission | Hidden | Runtime toggle |
 | --- | --- | --- | --- | --- |
-| `!ask <question>` | Generate a filtered Gemini response and optionally use/save memory. | User | No | Yes |
+| `!ask <question>` | Get a Gemini reply using your AI personality and optional conversation memory. | User | No | Yes |
 | `!commands` | List public command help entries. | Moderator | No | Yes |
 | `!erase <username>` | Delete stored AI memory for a known Twitch user. | Broadcaster | Yes | Yes |
 | `!followage` | Show how long the invoking user has followed the channel. | User | No | Yes |
@@ -347,7 +342,7 @@ All commands are configurable from the Commands page. Hidden commands are omitte
 | `!ping` | Reply with `pong`. | Moderator | No | Yes |
 | `!seen <username>` | Show when a known chat user was last seen. | User | No | Yes |
 | `!tg <1-10>` | Send the configured Telegram message from one to ten times. | Moderator | No | Yes |
-| `!uptime` | Show elapsed time since application composition. | Moderator | No | Yes |
+| `!uptime` | Show how long the current HeetKit session has been running. | Moderator | No | Yes |
 | `!weather <city>` | Show current weather with English, Russian, or Ukrainian localization. | User | No | Yes |
 
 Built-in cooldowns come from `app/config/commands.py`; saved local overrides take precedence at runtime. `!tg` and hidden `!erase` currently have no built-in command cooldown; all other default cooldown values are explicitly configured there. The moderator-only `!tg` burst also bypasses the global output limiter; other outgoing commands and message reactions use it.
@@ -630,10 +625,9 @@ browser first with `npx playwright install chromium`.
 
 ## Troubleshooting
 
-- Missing Twitch setup: the desktop opens disconnected. Enter the client ID, bot login/user ID and target login/user ID in Settings, save the Twitch client secret under Secure credentials, then restart before Start Bot. Advanced deployments can provide process environment defaults; ordinary desktop setup belongs in Settings. `--check` checks desktop configuration and frontend availability; Twitch-required values are checked when connecting.
-- Twitch authentication failure: verify the client credentials, numeric account IDs, callback URL, and that the intended bot account completed OAuth. Remove a stale local token file only when you intentionally want to authorize again.
+- Missing Twitch setup or authentication failure: follow the [Twitch setup guide](docs/twitch-setup.md), including channel access, the restart and authorization as the configured bot account. The desktop opens disconnected until setup is complete. `--check` checks desktop configuration and frontend availability; Twitch-required values are checked when connecting.
 - Import or command not found: activate `.venv` and rerun `python -m pip install -e ".[dev]"`.
 - No control panel: verify that the process has access to a graphical desktop and that the Microsoft Edge WebView2 runtime is installed. `python -m app.main --check` intentionally does not open the GUI.
 - Web UI build missing: for source launches, run `npm install` and `npm run build` in `frontend/`. Installed distributions must supply the declared prebuilt files under `app/resources/frontend/`.
 - Web UI development server unavailable: start `npm run dev` in `frontend/` before using `--dev-url http://localhost:5173`.
-- Gemini unavailable: verify `GEMINI_API_KEY`, the selected model, network access, and package installation. Other non-AI commands continue to work without Gemini.
+- Gemini unavailable: follow the [AI setup guide](docs/ai-setup.md), test the key under Secure credentials, and check the selected model and Google's usage limits. Normal Twitch commands continue to work without Gemini.
