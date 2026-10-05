@@ -293,7 +293,7 @@ def test_bridge_exposes_about_metadata_and_fixed_external_destinations(monkeypat
         return True
 
     monkeypatch.setattr("app.webview_host.webbrowser.open", fake_open)
-    monkeypatch.setattr("app.webview_host.importlib.metadata.version", lambda name: "9.8.7")
+    monkeypatch.setattr("app.webview_host.VERSION", "9.8.7")
     bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace()))
 
     about = bridge.get_about_info()

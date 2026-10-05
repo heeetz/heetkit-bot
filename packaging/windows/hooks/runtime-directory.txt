@@ -1,0 +1,2 @@
+Directory retained because pywebview 6.2.1 resolves every architecture path.
+This x64 bundle intentionally supplies no native library in this directory.

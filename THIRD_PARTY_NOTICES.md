@@ -16,8 +16,21 @@ These notices do not relicense any dependency under the project's Apache license
 
 ## Redistribution requirements and manual review
 
-No standalone application has been built. **Recheck this notice set against the actual
-TODO-014 packaged artifact**, including frozen imports, native DLLs/extensions, Python's
+An initial **local Windows x64 0.1.0 portable candidate** is now built with CPython 3.14.7,
+PyInstaller 6.22.3 and hooks-contrib 2026.8. It is not cleared for public binary distribution.
+Exact build/runtime pins are in `packaging/windows/requirements.txt`. The bundle includes
+the Python license collection, these preserved texts and installed distribution license files
+under `_internal/licenses/`. `BUILD-MANIFEST.json` records its file hashes.
+
+The candidate keeps pystray's redistributed modules as exact, replaceable `.py` files outside
+the frozen PYZ, alongside GPL/LGPL texts; no pystray modifications are made. certifi's Python
+source and exact CA bundle are also supplied outside PYZ. WebView2 ships only its Core/WinForms
+SDK DLLs and x64 loader; the other architecture directories contain placeholders required
+by pywebview path discovery. CLR loading uses only the amd64 loader. The collected Python.NET
+payload still includes the Microsoft/System/netstandard assemblies described below.
+
+**Recheck this notice set against each actual packaged artifact**, including frozen imports,
+native DLLs/extensions, Python's
 standard library, generated JS, data files, and any bundled OS prerequisites. Resolve
 the following items before distributing binaries; this source audit is not binary clearance.
 

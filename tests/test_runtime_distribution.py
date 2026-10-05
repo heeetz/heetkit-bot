@@ -13,6 +13,7 @@ import tomllib
 
 from sqlalchemy.engine import make_url
 from app.config.settings import Settings
+from app.version import VERSION
 
 from app.runtime_paths import (
     DEFAULT_FILTERS,
@@ -89,6 +90,9 @@ def _materialize_declared_install(install_root: Path) -> None:
 def test_runtime_resources_are_declared_and_source_defaults_are_package_local() -> None:
     project = _project_configuration()
     assert project["project"]["name"] == "heetkit"
+    assert project["project"]["dynamic"] == ["version"]
+    assert project["tool"]["setuptools"]["dynamic"]["version"] == {"attr": "app.version.VERSION"}
+    assert VERSION
     assert project["project"]["description"] == "HeetKit — Desktop control center for Twitch chat"
     assert project["project"]["scripts"] == {"heetkit": "app.main:main"}
     setuptools = project["tool"]["setuptools"]

@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import ctypes
-import importlib.metadata
 import logging
 import math
 import os
@@ -47,6 +46,7 @@ from app.runtime_paths import (
     RuntimePaths, RuntimeDataError, prepare_runtime_data,
 )
 from app.system_tray import SystemTray
+from app.windows_runtime import DesktopPrerequisiteError, ensure_windows_runtime
 from app.twitch.client import OAUTH_AUTHORIZATION_URL, OAUTH_REDIRECT_URI
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
@@ -56,6 +56,7 @@ from app.utils.logging import (
     get_logger,
     get_recent_log_buffer,
 )
+from app.version import VERSION
 
 
 FRONTEND_ENTRYPOINT = SOURCE_ROOT / "frontend" / "dist" / "index.html" if SOURCE_ROOT is not None else PACKAGED_FRONTEND
@@ -71,8 +72,6 @@ BRIDGE_BOT_STOP_TIMEOUT_SECONDS = 20.0
 BRIDGE_TWITCH_RECONNECT_TIMEOUT_SECONDS = 30.0
 APPLICATION_NAME = "HeetKit"
 APPLICATION_SUBTITLE = "Desktop control center for Twitch chat"
-APPLICATION_PACKAGE_NAME = "heetkit"
-APPLICATION_VERSION_FALLBACK = "0.1.0"
 EXTERNAL_LINKS = {
     # Repository address remains unchanged until a separately requested remote rename.
     "repository": "https://github.com/heeetz/twitch-bot",
@@ -85,10 +84,7 @@ EXTERNAL_LINKS = {
 
 
 def application_version() -> str:
-    try:
-        return importlib.metadata.version(APPLICATION_PACKAGE_NAME)
-    except importlib.metadata.PackageNotFoundError:
-        return APPLICATION_VERSION_FALLBACK
+    return VERSION
 
 
 class BridgeOperationTimedOut(RuntimeError):
@@ -1786,6 +1782,7 @@ def run_desktop_host(
             "icon.png"
         )
         webview.start(
+            gui="edgechromium" if sys.platform == "win32" else None,
             debug=development_mode,
             http_server=not development_mode,
             icon=str(ICON_ROOT / icon_name),
@@ -1818,6 +1815,7 @@ def main() -> None:
     if arguments.data_dir is not None:
         os.environ[DATA_DIR_ENV] = str(arguments.data_dir.expanduser().resolve())
     try:
+        ensure_windows_runtime()
         with ExitStack() as guards:
             paths = RuntimePaths.default()
             if not arguments.check:
@@ -1853,6 +1851,10 @@ def main() -> None:
                 auto_start=False if arguments.stopped else None,
                 credential_manager=credential_manager,
             )
+    except DesktopPrerequisiteError as error:
+        if not arguments.check:
+            notify_existing_desktop(str(error))
+        parser.exit(1, f"ERROR: {error}\n")
     except DesktopAlreadyRunningError as error:
         notify_existing_desktop(str(error))
         parser.exit(1, f"ERROR: {error}\n")

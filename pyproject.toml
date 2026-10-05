@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "heetkit"
-version = "0.1.0"
+dynamic = ["version"]
 description = "HeetKit — Desktop control center for Twitch chat"
 authors = [{name = "heeetz"}]
 license = {text = "Apache-2.0"}
@@ -43,6 +43,9 @@ asyncio_mode = "auto"
 
 [tool.setuptools.packages.find]
 include = ["app*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "app.version.VERSION"}
 
 [tool.setuptools]
 py-modules = []

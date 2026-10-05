@@ -1,0 +1,23 @@
+HeetKit portable Windows x64 candidate
+
+Extract the entire HeetKit folder and launch HeetKit.exe. Keep _internal beside it.
+No Python, Node.js, virtual environment or source checkout is needed to run it.
+Requires Windows 10/11 x64, Microsoft .NET Framework 4.6.2 or newer, and the
+Microsoft Edge WebView2 Evergreen Runtime:
+https://developer.microsoft.com/microsoft-edge/webview2/
+
+Settings and private state live under %LOCALAPPDATA%\HeetKit, outside this folder.
+Legacy %LOCALAPPDATA%\TwitchBot state imports once; the old folder remains as rollback.
+Use HeetKit.exe --stopped for a disconnected launch, or
+HeetKit.exe --data-dir C:\path\to\new-profile --stopped for an isolated profile.
+Configure Twitch identity, client secret and optional Gemini key in Settings.
+
+This is a local test candidate. Clean-machine manual validation and the concrete
+redistribution reviews in THIRD_PARTY_NOTICES.md remain required before publication.
+There is no installer, upgrade automation or update checker in this phase.
+
+HeetKit is created by heeetz and licensed under Apache-2.0. It is not affiliated
+with or endorsed by Twitch. License, NOTICE, third-party notices and exact installed
+license texts are in _internal. LGPL pystray is supplied there as replaceable Python
+source; replace its files while HeetKit is stopped. certifi's MPL source and CA bundle
+are also supplied as files in _internal/certifi.

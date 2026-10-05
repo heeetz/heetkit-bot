@@ -27,6 +27,10 @@ Python remains the application core. The web-style desktop shell uses React, Typ
 
 ## Requirements
 
+The requirements below apply to source development. A portable Windows candidate bundles
+Python and the frontend; it needs Windows 10/11 x64, .NET Framework 4.6.2 or newer and
+[Microsoft Edge WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+
 - Python 3.12 or newer. Python 3.12 is the recommended baseline.
 - Node.js 20.19 or newer for installing and building the frontend.
 - A Twitch account for the bot and a Twitch Developer application.
@@ -427,11 +431,45 @@ It preserves public source, tests, shipped filter defaults and required notices.
 
 The command refuses to overwrite an existing ZIP. Delete or rename an old archive before rerunning it.
 
-There is no standalone application download yet. A future end-user bundle must explicitly include
-only executable/runtime assets, required notices, and intended user documentation; its packaging
-spec must exclude private development context, tests, development scripts, and local
-state. Before publishing any public source release, review both the current files **and Git
+There is no public standalone application download yet. Local portable candidates use an
+explicit Windows runtime/resource list and exclude private development context, tests,
+development scripts and local state. Before publishing any public source release, review
+both the current files **and Git
 history** for secrets and private data. Archive filtering does not perform that history check.
+
+## Building a Windows portable candidate
+
+Use Windows x64 CPython **3.14.7** and Node.js **20.19+** (or a supported newer Node release):
+
+```powershell
+.\scripts\build_windows.ps1
+```
+
+The default bootstrap interpreter is `.venv\Scripts\python.exe`; pass `-PythonPath` to
+select another matching interpreter. The command creates an isolated environment under
+`build/windows/`, installs the exact Python/build pins in `packaging/windows/requirements.txt`,
+rebuilds the frontend with `npm ci` and `npm run build`, then creates a PyInstaller onedir
+bundle and `dist/HeetKit-<version>-windows-x64.zip` plus a SHA-256 checksum. Internet access
+is needed to acquire build dependencies. `app/version.py` owns the application version;
+About, Python metadata and executable metadata consume it. Existing ZIPs are never overwritten.
+
+Extract the entire `HeetKit` folder outside the checkout and keep `_internal` beside
+`HeetKit.exe`. Python and Node are not needed on the target machine. License texts and
+portable instructions are under `_internal`. User state remains in `%LOCALAPPDATA%\HeetKit`;
+portable describes the application files, not moving the user's credentials/profile with them.
+
+For a disconnected, isolated smoke test, launch:
+
+```powershell
+.\HeetKit.exe --data-dir C:\Temp\HeetKitSmokeProfile --stopped
+```
+
+Confirm a neutral first launch, About version/icon, settings persistence after restart,
+close/minimize-to-tray, tray Open and tray Exit. Then test the default existing profile and
+representative legacy migration with private backups, and test a clean Windows user/VM
+without development tooling. `--check` is read-only and does not open the desktop.
+These local candidates require manual validation and the artifact-specific redistribution
+review in `THIRD_PARTY_NOTICES.md` before publication. Installer/release/update work is separate.
 
 ## Contributing and reporting
 
