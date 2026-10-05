@@ -80,6 +80,5 @@ Desktop.ini
 *.bak
 *.swp
 *~
-*.png
 !/app/resources/*.png
 !/frontend/public/*.png
