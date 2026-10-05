@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-from pathlib import Path
 import sys
 
 
@@ -25,21 +24,8 @@ _UNBLOCK_GUIDANCE = (
 
 
 def _ensure_renderer_loads() -> None:
-    # Downloaded ZIPs can propagate Mark of the Web to managed DLLs. Report this
-    # before CLR's native loader hides the FileLoadException behind a NULL result.
-    if getattr(sys, "frozen", False):
-        internal = Path(sys._MEIPASS)
-        for directory in (internal / "pythonnet/runtime", internal / "webview/lib"):
-            for dll in directory.rglob("*.dll"):
-                try:
-                    zone = Path(f"{dll}:Zone.Identifier").read_text(encoding="utf-8", errors="replace")
-                except OSError:
-                    continue
-                if any(line.strip() in ("ZoneId=3", "ZoneId=4") for line in zone.splitlines()):
-                    raise DesktopPrerequisiteError(
-                        f"Windows has marked a HeetKit DLL as downloaded: {dll.name}. "
-                        + _UNBLOCK_GUIDANCE
-                    )
+    # The packaged process config permits CLR loading of shipped assemblies that
+    # retain Mark of the Web. Probe actual loading rather than reject the marker.
     try:
         importlib.import_module("clr")
         importlib.import_module("webview.platforms.edgechromium")

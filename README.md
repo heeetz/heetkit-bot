@@ -453,13 +453,20 @@ bundle and `dist/HeetKit-<version>-windows-x64.zip` plus a SHA-256 checksum. Int
 is needed to acquire build dependencies. `app/version.py` owns the application version;
 About, Python metadata and executable metadata consume it. Existing ZIPs are never overwritten.
 
-Extract the entire `HeetKit` folder outside the checkout and keep `_internal` beside
-`HeetKit.exe`. Python and Node are not needed on the target machine. License texts and
+Extract the entire `HeetKit` folder outside the checkout and keep `_internal` and
+`HeetKit.exe.config` beside `HeetKit.exe`. Python and Node are not needed on the target machine. License texts and
 portable instructions are under `_internal`. User state remains in `%LOCALAPPDATA%\HeetKit`;
 portable describes the application files, not moving the user's credentials/profile with them.
 
-Windows may mark transferred/downloaded ZIP contents as coming from the internet,
-which can prevent .NET from loading `Python.Runtime.dll`. If you trust the archive,
+Use Explorer **Extract All** for the portable ZIP. `HeetKit.exe.config` enables .NET Framework's process-local
+[`loadFromRemoteSources`](https://learn.microsoft.com/en-us/dotnet/framework/configure-apps/file-schema/runtime/loadfromremotesources-element)
+setting so the shipped managed assemblies can load while retaining Windows' download
+markers. Keep this file beside the executable. HeetKit does not remove those markers
+or change global Windows security policy. `--check` tests actual .NET/WebView2 library
+loading without opening a window or changing profile files.
+
+If library loading still fails, first verify that the whole folder was extracted,
+including `HeetKit.exe.config`. As a last-resort fallback, if you trust the archive,
 right-click the ZIP → Properties → **Unblock** → Apply, then extract into a **new**
 folder. Unblocking the ZIP does not change files already extracted. For an existing
 trusted extraction, quit HeetKit and run PowerShell with the exact application path:
@@ -470,10 +477,7 @@ Get-ChildItem -LiteralPath 'C:\path\to\HeetKit' -Recurse -File | Unblock-File
 
 This removes download markers only from that folder and requires no administrator
 rights or system-wide security changes. See [Microsoft's Unblock-File documentation](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/unblock-file).
-HeetKit detects marked managed DLLs and tests .NET/WebView2 library loading before
-opening profile state. `--check` performs these same library checks without opening
-a window or changing profile files. If it still fails, include the loader detail
-from the message when reporting the issue.
+If it still fails, include the loader detail from the message when reporting the issue.
 
 For a disconnected, isolated smoke test, launch:
 
@@ -485,6 +489,10 @@ Confirm a neutral first launch, About version/icon, settings persistence after r
 close/minimize-to-tray, tray Open and tray Exit. Then test the default existing profile and
 representative legacy migration with private backups, and test a clean Windows user/VM
 without development tooling. Test a transferred/downloaded ZIP as well as a local copy.
+For download acceptance, confirm the ZIP and extracted `Python.Runtime.dll` retain
+`ZoneId=3`, then verify the native window opens without manually unblocking either.
+The frozen process config has passed a controlled outside-checkout load test; the
+browser-download/Explorer extraction acceptance test remains pending for this candidate.
 `--check` is read-only and does not open the desktop.
 These local candidates require manual validation and the artifact-specific redistribution
 review in `THIRD_PARTY_NOTICES.md` before publication. Installer/release/update work is separate.

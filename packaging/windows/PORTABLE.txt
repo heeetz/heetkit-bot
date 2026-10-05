@@ -1,13 +1,19 @@
 HeetKit portable Windows x64 candidate
 
-Extract the entire HeetKit folder and launch HeetKit.exe. Keep _internal beside it.
+Use Windows Explorer Extract All, then launch HeetKit.exe. Keep _internal and
+HeetKit.exe.config beside the executable so .NET can load downloaded managed DLLs.
 No Python, Node.js, virtual environment or source checkout is needed to run it.
 Requires Windows 10/11 x64, Microsoft .NET Framework 4.6.2 or newer, and the
 Microsoft Edge WebView2 Evergreen Runtime:
 https://developer.microsoft.com/microsoft-edge/webview2/
 
-If Windows blocks Python.Runtime.dll or another desktop library, and you trust
-this ZIP, right-click the ZIP -> Properties -> Unblock -> Apply before extracting
+HeetKit.exe.config enables .NET Framework's process-local loadFromRemoteSources
+setting so shipped managed DLLs retain their Windows download markers and still
+load. It does not change global security policy or remove Zone.Identifier streams.
+
+If desktop library loading fails, first check the entire folder was extracted,
+including HeetKit.exe.config. As a last-resort fallback, if you trust this ZIP,
+right-click the ZIP -> Properties -> Unblock -> Apply before extracting
 into a new folder. Unblocking the ZIP does not change an already extracted folder.
 For an existing trusted extraction, quit HeetKit and run this in PowerShell,
 replacing the path with the exact HeetKit application folder:

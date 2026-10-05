@@ -1,5 +1,6 @@
 # Windows x64 onedir bundle. Inputs are staged by scripts/build_windows.py.
 import os
+import shutil
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files
@@ -34,3 +35,6 @@ pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="HeetKit", console=False,
           icon=str(root / "app/resources/icon.ico"), version=metadata, upx=False)
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="HeetKit")
+# CLR reads the process config beside the executable, not in PyInstaller's
+# _internal data directory. Include it in both standalone and portable output.
+shutil.copyfile(root / "packaging/windows/HeetKit.exe.config", Path(coll.name) / "HeetKit.exe.config")

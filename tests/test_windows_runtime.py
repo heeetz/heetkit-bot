@@ -71,7 +71,7 @@ def test_preflight_loads_desktop_libraries_after_registry_checks(monkeypatch):
 
 
 @pytest.mark.parametrize("relative", ["pythonnet/runtime/Python.Runtime.dll", "webview/lib/Microsoft.Web.WebView2.Core.dll"])
-def test_blocked_managed_dll_reports_unblock_without_loading_or_modifying_it(monkeypatch, tmp_path, relative):
+def test_marked_managed_dll_is_load_probed_without_modifying_it(monkeypatch, tmp_path, relative):
     dll = tmp_path / relative
     dll.parent.mkdir(parents=True)
     dll.write_bytes(b"synthetic DLL")
@@ -79,9 +79,10 @@ def test_blocked_managed_dll_reports_unblock_without_loading_or_modifying_it(mon
     zone.write_text("[ZoneTransfer]\nZoneId=3\n", encoding="utf-8")
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
-    monkeypatch.setattr(windows_runtime.importlib, "import_module", lambda name: pytest.fail("loaded blocked DLL"))
-    with pytest.raises(windows_runtime.DesktopPrerequisiteError, match="Windows has marked.*Unblock.*new folder"):
-        windows_runtime._ensure_renderer_loads()
+    calls = []
+    monkeypatch.setattr(windows_runtime.importlib, "import_module", calls.append)
+    windows_runtime._ensure_renderer_loads()
+    assert calls == ["clr", "webview.platforms.edgechromium"]
     assert zone.read_text(encoding="utf-8") == "[ZoneTransfer]\nZoneId=3\n"
     assert dll.read_bytes() == b"synthetic DLL"
 

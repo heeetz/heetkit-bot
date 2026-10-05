@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import sys
+import xml.etree.ElementTree as ET
 
 from PyInstaller.archive.readers import CArchiveReader
 
@@ -34,10 +35,13 @@ for name in pyz.toc:
 if any(name == "pystray" or name.startswith("pystray.") for name in pyz.toc):
     raise SystemExit("pystray must remain replaceable Python source outside PYZ")
 for required in (
-    "HeetKit.exe", "_internal/app/resources/frontend/index.html", "_internal/app/resources/icon.ico",
+    "HeetKit.exe", "HeetKit.exe.config", "_internal/app/resources/frontend/index.html", "_internal/app/resources/icon.ico",
     "_internal/app/resources/tray.png", "_internal/pystray/__init__.py", "_internal/certifi/cacert.pem", "_internal/LICENSE", "_internal/PORTABLE.txt",
     "_internal/licenses/Python-LICENSE.txt",
 ):
     if not (bundle / required).is_file():
         raise SystemExit(f"Required artifact file missing: {required}")
+runtime_setting = ET.parse(bundle / "HeetKit.exe.config").find("runtime/loadFromRemoteSources")
+if runtime_setting is None or runtime_setting.get("enabled") != "true":
+    raise SystemExit("HeetKit.exe.config must enable loading the shipped Internet-zone assemblies")
 print(f"Artifact inventory passed: {sum(p.is_file() for p in bundle.rglob('*'))} files, {len(pyz.toc)} frozen modules")
