@@ -26,7 +26,7 @@ from app.command_settings import CommandSettings
 from app.commands.registry import command_unavailable_reason
 from app.custom_commands import VARIABLES
 from app.config.ai_models import GEMINI_MODEL_PRESETS, GEMINI_PROVIDER_NAME
-from app.config.personalities import build_protected_shared_instructions
+from app.config.personalities import AI_PERSONALITY_PROMPTS, build_protected_shared_instructions
 from app.config.settings import Settings, TwitchConfigurationError, load_settings_with_credentials
 from app.container import Application, build_application
 from app.credentials import CredentialError, CredentialManager, CredentialName
@@ -777,23 +777,23 @@ class WebUIBridge:
 
     def get_personalities(self) -> dict[str, object]:
         runtime_state = self._backend.application.services.runtime_state
+        current, saved = runtime_state.get_personality_settings_snapshot()
         return {
-            "active_personality": runtime_state.active_ai_personality,
-            "active_personality_saved": runtime_state.active_ai_personality_is_saved,
-            "profile_instructions": runtime_state.profile_instructions,
-            "profile_instructions_saved": runtime_state.profile_instructions_are_saved,
+            "active_personality": current.active_personality,
+            "active_personality_saved": current.active_personality == saved.active_personality,
+            "profile_instructions": current.profile_instructions,
+            "profile_instructions_saved": current.profile_instructions == saved.profile_instructions,
             "protected_shared_instructions": build_protected_shared_instructions(),
             "personalities": [
                 {
                     "name": name,
-                    "prompt": runtime_state.get_ai_personality_prompt(name),
-                    "built_in_prompt": runtime_state.get_builtin_ai_personality_prompt(name),
-                    "prompt_saved": runtime_state.personality_prompt_is_saved(name),
-                    "has_saved_override": runtime_state.has_saved_personality_override(
-                        name
-                    ),
+                    "is_builtin": name in AI_PERSONALITY_PROMPTS,
+                    "prompt": prompt,
+                    "built_in_prompt": AI_PERSONALITY_PROMPTS.get(name, ""),
+                    "prompt_saved": prompt == saved.overrides.get(name, AI_PERSONALITY_PROMPTS.get(name, "")),
+                    "has_saved_override": name in saved.overrides,
                 }
-                for name in runtime_state.available_personalities
+                for name, prompt in current.overrides.items()
             ],
         }
 
@@ -913,6 +913,52 @@ class WebUIBridge:
                 "event_action": "apply",
             },
         )
+        return {"ok": True}
+
+    def create_personality(self, name: object, prompt: object) -> dict[str, object]:
+        try:
+            name = self._backend.application.services.runtime_state.create_ai_personality(name, prompt)
+        except (TypeError, ValueError) as error:
+            return {"ok": False, "error": str(error)}
+        except (OSError, RuntimeError):
+            self._logger.exception("Could not create AI personality")
+            return {"ok": False, "error": "Could not create AI personality."}
+        return {"ok": True, "name": name}
+
+    def rename_personality(self, personality: object, name: object) -> dict[str, object]:
+        try:
+            if not isinstance(personality, str):
+                raise ValueError("Unknown AI personality.")
+            name = self._backend.application.services.runtime_state.rename_ai_personality(personality, name)
+        except (TypeError, ValueError) as error:
+            return {"ok": False, "error": str(error)}
+        except (OSError, RuntimeError):
+            self._logger.exception("Could not rename AI personality")
+            return {"ok": False, "error": "Could not rename AI personality."}
+        return {"ok": True, "name": name}
+
+    def delete_personality(self, personality: object) -> dict[str, object]:
+        try:
+            if not isinstance(personality, str):
+                raise ValueError("Unknown AI personality.")
+            self._backend.application.services.runtime_state.delete_ai_personality(personality)
+        except (TypeError, ValueError) as error:
+            return {"ok": False, "error": str(error)}
+        except (OSError, RuntimeError):
+            self._logger.exception("Could not delete AI personality")
+            return {"ok": False, "error": "Could not delete AI personality."}
+        return {"ok": True}
+
+    def set_active_personality(self, personality: object) -> dict[str, object]:
+        try:
+            if not isinstance(personality, str):
+                raise ValueError("Unknown AI personality.")
+            self._backend.application.services.runtime_state.save_active_ai_personality(personality)
+        except (TypeError, ValueError) as error:
+            return {"ok": False, "error": str(error)}
+        except (OSError, RuntimeError):
+            self._logger.exception("Could not set active AI personality")
+            return {"ok": False, "error": "Could not set active AI personality."}
         return {"ok": True}
 
     def save_personality(self, personality: object, prompt: object) -> dict[str, object]:

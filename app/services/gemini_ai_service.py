@@ -250,14 +250,13 @@ class GeminiAIService:
     def _build_system_instruction(self) -> str:
         if self.runtime_state is None:
             return build_system_instruction()
-        personality = self.runtime_state.active_ai_personality
-        prompt = self.runtime_state.get_ai_personality_prompt(personality)
+        personality, prompt, profile_instructions = self.runtime_state.get_active_ai_instructions()
         if prompt == AI_PERSONALITY_PROMPTS.get(personality):
             prompt = None
         return build_system_instruction(
             personality,
             prompt,
-            self.runtime_state.profile_instructions,
+            profile_instructions,
         )
 
     @staticmethod

@@ -216,7 +216,7 @@ Blank lines and lines beginning with `#` are ignored. The tracked files are dist
 These rules filter incoming chat and Gemini response text. Configure name or topic protection
 in each profile's local filters; shared AI safeguards contain no personal name rules.
 
-Built-in cooldown values come from `app/config/commands.py`; effective command cooldowns can be applied or saved from the Commands page. Only `neutral` ships. Saved local personality IDs and prompts remain available after upgrades, including IDs removed from shipped resources. Add IDs (1–64 characters) to the local `overrides` object to create additional styles, then restart. Reset restores a built-in prompt or clears a local-only prompt while retaining its ID.
+Built-in cooldown values come from `app/config/commands.py`; effective command cooldowns can be applied or saved from the Commands page. Only `neutral` ships. Saved local personalities and prompts remain available after upgrades, including IDs removed from shipped resources. Create additional styles with **New personality** in the AI page's Personality Editor. Names are trimmed, must contain 1–64 characters, and cannot duplicate another name (including built-in IDs), regardless of letter case. Custom personalities belong only to the selected profile; clean profiles start with shipped personalities only.
 
 
 Use the same application with independent profiles:
@@ -315,10 +315,16 @@ actions in the expanded editor. Weather and uptime continue to use runtime data.
 Custom Commands section saves user-created commands immediately to app-data `config/custom_commands.json`.
 
 The AI page provides a runtime AI-command toggle, a persisted memory toggle, Gemini
-selected/fallback model configuration, and the active personality selector. Personality Apply
-changes the next AI request without restarting, Save writes the active selection and
-personality-specific override to app-data `config/personality_settings.json`, and Reset restores the
-built-in prompt (or clears a local-only style while retaining its ID).
+selected/fallback model configuration, and the Personality Editor. Choose a personality to edit
+its prompt, then **Save** to persist it without changing the active selection. **Set active**
+separately saves the selection for the next AI request and future restarts; it does not save prompt
+drafts. The active personality stays visible in the status card and editor badge.
+**New personality** creates a profile-owned name and prompt without activating it. Custom
+personalities have **Rename** and confirmed **Delete** actions. Rename retains the exact prompt
+and updates an active selection atomically; deleting the active personality selects and saves
+`neutral`. Built-ins cannot be renamed or deleted, but their prompts can be overridden; **Reset**
+restores the shipped prompt. All changes use the selected profile's
+`config/personality_settings.json` and preserve profile instructions and other settings.
 Below the Personality Editor, Profile instructions applies to every personality in the selected
 profile. Apply affects this session, Save persists the text in the same personality settings file,
 and Reset saves an empty field. These actions preserve personality overrides and selection;

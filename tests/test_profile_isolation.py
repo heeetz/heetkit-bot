@@ -116,7 +116,8 @@ def test_profile_upgrade_preserves_all_local_files_and_custom_personalities(tmp_
     monkeypatch.setenv('TWITCH_BOT_DATA_DIR', str(paths.root))
     prepare(paths, tmp_path)
     state = RuntimeState(personality_settings_path=paths.personality_settings)
-    state.save_ai_personality('my-style', 'User style with {literal braces}')
+    state.create_ai_personality('my-style', 'User style with {literal braces}')
+    state.save_active_ai_personality('my-style')
     files = [paths.app_settings, paths.command_settings, paths.custom_commands, paths.message_triggers,
              paths.config / 'fun_settings.json', *(paths.filters / name for name in FILTER_NAMES)]
     for path in files:
@@ -156,11 +157,17 @@ def test_data_dir_profiles_do_not_share_instructions_or_personalities(tmp_path, 
         paths = RuntimePaths.default()
         states.append(RuntimeState(personality_settings_path=paths.personality_settings))
     one, two = states
-    one.save_ai_personality('local', 'Local style')
+    one.create_ai_personality('local', 'Local style')
     one.save_profile_instructions('First profile instructions')
     assert two.profile_instructions == ''
     assert two.available_personalities == ('neutral',)
     two.save_profile_instructions('Second profile instructions')
+    second_original = (tmp_path / 'two' / 'config' / 'personality_settings.json').read_bytes()
+    one.save_active_ai_personality('local')
+    one.rename_ai_personality('local', 'renamed')
+    one.delete_ai_personality('renamed')
+    assert one.active_ai_personality == 'neutral'
+    assert (tmp_path / 'two' / 'config' / 'personality_settings.json').read_bytes() == second_original
     for name, text in (('one', 'First profile instructions'), ('two', 'Second profile instructions')):
         monkeypatch.setenv('TWITCH_BOT_DATA_DIR', str(tmp_path / name))
         restored = RuntimeState(personality_settings_path=RuntimePaths.default().personality_settings)

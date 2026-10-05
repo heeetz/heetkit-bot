@@ -189,6 +189,13 @@ td { color: #c6cfdf; }
 .protected-instructions-details { padding: 0 22px 22px; }
 .protected-instructions-details textarea { min-height: 220px; opacity: .9; }
 .personality-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.personality-toolbar { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap; gap: 14px; }
+.personality-management-actions { padding-bottom: 16px; }
+.personality-inline-form, .personality-rename-form { display: grid; gap: 14px; margin-bottom: 16px; padding: 16px; border: 1px solid #493d69; border-radius: 11px; background: #111722; }
+.personality-inline-form h3 { margin-bottom: 0; font-size: 17px; }
+.personality-inline-fields { display: grid; gap: 14px; }
+.personality-inline-fields textarea { min-height: 170px; }
+.personality-rename-form { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
 .form-field { display: grid; gap: 7px; color: #8290aa; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .form-field select, .form-field textarea, .form-field input { min-width: 0; width: 100%; border: 1px solid #344057; border-radius: 8px; padding: 10px 12px; color: #e9eef8; background: #0d131e; outline: none; }
 .form-field select:focus, .form-field textarea:focus, .form-field input:focus { border-color: #7052c9; }
@@ -379,6 +386,8 @@ td { color: #c6cfdf; }
   .ai-status-grid { grid-template-columns: 1fr; }
   .twitch-status-grid { grid-template-columns: 1fr; }
   .ai-provider-status, .model-fields, .twitch-field-pair { grid-template-columns: 1fr; }
+  .personality-rename-form { grid-template-columns: 1fr; }
+  .personality-management-actions { padding-bottom: 0; }
   .preset-actions { grid-column: auto; justify-content: flex-start; }
   .feedback-toast { top: 14px; right: 14px; width: calc(100vw - 28px); }
   .about-heading { align-items: flex-start; flex-direction: column; }

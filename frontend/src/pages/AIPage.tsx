@@ -82,6 +82,11 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
   const [providerSaved, setProviderSaved] = useState<AIProviderSettings | null>(null)
   const [providerDraft, setProviderDraft] = useState<AIProviderSettings | null>(null)
   const [discoveredModels, setDiscoveredModels] = useState<string[]>([])
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createName, setCreateName] = useState('')
+  const [createPrompt, setCreatePrompt] = useState('')
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [renameName, setRenameName] = useState('')
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -90,14 +95,18 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
     response: PersonalitiesResponse,
     completedPersonality = '',
     completedProfile = false,
+    draftOverrides: Record<string, string> = {},
   ) => {
     setDrafts((currentDrafts) => Object.fromEntries(response.personalities.map((personality) => {
       const previous = data?.personalities.find((item) => item.name === personality.name)
-      const currentDraft = currentDrafts[personality.name]
-      const keepDraft = personality.name !== completedPersonality
+      const hasOverride = Object.prototype.hasOwnProperty.call(draftOverrides, personality.name)
+      const currentDraft = hasOverride ? draftOverrides[personality.name] : currentDrafts[personality.name]
+      const keepDraft = hasOverride || (
+        personality.name !== completedPersonality
         && previous
         && currentDraft !== undefined
         && currentDraft !== previous.prompt
+      )
       return [personality.name, keepDraft ? currentDraft : personality.prompt]
     })))
     setProfileDraft((currentDraft) => {
@@ -108,17 +117,23 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
       return keepDraft ? currentDraft : response.profile_instructions
     })
     setData(response)
-    setSelected((current) => current || response.active_personality)
+    setSelected((current) => response.personalities.some((item) => item.name === current)
+      ? current : response.active_personality)
   }
 
-  const refresh = async (completedPersonality = '', completedProfile = false) => {
+  const refresh = async (
+    completedPersonality = '',
+    completedProfile = false,
+    draftOverrides: Record<string, string> = {},
+  ): Promise<PersonalitiesResponse> => {
     const api = await waitForBridge()
     const [nextStatus, response] = await Promise.all([
       api.get_ai_status(),
       api.get_personalities(),
     ])
     setStatus(nextStatus)
-    mergeData(response, completedPersonality, completedProfile)
+    mergeData(response, completedPersonality, completedProfile, draftOverrides)
+    return response
   }
 
   useEffect(() => {
@@ -261,13 +276,14 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
     }
   }
 
-  const runPersonalityAction = async (action: 'apply' | 'save' | 'reset') => {
+  const runPersonalityAction = async (action: 'save' | 'reset' | 'active') => {
     const personality = data?.personalities.find((item) => item.name === selected)
     const prompt = drafts[selected]
     if (!personality || prompt === undefined) {
       return
     }
-    if (action === 'reset' && !window.confirm(`Reset ${selected} to its built-in prompt?`)) {
+    if (action === 'reset' && (!personality.is_builtin
+      || !window.confirm(`Reset ${selected} to its built-in prompt?`))) {
       return
     }
     setBusy(action)
@@ -275,22 +291,123 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
     setNotice('')
     try {
       const api = await waitForBridge()
-      const result = action === 'apply'
-        ? await api.apply_personality(selected, prompt)
-        : action === 'save'
-          ? await api.save_personality(selected, prompt)
+      const result = action === 'save'
+        ? await api.save_personality(selected, prompt)
+        : action === 'active'
+          ? await api.set_active_personality(selected)
           : await api.reset_personality(selected)
       if (!result.ok) {
         throw new Error(result.error ?? 'Personality could not be updated.')
       }
-      await refresh(selected)
-      setNotice(action === 'apply'
-        ? `Applied ${selected} for this session.`
+      await refresh(action === 'reset' ? selected : '')
+      setNotice(action === 'active'
+        ? `Set ${selected} as the active personality.`
         : action === 'save'
-          ? `Saved ${selected} and made it the active personality.`
+          ? `Saved ${selected}.`
           : `Restored the built-in ${selected} prompt.`)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Personality could not be updated.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const createPersonality = async () => {
+    const normalizedName = createName.trim()
+    if (normalizedName.length < 1 || normalizedName.length > 64) {
+      setError('Personality names must be 1–64 characters after trimming.')
+      return
+    }
+    setBusy('create')
+    setError('')
+    setNotice('')
+    try {
+      const api = await waitForBridge()
+      const result = await api.create_personality(normalizedName, createPrompt)
+      if (!result.ok) {
+        throw new Error(result.error ?? 'Personality could not be created.')
+      }
+      const createdName = result.name ?? normalizedName
+      await refresh('', false)
+      setSelected(createdName)
+      setCreateName('')
+      setCreatePrompt('')
+      setCreateOpen(false)
+      setNotice(`Created ${createdName}.`)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Personality could not be created.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const renamePersonality = async () => {
+    const personality = data?.personalities.find((item) => item.name === selected)
+    const normalizedName = renameName.trim()
+    if (!personality || personality.is_builtin) {
+      return
+    }
+    if (normalizedName.length < 1 || normalizedName.length > 64) {
+      setError('Personality names must be 1–64 characters after trimming.')
+      return
+    }
+    if (normalizedName === selected) {
+      setError('Choose a different personality name.')
+      return
+    }
+    setBusy('rename')
+    setError('')
+    setNotice('')
+    try {
+      const api = await waitForBridge()
+      const result = await api.rename_personality(selected, normalizedName)
+      if (!result.ok) {
+        throw new Error(result.error ?? 'Personality could not be renamed.')
+      }
+      const renamedName = result.name ?? normalizedName
+      const draft = drafts[selected]
+      const refreshed = await refresh('', false, draft === undefined ? {} : { [renamedName]: draft })
+      setSelected(refreshed.personalities.some((item) => item.name === renamedName) ? renamedName : selected)
+      setRenameName('')
+      setRenameOpen(false)
+      setNotice(`Renamed ${selected} to ${renamedName}.`)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Personality could not be renamed.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const deletePersonality = async () => {
+    const personality = data?.personalities.find((item) => item.name === selected)
+    if (!personality || personality.is_builtin
+      || !window.confirm(`Delete the custom personality ${selected}?`)) {
+      return
+    }
+    setBusy('delete')
+    setError('')
+    setNotice('')
+    try {
+      const api = await waitForBridge()
+      const result = await api.delete_personality(selected)
+      if (!result.ok) {
+        throw new Error(result.error ?? 'Personality could not be deleted.')
+      }
+      const deletedName = selected
+      const refreshed = await refresh()
+      const nextSelected = refreshed.personalities.some((item) => item.name === deletedName)
+        ? deletedName
+        : refreshed.active_personality || refreshed.personalities[0]?.name || ''
+      setSelected(nextSelected)
+      setRenameOpen(false)
+      setDrafts((current) => {
+        const next = { ...current }
+        delete next[deletedName]
+        return next
+      })
+      setNotice(`Deleted ${deletedName}.`)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Personality could not be deleted.')
     } finally {
       setBusy('')
     }
@@ -337,6 +454,7 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
   const isActive = data?.active_personality === selected
   const canReset = Boolean(
     personality
+      && personality.is_builtin
       && (dirty || personality.has_saved_override || personality.prompt !== personality.built_in_prompt),
   )
   const profileValue = data ? profileDraft : ''
@@ -453,6 +571,7 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
             <p className="section-copy">Core shared instructions stay protected in Python.</p>
           </div>
           <div className="personality-badges">
+            {personality && <span className="mini-badge">{personality.is_builtin ? 'Built-in' : 'Custom'}</span>}
             {isActive && <span className="mini-badge saved-badge">Active</span>}
             {personality?.has_saved_override && <span className="mini-badge saved-badge">Saved override</span>}
             {data && !data.active_personality_saved && isActive && <span className="mini-badge runtime-badge">Runtime only</span>}
@@ -466,12 +585,83 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
           </div>
         ) : (
           <>
-            <label className="form-field personality-select">
-              Personality
-              <select value={selected} onChange={(event) => { setSelected(event.target.value); setError(''); setNotice('') }}>
-                {data?.personalities.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
-              </select>
-            </label>
+            <div className="personality-toolbar">
+              <label className="form-field personality-select">
+                Personality
+                <select value={selected} onChange={(event) => {
+                  setSelected(event.target.value)
+                  setRenameOpen(false)
+                  setError('')
+                  setNotice('')
+                }}>
+                  {data?.personalities.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
+                </select>
+              </label>
+              <div className="row-actions personality-management-actions">
+                <button className="secondary" disabled={Boolean(busy)} onClick={() => {
+                  setCreateOpen((current) => !current)
+                  setRenameOpen(false)
+                  setError('')
+                  setNotice('')
+                }}>{createOpen ? 'Cancel new personality' : 'New personality'}</button>
+                <button className="secondary" disabled={!personality || personality.is_builtin || Boolean(busy)} onClick={() => {
+                  setRenameOpen((current) => !current)
+                  setRenameName(selected)
+                  setCreateOpen(false)
+                  setError('')
+                  setNotice('')
+                }}>{renameOpen ? 'Cancel rename' : 'Rename'}</button>
+                <button className="ghost" disabled={!personality || personality.is_builtin || Boolean(busy)} onClick={() => void deletePersonality()}>Delete</button>
+              </div>
+            </div>
+            {createOpen && (
+              <div className="personality-inline-form">
+                <div className="section-heading">
+                  <div>
+                    <h3>New personality</h3>
+                    <p className="section-copy">Create a custom personality without making it active.</p>
+                  </div>
+                </div>
+                <div className="personality-inline-fields">
+                  <label className="form-field">
+                    Name
+                    <input
+                      value={createName}
+                      maxLength={64}
+                      placeholder="e.g. Concise helper"
+                      onChange={(event) => { setCreateName(event.target.value); setError(''); setNotice('') }}
+                    />
+                  </label>
+                  <label className="form-field">
+                    Prompt
+                    <textarea
+                      value={createPrompt}
+                      maxLength={50000}
+                      onChange={(event) => { setCreatePrompt(event.target.value); setError(''); setNotice('') }}
+                    />
+                  </label>
+                </div>
+                <div className="row-actions">
+                  <button className="primary" disabled={Boolean(busy)} onClick={() => void createPersonality()}>Create</button>
+                </div>
+              </div>
+            )}
+            {renameOpen && personality && !personality.is_builtin && (
+              <div className="personality-rename-form">
+                <label className="form-field">
+                  New name
+                  <input
+                    value={renameName}
+                    maxLength={64}
+                    onChange={(event) => { setRenameName(event.target.value); setError(''); setNotice('') }}
+                  />
+                </label>
+                <div className="row-actions">
+                  <button className="primary" disabled={Boolean(busy)} onClick={() => void renamePersonality()}>Rename</button>
+                </div>
+              </div>
+            )}
+            {!createOpen && <>
             <label className="form-field">
               Editable prompt
               <textarea
@@ -488,11 +678,12 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
             <div className="editor-footer">
               <span className="muted">{prompt.length.toLocaleString()} / 50,000 characters</span>
               <div className="row-actions">
-                <button className="secondary" disabled={!personality || Boolean(busy) || (!dirty && isActive)} onClick={() => void runPersonalityAction('apply')}>Apply</button>
-                <button className="primary" disabled={!personality || Boolean(busy) || (!dirty && personality.prompt_saved && isActive && data?.active_personality_saved)} onClick={() => void runPersonalityAction('save')}>Save</button>
-                <button className="ghost" disabled={!personality || Boolean(busy) || !canReset} onClick={() => void runPersonalityAction('reset')}>Reset</button>
+                <button className="secondary" disabled={!personality || Boolean(busy) || (isActive && Boolean(data?.active_personality_saved))} onClick={() => void runPersonalityAction('active')}>{busy === 'active' ? 'Setting active…' : 'Set active'}</button>
+                <button className="primary" disabled={!personality || Boolean(busy) || (!dirty && personality.prompt_saved)} onClick={() => void runPersonalityAction('save')}>{busy === 'save' ? 'Saving…' : 'Save'}</button>
+                <button className="ghost" disabled={!personality || Boolean(busy) || !canReset} onClick={() => void runPersonalityAction('reset')}>{busy === 'reset' ? 'Resetting…' : 'Reset'}</button>
               </div>
             </div>
+            </>}
           </>
         )}
       </article>

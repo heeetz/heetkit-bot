@@ -28,16 +28,16 @@ let status: AppStatus = {
   twitch_connection_state: authRequired ? 'auth_required' : 'stopped',
   uptime_seconds: 0, channel: twitch.active_channel, account: twitch.bot_username,
 }
-const aiStatus = {
+let aiStatus = {
   enabled: false, available: false, memory_enabled: false,
-  active_personality: 'Friendly', available_personalities: ['Friendly'], model: '',
+  active_personality: 'neutral', available_personalities: ['neutral'], model: '',
 }
 let personalities: PersonalitiesResponse = {
-  active_personality: 'Friendly',
+  active_personality: 'neutral',
   active_personality_saved: true,
   personalities: [{
-    name: 'Friendly', prompt: 'Built-in friendly prompt.', built_in_prompt: 'Built-in friendly prompt.',
-    prompt_saved: true, has_saved_override: false,
+    name: 'neutral', prompt: 'Synthetic neutral prompt.', built_in_prompt: 'Synthetic neutral prompt.',
+    is_builtin: true, prompt_saved: true, has_saved_override: false,
   }],
   profile_instructions: '', profile_instructions_saved: true,
   protected_shared_instructions: 'Synthetic shared instructions.',
@@ -89,23 +89,70 @@ window.pywebview = { api: {
     }
     return { ok: true }
   },
+  create_personality: async (name: string, prompt: string) => {
+    if (query.has('createPersonalityError')) return { ok: false, error: 'Personality could not be created.' }
+    const normalizedName = name.trim()
+    personalities = {
+      ...personalities,
+      personalities: [...personalities.personalities, {
+        name: normalizedName, prompt, built_in_prompt: '', is_builtin: false,
+        prompt_saved: true, has_saved_override: true,
+      }],
+    }
+    aiStatus = { ...aiStatus, available_personalities: personalities.personalities.map((item) => item.name) }
+    aiCalls.push(['create_personality', normalizedName, prompt])
+    return { ok: true, name: normalizedName }
+  },
+  rename_personality: async (oldName: string, newName: string) => {
+    if (query.has('renamePersonalityError')) return { ok: false, error: 'Personality could not be renamed.' }
+    const normalizedName = newName.trim()
+    personalities = {
+      ...personalities,
+      active_personality: personalities.active_personality === oldName ? normalizedName : personalities.active_personality,
+      personalities: personalities.personalities.map((item) => item.name === oldName ? { ...item, name: normalizedName } : item),
+    }
+    aiStatus = {
+      ...aiStatus,
+      active_personality: aiStatus.active_personality === oldName ? normalizedName : aiStatus.active_personality,
+      available_personalities: personalities.personalities.map((item) => item.name),
+    }
+    aiCalls.push(['rename_personality', oldName, normalizedName])
+    return { ok: true, name: normalizedName }
+  },
+  delete_personality: async (name: string) => {
+    if (query.has('deletePersonalityError')) return { ok: false, error: 'Personality could not be deleted.' }
+    personalities = {
+      ...personalities,
+      active_personality: personalities.active_personality === name ? 'neutral' : personalities.active_personality,
+      personalities: personalities.personalities.filter((item) => item.name !== name),
+    }
+    aiStatus = { ...aiStatus, active_personality: personalities.active_personality, available_personalities: personalities.personalities.map((item) => item.name) }
+    aiCalls.push(['delete_personality', name])
+    return { ok: true }
+  },
+  set_active_personality: async (name: string) => {
+    if (query.has('activePersonalityError')) return { ok: false, error: 'Personality could not be activated.' }
+    personalities = { ...personalities, active_personality: name, active_personality_saved: true }
+    aiStatus = { ...aiStatus, active_personality: name }
+    aiCalls.push(['set_active_personality', name])
+    return { ok: true }
+  },
   save_personality: async (name: string, prompt: string) => {
+    if (query.has('savePersonalityError')) return { ok: false, error: 'Personality could not be saved.' }
     aiCalls.push(['save_personality', name, prompt])
     personalities = {
       ...personalities,
-      active_personality: name,
-      active_personality_saved: true,
       personalities: personalities.personalities.map((item) => item.name === name ? {
-        ...item, prompt, prompt_saved: true, has_saved_override: prompt !== item.built_in_prompt,
+        ...item, prompt, prompt_saved: true, has_saved_override: !item.is_builtin || prompt !== item.built_in_prompt,
       } : item),
     }
     return { ok: true }
   },
   reset_personality: async (name: string) => {
+    if (query.has('resetPersonalityError')) return { ok: false, error: 'Personality could not be reset.' }
     aiCalls.push(['reset_personality', name])
     personalities = {
       ...personalities,
-      active_personality: name,
       personalities: personalities.personalities.map((item) => item.name === name ? {
         ...item, prompt: item.built_in_prompt, prompt_saved: true, has_saved_override: false,
       } : item),

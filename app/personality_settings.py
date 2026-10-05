@@ -16,6 +16,7 @@ from app.settings_recovery import preserve_settings_recovery
 logger = logging.getLogger(__name__)
 
 MAX_PERSONALITY_PROMPT_LENGTH = 50_000
+MAX_PERSONALITY_NAME_LENGTH = 64
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +24,19 @@ class PersonalitySettings:
     active_personality: str
     overrides: dict[str, str]
     profile_instructions: str = ""
+
+
+def validate_personality_name(name: object) -> str:
+    if not isinstance(name, str):
+        raise ValueError("Personality name must be text.")
+    name = name.strip()
+    if not name:
+        raise ValueError("Personality name must not be empty.")
+    if len(name) > MAX_PERSONALITY_NAME_LENGTH:
+        raise ValueError(
+            f"Personality name must not exceed {MAX_PERSONALITY_NAME_LENGTH} characters."
+        )
+    return name
 
 
 def validate_personality_prompt(prompt: object) -> str:

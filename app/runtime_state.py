@@ -18,6 +18,7 @@ from app.personality_settings import (
     PersonalitySettings,
     load_personality_settings,
     save_personality_settings,
+    validate_personality_name,
     validate_personality_prompt,
     validate_profile_instructions,
 )
@@ -246,10 +247,41 @@ class RuntimeState:
             return self._active_ai_personality
 
     def set_active_ai_personality(self, personality: str) -> None:
-        if personality not in self.available_personalities:
-            raise ValueError(f"Unknown AI personality: {personality}")
         with self._lock:
+            self.get_ai_personality_prompt(personality)
             self._active_ai_personality = personality
+
+    def save_active_ai_personality(self, personality: str) -> None:
+        """Persist selection independently of prompt edits and profile instructions."""
+        with self._lock:
+            self.get_ai_personality_prompt(personality)
+            if (
+                personality not in AI_PERSONALITY_PROMPTS
+                and personality not in self._persisted_personality_overrides
+            ):
+                raise ValueError("Save the custom personality before setting it active.")
+            self._save_personality_settings(personality, self._persisted_personality_overrides)
+            self._persisted_active_ai_personality = personality
+            self._active_ai_personality = personality
+
+    def get_active_ai_instructions(self) -> tuple[str, str, str]:
+        """Read request instructions together so rename/delete cannot invalidate the name."""
+        with self._lock:
+            name = self._active_ai_personality
+            return name, self._personality_prompts[name], self._profile_instructions
+
+    def get_personality_settings_snapshot(self) -> tuple[PersonalitySettings, PersonalitySettings]:
+        """Return effective prompts and persisted settings together for the editor."""
+        with self._lock:
+            return (
+                PersonalitySettings(
+                    self._active_ai_personality, dict(self._personality_prompts), self._profile_instructions,
+                ),
+                PersonalitySettings(
+                    self._persisted_active_ai_personality, dict(self._persisted_personality_overrides),
+                    self._persisted_profile_instructions,
+                ),
+            )
 
     def get_ai_personality_prompt(self, personality: str) -> str:
         with self._lock:
@@ -283,32 +315,84 @@ class RuntimeState:
 
     def apply_ai_personality(self, personality: str, prompt: object) -> None:
         parsed_prompt = validate_personality_prompt(prompt)
-        if not isinstance(personality, str) or not personality.strip() or len(personality) > 64:
-            raise ValueError("Invalid AI personality name.")
+        personality = validate_personality_name(personality)
         with self._lock:
             self._personality_prompts[personality] = parsed_prompt
             self._active_ai_personality = personality
 
     def save_ai_personality(self, personality: str, prompt: object) -> None:
         parsed_prompt = validate_personality_prompt(prompt)
-        if not isinstance(personality, str) or not personality.strip() or len(personality) > 64:
-            raise ValueError("Invalid AI personality name.")
-        built_in_prompt = AI_PERSONALITY_PROMPTS.get(personality)
         with self._lock:
+            self.get_ai_personality_prompt(personality)
+            built_in_prompt = AI_PERSONALITY_PROMPTS.get(personality)
             overrides = dict(self._persisted_personality_overrides)
             if personality in AI_PERSONALITY_PROMPTS and parsed_prompt == built_in_prompt:
                 overrides.pop(personality, None)
             else:
                 overrides[personality] = parsed_prompt
-            self._save_personality_settings(personality, overrides)
+            self._save_personality_settings(self._persisted_active_ai_personality, overrides)
             self._persisted_personality_overrides = overrides
-            self._persisted_active_ai_personality = personality
             self._personality_prompts[personality] = parsed_prompt
-            self._active_ai_personality = personality
+
+    def _validate_new_personality_name(self, name: object) -> str:
+        name = validate_personality_name(name)
+        if any(existing.casefold() == name.casefold() for existing in self._personality_prompts):
+            raise ValueError("A personality with that name already exists.")
+        return name
+
+    def create_ai_personality(self, name: object, prompt: object) -> str:
+        parsed_prompt = validate_personality_prompt(prompt)
+        with self._lock:
+            name = self._validate_new_personality_name(name)
+            overrides = {**self._persisted_personality_overrides, name: parsed_prompt}
+            self._save_personality_settings(self._persisted_active_ai_personality, overrides)
+            self._persisted_personality_overrides = overrides
+            self._personality_prompts[name] = parsed_prompt
+            return name
+
+    def _require_custom_personality(self, name: str) -> str:
+        prompt = self.get_ai_personality_prompt(name)
+        if name in AI_PERSONALITY_PROMPTS:
+            raise ValueError("Built-in personalities cannot be renamed or deleted.")
+        return prompt
+
+    def rename_ai_personality(self, personality: str, name: object) -> str:
+        with self._lock:
+            prompt = self._require_custom_personality(personality)
+            name = self._validate_new_personality_name(name)
+            overrides = dict(self._persisted_personality_overrides)
+            overrides.pop(personality, None)
+            overrides[name] = prompt
+            saved_active = self._persisted_active_ai_personality
+            if personality in (saved_active, self._active_ai_personality):
+                saved_active = name
+            self._save_personality_settings(saved_active, overrides)
+            self._persisted_personality_overrides = overrides
+            self._persisted_active_ai_personality = saved_active
+            del self._personality_prompts[personality]
+            self._personality_prompts[name] = prompt
+            if self._active_ai_personality == personality:
+                self._active_ai_personality = name
+            return name
+
+    def delete_ai_personality(self, personality: str) -> None:
+        with self._lock:
+            self._require_custom_personality(personality)
+            overrides = dict(self._persisted_personality_overrides)
+            overrides.pop(personality, None)
+            saved_active = self._persisted_active_ai_personality
+            if personality in (saved_active, self._active_ai_personality):
+                saved_active = "neutral"
+            self._save_personality_settings(saved_active, overrides)
+            self._persisted_personality_overrides = overrides
+            self._persisted_active_ai_personality = saved_active
+            del self._personality_prompts[personality]
+            if self._active_ai_personality == personality:
+                self._active_ai_personality = "neutral"
 
     def reset_ai_personality(self, personality: str) -> None:
-        built_in_prompt = self.get_builtin_ai_personality_prompt(personality)
         with self._lock:
+            built_in_prompt = self.get_builtin_ai_personality_prompt(personality)
             overrides = dict(self._persisted_personality_overrides)
             if personality in AI_PERSONALITY_PROMPTS:
                 overrides.pop(personality, None)
@@ -321,7 +405,6 @@ class RuntimeState:
                 )
             self._persisted_personality_overrides = overrides
             self._personality_prompts[personality] = built_in_prompt
-            self._active_ai_personality = personality
 
     def _save_personality_settings(
         self,

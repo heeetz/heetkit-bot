@@ -133,6 +133,7 @@ export interface PersonalityInfo {
   name: string
   prompt: string
   built_in_prompt: string
+  is_builtin: boolean
   prompt_saved: boolean
   has_saved_override: boolean
 }
@@ -276,6 +277,10 @@ interface PythonApi {
   set_ai_enabled(enabled: boolean): Promise<ActionResult>
   set_ai_memory_enabled(enabled: boolean): Promise<ActionResult>
   apply_personality(personality: string, prompt: string): Promise<ActionResult>
+  create_personality(name: string, prompt: string): Promise<ActionResult & { name?: string }>
+  rename_personality(oldName: string, newName: string): Promise<ActionResult & { name?: string }>
+  delete_personality(name: string): Promise<ActionResult>
+  set_active_personality(name: string): Promise<ActionResult>
   save_personality(personality: string, prompt: string): Promise<ActionResult>
   reset_personality(personality: string): Promise<ActionResult>
   apply_profile_instructions(prompt: string): Promise<ActionResult>

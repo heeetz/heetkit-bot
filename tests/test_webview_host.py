@@ -1125,6 +1125,7 @@ def test_bridge_exposes_only_personality_specific_editable_prompts(tmp_path) -> 
     )
     assert "You are a Twitch chat assistant." not in neutral["prompt"]
     assert neutral["prompt"] == neutral["built_in_prompt"]
+    assert neutral["is_builtin"] is True
     assert result["profile_instructions"] == ""
     assert result["profile_instructions_saved"] is True
     from app.config.personalities import build_protected_shared_instructions
@@ -1134,7 +1135,8 @@ def test_bridge_exposes_only_personality_specific_editable_prompts(tmp_path) -> 
 
 def test_bridge_applies_saves_resets_profile_instructions_without_saving_personality(tmp_path, caplog) -> None:
     bridge, state = build_ai_bridge(tmp_path)
-    state.save_ai_personality("custom", "Saved style")
+    state.create_ai_personality("custom", "Saved style")
+    state.save_active_ai_personality("custom")
     state.apply_ai_personality("neutral", "Session style")
     with caplog.at_level(logging.INFO):
         assert bridge.apply_profile_instructions("PRIVATE SAMPLE INSTRUCTIONS") == {"ok": True}
@@ -1184,6 +1186,72 @@ def test_bridge_applies_saves_and_resets_personality(tmp_path) -> None:
     assert runtime_state.get_ai_personality_prompt("neutral") == (
         runtime_state.get_builtin_ai_personality_prompt("neutral")
     )
+
+
+def test_bridge_manages_custom_personalities_and_activation_independently(tmp_path) -> None:
+    bridge, state = build_ai_bridge(tmp_path)
+    state.save_profile_instructions("Kept instructions")
+    assert bridge.create_personality(" Custom ", "Exact\n prompt ") == {"ok": True, "name": "Custom"}
+    assert state.active_ai_personality == "neutral"
+    custom = next(p for p in bridge.get_personalities()["personalities"] if p["name"] == "Custom")
+    assert custom["is_builtin"] is False
+    assert custom["prompt_saved"] is True
+    assert bridge.save_personality("Custom", "Edited") == {"ok": True}
+    assert state.active_ai_personality == "neutral"
+    assert bridge.set_active_personality("Custom") == {"ok": True}
+    assert bridge.rename_personality("Custom", " Renamed ") == {"ok": True, "name": "Renamed"}
+    assert state.active_ai_personality == "Renamed"
+    assert state.get_ai_personality_prompt("Renamed") == "Edited"
+    assert bridge.delete_personality("Renamed") == {"ok": True}
+    assert state.active_ai_personality == "neutral"
+    restored = RuntimeState(personality_settings_path=tmp_path / "personality_settings.json")
+    assert restored.active_ai_personality == "neutral"
+    assert restored.profile_instructions == "Kept instructions"
+    assert restored.available_personalities == ("neutral",)
+
+
+def test_bridge_rejects_invalid_collection_operations(tmp_path) -> None:
+    bridge, state = build_ai_bridge(tmp_path)
+    assert bridge.create_personality("local", "Keep")["ok"]
+    before = state.get_personality_settings_snapshot()
+    operations = [
+        lambda: bridge.create_personality(" local ", "Replace"),
+        lambda: bridge.create_personality("neutral", "Replace"),
+        lambda: bridge.create_personality(7, "Prompt"),
+        lambda: bridge.create_personality("new", None),
+        lambda: bridge.rename_personality("local", "neutral"),
+        lambda: bridge.rename_personality("neutral", "new"),
+        lambda: bridge.rename_personality([], "new"),
+        lambda: bridge.delete_personality("neutral"),
+        lambda: bridge.delete_personality([]),
+        lambda: bridge.delete_personality("missing"),
+        lambda: bridge.set_active_personality(None),
+        lambda: bridge.set_active_personality("missing"),
+        lambda: bridge.save_personality("missing", "No implicit creation"),
+    ]
+    for action in operations:
+        result = action()
+        assert result["ok"] is False
+        assert result["error"]
+        assert state.get_personality_settings_snapshot() == before
+
+
+def test_bridge_crud_errors_preserve_malformed_profile_and_explain_repair(tmp_path) -> None:
+    bridge, state = build_ai_bridge(tmp_path)
+    bridge.create_personality("local", "Keep")
+    before = state.get_personality_settings_snapshot()
+    path = tmp_path / "personality_settings.json"
+    path.write_bytes(b"{broken")
+    for result in (
+        bridge.create_personality("new", "New"),
+        bridge.rename_personality("local", "renamed"),
+        bridge.delete_personality("local"),
+        bridge.set_active_personality("local"),
+    ):
+        assert result["ok"] is False
+        assert "Quit the app, back up and repair" in result["error"]
+        assert path.read_bytes() == b"{broken"
+        assert state.get_personality_settings_snapshot() == before
 
 
 def test_bridge_updates_ai_runtime_toggles_with_validation(tmp_path) -> None:
