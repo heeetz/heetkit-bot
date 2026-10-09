@@ -6,6 +6,7 @@ import {
   type FilterCategoryName,
   type FilterEntry,
   type FilterInput,
+  type FilterTestResult,
   type FiltersResponse,
   waitForBridge,
 } from '../bridge'
@@ -79,8 +80,21 @@ export default function FiltersPage({ active }: FiltersPageProps) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [testText, setTestText] = useState('')
+  const [testSource, setTestSource] = useState<'active' | 'draft'>('active')
+  const [testResult, setTestResult] = useState<Extract<FilterTestResult, { ok: true }> | null>(null)
+  const [testError, setTestError] = useState('')
+  const [testBusy, setTestBusy] = useState(false)
   const [expanded, setExpanded] = useState<Record<FilterCategoryName, boolean>>({ words: false, phrases: false, patterns: false })
   const hasLoaded = useRef(false)
+  const testBusyRef = useRef(false)
+  const testRequestVersion = useRef(0)
+
+  const clearTestResult = () => {
+    testRequestVersion.current += 1
+    setTestResult(null)
+    setTestError('')
+  }
 
   const loadFilters = async () => {
     const api = await waitForBridge()
@@ -132,6 +146,7 @@ export default function FiltersPage({ active }: FiltersPageProps) {
     }))
     setError('')
     setNotice('')
+    clearTestResult()
   }
 
   const updateTextRules = (name: 'words' | 'phrases', value: string) => {
@@ -153,6 +168,7 @@ export default function FiltersPage({ active }: FiltersPageProps) {
     })
     setError('')
     setNotice('')
+    clearTestResult()
   }
 
   const addRule = (name: FilterCategoryName) => {
@@ -163,16 +179,19 @@ export default function FiltersPage({ active }: FiltersPageProps) {
     setNextId((current) => current + 1)
     setError('')
     setNotice('')
+    clearTestResult()
   }
 
   const removeRule = (name: FilterCategoryName, id: number) => {
     setDrafts((current) => ({ ...current, [name]: current[name].filter((rule) => rule.id !== id) }))
     setError('')
     setNotice('')
+    clearTestResult()
   }
 
   const runAction = async (action: 'apply' | 'save') => {
     const payload = inputFromDrafts(drafts)
+    clearTestResult()
     setBusy(true)
     setError('')
     setNotice('')
@@ -216,6 +235,40 @@ export default function FiltersPage({ active }: FiltersPageProps) {
     }
   }
 
+  const runFilterTest = async () => {
+    if (testBusyRef.current || busy || !data) return
+    testBusyRef.current = true
+    const requestVersion = testRequestVersion.current + 1
+    testRequestVersion.current = requestVersion
+    setTestBusy(true)
+    setTestResult(null)
+    setTestError('')
+    try {
+      const api = await waitForBridge()
+      const result = await api.test_filters(
+        testText,
+        testSource,
+        testSource === 'draft' ? inputFromDrafts(drafts) : null,
+      )
+      if (requestVersion !== testRequestVersion.current) return
+      if (!result.ok) {
+        const invalid = result.invalid_rule
+        setTestError(invalid
+          ? `Draft rule invalid: ${categoryInfo[invalid.category].label}, rule ${invalid.index + 1}. ${result.error}`
+          : result.error)
+        return
+      }
+      setTestResult(result)
+    } catch (reason) {
+      if (requestVersion === testRequestVersion.current) {
+        setTestError(reason instanceof Error ? reason.message : 'The filter test could not be completed.')
+      }
+    } finally {
+      testBusyRef.current = false
+      setTestBusy(false)
+    }
+  }
+
   return (
     <div className="filters-layout" aria-busy={loading}>
       <FeedbackToast error={error} notice={notice} onDismiss={() => { setError(''); setNotice('') }} />
@@ -231,6 +284,82 @@ export default function FiltersPage({ active }: FiltersPageProps) {
         <div className="filters-effect-note">
           <strong>Apply</strong> changes the running session only. <strong>Save</strong> persists them across restarts. Regex rules are validated by Python when you apply or save.
         </div>
+      </section>
+      <section className="card filter-tester-card" id="filter-tester">
+        <div className="section-heading">
+          <div>
+            <p className="label">LOCAL VALIDATION</p>
+            <h2>Filter Tester</h2>
+            <p className="section-copy">Try sample text against the filters used in this session or the unsaved rules currently shown below.</p>
+          </div>
+        </div>
+        <label className="form-field filter-test-text">
+          Sample text
+          <textarea
+            rows={4}
+            value={testText}
+            onChange={(event) => {
+              setTestText(event.target.value)
+              clearTestResult()
+            }}
+            placeholder="Enter a message to test"
+          />
+        </label>
+        <fieldset className="filter-test-source">
+          <legend>Rules to test</legend>
+          <label>
+            <input
+              type="radio"
+              name="filter-test-source"
+              value="active"
+              checked={testSource === 'active'}
+              onChange={() => {
+                setTestSource('active')
+                clearTestResult()
+              }}
+            />
+            <span><strong>Active filters</strong><small>The effective rules in the running session.</small></span>
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="filter-test-source"
+              value="draft"
+              checked={testSource === 'draft'}
+              onChange={() => {
+                setTestSource('draft')
+                clearTestResult()
+              }}
+            />
+            <span><strong>Unsaved draft</strong><small>The current editors, without applying or saving them.</small></span>
+          </label>
+        </fieldset>
+        <div className="filter-test-footer">
+          <p className="settings-hint">Tests editable global filters only. Protected AI safety is separate. This runs locally without Twitch or an API request.</p>
+          <button className="primary" type="button" disabled={testBusy || busy || !data} onClick={() => void runFilterTest()}>
+            {testBusy ? 'Testing…' : 'Test sample'}
+          </button>
+        </div>
+        {testError && <div className="filter-test-error" role="alert">{testError}</div>}
+        {testResult && (
+          <div className={`filter-test-result ${testResult.decision.toLowerCase()}${testResult.timed_out ? ' timed-out' : ''}`} role="status" aria-live="polite">
+            <div className="filter-test-decision">
+              <span>Decision</span>
+              <strong>{testResult.decision}</strong>
+            </div>
+            {testResult.timed_out ? (
+              <p><strong>Evaluation timed out.</strong> The message was blocked safely; no rule is claimed as a match.</p>
+            ) : testResult.decision === 'BLOCK' ? (
+              <dl>
+                <div><dt>Category</dt><dd>{testResult.category ? categoryInfo[testResult.category].label : 'Not reported'}</dd></div>
+                <div><dt>Editable rule</dt><dd>{testResult.rule ? <code>{testResult.rule}</code> : 'Not available'}</dd></div>
+              </dl>
+            ) : (
+              <p>No editable global filter matched this sample.</p>
+            )}
+            <small>Tested {testResult.source === 'draft' ? 'unsaved draft rules' : 'active session filters'}.</small>
+          </div>
+        )}
       </section>
       {data && categoryNames.map((name) => {
         const category = data[name]

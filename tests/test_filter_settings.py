@@ -9,13 +9,14 @@ import pytest
 
 from app.filter_settings import (
     apply_filter_settings,
+    evaluate_filter_settings,
     get_filter_settings,
     save_filter_settings,
     validate_filter_input,
 )
 from app.services.filter_loader import load_filters_from_directory
 from app.services.filter_manager import FilterManager
-from app.webview_host import WebUIBridge
+from app.webview_host import BridgeOperationTimedOut, WebUIBridge
 
 
 def _files(directory: Path, words: str, phrases: str, patterns: str) -> None:
@@ -170,3 +171,118 @@ def test_bridge_rejects_invalid_regex_and_applies_valid_rules() -> None:
     assert invalid["invalid_rule"] == {"category": "patterns", "index": 0}
     assert bridge.apply_filters({"words": ["alpha"], "phrases": [], "patterns": []})["ok"]
     assert not manager.filter_message("alpha")
+
+
+def _test_bridge(manager: FilterManager) -> WebUIBridge:
+    class Backend:
+        application = SimpleNamespace(services=SimpleNamespace(filter_manager=manager))
+
+        @staticmethod
+        def submit(coroutine) -> Future:
+            future: Future = Future()
+            try:
+                future.set_result(asyncio.run(coroutine))
+            except BaseException as error:
+                future.set_exception(error)
+            return future
+
+    return WebUIBridge(Backend())
+
+
+def test_tester_uses_effective_session_rules_and_never_writes_files(tmp_path, monkeypatch) -> None:
+    _files(tmp_path, "saved\n", "", "")
+    manager = FilterManager()
+    load_filters_from_directory(manager, tmp_path)
+    apply_filter_settings(manager, validate_filter_input({"words": ["session"], "phrases": [], "patterns": []}))
+    before = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
+    snapshot = manager.snapshot()
+    bridge = _test_bridge(manager)
+
+    def unexpected_paths(*args, **kwargs):
+        pytest.fail("Filter testing must not access profile files")
+
+    monkeypatch.setattr("app.filter_settings.RuntimePaths.default", unexpected_paths)
+    active = bridge.test_filters("SESSION", "active")
+    assert active == {
+        "ok": True, "source": "active", "decision": "BLOCK",
+        "category": "words", "rule": "session", "timed_out": False,
+    }
+    assert bridge.test_filters("saved", "active")["decision"] == "ALLOW"
+    payload = {"words": ["draft"], "phrases": [], "patterns": []}
+    assert bridge.test_filters("draft", "draft", payload)["decision"] == "BLOCK"
+    assert bridge.test_filters("session", "draft", payload)["decision"] == "ALLOW"
+    assert bridge.test_filters("draft", "active")["decision"] == "ALLOW"
+    assert manager.snapshot() == snapshot
+    assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == before
+
+
+def test_draft_tester_uses_existing_normalization_and_python_validation() -> None:
+    manager = FilterManager()
+    manager.add_blocked_word("active")
+    bridge = _test_bridge(manager)
+    payload = {"words": ["", " # comment", "  alpha ", "alpha"], "phrases": [], "patterns": []}
+    result = bridge.test_filters("ALPHA", "draft", payload)
+    assert result["rule"] == "alpha"
+    assert result["decision"] == "BLOCK"
+
+    # VERSION1 is accepted by regex, but rejected by the established Python re contract.
+    invalid = bridge.test_filters("ordinary", "draft", {
+        "words": ["new"], "phrases": [], "patterns": ["# comment", "", "(?V1)pattern"],
+    })
+    assert not invalid["ok"]
+    assert invalid["invalid_rule"] == {"category": "patterns", "index": 2}
+    assert "Invalid regex" in invalid["error"]
+    assert manager.snapshot() == (["active"], [], [])
+
+
+@pytest.mark.parametrize(
+    ("text", "source", "payload"),
+    [
+        (None, "active", None),
+        (42, "active", None),
+        ("text", "saved", None),
+        ("text", "draft", None),
+        ("text", "draft", {"words": [], "phrases": []}),
+        ("text", "active", {"words": [], "phrases": [], "patterns": []}),
+        ("text", "draft", {"words": ["bad\ufffd"], "phrases": [], "patterns": []}),
+    ],
+)
+def test_tester_rejects_bad_requests_without_changing_active_filters(text, source, payload) -> None:
+    manager = FilterManager()
+    manager.add_blocked_word("active")
+
+    result = _test_bridge(manager).test_filters(text, source, payload)
+
+    assert not result["ok"]
+    assert result["error"]
+    assert "decision" not in result
+    assert manager.snapshot() == (["active"], [], [])
+
+
+def test_draft_tester_preserves_the_live_regex_timeout() -> None:
+    manager = FilterManager()
+    result = evaluate_filter_settings(manager, "a" * 20000 + "!", "draft", {
+        "words": [], "phrases": [], "patterns": ["(a+)+$"],
+    })
+
+    assert result["decision"] == "BLOCK"
+    assert result["category"] == "patterns"
+    assert result["rule"] == "(a+)+$"
+    assert result["timed_out"]
+    assert manager.snapshot() == ([], [], [])
+
+
+def test_tester_reports_bridge_deadline_without_a_moderation_decision(monkeypatch) -> None:
+    bridge = _test_bridge(FilterManager())
+
+    def timed_out(coroutine, **kwargs):
+        coroutine.close()
+        raise BridgeOperationTimedOut("test filters")
+
+    monkeypatch.setattr(bridge, "_wait_for_backend", timed_out)
+
+    result = bridge.test_filters("sample", "active")
+
+    assert not result["ok"]
+    assert "timed out" in result["error"]
+    assert "decision" not in result

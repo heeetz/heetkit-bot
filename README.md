@@ -25,7 +25,7 @@ HeetKit also includes custom commands, useful chat utilities, permissions, coold
 - **Custom Twitch commands** with aliases, responses, permissions and cooldowns
 - **Useful chat commands** such as followage, weather, last seen and uptime
 - **Conversation memory** for AI replies
-- **Configurable chat and AI filters**
+- **Configurable chat and AI filters** with a local tester for active rules and unsaved drafts
 - **Desktop control panel** with live logs and tray controls
 - **Local profiles** with separate settings and data
 

@@ -20,6 +20,15 @@ class FilterRule:
     case_sensitive: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class FilterEvaluation:
+    """The first blocking rule, or a fail-closed regex timeout."""
+    allowed: bool
+    category: str | None = None
+    rule: str | None = None
+    timed_out: bool = False
+
+
 def compile_filter_pattern(
     pattern: str, *, is_regex: bool = True, case_sensitive: bool = False
 ) -> object:
@@ -106,34 +115,39 @@ class FilterManager:
 
     def contains_blocked_content(self, message_content: str) -> bool:
         """Return whether the message matches any loaded global filter rule."""
+        return not self.evaluate_message(message_content).allowed
+
+    def evaluate_message(self, message_content: str) -> FilterEvaluation:
+        """Evaluate the same rules used by chat and AI, retaining match details."""
         # Check for blocked words - use word boundary matching
         for word in self._blocked_words:
             # Use word boundary matching to avoid partial matches
             pattern = r'\b' + re.escape(word) + r'\b'
             flags = re.IGNORECASE  # Always case insensitive for words
             if re.search(pattern, message_content, flags):
-                return True
+                return FilterEvaluation(False, "words", word)
         
         # Check for blocked phrases - simple substring matching, case-insensitive by default
         for phrase in self._blocked_phrases:
             flags = re.IGNORECASE  # Always case insensitive for phrases
             if re.search(re.escape(phrase), message_content, flags):
-                return True
+                return FilterEvaluation(False, "phrases", phrase)
         
         # Configured patterns are compiled when rules are loaded or edited so
         # the chat path only performs bounded searches. One deadline is shared
         # across every configured pattern for this message.
         deadline = time.monotonic() + REGEX_MATCH_BUDGET_SECONDS
-        for compiled in self._compiled_patterns:
+        for index, compiled in enumerate(self._compiled_patterns):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                return True
+                return FilterEvaluation(False, "patterns", timed_out=True)
+            rule = self._blocked_patterns[index].pattern
             try:
                 if compiled.search(message_content, timeout=remaining):
-                    return True
+                    return FilterEvaluation(False, "patterns", rule)
             except _REGEX_TIMEOUT_ERROR:
                 # A timeout is fail-closed: a message that cannot be checked
                 # within the configured budget must not pass moderation.
-                return True
+                return FilterEvaluation(False, "patterns", rule, timed_out=True)
 
-        return False
+        return FilterEvaluation(True)

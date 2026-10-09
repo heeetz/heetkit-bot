@@ -76,8 +76,9 @@ function invalidPattern(payload: FilterInput) {
   return index < 0 ? undefined : { category: 'patterns' as const, index }
 }
 
-function action(action: 'apply' | 'save', payload: FilterInput) {
+async function action(action: 'apply' | 'save', payload: FilterInput) {
   calls.push([`${action}_filters`, structuredClone(payload)])
+  if (query.has('slowAction')) await new Promise((resolve) => window.setTimeout(resolve, 150))
   if (query.has('saveError') && action === 'save') return { ok: false, error: 'Synthetic filter save failed.' }
   for (const category of ['words', 'phrases'] as const) {
     const index = payload[category].findIndex((value) => value.includes('\ufffd'))
@@ -89,6 +90,25 @@ function action(action: 'apply' | 'save', payload: FilterInput) {
   return { ok: true }
 }
 
+async function testFilters(text: string, source: 'active' | 'draft', payload?: FilterInput | null) {
+  calls.push(['test_filters', text, source, payload ? structuredClone(payload) : null])
+  if (text === 'reject request') throw new Error('Synthetic bridge rejection.')
+  if (text === 'slow block') await new Promise((resolve) => window.setTimeout(resolve, 150))
+  if (text === 'invalid draft' && source === 'draft') {
+    return { ok: false, error: 'Synthetic invalid regular expression.', invalid_rule: { category: 'patterns' as const, index: 1 } }
+  }
+  if (text === 'timeout sample') {
+    return { ok: true, source, decision: 'BLOCK' as const, category: null, rule: null, timed_out: true }
+  }
+  if (text === 'blocked word' || text === 'slow block') {
+    return { ok: true, source, decision: 'BLOCK' as const, category: 'words' as const, rule: 'alpha', timed_out: false }
+  }
+  if (text === 'blocked pattern') {
+    return { ok: true, source, decision: 'BLOCK' as const, category: 'patterns' as const, rule: '^safe$', timed_out: false }
+  }
+  return { ok: true, source, decision: 'ALLOW' as const, category: null, rule: null, timed_out: false }
+}
+
 window.pywebview = { api: {
   get_app_status: async () => ({
     running: false, twitch_connected: false, twitch_connection_state: 'stopped',
@@ -97,6 +117,7 @@ window.pywebview = { api: {
   get_filters: async () => structuredClone(persisted),
   apply_filters: async (payload: FilterInput) => action('apply', payload),
   save_filters: async (payload: FilterInput) => action('save', payload),
+  test_filters: testFilters,
 } as unknown as Awaited<ReturnType<typeof waitForBridge>> }
 
 createRoot(document.getElementById('root')!).render(<main><FiltersPage active /></main>)

@@ -157,6 +157,127 @@ test('clearing both multiline text categories sends empty rule lists', async ({ 
   await expect(phrases.getByRole('textbox', { name: 'Blocked phrases, one rule per line' })).toHaveValue('\n  \n')
 })
 
+test('Filter Tester keeps active and draft evaluation isolated and sends drafts only when selected', async ({ page }) => {
+  await page.goto('/tests/filters.fixture.html')
+  const tester = page.locator('.filter-tester-card')
+  const sample = tester.getByRole('textbox', { name: 'Sample text' })
+
+  await sample.fill('allowed sample')
+  await tester.getByRole('button', { name: 'Test sample' }).click()
+  await expect(tester.locator('.filter-test-result')).toContainText('ALLOW')
+  expect((await calls(page))[0]).toEqual(['test_filters', 'allowed sample', 'active', null])
+
+  const words = await expand(page, 'words')
+  await words.getByRole('textbox', { name: 'Blocked words, one rule per line' }).fill(' draft-only \n# comment\nsecond')
+  await tester.getByRole('radio', { name: /Unsaved draft/ }).check()
+  await sample.fill('blocked word')
+  await tester.getByRole('button', { name: 'Test sample' }).click()
+  await expect(tester.locator('.filter-test-result')).toContainText('BLOCK')
+  await expect(tester.locator('.filter-test-result')).toContainText('Blocked words')
+  await expect(tester.locator('.filter-test-result code')).toHaveText('alpha')
+  expect((await calls(page))[1]).toEqual(['test_filters', 'blocked word', 'draft', {
+    words: ['draft-only', '# comment', 'second'],
+    phrases: ['hello, world', 'phrase, with, commas'],
+    patterns: ['^safe$', '^safe$', '\\burl\\b'],
+  }])
+  expect((await calls(page)).map((call) => call[0])).toEqual(['test_filters', 'test_filters'])
+})
+
+test('Filter Tester renders backend invalid-draft, timeout, and rejected-request states clearly', async ({ page }) => {
+  await page.goto('/tests/filters.fixture.html')
+  const tester = page.locator('.filter-tester-card')
+  const sample = tester.getByRole('textbox', { name: 'Sample text' })
+  await tester.getByRole('radio', { name: /Unsaved draft/ }).check()
+
+  await sample.fill('invalid draft')
+  await tester.getByRole('button', { name: 'Test sample' }).click()
+  await expect(tester.getByRole('alert')).toContainText('Draft rule invalid: Regex patterns, rule 2. Synthetic invalid regular expression.')
+
+  await sample.fill('timeout sample')
+  await tester.getByRole('button', { name: 'Test sample' }).click()
+  const timeout = tester.locator('.filter-test-result')
+  await expect(timeout).toContainText('BLOCK')
+  await expect(timeout).toContainText('Evaluation timed out.')
+  await expect(timeout).toContainText('no rule is claimed as a match')
+  await expect(timeout).not.toContainText('Category')
+  await expect(timeout).not.toContainText('Editable rule')
+
+  await sample.fill('reject request')
+  await tester.getByRole('button', { name: 'Test sample' }).click()
+  await expect(tester.getByRole('alert')).toHaveText('Synthetic bridge rejection.')
+  await expect(tester.locator('.filter-test-result')).toHaveCount(0)
+})
+
+test('Filter Tester prevents duplicate submissions and discards an in-flight stale result', async ({ page }) => {
+  await page.goto('/tests/filters.fixture.html')
+  const tester = page.locator('.filter-tester-card')
+  const sample = tester.getByRole('textbox', { name: 'Sample text' })
+  const button = tester.getByRole('button', { name: 'Test sample' })
+  await sample.fill('slow block')
+  await button.evaluate((element: HTMLButtonElement) => {
+    element.click()
+    element.click()
+  })
+  await expect(tester.getByRole('button', { name: 'Testing…' })).toBeDisabled()
+  await expect.poll(async () => (await calls(page)).filter((call) => call[0] === 'test_filters').length).toBe(1)
+  await sample.fill('changed while pending')
+  await expect(tester.getByRole('button', { name: 'Test sample' })).toBeEnabled()
+  await expect(tester.locator('.filter-test-result')).toHaveCount(0)
+  await page.waitForTimeout(175)
+  await expect(tester.locator('.filter-test-result')).toHaveCount(0)
+})
+
+test('Filter Tester clears completed results after source, draft, Apply, and Save changes', async ({ page }) => {
+  await page.goto('/tests/filters.fixture.html')
+  const tester = page.locator('.filter-tester-card')
+  const sample = tester.getByRole('textbox', { name: 'Sample text' })
+  const button = tester.getByRole('button', { name: 'Test sample' })
+  const result = tester.locator('.filter-test-result')
+
+  await sample.fill('blocked pattern')
+  await button.click()
+  await expect(result).toContainText('Regex patterns')
+  await tester.getByRole('radio', { name: /Unsaved draft/ }).check()
+  await expect(result).toHaveCount(0)
+
+  await button.click()
+  await expect(result).toContainText('BLOCK')
+  const words = await expand(page, 'words')
+  await words.getByRole('textbox', { name: 'Blocked words, one rule per line' }).fill('changed draft')
+  await expect(result).toHaveCount(0)
+
+  await button.click()
+  await expect(result).toContainText('BLOCK')
+  await page.getByRole('button', { name: 'Apply for session', exact: true }).click()
+  await expect(result).toHaveCount(0)
+
+  await button.click()
+  await expect(result).toContainText('BLOCK')
+  await page.getByRole('button', { name: 'Save filters', exact: true }).click()
+  await expect(result).toHaveCount(0)
+  expect((await calls(page)).map((call) => call[0])).toEqual([
+    'test_filters', 'test_filters', 'test_filters', 'apply_filters', 'test_filters', 'save_filters',
+  ])
+})
+
+test('Filter Tester stays unavailable while Apply changes the active rules', async ({ page }) => {
+  await page.goto('/tests/filters.fixture.html?slowAction')
+  const tester = page.locator('.filter-tester-card')
+  const sample = tester.getByRole('textbox', { name: 'Sample text' })
+  const testButton = tester.getByRole('button', { name: 'Test sample' })
+  await sample.fill('blocked word')
+  await testButton.click()
+  await expect(tester.locator('.filter-test-result')).toContainText('BLOCK')
+
+  const words = await expand(page, 'words')
+  await words.getByRole('textbox', { name: 'Blocked words, one rule per line' }).fill('changed draft')
+  await page.getByRole('button', { name: 'Apply for session', exact: true }).click()
+  await expect(testButton).toBeDisabled()
+  await expect(tester.locator('.filter-test-result')).toHaveCount(0)
+  await expect(testButton).toBeEnabled()
+  expect((await calls(page)).filter((call) => call[0] === 'test_filters')).toHaveLength(1)
+})
+
 for (const width of [1280, 390]) {
   test(`large multiline editors stay compact inside their cards at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 })

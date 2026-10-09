@@ -119,6 +119,34 @@ def apply_filter_settings(
     manager.replace_blocked_patterns(patterns)
 
 
+def evaluate_filter_settings(
+    manager: FilterManager,
+    text: object,
+    source: object,
+    payload: object = None,
+) -> dict[str, object]:
+    """Test effective filters or validated drafts without changing live state."""
+    if not isinstance(text, str):
+        raise ValueError("Sample text must be text.")
+    if source not in ("active", "draft"):
+        raise ValueError("Choose active or draft filters.")
+    if source == "draft":
+        parsed = validate_filter_input(payload)
+        manager = FilterManager()
+        apply_filter_settings(manager, parsed)
+    elif payload is not None:
+        raise ValueError("Active filter tests do not accept draft rules.")
+    result = manager.evaluate_message(text)
+    return {
+        "ok": True,
+        "source": source,
+        "decision": "ALLOW" if result.allowed else "BLOCK",
+        "category": result.category,
+        "rule": result.rule,
+        "timed_out": result.timed_out,
+    }
+
+
 def save_filter_settings(
     manager: FilterManager,
     parsed: tuple[list[str], list[str], list[FilterRule]],

@@ -44,6 +44,7 @@ from app.desktop_instance import (
 from app.filter_settings import (
     FilterValidationError,
     apply_filter_settings,
+    evaluate_filter_settings,
     get_filter_settings,
     save_filter_settings,
     validate_filter_input,
@@ -97,7 +98,7 @@ FRONTEND_OPERATIONS = (
     "get_filters", "get_ai_status", "get_personalities", "get_recent_logs",
     "apply_command_settings", "save_command_settings", "reset_command_settings",
     "apply_command_responses", "save_command_responses", "reset_command_responses",
-    "save_custom_command", "delete_custom_command", "apply_filters", "save_filters",
+    "save_custom_command", "delete_custom_command", "apply_filters", "save_filters", "test_filters",
     "set_ai_enabled", "set_ai_memory_enabled", "apply_personality", "create_personality",
     "rename_personality", "delete_personality", "set_active_personality",
     "save_personality", "reset_personality", "apply_profile_instructions",
@@ -672,6 +673,34 @@ class WebUIBridge:
 
     def save_filters(self, payload: object) -> dict[str, object]:
         return self._filter_action(payload, save=True)
+
+    async def _test_filters(
+        self, text: object, source: object, payload: object
+    ) -> dict[str, object]:
+        # Serialize with Apply/Save and live filtering on the owning backend loop.
+        return evaluate_filter_settings(
+            self._backend.application.services.filter_manager, text, source, payload
+        )
+
+    def test_filters(
+        self, text: object, source: object, payload: object = None
+    ) -> dict[str, object]:
+        try:
+            return self._wait_for_backend(
+                self._test_filters(text, source, payload),
+                operation="test filters",
+                timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
+            )
+        except FilterValidationError as error:
+            return {
+                "ok": False,
+                "error": str(error),
+                "invalid_rule": {"category": error.category, "index": error.index},
+            }
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except BridgeOperationTimedOut:
+            return {"ok": False, "error": "Filter test timed out. Try again."}
 
     def save_custom_command(self, command: object) -> dict[str, object]:
         try:

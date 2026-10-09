@@ -120,6 +120,20 @@ export interface FilterActionResult extends ActionResult {
   invalid_rule?: { category: FilterCategoryName; index: number }
 }
 
+export type FilterTestResult =
+  | (FilterActionResult & {
+    ok: true
+    source: 'active' | 'draft'
+    decision: 'ALLOW' | 'BLOCK'
+    category: FilterCategoryName | null
+    rule: string | null
+    timed_out: boolean
+  })
+  | (FilterActionResult & {
+    ok: false
+    error: string
+  })
+
 export interface AIStatus {
   enabled: boolean
   available: boolean
@@ -305,6 +319,7 @@ interface PythonApi {
   delete_custom_command(id: string): Promise<ActionResult>
   apply_filters(payload: FilterInput): Promise<FilterActionResult>
   save_filters(payload: FilterInput): Promise<FilterActionResult>
+  test_filters(text: string, source: 'active' | 'draft', payload?: FilterInput | null): Promise<FilterTestResult>
   set_ai_enabled(enabled: boolean): Promise<ActionResult>
   set_ai_memory_enabled(enabled: boolean): Promise<ActionResult>
   apply_personality(personality: string, prompt: string): Promise<ActionResult>
