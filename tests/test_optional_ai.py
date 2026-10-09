@@ -33,7 +33,7 @@ def test_gemini_availability_handles_absent_blank_and_missing_provider(monkeypat
     assert service.is_available
     monkeypatch.setattr(google, "genai", None)
     assert not service.is_available
-    assert asyncio.run(service.generate_reply("question", "user")) == AIReply("", False)
+    assert asyncio.run(service.generate_reply("question", "user")) == AIReply("", False, "provider_unavailable")
 
 
 @pytest.mark.parametrize("enabled", [True, False])

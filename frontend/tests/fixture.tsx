@@ -67,8 +67,12 @@ const credentials = [
 ]
 const opened: string[] = []
 const aiCalls: unknown[][] = []
+const playgroundCalls: unknown[][] = []
+let playgroundId = 0
+let playgroundCancelled = false
+let playgroundStartedAt = 0
 const updateCalls: unknown[][] = []
-Object.assign(window, { opened, aiCalls, updateCalls })
+Object.assign(window, { opened, aiCalls, updateCalls, playgroundCalls })
 window.pywebview = { api: {
   get_app_status: async () => status,
   get_commands: async () => ({ command_prefix: '!', permissions: ['USER'], commands: [] }),
@@ -80,6 +84,30 @@ window.pywebview = { api: {
   }),
   get_recent_logs: async () => ({ entries: [] }),
   get_ai_status: async () => aiStatus,
+  start_ai_playground: async (prompt: string) => {
+    playgroundCalls.push(['start', prompt])
+    if (query.has('playgroundStartDelay')) await new Promise((resolve) => window.setTimeout(resolve, 350))
+    if (query.has('playgroundStartError')) return { ok: false, error: 'A Playground request is already running.' }
+    playgroundCancelled = false
+    playgroundStartedAt = Date.now()
+    return { ok: true, request_id: String(++playgroundId), status: 'pending' }
+  },
+  get_ai_playground_result: async (requestId: string) => {
+    if (query.has('playgroundReadError')) throw new Error('Read failed')
+    if (playgroundCancelled) return { ok: true, request_id: requestId, status: 'cancelled' }
+    if (query.has('playgroundWait') && Date.now() - playgroundStartedAt < 60000) return { ok: true, status: 'pending' }
+    return {
+      ok: true, request_id: requestId, status: query.get('playgroundStatus') ?? 'success',
+      text: 'Synthetic response <strong>plain text</strong>.',
+      moderation_source: query.get('playgroundSource'), matched_category: 'phrases', matched_rule: 'synthetic rule',
+    }
+  },
+  cancel_ai_playground: async (requestId: string) => {
+    playgroundCalls.push(['cancel', requestId])
+    if (query.has('playgroundCancelError') && playgroundCalls.filter((call) => call[0] === 'cancel').length === 1) return { ok: false }
+    playgroundCancelled = true
+    return { ok: true, status: 'pending' }
+  },
   get_personalities: async () => personalities,
   get_app_settings: async () => ({ ok: true, settings: {
     auto_start_bot: authRequired, start_minimized: false, minimize_to_tray: false,

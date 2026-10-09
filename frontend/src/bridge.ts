@@ -299,6 +299,17 @@ export interface LogsResponse {
   entries: LogEntry[]
 }
 
+export interface AIPlaygroundResult {
+  ok: boolean
+  request_id?: string
+  status?: 'pending' | 'success' | 'input_blocked' | 'output_blocked' | 'provider_unavailable' | 'api_error' | 'timeout' | 'cancelled'
+  text?: string
+  moderation_source?: 'editable_filter' | 'filter_timeout' | 'protected_policy' | null
+  matched_category?: string | null
+  matched_rule?: string | null
+  error?: string
+}
+
 interface PythonApi {
   get_app_status(): Promise<AppStatus>
   get_about_info(): Promise<AboutInfo>
@@ -307,6 +318,9 @@ interface PythonApi {
   get_custom_commands(): Promise<CustomCommandsResponse>
   get_filters(): Promise<FiltersResponse>
   get_ai_status(): Promise<AIStatus>
+  start_ai_playground(prompt: string): Promise<AIPlaygroundResult>
+  get_ai_playground_result(requestId: string): Promise<AIPlaygroundResult>
+  cancel_ai_playground(requestId: string): Promise<AIPlaygroundResult>
   get_personalities(): Promise<PersonalitiesResponse>
   get_recent_logs(after_id?: number, limit?: number): Promise<LogsResponse>
   apply_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string): Promise<ActionResult>

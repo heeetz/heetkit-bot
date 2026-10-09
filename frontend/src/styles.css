@@ -213,6 +213,10 @@ td { color: #c6cfdf; }
 .language-option code { margin-left: auto; color: #8290aa; font-size: 11px; }
 .language-validation { margin: 0; color: #ff9aae; font-size: 13px; line-height: 1.45; }
 .personality-editor { min-height: 0; }
+.ai-playground .form-field { margin: 16px 0; }
+.ai-playground .form-field textarea { min-height: 120px; }
+.playground-result { overflow-wrap: anywhere; margin-top: 16px; }
+.playground-response { white-space: pre-wrap; }
 .profile-instructions-editor { min-height: 0; }
 .protected-instructions-card { min-height: 0; padding: 0; overflow: hidden; }
 .protected-instructions-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 22px; cursor: pointer; list-style: none; }

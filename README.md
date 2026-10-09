@@ -21,6 +21,7 @@ HeetKit also includes custom commands, useful chat utilities, permissions, coold
 ## Features
 
 - **Configurable AI chat** powered by Gemini
+- **Local AI Playground** to test real Gemini replies without posting to Twitch (uses API quota)
 - **Custom AI personalities** with editable prompts and shared profile instructions
 - **Custom Twitch commands** with aliases, responses, permissions and cooldowns
 - **Useful chat commands** such as followage, weather, last seen and uptime

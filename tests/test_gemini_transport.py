@@ -15,6 +15,7 @@ import pytest
 from pydantic import SecretStr
 
 from app.container import Application
+from app.config.ai_language import ResponseLanguageSettings
 from app.services import gemini_ai_service as gemini
 
 
@@ -161,6 +162,7 @@ def new_service():
     return gemini.GeminiAIService(SimpleNamespace(
         gemini_api_key=SecretStr("synthetic-first-key"),
         gemini_model="gemini-local", gemini_fallback_model="gemini-fallback",
+        ai_response_language=ResponseLanguageSettings(),
     ))
 
 

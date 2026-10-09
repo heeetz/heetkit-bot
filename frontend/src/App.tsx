@@ -34,6 +34,7 @@ const subsections: Partial<Record<Section, { label: string; targetId: string }[]
   ],
   AI: [
     { label: 'Runtime', targetId: 'ai-runtime' },
+    { label: 'Playground', targetId: 'ai-playground' },
     { label: 'Models and fallback', targetId: 'ai-models' },
     { label: 'Response language', targetId: 'ai-language' },
     { label: 'Personalities', targetId: 'ai-personalities' },

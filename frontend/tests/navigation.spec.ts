@@ -164,7 +164,11 @@ test('parents and children work with Space, Enter, Tab and visible keyboard focu
   await expect(child).toHaveAttribute('aria-current', 'location')
   await expect(parent).toHaveAttribute('aria-expanded', 'true')
   await page.keyboard.press('Tab')
-  await expect(nav.getByRole('button', { name: 'Models and fallback', exact: true })).toBeFocused()
+  const playground = nav.getByRole('button', { name: 'Playground', exact: true })
+  await expect(playground).toBeFocused()
+  await playground.press('Enter')
+  await expect(playground).toHaveAttribute('aria-current', 'location')
+  await expect(page.locator('#ai-playground')).toBeInViewport()
 })
 
 test('dismissing a load error does not block navigation to the existing page cards', async ({ page }) => {

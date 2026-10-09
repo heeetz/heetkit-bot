@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from re import Pattern
 import re
+import httpx
 from typing import Any, AsyncIterator
 
 from app.config.settings import Settings
@@ -336,6 +337,7 @@ class GeminiAIService:
                 return AIReply(
                     text="",
                     is_available=False,
+                    status="provider_unavailable",
                 )
 
             # Import request types only when needed to avoid import errors.
@@ -346,6 +348,7 @@ class GeminiAIService:
                 return AIReply(
                     text="",
                     is_available=False,
+                    status="provider_unavailable",
                 )
 
             # Configure Google Search tool for grounding
@@ -464,21 +467,27 @@ class GeminiAIService:
                 len(afc_history),
             )
 
-            # Get the text response
-            if not response.text:
-                return AIReply(
-                    text="",
-                    is_available=False,
-                )
+            # Provider safety metadata also applies to any partial text.
+            safety_reasons = {"SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII"}
+            feedback = getattr(response, "prompt_feedback", None)
+            block_reason = getattr(feedback, "block_reason", None)
+            safety_blocked = bool(
+                block_reason and str(block_reason).rsplit(".", 1)[-1] != "BLOCK_REASON_UNSPECIFIED"
+            ) or any(
+                str(getattr(candidate, "finish_reason", "")).rsplit(".", 1)[-1] in safety_reasons
+                for candidate in candidates
+            )
+            if safety_blocked:
+                return AIReply("", False, "output_blocked", "protected_policy")
+            if not response.text or not response.text.strip():
+                return AIReply("", False, "api_error")
 
             # Apply maximum response length limit with smart truncation
             original_text = response.text.strip()
-            if self._contains_blocked_response_content(original_text):
+            blocked_reply = self._blocked_response_reply(original_text)
+            if blocked_reply is not None:
                 logger.info("Gemini response blocked by local response filter")
-                return AIReply(
-                    text="",
-                    is_available=False,
-                )
+                return blocked_reply
             
             max_length = AI_MAX_RESPONSE_LENGTH
 
@@ -511,6 +520,7 @@ class GeminiAIService:
             return AIReply(
                 text="",
                 is_available=False,
+                status="timeout" if isinstance(e, (TimeoutError, httpx.TimeoutException)) else "api_error",
             )
 
     @staticmethod
@@ -544,20 +554,30 @@ class GeminiAIService:
         )
 
     def _contains_blocked_response_content(self, text: str) -> bool:
+        return self._blocked_response_reply(text) is not None
+
+    def _blocked_response_reply(self, text: str) -> AIReply | None:
+        protected = AIReply("", False, "output_blocked", "protected_policy")
         if self._safety_policy.contains_restricted_content(text):
-            return True
-        if self.filter_manager is not None and self.filter_manager.contains_blocked_content(text):
-            return True
+            return protected
+        if self.filter_manager is not None:
+            match = self.filter_manager.evaluate_message(text)
+            if not match.allowed:
+                return AIReply(
+                    "", False, "output_blocked",
+                    "filter_timeout" if match.timed_out else "editable_filter",
+                    match.category, None if match.timed_out else match.rule,
+                )
         for pattern in self._blocked_sexual_fetish_patterns:
             if pattern.search(text):
-                return True
+                return protected
         for pattern in self._blocked_response_patterns:
             if pattern.search(text):
-                return True
+                return protected
         for pattern in self._blocked_substance_response_patterns:
             if pattern.search(text):
-                return True
-        return False
+                return protected
+        return None
 
     def _smart_truncate(self, text: str, max_length: int) -> str:
         """Truncate text to max_length while preserving sentence boundaries."""

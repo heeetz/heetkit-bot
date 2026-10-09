@@ -13,6 +13,7 @@ import {
 } from '../bridge'
 import FeedbackToast from '../components/FeedbackToast'
 import Switch from '../components/Switch'
+import AIPlayground from '../components/AIPlayground'
 
 interface AIPageProps {
   active: boolean
@@ -635,6 +636,7 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
           <strong>{data?.active_personality || 'Not selected'}</strong>
         </article>
       </div>
+      <AIPlayground active={active} personality={data?.active_personality ?? ''} />
       <article className="card ai-provider-card" id="ai-models">
         <div className="section-heading">
           <div>
