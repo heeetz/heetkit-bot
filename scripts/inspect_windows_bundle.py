@@ -6,6 +6,8 @@ import xml.etree.ElementTree as ET
 
 from PyInstaller.archive.readers import CArchiveReader
 
+from windows_redistribution import validate
+
 bundle = Path(sys.argv[1])
 forbidden_parts = {".agent", ".agents", ".codex", ".git", ".venv", "tests", "test", "pytest", "node_modules", "docs"}
 for path in bundle.rglob("*"):
@@ -44,4 +46,11 @@ for required in (
 runtime_setting = ET.parse(bundle / "HeetKit.exe.config").find("runtime/loadFromRemoteSources")
 if runtime_setting is None or runtime_setting.get("enabled") != "true":
     raise SystemExit("HeetKit.exe.config must enable loading the shipped Internet-zone assemblies")
+try:
+    evidence = validate(bundle)
+except (ValueError, KeyError, OSError) as error:
+    raise SystemExit(str(error)) from error
+print(f"Redistribution artifact evidence passed: {evidence['native_files']} native files, "
+      f"{evidence['required_notices']} required notice texts; "
+      f"{len(evidence['unresolved_findings'])} owner/legal findings remain open")
 print(f"Artifact inventory passed: {sum(p.is_file() for p in bundle.rglob('*'))} files, {len(pyz.toc)} frozen modules")

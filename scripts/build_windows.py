@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import sysconfig
+import urllib.request
 import uuid
 import zipfile
 
@@ -49,6 +50,29 @@ def stage_resources(stage: Path) -> None:
         if source.is_file():
             copy(source, stage / source.relative_to(ROOT))
     copy(ROOT / "packaging/windows/PORTABLE.txt", stage / "PORTABLE.txt")
+    copy(ROOT / "packaging/windows/redistribution.json", stage / "licenses/windows-redistribution.json")
+
+
+def stage_native_runtime(stage: Path, work: Path) -> None:
+    """Use the reviewed SDK runtime, never DLLs from ambient tool directories."""
+    policy = json.loads((ROOT / "packaging/windows/redistribution.json").read_text(encoding="utf-8"))
+    runtime = policy["pinned_runtime"]
+    source = policy["distributions"][runtime["distribution"]]
+    archive_path = work / "windows-sdk.nupkg"
+    with urllib.request.urlopen(source["url"], timeout=120) as response:
+        archive_path.write_bytes(response.read())
+    if hashlib.sha256(archive_path.read_bytes()).hexdigest() != source["sha256"]:
+        raise ValueError("Pinned Windows SDK archive hash mismatch")
+    with zipfile.ZipFile(archive_path) as archive:
+        for name, entry in runtime["files"].items():
+            if Path(name).name != name or not name.lower().endswith(".dll"):
+                raise ValueError(f"Invalid pinned runtime filename: {name}")
+            data = archive.read(entry["member"])
+            if hashlib.sha256(data).hexdigest() != entry["sha256"]:
+                raise ValueError(f"Pinned runtime binary hash mismatch: {name}")
+            target = stage / "native-runtime" / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
 
 
 def main() -> None:
@@ -74,11 +98,18 @@ def main() -> None:
     stage_resources(stage)
     # Installed package licenses plus Python's own full license collection.
     run(str(builder), str(ROOT / "scripts/windows_build_licenses.py"), str(stage))
+    stage_native_runtime(stage, work)
     environment = os.environ.copy()
     for name in list(environment):
         if name.startswith(("HEETKIT_", "TWITCH_", "GEMINI_")) or name in ("DATABASE_URL", "PYTHONPATH", "PYTHONHOME"):
             environment.pop(name)
     environment.update(HEETKIT_BUILD_STAGE=str(stage), HEETKIT_BUILD_VERSION=VERSION)
+    # Dependency discovery must not select DLLs from unrelated tools on PATH.
+    windows = Path(os.environ["SystemRoot"])
+    environment["PATH"] = os.pathsep.join(str(path) for path in (
+        builder.parent, Path(sys.base_prefix), Path(sys.base_prefix) / "DLLs",
+        windows / "System32", windows,
+    ))
     run(str(builder), "-m", "PyInstaller", "--noconfirm", "--distpath", str(work / "dist"),
         "--workpath", str(work / "freeze"), str(ROOT / "packaging/windows/HeetKit.spec"), env=environment)
     bundle = work / "dist/HeetKit"

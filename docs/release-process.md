@@ -58,6 +58,26 @@ matching interpreter. The portable builder creates an isolated pinned environmen
 bundle, inspects it, then creates the ZIP and checksum. Dependency acquisition needs
 internet access.
 
+Native redistribution evidence is pinned in `packaging/windows/redistribution.json`.
+The builder downloads the exact hash-verified Windows SDK package for the reviewed
+UCRT files and limits freezing's DLL search path to the selected interpreter and Windows.
+This prevents unrelated tools from supplying runtime DLLs. The finished bundle and
+installer input must match the reviewed native hashes and preserved notice texts.
+To check an extracted next-build payload independently:
+
+```powershell
+.venv\Scripts\python.exe scripts/windows_redistribution.py C:\path\to\HeetKit
+```
+
+Unexpected native files, altered/missing notices or changed binary hashes fail the
+check. Review exact official sources and applicable terms before changing the policy;
+never accept new hashes solely because a build produced them. Historical v1.1.0
+evidence is retained separately in the catalogue. Passing this check verifies artifact
+evidence and notice delivery; the open owner/legal findings in
+[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md#next-windows-build-corrected-materials-and-remaining-blockers)
+still block redistribution clearance. Existing published assets are not repaired by
+this next-build check.
+
 The installer wraps that exact ZIP without another freeze or frontend build.
 `-PortableZip` selects an existing ZIP; its checksum, manifest, file inventory and
 canonical version must pass inspection. The installer interpreter must have the pinned
@@ -113,7 +133,7 @@ validation checklist passed in Windows Sandbox and on a second laptop, including
 settings and credential retention, migration, profile isolation and update checking.
 These are maintainer-reported manual results for v1.1.0. The separate
 [artifact licensing review](../THIRD_PARTY_NOTICES.md#windows-v110-artifact-review)
-records missing notices and unresolved native-library provenance; redistribution
+records corrected next-build materials and remaining legal/provenance questions; redistribution
 clearance remains open.
 
 ## Windows runtime and installation

@@ -12,7 +12,9 @@ root = Path(SPECPATH).parents[1]
 stage = Path(os.environ["HEETKIT_BUILD_STAGE"])
 version = os.environ["HEETKIT_BUILD_VERSION"]
 version_tuple = tuple(int(part) for part in version.split(".")) + (0,)
-data = [(str(path), str(path.parent.relative_to(stage))) for path in stage.rglob("*") if path.is_file()]
+data = [(str(path), str(path.parent.relative_to(stage))) for path in stage.rglob("*")
+        if path.is_file() and "native-runtime" not in path.relative_to(stage).parts]
+runtime_binaries = [(str(path), ".") for path in (stage / "native-runtime").glob("*.dll")]
 data += collect_data_files("pythonnet", includes=["runtime/Python.Runtime.runtimeconfig.json", "runtime/Python.Runtime.deps.json"])
 
 metadata = VSVersionInfo(
@@ -25,7 +27,7 @@ metadata = VSVersionInfo(
 )
 a = Analysis(
     [str(root / "packaging/windows/launcher.py")], pathex=[str(root)],
-    binaries=[], datas=data,
+    binaries=runtime_binaries, datas=data,
     hiddenimports=["aiosqlite", "sqlalchemy.dialects.sqlite.aiosqlite", "keyring.backends.Windows", "clr"],
     hookspath=[str(root / "packaging/windows/hooks")],
     excludes=["pytest", "tkinter", "unittest", "pydoc", "pip", "setuptools"],

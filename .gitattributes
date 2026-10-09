@@ -1,3 +1,4 @@
 # Preserve canonical/upstream license texts, including their original whitespace.
 LICENSE -text -whitespace
+NOTICE -text -whitespace
 third_party_licenses/** -text -whitespace

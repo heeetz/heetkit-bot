@@ -83,9 +83,9 @@ the remaining items before distributing another binary; this review does not cle
 | **pystray 0.19.5** | **Resolved for the v1.1.0 layout: LGPL-3.0-or-later.** All six redistributed `.py` modules match the official wheel, retain source headers and are absent from PYZ. GPLv3/LGPLv3 copies match the wheel. `_internal/pystray/` loads from disk through the frozen importer's normal file fallback, without source-integrity restrictions: edit or replace these files while HeetKit is stopped, then relaunch without rebuilding the executable. `PORTABLE.txt` describes replacement. This verifies the source/import layout; no new native modified-library smoke test was run. Preserve this layout and its notices. [Upstream license](https://github.com/moses-palmer/pystray/blob/v0.19.5/COPYING.LGPL), [versioned source](https://github.com/moses-palmer/pystray/tree/v0.19.5). |
 | **proxy-tools 0.1.0** | **Resolved source attribution for v1.1.0: BSD-2-Clause; MIT metadata conflicts with the source grant.** The official sdist SHA-256 is `ccb3751f529c047e2d8a58440d86b205303cf0fe8146f784d1cbcd94f0a28010`. Its module explicitly identifies BSD and credits Armin Ronacher/Jonathan Tushman. It is byte-identical to [upstream source at `db43f1e`](https://github.com/jtushman/proxy_tools/blob/db43f1e35d4f90a65c5a4d56d9e9af88212ec6e6/proxy_tools/__init__.py). The frozen code objects match that sdist after normalizing only source filenames. Shipped `UPSTREAM-LICENSE.txt` exactly matches that commit's [BSD notice](https://github.com/jtushman/proxy_tools/blob/db43f1e35d4f90a65c5a4d56d9e9af88212ec6e6/LICENSE.txt), including its malformed final line. Retain it unchanged; do not substitute generic MIT text. |
 | **certifi 2026.7.22** | **Resolved source delivery for v1.1.0: MPL-2.0 CA bundle.** `_internal/certifi/` contains the exact wheel's `__init__.py`, `core.py`, `py.typed` and `cacert.pem`, outside PYZ. The shipped license matches the wheel, identifies the MPL-covered bundle and links the MPL text. `PORTABLE.txt` identifies the source/bundle location. No modifications were found. Preserve source/data delivery and notices. [Exact package/source downloads](https://pypi.org/project/certifi/2026.7.22/#files), [MPL responsibilities](https://www.mozilla.org/en-US/MPL/2.0/#responsibilities). |
-| **WebView2 SDK 1.0.3856.49** | **Open: missing SDK license and NOTICE delivery.** Core/WinForms DLLs and the x64 loader have file/product version **1.0.3856.49** and match the official [Microsoft SDK NuGet package](https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.3856.49) by SHA-256. No x86/arm64 loader or WebBrowserInterop DLL is redistributed. The package's [Microsoft BSD three-clause license](https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.3856.49/License) and `NOTICE.txt` (including Antlr3.Runtime attribution) are missing from v1.1.0's license collection. Preserve both exact texts in canonical staging inputs and verify delivery in the next installer/ZIP. The separately installed WebView2 Runtime remains a prerequisite. |
-| **pythonnet 3.1.0 / clr-loader 0.3.1 and extra .NET assemblies** | **Partially verified; extra assembly provenance remains open.** `Python.Runtime.dll` version **3.1.0.0** and amd64 `ClrLoader.dll` version **1.0.0.0** match their wheels; their MIT texts are retained. An additional **96** `Microsoft.Win32.Primitives`, `System.*` and `netstandard.dll` files are not in either wheel. File versions group as **80 × 4.6.25714.01**, **15 × 4.6.26011.01** and **netstandard 4.6.26011.1**. None matched the candidate [NETStandard.Library 2.0.3](https://www.nuget.org/packages/NETStandard.Library/2.0.3) package. Trace actual build-runner inputs and applicable terms/notices, or remove unnecessary files through a separately validated packaging change. Neither names/versions nor the deps JSON establish provenance for this extra set. |
-| **Native wheel/interpreter contents** | **Open: embedded attribution/provenance gaps.** Exact wheel matches establish extension versions above. Pillow's full wheel license collection is retained. Python's license collection includes a libffi notice; CFFI's separate compiled-in libffi needs an exact provenance/notice check. Python's `libssl-3.dll` / `libcrypto-3.dll` report **OpenSSL 3.5.7**; cryptography's SBOM identifies statically linked **OpenSSL 4.0.2**. The license collection contains neither OpenSSL attribution; retain applicable versioned license/NOTICE material. Cryptography's Rust SBOM lists **39 components**, including `target-lexicon 0.13.5` (Apache with LLVM exception) and `unicode-ident 1.0.24` (MIT/Apache and Unicode-3.0). Distinguish compiled-in and build-only crates and deliver required texts; pydantic-core's Rust dependencies also need that check. Record actual CPython/Windows runtime DLL provenance and terms rather than assigning every binary its wrapper's license. |
+| **WebView2 SDK 1.0.3856.49** | **Exact source and missing texts resolved for next-build staging.** The three shipped SDK DLLs match official NuGet `Microsoft.Web.WebView2` **1.0.3856.49**, archive SHA-256 `bc0f76eb911b569838dc4aa8f8d325269b966bedb592863d26211aef3a099f1a`. Its original Microsoft BSD license and full `NOTICE.txt` (including ANTLR and StringTemplate) are preserved in [versioned texts](third_party_licenses/native/webview2-1.0.3856.49/). They remain absent from the published v1.1.0 assets. No other native architecture or separately installed WebView2 Runtime is bundled. |
+| **pythonnet 3.1.0 / clr-loader 0.3.1 and extra .NET assemblies** | **Provenance resolved; Microsoft obligations remain open.** Correction: the earlier comparison used the platform-neutral wheel. All **97** Python.NET DLLs, including the **96** compatibility files, exactly match the official Windows-specific wheel (SHA-256 `7bdd4de03df3547a48122a3989265c8b31d5be0d19dadffa009eec7df8085e0b`). All 96 also match the official .NET SDK **10.0.300** `Microsoft.NET.Build.Extensions/net461/lib` files. The exact SDK [LICENSE and ThirdPartyNotices](third_party_licenses/native/dotnet-sdk-10.0.300/) are supplied for the next build. They are Microsoft .NET Library terms, not a blanket MIT grant. Python.NET's own DLL and CLR loader retain their own MIT grants. See necessity and owner/legal review below. |
+| **Native wheel/interpreter contents** | **Versioned notice delivery implemented; remaining questions listed below.** OpenSSL **3.5.7** and **4.0.2**, CFFI's embedded libffi, CPython's separate libffi **3.4.4**, Rust standard-library and candidate Windows crate notices are preserved from exact upstream sources. Pillow's existing full wheel collection is retained. The [artifact evidence catalogue](packaging/windows/redistribution.json) identifies binary hashes, distribution members, source archives, notice hashes, dependency scopes and unresolved findings. A crate lockfile or PE version alone is not used to claim binary linkage or licensing clearance. |
 | **Future platform backends / bundlers** | Linux `python-xlib` has LGPLv2+ metadata and needs artifact-specific source/replacement review. Optional Qt/GTK/CEF backends and macOS frameworks are outside this Windows payload. Determine exact grants, exceptions and distribution contents before shipping another platform or bundler; the pywebview wrapper does not license its renderer. CPython and the current Windows bundler/installer are covered by the Windows evidence and remaining actions above. |
 
 For MIT, BSD, MIT-CMU, PSF and similar permissive components, retain their individual
@@ -95,6 +95,89 @@ require a license copy, retained applicable attribution/NOTICE contents and modi
 notices when changed. Shipped NOTICE files from **propcache, requests and yarl** are copied
 here; aiohttp's vendored llhttp MIT notice and Pillow's bundled notices are also retained.
 The project's `NOTICE` credits heeetz; it does not replace those component notices.
+
+## Next Windows build: corrected materials and remaining blockers
+
+This is the current staging policy, separate from the **0.1.0 historical inventory**
+and the immutable **published v1.1.0 evidence** above. The canonical builder recursively
+copies `third_party_licenses/`; it now also delivers
+`_internal/licenses/windows-redistribution.json`. The existing bundle inspector checks
+the finished onedir payload before ZIP creation and again before installer compilation.
+It requires the reviewed native inventory and byte-exact notice hashes, rejects new or
+renamed PE/native files and changed binary versions/hashes, and compares the staged
+catalogue with the trusted repository copy. It does **not** grant legal clearance.
+The SDK UCRT inputs are now pinned to those exact published v1.1.0 files, with verified
+download/member hashes and a restricted freezing search path. This prevents ambient
+tool directories supplying different DLLs. No DLLs are removed, package versions upgraded,
+runtime/profile behavior or publication rules changed. Updating the allowlist requires exact upstream review, never merely hashes
+from a new build. Historical notice files may remain in staging; the catalogue separately
+identifies the current required texts and their concrete evidence.
+
+The Windows wheel's compatibility build is explicit in Python.NET **3.1.0** source
+(`--net46-support`, `src/compat/Python.Runtime.Compat.csproj`; source archive SHA-256
+`7b34c382905d10a371509ffafd64cae0416305c28817738a9cd138336f4e9991`).
+Microsoft's SDK targets copy this set for .NET Standard dependencies on older .NET
+Framework targets. This explains its purpose for HeetKit's existing .NET **4.6.2+**
+minimum. Individual DLL redundancy across every supported runtime is not established:
+all 96 are retained, with no unvalidated removal or minimum-runtime change. The official
+[SDK archive](https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.300/dotnet-sdk-10.0.300-win-x64.zip)
+was verified against its published SHA-512
+`32446eddffc5a485f58f9d79cdab3a1a9adab4adc2ef0e4c787cfbb2465020d50beaadc54d40f0850e2e0089edd09864d12d6c19c526319819d57a4c00d38518`.
+Exact per-file hashes and source members are in the catalogue.
+
+CPython **3.14.7** source selectors name OpenSSL **3.5.7**; the interpreter/SSL binaries
+match official CPython distributions. Its OpenSSL source archive SHA-256 is
+`a8c0d28a529ca480f9f36cf5792e2cd21984552a3c8e4aa11a24aa31aeac98e8`.
+Cryptography **50.0.1**'s exact wheel/native extension and SBOM bind its statically linked
+OpenSSL **4.0.2** to source SHA-256
+`736b467530f916737b7031310ccb21d8218c6229e61e8e160cd1d3458cd543a8`.
+Both releases supply `LICENSE.txt`, `AUTHORS.md` and `README.md`; neither contains a
+NOTICE file. Those actual attribution files are preserved unchanged in their versioned
+[3.5.7](third_party_licenses/native/openssl-3.5.7/) and
+[4.0.2](third_party_licenses/native/openssl-4.0.2/) directories.
+
+CFFI **2.1.1**'s exact Windows source build statically compiles its bundled
+`libffi_x86_x64` copy; its original `ffi.h` permission/copyright block is preserved.
+The header calls it **2.00-beta**, not CPython's libffi version. `_cffi_backend` has no
+libffi DLL import; `_ctypes.pyd` imports the separate `libffi-8.dll`, which matches the
+official CPython **3.14.7** embeddable package and its **3.4.4** source selector.
+Both notices and CFFI's own MIT-0 text are delivered.
+
+Cryptography's wheel SBOM/Cargo source distinguishes runtime, procedural-macro and
+build/probe dependencies. Pydantic-core **2.46.5**'s wheel SBOM explicitly includes
+**all targets**: its Cargo/feature analysis supplies a conservative possible Windows
+runtime closure, not proof that every locked crate survived compilation. Build-only
+and non-Windows dependencies are separately identified, with exact candidate runtime
+license texts supplied. Both Rust extensions contain the compiler commit path
+`88d9e12ae178fab0fb5cc050a94da85685d449ea`, mapped to Rust **1.98.0**.
+That exact release's Apache/MIT/COPYRIGHT texts and evidenced standard-library
+dependency notices are supplied; its source archive SHA-256 is
+`271fa73d8174f53d713c46a8310da7bf7cfdcfb8b7cfd1c2b74b84a83ae9fb1e`.
+Compiler tooling is not bundled as an application dependency.
+
+**Redistribution clearance remains open. Owner/legal or upstream review is required:**
+
+- Microsoft .NET Library **3.a.ii** requires protective distributor/end-user terms and
+  indemnification. The app's current notice display/Apache project license does not
+  demonstrate satisfaction. Determine the applicable grant and contractual treatment;
+  do not assign Microsoft's assemblies Python.NET's MIT license.
+- All **43** published UCRT files match `Microsoft.Windows.SDK.CPP` **10.0.26100.1742**
+  (package SHA-256 `cea18bcdb33096a94e441a8fdf2db138e356b020a1b5f27d6ddfea1bcec48eb2`).
+  Its exact package license URL's original [RTF terms](third_party_licenses/native/windows-sdk-10.0.26100.1742/LICENSE.rtf)
+  are retained. Confirm REDIST-list coverage and the SDK **3.a.ii** contractual requirements.
+  `VCRUNTIME140.dll`/`VCRUNTIME140_1.dll` match official CPython distributions, but their
+  separate Microsoft redistribution terms also need confirmation.
+- The published `sqlite3.dll` reports **3.50.4.0** and CPython selects that source version,
+  but it does not match the inspected official CPython NuGet binary. Its exact binary
+  distribution remains unproven; metadata does not supply the missing provenance.
+  The next-build SQLite hash independently matches official CPython NuGet **3.14.7**;
+  its current entry and the unresolved historical entry are kept separate.
+- The retained pydantic/toolchain code lacks an upstream reproducible build/symbol map.
+  Rust's standard-library lockfile identifies in-tree `compiler_builtins 0.1.160` without
+  a registry checksum; the exact registry text is supplied conservatively, but that
+  does not prove identity with the in-tree source. Confirm this relationship and whether
+  generated macro output needs any additional attribution. Candidate inclusion is not
+  a claim that build-only crates are shipped or that all linkage questions are closed.
 
 ## Python runtime inventory (Windows)
 
