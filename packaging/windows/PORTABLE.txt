@@ -1,4 +1,4 @@
-HeetKit portable Windows x64 candidate
+HeetKit portable Windows x64
 
 Use Windows Explorer Extract All, then launch HeetKit.exe. Keep _internal and
 HeetKit.exe.config beside the executable so .NET can load downloaded managed DLLs.
@@ -29,9 +29,11 @@ Use HeetKit.exe --stopped for a disconnected launch, or
 HeetKit.exe --data-dir C:\path\to\new-profile --stopped for an isolated profile.
 Configure Twitch identity, client secret and optional Gemini key in Settings.
 
-This is a local test candidate. Clean-machine manual validation and the concrete
-redistribution reviews in THIRD_PARTY_NOTICES.md remain required before publication.
-There is no installer, upgrade automation or update checker in this phase.
+About > Updates provides manual stable-release checks and the official download
+page. Checks leave saved settings unchanged. Installer updates are downloaded and
+run manually after quitting HeetKit completely with tray Exit.
+Concrete redistribution findings and remaining requirements are documented in
+THIRD_PARTY_NOTICES.md; validate each new installer/ZIP before distribution.
 
 HeetKit is created by heeetz and licensed under Apache-2.0. It is not affiliated
 with or endorsed by Twitch. License, NOTICE, third-party notices and exact installed

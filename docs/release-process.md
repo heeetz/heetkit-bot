@@ -107,6 +107,15 @@ on 5 October 2026 with all five release assets. Its
 completed successfully. Publication does not establish completion of manual artifact smoke
 tests or artifact-specific redistribution review.
 
+[Prerelease v1.1.0](https://github.com/heeetz/heetkit-bot/releases/tag/v1.1.0) was published
+on 9 October 2026. The maintainer confirmed the complete published installer/portable
+validation checklist passed in Windows Sandbox and on a second laptop, including
+settings and credential retention, migration, profile isolation and update checking.
+These are maintainer-reported manual results for v1.1.0. The separate
+[artifact licensing review](../THIRD_PARTY_NOTICES.md#windows-v110-artifact-review)
+records missing notices and unresolved native-library provenance; redistribution
+clearance remains open.
+
 ## Windows runtime and installation
 
 Target machines need .NET Framework 4.6.2+ and

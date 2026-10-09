@@ -1,7 +1,7 @@
 # Third-party notices
 
 HeetKit is licensed under Apache-2.0; dependencies retain their own licenses.
-This audit snapshot is dated **2026-10-04**, for application version **0.1.0**.
+The source-inventory snapshot below is dated **2026-10-04**, for application version **0.1.0**.
 It inventories the 54-package Windows runtime dependency closure in the existing
 Python 3.14 environment and all 119 packages in `frontend/package-lock.json`.
 The Python declarations support 3.12+ and mostly use version ranges: this snapshot
@@ -14,12 +14,46 @@ from those packages are in [third_party_licenses/](third_party_licenses/). That 
 also includes Vite's license because its module-preload helper can enter generated JS.
 These notices do not relicense any dependency under the project's Apache license.
 
+## Windows v1.1.0 artifact review
+
+Reviewed on **2026-10-09** against the downloaded
+[v1.1.0 prerelease](https://github.com/heeetz/heetkit-bot/releases/tag/v1.1.0), built at
+`9641e85`. This review supersedes the earlier open questions only where the evidence
+below resolves them. **Redistribution clearance remains open.**
+
+| Evidence | SHA-256 |
+| --- | --- |
+| `HeetKit-1.1.0-windows-x64.zip` | `b4727006408f2e0174a0de42f79e6d411f99d372e1b61af2430ceeee11542df9` |
+| `HeetKit-1.1.0-windows-x64-setup.exe` | `577c50889519ac9d2089a6c07ce96a6ace2a74d199bfdc792e0af463bdbbc771` |
+| Portable `BUILD-MANIFEST.json`, also identified by installer traceability | `c1ca317455234b12ed902d489ba11e4ef4287f59a0a8b2aa280f3254fdb1eab4` |
+
+Both checksum sidecars and all **447** manifest file hashes passed. The canonical
+bundle inspector passed on the extracted payload: **448 files** including the manifest,
+**1,582 frozen modules**, no prohibited private/development paths or frozen pystray modules.
+`LICENSE`, `NOTICE`, the earlier `THIRD_PARTY_NOTICES.md` and `PORTABLE.txt` are accessible
+offline and matched the pre-review repository texts, allowing for line endings.
+The installed-license collection retains exact wheel GPL/LGPL, certifi, Pillow and CFFI
+texts. The copied source inventory remains historical; for example, the packaging pin
+for urllib3 is now **2.8.0**, rather than the inventory's **2.7.0**.
+
+Exact official PyPI wheels were downloaded with their PyPI SHA-256 verified. Shipped
+files matched pystray 0.19.5 (six Python modules), certifi 2026.7.22 (four source/data
+files), pywebview 6.2.1 (three SDK DLLs and six JS files), pythonnet 3.1.0 (runtime DLL,
+deps and XML files), clr-loader 0.3.1 (amd64 loader), cryptography 50.0.1
+(`cp311-abi3-win_amd64` Rust extension and both SBOMs), Pillow 12.3.0 (six extensions),
+CFFI 2.1.1 and pydantic-core 2.46.5 (their `cp314-cp314-win_amd64` extensions).
+Only redistributed files were compared; this does not claim complete wheel inclusion.
+
+The component table below records resolved checks and concrete remaining actions.
+This documentation update does not replace the notice files inside the already
+published v1.1.0 installer or ZIP.
+
 ## Redistribution requirements and manual review
 
 [Windows x64 v1.0.0](https://github.com/heeetz/heetkit-bot/releases/tag/v1.0.0) is published.
 The canonical build uses CPython 3.14.7, PyInstaller 6.22.3 and hooks-contrib 2026.8.
 Publication does not resolve the artifact-specific redistribution reviews below; the
-source inventory above remains its dated 0.1.0 snapshot.
+source inventory remains its dated 0.1.0 snapshot, with v1.1.0 evidence recorded above.
 Exact build/runtime pins are in `packaging/windows/requirements.txt`. The bundle includes
 the Python license collection, these preserved texts and installed distribution license files
 under `_internal/licenses/`. `BUILD-MANIFEST.json` records its file hashes.
@@ -29,8 +63,8 @@ upstream copyright/site notices. Its [license](https://github.com/jrsoftware/iss
 is preserved in `third_party_licenses/inno-setup/LICENSE.txt`, shown in the setup notices,
 and installed under `_internal/licenses/Inno-Setup-LICENSE.txt`. .NET Framework and
 WebView2 Runtime installers are not bundled: missing prerequisites direct the user to
-Microsoft's supported downloads. Existing payload redistribution reviews below remain
-open; producing an installer does not establish public-release clearance.
+Microsoft's supported downloads. The remaining payload redistribution reviews below
+are open; producing an installer does not establish public-release clearance.
 
 The build keeps pystray's redistributed modules as exact, replaceable `.py` files outside
 the frozen PYZ, alongside GPL/LGPL texts; no pystray modifications are made. certifi's Python
@@ -42,17 +76,17 @@ payload still includes the Microsoft/System/netstandard assemblies described bel
 **Recheck this notice set against each actual packaged artifact**, including frozen imports,
 native DLLs/extensions, Python's
 standard library, generated JS, data files, and any bundled OS prerequisites. Resolve
-the following items before distributing binaries; this source audit is not binary clearance.
+the remaining items before distributing another binary; this review does not clear v1.1.0.
 
 | Component | Status and required action |
 | --- | --- |
-| **pystray 0.19.5** | **Manual review: LGPL-3.0-or-later.** Source headers establish the later-version option; PyPI says LGPLv3. Keep its copyright notice plus both GPLv3 and LGPLv3 texts (copied here). Supply the exact library source and any modifications; ensure users can modify/replace/recombine it and debug those modifications. A frozen PYZ/onefile arrangement needs a reviewed source/rebuild or suitable replacement mechanism; a source URL alone is not a compliance plan. [Upstream license](https://github.com/moses-palmer/pystray/blob/v0.19.5/COPYING.LGPL), [versioned source](https://github.com/moses-palmer/pystray/tree/v0.19.5). |
-| **proxy-tools 0.1.0** | **Manual review: conflicting attribution/license evidence.** The exact PyPI wheel/sdist metadata says MIT, and neither includes a license file. The [upstream LICENSE.txt](https://github.com/jtushman/proxy_tools/blob/master/LICENSE.txt) instead contains a BSD two-clause notice crediting Armin Ronacher and Jonathan Tushman, with a malformed final line. Its README describes extraction from Werkzeug. The upstream text is preserved as `UPSTREAM-LICENSE.txt`, not asserted to resolve the release's grant. Obtain authoritative confirmation for the exact redistributed code and preserve the original attribution. Do not substitute a generic MIT license. |
-| **certifi 2026.7.22** | MPL-2.0 CA bundle. Keep its shipped notice; identify and make the exact covered source/bundle available to recipients, including changes. Keep MPL-covered files under MPL-2.0; the larger application may retain its own license. Confirm the release's source delivery approach during packaging. [Exact package/source downloads](https://pypi.org/project/certifi/2026.7.22/#files), [MPL responsibilities](https://www.mozilla.org/en-US/MPL/2.0/#responsibilities). |
-| **pywebview 6.2.1 Windows DLLs** | **Manual review: pywebview's BSD license does not establish the Microsoft SDK's terms.** The inspected wheel includes `Microsoft.Web.WebView2.Core.dll` / `WinForms.dll` version **1.0.3856.49** and x86/x64/arm64 `WebView2Loader.dll`, plus `WebBrowserInterop` DLLs. Match each shipped DLL to its source/package, retain the applicable Microsoft SDK terms/notices, and select only required architectures. The installed WebView2 Runtime is an OS prerequisite, not React code. Review separately if a runtime/bootstrapper is redistributed. [Microsoft SDK package](https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.3856.49), [Microsoft distribution guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution). |
-| **pythonnet 3.1.0 / clr-loader 0.3.1 native payload** | Their own licenses are MIT and copied here. **Manual review** of additional Microsoft/System/netstandard assemblies in `pythonnet/runtime/` is still required: record actual file versions and NuGet/source provenance and retain their own terms; do not infer all DLL licenses from Python.NET's MIT metadata. `Python.Runtime.deps.json` records additional package dependencies. A bundled CLR/.NET runtime would require a separate inventory. |
-| **Native wheel contents** | **Manual review** of embedded dependencies in `cryptography` (OpenSSL/Rust), Pillow (image codecs and its extensive bundled-library notices), CFFI (libffi), pydantic-core and other compiled extensions: inspect the exact wheel/artifact, retain embedded license/NOTICE texts, and add missing source/license evidence. Top-level Python metadata does not enumerate every compiled-in library. Pillow's full shipped license collection is retained here. |
-| **Future platform backends / bundlers** | Linux `python-xlib` has LGPLv2+ metadata and needs the same artifact-specific source/replacement review. Optional Qt/GTK/CEF backends, their native libraries, macOS frameworks, the Python interpreter and any future freezing/installer tool are not shipped by this task. Determine selected versions, exact grants, exceptions and distribution contents when used; do not assume the pywebview wrapper licenses its renderer. |
+| **pystray 0.19.5** | **Resolved for the v1.1.0 layout: LGPL-3.0-or-later.** All six redistributed `.py` modules match the official wheel, retain source headers and are absent from PYZ. GPLv3/LGPLv3 copies match the wheel. `_internal/pystray/` loads from disk through the frozen importer's normal file fallback, without source-integrity restrictions: edit or replace these files while HeetKit is stopped, then relaunch without rebuilding the executable. `PORTABLE.txt` describes replacement. This verifies the source/import layout; no new native modified-library smoke test was run. Preserve this layout and its notices. [Upstream license](https://github.com/moses-palmer/pystray/blob/v0.19.5/COPYING.LGPL), [versioned source](https://github.com/moses-palmer/pystray/tree/v0.19.5). |
+| **proxy-tools 0.1.0** | **Resolved source attribution for v1.1.0: BSD-2-Clause; MIT metadata conflicts with the source grant.** The official sdist SHA-256 is `ccb3751f529c047e2d8a58440d86b205303cf0fe8146f784d1cbcd94f0a28010`. Its module explicitly identifies BSD and credits Armin Ronacher/Jonathan Tushman. It is byte-identical to [upstream source at `db43f1e`](https://github.com/jtushman/proxy_tools/blob/db43f1e35d4f90a65c5a4d56d9e9af88212ec6e6/proxy_tools/__init__.py). The frozen code objects match that sdist after normalizing only source filenames. Shipped `UPSTREAM-LICENSE.txt` exactly matches that commit's [BSD notice](https://github.com/jtushman/proxy_tools/blob/db43f1e35d4f90a65c5a4d56d9e9af88212ec6e6/LICENSE.txt), including its malformed final line. Retain it unchanged; do not substitute generic MIT text. |
+| **certifi 2026.7.22** | **Resolved source delivery for v1.1.0: MPL-2.0 CA bundle.** `_internal/certifi/` contains the exact wheel's `__init__.py`, `core.py`, `py.typed` and `cacert.pem`, outside PYZ. The shipped license matches the wheel, identifies the MPL-covered bundle and links the MPL text. `PORTABLE.txt` identifies the source/bundle location. No modifications were found. Preserve source/data delivery and notices. [Exact package/source downloads](https://pypi.org/project/certifi/2026.7.22/#files), [MPL responsibilities](https://www.mozilla.org/en-US/MPL/2.0/#responsibilities). |
+| **WebView2 SDK 1.0.3856.49** | **Open: missing SDK license and NOTICE delivery.** Core/WinForms DLLs and the x64 loader have file/product version **1.0.3856.49** and match the official [Microsoft SDK NuGet package](https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.3856.49) by SHA-256. No x86/arm64 loader or WebBrowserInterop DLL is redistributed. The package's [Microsoft BSD three-clause license](https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.3856.49/License) and `NOTICE.txt` (including Antlr3.Runtime attribution) are missing from v1.1.0's license collection. Preserve both exact texts in canonical staging inputs and verify delivery in the next installer/ZIP. The separately installed WebView2 Runtime remains a prerequisite. |
+| **pythonnet 3.1.0 / clr-loader 0.3.1 and extra .NET assemblies** | **Partially verified; extra assembly provenance remains open.** `Python.Runtime.dll` version **3.1.0.0** and amd64 `ClrLoader.dll` version **1.0.0.0** match their wheels; their MIT texts are retained. An additional **96** `Microsoft.Win32.Primitives`, `System.*` and `netstandard.dll` files are not in either wheel. File versions group as **80 × 4.6.25714.01**, **15 × 4.6.26011.01** and **netstandard 4.6.26011.1**. None matched the candidate [NETStandard.Library 2.0.3](https://www.nuget.org/packages/NETStandard.Library/2.0.3) package. Trace actual build-runner inputs and applicable terms/notices, or remove unnecessary files through a separately validated packaging change. Neither names/versions nor the deps JSON establish provenance for this extra set. |
+| **Native wheel/interpreter contents** | **Open: embedded attribution/provenance gaps.** Exact wheel matches establish extension versions above. Pillow's full wheel license collection is retained. Python's license collection includes a libffi notice; CFFI's separate compiled-in libffi needs an exact provenance/notice check. Python's `libssl-3.dll` / `libcrypto-3.dll` report **OpenSSL 3.5.7**; cryptography's SBOM identifies statically linked **OpenSSL 4.0.2**. The license collection contains neither OpenSSL attribution; retain applicable versioned license/NOTICE material. Cryptography's Rust SBOM lists **39 components**, including `target-lexicon 0.13.5` (Apache with LLVM exception) and `unicode-ident 1.0.24` (MIT/Apache and Unicode-3.0). Distinguish compiled-in and build-only crates and deliver required texts; pydantic-core's Rust dependencies also need that check. Record actual CPython/Windows runtime DLL provenance and terms rather than assigning every binary its wrapper's license. |
+| **Future platform backends / bundlers** | Linux `python-xlib` has LGPLv2+ metadata and needs artifact-specific source/replacement review. Optional Qt/GTK/CEF backends and macOS frameworks are outside this Windows payload. Determine exact grants, exceptions and distribution contents before shipping another platform or bundler; the pywebview wrapper does not license its renderer. CPython and the current Windows bundler/installer are covered by the Windows evidence and remaining actions above. |
 
 For MIT, BSD, MIT-CMU, PSF and similar permissive components, retain their individual
 copyright, license terms and disclaimers in redistributed copies. Preserve the distinction
@@ -102,7 +136,7 @@ licenses and notices. Runtime inclusion in a frozen bundle must be confirmed dur
 | [pillow](https://pypi.org/project/pillow/12.3.0/) | 12.3.0 | Transitive | MIT-CMU | [Texts](third_party_licenses/python/pillow/) |
 | [platformdirs](https://pypi.org/project/platformdirs/4.12.2/) | 4.12.2 | Direct | MIT | [Texts](third_party_licenses/python/platformdirs/) |
 | [propcache](https://pypi.org/project/propcache/0.5.2/) | 0.5.2 | Transitive | Apache-2.0 | [Texts](third_party_licenses/python/propcache/) |
-| [proxy-tools](https://pypi.org/project/proxy-tools/0.1.0/) | 0.1.0 | Transitive | CONFLICT: MIT metadata / BSD-2-Clause upstream; manual review | [Texts](third_party_licenses/python/proxy-tools/) |
+| [proxy-tools](https://pypi.org/project/proxy-tools/0.1.0/) | 0.1.0 | Transitive | BSD-2-Clause source grant; conflicting MIT metadata; v1.1.0 source match verified above | [Texts](third_party_licenses/python/proxy-tools/) |
 | [pyasn1](https://pypi.org/project/pyasn1/0.6.4/) | 0.6.4 | Transitive | BSD-2-Clause | [Texts](third_party_licenses/python/pyasn1/) |
 | [pyasn1-modules](https://pypi.org/project/pyasn1-modules/0.4.2/) | 0.4.2 | Transitive | BSD-2-Clause | [Texts](third_party_licenses/python/pyasn1-modules/) |
 | [pycparser](https://pypi.org/project/pycparser/3.0/) | 3.0 | Transitive | BSD-3-Clause | [Texts](third_party_licenses/python/pycparser/) |
@@ -130,8 +164,8 @@ licenses and notices. Runtime inclusion in a frozen bundle must be confirmed dur
 `clr-loader` has no license field/classifier in the inspected metadata: its shipped
 MIT text, checked against [upstream](https://github.com/pythonnet/clr-loader/blob/main/LICENSE),
 establishes the listed grant. `pyasn1-modules`' generic “BSD” metadata is resolved by its
-shipped two-clause text. `pystray`'s source headers resolve “or later”. `proxy-tools` remains
-unresolved as explained above. No license was assigned from a package name alone.
+shipped two-clause text. `pystray`'s source headers resolve “or later”. `proxy-tools`' source
+grant and exact v1.1.0 code match are recorded above. No license was assigned from a package name alone.
 
 ### Conditional runtime dependencies (not in the Windows inventory)
 
@@ -339,5 +373,6 @@ test runner nor test browsers are part of the application frontend bundle.
    credentials, caches and development context. A repository link alone does not satisfy
    delivery of required license texts with a binary.
 
-This source audit does not establish binary redistribution clearance.
-Artifact-specific verification remains required for published and future distributions.
+This review does not establish binary redistribution clearance while the recorded
+actions remain open. Verify corrected notices and provenance in the actual next
+installer/ZIP; updating repository documentation does not change published artifacts.

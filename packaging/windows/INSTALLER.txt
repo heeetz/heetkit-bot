@@ -33,6 +33,7 @@ and shortcuts, preserves profiles and credentials, and leaves Microsoft runtimes
 installed. Reinstalling reuses your existing profile. No user-data deletion is
 offered. Back up private profile data before manual upgrade testing.
 
-This local candidate is unsigned and is not yet cleared for public release.
-Manual install/upgrade/uninstall, native window/tray and clean-machine checks
-remain necessary. Redistribution questions remain in THIRD_PARTY_NOTICES.md.
+This Windows distribution is unsigned. Validate install/upgrade/uninstall,
+native window/tray and clean-machine behavior for each new artifact.
+Concrete redistribution findings and remaining requirements are documented in
+THIRD_PARTY_NOTICES.md; successful runtime tests do not establish licensing clearance.
