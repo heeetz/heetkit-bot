@@ -226,6 +226,25 @@ export interface AIProviderSettingsResponse extends ActionResult {
   settings?: AIProviderSettings
 }
 
+export type AILanguageMode = 'auto' | 'limited'
+
+export interface AILanguageSettings {
+  mode: AILanguageMode
+  allowed_languages: string[]
+  fallback_language: string
+}
+
+export interface AILanguageInfo {
+  code: string
+  label: string
+}
+
+export interface AILanguageSettingsResponse extends ActionResult {
+  settings?: AILanguageSettings
+  languages?: AILanguageInfo[]
+  active_policy?: string
+}
+
 export interface AboutInfo {
   application_name: string
   application_subtitle: string
@@ -300,6 +319,8 @@ interface PythonApi {
   get_credentials(): Promise<CredentialsResponse>
   get_ai_provider_settings(): Promise<AIProviderSettingsResponse>
   update_ai_provider_settings(selectedModel: string, fallbackModel: string): Promise<ActionResult>
+  get_ai_language_settings(): Promise<AILanguageSettingsResponse>
+  update_ai_language_settings(mode: string, allowedLanguages: string[], fallbackLanguage: string): Promise<ActionResult>
   discover_gemini_models(): Promise<ModelDiscoveryResponse>
   replace_credential(name: CredentialName, value: string): Promise<ActionResult>
   remove_credential(name: CredentialName): Promise<ActionResult>

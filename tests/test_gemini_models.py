@@ -134,7 +134,8 @@ async def test_discovery_and_generation_reuse_client_with_live_model_settings(mo
         return client
 
     monkeypatch.setattr(genai, "Client", create_client)
-    settings = SimpleNamespace(
+    from app.config.settings import Settings
+    settings = Settings(
         gemini_api_key=SecretStr("first-key"),
         gemini_model="gemini-missing",
         gemini_fallback_model="gemini-fallback",

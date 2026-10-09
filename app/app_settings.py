@@ -15,6 +15,7 @@ from threading import RLock
 from app.config.ai_models import validate_gemini_model_settings
 from app.settings_recovery import preserve_settings_recovery
 from app.config.ai import AI_MEMORY_ENABLED
+from app.config.ai_language import ResponseLanguageSettings, validate_response_language
 
 logger = logging.getLogger(__name__)
 APP_SETTINGS_VERSION = 1
@@ -39,6 +40,7 @@ class AISettings:
     fallback_model: str | None = None
     # Optional per-account policy; internal AI/output bounds remain code-owned.
     cooldown_bypass_user_id: str | None = None
+    response_language: ResponseLanguageSettings = field(default_factory=ResponseLanguageSettings)
 
 
 @dataclass(frozen=True, slots=True)
@@ -330,6 +332,20 @@ def load_app_settings(path: Path) -> AppSettings:
         selected_model = None
         fallback_model = None
 
+    response_language = ResponseLanguageSettings()
+    if "response_language" in ai_payload:
+        language_payload = ai_payload["response_language"]
+        try:
+            if not isinstance(language_payload, dict):
+                raise ValueError("Response language settings must be an object.")
+            response_language = validate_response_language(
+                language_payload.get("mode"),
+                language_payload.get("allowed_languages"),
+                language_payload.get("fallback_language"),
+            )
+        except ValueError:
+            logger.warning("Ignoring invalid application setting name=ai.response_language")
+
     return AppSettings(
         window=WindowSettings(
             start_minimized=_read_boolean(
@@ -369,6 +385,7 @@ def load_app_settings(path: Path) -> AppSettings:
             selected_model=selected_model,
             fallback_model=fallback_model,
             cooldown_bypass_user_id=cooldown_bypass_user_id,
+            response_language=response_language,
         ),
         twitch=twitch,
     )
@@ -504,6 +521,18 @@ class AppSettingsStore:
                 startup=self._settings.startup,
                 ai=replace(self._settings.ai, selected_model=selected, fallback_model=fallback),
                 twitch=self._settings.twitch,
+            )
+            save_app_settings(self._path, updated, recovered_settings=self._settings)
+            self._settings = updated
+        return updated
+
+    def update_ai_response_language(
+        self, *, mode: object, allowed_languages: object, fallback_language: object,
+    ) -> AppSettings:
+        language = validate_response_language(mode, allowed_languages, fallback_language)
+        with self._lock:
+            updated = replace(
+                self._settings, ai=replace(self._settings.ai, response_language=language),
             )
             save_app_settings(self._path, updated, recovered_settings=self._settings)
             self._settings = updated

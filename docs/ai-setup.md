@@ -31,13 +31,18 @@ credential that lets HeetKit send requests to Google's Gemini service.
    Tier support. Fallback handles unavailable models, not quota or billing errors.
 8. Configure your AI style:
 
+   - **Response language:** on the **AI** page, keep **Auto** to match the current
+     question without language restrictions, or choose **Limited**, select allowed
+     languages and a fallback, then **Save language settings**. Changes apply to the next AI
+     request and are saved for this profile. The initial Limited selection is English,
+     Ukrainian and Russian, with English fallback; Auto remains the default.
    - **Personality:** choose the supplied `neutral` personality or use **New personality**
      to create your own named style.
    - **Personality prompt:** describe the tone and behavior you want, such as
      “Keep replies short, playful and welcoming.” Choose **Save**, then **Set active**.
      Creating or selecting a personality in the editor alone does not activate it.
    - **Profile instructions:** optionally add guidance that applies to every personality
-     in this local profile, such as your community's preferred language. Choose **Save**
+     in this local profile, such as your community's vocabulary. Choose **Save**
      to keep it across restarts; **Apply** affects only this session.
    - **Conversation memory:** choose whether recent successful exchanges for each chatter
      are saved locally and included in later AI requests. Turning memory off stops that
@@ -48,6 +53,27 @@ credential that lets HeetKit send requests to Google's Gemini service.
    `!ask Say hello to chat` from another account in the target channel. If you enable the
    command here, save the Ask command on **Commands** to keep it enabled after restart.
    Permissions, cooldowns and filters still apply.
+
+## Response language
+
+In **Limited**, a clearly identified input language is used when it is allowed;
+otherwise the bot uses the selected fallback. The allowed set must contain at least
+one language, and the fallback must belong to it. The AI page shows the saved active
+policy separately from any unsaved selection.
+
+Language selection uses prose in the current question. Clear short greetings such as
+“Привіт” or “Привет” identify Ukrainian or Russian. Mixed or code-switching messages
+use a language only when it has a clear strict majority of the language-bearing words;
+an unsupported majority uses fallback. Ties (for example “Hello Привіт”), unclear short
+text such as “ok”, emoji-only and code-only messages use fallback. Quoted text, code,
+URLs, names and numbers do not determine the language.
+
+Conversation memory, stream context, editable personalities, profile instructions and
+requests to switch language cannot override the protected response-language policy.
+Gemini interprets these rules within the existing generation request: no separate
+language-detector service or extra model call is used. These are prompt instructions,
+not a guarantee of perfect detection or output language. Literal names, code and
+necessary quotations may retain their original text. Non-AI commands are unaffected.
 
 ## Personality editing
 

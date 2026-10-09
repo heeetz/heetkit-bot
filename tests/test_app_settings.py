@@ -147,6 +147,10 @@ def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
             "fallback_model": None,
             "memory_enabled": False,
             "selected_model": None,
+            "response_language": {
+                "mode": "auto", "allowed_languages": ["en", "uk", "ru"],
+                "fallback_language": "en",
+            },
         },
         "twitch": {
             "client_id": None,
@@ -352,6 +356,10 @@ def test_gemini_model_settings_are_validated_persisted_and_reloaded(tmp_path) ->
         "fallback_model": "gemini-3.1-flash-lite",
         "memory_enabled": True,
         "selected_model": "custom-gemini-model",
+        "response_language": {
+            "mode": "auto", "allowed_languages": ["en", "uk", "ru"],
+            "fallback_language": "en",
+        },
     }
 
     memory_updated = store.update_ai_memory(enabled=False)

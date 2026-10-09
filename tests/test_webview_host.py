@@ -1141,7 +1141,7 @@ def build_ai_bridge(tmp_path) -> tuple[WebUIBridge, RuntimeState]:
     application = SimpleNamespace(
         services=SimpleNamespace(runtime_state=runtime_state),
         registry=registry,
-        settings=SimpleNamespace(gemini_model="gemini-test"),
+        settings=Settings(gemini_model="gemini-test"),
     )
     bridge = WebUIBridge(
         cast(

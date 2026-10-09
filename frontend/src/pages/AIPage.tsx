@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 
 import {
+  type AILanguageInfo,
+  type AILanguageMode,
+  type AILanguageSettings,
   type AIProviderSettings,
   type AIStatus,
   type GeminiModelPreset,
@@ -17,6 +20,26 @@ interface AIPageProps {
 }
 
 const CUSTOM_MODEL_VALUE = '__custom_model__'
+const DEFAULT_LIMITED_LANGUAGES = ['en', 'uk', 'ru']
+
+function sameLanguageSettings(left: AILanguageSettings, right: AILanguageSettings): boolean {
+  return left.mode === right.mode
+    && left.fallback_language === right.fallback_language
+    && left.allowed_languages.length === right.allowed_languages.length
+    && left.allowed_languages.every((code, index) => code === right.allowed_languages[index])
+}
+
+function languageSettingsLabel(
+  settings: AILanguageSettings,
+  languages: AILanguageInfo[],
+): string {
+  if (settings.mode === 'auto') {
+    return 'Auto — match the incoming language without restrictions.'
+  }
+  const labelFor = (code: string) => languages.find((language) => language.code === code)?.label ?? code
+  const allowed = settings.allowed_languages.map(labelFor).join(', ') || 'No languages selected'
+  return `Limited — ${allowed}; fallback ${labelFor(settings.fallback_language)}.`
+}
 
 function ModelSelector({
   label,
@@ -81,6 +104,9 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
   const [profileDraft, setProfileDraft] = useState('')
   const [providerSaved, setProviderSaved] = useState<AIProviderSettings | null>(null)
   const [providerDraft, setProviderDraft] = useState<AIProviderSettings | null>(null)
+  const [languageSaved, setLanguageSaved] = useState<AILanguageSettings | null>(null)
+  const [languageDraft, setLanguageDraft] = useState<AILanguageSettings | null>(null)
+  const [languageCatalogue, setLanguageCatalogue] = useState<AILanguageInfo[]>([])
   const [discoveredModels, setDiscoveredModels] = useState<string[]>([])
   const [createOpen, setCreateOpen] = useState(false)
   const [createName, setCreateName] = useState('')
@@ -144,13 +170,17 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
     const load = async () => {
       try {
         const api = await waitForBridge()
-        const [nextStatus, response, providerResponse] = await Promise.all([
+        const [nextStatus, response, providerResponse, languageResponse] = await Promise.all([
           api.get_ai_status(),
           api.get_personalities(),
           api.get_ai_provider_settings(),
+          api.get_ai_language_settings(),
         ])
         if (!providerResponse.ok || !providerResponse.settings) {
           throw new Error(providerResponse.error ?? 'AI provider settings are unavailable.')
+        }
+        if (!languageResponse.ok || !languageResponse.settings) {
+          throw new Error(languageResponse.error ?? 'AI language settings are unavailable.')
         }
         if (current) {
           setStatus(nextStatus)
@@ -162,6 +192,12 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
             return dirty ? current : providerResponse.settings!
           })
           setProviderSaved(providerResponse.settings)
+          setLanguageCatalogue(languageResponse.languages ?? [])
+          setLanguageDraft((draft) => {
+            const dirty = Boolean(draft && languageSaved && !sameLanguageSettings(draft, languageSaved))
+            return dirty ? draft : languageResponse.settings!
+          })
+          setLanguageSaved(languageResponse.settings)
           setError('')
         }
       } catch (reason) {
@@ -234,6 +270,79 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
       setNotice('AI model settings saved and active for the next request.')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'AI model settings could not be saved.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const updateLanguageDraft = (values: Partial<AILanguageSettings>) => {
+    setLanguageDraft((current) => {
+      if (!current) {
+        return current
+      }
+      const next = { ...current, ...values }
+      if (values.mode === 'limited' && next.allowed_languages.length === 0) {
+        const defaults = DEFAULT_LIMITED_LANGUAGES.filter((code) => languageCatalogue.some((language) => language.code === code))
+        next.allowed_languages = defaults.length > 0 ? defaults : languageCatalogue.slice(0, 3).map((language) => language.code)
+        next.fallback_language = next.allowed_languages.includes('en') ? 'en' : (next.allowed_languages[0] ?? '')
+      }
+      if (values.mode === 'auto') {
+        if (next.allowed_languages.length === 0) {
+          const savedLanguages = languageSaved?.allowed_languages ?? []
+          const defaults = DEFAULT_LIMITED_LANGUAGES.filter((code) => languageCatalogue.some((language) => language.code === code))
+          next.allowed_languages = savedLanguages.length > 0
+            ? savedLanguages
+            : (defaults.length > 0 ? defaults : languageCatalogue.slice(0, 3).map((language) => language.code))
+        }
+        if (!next.allowed_languages.includes(next.fallback_language)) {
+          next.fallback_language = next.allowed_languages.includes('en')
+            ? 'en'
+            : (next.allowed_languages[0] ?? '')
+        }
+      }
+      return next
+    })
+    setError('')
+    setNotice('')
+  }
+
+  const saveLanguageSettings = async () => {
+    if (!languageDraft) {
+      return
+    }
+    const allowedLanguages = Array.from(new Set(languageDraft.allowed_languages))
+    if (languageDraft.mode === 'limited' && allowedLanguages.length === 0) {
+      setError('Limited mode requires at least one allowed language.')
+      return
+    }
+    if (languageDraft.mode === 'limited' && !allowedLanguages.includes(languageDraft.fallback_language)) {
+      setError('The fallback language must be one of the allowed languages.')
+      return
+    }
+    setBusy('language:save')
+    setError('')
+    setNotice('')
+    try {
+      const api = await waitForBridge()
+      const result = await api.update_ai_language_settings(
+        languageDraft.mode,
+        allowedLanguages,
+        languageDraft.fallback_language,
+      )
+      if (!result.ok) {
+        throw new Error(result.error ?? 'AI language settings could not be saved.')
+      }
+      const refreshed = await api.get_ai_language_settings()
+      if (!refreshed.ok || !refreshed.settings) {
+        throw new Error(refreshed.error ?? 'AI language settings could not be refreshed.')
+      }
+      setLanguageCatalogue(refreshed.languages ?? languageCatalogue)
+      setLanguageSaved(refreshed.settings)
+      setLanguageDraft(refreshed.settings)
+      await refresh()
+      setNotice('AI language settings saved and active for the next request.')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'AI language settings could not be saved.')
     } finally {
       setBusy('')
     }
@@ -467,6 +576,16 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
       && (providerDraft.selected_model !== providerSaved.selected_model
         || providerDraft.fallback_model !== providerSaved.fallback_model),
   )
+  const languageDirty = Boolean(
+    languageDraft && languageSaved && !sameLanguageSettings(languageDraft, languageSaved),
+  )
+  const languageValidation = languageDraft?.mode === 'limited'
+    ? languageDraft.allowed_languages.length === 0
+      ? 'Limited mode requires at least one allowed language.'
+      : !languageDraft.allowed_languages.includes(languageDraft.fallback_language)
+        ? 'The fallback language must be one of the allowed languages.'
+        : ''
+    : ''
 
   return (
     <section className="ai-layout">
@@ -560,6 +679,89 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
               <button className="primary" disabled={Boolean(busy) || !providerDirty} onClick={() => void saveProviderModels()}>{busy === 'provider:save' ? 'Saving…' : 'Save models'}</button>
             </div>
             <p className="settings-hint">Manage the Gemini API key in Settings. Authentication, network, policy, and rate-limit failures never trigger model fallback.</p>
+          </div>
+        )}
+      </article>
+      <article className="card ai-language-card">
+        <div className="section-heading">
+          <div>
+            <p className="label">RESPONSE LANGUAGE</p>
+            <h2>AI response language</h2>
+            <p className="section-copy">Choose whether AI follows the incoming language or stays within a configurable set for this profile.</p>
+          </div>
+          <div className="personality-badges">
+            {languageSaved && <span className="mini-badge saved-badge">Saved active policy</span>}
+            {languageDirty && <span className="mini-badge dirty-badge">Edited</span>}
+          </div>
+        </div>
+        {!languageDraft || !languageSaved ? <p className="muted">Loading response language settings…</p> : (
+          <div className="settings-list">
+            <div className="language-policy-status">
+              <div>
+                <span>Active policy</span>
+                <strong>{languageSettingsLabel(languageSaved, languageCatalogue)}</strong>
+              </div>
+              <div>
+                <span>Draft configuration</span>
+                <strong>{languageSettingsLabel(languageDraft, languageCatalogue)}</strong>
+              </div>
+            </div>
+            <div className="language-fields">
+              <label className="form-field">
+                Response language mode
+                <select
+                  aria-label="Response language mode"
+                  value={languageDraft.mode}
+                  disabled={Boolean(busy)}
+                  onChange={(event) => updateLanguageDraft({ mode: event.target.value as AILanguageMode })}
+                >
+                  <option value="auto">Auto</option>
+                  <option value="limited">Limited</option>
+                </select>
+                <small>Auto follows the user without language restrictions. Limited uses the allowed set below.</small>
+              </label>
+              <label className="form-field">
+                Fallback language
+                <select
+                  aria-label="Fallback language"
+                  value={languageDraft.fallback_language}
+                  disabled={Boolean(busy) || languageDraft.mode !== 'limited'}
+                  onChange={(event) => updateLanguageDraft({ fallback_language: event.target.value })}
+                >
+                  {languageCatalogue
+                    .filter((language) => languageDraft.allowed_languages.includes(language.code)
+                      || language.code === languageDraft.fallback_language)
+                    .map((language) => <option key={language.code} value={language.code}>{language.label}</option>)}
+                </select>
+                <small>Used when Limited mode cannot identify an allowed response language.</small>
+              </label>
+            </div>
+            <fieldset className="language-picker" disabled={Boolean(busy) || languageDraft.mode !== 'limited'}>
+              <legend>Allowed languages</legend>
+              <div className="language-options">
+                {languageCatalogue.map((language) => (
+                  <label className="language-option" key={language.code}>
+                    <input
+                      type="checkbox"
+                      aria-label={language.label}
+                      checked={languageDraft.allowed_languages.includes(language.code)}
+                      onChange={(event) => updateLanguageDraft({
+                        allowed_languages: event.target.checked
+                          ? [...languageDraft.allowed_languages, language.code]
+                          : languageDraft.allowed_languages.filter((code) => code !== language.code),
+                      })}
+                    />
+                    <span>{language.label}</span>
+                    <code>{language.code}</code>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            {languageValidation && <p className="language-validation" role="status">{languageValidation}</p>}
+            <div className="settings-actions">
+              <button className="primary" disabled={Boolean(busy) || !languageDirty || Boolean(languageValidation)} onClick={() => void saveLanguageSettings()}>{busy === 'language:save' ? 'Saving…' : 'Save language settings'}</button>
+            </div>
+            <p className="settings-hint">Saved changes apply to the next AI request. Prompt guidance cannot perfectly guarantee a response language. In Limited mode, clear brief input uses its language; mixed or code-switched input uses the clear majority; uncertain, tied, unsupported, emoji-only, and code-only input uses the saved fallback.</p>
           </div>
         )}
       </article>

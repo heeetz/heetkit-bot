@@ -17,6 +17,7 @@ from inspect import signature
 from urllib.parse import urlsplit
 from concurrent.futures import Future, TimeoutError as FutureTimeoutError
 from contextlib import ExitStack
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Coroutine
 
@@ -28,6 +29,9 @@ from app.command_settings import CommandSettings
 from app.commands.registry import command_unavailable_reason
 from app.custom_commands import VARIABLES
 from app.config.ai_models import GEMINI_MODEL_PRESETS, GEMINI_PROVIDER_NAME
+from app.config.ai_language import (
+    RESPONSE_LANGUAGES, build_response_language_instruction,
+)
 from app.config.personalities import AI_PERSONALITY_PROMPTS, build_protected_shared_instructions
 from app.config.settings import Settings, TwitchConfigurationError, load_settings_with_credentials
 from app.container import Application, build_application
@@ -99,6 +103,7 @@ FRONTEND_OPERATIONS = (
     "get_twitch_settings", "update_twitch_settings", "save_twitch_preset",
     "delete_twitch_preset", "reconnect_twitch", "get_credentials",
     "get_ai_provider_settings", "update_ai_provider_settings", "discover_gemini_models",
+    "get_ai_language_settings", "update_ai_language_settings",
     "replace_credential", "remove_credential", "test_credential", "start_bot", "stop_bot",
     "open_external_link",
 )
@@ -427,6 +432,17 @@ class WebUIBridge:
         application_settings.gemini_model = updated.ai.selected_model
         application_settings.gemini_fallback_model = updated.ai.fallback_model
         return updated.ai
+
+    async def _save_ai_response_language(
+        self, mode: object, allowed_languages: object, fallback_language: object,
+    ) -> None:
+        """Persist before publishing one immutable policy on the backend loop."""
+        if self._app_settings is None:
+            raise RuntimeError("Desktop settings are not configured.")
+        updated = self._app_settings.update_ai_response_language(
+            mode=mode, allowed_languages=allowed_languages, fallback_language=fallback_language,
+        )
+        self._backend.application.settings.ai_response_language = updated.ai.response_language
 
     def get_app_status(self) -> dict[str, object]:
         application = self._backend.application
@@ -821,7 +837,9 @@ class WebUIBridge:
             "active_personality_saved": current.active_personality == saved.active_personality,
             "profile_instructions": current.profile_instructions,
             "profile_instructions_saved": current.profile_instructions == saved.profile_instructions,
-            "protected_shared_instructions": build_protected_shared_instructions(),
+            "protected_shared_instructions": build_protected_shared_instructions(
+                self._backend.application.settings.ai_response_language,
+            ),
             "personalities": [
                 {
                     "name": name,
@@ -1310,6 +1328,40 @@ class WebUIBridge:
         )
         return {"ok": True, "changed": reconnected}
 
+    def get_ai_language_settings(self) -> dict[str, object]:
+        language = self._backend.application.settings.ai_response_language
+        return {
+            "ok": True,
+            "settings": {
+                **asdict(language), "allowed_languages": list(language.allowed_languages),
+            },
+            "languages": [{"code": code, "label": label} for code, label in RESPONSE_LANGUAGES.items()],
+            "active_policy": build_response_language_instruction(language),
+        }
+
+    def update_ai_language_settings(
+        self, mode: object, allowed_languages: object, fallback_language: object,
+    ) -> dict[str, object]:
+        if self._app_settings is None:
+            return {"ok": False, "error": "Desktop settings are not configured."}
+        try:
+            self._wait_for_backend(
+                self._save_ai_response_language(mode, allowed_languages, fallback_language),
+                operation="save_ai_language", timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
+            )
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except BridgeOperationTimedOut:
+            return {"ok": False, "error": "Saving response language settings timed out. Check Logs for details."}
+        except Exception:
+            self._logger.exception("Could not save AI response language settings")
+            return {"ok": False, "error": "Could not save response language settings."}
+        self._logger.info(
+            "AI response language settings saved",
+            extra={"event_kind": "settings.ai", "event_action": "save"},
+        )
+        return {"ok": True}
+
     def get_ai_provider_settings(self) -> dict[str, object]:
         if self._app_settings is None:
             return {"ok": False, "error": "Desktop settings are not configured."}
@@ -1656,7 +1708,7 @@ def apply_twitch_app_settings(settings: Settings, app_settings: AppSettings) -> 
 
 def apply_ai_app_settings(settings: Settings, app_settings: AppSettings) -> Settings:
     ai = app_settings.ai
-    overrides = {}
+    overrides = {"ai_response_language": ai.response_language}
     if ai.selected_model is not None and ai.fallback_model is not None:
         overrides.update(gemini_model=ai.selected_model, gemini_fallback_model=ai.fallback_model)
     if ai.cooldown_bypass_user_id is not None:

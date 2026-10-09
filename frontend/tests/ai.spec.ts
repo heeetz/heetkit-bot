@@ -176,3 +176,93 @@ test('failed profile action retains its draft', async ({ page }) => {
   await expect(profile.locator('textarea')).toHaveValue('keep this after failure')
   await expect(page.getByRole('alert').locator('span')).toHaveText('Profile instructions could not be updated.')
 })
+
+test('language settings default to Auto and validate Limited selections before saving', async ({ page }) => {
+  await page.goto('/tests/fixture.html')
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  const language = page.locator('.ai-language-card')
+
+  await expect(language.getByLabel('Response language mode')).toHaveValue('auto')
+  await expect(language.getByText('Saved active policy', { exact: true })).toBeVisible()
+  await expect(language.getByText('Auto — match the incoming language without restrictions.', { exact: true })).toHaveCount(2)
+
+  await language.getByLabel('Response language mode').selectOption('limited')
+  await expect(language.getByLabel('English', { exact: true })).toBeChecked()
+  await expect(language.getByLabel('Ukrainian', { exact: true })).toBeChecked()
+  await expect(language.getByLabel('Russian', { exact: true })).toBeChecked()
+  await language.getByLabel('English', { exact: true }).uncheck()
+  await expect(language.locator('.language-validation')).toHaveText('The fallback language must be one of the allowed languages.')
+  await expect(language.getByRole('button', { name: 'Save language settings', exact: true })).toBeDisabled()
+
+  await language.getByLabel('Ukrainian', { exact: true }).uncheck()
+  await language.getByLabel('Russian', { exact: true }).uncheck()
+  await expect(language.locator('.language-validation')).toHaveText('Limited mode requires at least one allowed language.')
+  await language.getByLabel('English', { exact: true }).check()
+  await language.getByLabel('Ukrainian', { exact: true }).check()
+  await language.getByLabel('Russian', { exact: true }).check()
+  await language.getByRole('button', { name: 'Save language settings', exact: true }).click()
+
+  await expect(page.getByRole('status').locator('span')).toHaveText('AI language settings saved and active for the next request.')
+  await expect(language.getByText('Limited — English, Ukrainian, Russian; fallback English.', { exact: true })).toHaveCount(2)
+  const protectedInstructions = page.locator('.protected-instructions-card')
+  await protectedInstructions.locator('summary').click()
+  await expect(protectedInstructions.locator('textarea')).toHaveValue(/Active language policy: Limited — English, Ukrainian, Russian; fallback English\./)
+})
+
+test('switching an invalid Limited draft back to Auto restores valid dormant fields before saving', async ({ page }) => {
+  await page.goto('/tests/fixture.html')
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  const language = page.locator('.ai-language-card')
+  const mode = language.getByLabel('Response language mode')
+
+  await mode.selectOption('limited')
+  await language.getByLabel('German', { exact: true }).check()
+  await language.getByLabel('English', { exact: true }).uncheck()
+  await expect(language.locator('.language-validation')).toHaveText('The fallback language must be one of the allowed languages.')
+
+  await mode.selectOption('auto')
+  await expect(language.locator('.language-validation')).toHaveCount(0)
+  await expect(language.getByLabel('English', { exact: true })).not.toBeChecked()
+  await expect(language.getByLabel('Ukrainian', { exact: true })).toBeChecked()
+  await expect(language.getByLabel('Russian', { exact: true })).toBeChecked()
+  await expect(language.getByLabel('German', { exact: true })).toBeChecked()
+  await expect(language.getByLabel('Fallback language')).toHaveValue('uk')
+  await language.getByRole('button', { name: 'Save language settings', exact: true }).click()
+  await expect(page.getByRole('status').locator('span')).toHaveText('AI language settings saved and active for the next request.')
+  await expect.poll(async () => page.evaluate(() => window.pywebview!.api.get_ai_language_settings())).toMatchObject({
+    ok: true,
+    settings: { mode: 'auto', allowed_languages: ['uk', 'ru', 'de'], fallback_language: 'uk' },
+  })
+})
+
+test('language drafts survive leaving and reopening the AI page', async ({ page }) => {
+  await page.goto('/tests/fixture.html')
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  const language = page.locator('.ai-language-card')
+  await language.getByLabel('Response language mode').selectOption('limited')
+  await language.getByLabel('German', { exact: true }).check()
+  await language.getByLabel('Fallback language').selectOption('de')
+  await expect(language.getByText('Edited', { exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  const reopened = page.locator('.ai-language-card')
+  await expect(reopened.getByLabel('Response language mode')).toHaveValue('limited')
+  await expect(reopened.getByLabel('German', { exact: true })).toBeChecked()
+  await expect(reopened.getByLabel('Fallback language')).toHaveValue('de')
+  await expect(reopened.getByText('Edited', { exact: true })).toBeVisible()
+})
+
+test('language save errors retain the unsaved draft', async ({ page }) => {
+  await page.goto('/tests/fixture.html?languageSaveError')
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  const language = page.locator('.ai-language-card')
+  await language.getByLabel('Response language mode').selectOption('limited')
+  await language.getByLabel('German', { exact: true }).check()
+  await language.getByLabel('Fallback language').selectOption('de')
+  await language.getByRole('button', { name: 'Save language settings', exact: true }).click()
+  await expect(page.getByRole('alert').locator('span')).toHaveText('AI language settings could not be saved.')
+  await expect(language.getByLabel('Response language mode')).toHaveValue('limited')
+  await expect(language.getByLabel('German', { exact: true })).toBeChecked()
+  await expect(language.getByLabel('Fallback language')).toHaveValue('de')
+})

@@ -4,7 +4,14 @@ import App from '../src/App'
 import AboutPage from '../src/pages/AboutPage'
 import FeedbackToast from '../src/components/FeedbackToast'
 import SettingsPage from '../src/pages/SettingsPage'
-import type { AppStatus, PersonalitiesResponse, TwitchConnectionSettings, waitForBridge } from '../src/bridge'
+import type {
+  AILanguageInfo,
+  AILanguageSettings,
+  AppStatus,
+  PersonalitiesResponse,
+  TwitchConnectionSettings,
+  waitForBridge,
+} from '../src/bridge'
 
 const query = new URLSearchParams(window.location.search)
 const configured = query.has('configured')
@@ -43,6 +50,17 @@ let personalities: PersonalitiesResponse = {
   profile_instructions: '', profile_instructions_saved: true,
   protected_shared_instructions: 'Synthetic shared instructions.',
 }
+const languageCatalogue: AILanguageInfo[] = [
+  { code: 'en', label: 'English' },
+  { code: 'uk', label: 'Ukrainian' },
+  { code: 'ru', label: 'Russian' },
+  { code: 'de', label: 'German' },
+  { code: 'fr', label: 'French' },
+]
+let languageSettings: AILanguageSettings = {
+  mode: 'auto', allowed_languages: ['en', 'uk', 'ru'], fallback_language: 'en',
+}
+let activeLanguagePolicy = 'Auto — match the incoming language without restrictions.'
 const credentials = [
   { name: 'twitch_client_secret', label: 'Twitch client secret', configured, source: configured ? 'credential_store' : 'missing', secure_storage_available: true },
   { name: 'gemini_api_key', label: 'Gemini API key', configured: false, source: 'missing', secure_storage_available: true },
@@ -71,6 +89,30 @@ window.pywebview = { api: {
   get_ai_provider_settings: async () => ({ ok: true, settings: {
     provider: 'Gemini', selected_model: '', fallback_model: '', presets: [], credential: credentials[1],
   } }),
+  get_ai_language_settings: async () => {
+    if (query.has('languageLoadError')) return { ok: false, error: 'AI language settings are unavailable.' }
+    return { ok: true, settings: languageSettings, languages: languageCatalogue, active_policy: activeLanguagePolicy }
+  },
+  update_ai_language_settings: async (mode: string, allowedLanguages: string[], fallbackLanguage: string) => {
+    aiCalls.push(['update_ai_language_settings', mode, allowedLanguages, fallbackLanguage])
+    if (query.has('languageSaveError')) return { ok: false, error: 'AI language settings could not be saved.' }
+    if (allowedLanguages.length === 0) return { ok: false, error: 'At least one allowed language is required.' }
+    if (!allowedLanguages.includes(fallbackLanguage)) return { ok: false, error: 'Fallback language must be allowed.' }
+    languageSettings = {
+      mode: mode as AILanguageSettings['mode'],
+      allowed_languages: [...allowedLanguages],
+      fallback_language: fallbackLanguage,
+    }
+    const labels = allowedLanguages.map((code) => languageCatalogue.find((language) => language.code === code)?.label ?? code).join(', ')
+    activeLanguagePolicy = mode === 'auto'
+      ? 'Auto — match the incoming language without restrictions.'
+      : `Limited — ${labels}; fallback ${languageCatalogue.find((language) => language.code === fallbackLanguage)?.label ?? fallbackLanguage}.`
+    personalities = {
+      ...personalities,
+      protected_shared_instructions: `Synthetic shared instructions. Active language policy: ${activeLanguagePolicy}`,
+    }
+    return { ok: true }
+  },
   get_about_info: async () => ({
     application_name: 'HeetKit', version: '0.1.0', author: 'heeetz', repository_url: 'https://github.com/heeetz/twitch-bot',
     application_subtitle: 'Desktop control center for Twitch chat', author_twitch: '@heet_ok',

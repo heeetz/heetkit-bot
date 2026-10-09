@@ -13,6 +13,7 @@ from app.config.ai_models import (
     DEFAULT_GEMINI_FALLBACK_MODEL,
     validate_gemini_model_id,
 )
+from app.config.ai_language import ResponseLanguageSettings, validate_response_language
 from app.credentials import CredentialManager, CredentialName, CredentialStore
 from app.runtime_paths import RuntimePaths
 
@@ -52,6 +53,7 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.5-flash-lite"
     gemini_fallback_model: str = DEFAULT_GEMINI_FALLBACK_MODEL
     ai_cooldown_bypass_user_id: str | None = None
+    ai_response_language: ResponseLanguageSettings = Field(default_factory=ResponseLanguageSettings)
     database_url: str = Field(
         default_factory=lambda: "sqlite+aiosqlite:///" + str(RuntimePaths.default().database)
     )
@@ -70,6 +72,11 @@ class Settings(BaseSettings):
     @classmethod
     def validate_gemini_model(cls, value: str) -> str:
         return validate_gemini_model_id(value)
+
+    @field_validator("ai_response_language")
+    @classmethod
+    def validate_ai_response_language(cls, value: ResponseLanguageSettings) -> ResponseLanguageSettings:
+        return validate_response_language(value.mode, value.allowed_languages, value.fallback_language)
 
     @field_validator("twitch_client_secret")
     @classmethod

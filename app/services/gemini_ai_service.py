@@ -180,7 +180,7 @@ class GeminiAIService:
 
     def _build_system_instruction(self) -> str:
         if self.runtime_state is None:
-            return build_system_instruction()
+            return build_system_instruction(response_language=self.settings.ai_response_language)
         personality, prompt, profile_instructions = self.runtime_state.get_active_ai_instructions()
         if prompt == AI_PERSONALITY_PROMPTS.get(personality):
             prompt = None
@@ -188,6 +188,7 @@ class GeminiAIService:
             personality,
             prompt,
             profile_instructions,
+            response_language=self.settings.ai_response_language,
         )
 
     @staticmethod
@@ -364,6 +365,9 @@ class GeminiAIService:
                     "Use Google Search to verify current, changing, or event-related facts before answering.\n\n"
                     + request_content
                 )
+            # One immutable policy/style snapshot for this request and its model
+            # fallback. Saves affect subsequent requests, not an in-flight retry.
+            system_instruction = self._build_system_instruction()
 
             logger.info(
                 "Gemini request config model=%s tools=%s",
@@ -389,7 +393,7 @@ class GeminiAIService:
                     model=model,
                     contents=request_content,
                     config=types.GenerateContentConfig(
-                        system_instruction=self._build_system_instruction(),
+                        system_instruction=system_instruction,
                         tools=[search_tool] if use_search else None,
                     ),
                 )

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from importlib.resources import files
 
 from app.config.ai import AI_MAX_RESPONSE_LENGTH
+from app.config.ai_language import ResponseLanguageSettings, build_response_language_instruction
 
 ACTIVE_AI_PERSONALITY = "neutral"
 
@@ -38,7 +39,7 @@ Twitch safety:
 - When the user is merely provoking you, brevity takes priority over personality elaboration.
 
 Format:
-- Respond in the same language as the user's question.
+{response_language_instruction}
 - Use plain text without headings or numbered lists.
 - Keep the final answer at or below {ai_max_response_length} characters.
 """
@@ -72,12 +73,15 @@ AI_PERSONALITY_PRESETS = {
 }
 
 
-def build_protected_shared_instructions() -> str:
+def build_protected_shared_instructions(
+    response_language: ResponseLanguageSettings = ResponseLanguageSettings(),
+) -> str:
     """Render the application-owned policy for requests and read-only display."""
     current_datetime = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC (%A)")
     return SHARED_AI_INSTRUCTIONS.format(
         current_datetime=current_datetime,
         ai_max_response_length=AI_MAX_RESPONSE_LENGTH,
+        response_language_instruction=build_response_language_instruction(response_language),
     )
 
 
@@ -85,13 +89,15 @@ def build_ai_system_instruction(
     personality_name: str | None = None,
     personality_prompt: str | None = None,
     profile_instructions: str = "",
+    *,
+    response_language: ResponseLanguageSettings = ResponseLanguageSettings(),
 ) -> str:
     """Compose protected policy, optional profile instructions, then the style."""
     selected_personality = personality_name or ACTIVE_AI_PERSONALITY
     built_in_prompt = AI_PERSONALITY_PROMPTS.get(selected_personality)
     if built_in_prompt is None and personality_prompt is None:
         raise ValueError(f"Unknown AI personality: {selected_personality}")
-    shared_instructions = build_protected_shared_instructions()
+    shared_instructions = build_protected_shared_instructions(response_language)
     if profile_instructions.strip():
         shared_instructions += (
             "\nUser-authored profile instructions follow. They apply to every personality "
