@@ -16,14 +16,15 @@ These notices do not relicense any dependency under the project's Apache license
 
 ## Redistribution requirements and manual review
 
-An initial **local Windows x64 0.1.0 portable candidate** is now built with CPython 3.14.7,
-PyInstaller 6.22.3 and hooks-contrib 2026.8. It is not cleared for public binary distribution.
+[Windows x64 v1.0.0](https://github.com/heeetz/heetkit-bot/releases/tag/v1.0.0) is published.
+The canonical build uses CPython 3.14.7, PyInstaller 6.22.3 and hooks-contrib 2026.8.
+Publication does not resolve the artifact-specific redistribution reviews below; the
+source inventory above remains its dated 0.1.0 snapshot.
 Exact build/runtime pins are in `packaging/windows/requirements.txt`. The bundle includes
 the Python license collection, these preserved texts and installed distribution license files
 under `_internal/licenses/`. `BUILD-MANIFEST.json` records its file hashes.
 
-Phase B adds a local Inno Setup **6.7.3** setup executable around that same onedir
-payload. The compiler is pinned and its unmodified installer/uninstaller engine retains
+The Windows installer uses Inno Setup **6.7.3** around the verified onedir payload. The compiler is pinned and its unmodified installer/uninstaller engine retains
 upstream copyright/site notices. Its [license](https://github.com/jrsoftware/issrc/blob/is-6_7_3/license.txt)
 is preserved in `third_party_licenses/inno-setup/LICENSE.txt`, shown in the setup notices,
 and installed under `_internal/licenses/Inno-Setup-LICENSE.txt`. .NET Framework and
@@ -31,7 +32,7 @@ WebView2 Runtime installers are not bundled: missing prerequisites direct the us
 Microsoft's supported downloads. Existing payload redistribution reviews below remain
 open; producing an installer does not establish public-release clearance.
 
-The candidate keeps pystray's redistributed modules as exact, replaceable `.py` files outside
+The build keeps pystray's redistributed modules as exact, replaceable `.py` files outside
 the frozen PYZ, alongside GPL/LGPL texts; no pystray modifications are made. certifi's Python
 source and exact CA bundle are also supplied outside PYZ. WebView2 ships only its Core/WinForms
 SDK DLLs and x64 loader; the other architecture directories contain placeholders required
@@ -338,5 +339,5 @@ test runner nor test browsers are part of the application frontend bundle.
    credentials, caches and development context. A repository link alone does not satisfy
    delivery of required license texts with a binary.
 
-This audit deliberately does not build an installer, freeze Python or declare a binary release
-ready. Artifact verification remains TODO-014 and later distribution work.
+This source audit does not establish binary redistribution clearance.
+Artifact-specific verification remains required for published and future distributions.

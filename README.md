@@ -46,8 +46,6 @@ You can also browse all available builds on the
 
 Windows 10/11 x64 is the primary supported platform.
 
-> If no public release is available yet, development builds may temporarily be available through GitHub Actions.
-
 ---
 
 ## Getting started

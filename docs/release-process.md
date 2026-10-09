@@ -82,8 +82,11 @@ Versions below `1.0.0`, such as `v0.1.3`, publish as pre-releases; normal versio
 or manual build never publishes a release, even if the manual run selects a tag.
 Failed builds, artifact checks or tag/version validation prevent publication.
 
-The first tagged publication still needs to be observed on GitHub and its actual
-downloads inspected; local workflow validation does not verify hosted publication.
+[Stable v1.0.0](https://github.com/heeetz/heetkit-bot/releases/tag/v1.0.0) was published
+on 5 October 2026 with all five release assets. Its
+[tagged build and publication jobs](https://github.com/heeetz/heetkit-bot/actions/runs/37382468023)
+completed successfully. Publication does not establish completion of manual artifact smoke
+tests or artifact-specific redistribution review.
 
 ## Windows runtime and installation
 
@@ -92,7 +95,7 @@ Target machines need .NET Framework 4.6.2+ and
 Python, Node or checkout. Setup provides Microsoft download/retry guidance for missing
 runtimes. Use the WebView2 Evergreen Bootstrapper online or the x64 Standalone Installer
 offline, following [Microsoft's deployment guidance](https://learn.microsoft.com/microsoft-edge/webview2/concepts/distribution).
-Complete any required Windows restart before retrying. Current candidates are unsigned.
+Complete any required Windows restart before retrying. The current Windows build process does not sign artifacts.
 
 Setup installs per user, normally under `%LOCALAPPDATA%\Programs\HeetKit`, offers Start
 Menu and optional desktop shortcuts, and can launch the app afterward. Quit via tray
