@@ -6039,6 +6039,20 @@
       }
     }
   },
+  "pinned_sqlite": {
+    "distribution": "cpython-3.14.7-embed",
+    "files": {
+      "sqlite3.dll": {
+        "member": "sqlite3.dll",
+        "sha256": "d3e60dd22e62c9fbdb64b31b1b8c48782e1d4958d04d0bf830cffd31ace3275f"
+      }
+    },
+    "compatibility_files": {
+      "_internal/_sqlite3.pyd": {
+        "member": "_sqlite3.pyd"
+      }
+    }
+  },
   "required_notices": {
     "_internal/third_party_licenses/native/cffi/CFFI-2.1.1-LICENSE.txt": {
       "sha256": "5ba24ddc57067f9249add644c3afc41a5d6dc37e23433ef759d95df370b0af63"

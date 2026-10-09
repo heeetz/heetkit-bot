@@ -128,7 +128,7 @@ def test_artifact_rejects_notice_and_native_drift(reviewed_artifact, change, mes
         redistribution.validate(bundle, policy)
 
 
-@pytest.mark.parametrize("tamper", [None, "archive", "member"])
+@pytest.mark.parametrize("tamper", [None, "archive", "member", "sqlite-archive", "sqlite-member", "sqlite-pair"])
 def test_runtime_staging_requires_the_reviewed_archive_and_binary(tmp_path, monkeypatch, tamper):
     import hashlib
     import io
@@ -140,6 +140,13 @@ def test_runtime_staging_requires_the_reviewed_archive_and_binary(tmp_path, monk
     with zipfile.ZipFile(stream, "w") as archive:
         archive.writestr("redist/x64/runtime.dll", binary)
     data = stream.getvalue()
+    sqlite_binary = b"MZreviewed CPython SQLite DLL"
+    sqlite_extension = b"MZreviewed CPython SQLite extension"
+    sqlite_stream = io.BytesIO()
+    with zipfile.ZipFile(sqlite_stream, "w") as archive:
+        archive.writestr("sqlite3.dll", sqlite_binary)
+        archive.writestr("_sqlite3.pyd", sqlite_extension)
+    sqlite_data = sqlite_stream.getvalue()
     source = tmp_path / "source"
     policy = source / "packaging/windows/redistribution.json"
     policy.parent.mkdir(parents=True)
@@ -147,21 +154,59 @@ def test_runtime_staging_requires_the_reviewed_archive_and_binary(tmp_path, monk
         "distributions": {"sdk": {
             "url": "https://example.invalid/official-sdk.nupkg",
             "sha256": "0" * 64 if tamper == "archive" else hashlib.sha256(data).hexdigest(),
+        }, "cpython": {
+            "url": "https://example.invalid/official-cpython.zip",
+            "sha256": "0" * 64 if tamper == "sqlite-archive" else hashlib.sha256(sqlite_data).hexdigest(),
         }},
         "pinned_runtime": {"distribution": "sdk", "files": {"runtime.dll": {
             "member": "redist/x64/runtime.dll",
             "sha256": "0" * 64 if tamper == "member" else hashlib.sha256(binary).hexdigest(),
         }}},
+        "pinned_sqlite": {"distribution": "cpython", "files": {"sqlite3.dll": {
+            "member": "sqlite3.dll",
+            "sha256": "0" * 64 if tamper == "sqlite-member" else hashlib.sha256(sqlite_binary).hexdigest(),
+        }}, "compatibility_files": {"_internal/_sqlite3.pyd": {"member": "_sqlite3.pyd"}}},
+        "native_files": {"_internal/_sqlite3.pyd": {
+            "sha256": "0" * 64 if tamper == "sqlite-pair" else hashlib.sha256(sqlite_extension).hexdigest(),
+        }},
     }), encoding="utf-8")
     work = tmp_path / "work"
     work.mkdir()
     stage = tmp_path / "stage"
+    interpreter = tmp_path / "runner-python"
+    (interpreter / "DLLs").mkdir(parents=True)
+    (interpreter / "DLLs/sqlite3.dll").write_bytes(b"MZunreviewed runner SQLite DLL")
+    monkeypatch.setattr(builder.sys, "base_prefix", str(interpreter))
     monkeypatch.setattr(builder, "ROOT", source)
-    monkeypatch.setattr(builder.urllib.request, "urlopen", lambda *args, **kwargs: io.BytesIO(data))
+    downloads = {"https://example.invalid/official-sdk.nupkg": data,
+                 "https://example.invalid/official-cpython.zip": sqlite_data}
+    monkeypatch.setattr(builder.urllib.request, "urlopen", lambda url, **kwargs: io.BytesIO(downloads[url]))
     if tamper:
         with pytest.raises(ValueError, match="hash mismatch"):
             builder.stage_native_runtime(stage, work)
-        assert not (stage / "native-runtime/runtime.dll").exists()
+        assert not (stage / "native-runtime/sqlite3.dll").exists()
+        if tamper in ("archive", "member"):
+            assert not (stage / "native-runtime/runtime.dll").exists()
     else:
         builder.stage_native_runtime(stage, work)
         assert (stage / "native-runtime/runtime.dll").read_bytes() == binary
+        assert (stage / "native-runtime/sqlite3.dll").read_bytes() == sqlite_binary
+
+
+def test_packaged_sqlite_probe_loads_the_artifact_pair(tmp_path):
+    import shutil
+    import subprocess
+    import sys
+
+    if sys.platform != "win32" or sys.version_info[:3] != (3, 14, 7):
+        pytest.skip("Requires the pinned Windows CPython interpreter")
+    internal = tmp_path / "_internal"
+    internal.mkdir()
+    for name in ("sqlite3.dll", "_sqlite3.pyd"):
+        shutil.copyfile(Path(sys.base_prefix) / "DLLs" / name, internal / name)
+    result = subprocess.run(
+        [sys.executable, "-I", str(ROOT / "scripts/check_windows_sqlite.py"), str(tmp_path)],
+        capture_output=True, text=True, check=True,
+    )
+    assert str(internal / "sqlite3.dll") in result.stdout
+    assert "SQLite 3.50.4" in result.stdout

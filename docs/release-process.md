@@ -60,9 +60,13 @@ internet access.
 
 Native redistribution evidence is pinned in `packaging/windows/redistribution.json`.
 The builder downloads the exact hash-verified Windows SDK package for the reviewed
-UCRT files and limits freezing's DLL search path to the selected interpreter and Windows.
-This prevents unrelated tools from supplying runtime DLLs. The finished bundle and
-installer input must match the reviewed native hashes and preserved notice texts.
+UCRT files and the official CPython 3.14.7 embeddable archive for the reviewed SQLite
+DLL. Both are supplied explicitly to PyInstaller; freezing's DLL search path is limited
+to the selected interpreter and Windows. The packaged SQLite DLL and `_sqlite3.pyd`
+also pass isolated query, transaction and integrity checks before ZIP creation.
+This prevents interpreter variants or unrelated tools from supplying unreviewed DLLs.
+The finished bundle and installer input must match the reviewed native hashes and
+preserved notice texts.
 To check an extracted next-build payload independently:
 
 ```powershell

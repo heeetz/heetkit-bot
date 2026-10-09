@@ -54,25 +54,35 @@ def stage_resources(stage: Path) -> None:
 
 
 def stage_native_runtime(stage: Path, work: Path) -> None:
-    """Use the reviewed SDK runtime, never DLLs from ambient tool directories."""
+    """Use reviewed SDK/CPython binaries instead of interpreter or ambient variants."""
     policy = json.loads((ROOT / "packaging/windows/redistribution.json").read_text(encoding="utf-8"))
-    runtime = policy["pinned_runtime"]
-    source = policy["distributions"][runtime["distribution"]]
-    archive_path = work / "windows-sdk.nupkg"
-    with urllib.request.urlopen(source["url"], timeout=120) as response:
-        archive_path.write_bytes(response.read())
-    if hashlib.sha256(archive_path.read_bytes()).hexdigest() != source["sha256"]:
-        raise ValueError("Pinned Windows SDK archive hash mismatch")
-    with zipfile.ZipFile(archive_path) as archive:
-        for name, entry in runtime["files"].items():
-            if Path(name).name != name or not name.lower().endswith(".dll"):
-                raise ValueError(f"Invalid pinned runtime filename: {name}")
-            data = archive.read(entry["member"])
-            if hashlib.sha256(data).hexdigest() != entry["sha256"]:
-                raise ValueError(f"Pinned runtime binary hash mismatch: {name}")
-            target = stage / "native-runtime" / name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(data)
+    interpreter_sqlite = Path(sys.base_prefix) / "DLLs/sqlite3.dll"
+    if interpreter_sqlite.is_file():
+        print(f"Interpreter SQLite source: {interpreter_sqlite}; "
+              f"SHA256={hashlib.sha256(interpreter_sqlite.read_bytes()).hexdigest()}", flush=True)
+    for runtime in (policy["pinned_runtime"], policy["pinned_sqlite"]):
+        source = policy["distributions"][runtime["distribution"]]
+        archive_path = work / f"{runtime['distribution']}.zip"
+        with urllib.request.urlopen(source["url"], timeout=120) as response:
+            archive_path.write_bytes(response.read())
+        if hashlib.sha256(archive_path.read_bytes()).hexdigest() != source["sha256"]:
+            raise ValueError(f"Pinned native archive hash mismatch: {runtime['distribution']}")
+        with zipfile.ZipFile(archive_path) as archive:
+            # Verify the paired CPython extension without replacing its normal collection.
+            for name, entry in runtime.get("compatibility_files", {}).items():
+                if hashlib.sha256(archive.read(entry["member"])).hexdigest() != policy["native_files"][name]["sha256"]:
+                    raise ValueError(f"Pinned runtime compatibility hash mismatch: {name}")
+            for name, entry in runtime["files"].items():
+                if Path(name).name != name or not name.lower().endswith(".dll"):
+                    raise ValueError(f"Invalid pinned runtime filename: {name}")
+                data = archive.read(entry["member"])
+                if hashlib.sha256(data).hexdigest() != entry["sha256"]:
+                    raise ValueError(f"Pinned runtime binary hash mismatch: {name}")
+                target = stage / "native-runtime" / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(data)
+                if name == "sqlite3.dll":
+                    print(f"Pinned SQLite source: {source['url']}#{entry['member']}; SHA256={entry['sha256']}", flush=True)
 
 
 def main() -> None:
@@ -114,6 +124,7 @@ def main() -> None:
         "--workpath", str(work / "freeze"), str(ROOT / "packaging/windows/HeetKit.spec"), env=environment)
     bundle = work / "dist/HeetKit"
     run(str(builder), str(ROOT / "scripts/inspect_windows_bundle.py"), str(bundle))
+    run(str(builder), "-I", str(ROOT / "scripts/check_windows_sqlite.py"), str(bundle))
     files = [{"path": p.relative_to(bundle).as_posix(), "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
              for p in sorted(bundle.rglob("*")) if p.is_file()]
     (bundle / "BUILD-MANIFEST.json").write_text(json.dumps({"version": VERSION, "python": "3.14.7", "files": files}, indent=2) + "\n", encoding="utf-8")
