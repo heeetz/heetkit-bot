@@ -24,9 +24,11 @@ and lets you retry while the rest of HeetKit remains usable. **Open release / do
 opens the official stable release page in your default browser, including when a check
 fails. It provides the full notes and installer/portable downloads.
 
-Checks run only when requested. HeetKit does not download or launch an installer,
-replace its executable, or check automatically at startup. Quit HeetKit fully before
-running a downloaded installer. See the upgrade and retention guidance below.
+Checks run only when requested and leave saved settings and profiles unchanged.
+HeetKit does not download or launch an installer, replace its executable, or check
+automatically at startup. To install an update, download the installer from the release
+page, quit HeetKit fully using **tray Exit**, then run setup. Existing settings are
+retained; see the upgrade and retention guidance below.
 
 ## Build inputs and version
 
