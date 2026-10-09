@@ -70,6 +70,14 @@ const aiCalls: unknown[][] = []
 Object.assign(window, { opened, aiCalls })
 window.pywebview = { api: {
   get_app_status: async () => status,
+  get_commands: async () => ({ command_prefix: '!', permissions: ['USER'], commands: [] }),
+  get_custom_commands: async () => ({ command_prefix: '!', permissions: ['USER'], variables: ['sender'], commands: [] }),
+  get_filters: async () => ({
+    words: { rules: [], defaults: [] },
+    phrases: { rules: [], defaults: [] },
+    patterns: { rules: [], defaults: [] },
+  }),
+  get_recent_logs: async () => ({ entries: [] }),
   get_ai_status: async () => aiStatus,
   get_personalities: async () => personalities,
   get_app_settings: async () => ({ ok: true, settings: {

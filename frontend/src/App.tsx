@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   type AIProviderSettings,
   type AIStatus,
@@ -21,6 +21,32 @@ import './styles.css'
 
 const sections = ['Dashboard', 'Commands', 'Filters', 'AI', 'Logs', 'Settings', 'About'] as const
 type Section = (typeof sections)[number]
+
+const subsections: Partial<Record<Section, { label: string; targetId: string }[]>> = {
+  Commands: [
+    { label: 'Your commands', targetId: 'custom-commands' },
+    { label: 'Built-in commands', targetId: 'builtin-commands' },
+  ],
+  Filters: [
+    { label: 'Blocked words', targetId: 'filters-words' },
+    { label: 'Blocked phrases', targetId: 'filters-phrases' },
+    { label: 'Regex patterns', targetId: 'filters-patterns' },
+  ],
+  AI: [
+    { label: 'Runtime', targetId: 'ai-runtime' },
+    { label: 'Models and fallback', targetId: 'ai-models' },
+    { label: 'Response language', targetId: 'ai-language' },
+    { label: 'Personalities', targetId: 'ai-personalities' },
+    { label: 'Profile instructions', targetId: 'ai-profile-instructions' },
+    { label: 'Shared instructions', targetId: 'ai-shared-instructions' },
+  ],
+  Settings: [
+    { label: 'Desktop behavior', targetId: 'desktop-settings' },
+    { label: 'Twitch connection', targetId: 'twitch-settings' },
+    { label: 'Credentials', targetId: 'credential-settings' },
+    { label: 'Data & diagnostics', targetId: 'profile-location-settings' },
+  ],
+}
 
 interface DashboardSetup {
   twitch: TwitchConnectionSettings
@@ -385,6 +411,9 @@ function LogsPage() {
 
 export default function App() {
   const [section, setSection] = useState<Section>('Dashboard')
+  const [navigationTarget, setNavigationTarget] = useState<{ id?: string } | null>(null)
+  const main = useRef<HTMLElement | null>(null)
+  const sidebar = useRef<HTMLElement | null>(null)
   const [status, setStatus] = useState<AppStatus | null>(null)
   const [aiStatus, setAIStatus] = useState<AIStatus | null>(null)
   const [error, setError] = useState('')
@@ -392,15 +421,40 @@ export default function App() {
 
   const navigate = (nextSection: Section, targetId?: string) => {
     setSection(nextSection)
-    window.requestAnimationFrame(() => {
-      if (targetId) {
-        document.getElementById(targetId)?.scrollIntoView({ block: 'start' })
-      } else {
-        document.querySelector('main')?.scrollTo({ top: 0 })
-        window.scrollTo({ top: 0 })
-      }
-    })
+    setNavigationTarget({ id: targetId })
   }
+
+  useLayoutEffect(() => {
+    if (!navigationTarget || !main.current) return
+    let frame = 0
+    const observer = new MutationObserver(() => scheduleScroll())
+    const scroll = () => {
+      if (!navigationTarget.id) {
+        main.current?.scrollTo({ top: 0 })
+        window.scrollTo({ top: 0 })
+        return
+      }
+      const target = document.getElementById(navigationTarget.id)
+      // Editor pages stay mounted while hidden; loaded content can also move anchors.
+      if (!target || !main.current?.contains(target)
+        || target.closest('[hidden], [aria-busy="true"]') || !target.getClientRects().length) return
+      observer.disconnect()
+      main.current.style.setProperty('--sidebar-height', `${sidebar.current?.getBoundingClientRect().height ?? 0}px`)
+      target.scrollIntoView({ block: 'start' })
+    }
+    const scheduleScroll = () => {
+      window.cancelAnimationFrame(frame)
+      frame = window.requestAnimationFrame(scroll)
+    }
+    if (navigationTarget.id) {
+      observer.observe(main.current, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-busy'] })
+    }
+    scheduleScroll()
+    return () => {
+      observer.disconnect()
+      window.cancelAnimationFrame(frame)
+    }
+  }, [section, navigationTarget])
 
   useEffect(() => {
     let active = true
@@ -499,13 +553,38 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <aside className="sidebar" ref={sidebar}>
         <div className="brand"><img className="brand-mark" src="./icon.png" alt="" /><div><strong>HeetKit</strong><small>Desktop control center for Twitch chat</small></div></div>
-        <nav>
-          {sections.map((item) => <button key={item} className={section === item ? 'active' : ''} onClick={() => navigate(item)}>{item}</button>)}
+        <nav aria-label="Main navigation">
+          {sections.map((item) => (
+            <div className="nav-section" key={item}>
+              <button
+                type="button"
+                className={section === item ? 'active' : ''}
+                aria-current={section === item ? 'page' : undefined}
+                aria-expanded={subsections[item] ? section === item : undefined}
+                aria-controls={subsections[item] ? `nav-${item}` : undefined}
+                onClick={() => navigate(item)}
+              >{item}</button>
+              {subsections[item] && (
+                <ul className="sidebar-subnav" id={`nav-${item}`} hidden={section !== item}>
+                  {subsections[item].map((child) => (
+                    <li key={child.targetId}>
+                      <button
+                        type="button"
+                        className={navigationTarget?.id === child.targetId ? 'active' : ''}
+                        aria-current={section === item && navigationTarget?.id === child.targetId ? 'location' : undefined}
+                        onClick={() => navigate(item, child.targetId)}
+                      >{child.label}</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
         </nav>
       </aside>
-      <main>
+      <main ref={main}>
         <header><div><p className="eyebrow">CONTROL CENTER</p><h1>{section}</h1></div></header>
         <FeedbackToast error={error} onDismiss={() => setError('')} />
         {section === 'Dashboard' && (

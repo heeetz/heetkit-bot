@@ -125,6 +125,7 @@ const variableHelp: Record<string, string> = {
 export default function CommandsPage({ active }: CommandsPageProps) {
   const [data, setData] = useState<CommandsResponse | null>(null)
   const [customData, setCustomData] = useState<CustomCommandsResponse | null>(null)
+  const [loading, setLoading] = useState(true)
   const [drafts, setDrafts] = useState<Drafts>({})
   const [customDraft, setCustomDraft] = useState<CustomDraft | null>(null)
   const [busyCommand, setBusyCommand] = useState('')
@@ -176,6 +177,7 @@ export default function CommandsPage({ active }: CommandsPageProps) {
       return
     }
     let mounted = true
+    setLoading(true)
     const load = async () => {
       try {
         const api = await waitForBridge()
@@ -202,6 +204,8 @@ export default function CommandsPage({ active }: CommandsPageProps) {
         if (mounted) {
           setError(reason instanceof Error ? reason.message : 'Could not load commands.')
         }
+      } finally {
+        if (mounted) setLoading(false)
       }
     }
     void load()
@@ -415,13 +419,13 @@ export default function CommandsPage({ active }: CommandsPageProps) {
   }
 
   return (
-    <div className="commands-layout">
+    <div className="commands-layout" aria-busy={loading}>
       <FeedbackToast
         error={error}
         notice={notice}
         onDismiss={() => { setError(''); setNotice('') }}
       />
-    <section className="card command-editor-card">
+    <section className="card command-editor-card" id="custom-commands">
       <div className="section-heading">
         <div>
           <p className="label">CUSTOM COMMANDS</p>
@@ -514,7 +518,7 @@ export default function CommandsPage({ active }: CommandsPageProps) {
         </div>
       )}
     </section>
-    <section className="card command-editor-card">
+    <section className="card command-editor-card" id="builtin-commands">
       <div className="section-heading">
         <div>
           <p className="label">BUILT-IN COMMANDS</p>

@@ -3,6 +3,11 @@
 Configure built-in commands, create custom replies, and manage filters from HeetKit's
 desktop control panel. Examples below use the default `!` prefix.
 
+Select **Commands**, **Filters**, **AI** or **Settings** in the sidebar to open that
+page and reveal its subsection shortcuts. A shortcut scrolls to the corresponding
+card and keeps the list open; selecting another page replaces the shortcuts.
+Dashboard, Logs and About remain direct page links.
+
 ## Built-in commands
 
 These are the shipped permissions; saved settings can change them. Hidden commands

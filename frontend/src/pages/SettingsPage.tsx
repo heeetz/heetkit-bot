@@ -20,6 +20,7 @@ interface SettingsPageProps {
 export default function SettingsPage({ active, status }: SettingsPageProps) {
   const [saved, setSaved] = useState<AppSettings | null>(null)
   const [draft, setDraft] = useState<AppSettings | null>(null)
+  const [loading, setLoading] = useState(true)
   const [credentials, setCredentials] = useState<CredentialInfo[]>([])
   const [twitchSaved, setTwitchSaved] = useState<TwitchConnectionSettings | null>(null)
   const [twitchDraft, setTwitchDraft] = useState<TwitchConnectionSettings | null>(null)
@@ -62,6 +63,7 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
       return
     }
     let mounted = true
+    setLoading(true)
     const load = async () => {
       try {
         const api = await waitForBridge()
@@ -103,6 +105,8 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
         if (mounted) {
           setError(reason instanceof Error ? reason.message : 'Could not load settings.')
         }
+      } finally {
+        if (mounted) setLoading(false)
       }
     }
     void load()
@@ -457,13 +461,13 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
         || !twitchDraft.client_id.trim() || !twitchDraft.bot_username.trim() || !twitchDraft.bot_user_id.trim()),
   )
   return (
-    <div className="settings-layout">
+    <div className="settings-layout" aria-busy={loading}>
       <FeedbackToast
         error={error}
         notice={notice}
         onDismiss={() => { setError(''); setNotice('') }}
       />
-      <section className="card settings-page">
+      <section className="card settings-page" id="desktop-settings">
         <div className="section-heading">
           <div>
             <p className="label">DESKTOP APPLICATION</p>
@@ -673,7 +677,7 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
           </div>
         )}
       </section>
-      <section className="card settings-page" aria-labelledby="profile-location-heading">
+      <section className="card settings-page" id="profile-location-settings" aria-labelledby="profile-location-heading">
         <div className="section-heading">
           <div>
             <h2 id="profile-location-heading">Data &amp; diagnostics</h2>

@@ -16,7 +16,7 @@ credential that lets HeetKit send requests to Google's Gemini service.
    Google's [API key guide](https://ai.google.dev/gemini-api/docs/api-key) covers the current steps.
 4. Copy the key. Treat it like a password: never share it, post it in chat, commit it to
    Git or include it in screenshots.
-5. In HeetKit, open **Settings → Secure credentials**. Under **Gemini API key**, paste it
+5. In HeetKit, open **Settings → Credentials**. Under **Gemini API key**, paste it
    into **Replacement value** and select **Replace**, even for the first key. HeetKit
    stores it securely through your operating system. It applies immediately; no restart
    is needed.

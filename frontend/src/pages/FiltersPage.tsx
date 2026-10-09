@@ -73,6 +73,7 @@ function configuredRules(rules: FilterDraft[]): FilterDraft[] {
 
 export default function FiltersPage({ active }: FiltersPageProps) {
   const [data, setData] = useState<FiltersResponse | null>(null)
+  const [loading, setLoading] = useState(true)
   const [drafts, setDrafts] = useState<Drafts>(emptyDrafts)
   const [nextId, setNextId] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -94,6 +95,7 @@ export default function FiltersPage({ active }: FiltersPageProps) {
   useEffect(() => {
     if (!active || hasLoaded.current) return
     let mounted = true
+    setLoading(true)
     const load = async () => {
       try {
         const api = await waitForBridge()
@@ -108,6 +110,8 @@ export default function FiltersPage({ active }: FiltersPageProps) {
         }
       } catch (reason) {
         if (mounted) setError(reason instanceof Error ? reason.message : 'Could not load filters.')
+      } finally {
+        if (mounted) setLoading(false)
       }
     }
     void load()
@@ -213,7 +217,7 @@ export default function FiltersPage({ active }: FiltersPageProps) {
   }
 
   return (
-    <div className="filters-layout">
+    <div className="filters-layout" aria-busy={loading}>
       <FeedbackToast error={error} notice={notice} onDismiss={() => { setError(''); setNotice('') }} />
       <section className="card filters-intro">
         <div className="section-heading">
@@ -239,7 +243,7 @@ export default function FiltersPage({ active }: FiltersPageProps) {
         const defaultCount = new Set(configured.filter((rule) => rule.origin === 'default').map((rule) => rule.value.trim())).size
         const detailsId = `filter-details-${name}`
         return (
-          <section className="card filter-category-card" data-category={name} key={name}>
+          <section className="card filter-category-card" id={`filters-${name}`} data-category={name} key={name}>
             <h2 className="filter-category-heading">
               <button
                 type="button"

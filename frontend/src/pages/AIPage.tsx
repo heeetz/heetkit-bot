@@ -99,6 +99,7 @@ function ModelSelector({
 export default function AIPage({ active, onOpenSettings }: AIPageProps) {
   const [status, setStatus] = useState<AIStatus | null>(null)
   const [data, setData] = useState<PersonalitiesResponse | null>(null)
+  const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState('')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [profileDraft, setProfileDraft] = useState('')
@@ -167,6 +168,7 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
       return
     }
     let current = true
+    setLoading(true)
     const load = async () => {
       try {
         const api = await waitForBridge()
@@ -204,6 +206,8 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
         if (current) {
           setError(reason instanceof Error ? reason.message : 'Could not load AI settings.')
         }
+      } finally {
+        if (current) setLoading(false)
       }
     }
     void load()
@@ -588,13 +592,13 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
     : ''
 
   return (
-    <section className="ai-layout">
+    <section className="ai-layout" aria-busy={loading}>
       <FeedbackToast
         error={error}
         notice={notice}
         onDismiss={() => { setError(''); setNotice('') }}
       />
-      <div className="ai-status-grid">
+      <div className="ai-status-grid" id="ai-runtime">
         <article className="card compact-card">
           <p className="label">AI command</p>
           <Switch
@@ -631,7 +635,7 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
           <strong>{data?.active_personality || 'Not selected'}</strong>
         </article>
       </div>
-      <article className="card ai-provider-card">
+      <article className="card ai-provider-card" id="ai-models">
         <div className="section-heading">
           <div>
             <p className="label">GEMINI PROVIDER</p>
@@ -682,7 +686,7 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
           </div>
         )}
       </article>
-      <article className="card ai-language-card">
+      <article className="card ai-language-card" id="ai-language">
         <div className="section-heading">
           <div>
             <p className="label">RESPONSE LANGUAGE</p>
@@ -765,7 +769,7 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
           </div>
         )}
       </article>
-      <article className="card personality-editor">
+      <article className="card personality-editor" id="ai-personalities">
         <div className="section-heading">
           <div>
             <p className="label">PERSONALITY EDITOR</p>
@@ -889,7 +893,7 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
           </>
         )}
       </article>
-      <article className="card profile-instructions-editor">
+      <article className="card profile-instructions-editor" id="ai-profile-instructions">
         <div className="section-heading">
           <div>
             <p className="label">PROFILE INSTRUCTIONS</p>
@@ -924,7 +928,7 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
           </div>
         </div>
       </article>
-      <details className="card protected-instructions-card">
+      <details className="card protected-instructions-card" id="ai-shared-instructions">
         <summary className="protected-instructions-summary">
           <div>
             <p className="label">PROTECTED SHARED INSTRUCTIONS</p>
