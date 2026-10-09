@@ -61,6 +61,20 @@ Custom personalities can be renamed or deleted; deleting the active one selects
 Profile instructions apply to every personality in the current profile. **Reset** clears
 that field without changing personality prompts or selection. Protected shared
 instructions are read-only. Separate profiles keep their own styles and instructions.
+
+The protected policy allows gaming trash talk, sarcasm and light swearing about
+behavior, plus neutral discussion of children, disabilities and illness. It excludes
+sexual or cruel content involving minors, abuse based on personal characteristics,
+self-harm encouragement, real-world threats, stalking and disclosure of personal
+information. The bot also stays out of real-world wars, terrorist attacks, tragedies
+and political protests or revolutions, including the Orange Revolution and Revolution
+of Dignity. Harmless game mechanics, fiction and unrelated metaphors remain allowed.
+
+Restricted `!ask` requests are silently ignored. Blocked generated replies are discarded
+without a substitute reply or inclusion in chat, conversation memory or logs. Editable
+styles and profile instructions cannot disable these safeguards. Protected instructions
+and local context checks reduce unsafe replies; they do not guarantee perfect detection.
+
 See [data and privacy](data-and-privacy.md) for memory, provider processing and backups,
 and [commands](commands.md) for filters, permissions and cooldowns.
 

@@ -18,6 +18,7 @@ from app.config.personalities import (
 )
 from app.runtime_state import RuntimeState
 from app.services.filter_manager import FilterManager
+from app.services.ai_request_policy import AIRequestPolicy
 
 logger = logging.getLogger(__name__)
 GEMINI_REQUEST_TIMEOUT_SECONDS = 60.0
@@ -62,6 +63,7 @@ class GeminiAIService:
         self.settings = settings
         self.runtime_state = runtime_state
         self.filter_manager = filter_manager
+        self._safety_policy = AIRequestPolicy()
         self._client: Any | None = None
         self._client_key: object | None = None
         self._client_users: dict[Any, int] = {}
@@ -92,77 +94,6 @@ class GeminiAIService:
             re.compile(
                 r"(системн\w*\s+промпт|прихован\w*\s+інструкці|"
                 r"api[- ]?ключ|токен|парол[ія]|внутрішн\w*\s+налаштуван)",
-                re.IGNORECASE,
-            ),
-
-            # Explicit political / geopolitical statements
-            re.compile(
-                r"\b(president|prime\s+minister|government|election|political\s+party|"
-                r"geopolitical|annexation|occupation|sovereignty|territorial\s+dispute)\b"
-                r".*\b(is|was|are|were|controls?|owns?|belongs?|annexed|occupied)\b",
-                re.IGNORECASE,
-            ),
-            re.compile(
-                r"\b(президент\w*|правительств\w*|выбор\w*|политичес\w*|"
-                r"геополит\w*|аннекси\w*|оккупаци\w*|суверенитет\w*)\b"
-                r".*\b(это|был|была|является|принадлежит|контролирует|захватил)\b",
-                re.IGNORECASE,
-            ),
-            re.compile(
-                r"\b(президент\w*|уряд\w*|вибор\w*|політич\w*|"
-                r"геополітик\w*|анексі\w*|окупаці\w*|суверенітет\w*)\b"
-                r".*\b(це|був|була|є|належить|контролює|захопив)\b",
-                re.IGNORECASE,
-            ),
-
-            # Explicit war / military statements
-            re.compile(
-                r"\b(war|military\s+conflict|armed\s+conflict|invasion|bombing|"
-                r"missile\s+strike|military\s+operation|war\s+crime|battle)\b",
-                re.IGNORECASE,
-            ),
-            re.compile(
-                r"\b(войн\w*|военн\w*|боев\w*|вторжени\w*|бомбардировк\w*|"
-                r"ракет\w*|обстрел\w*|военн\w*\s+преступлени\w*)\b",
-                re.IGNORECASE,
-            ),
-            re.compile(
-                r"\b(війн\w*|воєнн\w*|бойов\w*|вторгнен\w*|бомбардуван\w*|"
-                r"ракет\w*|обстріл\w*|воєнн\w*\s+злочин\w*)\b",
-                re.IGNORECASE,
-            ),
-
-            # Extremism / Nazi / fascist / terrorism
-            re.compile(
-                r"\b(nazi|nazism|neo[- ]?nazi|fascis[tm]|hitler|third\s+reich|"
-                r"holocaust|genocide|terroris[tm]|extremis[tm])\b",
-                re.IGNORECASE,
-            ),
-            re.compile(
-                r"\b(нацизм|нацист\w*|неонацист\w*|фашизм|фашист\w*|"
-                r"гитлер\w*|холокост\w*|геноцид\w*|терроризм|террорист\w*|экстремизм|экстремист\w*)\b",
-                re.IGNORECASE,
-            ),
-            re.compile(
-                r"\b(нацизм|нацист\w*|неонацист\w*|фашизм|фашист\w*|"
-                r"гітлер\w*|голокост\w*|геноцид\w*|тероризм|терорист\w*|екстремізм|екстреміст\w*)\b",
-                re.IGNORECASE,
-            ),
-
-            # Sensitive real-world incidents
-            re.compile(
-                r"\b(tiananmen|tiananmen\s+square|massacre|mass\s+killing|"
-                r"political\s+repression|violent\s+protest|terrorist\s+attack)\b",
-                re.IGNORECASE,
-            ),
-            re.compile(
-                r"(тяньаньмэнь|массов\w*\s+убийств\w*|массов\w*\s+расстрел\w*|"
-                r"политическ\w*\s+репресси|теракт|террористическ\w*\s+акт)",
-                re.IGNORECASE,
-            ),
-            re.compile(
-                r"(тяньаньмень|масов\w*\s+вбивств\w*|масов\w*\s+розстріл\w*|"
-                r"політичн\w*\s+репресі|теракт|терористичн\w*\s+акт)",
                 re.IGNORECASE,
             ),
 
@@ -609,6 +540,8 @@ class GeminiAIService:
         )
 
     def _contains_blocked_response_content(self, text: str) -> bool:
+        if self._safety_policy.contains_restricted_content(text):
+            return True
         if self.filter_manager is not None and self.filter_manager.contains_blocked_content(text):
             return True
         for pattern in self._blocked_sexual_fetish_patterns:

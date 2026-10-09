@@ -22,7 +22,9 @@ from app.commands.registry import CommandDispatcher
 from app.config.settings import Settings, TwitchAccountSettings
 from app.runtime_state import TwitchConnectionState
 from app.services.facade import ApplicationServices
+from app.services.ai_request_policy import PolicyDecision
 from app.twitch.events import ChatAuthor, IncomingChatMessage
+from app.utils.text import parse_command
 
 
 class TwitchConnectionError(RuntimeError):
@@ -122,6 +124,16 @@ async def process_twitch_message(
             },
         )
         return
+
+    # Decide before recording request content; ignored AI input must stay out of
+    # chat logs and memory just like input rejected by profile filters.
+    prefix = getattr(getattr(services, "settings", None), "command_prefix", "!")
+    parsed = parse_command(incoming.content, prefix)
+    policy = getattr(services, "ai_request_policy", None)
+    if parsed is not None and parsed[0] == "ask" and policy is not None:
+        if policy.check(parsed[1]) == PolicyDecision.IGNORE:
+            logger.info("AI request ignored by safety policy")
+            return
 
     logger.info(
         "Incoming chat message channel=%s author=%s content=%r",
