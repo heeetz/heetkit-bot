@@ -8,8 +8,25 @@ The [Windows build workflow](https://github.com/heeetz/heetkit-bot/actions/workf
 creates Actions artifacts on `main` pushes and manual runs; documentation-only pushes
 remain ignored. A manually pushed matching version tag runs the same pipeline and,
 after success, publishes its five verified files as a GitHub Release. A successful
-build alone does not establish public-release readiness. In-app update checking
-remains unimplemented.
+build alone does not establish public-release readiness.
+
+## Check for updates
+
+In **About → Updates**, choose **Check for updates** to compare the running version
+with the latest stable public release. The card shows the current and latest versions,
+the release title/date and a short preview of its notes. Only a greater numeric
+`major.minor.patch` version is offered as an update; an equal or older stable release
+does not prompt a downgrade. Drafts and prereleases are excluded.
+
+The check uses GitHub's public API without signing in. If offline, temporarily limited
+by GitHub, or unable to read a valid release response, the card reports the problem
+and lets you retry while the rest of HeetKit remains usable. **Open release / downloads**
+opens the official stable release page in your default browser, including when a check
+fails. It provides the full notes and installer/portable downloads.
+
+Checks run only when requested. HeetKit does not download or launch an installer,
+replace its executable, or check automatically at startup. Quit HeetKit fully before
+running a downloaded installer. See the upgrade and retention guidance below.
 
 ## Build inputs and version
 

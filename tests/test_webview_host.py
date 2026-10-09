@@ -25,6 +25,7 @@ from app.container import Application
 from app.credentials import CredentialStatus
 from app.runtime_paths import DATA_DIR_ENV
 from app.runtime_state import RuntimeState
+from app.services.updates import RELEASE_PAGE_URL, UpdateCheckError
 from app.twitch.client import OAUTH_REDIRECT_URI
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
@@ -308,7 +309,7 @@ def test_bridge_exposes_about_metadata_and_fixed_external_destinations(monkeypat
     assert about["author"] == "heeetz"
     assert about["discord_contact"] == "de.tected"
     assert about["license_name"] == "Apache-2.0"
-    for destination in ("repository", "license", "third_party_notices", "twitch_developer_console", "author_twitch"):
+    for destination in ("repository", "license", "third_party_notices", "twitch_developer_console", "author_twitch", "releases"):
         assert bridge.open_external_link(destination) == {"ok": True}
     assert opened == [
         ("https://github.com/heeetz/twitch-bot", 2),
@@ -316,11 +317,78 @@ def test_bridge_exposes_about_metadata_and_fixed_external_destinations(monkeypat
         ("https://github.com/heeetz/twitch-bot/blob/main/THIRD_PARTY_NOTICES.md", 2),
         ("https://dev.twitch.tv/console/apps", 2),
         ("https://www.twitch.tv/heet_ok", 2),
+        (RELEASE_PAGE_URL, 2),
     ]
     assert bridge.open_external_link("https://example.com") == {
         "ok": False,
         "error": "That external link is not available.",
     }
+
+
+def test_bridge_checks_canonical_version_on_existing_backend_loop(monkeypatch) -> None:
+    client = object()
+    calls = []
+
+    async def fake_check(http_client, current_version):
+        calls.append((http_client, current_version))
+        return {"latest_version": "1.10.0", "update_available": True,
+                "release_name": "HeetKit 1.10.0", "release_notes": "Changes.",
+                "published_at": "2026-10-09T12:00:00Z"}
+
+    monkeypatch.setattr("app.webview_host.check_for_updates", fake_check)
+    monkeypatch.setattr("app.webview_host.VERSION", "1.9.0")
+    backend = SimpleNamespace(application=SimpleNamespace(http_client=client), submit=complete_bridge_coroutine)
+    result = WebUIBridge(cast(AsyncioBackendHost, backend)).check_for_updates()
+    assert calls == [(client, "1.9.0")]
+    assert result == {"ok": True, "current_version": "1.9.0", "latest_version": "1.10.0",
+                      "update_available": True, "release_name": "HeetKit 1.10.0",
+                      "release_notes": "Changes.", "published_at": "2026-10-09T12:00:00Z"}
+
+
+@pytest.mark.parametrize("unexpected", [False, True])
+def test_bridge_update_failure_keeps_current_version_and_safe_error(monkeypatch, unexpected) -> None:
+    async def fake_check(*args):
+        if unexpected:
+            raise RuntimeError("private failure details")
+        raise UpdateCheckError("Could not reach GitHub. Check your internet connection and try again.")
+
+    monkeypatch.setattr("app.webview_host.check_for_updates", fake_check)
+    backend = SimpleNamespace(application=SimpleNamespace(http_client=object()), submit=complete_bridge_coroutine)
+    bridge = WebUIBridge(cast(AsyncioBackendHost, backend))
+    result = bridge.check_for_updates()
+    assert result["ok"] is False
+    assert result["current_version"] == bridge.get_about_info()["version"]
+    assert "latest_version" not in result
+    assert "private" not in result["error"]
+    assert result["error"].startswith("Could not check for updates" if unexpected else "Could not reach GitHub")
+
+
+def test_bridge_update_timeout_cancels_pending_check(monkeypatch) -> None:
+    future = Future()
+
+    def submit(coroutine):
+        coroutine.close()
+        return future
+
+    backend = SimpleNamespace(application=SimpleNamespace(http_client=object()), submit=submit)
+    monkeypatch.setattr("app.webview_host.BRIDGE_UPDATE_CHECK_TIMEOUT_SECONDS", 0.01)
+    result = WebUIBridge(cast(AsyncioBackendHost, backend)).check_for_updates()
+    assert result["ok"] is False
+    assert result["error"] == "The update check timed out. Try again."
+    assert future.cancelled()
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_release_browser_action_reports_failure(monkeypatch, failure) -> None:
+    def fake_open(url, *, new):
+        assert url == RELEASE_PAGE_URL
+        if failure:
+            raise OSError("synthetic browser failure")
+        return False
+
+    monkeypatch.setattr("app.webview_host.webbrowser.open", fake_open)
+    bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace()))
+    assert bridge.open_external_link("releases") == {"ok": False, "error": "Could not open the external link."}
 
 
 def test_bridge_profile_location_uses_default_runtime_owner(tmp_path, monkeypatch) -> None:

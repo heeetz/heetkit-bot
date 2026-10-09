@@ -53,6 +53,7 @@ from app.runtime_paths import (
     RuntimePaths, RuntimeDataError, prepare_runtime_data,
 )
 from app.system_tray import SystemTray
+from app.services.updates import RELEASE_PAGE_URL, UpdateCheckError, check_for_updates
 from app.windows_runtime import DesktopPrerequisiteError, ensure_windows_runtime
 from app.twitch.client import OAUTH_REDIRECT_URI
 from app.twitch.permissions import Permission
@@ -74,6 +75,7 @@ FORCED_STOP_TIMEOUT_SECONDS = 2.0
 BRIDGE_SETTINGS_TIMEOUT_SECONDS = 10.0
 BRIDGE_CREDENTIAL_TEST_TIMEOUT_SECONDS = 15.0
 BRIDGE_MODEL_DISCOVERY_TIMEOUT_SECONDS = 20.0
+BRIDGE_UPDATE_CHECK_TIMEOUT_SECONDS = 15.0
 BRIDGE_BOT_START_TIMEOUT_SECONDS = 10.0
 BRIDGE_BOT_STOP_TIMEOUT_SECONDS = 20.0
 BRIDGE_TWITCH_RECONNECT_TIMEOUT_SECONDS = 30.0
@@ -86,11 +88,12 @@ EXTERNAL_LINKS = {
     "third_party_notices": "https://github.com/heeetz/twitch-bot/blob/main/THIRD_PARTY_NOTICES.md",
     "author_twitch": "https://www.twitch.tv/heet_ok",
     "twitch_developer_console": "https://dev.twitch.tv/console/apps",
+    "releases": RELEASE_PAGE_URL,
 }
 
 # Register functions by exact name; never give pywebview an object to traverse.
 FRONTEND_OPERATIONS = (
-    "get_app_status", "get_about_info", "get_commands", "get_custom_commands",
+    "get_app_status", "get_about_info", "check_for_updates", "get_commands", "get_custom_commands",
     "get_filters", "get_ai_status", "get_personalities", "get_recent_logs",
     "apply_command_settings", "save_command_settings", "reset_command_settings",
     "apply_command_responses", "save_command_responses", "reset_command_responses",
@@ -473,6 +476,23 @@ class WebUIBridge:
 
     def get_profile_info(self) -> dict[str, str]:
         return {"path": str(self._profile_root)}
+
+    def check_for_updates(self) -> dict[str, object]:
+        current_version = application_version()
+        try:
+            release = self._wait_for_backend(
+                check_for_updates(self._backend.application.http_client, current_version),
+                operation="check_for_updates",
+                timeout=BRIDGE_UPDATE_CHECK_TIMEOUT_SECONDS,
+            )
+        except BridgeOperationTimedOut:
+            return {"ok": False, "current_version": current_version, "error": "The update check timed out. Try again."}
+        except UpdateCheckError as error:
+            return {"ok": False, "current_version": current_version, "error": str(error)}
+        except Exception as error:
+            self._logger.warning("Update check failed error_type=%s", type(error).__name__)
+            return {"ok": False, "current_version": current_version, "error": "Could not check for updates. Try again later."}
+        return {"ok": True, "current_version": current_version, **release}
 
     def open_profile_folder(self) -> dict[str, object]:
         """Open only this desktop's selected profile, never a frontend-supplied path."""

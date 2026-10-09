@@ -67,7 +67,8 @@ const credentials = [
 ]
 const opened: string[] = []
 const aiCalls: unknown[][] = []
-Object.assign(window, { opened, aiCalls })
+const updateCalls: unknown[][] = []
+Object.assign(window, { opened, aiCalls, updateCalls })
 window.pywebview = { api: {
   get_app_status: async () => status,
   get_commands: async () => ({ command_prefix: '!', permissions: ['USER'], commands: [] }),
@@ -127,6 +128,32 @@ window.pywebview = { api: {
     discord_contact: 'de.tected', license_name: 'Apache-2.0', license_url: 'https://www.apache.org/licenses/LICENSE-2.0',
     third_party_notices_url: 'https://github.com/heeetz/twitch-bot/blob/main/THIRD_PARTY_NOTICES.md',
   }),
+  check_for_updates: async () => {
+    updateCalls.push(['check_for_updates'])
+    const sequence = query.get('updateSequence')?.split(',') ?? []
+    const outcome = sequence[updateCalls.length - 1] ?? ''
+    if (query.has('updateDelay')) {
+      await new Promise((resolve) => window.setTimeout(resolve, Number(query.get('updateDelay')) || 250))
+    }
+    if (outcome === 'reject' || query.has('updateReject') || query.has('updateRejection')) {
+      throw new Error('Update service is unavailable.')
+    }
+    if (outcome === 'error' || query.has('updateError') || query.has('updateFailure')) {
+      return { ok: false, error: 'Could not reach the update service.', current_version: '0.1.0' }
+    }
+    const newer = outcome === 'newer' || query.has('updateNewer') || query.has('updateAvailable')
+    return {
+      ok: true,
+      current_version: '0.1.0',
+      latest_version: newer ? '0.2.0' : '0.1.0',
+      update_available: newer,
+      release_name: newer ? 'HeetKit 0.2.0' : 'HeetKit 0.1.0',
+      release_notes: query.has('notesMarkup')
+        ? 'Fixes <strong>markup</strong> & **formatting**.'
+        : 'Bug fixes and reliability improvements.',
+      published_at: '2026-10-09',
+    }
+  },
   start_bot: async () => {
     status = { ...status, running: true, twitch_connection_state: 'auth_required' }
     return { ok: true }

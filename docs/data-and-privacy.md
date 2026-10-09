@@ -69,6 +69,14 @@ models** also contact Google. Google's terms and data handling apply; see the li
 The `!weather` command sends the supplied place query to Open-Meteo's geocoding
 service, then sends the returned coordinates to its forecast service.
 
+**About → Check for updates** contacts GitHub's public release API only when clicked.
+It sends a standard request for HeetKit's latest stable release, without GitHub
+authentication, chat content, profile paths or provider credentials. The version
+comparison happens locally, and check results are not saved to the profile. GitHub
+receives ordinary connection information such as your IP address. **Open release /
+downloads** opens the official release page in your browser; browser privacy settings
+apply there. See [update checking](release-process.md#check-for-updates).
+
 Turning memory off stops stored context being included in later requests; it does not
 erase existing exchanges. The broadcaster-only `!erase <username>` command deletes
 stored AI memory for a known user. It does not remove that user's activity record.

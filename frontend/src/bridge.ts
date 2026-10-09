@@ -262,6 +262,15 @@ export interface ModelDiscoveryResponse extends ActionResult {
   models?: string[]
 }
 
+export interface UpdateCheckResponse extends ActionResult {
+  current_version: string
+  latest_version?: string
+  update_available?: boolean
+  release_name?: string
+  release_notes?: string
+  published_at?: string
+}
+
 export interface LogEntry {
   id: number
   timestamp: string
@@ -279,6 +288,7 @@ export interface LogsResponse {
 interface PythonApi {
   get_app_status(): Promise<AppStatus>
   get_about_info(): Promise<AboutInfo>
+  check_for_updates(): Promise<UpdateCheckResponse>
   get_commands(): Promise<CommandsResponse>
   get_custom_commands(): Promise<CustomCommandsResponse>
   get_filters(): Promise<FiltersResponse>
@@ -327,7 +337,7 @@ interface PythonApi {
   test_credential(name: CredentialName): Promise<ActionResult>
   start_bot(): Promise<ActionResult>
   stop_bot(): Promise<ActionResult>
-  open_external_link(destination: 'repository' | 'license' | 'third_party_notices' | 'author_twitch' | 'twitch_developer_console' | 'twitch_authorization'): Promise<ActionResult>
+  open_external_link(destination: 'repository' | 'license' | 'third_party_notices' | 'author_twitch' | 'twitch_developer_console' | 'twitch_authorization' | 'releases'): Promise<ActionResult>
 }
 
 export interface ActionResult {
