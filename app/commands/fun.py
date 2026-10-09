@@ -3,7 +3,7 @@
 from random import choice
 
 from app.config.commands import (
-    FORECAST_COOLDOWN_SECONDS,
+    FATE_COOLDOWN_SECONDS,
     PING_COOLDOWN_SECONDS,
     TG_BURST_DELAY,
 )
@@ -11,7 +11,7 @@ from app.commands.registry import CommandRegistry
 from app.utils.cooldown import CooldownPolicy
 from app.twitch.permissions import Permission
 from app.runtime_paths import RuntimePaths
-from app.fun_settings import FORECASTS, FunSettingsStore
+from app.fun_settings import FATES, FunSettingsStore
 
 
 
@@ -23,14 +23,14 @@ def _valid_tg_arguments(arguments: str) -> bool:
     return 1 <= count <= 10
 
 
-def random_forecast(forecasts: tuple[str, ...] = FORECASTS) -> str:
-    return choice(forecasts)
+def random_fate(fates: tuple[str, ...] = FATES) -> str:
+    return choice(fates)
 
 
 def load_fun_settings() -> tuple[str, tuple[str, ...]]:
     """Local responses for built-in commands; absent files use neutral starters."""
     store = FunSettingsStore(RuntimePaths.default().config / "fun_settings.json")
-    return store.tg_message, store.forecasts
+    return store.tg_message, store.fates
 
 
 def register_fun_commands(registry: CommandRegistry, fun_settings: FunSettingsStore | None = None) -> None:
@@ -64,14 +64,14 @@ def register_fun_commands(registry: CommandRegistry, fun_settings: FunSettingsSt
         await context.reply_burst(fun_settings.tg_message, count, delay=TG_BURST_DELAY)
 
     @registry.command(
-        "forecast",
-        help_text="!forecast",
-        cooldown=CooldownPolicy(global_seconds=FORECAST_COOLDOWN_SECONDS),
+        "fate",
+        help_text="!fate",
+        cooldown=CooldownPolicy(global_seconds=FATE_COOLDOWN_SECONDS),
         argument_validator=lambda arguments: not arguments,
     )
-    async def forecast(context, arguments: str) -> None:
+    async def fate(context, arguments: str) -> None:
         if arguments:
-            await context.reply("Usage: !forecast")
+            await context.reply("Usage: !fate")
             return
         username = context.message.author.username.lstrip("@")
-        await context.reply(f"@{username}, {random_forecast(fun_settings.forecasts)}")
+        await context.reply(f"@{username}, {random_fate(fun_settings.fates)}")

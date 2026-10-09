@@ -267,10 +267,17 @@ def test_legacy_personalities_and_fun_responses_survive_migration_and_restart(tm
     assert state.active_ai_personality == personalities["active_personality"]
     assert state.get_ai_personality_prompt("retired-style") == personalities["overrides"]["retired-style"]
     store = FunSettingsStore(paths.config / "fun_settings.json")
-    assert store.forecasts == tuple(fun["forecasts"])
+    assert store.fates == tuple(fun["forecasts"])
     assert store.tg_message == fun["tg_message"]
     assert paths.personality_settings.read_bytes() == (legacy / "personality_settings.json").read_bytes()
-    assert store.path.read_bytes() == (legacy / "fun_settings.json").read_bytes()
+    assert json.loads(store.path.read_text(encoding="utf-8")) == {
+        **{key: value for key, value in fun.items() if key != "forecasts"},
+        "fates": fun["forecasts"],
+    }
+    copies = list(paths.config.glob("fun_settings.json.*.recovery"))
+    assert len(copies) == 1
+    assert copies[0].read_bytes() == original[store.path]
+    original[store.path] = store.path.read_bytes()
 
     # A later checkout/reset cannot replace the already migrated local snapshot.
     for filename in ("personality_settings.json", "fun_settings.json"):
@@ -279,7 +286,7 @@ def test_legacy_personalities_and_fun_responses_survive_migration_and_restart(tm
                          paths=paths, legacy_data=legacy, migrate_legacy=True)
     assert all(path.read_bytes() == content for path, content in original.items())
     assert RuntimeState(personality_settings_path=paths.personality_settings).active_ai_personality == "retired-style"
-    assert FunSettingsStore(store.path).forecasts == tuple(fun["forecasts"])
+    assert FunSettingsStore(store.path).fates == tuple(fun["forecasts"])
 
 
 @pytest.mark.parametrize("migration_completed", [False, True])
@@ -349,7 +356,7 @@ def test_interrupted_migration_retries_without_replacing_recovered_files(tmp_pat
 
 def test_default_profile_marker_does_not_prove_optional_settings_were_recovered(tmp_path: Path, monkeypatch) -> None:
     from app import runtime_paths
-    from app.fun_settings import FORECASTS
+    from app.fun_settings import FATES
 
     paths = RuntimePaths(tmp_path / "default-profile")
     paths.config.mkdir(parents=True)
@@ -375,7 +382,7 @@ def test_default_profile_marker_does_not_prove_optional_settings_were_recovered(
     assert not paths.personality_settings.exists()
     assert not (paths.config / "fun_settings.json").exists()
     assert RuntimeState(personality_settings_path=paths.personality_settings).available_personalities == ("neutral",)
-    assert FunSettingsStore(paths.config / "fun_settings.json").forecasts == FORECASTS
+    assert FunSettingsStore(paths.config / "fun_settings.json").fates == FATES
     assert paths.migration_marker.read_bytes() == b"previous migration attempt"
 
     # Explicit private recovery restores only the selected profile; initialization
@@ -392,5 +399,5 @@ def test_default_profile_marker_does_not_prove_optional_settings_were_recovered(
     assert state.active_ai_personality == "archived-style"
     assert state.get_ai_personality_prompt("archived-style") == "An editable local style"
     fun = FunSettingsStore(paths.config / "fun_settings.json")
-    assert fun.forecasts == ("An exact archived response",)
+    assert fun.fates == ("An exact archived response",)
     assert fun.tg_message == "An archived community message"

@@ -14,7 +14,7 @@ stay out of public help but remain usable by authorized users when enabled.
 | `!commands` | List public command help entries. | Moderator |
 | `!erase <username>` | Delete stored AI memory for a known user; hidden from help. | Broadcaster |
 | `!followage` | Show how long the invoking user has followed the channel. | User |
-| `!forecast` | Return a random configured forecast. | User |
+| `!fate` | Return a random configured prediction. | User |
 | `!help` | List public command help entries. | User |
 | `!ping` | Reply with `pong`. | Moderator |
 | `!seen <username>` | Show when a known chatter was last seen. | User |
@@ -35,10 +35,32 @@ per-user/global cooldowns. The permission order is User → Subscriber → VIP �
 - **Save** keeps the settings across restarts.
 - **Reset** removes the saved override and restores the shipped defaults.
 
-Expand **Forecast** or **Tg** to edit their response text. These editors have their own
-Apply, Save and Reset actions. Forecast accepts one non-empty response per line; blank
+Expand **Fate** or **Tg** to edit their response text. These editors have their own
+Apply, Save and Reset actions. Fate accepts one non-empty response per line; blank
 lines are ignored and commas stay in the text. Responses must fit within 450 UTF-8 bytes.
 Weather and uptime use runtime data rather than editable response lists.
+
+### Existing prediction settings
+
+`!fate` replaces `!forecast`; the old command has no alias. On normal startup, each
+selected profile (including `--data-dir`) automatically renames `forecast` to `fate`
+in `config/command_settings.json` and `forecasts` to `fates` in version-1
+`config/fun_settings.json`. Saved enabled state, cooldowns, permissions and response
+text are retained, along with unknown and unrelated JSON fields.
+
+If both keys exist, the complete new value wins, even if empty or invalid; values
+are not merged and invalid settings follow the usual default fallback. The old key
+is removed from the active file. Before replacement, an exact original is kept
+beside it as `<filename>.<unique-id>.recovery`, including any conflicting old value.
+Once renamed, startup leaves that file untouched. `--check` performs no migration.
+Malformed or unsupported files stay intact. A failed backup or replacement keeps
+the original on disk and uses the renamed values for that session; resolve the
+reported file problem with HeetKit stopped before restarting.
+
+Apply, Save and Reset still work independently for settings and responses. Ordinary
+command-setting saves retain their existing recovery behavior for unknown fields
+or external edits; protect recovery copies like the profile itself. See
+[backups and settings recovery](data-and-privacy.md#backups-and-settings-recovery).
 
 ## Custom commands
 

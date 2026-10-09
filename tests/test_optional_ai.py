@@ -63,7 +63,15 @@ def test_clean_backend_provider_changes_restore_availability_and_preserve_saved_
         assert commands["ask"]["enabled"] is enabled
         assert commands["ask"]["available"] is False
         assert all(item["available"] for name, item in commands.items() if name != "ask")
-        assert [name for name, item in commands.items() if item["response_pool"]] == ["forecast"]
+        pools = {name: item["response_pool"] for name, item in commands.items() if item["response_pool"]}
+        assert set(pools) == {"fate", "tg"}
+        assert pools["fate"]["response_mode"] == "random"
+        assert pools["fate"]["max_responses"] == 1000
+        assert pools["fate"]["responses"] == pools["fate"]["defaults"]
+        assert pools["tg"]["response_mode"] == "single"
+        assert pools["tg"]["max_responses"] == 1
+        assert pools["tg"]["responses"] == pools["tg"]["defaults"]
+        assert "forecast" not in commands
         assert bridge.get_ai_status()["available"] is False
         assert bridge.replace_credential("gemini_api_key", "synthetic-test-key") == {"ok": True}
         assert bridge.get_ai_status()["available"] is True

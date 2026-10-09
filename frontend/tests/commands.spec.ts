@@ -12,7 +12,7 @@ async function calls(page: Page) {
 
 test('creator and existing-command editor appear above the list with compact templates', async ({ page }) => {
   await page.goto('/tests/commands.fixture.html')
-  await expect(page.locator('.command-summary-title strong')).toHaveText(['!forecast', '!ping', '!tg'])
+  await expect(page.locator('.command-summary-title strong')).toHaveText(['!fate', '!ping', '!tg'])
   await page.getByRole('button', { name: 'New command', exact: true }).click()
   const editor = page.locator('.custom-command-editor')
   const list = page.locator('.custom-command-list')
@@ -32,6 +32,12 @@ test('creator and existing-command editor appear above the list with compact tem
   await list.getByRole('button', { name: 'Edit', exact: true }).click()
   await expect(editor.locator('textarea')).toHaveValue('Hello, {sender}!\nWelcome, {target}!')
   expect((await editor.boundingBox())!.y).toBeLessThan((await list.boundingBox())!.y)
+})
+
+test('built-in fate is exposed and forecast is absent', async ({ page }) => {
+  await page.goto('/tests/commands.fixture.html')
+  await expect(page.getByText('!fate', { exact: true })).toBeVisible()
+  await expect(page.getByText('!forecast', { exact: true })).toHaveCount(0)
 })
 
 test('new and existing custom commands save lines, commas, variables and settings', async ({ page }) => {
@@ -63,9 +69,9 @@ test('new and existing custom commands save lines, commas, variables and setting
   })
 })
 
-test('forecast response Apply Save Reset preserves independent settings drafts', async ({ page }) => {
+test('fate response Apply Save Reset preserves independent settings drafts', async ({ page }) => {
   await page.goto('/tests/commands.fixture.html')
-  const card = await expandCommand(page, 'forecast')
+  const card = await expandCommand(page, 'fate')
   const responses = card.locator('.command-response-editor')
   const settings = card.locator('.command-action-footer')
   await expect(responses.locator('textarea')).toHaveCount(1)
@@ -75,7 +81,7 @@ test('forecast response Apply Save Reset preserves independent settings drafts',
   await responses.getByRole('button', { name: 'Apply', exact: true }).click()
   await expect(responses.getByText('Runtime only', { exact: true })).toBeVisible()
   await expect(card.getByRole('combobox')).toHaveValue('MODERATOR')
-  expect((await calls(page))[0]).toEqual(['apply_command_responses', 'forecast', ['Tomorrow, try again.', 'Take a break, {literal}.']])
+  expect((await calls(page))[0]).toEqual(['apply_command_responses', 'fate', ['Tomorrow, try again.', 'Take a break, {literal}.']])
   await responses.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(responses.getByText('Saved override', { exact: true })).toBeVisible()
   await expect(responses.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
@@ -97,10 +103,10 @@ test('tg edits one entire message with independent response actions and draft re
   const tg = await expandCommand(page, 'tg')
   const tgResponses = tg.locator('.command-response-editor')
   await tgResponses.locator('textarea').fill(' Community, https://example.test\nJoin us! ')
-  const forecast = await expandCommand(page, 'forecast')
-  const forecastResponses = forecast.locator('.command-response-editor')
-  await forecastResponses.locator('textarea').fill('Different forecast')
-  await forecastResponses.getByRole('button', { name: 'Save', exact: true }).click()
+  const fate = await expandCommand(page, 'fate')
+  const fateResponses = fate.locator('.command-response-editor')
+  await fateResponses.locator('textarea').fill('Different forecast')
+  await fateResponses.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(tgResponses.locator('textarea')).toHaveValue(' Community, https://example.test\nJoin us! ')
   await tgResponses.getByRole('button', { name: 'Apply', exact: true }).click()
   expect((await calls(page))[1]).toEqual(['apply_command_responses', 'tg', [' Community, https://example.test\nJoin us! ']])
@@ -113,13 +119,13 @@ test('tg edits one entire message with independent response actions and draft re
   page.once('dialog', (dialog) => dialog.accept())
   await tgResponses.getByRole('button', { name: 'Reset', exact: true }).click()
   await expect(tgResponses.locator('textarea')).toHaveValue('Configure your community link.')
-  await expect(forecastResponses.locator('textarea')).toHaveValue('Different forecast')
+  await expect(fateResponses.locator('textarea')).toHaveValue('Different forecast')
 })
 
 test('response limits and backend failures retain editable drafts', async ({ page }) => {
   await page.goto('/tests/commands.fixture.html?responseError')
-  const forecast = await expandCommand(page, 'forecast')
-  const responses = forecast.locator('.command-response-editor')
+  const fate = await expandCommand(page, 'fate')
+  const responses = fate.locator('.command-response-editor')
   await responses.locator('textarea').fill('\n  \n')
   await expect(responses.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled()
   await expect(responses.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
@@ -140,9 +146,9 @@ for (const width of [1280, 390]) {
   test(`multiline editors stay compact inside their cards at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 })
     await page.goto('/tests/commands.fixture.html')
-    const forecast = await expandCommand(page, 'forecast')
+    const fate = await expandCommand(page, 'fate')
     await page.getByRole('button', { name: 'New command', exact: true }).click()
-    for (const container of [forecast.locator('.command-response-editor'), page.locator('.custom-command-editor')]) {
+    for (const container of [fate.locator('.command-response-editor'), page.locator('.custom-command-editor')]) {
       const textarea = container.locator('textarea')
       const bounds = (await textarea.boundingBox())!
       const containerBounds = (await container.boundingBox())!

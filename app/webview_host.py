@@ -539,7 +539,7 @@ class WebUIBridge:
                     "available": unavailable_reason is None,
                     "unavailable_reason": unavailable_reason,
                     "response_pool": fun_settings.snapshot(definition.name)
-                    if definition.name in ("forecast", "tg") and fun_settings else None,
+                    if definition.name in ("fate", "tg") and fun_settings else None,
                     "permission": settings.permission.name,
                     "cooldown": {
                         "per_user_seconds": settings.cooldown.per_user_seconds,
@@ -561,7 +561,7 @@ class WebUIBridge:
 
     def _command_response_action(self, name: object, responses: object, action: str) -> dict[str, object]:
         store = getattr(self._backend.application, "fun_settings", None)
-        if name not in ("forecast", "tg") or store is None:
+        if name not in ("fate", "tg") or store is None:
             return {"ok": False, "error": "This command has no editable responses."}
         try:
             if action == "reset":

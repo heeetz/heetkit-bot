@@ -88,3 +88,46 @@ def preserve_settings_recovery(
     logging.getLogger(__name__).warning(
         "Preserved unrecovered settings before save path=%s recovery=%s", path, recovery_path,
     )
+
+
+def migrate_settings_key(
+    path: Path,
+    payload: dict[str, object],
+    old_key: str,
+    new_key: str,
+    *,
+    version: int | None = None,
+) -> dict[str, object]:
+    """Rename one saved key once, retaining the destination and a recovery original.
+
+    The complete destination value wins on collision, even if invalid. Unknown
+    fields are copied unchanged. A failed backup/replacement leaves disk intact
+    and still supplies the renamed customization for this session.
+    """
+    if old_key not in payload:
+        return payload
+    migrated = dict(payload)
+    legacy = migrated.pop(old_key)
+    migrated.setdefault(new_key, legacy)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent,
+            prefix=f".{path.name}.", suffix=".tmp", delete=False,
+        ) as output:
+            temporary = Path(output.name)
+            json.dump(migrated, output, ensure_ascii=False, indent=2)
+            output.write("\n")
+            output.flush()
+            os.fsync(output.fileno())
+        preserve_settings_recovery(path, None, version=version)
+        os.replace(temporary, path)
+    except (OSError, ValueError):
+        logging.getLogger(__name__).warning(
+            "Could not migrate settings key in %s; original retained, using renamed settings for this session",
+            path.name,
+        )
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return migrated

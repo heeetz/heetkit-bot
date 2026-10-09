@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.app_settings import AppSettingsStore
-from app.commands.fun import FORECASTS, load_fun_settings
+from app.commands.fun import FATES, load_fun_settings
 from app.config.settings import Settings, load_settings_with_credentials
 from app.credentials import CredentialName, CredentialStore
 from app.runtime_paths import DEFAULT_FILTERS, FILTER_NAMES, RuntimePaths, prepare_runtime_data
@@ -216,10 +216,10 @@ def test_alternate_profile_ignores_dotenv_and_forces_canonical_storage(tmp_path,
 
 def test_fun_responses_are_local_and_neutral_when_missing_or_invalid(tmp_path, monkeypatch):
     monkeypatch.setenv('HEETKIT_DATA_DIR', str(tmp_path))
-    assert load_fun_settings()[1] == FORECASTS
+    assert load_fun_settings()[1] == FATES
     path = tmp_path / 'config' / 'fun_settings.json'
     path.parent.mkdir()
     path.write_text(json.dumps({'version': 1, 'tg_message': 'community link', 'forecasts': ['local forecast']}))
     assert load_fun_settings() == ('community link', ('local forecast',))
     path.write_text('{broken')
-    assert load_fun_settings()[1] == FORECASTS
+    assert load_fun_settings()[1] == FATES

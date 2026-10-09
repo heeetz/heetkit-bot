@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.commands.ai import register_ai_commands
-from app.commands.fun import FORECASTS, register_fun_commands
+from app.commands.fun import FATES, register_fun_commands
 from app.commands.info import register_info_commands, register_weather_commands
 from app.commands.registry import CommandDispatcher, CommandRegistry
 from app.config.settings import Settings
@@ -26,6 +26,12 @@ from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownManager, CooldownPolicy
 from app.utils.output_limiter import OutputLimiter
+
+
+@pytest.fixture(autouse=True)
+def isolated_command_profile(tmp_path, monkeypatch):
+    """Built-in registration may migrate settings; never load the owner's profile."""
+    monkeypatch.setenv("HEETKIT_DATA_DIR", str(tmp_path))
 
 
 class FakeChatTransport:
@@ -205,7 +211,7 @@ def test_runtime_state_uptime_starts_at_state_construction(
     ("content", "expected"),
     [
         ("!weather", "Usage: !weather <city>"),
-        ("!forecast extra", "Usage: !forecast"),
+        ("!fate extra", "Usage: !fate"),
     ],
 )
 async def test_fun_commands_report_usage_when_arguments_are_missing(
@@ -223,16 +229,28 @@ async def test_fun_commands_report_usage_when_arguments_are_missing(
 
 
 @pytest.mark.asyncio
-async def test_forecast_replies_with_a_known_prediction(tmp_path, monkeypatch) -> None:
+async def test_fate_replies_with_a_known_prediction(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("HEETKIT_DATA_DIR", str(tmp_path))
     registry = CommandRegistry()
     register_fun_commands(registry)
-    transport = FakeChatTransport("!forecast")
+    transport = FakeChatTransport("!fate")
 
     await build_dispatcher(registry).dispatch(transport.message, cast(ApplicationServices, object()))
 
     assert transport.replies[0].startswith("@viewer, ")
-    assert transport.replies[0].removeprefix("@viewer, ") in FORECASTS
+    assert transport.replies[0].removeprefix("@viewer, ") in FATES
+
+
+@pytest.mark.asyncio
+async def test_forecast_is_not_a_public_alias(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HEETKIT_DATA_DIR", str(tmp_path))
+    registry = CommandRegistry()
+    register_fun_commands(registry)
+    assert registry.get("forecast") is None
+    assert registry.get("fate").aliases == ()
+    transport = FakeChatTransport("!forecast")
+    await build_dispatcher(registry).dispatch(transport.message, cast(ApplicationServices, object()))
+    assert transport.replies == []
 
 
 @pytest.mark.asyncio
@@ -317,7 +335,8 @@ def test_application_registers_phase_two_commands() -> None:
 
     application = build_application(settings)
 
-    assert {"ping", "help", "commands", "uptime", "forecast", "weather"} <= set(application.registry.names())
+    assert {"ping", "help", "commands", "uptime", "fate", "weather"} <= set(application.registry.names())
+    assert "forecast" not in application.registry.names()
     assert "percent" not in application.registry.names()
     assert "c" not in application.registry.names()
     assert "8ball" not in application.registry.names()

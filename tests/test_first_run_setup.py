@@ -200,7 +200,12 @@ def test_existing_owner_profile_and_keyring_survive_without_legacy_files(tmp_pat
         assert state.get_command_settings("ask").enabled is False
     finally:
         backend.close()
-    assert all(path.read_bytes() == content for path, content in before.items())
+    assert all(path.read_bytes() == content for path, content in before.items() if path != fun_path)
+    assert json.loads(fun_path.read_text(encoding="utf-8")) == {
+        "version": 1, "tg_message": "Local link", "fates": ["Local forecast"],
+    }
+    copies = list(paths.config.glob("fun_settings.json.*.recovery"))
+    assert len(copies) == 1 and copies[0].read_bytes() == before[fun_path]
     assert not list(tmp_path.rglob(".env"))
 
 

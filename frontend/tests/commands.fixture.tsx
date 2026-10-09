@@ -7,11 +7,11 @@ const defaults = {
   enabled: true, permission: 'USER', cooldown: { per_user_seconds: 0, global_seconds: 15 },
 }
 const initialResponses: Record<string, string[]> = {
-  forecast: ['Tomorrow brings a new opportunity.', 'Take a break, then try again.'],
+  fate: ['Tomorrow brings a new opportunity.', 'Take a break, then try again.'],
   tg: ['Configure your community link.'],
 }
 const savedResponses = structuredClone(initialResponses)
-const commands: CommandInfo[] = ['forecast', 'ping', 'tg'].map((name) => ({
+const commands: CommandInfo[] = ['fate', 'ping', 'tg'].map((name) => ({
   name, aliases: [], ...structuredClone(defaults), available: true, unavailable_reason: null,
   hidden: false, default_settings: structuredClone(defaults), saved: true, has_saved_override: false,
   response_pool: name === 'ping' ? null : {

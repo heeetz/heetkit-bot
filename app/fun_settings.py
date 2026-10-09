@@ -10,11 +10,12 @@ from pathlib import Path
 from threading import RLock
 
 from app.config.commands import TG_MESSAGE
+from app.settings_recovery import migrate_settings_key, preserve_settings_recovery
 
-FORECASTS = ("Tomorrow brings a new opportunity.",)
+FATES = ("Tomorrow brings a new opportunity.",)
 
 
-def validate_forecasts(values: object) -> tuple[str, ...]:
+def validate_fates(values: object) -> tuple[str, ...]:
     return _validate_responses(values, max_responses=1000)
 
 
@@ -28,8 +29,8 @@ def _validate_responses(values: object, *, max_responses: int) -> tuple[str, ...
 
 
 def _response_options(command_name: str) -> tuple[str, tuple[str, ...], int]:
-    if command_name == "forecast":
-        return "forecasts", FORECASTS, 1000
+    if command_name == "fate":
+        return "fates", FATES, 1000
     if command_name == "tg":
         return "tg_message", (TG_MESSAGE,), 1
     raise ValueError("This command has no editable responses.")
@@ -44,13 +45,14 @@ class FunSettingsStore:
         self._payload: dict[str, object] = {"version": 1}
         self._load_error = False
         self.tg_message = TG_MESSAGE
-        self._forecasts = FORECASTS
+        self._fates = FATES
         if path.exists():
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
-                if not isinstance(payload, dict) or payload.get("version") != 1:
+                if (not isinstance(payload, dict) or type(payload.get("version")) is not int
+                        or payload["version"] != 1):
                     raise ValueError("Unsupported fun settings")
-                self._payload = payload
+                self._payload = migrate_settings_key(path, payload, "forecasts", "fates", version=1)
             except (OSError, UnicodeError, ValueError):
                 self._load_error = True
                 logging.getLogger(__name__).warning("Could not load local fun settings; using neutral defaults")
@@ -58,22 +60,22 @@ class FunSettingsStore:
         if isinstance(message, str) and message.strip() and len(message.encode("utf-8")) <= 450:
             self.tg_message = message
         try:
-            self._forecasts = validate_forecasts(self._payload.get("forecasts", list(FORECASTS)))
+            self._fates = validate_fates(self._payload.get("fates", list(FATES)))
         except ValueError:
-            logging.getLogger(__name__).warning("Invalid local forecast responses; using neutral defaults")
-        self._saved_forecasts = self._forecasts
+            logging.getLogger(__name__).warning("Invalid local fate responses; using neutral defaults")
+        self._saved_fates = self._fates
         self._saved_tg_message = self.tg_message
 
     @property
-    def forecasts(self) -> tuple[str, ...]:
+    def fates(self) -> tuple[str, ...]:
         with self._lock:
-            return self._forecasts
+            return self._fates
 
-    def snapshot(self, command_name: str = "forecast") -> dict[str, object]:
+    def snapshot(self, command_name: str = "fate") -> dict[str, object]:
         field, defaults, max_responses = _response_options(command_name)
         with self._lock:
-            responses = (self.tg_message,) if command_name == "tg" else self._forecasts
-            saved_responses = (self._saved_tg_message,) if command_name == "tg" else self._saved_forecasts
+            responses = (self.tg_message,) if command_name == "tg" else self._fates
+            saved_responses = (self._saved_tg_message,) if command_name == "tg" else self._saved_fates
             return {
                 "responses": list(responses), "defaults": list(defaults),
                 "saved": responses == saved_responses,
@@ -82,13 +84,13 @@ class FunSettingsStore:
                 "max_responses": max_responses,
             }
 
-    def apply(self, responses: object, command_name: str = "forecast") -> None:
+    def apply(self, responses: object, command_name: str = "fate") -> None:
         _, _, max_responses = _response_options(command_name)
         parsed = _validate_responses(responses, max_responses=max_responses)
         with self._lock:
             self._set_responses(command_name, parsed, saved=False)
 
-    def save(self, responses: object, command_name: str = "forecast") -> None:
+    def save(self, responses: object, command_name: str = "fate") -> None:
         field, _, max_responses = _response_options(command_name)
         parsed = _validate_responses(responses, max_responses=max_responses)
         with self._lock:
@@ -97,7 +99,7 @@ class FunSettingsStore:
             self._payload = payload
             self._set_responses(command_name, parsed, saved=True)
 
-    def reset(self, command_name: str = "forecast") -> None:
+    def reset(self, command_name: str = "fate") -> None:
         field, defaults, _ = _response_options(command_name)
         with self._lock:
             payload = dict(self._payload)
@@ -112,9 +114,9 @@ class FunSettingsStore:
             if saved:
                 self._saved_tg_message = responses[0]
         else:
-            self._forecasts = responses
+            self._fates = responses
             if saved:
-                self._saved_forecasts = responses
+                self._saved_fates = responses
 
     def _write(self, payload: dict[str, object]) -> None:
         if self._load_error:
@@ -128,6 +130,7 @@ class FunSettingsStore:
                 output.write("\n")
                 output.flush()
                 os.fsync(output.fileno())
+            preserve_settings_recovery(self.path, self._payload, version=1)
             os.replace(temporary, self.path)
         finally:
             if temporary is not None:

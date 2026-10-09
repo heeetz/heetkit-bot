@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from app.twitch.permissions import Permission
-from app.settings_recovery import preserve_settings_recovery
+from app.settings_recovery import migrate_settings_key, preserve_settings_recovery
 from app.utils.cooldown import CooldownPolicy
 
 logger = logging.getLogger(__name__)
@@ -109,6 +109,9 @@ def load_command_overrides(
     if not isinstance(payload, dict):
         logger.warning("Command settings file must contain a JSON object; using defaults")
         return {}
+
+    if "fate" in defaults:
+        payload = migrate_settings_key(path, payload, "forecast", "fate")
 
     overrides: dict[str, CommandSettingsOverride] = {}
     for command_name, raw_override in payload.items():
