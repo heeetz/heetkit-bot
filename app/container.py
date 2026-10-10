@@ -11,6 +11,7 @@ from app.commands.info import register_info_commands, register_weather_commands
 from app.commands.social import register_social_commands
 from app.commands.registry import CommandDispatcher, CommandRegistry
 from app.custom_commands import CustomCommandStore
+from app.ai_user_blocks import AIUserBlocklist
 from app.message_triggers import MessageTriggerStore
 from app.runtime_paths import RuntimePaths
 from app.fun_settings import FunSettingsStore
@@ -94,6 +95,7 @@ def build_application(settings: Settings) -> Application:
         settings=settings,
         runtime_state=runtime_state,
         twitch=twitch_api,
+        ai_user_blocks=AIUserBlocklist(paths.config / "ai_user_blocks.json"),
     )
     registry = CommandRegistry()
     fun_settings = FunSettingsStore(paths.config / "fun_settings.json")

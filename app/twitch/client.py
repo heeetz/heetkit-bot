@@ -111,6 +111,10 @@ async def process_twitch_message(
         logger.exception("Could not map incoming Twitch chat message")
         return
 
+    # Reject blocked Ask accounts before filters, content logging, user or AI work.
+    if getattr(services, "ai_user_blocks", None) is not None and dispatcher.is_ai_request_blocked(incoming, services):
+        return
+
     # Check if message should be filtered out
     if not services.filter_manager.filter_message(incoming.content):
         logger.info(

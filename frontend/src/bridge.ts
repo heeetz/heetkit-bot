@@ -165,6 +165,15 @@ export interface AIStatus {
   model: string
 }
 
+export interface BlockedAIUser {
+  username: string
+  has_user_id: boolean
+}
+
+export interface AIUserBlocksResponse extends ActionResult {
+  users?: BlockedAIUser[]
+}
+
 export interface PersonalityInfo {
   name: string
   prompt: string
@@ -340,6 +349,9 @@ interface PythonApi {
   get_custom_commands(): Promise<CustomCommandsResponse>
   get_filters(): Promise<FiltersResponse>
   get_ai_status(): Promise<AIStatus>
+  get_blocked_ai_users(): Promise<AIUserBlocksResponse>
+  block_ai_user(username: string): Promise<AIUserBlocksResponse>
+  unblock_ai_user(username: string): Promise<AIUserBlocksResponse>
   start_ai_playground(prompt: string): Promise<AIPlaygroundResult>
   get_ai_playground_result(requestId: string): Promise<AIPlaygroundResult>
   cancel_ai_playground(requestId: string): Promise<AIPlaygroundResult>

@@ -46,6 +46,7 @@ def playground(tmp_path, monkeypatch):
     services = SimpleNamespace(
         ai=ai, filter_manager=filters, ai_request_policy=AIRequestPolicy(), runtime_state=state,
         memory=ForbiddenService(), users=ForbiddenService(), twitch=ForbiddenService(),
+        ai_user_blocks=ForbiddenService(),
     )
     backend = SimpleNamespace(application=SimpleNamespace(
         settings=settings, services=services, dispatcher=ForbiddenService(), database=ForbiddenService(),

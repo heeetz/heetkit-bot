@@ -7,6 +7,7 @@ import SettingsPage from '../src/pages/SettingsPage'
 import type {
   AILanguageInfo,
   AILanguageSettings,
+  BlockedAIUser,
   AppStatus,
   PersonalitiesResponse,
   TwitchConnectionSettings,
@@ -61,6 +62,9 @@ let languageSettings: AILanguageSettings = {
   mode: 'auto', allowed_languages: ['en', 'uk', 'ru'], fallback_language: 'en',
 }
 let activeLanguagePolicy = 'Auto — match the incoming language without restrictions.'
+let blockedAIUsers: BlockedAIUser[] = JSON.parse(sessionStorage.getItem('blockedAIUsers') ?? '[]')
+const aiBlockCalls: unknown[][] = []
+Object.assign(window, { aiBlockCalls })
 const credentials = [
   { name: 'twitch_client_secret', label: 'Twitch client secret', configured, source: configured ? 'credential_store' : 'missing', secure_storage_available: true },
   { name: 'gemini_api_key', label: 'Gemini API key', configured: false, source: 'missing', secure_storage_available: true },
@@ -84,6 +88,24 @@ window.pywebview = { api: {
   }),
   get_recent_logs: async () => ({ entries: [] }),
   get_ai_status: async () => aiStatus,
+  get_blocked_ai_users: async () => ({ ok: true, users: structuredClone(blockedAIUsers) }),
+  block_ai_user: async (input: string) => {
+    aiBlockCalls.push(['block', input])
+    if (query.has('aiBlockError')) return { ok: false, error: 'Synthetic AI block save failure.' }
+    const username = input.trim().replace(/^@/, '').toLowerCase()
+    if (!/^[a-z0-9_]{1,25}$/.test(username)) return { ok: false, error: 'Use a Twitch login of up to 25 letters, numbers or underscores.' }
+    if (blockedAIUsers.some((user) => user.username === username)) return { ok: false, error: 'This Twitch user is already blocked from AI requests.' }
+    blockedAIUsers = [...blockedAIUsers, { username, has_user_id: username === 'viewer' }]
+    sessionStorage.setItem('blockedAIUsers', JSON.stringify(blockedAIUsers))
+    return { ok: true, users: structuredClone(blockedAIUsers) }
+  },
+  unblock_ai_user: async (username: string) => {
+    aiBlockCalls.push(['unblock', username])
+    if (query.has('aiBlockError')) return { ok: false, error: 'Synthetic AI block save failure.' }
+    blockedAIUsers = blockedAIUsers.filter((user) => user.username !== username)
+    sessionStorage.setItem('blockedAIUsers', JSON.stringify(blockedAIUsers))
+    return { ok: true, users: structuredClone(blockedAIUsers) }
+  },
   start_ai_playground: async (prompt: string) => {
     playgroundCalls.push(['start', prompt])
     if (query.has('playgroundStartDelay')) await new Promise((resolve) => window.setTimeout(resolve, 350))

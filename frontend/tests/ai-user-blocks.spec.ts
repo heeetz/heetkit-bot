@@ -1,0 +1,83 @@
+import { expect, test } from '@playwright/test'
+
+test('AI blocks normalize users, reject duplicates and invalid logins, persist and unblock immediately', async ({ page }) => {
+  await page.goto('/tests/fixture.html')
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  let section = page.locator('#ai-blocked-users')
+  await expect(section).toContainText('No blocked AI users.')
+  await expect(section.getByRole('button', { name: 'Block user' })).toBeDisabled()
+  await section.getByLabel('Twitch username').fill(' @ViEwEr ')
+  await section.getByLabel('Twitch username').press('Enter')
+  await expect(section.getByText('@viewer', { exact: true })).toBeVisible()
+  await expect(section.getByLabel('Twitch username')).toHaveValue('')
+  await section.getByLabel('Twitch username').fill('VIEWER')
+  await section.getByRole('button', { name: 'Block user' }).click()
+  await expect(section.getByRole('alert')).toContainText('already blocked')
+  await expect(section.getByLabel('Twitch username')).toHaveValue('VIEWER')
+  for (const invalid of ['@', 'bad name', 'bad-name', 'a'.repeat(26)]) {
+    await section.getByLabel('Twitch username').fill(invalid)
+    await section.getByRole('button', { name: 'Block user' }).click()
+    await expect(section.getByRole('alert')).toContainText('Twitch login')
+    await expect(section.getByLabel('Twitch username')).toHaveValue(invalid)
+    await expect(section.locator('li')).toHaveCount(1)
+  }
+  await page.reload()
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  section = page.locator('#ai-blocked-users')
+  await expect(section.getByText('@viewer', { exact: true })).toBeVisible()
+  await section.getByRole('button', { name: 'Unblock viewer' }).click()
+  await expect(section).toContainText('No blocked AI users.')
+  await expect(section.getByRole('status')).toContainText('can use AI requests again')
+})
+
+test('failed AI block changes retain input and the current list', async ({ page }) => {
+  await page.goto('/tests/fixture.html')
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await page.locator('#ai-blocked-users').getByLabel('Twitch username').fill('viewer')
+  await page.locator('#ai-blocked-users').getByRole('button', { name: 'Block user' }).click()
+  await expect(page.locator('#ai-blocked-users li')).toHaveCount(1)
+  await page.goto('/tests/fixture.html?aiBlockError')
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  const section = page.locator('#ai-blocked-users')
+  await section.getByRole('button', { name: 'Unblock viewer' }).click()
+  await expect(section.getByRole('alert')).toContainText('save failure')
+  await expect(section.locator('li')).toHaveCount(1)
+  await section.getByLabel('Twitch username').fill('another')
+  await section.getByRole('button', { name: 'Block user' }).click()
+  await expect(section.getByRole('alert')).toContainText('save failure')
+  await expect(section.getByLabel('Twitch username')).toHaveValue('another')
+  await expect(section.locator('li')).toHaveCount(1)
+})
+
+test('local Playground stays usable while AI users are blocked', async ({ page }) => {
+  await page.goto('/tests/fixture.html')
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  const section = page.locator('#ai-blocked-users')
+  await section.getByLabel('Twitch username').fill('viewer')
+  await section.getByRole('button', { name: 'Block user' }).click()
+  const playground = page.locator('.ai-playground')
+  await playground.getByLabel('Playground prompt').fill('Explain plants')
+  await playground.getByRole('button', { name: 'Test prompt' }).click()
+  await expect(playground.getByRole('status')).toContainText('Synthetic response')
+  await expect(section.locator('li')).toHaveCount(1)
+})
+
+for (const width of [1280, 900, 390, 320]) {
+  test(`blocked AI user controls stay aligned at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/tests/fixture.html')
+    await page.getByRole('button', { name: 'AI', exact: true }).click()
+    const section = page.locator('#ai-blocked-users')
+    await section.getByLabel('Twitch username').fill('a'.repeat(25))
+    await section.getByRole('button', { name: 'Block user' }).click()
+    await section.scrollIntoViewIfNeeded()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy()
+    const bounds = await section.boundingBox()
+    for (const control of await section.locator('input,button').all()) {
+      const box = await control.boundingBox()
+      expect(box!.x).toBeGreaterThanOrEqual(bounds!.x)
+      expect(box!.x + box!.width).toBeLessThanOrEqual(bounds!.x + bounds!.width)
+    }
+    await section.screenshot({ path: `node_modules/.tmp/ai-user-blocks-${width}.png` })
+  })
+}

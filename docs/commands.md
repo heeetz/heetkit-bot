@@ -45,13 +45,13 @@ requires Broadcaster. `!ask` keeps its fixed identity. Protected commands appear
 the separate **Administrative commands** section with fixed identities and no text
 template editor.
 
-- **Apply** changes this session.
-- **Save** keeps the settings across restarts.
+- **Save** immediately applies the settings and keeps them across restarts.
 - **Reset** removes the saved settings override and restores the shipped settings.
 - **Close** collapses the editor while keeping unsaved input.
 
-Expand **Fate** or **Tg** to edit their response text. These editors have their own
-Apply, Save and Reset actions. Fate accepts one non-empty response per line; blank
+Expand **Fate** or **Tg** to edit their response text. Settings and messages have
+separate Save and Reset controls in the same bottom action area, alongside Remove
+and Close. Fate accepts one non-empty response per line; blank
 lines are ignored and commas stay in the text. Responses must fit within 450 UTF-8 bytes.
 Other built-ins keep their original behavior and show a note when their response
 cannot be edited as a text template. Editing settings never replaces the AI, weather,
@@ -101,7 +101,7 @@ Malformed or unsupported files stay intact. A failed backup or replacement keeps
 the original on disk and uses the renamed values for that session; resolve the
 reported file problem with HeetKit stopped before restarting.
 
-Apply, Save and Reset still work independently for settings and responses. Ordinary
+Save and Reset work independently for settings and responses. Ordinary
 command-setting saves retain their existing recovery behavior for unknown fields
 or external edits; protect recovery copies like the profile itself. See
 [backups and settings recovery](data-and-privacy.md#backups-and-settings-recovery).
@@ -111,10 +111,12 @@ or external edits; protect recovery copies like the profile itself. See
 Use **Custom Commands** to create a name, optional aliases, required permission,
 per-user/global cooldowns and a response mode. Custom command changes
 save immediately. Names and aliases cannot conflict with built-in commands.
-The top **New command** control becomes **Close editor** while editing; **Cancel**
-and **Close** are also available inside. Closing or switching commands asks to discard
+The top **New command** control becomes **Hide editor** while editing; **Close**
+is also available inside. Closing or switching commands asks to discard
 changes only when the draft was edited. A successful save closes the editor; a failed
-save retains the draft and shows the error.
+save retains the draft and shows the error. Commands use styled confirmations with
+Confirm and Cancel actions; Escape dismisses without executing. Built-in removal
+is reversible through Factory commands; custom deletion is permanent.
 
 - **Single** sends one configured message.
 - **Random** selects one of 1–10 templates, entered one per non-empty line.

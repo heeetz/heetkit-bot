@@ -48,6 +48,8 @@ the reported conflict with the application stopped.
 - Twitch access and refresh tokens are stored in the profile's `auth/` directory.
 - The local database contains Twitch user IDs, usernames, last-seen timestamps and
   recent successful AI exchanges when memory is enabled.
+- Blocked AI users are saved as normalized logins and, when available, verified
+  Twitch account IDs in this profile's `config/ai_user_blocks.json`.
 - Settings, personality prompts, profile instructions, custom replies, filters and
   recovery copies can contain private community information.
 - The Logs page can contain chat and diagnostic details. Clearing its displayed entries

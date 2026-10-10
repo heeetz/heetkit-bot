@@ -245,6 +245,38 @@ class CommandDispatcher:
         self._custom_commands = custom_commands
         self._message_triggers = message_triggers
 
+    def _builtin_definition(self, command_name: str) -> CommandDefinition | None:
+        definition = self._registry.get(command_name)
+        if definition is not None and self._runtime_state is not None and command_name != definition.name:
+            if command_name not in self._runtime_state.get_command_settings(definition.name).aliases:
+                definition = None
+        if definition is None and self._runtime_state is not None:
+            canonical = self._runtime_state.resolve_command_alias(command_name)
+            if canonical is not None:
+                definition = self._registry.get(canonical)
+        return definition
+
+    def is_ai_request_blocked(self, message: IncomingChatMessage, services: ApplicationServices) -> bool:
+        """Also used before content logging in the Twitch adapter."""
+        blocks = getattr(services, "ai_user_blocks", None)
+        if blocks is None:
+            return False
+        parsed = parse_command(message.content, self._command_prefix)
+        definition = self._builtin_definition(parsed[0]) if parsed is not None else None
+        if definition is None or definition.name != "ask" or not blocks.is_blocked(
+            message.author.twitch_user_id, message.author.username,
+        ):
+            return False
+        try:
+            blocks.remember_observed_id(message.author.username, message.author.twitch_user_id)
+        except (ValueError, OSError):
+            self._logger.warning("Could not persist observed AI block account ID; request remains blocked")
+        self._logger.info("AI request ignored reason=ai_user_blocked", extra={
+            "event_kind": "ai_user_blocked", "event_reason": "ai_user_blocked",
+            "event_username": message.author.username, "event_channel": message.channel,
+        })
+        return True
+
     async def _dispatch_trigger(self, message: IncomingChatMessage, services: ApplicationServices) -> bool:
         if self._message_triggers is None or message.author.twitch_user_id == services.settings.twitch_bot_user_id:
             return False
@@ -298,6 +330,8 @@ class CommandDispatcher:
 
     async def dispatch(self, message: IncomingChatMessage, services: ApplicationServices) -> bool:
         try:
+            if self.is_ai_request_blocked(message, services):
+                return True
             parsed_command = parse_command(message.content, self._command_prefix)
             if parsed_command is None:
                 if message.content.strip().startswith(self._command_prefix):
@@ -305,14 +339,7 @@ class CommandDispatcher:
                 return await self._dispatch_trigger(message, services)
 
             command_name, arguments = parsed_command
-            definition = self._registry.get(command_name)
-            if definition is not None and self._runtime_state is not None and command_name != definition.name:
-                if command_name not in self._runtime_state.get_command_settings(definition.name).aliases:
-                    definition = None
-            if definition is None and self._runtime_state is not None:
-                canonical = self._runtime_state.resolve_command_alias(command_name)
-                if canonical is not None:
-                    definition = self._registry.get(canonical)
+            definition = self._builtin_definition(command_name)
             custom = None
             if definition is None:
                 custom = None if self._custom_commands is None else self._custom_commands.get_by_name(command_name)

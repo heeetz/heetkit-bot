@@ -5,6 +5,7 @@ from collections.abc import Callable
 from datetime import datetime
 from time import monotonic
 from typing import Any
+from app.ai_user_blocks import verified_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -92,3 +93,15 @@ class TwitchAPIService:
         )
         follower = await anext(followers.followers, None)
         return None if follower is None else follower.followed_at
+
+    async def resolve_user_id(self, username: str) -> str | None:
+        """Resolve an offline-capable login through the existing authenticated client."""
+        if self._client is None:
+            return None
+        try:
+            users = await self._client.fetch_users(logins=[username], token_for=self._token_user_id)
+            user = next((user for user in users if getattr(user, "name", "").lower() == username), None)
+            return verified_user_id(getattr(user, "id", None))
+        except Exception as error:
+            logger.warning("Could not resolve Twitch login for AI block error_type=%s", type(error).__name__)
+            return None

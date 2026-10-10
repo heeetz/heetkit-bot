@@ -30,6 +30,7 @@ from app.command_settings import CommandSettings
 from app.commands.registry import command_unavailable_reason
 from app.custom_commands import VARIABLES
 from app.config.ai_models import GEMINI_MODEL_PRESETS, GEMINI_PROVIDER_NAME
+from app.ai_user_blocks import normalize_ai_username, verified_user_id
 from app.config.ai_language import (
     RESPONSE_LANGUAGES, build_response_language_instruction,
 )
@@ -112,6 +113,7 @@ FRONTEND_OPERATIONS = (
     "get_twitch_settings", "update_twitch_settings", "save_twitch_preset",
     "delete_twitch_preset", "reconnect_twitch", "get_credentials",
     "get_ai_provider_settings", "update_ai_provider_settings", "discover_gemini_models",
+    "get_blocked_ai_users", "block_ai_user", "unblock_ai_user",
     "get_ai_language_settings", "update_ai_language_settings",
     "replace_credential", "remove_credential", "test_credential", "start_bot", "stop_bot",
     "open_external_link",
@@ -428,6 +430,47 @@ class WebUIBridge:
         if self._app_settings is not None:
             self._app_settings.update_ai_memory(enabled=enabled)
         self._backend.application.services.runtime_state.set_ai_memory_enabled(enabled)
+
+    def get_blocked_ai_users(self) -> dict[str, object]:
+        store = self._backend.application.services.ai_user_blocks
+        return {"ok": True, "users": [
+            {"username": user.username, "has_user_id": user.twitch_user_id is not None}
+            for user in store.list()
+        ]}
+
+    async def _block_ai_user(self, username: object) -> None:
+        username = normalize_ai_username(username)
+        services = self._backend.application.services
+        user_id = None
+        if services.twitch is not None:
+            user_id = await services.twitch.resolve_user_id(username)
+        if user_id is None:
+            try:
+                observed = await services.users.get_by_username(username)
+                user_id = verified_user_id(getattr(observed, "twitch_user_id", None))
+            except Exception as error:
+                self._logger.warning("Could not look up observed AI block user error_type=%s", type(error).__name__)
+        services.ai_user_blocks.block(username, user_id)
+
+    def block_ai_user(self, username: object) -> dict[str, object]:
+        try:
+            self._wait_for_backend(self._block_ai_user(username), operation="block_ai_user")
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except (OSError, RuntimeError):
+            self._logger.exception("Could not save AI user block")
+            return {"ok": False, "error": "Could not save AI user block. Check the profile file and try again."}
+        return self.get_blocked_ai_users()
+
+    def unblock_ai_user(self, username: object) -> dict[str, object]:
+        try:
+            self._backend.application.services.ai_user_blocks.unblock(username)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except OSError:
+            self._logger.exception("Could not remove AI user block")
+            return {"ok": False, "error": "Could not remove AI user block. Check the profile file and try again."}
+        return self.get_blocked_ai_users()
 
     async def _save_ai_provider_models(
         self,

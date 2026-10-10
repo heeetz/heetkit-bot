@@ -14,6 +14,7 @@ import {
 import FeedbackToast from '../components/FeedbackToast'
 import Switch from '../components/Switch'
 import AIPlayground from '../components/AIPlayground'
+import BlockedAIUsers from '../components/BlockedAIUsers'
 
 interface AIPageProps {
   active: boolean
@@ -636,6 +637,7 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
           <strong>{data?.active_personality || 'Not selected'}</strong>
         </article>
       </div>
+      <BlockedAIUsers active={active} />
       <AIPlayground active={active} personality={data?.active_personality ?? ''} />
       <article className="card ai-provider-card" id="ai-models">
         <div className="section-heading">

@@ -54,6 +54,27 @@ credential that lets HeetKit send requests to Google's Gemini service.
    command here, save the Ask command on **Commands** to keep it enabled after restart.
    Permissions, cooldowns and filters still apply.
 
+## Blocked AI users
+
+On the **AI** page, enter a Twitch login under **Blocked AI users** and select
+**Block user**. An optional `@` and surrounding whitespace are accepted; names are
+case-insensitive. Empty, duplicate or invalid login names are rejected. Select
+**Unblock** beside an entry to restore access. Changes apply immediately, save for
+the selected profile and survive a restart; the user does not need to be online.
+
+When available, HeetKit resolves the account ID through its existing Twitch connection
+or previously observed chatter records. Otherwise it keeps the normalized login and
+captures a verified account ID on the first matching blocked request. ID-based blocks
+follow the account after a rename and do not block another account merely using its
+old login or display name. An unresolved login remains a username fallback until
+a verified ID becomes available.
+
+Blocked `!ask` requests, including aliases, are silently ignored before AI cooldowns,
+conversation memory, Gemini calls or prompt-text logging. A minimal `ai_user_blocked`
+event may appear in Logs. Other commands and ordinary chat are unaffected, and the
+local **AI Playground** remains available to the owner. This list does not ban users
+from Twitch chat or replace filters and command permissions.
+
 ## Response language
 
 In **Limited**, a clearly identified input language is used when it is allowed;
