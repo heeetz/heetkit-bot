@@ -23,7 +23,7 @@ stay out of public help but remain usable by authorized users when enabled.
 | `!help` | List public command help entries. | User |
 | `!ping` | Reply with `pong`. | Moderator |
 | `!seen <username>` | Show when a known chatter was last seen. | User |
-| `!tg <1-10>` | Send the configured community message one to ten times. | Moderator |
+| `!tg <1-10>` | Send the configured community message one to ten times concurrently. | Moderator |
 | `!uptime` | Show how long the current HeetKit session has been running. | Moderator |
 | `!weather <city>` | Current weather with English, Russian or Ukrainian localization. | User |
 
@@ -70,11 +70,18 @@ or external edits; protect recovery copies like the profile itself. See
 ## Custom commands
 
 Use **Custom Commands** to create a name, optional aliases, required permission,
-per-user/global cooldowns and one to ten response templates. Custom command changes
+per-user/global cooldowns and a response mode. Custom command changes
 save immediately. Names and aliases cannot conflict with built-in commands.
 
-Enter one template per non-empty line. Multiple templates are selected at random;
-commas remain literal text. Templates support:
+- **Single** sends one configured message.
+- **Random** selects one of 1–10 templates, entered one per non-empty line.
+- **Burst** repeats one configured message concurrently, with a default count of
+  1–10. Burst requires Moderator or Broadcaster permission. Enable argument count
+  override to let `!promo 10` send ten copies instead of the default, for example five.
+  Invalid counts send nothing. With override enabled, a target can follow the count:
+  `!promo 5 @alice`; template variables see `@alice`, after the count is removed.
+
+Commas remain literal text. Templates support:
 
 | Variable | Value |
 | --- | --- |
@@ -85,8 +92,16 @@ commas remain literal text. Templates support:
 | `{random_user}` | A chatter seen in the last 30 minutes, or the sender if none exists. |
 
 For example, a `!hello` response could be `Welcome, {sender}!`.
-Unknown variables are rejected. Templates never execute code, and replies are limited
-to 450 UTF-8 bytes. Custom replies use the normal shared output limiter.
+Common variables appear beside the message; positional arguments are under the
+collapsed **Advanced variables** section. Unknown variables are rejected. Templates
+never execute code, and replies are limited to 450 UTF-8 bytes. Burst renders the
+template once and repeats the same result, including the same random chatter.
+
+Single and Random use the shared output limiter. Only Burst and `!tg` bypass it;
+both await every send without an artificial delay. Twitch can still reject or rate
+limit individual messages; concurrent requests do not guarantee delivery or order.
+Existing saved commands retain Single/Random behavior. The saved format upgrades
+only when edited, retaining atomic saves and settings recovery.
 
 ## Filters
 

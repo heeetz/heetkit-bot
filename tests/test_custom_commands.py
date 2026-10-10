@@ -74,6 +74,102 @@ def test_malformed_file_skips_bad_entries_and_never_blocks_builtins(tmp_path) ->
     assert CustomCommandStore(path, {"ping"}).list() == ()
 
 
+def test_version_one_modes_do_not_change_or_rewrite_at_load(tmp_path):
+    from uuid import uuid4
+
+    path = tmp_path / "commands.json"
+    single = payload(id=str(uuid4()), name="single", aliases=[], responses=["Hello {sender}"])
+    random = payload(id=str(uuid4()), name="random", aliases=[], responses=["One", "Two"])
+    # New field names in old unknown data must never activate a legacy burst.
+    legacy_extra = payload(id=str(uuid4()), name="legacy", aliases=[], responses=["Old"],
+                           response_mode="burst", burst_count=10, burst_allow_override=True)
+    original = json.dumps({"version": 1, "commands": [single, random, legacy_extra]}, indent=3).encode()
+    path.write_bytes(original)
+    store = CustomCommandStore(path, set())
+    assert store.get_by_name("single").response_mode == "single"
+    assert store.get_by_name("random").response_mode == "random"
+    assert store.get_by_name("legacy").response_mode == "single"
+    assert path.read_bytes() == original
+    assert list(tmp_path.glob("*.recovery")) == []
+    store.save(payload(name="new", aliases=[]))
+    assert json.loads(path.read_text())["version"] == 2
+    assert CustomCommandStore(path, set()).list() == store.list()
+    assert [copy.read_bytes() for copy in tmp_path.glob("*.recovery")] == [original]
+
+
+def test_ordinary_version_one_upgrade_has_no_recovery_churn(tmp_path):
+    from uuid import uuid4
+
+    path = tmp_path / "commands.json"
+    raw = payload(id=str(uuid4()), name="greet")
+    path.write_text(json.dumps({"version": 1, "commands": [raw]}), encoding="utf-8")
+    store = CustomCommandStore(path, set())
+    saved = store.save({**store.list()[0].to_json(), "responses": ["Updated"]})
+    assert json.loads(path.read_text())["version"] == 2
+    restarted = CustomCommandStore(path, set())
+    assert restarted.list() == (saved,)
+    restarted.save({**saved.to_json(), "enabled": False})
+    assert list(tmp_path.glob("*.recovery")) == []
+
+
+@pytest.mark.parametrize("mode,responses", [("single", ["Hello"]), ("random", ["Only one"]),
+                                           ("random", ["One", "Two"]), ("burst", ["Hello {target}"])])
+def test_explicit_modes_and_burst_configuration_persist_across_restart(tmp_path, mode, responses):
+    path = tmp_path / "commands.json"
+    extra = {"burst_count": 7, "burst_allow_override": True} if mode == "burst" else {}
+    saved = CustomCommandStore(path, set()).save(payload(
+        response_mode=mode, responses=responses, permission="MODERATOR", **extra))
+    assert saved.response_mode == mode
+    restarted = CustomCommandStore(path, set())
+    assert restarted.list() == (saved,)
+    assert saved.to_json()["response_mode"] == mode
+    assert ("burst_count" in saved.to_json()) == (mode == "burst")
+    restarted.save({**saved.to_json(), "enabled": False})
+    assert list(tmp_path.glob("*.recovery")) == []
+
+
+@pytest.mark.parametrize("changes", [
+    {"burst_count": 0}, {"burst_count": 11}, {"burst_count": -1}, {"burst_count": True},
+    {"burst_count": 1.5}, {"burst_count": "5"}, {"burst_count": None},
+    {"burst_allow_override": "true"}, {"burst_allow_override": 1},
+    {"response_mode": "invalid"}, {"response_mode": None}, {"response_mode": {}},
+    {"permission": "USER"}, {"permission": "SUBSCRIBER"}, {"permission": "VIP"},
+    {"responses": ["One", "Two"]}, {"responses": ["{invalid}"]},
+    {"responses": ["Broken {"]}, {"responses": ["two\nlines"]},
+    {"response_mode": "single"},  # Burst fields cannot accompany another mode.
+])
+def test_invalid_burst_configuration_rejected_by_save_and_load(tmp_path, changes):
+    from uuid import uuid4
+
+    path = tmp_path / "commands.json"
+    raw = {
+        **payload(response_mode="burst", permission="MODERATOR", burst_count=5, burst_allow_override=True), **changes,
+    }
+    store = CustomCommandStore(path, set())
+    with pytest.raises(ValueError):
+        store.save(raw)
+    assert store.list() == ()
+    assert not path.exists()
+    path.write_text(json.dumps({"version": 2, "commands": [{**raw, "id": str(uuid4())}]}), encoding="utf-8")
+    assert CustomCommandStore(path, set()).list() == ()
+
+
+def test_bridge_exposes_modes_defaults_and_reports_invalid_burst(tmp_path):
+    from app.webview_host import WebUIBridge
+
+    store = CustomCommandStore(tmp_path / "commands.json", set())
+    bridge = WebUIBridge(SimpleNamespace(application=SimpleNamespace(
+        custom_commands=store, settings=SimpleNamespace(command_prefix="!"))))
+    raw = payload(response_mode="burst", permission="MODERATOR")
+    assert bridge.save_custom_command(raw) == {"ok": True}
+    command = bridge.get_custom_commands()["commands"][0]
+    assert command["response_mode"] == "burst"
+    assert command["burst_count"] == 1
+    assert command["burst_allow_override"] is False
+    assert bridge.save_custom_command({**command, "permission": "USER"})["ok"] is False
+    assert bridge.delete_custom_command(command["id"]) == {"ok": True}
+
+
 @pytest.mark.asyncio
 async def test_dispatch_alias_permission_cooldown_random_response_and_output_limit(tmp_path, monkeypatch) -> None:
     registry = CommandRegistry()

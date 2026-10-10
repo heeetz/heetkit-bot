@@ -21,7 +21,7 @@ from app.utils.text import normalize_command_name
 
 
 logger = logging.getLogger(__name__)
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MAX_RESPONSE_LENGTH = 450
 MAX_POSITIONAL_ARGUMENTS = 9
 VARIABLES = ("sender", "target", "args", *(f"arg{i}" for i in range(1, MAX_POSITIONAL_ARGUMENTS + 1)), "random_user")
@@ -37,13 +37,12 @@ class CustomCommand:
     permission: Permission
     cooldown: CooldownPolicy
     aliases: tuple[str, ...]
-
-    @property
-    def response_mode(self) -> str:
-        return "random" if len(self.responses) > 1 else "single"
+    response_mode: str
+    burst_count: int = 1
+    burst_allow_override: bool = False
 
     def to_json(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "id": self.id,
             "name": self.name,
             "enabled": self.enabled,
@@ -52,7 +51,11 @@ class CustomCommand:
             "per_user_seconds": self.cooldown.per_user_seconds,
             "global_seconds": self.cooldown.global_seconds,
             "aliases": list(self.aliases),
+            "response_mode": self.response_mode,
         }
+        if self.response_mode == "burst":
+            result.update(burst_count=self.burst_count, burst_allow_override=self.burst_allow_override)
+        return result
 
 
 def _name(value: object) -> str:
@@ -81,7 +84,7 @@ def _response(value: object) -> str:
     return value.strip()
 
 
-def parse_custom_command(raw: object, *, command_id: str | None = None) -> CustomCommand:
+def parse_custom_command(raw: object, *, command_id: str | None = None, legacy: bool = False) -> CustomCommand:
     if not isinstance(raw, dict):
         raise ValueError("Custom command must be an object.")
     identifier = command_id if command_id is not None else raw.get("id")
@@ -100,6 +103,25 @@ def parse_custom_command(raw: object, *, command_id: str | None = None) -> Custo
     permission = raw.get("permission")
     if not isinstance(permission, str) or permission not in Permission.__members__:
         raise ValueError("Permission must be a valid user level.")
+    inferred_mode = "random" if len(parsed_responses) > 1 else "single"
+    response_mode = inferred_mode if legacy else raw.get("response_mode", inferred_mode)
+    if response_mode not in ("single", "random", "burst"):
+        raise ValueError("Response mode must be Single, Random or Burst.")
+    if response_mode != "random" and len(parsed_responses) != 1:
+        raise ValueError("Single and Burst modes require exactly one response template.")
+    burst_count = 1
+    burst_allow_override = False
+    if response_mode == "burst":
+        if Permission[permission] < Permission.MODERATOR:
+            raise ValueError("Burst mode requires Moderator or Broadcaster permission.")
+        burst_count = raw.get("burst_count", 1)
+        if type(burst_count) is not int or not 1 <= burst_count <= 10:
+            raise ValueError("Burst repeat count must be an integer from 1 to 10.")
+        burst_allow_override = raw.get("burst_allow_override", False)
+        if type(burst_allow_override) is not bool:
+            raise ValueError("Burst argument override must be a boolean.")
+    elif not legacy and ("burst_count" in raw or "burst_allow_override" in raw):
+        raise ValueError("Burst settings require Burst response mode.")
     aliases = raw.get("aliases")
     if not isinstance(aliases, list) or len(aliases) > 10:
         raise ValueError("Provide at most 10 aliases.")
@@ -117,6 +139,9 @@ def parse_custom_command(raw: object, *, command_id: str | None = None) -> Custo
             global_seconds=_cooldown(raw.get("global_seconds")),
         ),
         aliases=parsed_aliases,
+        response_mode=response_mode,
+        burst_count=burst_count,
+        burst_allow_override=burst_allow_override,
     )
 
 
@@ -140,6 +165,7 @@ class CustomCommandStore:
         self._lock = RLock()
         self._commands: dict[str, CustomCommand] = {}
         self._lookup: dict[str, str] = {}
+        self._schema_version = SCHEMA_VERSION
         self._load()
 
     def list(self) -> tuple[CustomCommand, ...]:
@@ -194,14 +220,15 @@ class CustomCommandStore:
         except (OSError, UnicodeError, json.JSONDecodeError) as error:
             logger.warning("Could not load custom commands: %s", type(error).__name__)
             return
-        if not isinstance(payload, dict) or type(payload.get("version")) is not int or payload["version"] != SCHEMA_VERSION or not isinstance(payload.get("commands"), list):
+        if not isinstance(payload, dict) or type(payload.get("version")) is not int or payload["version"] not in (1, SCHEMA_VERSION) or not isinstance(payload.get("commands"), list):
             logger.warning("Ignoring unsupported or malformed custom command data")
             return
+        self._schema_version = payload["version"]
         commands: dict[str, CustomCommand] = {}
         used = set(self._built_in_names)
         for raw in payload["commands"]:
             try:
-                command = parse_custom_command(raw)
+                command = parse_custom_command(raw, legacy=self._schema_version == 1)
                 if command.id in commands or any(name in used for name in (command.name, *command.aliases)):
                     raise ValueError("Duplicate command ID, name, or alias")
             except ValueError as error:
@@ -224,10 +251,11 @@ class CustomCommandStore:
                 os.fsync(output.fileno())
             preserve_settings_recovery(
                 self._path,
-                {"version": SCHEMA_VERSION, "commands": [command.to_json() for command in self._commands.values()]},
-                version=SCHEMA_VERSION,
+                {"version": self._schema_version, "commands": [command.to_json() for command in self._commands.values()]},
+                version=(1, SCHEMA_VERSION),
             )
             temporary_path.replace(self._path)
+            self._schema_version = SCHEMA_VERSION
         finally:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)

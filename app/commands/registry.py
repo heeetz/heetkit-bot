@@ -56,8 +56,19 @@ class CommandContext:
     async def reply(self, content: str) -> bool:
         if self.output_limiter is not None and not self.output_limiter.try_acquire():
             return False
+        await self._send_response(content)
+        return True
+
+    async def _send_response(self, content: str) -> object:
         try:
-            await self.message.respond(content)
+            result = await self.message.respond(content)
+            if getattr(result, "sent", None) is False:
+                self.logger.warning(
+                    "Twitch dropped command response user=%s code=%s",
+                    self.message.author.username,
+                    getattr(result, "dropped_code", None),
+                )
+                return result
             self.logger.info(
                 "Outgoing bot response channel=%s user=%s length=%d",
                 self.message.channel,
@@ -69,7 +80,7 @@ class CommandContext:
                     "event_username": self.message.author.username,
                 },
             )
-            return True
+            return result
         except Exception:
             self.logger.exception(
                 "Could not send command response user=%s",
@@ -81,12 +92,17 @@ class CommandContext:
         self,
         content: str,
         count: int,
-        delay: float = 1.0,
-    ) -> None:
-        for i in range(count):
-            await self.reply(content)
-            if i < count - 1:
-                await asyncio.sleep(delay)
+    ) -> list[object]:
+        """Await at most ten transport sends; retain every result or exception.
+
+        TwitchIO/Twitch still own API rejection and rate limiting. Cancelling the
+        batch cancels its children and waits for their cleanup through gather.
+        """
+        if type(count) is not int or not 1 <= count <= 10:
+            raise ValueError("Burst repeat count must be an integer from 1 to 10.")
+        return await asyncio.gather(
+            *(self._send_response(content) for _ in range(count)), return_exceptions=True,
+        )
 
 
 class CommandRegistry:
@@ -232,6 +248,17 @@ class CommandDispatcher:
         return False
 
     async def _run_custom_command(self, command: CustomCommand, context: CommandContext, arguments: str) -> None:
+        count = command.burst_count
+        if command.response_mode == "burst" and command.burst_allow_override and arguments.strip():
+            count_argument, *tail = arguments.split(maxsplit=1)
+            try:
+                count = int(count_argument)
+            except ValueError:
+                return
+            if not 1 <= count <= 10:
+                return
+            # The count is a control argument; templates see the remaining text.
+            arguments = tail[0] if tail else ""
         template = random.choice(command.responses)
         sender = context.message.author.username.lstrip("@")
         random_user = sender
@@ -246,7 +273,10 @@ class CommandDispatcher:
                 self._logger.exception("Could not load recent chatters for custom command")
         response = render_response(command, arguments, sender, random_user, template=template)
         if response:
-            await context.reply(response)
+            if command.response_mode == "burst":
+                await context.reply_burst(response, count)
+            else:
+                await context.reply(response)
 
     async def dispatch(self, message: IncomingChatMessage, services: ApplicationServices) -> bool:
         try:
@@ -266,7 +296,8 @@ class CommandDispatcher:
                 async def custom_handler(context: CommandContext, tail: str) -> None:
                     await self._run_custom_command(custom, context, tail)
                 definition = CommandDefinition(name=custom.name, handler=custom_handler)
-                settings = CommandSettings(enabled=custom.enabled, permission=custom.permission, cooldown=custom.cooldown)
+                permission = max(custom.permission, Permission.MODERATOR) if custom.response_mode == "burst" else custom.permission
+                settings = CommandSettings(enabled=custom.enabled, permission=permission, cooldown=custom.cooldown)
             else:
                 settings = (
                     definition.default_settings
@@ -276,7 +307,7 @@ class CommandDispatcher:
             cooldown_key = f"custom:{custom.id}" if custom is not None else definition.name
 
             command_output_limiter = (
-                None if definition.name == "tg" else self._output_limiter
+                None if definition.name == "tg" or (custom is not None and custom.response_mode == "burst") else self._output_limiter
             )
 
             if not settings.enabled or command_unavailable_reason(definition, services) is not None:

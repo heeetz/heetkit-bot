@@ -5,7 +5,6 @@ from random import choice
 from app.config.commands import (
     FATE_COOLDOWN_SECONDS,
     PING_COOLDOWN_SECONDS,
-    TG_BURST_DELAY,
 )
 from app.commands.registry import CommandRegistry
 from app.utils.cooldown import CooldownPolicy
@@ -61,7 +60,7 @@ def register_fun_commands(registry: CommandRegistry, fun_settings: FunSettingsSt
             await context.reply("Количество должно быть от 1 до 10.")
             return
 
-        await context.reply_burst(fun_settings.tg_message, count, delay=TG_BURST_DELAY)
+        await context.reply_burst(fun_settings.tg_message, count)
 
     @registry.command(
         "fate",

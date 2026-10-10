@@ -183,11 +183,19 @@ td { color: #c6cfdf; }
 .custom-name-input > span { padding-left: 12px; color: #8290aa; }
 .form-field .custom-name-input input { border: 0; background: transparent; }
 .custom-response-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 22px 0 12px; }
+.custom-response-mode { max-width: 260px; }
+.custom-mode-example { margin: 10px 0 14px; color: #9ba8bd; font-size: 13px; line-height: 1.5; }
+.custom-burst-controls { display: grid; grid-template-columns: minmax(120px, 180px) minmax(0, 1fr); align-items: center; gap: 18px; margin-top: 14px; }
+.custom-field-hint { margin: 6px 0 0; color: #8491a9; font-size: 12px; line-height: 1.45; font-weight: 400; }
 .custom-variable-help { margin-top: 20px; padding: 14px; border: 1px solid #2a354a; border-radius: 10px; background: #0d131e; }
 .custom-variable-help > p { margin: 5px 0 12px; color: #8491a9; font-size: 13px; }
 .custom-variable-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr)); gap: 8px 16px; }
 .custom-variable-list > div { display: flex; align-items: baseline; gap: 8px; min-width: 0; color: #9ba8bd; font-size: 12px; }
 .custom-variable-list code { flex: 0 0 auto; color: #c6b8ff; }
+.custom-advanced-variables { margin-top: 12px; color: #9ba8bd; font-size: 12px; }
+.custom-advanced-variables summary { cursor: pointer; padding: 4px 0; }
+.custom-advanced-variables summary:focus-visible { outline: 2px solid #8a64ff; outline-offset: 3px; }
+.custom-advanced-variables .custom-variable-list { margin-top: 10px; }
 .ai-layout { display: grid; gap: 18px; }
 .ai-status-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .compact-card { min-height: 112px; }
@@ -452,6 +460,7 @@ td { color: #c6cfdf; }
   .command-action-group { width: 100%; }
   .custom-command-row, .custom-response-heading { align-items: flex-start; flex-direction: column; }
   .custom-command-fields { grid-template-columns: 1fr; }
+  .custom-burst-controls { grid-template-columns: 1fr; gap: 12px; }
   .filter-rule-row { grid-template-columns: 1fr; align-items: stretch; }
   .filter-rule-meta { padding-bottom: 0; }
   .filter-category-actions { justify-content: flex-start; }

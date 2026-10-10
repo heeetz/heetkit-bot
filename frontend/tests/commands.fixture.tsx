@@ -57,8 +57,8 @@ window.pywebview = { api: {
   }),
   get_commands: async () => ({ command_prefix: '!', permissions: ['USER', 'MODERATOR'], commands: structuredClone(commands) }),
   get_custom_commands: async () => ({
-    command_prefix: '!', permissions: ['USER', 'MODERATOR'],
-    variables: ['sender', 'target', 'args', 'arg1', 'arg9', 'random_user'], commands: structuredClone(customCommands),
+    command_prefix: '!', permissions: ['USER', 'MODERATOR', 'BROADCASTER'],
+    variables: ['sender', 'target', 'args', ...Array.from({ length: 9 }, (_, index) => `arg${index + 1}`), 'random_user'], commands: structuredClone(customCommands),
   }),
   apply_command_settings: async (name: string, enabled: boolean, perUser: number, global: number, permission: string) => settingsAction('apply', name, enabled, perUser, global, permission),
   save_command_settings: async (name: string, enabled: boolean, perUser: number, global: number, permission: string) => settingsAction('save', name, enabled, perUser, global, permission),
@@ -68,11 +68,14 @@ window.pywebview = { api: {
   reset_command_responses: async (name: string) => responseAction('reset', name),
   save_custom_command: async (input: CustomCommandInput) => {
     commandCalls.push(['save_custom_command', structuredClone(input)])
+    if (input.responses.some((response) => /[\r\n]/.test(response))) {
+      return { ok: false, error: 'Response templates must be single-line messages.' }
+    }
     if (new URLSearchParams(window.location.search).has('customError')) {
       return { ok: false, error: 'Response contains an unknown variable.' }
     }
     const command: CustomCommandInfo = {
-      ...input, id: input.id ?? 'synthetic-new', response_mode: input.responses.length > 1 ? 'random' : 'single',
+      ...input, id: input.id ?? 'synthetic-new', response_mode: input.response_mode ?? (input.responses.length > 1 ? 'random' : 'single'),
     }
     customCommands = [...customCommands.filter((item) => item.id !== command.id), command]
     return { ok: true }

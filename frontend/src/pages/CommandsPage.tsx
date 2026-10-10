@@ -7,6 +7,7 @@ import {
   type CustomCommandInfo,
   type CustomCommandInput,
   type CustomCommandsResponse,
+  type CustomResponseMode,
   waitForBridge,
 } from '../bridge'
 import FeedbackToast from '../components/FeedbackToast'
@@ -27,6 +28,10 @@ interface CustomDraft {
   name: string
   enabled: boolean
   responses: string
+  message: string
+  responseMode: CustomResponseMode
+  burstCount: string
+  burstAllowOverride: boolean
   permission: string
   perUserSeconds: string
   globalSeconds: string
@@ -93,6 +98,10 @@ function newCustomDraft(permission: string): CustomDraft {
     name: '',
     enabled: true,
     responses: '',
+    message: '',
+    responseMode: 'single',
+    burstCount: '1',
+    burstAllowOverride: false,
     permission,
     perUserSeconds: '0',
     globalSeconds: '0',
@@ -105,7 +114,11 @@ function customDraftFromCommand(command: CustomCommandInfo): CustomDraft {
     id: command.id,
     name: command.name,
     enabled: command.enabled,
-    responses: command.response_mode === 'random' ? command.responses.join('\n') : command.responses[0] ?? '',
+    responses: command.responses.join('\n'),
+    message: command.response_mode === 'random' ? '' : command.responses[0] ?? '',
+    responseMode: command.response_mode,
+    burstCount: String(command.burst_count ?? 1),
+    burstAllowOverride: command.burst_allow_override ?? false,
     permission: command.permission,
     perUserSeconds: String(command.per_user_seconds),
     globalSeconds: String(command.global_seconds),
@@ -114,12 +127,19 @@ function customDraftFromCommand(command: CustomCommandInfo): CustomDraft {
 }
 
 const variableHelp: Record<string, string> = {
-  sender: 'The chatter who used the command.',
-  target: 'The first argument, or the sender when no target is given.',
-  args: 'All words after the command.',
-  arg1: 'The first argument. Missing arguments are blank.',
-  arg2: 'The second argument. Missing arguments are blank.',
-  random_user: 'A recent eligible chatter.',
+  sender: 'User who invoked the command.',
+  target: 'First argument or sender.',
+  args: 'Complete command arguments.',
+  random_user: 'Random recent eligible chatter.',
+}
+
+const commonVariables = ['sender', 'target', 'args', 'random_user']
+const burstPermissions = ['MODERATOR', 'BROADCASTER']
+
+function parsedBurstCount(value: string): number | null {
+  if (value.trim() === '') return null
+  const count = Number(value)
+  return Number.isInteger(count) && count >= 1 && count <= 10 ? count : null
 }
 
 export default function CommandsPage({ active }: CommandsPageProps) {
@@ -334,14 +354,36 @@ export default function CommandsPage({ active }: CommandsPageProps) {
     setNotice('')
   }
 
+  const changeCustomMode = (responseMode: CustomResponseMode) => {
+    if (!customDraft) return
+    updateCustomDraft({
+      responseMode,
+      responses: customDraft.responses.trim() ? customDraft.responses : customDraft.message,
+      message: customDraft.message.trim() ? customDraft.message : customDraft.responses.split(/\r?\n/).map((response) => response.trim()).find(Boolean) ?? '',
+      permission: responseMode === 'burst' && !burstPermissions.includes(customDraft.permission)
+        ? 'MODERATOR' : customDraft.permission,
+    })
+  }
+
   const saveCustom = async () => {
     if (!customDraft) return
     const name = customDraft.name.trim()
-    const responses = customDraft.responses.split(/\r?\n/).map((response) => response.trim()).filter(Boolean)
+    const responses = customDraft.responseMode === 'random'
+      ? customDraft.responses.split(/\r?\n/).map((response) => response.trim()).filter(Boolean)
+      : customDraft.message.trim() ? [customDraft.message] : []
     const perUserSeconds = parsedCooldown(customDraft.perUserSeconds)
     const globalSeconds = parsedCooldown(customDraft.globalSeconds)
     if (!name || responses.length === 0 || perUserSeconds === null || globalSeconds === null) {
       setError('Enter a command name, at least one response, and non-negative cooldowns.')
+      return
+    }
+    if (responses.length > 10) {
+      setError('Keep 1 to 10 response templates.')
+      return
+    }
+    const burstCount = parsedBurstCount(customDraft.burstCount)
+    if (customDraft.responseMode === 'burst' && (burstCount === null || !burstPermissions.includes(customDraft.permission))) {
+      setError('Burst requires a whole repeat count from 1 to 10 and Moderator or Broadcaster permission.')
       return
     }
 
@@ -354,6 +396,8 @@ export default function CommandsPage({ active }: CommandsPageProps) {
       per_user_seconds: perUserSeconds,
       global_seconds: globalSeconds,
       aliases: customDraft.aliases.split(/[\n,]/).map((alias) => alias.trim()).filter(Boolean),
+      response_mode: customDraft.responseMode,
+      ...(customDraft.responseMode === 'burst' ? { burst_count: burstCount!, burst_allow_override: customDraft.burstAllowOverride } : {}),
     }
     setBusyCustom(true)
     setError('')
@@ -387,6 +431,8 @@ export default function CommandsPage({ active }: CommandsPageProps) {
         per_user_seconds: command.per_user_seconds,
         global_seconds: command.global_seconds,
         aliases: command.aliases,
+        response_mode: command.response_mode,
+        ...(command.response_mode === 'burst' ? { burst_count: command.burst_count ?? 1, burst_allow_override: command.burst_allow_override ?? false } : {}),
       })
       if (!result.ok) throw new Error(result.error ?? 'Could not update custom command.')
       await loadCustomCommands()
@@ -452,7 +498,7 @@ export default function CommandsPage({ active }: CommandsPageProps) {
             </label>
             <label className="form-field">Permission
               <select value={customDraft.permission} onChange={(event) => updateCustomDraft({ permission: event.target.value })}>
-                {customData.permissions.map((permission) => <option key={permission} value={permission}>{permission.toLowerCase()}</option>)}
+                {customData.permissions.filter((permission) => customDraft.responseMode !== 'burst' || burstPermissions.includes(permission)).map((permission) => <option key={permission} value={permission}>{permission.toLowerCase()}</option>)}
               </select>
             </label>
             <Switch checked={customDraft.enabled} ariaLabel="Enable custom command" onCheckedChange={(enabled) => updateCustomDraft({ enabled })}>
@@ -467,25 +513,55 @@ export default function CommandsPage({ active }: CommandsPageProps) {
           </div>
           <div className="custom-response-heading">
             <div>
-              <h3>Response templates</h3>
-              <p className="section-copy">Enter 1 to 10 templates, one per non-empty line. Blank lines are ignored; commas are preserved. The bot chooses one at random.</p>
+              <h3>Response</h3>
             </div>
           </div>
-          <label className="form-field custom-response-field">Responses
-            <textarea className="custom-response-textarea" rows={7} value={customDraft.responses} onChange={(event) => updateCustomDraft({ responses: event.target.value })} placeholder="Hello, {sender}!" />
+          <label className="form-field custom-response-mode">Response mode
+            <select value={customDraft.responseMode} onChange={(event) => changeCustomMode(event.target.value as CustomResponseMode)}>
+              <option value="single">Single</option>
+              <option value="random">Random</option>
+              <option value="burst">Burst</option>
+            </select>
           </label>
+          <p className="custom-mode-example">
+            {customDraft.responseMode === 'random'
+              ? `${customData.command_prefix}${customDraft.name || 'hello'} picks one response at random. Enter 1 to 10 non-empty lines; blank lines are ignored.`
+              : customDraft.responseMode === 'burst'
+                ? `${customData.command_prefix}${customDraft.name || 'promo'} sends this message ${customDraft.burstCount || 'N'} times concurrently. Requires Moderator or Broadcaster permission.`
+                : `${customData.command_prefix}${customDraft.name || 'hello'} sends this message once.`}
+          </p>
+          <label className="form-field custom-response-field">{customDraft.responseMode === 'random' ? 'Responses' : 'Message'}
+            <textarea className="custom-response-textarea" rows={customDraft.responseMode === 'random' ? 7 : 4} value={customDraft.responseMode === 'random' ? customDraft.responses : customDraft.message} onChange={(event) => updateCustomDraft(customDraft.responseMode === 'random' ? { responses: event.target.value } : { message: event.target.value })} placeholder="Hello, {sender}!" />
+          </label>
+          {customDraft.responseMode === 'burst' && <div className="custom-burst-controls">
+            <label className="form-field">Default repeat count
+              <input type="number" min="1" max="10" step="1" className={parsedBurstCount(customDraft.burstCount) === null ? 'invalid' : ''} aria-invalid={parsedBurstCount(customDraft.burstCount) === null} value={customDraft.burstCount} onChange={(event) => updateCustomDraft({ burstCount: event.target.value })} />
+              <span className="custom-field-hint">Whole number from 1 to 10.</span>
+            </label>
+            <div>
+              <Switch checked={customDraft.burstAllowOverride} ariaLabel="Allow argument count override" onCheckedChange={(burstAllowOverride) => updateCustomDraft({ burstAllowOverride })}>
+                <span>Allow argument count override</span>
+              </Switch>
+              <p className="custom-field-hint">{customDraft.burstAllowOverride
+                ? `${customData.command_prefix}${customDraft.name || 'promo'} 10 sends 10 copies. The first argument sets the count; a target can follow, e.g. 10 @alice.`
+                : 'Uses the default repeat count for every invocation.'}</p>
+            </div>
+          </div>}
           <div className="custom-variable-help">
             <strong>Available variables</strong>
-            <p>Insert these into any response. Other variable names are rejected when you save.</p>
+            <p>Use these in any message.</p>
             <div className="custom-variable-list">
-              {customData.variables.map((variable) => {
-                const name = variable.replace(/^\{|\}$/g, '')
-                return <div key={variable}><code>{variable.startsWith('{') ? variable : `{${variable}}`}</code><span>{variableHelp[name] ?? 'A positional argument from the command.'}</span></div>
-              })}
+              {commonVariables.filter((name) => customData.variables.some((variable) => variable.replace(/^\{|\}$/g, '') === name)).map((name) => <div key={name}><code>{`{${name}}`}</code><span>{variableHelp[name]}</span></div>)}
             </div>
+            <details className="custom-advanced-variables">
+              <summary>Advanced variables</summary>
+              <div className="custom-variable-list">
+                {customData.variables.map((variable) => variable.replace(/^\{|\}$/g, '')).filter((name) => !commonVariables.includes(name)).map((name) => <div key={name}><code>{`{${name}}`}</code><span>{/^arg[1-9]$/.test(name) ? `Argument ${name.slice(3)}; blank when missing.` : 'A supported template variable.'}</span></div>)}
+              </div>
+            </details>
           </div>
           <div className="settings-actions">
-            <button className="primary" disabled={busyCustom} onClick={() => void saveCustom()}>{busyCustom ? 'Saving…' : 'Save command'}</button>
+            <button className="primary" disabled={busyCustom || (customDraft.responseMode === 'burst' && parsedBurstCount(customDraft.burstCount) === null)} onClick={() => void saveCustom()}>{busyCustom ? 'Saving…' : 'Save command'}</button>
           </div>
         </div>
       )}
@@ -503,10 +579,12 @@ export default function CommandsPage({ active }: CommandsPageProps) {
                   <strong>{customData.command_prefix}{command.name}</strong>
                   <span className={`state-pill ${command.enabled ? 'enabled' : ''}`}>{command.enabled ? 'Enabled' : 'Disabled'}</span>
                   {command.response_mode === 'random' && <span className="mini-badge">Random response</span>}
+                  {command.response_mode === 'burst' && <span className="mini-badge">Burst · {command.burst_count ?? 1} copies</span>}
                 </div>
                 {command.aliases.length > 0 && <p className="command-meta">Aliases: {command.aliases.map((alias) => `${customData.command_prefix}${alias}`).join(', ')}</p>}
                 <p className="custom-command-response">{command.responses[0]}</p>
                 {command.responses.length > 1 && <small className="muted">{command.responses.length} response templates · one chosen at random</small>}
+                {command.response_mode === 'burst' && <small className="muted">{command.burst_allow_override ? 'Argument count override enabled' : 'Default repeat count'} · {command.permission.toLowerCase()}</small>}
               </div>
               <div className="row-actions">
                 <button className="secondary" disabled={busyCustom} onClick={() => setCustomDraft(customDraftFromCommand(command))}>Edit</button>

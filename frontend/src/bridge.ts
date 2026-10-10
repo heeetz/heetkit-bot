@@ -66,6 +66,8 @@ export interface CommandsResponse {
   commands: CommandInfo[]
 }
 
+export type CustomResponseMode = 'single' | 'random' | 'burst'
+
 export interface CustomCommandInput {
   id?: string | null
   name: string
@@ -75,11 +77,14 @@ export interface CustomCommandInput {
   per_user_seconds: number
   global_seconds: number
   aliases: string[]
+  response_mode?: CustomResponseMode
+  burst_count?: number
+  burst_allow_override?: boolean
 }
 
 export interface CustomCommandInfo extends CustomCommandInput {
   id: string
-  response_mode: 'single' | 'random'
+  response_mode: CustomResponseMode
 }
 
 export interface CustomCommandsResponse {

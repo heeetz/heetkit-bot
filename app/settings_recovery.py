@@ -38,7 +38,7 @@ def preserve_settings_recovery(
     path: Path,
     recovered: dict[str, object] | None,
     *,
-    version: int | None = None,
+    version: int | tuple[int, ...] | None = None,
     allow_legacy: bool = False,
 ) -> None:
     """Preflight replacement; refuse unreadable/future files and copy lossy inputs.
@@ -64,7 +64,8 @@ def preserve_settings_recovery(
     if not isinstance(original, dict):
         raise ValueError(repair)
     if version is not None and not (allow_legacy and "version" not in original):
-        if type(original.get("version")) is not int or original["version"] != version:
+        supported_versions = version if isinstance(version, tuple) else (version,)
+        if type(original.get("version")) is not int or original["version"] not in supported_versions:
             raise ValueError(repair)
     if allow_legacy and "version" not in original and recovered is not None:
         recovered = recovered.get("window")
