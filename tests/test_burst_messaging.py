@@ -257,3 +257,116 @@ async def test_single_random_and_burst_share_cooldowns_but_only_burst_bypasses_o
     await dispatcher.dispatch(message("!promo", respond, is_moderator=True), services)
     assert respond.await_count == 6
     assert not limiter.try_acquire()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("interval", [0, 50, 200, 1000])
+async def test_spacing_staggers_starts_without_waiting_for_any_response(interval):
+    loop = asyncio.get_running_loop()
+    began = []
+    all_started = asyncio.Event()
+    release = asyncio.Event()
+    finished = []
+    async def respond(content):
+        began.append(loop.time())
+        if len(began) == 3:
+            all_started.set()
+        await release.wait()
+        finished.append(content)
+        return content
+    context = CommandContext(message("!promo", respond), SimpleNamespace(), logging.getLogger(__name__))
+    task = asyncio.create_task(context.reply_burst("Hello", 3, interval_ms=interval))
+    try:
+        await asyncio.wait_for(all_started.wait(), interval * 2 / 1000 + 2)
+        assert finished == []
+        elapsed = [start - began[0] for start in began]
+        assert elapsed == pytest.approx([index * interval / 1000 for index in range(3)], abs=0.3)
+        if interval:
+            assert all(right - left >= interval / 1000 * 0.6 for left, right in zip(began, began[1:]))
+        release.set()
+        assert await task == ["Hello"] * 3
+    finally:
+        release.set()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_staggered_failure_keeps_remaining_sends_and_preserves_rate_limit_result():
+    limited = HTTPException("Rate limited", status=429, extra={"message": "Limited"})
+    outcomes = iter([limited, "second", "third"])
+    calls = []
+    async def respond(content):
+        calls.append(content)
+        outcome = next(outcomes)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+    context = CommandContext(message("!promo", respond), SimpleNamespace(), logging.getLogger(__name__))
+    results = await context.reply_burst("Hello", 3, interval_ms=50)
+    assert calls == ["Hello"] * 3
+    assert results == [limited, "second", "third"]
+
+
+@pytest.mark.asyncio
+async def test_cancelling_staggered_burst_cancels_pending_starts_and_waits_for_active_cleanup():
+    began = asyncio.Event()
+    cleaning = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    calls = []
+    cleaned = []
+    async def respond(content):
+        calls.append(content)
+        began.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleaning.set()
+            await release_cleanup.wait()
+            cleaned.append(content)
+    context = CommandContext(message("!promo", respond), SimpleNamespace(), logging.getLogger(__name__))
+    task = asyncio.create_task(context.reply_burst("Hello", 5, interval_ms=200))
+    try:
+        await asyncio.wait_for(began.wait(), 2)
+        task.cancel()
+        await asyncio.wait_for(cleaning.wait(), 2)
+        assert not task.done()
+        release_cleanup.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await asyncio.sleep(0.25)
+        assert calls == cleaned == ["Hello"]
+    finally:
+        release_cleanup.set()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", ["tg", "promo"])
+async def test_both_command_modes_pass_their_interval_to_shared_batch(tmp_path, monkeypatch, command):
+    from app.runtime_state import RuntimeState
+    dispatcher, store, _, services = setup_dispatcher(tmp_path, burst_interval_ms=50)
+    state = RuntimeState(command_settings_path=tmp_path / "builtin_settings.json")
+    state.configure_commands(dispatcher._registry.definitions())
+    state.apply_command_settings("tg", burst_interval_ms=200)
+    dispatcher._runtime_state = state
+    observed = []
+    async def shared(context, content, count, interval_ms=None):
+        observed.append(context.burst_interval_ms if interval_ms is None else interval_ms)
+        return []
+    monkeypatch.setattr(CommandContext, "reply_burst", shared)
+    await dispatcher.dispatch(message("!tg 3" if command == "tg" else "!promo", AsyncMock(), is_moderator=True), services)
+    assert observed == [200 if command == "tg" else 50]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("interval", [-1, 1001, 1.5, True, "50"])
+async def test_helper_invalid_interval_rejected_before_any_send(interval):
+    respond = AsyncMock()
+    context = CommandContext(message("!promo", respond), SimpleNamespace(), logging.getLogger(__name__))
+    with pytest.raises(ValueError, match="interval"):
+        await context.reply_burst("Hello", 3, interval_ms=interval)
+    respond.assert_not_awaited()

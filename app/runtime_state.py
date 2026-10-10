@@ -1,6 +1,8 @@
 """Thread-safe runtime controls shared by the bot and local control panel."""
 
 from collections.abc import Iterable
+from dataclasses import replace
+import logging
 from pathlib import Path
 from threading import RLock
 from time import monotonic
@@ -12,6 +14,8 @@ from app.command_settings import (
     CommandSettingsOverride,
     load_command_overrides,
     save_command_overrides,
+    validate_command_aliases,
+    validate_display_name,
 )
 from app.config.personalities import AI_PERSONALITY_PROMPTS
 from app.personality_settings import (
@@ -41,6 +45,8 @@ class RuntimeState:
     ) -> None:
         self._lock = RLock()
         self._command_defaults: dict[str, CommandSettings] = {}
+        self._command_definitions: dict[str, CommandSettingsDefinition] = {}
+        self._custom_commands = None
         self._command_settings: dict[str, CommandSettings] = {}
         self._persisted_command_overrides: dict[str, CommandSettingsOverride] = {}
         self._command_settings_path = (
@@ -83,6 +89,8 @@ class RuntimeState:
 
     def configure_commands(self, definitions: Iterable[CommandSettingsDefinition]) -> None:
         with self._lock:
+            definitions = tuple(definitions)
+            self._command_definitions = {definition.name: definition for definition in definitions}
             self._command_defaults = {
                 definition.name: definition.default_settings
                 for definition in definitions
@@ -102,6 +110,77 @@ class RuntimeState:
                 ).apply(defaults)
                 for name, defaults in self._command_defaults.items()
             }
+            self._apply_loaded_command_policies()
+
+    @property
+    def command_namespace_lock(self):
+        """Share one reentrant lock with custom-command namespace mutations."""
+        return self._lock
+
+    def bind_custom_commands(self, store) -> None:
+        with self._lock:
+            self._custom_commands = store
+            self._apply_loaded_command_policies()
+            store.bind_builtin_names(self.reserved_command_names)
+
+    def _apply_loaded_command_policies(self) -> None:
+        for name, settings in tuple(self._command_settings.items()):
+            validated = self._validated_command_settings(name, settings, loading=True)
+            self._command_settings[name] = validated
+            if validated != settings:
+                # Lossy input still gets an exact recovery copy at the next save.
+                changed = {key: getattr(validated, key) for key in (
+                    "enabled", "permission", "aliases", "display_name", "burst_interval_ms"
+                ) if getattr(validated, key) != getattr(settings, key)}
+                override = self._persisted_command_overrides.get(name, CommandSettingsOverride())
+                self._persisted_command_overrides[name] = replace(override, **changed)
+
+    def reserved_command_names(self) -> set[str]:
+        with self._lock:
+            names = set(self._command_defaults)
+            for name, defaults in self._command_defaults.items():
+                names.update(defaults.aliases)
+                names.update(self._command_settings[name].aliases)
+                names.update(self._persisted_command_overrides.get(name, CommandSettingsOverride()).apply(defaults).aliases)
+            return names
+
+    def resolve_command_alias(self, alias: str) -> str | None:
+        with self._lock:
+            return next((name for name, settings in self._command_settings.items() if alias in settings.aliases), None)
+
+    def _validated_command_settings(self, name: str, settings: CommandSettings, *, loading: bool = False) -> CommandSettings:
+        definition = self._command_definitions[name]
+        defaults = self._command_defaults[name]
+        minimum = getattr(definition, "minimum_permission", Permission.USER)
+        if settings.permission < minimum:
+            if not loading:
+                raise ValueError(f"This command requires at least {minimum.name.title()} permission.")
+            settings = replace(settings, permission=minimum)
+        if settings.removed:
+            settings = replace(settings, enabled=False)
+        if name != "tg" and settings.burst_interval_ms:
+            if not loading:
+                raise ValueError("Only Tg supports a built-in Burst interval.")
+            settings = replace(settings, burst_interval_ms=0)
+        if not getattr(definition, "identity_editable", True):
+            if settings.aliases != defaults.aliases or settings.display_name != defaults.display_name:
+                if not loading:
+                    raise ValueError("This command's identity is protected.")
+                settings = replace(settings, aliases=defaults.aliases, display_name=defaults.display_name)
+        used = set(self._command_defaults)
+        for other, other_defaults in self._command_defaults.items():
+            if other != name:
+                used.update(other_defaults.aliases)
+                used.update(self._command_settings[other].aliases)
+                used.update(self._persisted_command_overrides.get(other, CommandSettingsOverride()).apply(other_defaults).aliases)
+        if self._custom_commands is not None:
+            used.update(alias for command in self._custom_commands.list() for alias in (command.name, *command.aliases))
+        if any(alias in used for alias in settings.aliases):
+            if not loading:
+                raise ValueError("Command name or alias already exists.")
+            logging.getLogger(__name__).warning("Ignoring colliding aliases for command=%s", name)
+            settings = replace(settings, aliases=defaults.aliases)
+        return settings
 
     def get_command_settings(self, command_name: str) -> CommandSettings:
         with self._lock:
@@ -125,7 +204,7 @@ class RuntimeState:
                 command_name,
                 CommandSettingsOverride(),
             ).apply(defaults)
-            return current == saved
+            return current == self._validated_command_settings(command_name, saved, loading=True)
 
     def has_saved_command_override(self, command_name: str) -> bool:
         with self._lock:
@@ -139,14 +218,21 @@ class RuntimeState:
         enabled: bool | None = None,
         cooldown: CooldownPolicy | None = None,
         permission: Permission | None = None,
+        aliases: object = None,
+        display_name: object = None,
+        burst_interval_ms: int | None = None,
     ) -> CommandSettings:
         with self._lock:
             current = self.get_command_settings(command_name)
-            updated = CommandSettings(
+            updated = replace(current,
                 enabled=current.enabled if enabled is None else enabled,
                 cooldown=current.cooldown if cooldown is None else cooldown,
                 permission=current.permission if permission is None else permission,
+                aliases=current.aliases if aliases is None else validate_command_aliases(aliases),
+                display_name=current.display_name if display_name is None else validate_display_name(display_name),
+                burst_interval_ms=current.burst_interval_ms if burst_interval_ms is None else burst_interval_ms,
             )
+            updated = self._validated_command_settings(command_name, updated)
             self._command_settings[command_name] = updated
             return updated
 
@@ -162,14 +248,21 @@ class RuntimeState:
         enabled: bool,
         cooldown: CooldownPolicy,
         permission: Permission,
+        aliases: object = None,
+        display_name: object = None,
+        burst_interval_ms: int | None = None,
     ) -> CommandSettings:
         with self._lock:
-            self.get_command_default_settings(command_name)
-            updated = CommandSettings(
+            current = self.get_command_settings(command_name)
+            updated = replace(current,
                 enabled=enabled,
                 cooldown=cooldown,
                 permission=permission,
+                aliases=current.aliases if aliases is None else validate_command_aliases(aliases),
+                display_name=current.display_name if display_name is None else validate_display_name(display_name),
+                burst_interval_ms=current.burst_interval_ms if burst_interval_ms is None else burst_interval_ms,
             )
+            updated = self._validated_command_settings(command_name, updated)
             self._save_command_settings(command_name, updated)
             self._command_settings[command_name] = updated
             return updated
@@ -212,6 +305,20 @@ class RuntimeState:
             self._command_settings[command_name] = defaults
             return defaults
 
+    def remove_builtin_command(self, command_name: str) -> None:
+        with self._lock:
+            updated = replace(self.get_command_settings(command_name), enabled=False, removed=True)
+            self._save_command_settings(command_name, updated)
+            self._command_settings[command_name] = updated
+
+    def reset_all_command_settings(self) -> None:
+        with self._lock:
+            if self._command_settings_path is None:
+                raise RuntimeError("Command settings persistence is not configured.")
+            save_command_overrides(self._command_settings_path, {}, recovered_overrides=self._persisted_command_overrides)
+            self._persisted_command_overrides = {}
+            self._command_settings = dict(self._command_defaults)
+
     def is_command_enabled(self, command_name: str) -> bool:
         return self.command_enabled(command_name)
 
@@ -223,7 +330,7 @@ class RuntimeState:
     def command_enabled(self, command_name: str) -> bool:
         with self._lock:
             settings = self._command_settings.get(command_name)
-            return True if settings is None else settings.enabled
+            return True if settings is None else settings.enabled and not settings.removed
 
     @property
     def ai_enabled(self) -> bool:

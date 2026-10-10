@@ -118,6 +118,15 @@ class FunSettingsStore:
             if saved:
                 self._saved_fates = responses
 
+    def reset_all(self) -> None:
+        """Restore both factory response pools in one atomic profile write."""
+        with self._lock:
+            payload = {key: value for key, value in self._payload.items() if key not in ("fates", "tg_message")}
+            self._write(payload)
+            self._payload = payload
+            self._set_responses("fate", FATES, saved=True)
+            self._set_responses("tg", (TG_MESSAGE,), saved=True)
+
     def _write(self, payload: dict[str, object]) -> None:
         if self._load_error:
             raise ValueError("Repair the unreadable or unsupported fun_settings.json before saving responses.")

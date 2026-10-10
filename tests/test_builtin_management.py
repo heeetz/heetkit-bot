@@ -1,0 +1,292 @@
+"""Factory overrides retain handlers, enforce policy and coexist with custom data."""
+
+import json
+import logging
+from dataclasses import replace
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+
+from app.commands.ai import register_ai_commands
+from app.commands.fun import register_fun_commands
+from app.commands.info import register_info_commands, register_weather_commands
+from app.commands.registry import CommandDispatcher, CommandRegistry
+from app.custom_commands import CustomCommandStore
+from app.fun_settings import FATES, FunSettingsStore
+from app.runtime_state import RuntimeState
+from app.services.ai_request_policy import AIRequestPolicy
+from app.services.contracts import AIReply, WeatherReport
+from app.twitch.events import ChatAuthor, IncomingChatMessage
+from app.twitch.permissions import Permission
+from app.utils.cooldown import CooldownManager, CooldownPolicy
+from app.webview_host import WebUIBridge
+
+
+def custom_payload(**changes):
+    return {"name": "promo", "enabled": True, "responses": ["Hello {sender}"],
+            "permission": "USER", "per_user_seconds": 0, "global_seconds": 0,
+            "aliases": [], **changes}
+
+
+def setup_commands(root):
+    registry = CommandRegistry()
+    fun = FunSettingsStore(root / "fun_settings.json")
+    register_fun_commands(registry, fun)
+    register_info_commands(registry)
+    register_weather_commands(registry)
+    register_ai_commands(registry)
+    state = RuntimeState(command_settings_path=root / "command_settings.json")
+    state.configure_commands(registry.definitions())
+    factory_names = {name for definition in registry.definitions() for name in (definition.name, *definition.aliases)}
+    custom = CustomCommandStore(root / "custom_commands.json", factory_names,
+                                namespace_lock=state.command_namespace_lock)
+    state.bind_custom_commands(custom)
+    services = SimpleNamespace(runtime_state=state, ai_request_policy=AIRequestPolicy(),
+        ai=SimpleNamespace(is_available=True, generate_reply=AsyncMock(return_value=AIReply("An actual answer", True))),
+        users=SimpleNamespace(get_by_username=AsyncMock(return_value=SimpleNamespace(twitch_user_id="target-id"))),
+        weather=SimpleNamespace(get_current_weather=AsyncMock(return_value=WeatherReport("London", 15, "Clear", 4))),
+        memory=None)
+    application = SimpleNamespace(registry=registry, services=services, fun_settings=fun, custom_commands=custom,
+                                  settings=SimpleNamespace(command_prefix="!"))
+    bridge = WebUIBridge(SimpleNamespace(application=application))
+    dispatcher = CommandDispatcher(registry, CooldownManager(), logging.getLogger(__name__), "!",
+                                    runtime_state=state, custom_commands=custom)
+    return registry, state, custom, fun, bridge, dispatcher, services
+
+
+def chat(content, respond, **roles):
+    return IncomingChatMessage("test", content, ChatAuthor("user", "caller", **roles), respond)
+
+
+@pytest.mark.asyncio
+async def test_editor_aliases_dispatch_original_handler_and_share_cooldown(tmp_path):
+    registry, state, custom, _, bridge, dispatcher, services = setup_commands(tmp_path)
+    original = registry.get("ping")
+    custom.save(custom_payload())
+    assert bridge.save_command_settings("ping", True, 30, 0, "MODERATOR",
+        {"aliases": ["!PONG"], "display_name": "Connection check"}) == {"ok": True}
+    assert state.get_command_settings("ping").aliases == ("pong",)
+    respond = AsyncMock()
+    await dispatcher.dispatch(chat("!pong", respond, is_moderator=True), services)
+    await dispatcher.dispatch(chat("!ping", respond, is_moderator=True), services)
+    assert respond.await_args_list[0].args == ("pong",)
+    assert respond.await_count == 1
+    assert registry.get("ping") is original
+    restarted = setup_commands(tmp_path)
+    assert restarted[1].get_command_settings("ping") == state.get_command_settings("ping")
+    assert restarted[2].list() == custom.list()
+    entry = next(command for command in bridge.get_commands()["commands"] if command["name"] == "ping")
+    assert entry["name"] == "ping" and entry["display_name"] == "Connection check"
+    assert entry["response_pool"] is None
+
+
+@pytest.mark.asyncio
+async def test_remove_disables_canonical_and_alias_help_then_restore_factory_settings(tmp_path):
+    registry, state, _, fun, bridge, dispatcher, services = setup_commands(tmp_path)
+    fun.save(["My community"], "tg")
+    original = registry.get("tg")
+    bridge.save_command_settings("tg", True, 0, 0, "MODERATOR", {"aliases": ["community"], "burst_interval_ms": 200})
+    assert bridge.remove_builtin_command("tg") == {"ok": True}
+    assert state.get_command_settings("tg").removed
+    assert not state.get_command_settings("tg").enabled
+    respond = AsyncMock()
+    for invocation in ("!tg 2", "!community 2"):
+        await dispatcher.dispatch(chat(invocation, respond, is_moderator=True), services)
+    respond.assert_not_awaited()
+    assert not any(entry.startswith("!tg") for entry in registry.help_entries(state))
+    await dispatcher.dispatch(chat("!help", respond), services)
+    assert "!tg" not in respond.await_args.args[0]
+    restarted = setup_commands(tmp_path)
+    assert restarted[1].get_command_settings("tg").removed
+    # A generic enable toggle cannot revive a removed factory command.
+    state.apply_command_settings("tg", enabled=True)
+    assert not state.is_command_enabled("tg")
+    assert bridge.restore_builtin_command("tg") == {"ok": True}
+    assert state.get_command_settings("tg") == original.default_settings
+    assert registry.get("tg") is original
+    assert fun.tg_message == "My community"  # Settings restore is separate from message reset.
+    respond.reset_mock()
+    await dispatcher.dispatch(chat("!tg 2", respond, is_moderator=True), services)
+    assert respond.await_count == 2
+    assert all(call.args == ("My community",) for call in respond.await_args_list)
+
+
+def test_complete_factory_reset_keeps_custom_and_unknown_response_data(tmp_path):
+    registry, state, custom, fun, bridge, _, _ = setup_commands(tmp_path)
+    command = custom.save(custom_payload())
+    custom_before = (tmp_path / "custom_commands.json").read_bytes()
+    fun.save(["custom fate"], "fate")
+    fun.save(["custom community"], "tg")
+    fun._payload["future_response_section"] = {"retain": True}
+    bridge.save_command_settings("tg", True, 8, 10, "BROADCASTER", {"burst_interval_ms": 1000})
+    bridge.remove_builtin_command("weather")
+    assert bridge.reset_all_builtin_commands() == {"ok": True}
+    assert all(state.get_command_settings(definition.name) == definition.default_settings
+               for definition in registry.definitions())
+    assert fun.fates == FATES
+    assert not fun.snapshot("tg")["has_saved_override"]
+    assert json.loads(fun.path.read_text())["future_response_section"] == {"retain": True}
+    assert custom.list() == (command,)
+    assert (tmp_path / "custom_commands.json").read_bytes() == custom_before
+    assert json.loads((tmp_path / "command_settings.json").read_text()) == {}
+
+
+def test_complete_restore_reports_partial_response_failure_without_false_success(tmp_path, monkeypatch):
+    _, state, _, fun, bridge, _, _ = setup_commands(tmp_path)
+    bridge.remove_builtin_command("tg")
+    fun.save(["My community"], "tg")
+    def fail_reset():
+        raise OSError("Synthetic failure")
+    monkeypatch.setattr(fun, "reset_all", fail_reset)
+    result = bridge.reset_all_builtin_commands()
+    assert result["ok"] is False
+    assert "settings were restored" in result["error"]
+    assert not state.get_command_settings("tg").removed
+    assert fun.tg_message == "My community"
+
+
+@pytest.mark.parametrize("alias", ["tg", "erase", "weather", "promo", "hi"])
+def test_builtin_alias_collision_with_factory_and_custom_names_and_aliases(tmp_path, alias):
+    _, state, custom, _, bridge, _, _ = setup_commands(tmp_path)
+    custom.save(custom_payload(aliases=["hi"]))
+    before = state.get_command_settings("ping")
+    result = bridge.save_command_settings("ping", True, 0, 0, "USER", {"aliases": [alias]})
+    assert result["ok"] is False
+    assert state.get_command_settings("ping") == before
+
+
+def test_custom_edits_reserve_runtime_and_saved_builtin_aliases_even_after_removal(tmp_path):
+    _, state, custom, _, bridge, _, _ = setup_commands(tmp_path)
+    bridge.save_command_settings("ping", True, 0, 0, "USER", {"aliases": ["savedping"]})
+    state.apply_command_settings("ping", aliases=["sessionping"])
+    for name in ("savedping", "sessionping"):
+        with pytest.raises(ValueError, match="already exists"):
+            custom.save(custom_payload(name=name))
+    bridge.remove_builtin_command("ping")
+    with pytest.raises(ValueError, match="already exists"):
+        custom.save(custom_payload(name="sessionping"))
+    bridge.restore_builtin_command("ping")
+    assert custom.save(custom_payload(name="sessionping"))
+
+
+def test_startup_conflict_keeps_existing_custom_command_and_recovers_original_override(tmp_path):
+    _, _, custom, _, _, _, _ = setup_commands(tmp_path)
+    command = custom.save(custom_payload(aliases=["hello"]))
+    path = tmp_path / "command_settings.json"
+    original = b'{"ping":{"aliases":["hello"],"display_name":"Keep this label"},"future":{"data":true}}'
+    path.write_bytes(original)
+    _, state, restarted_custom, _, bridge, _, _ = setup_commands(tmp_path)
+    assert restarted_custom.list() == (command,)
+    assert state.get_command_settings("ping").aliases == ()
+    assert state.get_command_settings("ping").display_name == "Keep this label"
+    assert path.read_bytes() == original
+    assert bridge.save_command_settings("ping", False, 0, 0, "USER") == {"ok": True}
+    assert [copy.read_bytes() for copy in tmp_path.glob("*.recovery")] == [original]
+    restarted_custom.save({**command.to_json(), "enabled": False})
+
+
+@pytest.mark.parametrize("name,permission", [("tg", "USER"), ("tg", "VIP"), ("erase", "MODERATOR")])
+def test_privileged_permissions_rejected_at_editor_and_clamped_on_restart(tmp_path, name, permission):
+    registry, state, _, _, bridge, _, _ = setup_commands(tmp_path)
+    assert bridge.save_command_settings(name, True, 0, 0, permission)["ok"] is False
+    path = tmp_path / "command_settings.json"
+    path.write_text(json.dumps({name: {"permission": permission}}))
+    restarted = setup_commands(tmp_path)
+    assert restarted[1].get_command_settings(name).permission == registry.get(name).minimum_permission
+    assert state.get_command_settings(name).permission >= registry.get(name).minimum_permission
+
+
+@pytest.mark.parametrize("name", ["ask", "erase"])
+def test_protected_identity_and_dynamic_templates_cannot_be_overridden(tmp_path, name):
+    _, _, _, _, bridge, _, _ = setup_commands(tmp_path)
+    permission = "BROADCASTER" if name == "erase" else "USER"
+    for options in ({"aliases": ["override"]}, {"display_name": "A static template"}):
+        assert bridge.save_command_settings(name, True, 0, 0, permission, options)["ok"] is False
+    assert bridge.save_command_responses(name, ["Static text"])["ok"] is False
+    metadata = next(command for command in bridge.get_commands()["commands"] if command["name"] == name)
+    assert metadata["identity_editable"] is False
+    assert metadata["response_pool"] is None
+
+
+@pytest.mark.asyncio
+async def test_edited_dynamic_commands_keep_original_ask_weather_and_erase_implementations(tmp_path):
+    registry, _, _, _, bridge, dispatcher, services = setup_commands(tmp_path)
+    original_handlers = {definition.name: definition.handler for definition in registry.definitions()}
+    bridge.save_command_settings("weather", True, 0, 0, "USER", {"aliases": ["forecastweather"], "display_name": "Local weather"})
+    bridge.save_command_settings("ask", True, 0, 0, "USER")
+    bridge.remove_builtin_command("erase")
+    bridge.restore_builtin_command("erase")
+    respond = AsyncMock()
+    await dispatcher.dispatch(chat("!forecastweather London", respond), services)
+    services.weather.get_current_weather.assert_awaited_once_with("London")
+    assert "London" in respond.await_args.args[0]
+    await dispatcher.dispatch(chat("!ask Explain plants", respond), services)
+    assert services.ai.generate_reply.await_args.kwargs["prompt"] == "Explain plants"
+    assert respond.await_args.args[0] == "@caller An actual answer"
+    services.memory = SimpleNamespace(erase_for_user=AsyncMock())
+    await dispatcher.dispatch(chat("!erase @target", respond, is_moderator=True), services)
+    services.memory.erase_for_user.assert_not_awaited()
+    await dispatcher.dispatch(chat("!erase @target", respond, is_broadcaster=True), services)
+    services.memory.erase_for_user.assert_awaited_once_with("target-id")
+    assert original_handlers == {definition.name: definition.handler for definition in registry.definitions()}
+
+
+@pytest.mark.parametrize("interval", [0, 50, 200, 1000])
+def test_intervals_persist_across_restart_and_do_not_cross_profiles(tmp_path, interval):
+    _, state, custom, _, bridge, _, _ = setup_commands(tmp_path / "first")
+    assert bridge.save_command_settings("tg", True, 0, 0, "MODERATOR", {"burst_interval_ms": interval}) == {"ok": True}
+    command = custom.save(custom_payload(response_mode="burst", permission="MODERATOR", burst_count=3,
+                                         burst_allow_override=True, burst_interval_ms=interval))
+    first = setup_commands(tmp_path / "first")
+    second = setup_commands(tmp_path / "second")
+    assert first[1].get_command_settings("tg").burst_interval_ms == interval
+    assert first[2].list() == (command,)
+    assert second[1].get_command_settings("tg").burst_interval_ms == 0
+    assert second[2].list() == ()
+    assert first[4].get_custom_commands()["commands"][0]["burst_interval_ms"] == interval
+
+
+@pytest.mark.parametrize("interval", [-1, 1001, 1.5, True, "50", None])
+def test_invalid_intervals_rejected_without_mutation_and_invalid_disk_fields_fall_back(tmp_path, interval):
+    _, state, custom, _, bridge, _, _ = setup_commands(tmp_path)
+    before = state.get_command_settings("tg")
+    assert bridge.save_command_settings("tg", True, 0, 0, "MODERATOR", {"burst_interval_ms": interval})["ok"] is False
+    assert state.get_command_settings("tg") == before
+    with pytest.raises(ValueError, match="interval"):
+        custom.save(custom_payload(response_mode="burst", permission="MODERATOR", burst_interval_ms=interval))
+    (tmp_path / "command_settings.json").write_text(json.dumps({"tg": {"burst_interval_ms": interval}}))
+    restarted = setup_commands(tmp_path)
+    assert restarted[1].get_command_settings("tg").burst_interval_ms == 0
+
+
+def test_old_builtin_settings_and_version_two_bursts_default_to_zero_without_rewrite(tmp_path):
+    _, _, custom, _, _, _, _ = setup_commands(tmp_path)
+    custom.save(custom_payload(response_mode="burst", permission="MODERATOR", burst_count=4))
+    path = tmp_path / "command_settings.json"
+    original = b'{"weather":{"enabled":false,"cooldown":{"global_seconds":8},"permission":"VIP"}}'
+    path.write_bytes(original)
+    custom_before = (tmp_path / "custom_commands.json").read_bytes()
+    _, state, commands, _, _, _, _ = setup_commands(tmp_path)
+    assert state.get_command_settings("weather").enabled is False
+    assert state.get_command_settings("weather").permission == Permission.VIP
+    assert state.get_command_settings("weather").cooldown.global_seconds == 8
+    assert state.get_command_settings("tg").burst_interval_ms == 0
+    assert commands.list()[0].burst_interval_ms == 0
+    assert path.read_bytes() == original
+    assert (tmp_path / "custom_commands.json").read_bytes() == custom_before
+
+
+def test_remove_and_restore_failures_preserve_effective_and_saved_state(tmp_path, monkeypatch):
+    _, state, _, _, bridge, _, _ = setup_commands(tmp_path)
+    bridge.save_command_settings("ping", False, 5, 8, "USER", {"aliases": ["hello"]})
+    path = tmp_path / "command_settings.json"
+    before = path.read_bytes()
+    current = state.get_command_settings("ping")
+    def failed_write(*args, **kwargs):
+        raise OSError("Synthetic atomic replacement failure")
+    monkeypatch.setattr("app.runtime_state.save_command_overrides", failed_write)
+    assert bridge.remove_builtin_command("ping")["ok"] is False
+    assert bridge.restore_builtin_command("ping")["ok"] is False
+    assert state.get_command_settings("ping") == current
+    assert path.read_bytes() == before

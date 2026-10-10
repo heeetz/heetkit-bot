@@ -9,12 +9,14 @@ import os
 import random
 import re
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
 from uuid import UUID, uuid4
 
 from app.twitch.permissions import Permission
+from app.command_settings import validate_burst_interval
 from app.settings_recovery import preserve_settings_recovery
 from app.utils.cooldown import CooldownPolicy
 from app.utils.text import normalize_command_name
@@ -40,6 +42,7 @@ class CustomCommand:
     response_mode: str
     burst_count: int = 1
     burst_allow_override: bool = False
+    burst_interval_ms: int = 0
 
     def to_json(self) -> dict[str, object]:
         result: dict[str, object] = {
@@ -55,6 +58,8 @@ class CustomCommand:
         }
         if self.response_mode == "burst":
             result.update(burst_count=self.burst_count, burst_allow_override=self.burst_allow_override)
+            if self.burst_interval_ms:
+                result["burst_interval_ms"] = self.burst_interval_ms
         return result
 
 
@@ -111,6 +116,7 @@ def parse_custom_command(raw: object, *, command_id: str | None = None, legacy: 
         raise ValueError("Single and Burst modes require exactly one response template.")
     burst_count = 1
     burst_allow_override = False
+    burst_interval_ms = 0
     if response_mode == "burst":
         if Permission[permission] < Permission.MODERATOR:
             raise ValueError("Burst mode requires Moderator or Broadcaster permission.")
@@ -120,7 +126,8 @@ def parse_custom_command(raw: object, *, command_id: str | None = None, legacy: 
         burst_allow_override = raw.get("burst_allow_override", False)
         if type(burst_allow_override) is not bool:
             raise ValueError("Burst argument override must be a boolean.")
-    elif not legacy and ("burst_count" in raw or "burst_allow_override" in raw):
+        burst_interval_ms = validate_burst_interval(raw.get("burst_interval_ms", 0))
+    elif not legacy and any(key in raw for key in ("burst_count", "burst_allow_override", "burst_interval_ms")):
         raise ValueError("Burst settings require Burst response mode.")
     aliases = raw.get("aliases")
     if not isinstance(aliases, list) or len(aliases) > 10:
@@ -142,6 +149,7 @@ def parse_custom_command(raw: object, *, command_id: str | None = None, legacy: 
         response_mode=response_mode,
         burst_count=burst_count,
         burst_allow_override=burst_allow_override,
+        burst_interval_ms=burst_interval_ms,
     )
 
 
@@ -159,10 +167,11 @@ def render_response(command: CustomCommand, arguments: str, sender: str, random_
 class CustomCommandStore:
     """Keep immutable command snapshots behind one lock; publish after atomic save."""
 
-    def __init__(self, path: Path, built_in_names: set[str]) -> None:
+    def __init__(self, path: Path, built_in_names: set[str], *, namespace_lock=None) -> None:
         self._path = path
         self._built_in_names = built_in_names
-        self._lock = RLock()
+        self._builtin_names_provider: Callable[[], set[str]] | None = None
+        self._lock = namespace_lock if namespace_lock is not None else RLock()
         self._commands: dict[str, CustomCommand] = {}
         self._lookup: dict[str, str] = {}
         self._schema_version = SCHEMA_VERSION
@@ -201,12 +210,16 @@ class CustomCommandStore:
             self._publish(updated)
 
     def _validate_collisions(self, commands: dict[str, CustomCommand]) -> None:
-        used = set(self._built_in_names)
+        used = set(self._built_in_names) if self._builtin_names_provider is None else self._builtin_names_provider()
         for command in commands.values():
             for name in (command.name, *command.aliases):
                 if name in used:
                     raise ValueError(f"Command name or alias already exists: {name}")
                 used.add(name)
+
+    def bind_builtin_names(self, provider: Callable[[], set[str]]) -> None:
+        with self._lock:
+            self._builtin_names_provider = provider
 
     def _publish(self, commands: dict[str, CustomCommand]) -> None:
         self._commands = commands

@@ -106,7 +106,9 @@ def build_application(settings: Settings) -> Application:
     custom_commands = CustomCommandStore(
         paths.custom_commands,
         {name for definition in registry.definitions() for name in (definition.name, *definition.aliases)},
+        namespace_lock=runtime_state.command_namespace_lock,
     )
+    runtime_state.bind_custom_commands(custom_commands)
     message_triggers = MessageTriggerStore(paths.message_triggers)
     dispatcher = CommandDispatcher(
         registry=registry,

@@ -10,8 +10,9 @@ Dashboard, Logs and About remain direct page links.
 
 ## Built-in commands
 
-These are the shipped permissions; saved settings can change them. Hidden commands
-stay out of public help but remain usable by authorized users when enabled.
+These are the shipped permissions; saved settings can change them within protected
+minimums. Hidden commands stay out of public help but remain usable by authorized
+users when enabled. Disabled or removed commands also stay out of public help.
 
 | Command | Purpose | Default permission |
 | --- | --- | --- |
@@ -23,7 +24,7 @@ stay out of public help but remain usable by authorized users when enabled.
 | `!help` | List public command help entries. | User |
 | `!ping` | Reply with `pong`. | Moderator |
 | `!seen <username>` | Show when a known chatter was last seen. | User |
-| `!tg <1-10>` | Send the configured community message one to ten times concurrently. | Moderator |
+| `!tg <1-10>` | Send the configured community message one to ten times, with optional Burst spacing. | Moderator |
 | `!uptime` | Show how long the current HeetKit session has been running. | Moderator |
 | `!weather <city>` | Current weather with English, Russian or Ukrainian localization. | User |
 
@@ -32,18 +33,56 @@ Gemini. `!uptime` measures the bot session, rather than the stream's uptime.
 
 ## Permissions, cooldowns and responses
 
-Expand a built-in command on **Commands** to edit its enabled state, permission and
-per-user/global cooldowns. The permission order is User → Subscriber → VIP → Moderator
-→ Broadcaster; higher roles also satisfy lower requirements.
+Select **Edit** on a built-in command on **Commands** to edit its enabled state,
+permission and per-user/global cooldowns. Most commands also accept alternate
+aliases and a display label. The label does not rename the chat command: its original
+name stays available. Names and aliases already reserved by another built-in or
+custom command are rejected, including removed factory commands.
+
+The permission order is User → Subscriber → VIP → Moderator → Broadcaster; higher
+roles also satisfy lower requirements. `!tg` requires at least Moderator and `!erase`
+requires Broadcaster. `!ask` keeps its fixed identity. Protected commands appear in
+the separate **Administrative commands** section with fixed identities and no text
+template editor.
 
 - **Apply** changes this session.
 - **Save** keeps the settings across restarts.
-- **Reset** removes the saved override and restores the shipped defaults.
+- **Reset** removes the saved settings override and restores the shipped settings.
+- **Close** collapses the editor while keeping unsaved input.
 
 Expand **Fate** or **Tg** to edit their response text. These editors have their own
 Apply, Save and Reset actions. Fate accepts one non-empty response per line; blank
 lines are ignored and commas stay in the text. Responses must fit within 450 UTF-8 bytes.
-Weather and uptime use runtime data rather than editable response lists.
+Other built-ins keep their original behavior and show a note when their response
+cannot be edited as a text template. Editing settings never replaces the AI, weather,
+memory-erasure or other built-in implementation.
+
+**Remove** saves the command as disabled and hides it from the active collection.
+Its implementation is retained. Open **Factory commands** to discover the available
+defaults and select **Restore default command** to restore an individual command's
+settings. Its saved message remains unchanged. **Restore all factory defaults**
+restores every built-in setting and the Fate/Tg messages; custom commands are kept.
+These settings belong to the selected profile and survive a restart.
+
+### Burst spacing
+
+`!tg` and each custom Burst command have a separate **Burst interval (ms)** setting,
+accepting whole numbers from 0 to 1000. The default is 0. Settings are saved with the
+command and remain isolated between profiles.
+
+| Interval | Dispatch behavior |
+| --- | --- |
+| 0 ms | Start all requests concurrently. |
+| 50 ms | Start requests approximately 50 ms apart. |
+| 200 ms | Start requests approximately 200 ms apart. |
+| 1000 ms | Start requests approximately one second apart. |
+
+Spacing controls when a send request begins. A later request does not wait for the
+previous Twitch response. All one to ten sends are managed and awaited together;
+cancellation stops pending starts and cleans up active sends. Twitch controls when
+messages appear and may reject or rate limit individual requests. Successful sends
+are retained when another send fails; failures appear in the logs without an
+application retry. Actual delivery and message order are not guaranteed.
 
 ### Existing prediction settings
 
@@ -72,10 +111,14 @@ or external edits; protect recovery copies like the profile itself. See
 Use **Custom Commands** to create a name, optional aliases, required permission,
 per-user/global cooldowns and a response mode. Custom command changes
 save immediately. Names and aliases cannot conflict with built-in commands.
+The top **New command** control becomes **Close editor** while editing; **Cancel**
+and **Close** are also available inside. Closing or switching commands asks to discard
+changes only when the draft was edited. A successful save closes the editor; a failed
+save retains the draft and shows the error.
 
 - **Single** sends one configured message.
 - **Random** selects one of 1–10 templates, entered one per non-empty line.
-- **Burst** repeats one configured message concurrently, with a default count of
+- **Burst** repeats one configured message using the Burst interval, with a default count of
   1–10. Burst requires Moderator or Broadcaster permission. Enable argument count
   override to let `!promo 10` send ten copies instead of the default, for example five.
   Invalid counts send nothing. With override enabled, a target can follow the count:
@@ -98,10 +141,10 @@ never execute code, and replies are limited to 450 UTF-8 bytes. Burst renders th
 template once and repeats the same result, including the same random chatter.
 
 Single and Random use the shared output limiter. Only Burst and `!tg` bypass it;
-both await every send without an artificial delay. Twitch can still reject or rate
-limit individual messages; concurrent requests do not guarantee delivery or order.
+both await every send, using only the configured spacing between request starts.
 Existing saved commands retain Single/Random behavior. The saved format upgrades
-only when edited, retaining atomic saves and settings recovery.
+only when edited, retaining atomic saves and settings recovery. Existing Burst
+commands with no interval setting retain simultaneous dispatch at 0 ms.
 
 ## Filters
 

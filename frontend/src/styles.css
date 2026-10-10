@@ -125,7 +125,10 @@ td { color: #c6cfdf; }
 .command-list { display: grid; gap: 12px; }
 .command-card { min-width: 0; border: 1px solid #283349; border-radius: 11px; background: #111722; overflow: hidden; }
 .command-card.dirty { border-color: #7052c9; box-shadow: inset 3px 0 #7c4dff; }
-.command-summary-row { min-width: 0; }
+.command-summary-row { min-width: 0; display: flex; align-items: center; }
+.command-summary-row .command-summary { min-width: 0; flex: 1; }
+.command-collection-actions { flex: 0 0 auto; padding-right: 12px; }
+.command-display-name { color: #a7b1c2; font-size: 12px; }
 .command-summary { display: grid; width: 100%; grid-template-columns: minmax(150px, auto) minmax(0, 1fr) auto; align-items: center; gap: 14px; border: 0; padding: 15px 16px; color: inherit; background: transparent; text-align: left; cursor: pointer; }
 .command-summary:hover { background: rgba(124, 77, 255, .08); }
 .command-summary:focus-visible { outline: 3px solid rgba(145, 71, 255, .42); outline-offset: -3px; }
@@ -148,6 +151,18 @@ td { color: #c6cfdf; }
 .command-action-group { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 7px; margin-left: auto; }
 .command-response-editor { margin-top: 20px; padding-top: 18px; border-top: 1px solid #273044; }
 .command-response-editor .custom-response-heading { margin-top: 0; }
+.command-identity-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 16px; }
+.command-burst-interval { max-width: 320px; margin-top: 16px; }
+.command-behavior-note { margin: 14px 0 0; color: #9ba8bd; font-size: 13px; line-height: 1.5; }
+.command-editor-close { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
+.factory-commands { margin-top: 18px; padding-top: 16px; border-top: 1px solid #273044; }
+.factory-commands > summary { padding: 4px 0; color: #c6b8ff; cursor: pointer; font-weight: 700; }
+.factory-commands > summary:focus-visible { outline: 2px solid #8a64ff; outline-offset: 3px; }
+.factory-commands > .section-copy { margin: 10px 0 14px; }
+.factory-command-list { display: grid; gap: 8px; }
+.factory-command-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid #283349; border-radius: 8px; }
+.factory-command-row > div { display: grid; gap: 3px; min-width: 0; }
+.factory-command-row strong { overflow-wrap: anywhere; }
 .command-response-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
 .switch-control { position: relative; display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
 .switch-input { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; opacity: 0; pointer-events: none; }
@@ -186,6 +201,7 @@ td { color: #c6cfdf; }
 .custom-response-mode { max-width: 260px; }
 .custom-mode-example { margin: 10px 0 14px; color: #9ba8bd; font-size: 13px; line-height: 1.5; }
 .custom-burst-controls { display: grid; grid-template-columns: minmax(120px, 180px) minmax(0, 1fr); align-items: center; gap: 18px; margin-top: 14px; }
+.custom-burst-controls > div { grid-column: 1 / -1; }
 .custom-field-hint { margin: 6px 0 0; color: #8491a9; font-size: 12px; line-height: 1.45; font-weight: 400; }
 .custom-variable-help { margin-top: 20px; padding: 14px; border: 1px solid #2a354a; border-radius: 10px; background: #0d131e; }
 .custom-variable-help > p { margin: 5px 0 12px; color: #8491a9; font-size: 13px; }
@@ -456,6 +472,11 @@ td { color: #c6cfdf; }
   .command-expand-label { grid-column: 2; grid-row: 1; }
   .command-details { padding: 0 14px 14px; }
   .command-fields { grid-template-columns: 1fr; }
+  .command-summary-row { align-items: flex-start; }
+  .command-collection-actions { padding-top: 10px; padding-right: 8px; }
+  .command-identity-fields { grid-template-columns: 1fr; }
+  .command-editor-close { align-items: flex-start; flex-wrap: wrap; }
+  .factory-command-row { align-items: flex-start; flex-wrap: wrap; }
   .command-action-footer, .command-response-footer { align-items: flex-start; flex-wrap: wrap; }
   .command-action-group { width: 100%; }
   .custom-command-row, .custom-response-heading { align-items: flex-start; flex-direction: column; }

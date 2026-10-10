@@ -55,7 +55,7 @@ def register_info_commands(registry: CommandRegistry) -> None:
             cooldown=CooldownPolicy(global_seconds=HELP_COOLDOWN_SECONDS),
         )
     async def help_command(context, arguments: str) -> None:
-        await context.reply(" ".join(registry.help_entries()))
+        await context.reply(" ".join(registry.help_entries(getattr(context.services, "runtime_state", None))))
 
     @registry.command(
         "commands",
@@ -64,7 +64,7 @@ def register_info_commands(registry: CommandRegistry) -> None:
         cooldown=CooldownPolicy(global_seconds=COMMANDS_COOLDOWN_SECONDS),
     )
     async def commands_command(context, arguments: str) -> None:
-        await context.reply(" ".join(registry.help_entries()))
+        await context.reply(" ".join(registry.help_entries(getattr(context.services, "runtime_state", None))))
 
     @registry.command(
         "uptime",

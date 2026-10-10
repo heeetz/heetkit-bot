@@ -29,6 +29,12 @@ export function twitchConnectionLabel(state: TwitchConnectionState): string {
 export interface CommandInfo {
   name: string
   aliases: string[]
+  display_name?: string
+  removed?: boolean
+  burst_interval_ms?: number
+  minimum_permission?: string
+  identity_editable?: boolean
+  help_text?: string
   enabled: boolean
   available: boolean
   unavailable_reason: string | null
@@ -53,11 +59,21 @@ export interface CommandInfo {
 
 export interface CommandSettings {
   enabled: boolean
+  removed?: boolean
+  aliases?: string[]
+  display_name?: string
+  burst_interval_ms?: number
   permission: string
   cooldown: {
     per_user_seconds: number
     global_seconds: number
   }
+}
+
+export interface CommandSettingsMetadata {
+  aliases?: string[]
+  display_name?: string
+  burst_interval_ms?: number
 }
 
 export interface CommandsResponse {
@@ -80,6 +96,7 @@ export interface CustomCommandInput {
   response_mode?: CustomResponseMode
   burst_count?: number
   burst_allow_override?: boolean
+  burst_interval_ms?: number
 }
 
 export interface CustomCommandInfo extends CustomCommandInput {
@@ -328,9 +345,12 @@ interface PythonApi {
   cancel_ai_playground(requestId: string): Promise<AIPlaygroundResult>
   get_personalities(): Promise<PersonalitiesResponse>
   get_recent_logs(after_id?: number, limit?: number): Promise<LogsResponse>
-  apply_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string): Promise<ActionResult>
-  save_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string): Promise<ActionResult>
+  apply_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string, metadata?: CommandSettingsMetadata): Promise<ActionResult>
+  save_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string, metadata?: CommandSettingsMetadata): Promise<ActionResult>
   reset_command_settings(commandName: string): Promise<ActionResult>
+  remove_builtin_command(commandName: string): Promise<ActionResult>
+  restore_builtin_command(commandName: string): Promise<ActionResult>
+  reset_all_builtin_commands(): Promise<ActionResult>
   apply_command_responses(commandName: string, responses: string[]): Promise<ActionResult>
   save_command_responses(commandName: string, responses: string[]): Promise<ActionResult>
   reset_command_responses(commandName: string): Promise<ActionResult>

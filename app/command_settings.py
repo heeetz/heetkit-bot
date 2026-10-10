@@ -15,8 +15,37 @@ from typing import Any, Protocol
 from app.twitch.permissions import Permission
 from app.settings_recovery import migrate_settings_key, preserve_settings_recovery
 from app.utils.cooldown import CooldownPolicy
+from app.utils.text import normalize_command_name
 
 logger = logging.getLogger(__name__)
+
+
+def validate_burst_interval(value: object) -> int:
+    if type(value) is not int or not 0 <= value <= 1000:
+        raise ValueError("Burst interval must be an integer from 0 to 1000 ms.")
+    return value
+
+
+def validate_command_aliases(value: object) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)) or len(value) > 10:
+        raise ValueError("Provide at most 10 command aliases.")
+    aliases = []
+    for alias in value:
+        if not isinstance(alias, str):
+            raise ValueError("Command aliases must be text.")
+        alias = normalize_command_name(alias)
+        if not alias or len(alias) > 40 or any(char.isspace() or char in "!{}" for char in alias):
+            raise ValueError("Command aliases must be single words of at most 40 characters.")
+        aliases.append(alias)
+    if len(set(aliases)) != len(aliases):
+        raise ValueError("Command aliases must be unique.")
+    return tuple(aliases)
+
+
+def validate_display_name(value: object) -> str:
+    if not isinstance(value, str) or len(value) > 80 or any(ord(char) < 32 for char in value):
+        raise ValueError("Display name must be a label of at most 80 characters.")
+    return value.strip()
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +55,10 @@ class CommandSettings:
     enabled: bool
     cooldown: CooldownPolicy
     permission: Permission
+    aliases: tuple[str, ...] = ()
+    display_name: str = ""
+    removed: bool = False
+    burst_interval_ms: int = 0
 
     def __post_init__(self) -> None:
         if type(self.enabled) is not bool:
@@ -34,6 +67,13 @@ class CommandSettings:
             raise TypeError("Command cooldown setting must be a CooldownPolicy.")
         if not isinstance(self.permission, Permission):
             raise TypeError("Command permission setting must be a Permission.")
+        if type(self.removed) is not bool:
+            raise TypeError("Command removed setting must be a boolean.")
+        if not isinstance(self.aliases, tuple) or validate_command_aliases(self.aliases) != self.aliases:
+            raise ValueError("Command aliases must be normalized unique names.")
+        if validate_display_name(self.display_name) != self.display_name:
+            raise ValueError("Display name must not have surrounding whitespace.")
+        validate_burst_interval(self.burst_interval_ms)
 
 
 class CommandSettingsDefinition(Protocol):
@@ -50,16 +90,25 @@ class CommandSettingsOverride:
     enabled: bool | None = None
     cooldown: CooldownPolicy | None = None
     permission: Permission | None = None
+    aliases: tuple[str, ...] | None = None
+    display_name: str | None = None
+    removed: bool | None = None
+    burst_interval_ms: int | None = None
 
     @property
     def is_empty(self) -> bool:
-        return self.enabled is None and self.cooldown is None and self.permission is None
+        return all(value is None for value in (self.enabled, self.cooldown, self.permission,
+                   self.aliases, self.display_name, self.removed, self.burst_interval_ms))
 
     def apply(self, defaults: CommandSettings) -> CommandSettings:
         return CommandSettings(
             enabled=defaults.enabled if self.enabled is None else self.enabled,
             cooldown=defaults.cooldown if self.cooldown is None else self.cooldown,
             permission=defaults.permission if self.permission is None else self.permission,
+            aliases=defaults.aliases if self.aliases is None else self.aliases,
+            display_name=defaults.display_name if self.display_name is None else self.display_name,
+            removed=defaults.removed if self.removed is None else self.removed,
+            burst_interval_ms=defaults.burst_interval_ms if self.burst_interval_ms is None else self.burst_interval_ms,
         )
 
     @classmethod
@@ -72,6 +121,10 @@ class CommandSettingsOverride:
             enabled=settings.enabled if settings.enabled != defaults.enabled else None,
             cooldown=settings.cooldown if settings.cooldown != defaults.cooldown else None,
             permission=settings.permission if settings.permission != defaults.permission else None,
+            aliases=settings.aliases if settings.aliases != defaults.aliases else None,
+            display_name=settings.display_name if settings.display_name != defaults.display_name else None,
+            removed=settings.removed if settings.removed != defaults.removed else None,
+            burst_interval_ms=settings.burst_interval_ms if settings.burst_interval_ms != defaults.burst_interval_ms else None,
         )
 
     def to_json(self) -> dict[str, object]:
@@ -85,6 +138,12 @@ class CommandSettingsOverride:
             }
         if self.permission is not None:
             result["permission"] = self.permission.name
+        if self.aliases is not None:
+            result["aliases"] = list(self.aliases)
+        for key in ("display_name", "removed", "burst_interval_ms"):
+            value = getattr(self, key)
+            if value is not None:
+                result[key] = value
         return result
 
 
@@ -197,10 +256,24 @@ def _parse_override(
     if "cooldown" in raw_override:
         cooldown = _parse_cooldown(command_name, raw_override["cooldown"], defaults.cooldown)
 
+    additional = {}
+    for key, validator in (("aliases", validate_command_aliases), ("display_name", validate_display_name),
+                           ("burst_interval_ms", validate_burst_interval)):
+        if key in raw_override:
+            try:
+                additional[key] = validator(raw_override[key])
+            except ValueError:
+                logger.warning("Ignoring invalid %s setting for command name=%s", key, command_name)
+    if "removed" in raw_override:
+        if type(raw_override["removed"]) is bool:
+            additional["removed"] = raw_override["removed"]
+        else:
+            logger.warning("Ignoring invalid removed setting for command name=%s", command_name)
     return CommandSettingsOverride(
         enabled=enabled,
         cooldown=cooldown,
         permission=permission,
+        **additional,
     )
 
 

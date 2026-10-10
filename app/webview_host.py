@@ -101,6 +101,7 @@ FRONTEND_OPERATIONS = (
     "get_filters", "get_ai_status", "get_personalities", "get_recent_logs",
     "start_ai_playground", "get_ai_playground_result", "cancel_ai_playground",
     "apply_command_settings", "save_command_settings", "reset_command_settings",
+    "remove_builtin_command", "restore_builtin_command", "reset_all_builtin_commands",
     "apply_command_responses", "save_command_responses", "reset_command_responses",
     "save_custom_command", "delete_custom_command", "apply_filters", "save_filters", "test_filters",
     "set_ai_enabled", "set_ai_memory_enabled", "apply_personality", "create_personality",
@@ -579,7 +580,13 @@ class WebUIBridge:
             commands.append(
                 {
                     "name": definition.name,
-                    "aliases": list(definition.aliases),
+                    "aliases": list(settings.aliases),
+                    "display_name": settings.display_name,
+                    "removed": settings.removed,
+                    "burst_interval_ms": settings.burst_interval_ms,
+                    "minimum_permission": definition.minimum_permission.name,
+                    "identity_editable": definition.identity_editable,
+                    "help_text": definition.help_text or f"!{definition.name}",
                     "enabled": settings.enabled,
                     "available": unavailable_reason is None,
                     "unavailable_reason": unavailable_reason,
@@ -638,7 +645,8 @@ class WebUIBridge:
             "permissions": [permission.name for permission in Permission],
             "variables": list(VARIABLES),
             "commands": [
-                {**command.to_json(), "response_mode": command.response_mode}
+                {**command.to_json(), "response_mode": command.response_mode,
+                 **({"burst_interval_ms": command.burst_interval_ms} if command.response_mode == "burst" else {})}
                 for command in application.custom_commands.list()
             ],
         }
@@ -737,6 +745,10 @@ class WebUIBridge:
         return {
             "enabled": settings.enabled,
             "permission": settings.permission.name,
+            "aliases": list(settings.aliases),
+            "display_name": settings.display_name,
+            "removed": settings.removed,
+            "burst_interval_ms": settings.burst_interval_ms,
             "cooldown": {
                 "per_user_seconds": settings.cooldown.per_user_seconds,
                 "global_seconds": settings.cooldown.global_seconds,
@@ -783,6 +795,7 @@ class WebUIBridge:
         per_user_seconds: object,
         global_seconds: object,
         permission: object,
+        options: object = None,
     ) -> dict[str, object]:
         try:
             parsed_enabled, cooldown, parsed_permission = self._parse_command_settings(
@@ -796,6 +809,7 @@ class WebUIBridge:
                 enabled=parsed_enabled,
                 cooldown=cooldown,
                 permission=parsed_permission,
+                **self._parse_command_options(options),
             )
         except KeyError:
             return {"ok": False, "error": "Unknown command."}
@@ -819,6 +833,7 @@ class WebUIBridge:
         per_user_seconds: object,
         global_seconds: object,
         permission: object,
+        options: object = None,
     ) -> dict[str, object]:
         try:
             parsed_enabled, cooldown, parsed_permission = self._parse_command_settings(
@@ -832,6 +847,7 @@ class WebUIBridge:
                 enabled=parsed_enabled,
                 cooldown=cooldown,
                 permission=parsed_permission,
+                **self._parse_command_options(options),
             )
         except KeyError:
             return {"ok": False, "error": "Unknown command."}
@@ -872,6 +888,46 @@ class WebUIBridge:
                 "event_action": "reset",
             },
         )
+        return {"ok": True}
+
+    @staticmethod
+    def _parse_command_options(options: object) -> dict[str, object]:
+        if options is None:
+            return {}
+        if not isinstance(options, dict) or any(key not in ("aliases", "display_name", "burst_interval_ms") for key in options):
+            raise ValueError("Unknown command editor settings.")
+        if any(value is None for value in options.values()):
+            raise ValueError("Command editor settings cannot be null.")
+        return options
+
+    def remove_builtin_command(self, command_name: str) -> dict[str, object]:
+        try:
+            self._backend.application.services.runtime_state.remove_builtin_command(command_name)
+        except (KeyError, TypeError):
+            return {"ok": False, "error": "Unknown command."}
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except (OSError, RuntimeError):
+            self._logger.exception("Could not remove built-in command")
+            return {"ok": False, "error": "Could not remove command."}
+        return {"ok": True}
+
+    def restore_builtin_command(self, command_name: str) -> dict[str, object]:
+        return self.reset_command_settings(command_name)
+
+    def reset_all_builtin_commands(self) -> dict[str, object]:
+        application = self._backend.application
+        try:
+            application.services.runtime_state.reset_all_command_settings()
+        except (ValueError, TypeError, OSError, RuntimeError) as error:
+            self._logger.warning("Could not restore factory command settings error_type=%s", type(error).__name__)
+            return {"ok": False, "error": "Could not restore factory command settings. Back up and repair the profile if needed."}
+        try:
+            if getattr(application, "fun_settings", None) is not None:
+                application.fun_settings.reset_all()
+        except (ValueError, OSError) as error:
+            self._logger.warning("Could not restore factory responses error_type=%s", type(error).__name__)
+            return {"ok": False, "error": "Factory command settings were restored, but responses could not be restored. Retry after repairing the response profile file."}
         return {"ok": True}
 
     def _playground_operation(

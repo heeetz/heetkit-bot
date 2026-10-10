@@ -47,6 +47,7 @@ def register_fun_commands(registry: CommandRegistry, fun_settings: FunSettingsSt
         "tg",
         help_text="!tg <1-10>",
         required_permission=Permission.MODERATOR,
+        minimum_permission=Permission.MODERATOR,
         argument_validator=_valid_tg_arguments,
     )
     async def tg(context, arguments: str) -> None:

@@ -32,6 +32,7 @@ test('creator and existing-command editor appear above the list with compact tem
   await templates.press('Enter')
   await templates.pressSequentially('Welcome, {target}!')
   await expect(templates).toHaveValue('Hello, {sender}!\n\nWelcome, {target}!')
+  page.once('dialog', (dialog) => dialog.accept())
   await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
   await list.getByRole('button', { name: 'Edit', exact: true }).click()
   await expect(editor.getByLabel('Response mode')).toHaveValue('random')
@@ -41,7 +42,7 @@ test('creator and existing-command editor appear above the list with compact tem
 
 test('built-in fate is exposed and forecast is absent', async ({ page }) => {
   await page.goto('/tests/commands.fixture.html')
-  await expect(page.getByText('!fate', { exact: true })).toBeVisible()
+  await expect(page.locator('.command-card').getByText('!fate', { exact: true })).toBeVisible()
   await expect(page.getByText('!forecast', { exact: true })).toHaveCount(0)
 })
 
@@ -130,6 +131,7 @@ test('Burst requires moderators and preserves count override, aliases and cooldo
   const expected = {
     name: 'promo', responses: ['Join us, {sender}: example.com for {target}'],
     response_mode: 'burst', burst_count: 5, burst_allow_override: true, permission: 'MODERATOR',
+    burst_interval_ms: 0,
     aliases: ['discord', 'join'], per_user_seconds: 3, global_seconds: 7,
   }
   expect((await calls(page))[0][1]).toMatchObject(expected)
@@ -309,6 +311,202 @@ test('response limits and backend failures retain editable drafts', async ({ pag
   await expect(editor.locator('textarea')).toHaveValue('Unknown, {invalid}!')
 })
 
+test('top and inner editor controls close pristine drafts without confirmation', async ({ page }) => {
+  await page.goto('/tests/commands.fixture.html')
+  let dialogs = 0
+  page.on('dialog', async (dialog) => { dialogs += 1; await dialog.dismiss() })
+  const top = page.locator('#custom-commands > .section-heading').getByRole('button')
+  await expect(top).toHaveText('New command')
+  await expect(top).toHaveAttribute('aria-expanded', 'false')
+  await top.focus()
+  await top.press('Enter')
+  await expect(top).toHaveText('Close editor')
+  await expect(top).toHaveAttribute('aria-expanded', 'true')
+  await expect(top).toHaveAttribute('aria-controls', 'custom-command-editor')
+  await top.click()
+  await expect(page.locator('.custom-command-editor')).toHaveCount(0)
+  await top.click()
+  await page.locator('.custom-command-editor').getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page.locator('.custom-command-editor')).toHaveCount(0)
+  await page.locator('.custom-command-list').getByRole('button', { name: 'Edit', exact: true }).click()
+  await page.locator('.custom-command-editor').getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(page.locator('.custom-command-editor')).toHaveCount(0)
+  expect(dialogs).toBe(0)
+})
+
+test('dirty draft cancellation and replacing a draft require confirmation', async ({ page }) => {
+  await page.goto('/tests/commands.fixture.html')
+  await page.getByRole('button', { name: 'New command', exact: true }).click()
+  const editor = page.locator('.custom-command-editor')
+  await editor.getByLabel('Command name').fill('unsaved')
+  await editor.getByRole('textbox', { name: 'Message', exact: true }).fill('Keep this draft')
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toBe('Discard unsaved command changes?')
+    await dialog.dismiss()
+  })
+  await page.getByRole('button', { name: 'Close editor', exact: true }).click()
+  await expect(editor.getByLabel('Command name')).toHaveValue('unsaved')
+  page.once('dialog', (dialog) => dialog.dismiss())
+  await page.locator('.custom-command-list').getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(editor.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('Keep this draft')
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.locator('.custom-command-list').getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(editor.getByLabel('Command name')).toHaveValue('hello')
+  await expect(editor.getByRole('textbox', { name: 'Responses', exact: true })).toHaveValue('Hello, {sender}!\nWelcome, {target}!')
+  await editor.getByRole('textbox', { name: 'Responses', exact: true }).fill('New message')
+  page.once('dialog', (dialog) => dialog.accept())
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(editor).toHaveCount(0)
+  expect(await calls(page)).toEqual([])
+})
+
+test('Burst interval controls validate and retain saved values on editing and toggling', async ({ page }) => {
+  await page.goto('/tests/commands.fixture.html')
+  await page.getByRole('button', { name: 'New command', exact: true }).click()
+  const editor = page.locator('.custom-command-editor')
+  await expect(editor.getByLabel('Burst interval (ms)')).toHaveCount(0)
+  await editor.getByLabel('Command name').fill('promo')
+  await editor.getByRole('textbox', { name: 'Message', exact: true }).fill('Join us, {sender}!')
+  await editor.getByLabel('Response mode').selectOption('burst')
+  const interval = editor.getByLabel('Burst interval (ms)')
+  const save = editor.getByRole('button', { name: 'Save command', exact: true })
+  await expect(interval).toHaveValue('0')
+  for (const value of ['-1', '1001', '0.5', '']) {
+    await interval.fill(value)
+    await expect(interval).toHaveAttribute('aria-invalid', 'true')
+    await expect(save).toBeDisabled()
+  }
+  for (const value of ['0', '50', '200', '1000']) {
+    await interval.fill(value)
+    await expect(interval).toHaveAttribute('aria-invalid', 'false')
+    await expect(save).toBeEnabled()
+  }
+  await interval.fill('200')
+  await expect(editor.locator('.custom-mode-example')).toContainText('200 ms between request starts')
+  await save.click()
+  await expect(editor).toHaveCount(0)
+  const row = page.locator('.custom-command-row').filter({ has: page.getByText('!promo', { exact: true }) })
+  await expect(row).toContainText('200 ms interval')
+  await row.getByRole('button', { name: 'Disable', exact: true }).click()
+  await row.getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(interval).toHaveValue('200')
+  await interval.fill('50')
+  await save.click()
+  expect((await calls(page)).map((call: unknown[]) => call[1])).toMatchObject([
+    { burst_interval_ms: 200 }, { burst_interval_ms: 200, enabled: false }, { burst_interval_ms: 50, enabled: false },
+  ])
+})
+
+test('built-in editors retain implementation identity and protected permission floors', async ({ page }) => {
+  await page.goto('/tests/commands.fixture.html?extended')
+  const tg = await expandCommand(page, 'tg')
+  await expect(tg.getByLabel('Permission').locator('option')).toHaveText(['moderator', 'broadcaster'])
+  const interval = tg.getByLabel('Burst interval (ms)')
+  await expect(interval).toHaveValue('0')
+  for (const value of ['0', '50', '200', '1000']) {
+    await interval.fill(value)
+    await expect(interval).toHaveAttribute('aria-invalid', 'false')
+  }
+  await interval.fill('1001')
+  await expect(tg.locator('.command-action-footer').getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
+  await interval.fill('50')
+  await tg.getByLabel('Display name').fill('Community promo')
+  await tg.getByLabel('Aliases, separated by commas').fill('community, discord')
+  await tg.locator('.command-action-footer').getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(tg.locator('.command-summary-title strong')).toHaveText('!tg')
+  await expect(tg.locator('.command-display-name')).toHaveText('Community promo')
+  expect((await calls(page))[0]).toEqual(['save_command_settings', 'tg', true, 0, 15, 'MODERATOR', {
+    aliases: ['community', 'discord'], display_name: 'Community promo', burst_interval_ms: 50,
+  }])
+  await tg.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(tg.locator('.command-details')).toHaveCount(0)
+  await tg.getByRole('button', { name: /Show settings/ }).click()
+  await expect(tg.getByLabel('Burst interval (ms)')).toHaveValue('50')
+  const weather = await expandCommand(page, 'weather')
+  await expect(weather).toContainText('cannot be edited as a text template')
+  await expect(weather.locator('textarea')).toHaveCount(0)
+  const ask = await expandCommand(page, 'ask')
+  await expect(ask.getByLabel('Aliases, separated by commas')).toHaveCount(0)
+  await expect(ask.getByLabel('Display name')).toHaveCount(0)
+  await expect(page.locator('.factory-commands:not(.administrative-commands)')).not.toContainText('!erase')
+  await expect(page.locator('#builtin-commands > .command-list')).not.toContainText('!erase')
+  await page.getByText('Administrative commands', { exact: true }).click()
+  const erase = await expandCommand(page, 'erase')
+  await expect(erase).toContainText('Protected administrative command')
+  await expect(erase).toContainText('Minimum permission: broadcaster')
+  await expect(erase.getByLabel('Aliases, separated by commas')).toHaveCount(0)
+  await expect(erase.getByLabel('Display name')).toHaveCount(0)
+  await expect(erase.locator('textarea')).toHaveCount(0)
+  await expect(erase.getByRole('button', { name: 'Remove', exact: true })).toHaveCount(0)
+  await expect(erase.getByLabel('Permission').locator('option')).toHaveText(['broadcaster'])
+})
+
+test('factory removal and individual or complete restoration keep custom commands', async ({ page }) => {
+  await page.goto('/tests/commands.fixture.html')
+  const tg = await expandCommand(page, 'tg')
+  await tg.locator('.command-response-editor textarea').fill('Saved community message')
+  await tg.locator('.command-response-editor').getByRole('button', { name: 'Save', exact: true }).click()
+  await tg.getByRole('button', { name: 'Remove', exact: true }).click()
+  await expect(tg).toHaveCount(0)
+  await page.getByText('Factory commands', { exact: true }).click()
+  const factory = page.locator('.factory-commands')
+  const defaultTg = factory.locator('.factory-command-row').filter({ has: page.getByText('!tg', { exact: true }) })
+  await expect(defaultTg).toContainText('Removed')
+  await defaultTg.getByRole('button', { name: 'Restore default command', exact: true }).click()
+  await expect(tg).toBeVisible()
+  await tg.getByRole('button', { name: /Show settings/ }).click()
+  await expect(tg.locator('.command-response-editor textarea')).toHaveValue('Saved community message')
+  page.once('dialog', (dialog) => dialog.dismiss())
+  await factory.getByRole('button', { name: 'Restore all factory defaults', exact: true }).click()
+  expect((await calls(page)).filter((call: unknown[]) => call[0] === 'reset_all_builtin_commands')).toHaveLength(0)
+  page.once('dialog', (dialog) => dialog.accept())
+  await factory.getByRole('button', { name: 'Restore all factory defaults', exact: true }).click()
+  await expect(tg.locator('.command-response-editor textarea')).toHaveValue('Configure your community link.')
+  await expect(page.locator('.custom-command-row')).toContainText('Hello, {sender}!')
+  await expect(page.locator('.custom-command-row')).toContainText('!hi')
+  await expect(page.locator('.command-summary-title strong')).toHaveText(['!fate', '!ping', '!tg'])
+})
+
+test('built-in alias collisions and failed settings or factory saves retain values', async ({ page }) => {
+  await page.goto('/tests/commands.fixture.html')
+  let fate = await expandCommand(page, 'fate')
+  await fate.getByLabel('Aliases, separated by commas').fill('hello')
+  await fate.locator('.command-action-footer').getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('already in use')
+  await expect(fate.getByLabel('Aliases, separated by commas')).toHaveValue('hello')
+  await page.goto('/tests/commands.fixture.html?settingsError')
+  fate = await expandCommand(page, 'fate')
+  await fate.getByLabel('Display name').fill('My forecast')
+  await fate.locator('.command-action-footer').getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Synthetic settings save failure')
+  await expect(fate.getByLabel('Display name')).toHaveValue('My forecast')
+  await page.goto('/tests/commands.fixture.html?factoryError')
+  const ping = page.locator('.command-card').filter({ has: page.getByText('!ping', { exact: true }) })
+  await ping.getByRole('button', { name: 'Remove', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Synthetic factory save failure')
+  await expect(ping).toBeVisible()
+})
+
+test('partial factory reset refreshes saved settings while retaining messages and dirty drafts', async ({ page }) => {
+  await page.goto('/tests/commands.fixture.html?factoryResponseError')
+  const tg = await expandCommand(page, 'tg')
+  await tg.locator('.command-response-editor textarea').fill('Saved community message')
+  await tg.locator('.command-response-editor').getByRole('button', { name: 'Save', exact: true }).click()
+  await tg.getByRole('button', { name: 'Remove', exact: true }).click()
+  const fate = await expandCommand(page, 'fate')
+  await fate.getByLabel('Display name').fill('Unfinished label')
+  await fate.locator('.command-response-editor textarea').fill('Unfinished response')
+  await page.getByText('Factory commands', { exact: true }).click()
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('button', { name: 'Restore all factory defaults', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('settings were restored, but responses could not be restored')
+  await expect(tg).toBeVisible()
+  await expect(fate.getByLabel('Display name')).toHaveValue('Unfinished label')
+  await expect(fate.locator('.command-response-editor textarea')).toHaveValue('Unfinished response')
+  await tg.getByRole('button', { name: /Show settings/ }).click()
+  await expect(tg.locator('.command-response-editor textarea')).toHaveValue('Saved community message')
+})
+
 for (const width of [1280, 390]) {
   test(`multiline editors stay compact inside their cards at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 })
@@ -333,8 +531,12 @@ for (const width of [1280, 390]) {
     }
     await editor.getByText('Advanced variables', { exact: true }).click()
     await expect(editor.getByText('{arg9}', { exact: true })).toBeVisible()
+    const tg = await expandCommand(page, 'tg')
+    await expect(tg.getByLabel('Burst interval (ms)')).toBeVisible()
+    await page.getByText('Factory commands', { exact: true }).click()
+    await expect(page.locator('.factory-command-row')).toHaveCount(3)
     const viewportWidth = page.viewportSize()!.width
-    for (const control of await editor.locator('input:not(.switch-input), select, textarea, summary').all()) {
+    for (const control of await page.locator('.custom-command-editor input:not(.switch-input), .custom-command-editor select, .custom-command-editor textarea, .custom-command-editor summary, .command-details input:not(.switch-input), .command-details select, .factory-command-row button').all()) {
       const bounds = (await control.boundingBox())!
       expect(bounds.x).toBeGreaterThanOrEqual(0)
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewportWidth)

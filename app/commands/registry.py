@@ -6,7 +6,7 @@ import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from app.command_settings import CommandSettings
+from app.command_settings import CommandSettings, validate_burst_interval
 from app.custom_commands import CustomCommand, CustomCommandStore, render_response
 from app.message_triggers import MessageTriggerStore
 from app.runtime_state import RuntimeState
@@ -36,6 +36,12 @@ class CommandDefinition:
     hidden: bool = False
     enabled_by_default: bool = True
     requires_ai: bool = False
+    minimum_permission: Permission = Permission.USER
+
+    @property
+    def identity_editable(self) -> bool:
+        # Ask's canonical name participates in pre-log AI policy; keep it fixed.
+        return not self.hidden and not self.requires_ai
 
     @property
     def default_settings(self) -> CommandSettings:
@@ -43,6 +49,7 @@ class CommandDefinition:
             enabled=self.enabled_by_default,
             cooldown=self.cooldown,
             permission=self.required_permission,
+            aliases=self.aliases,
         )
 
 
@@ -52,6 +59,7 @@ class CommandContext:
     services: ApplicationServices
     logger: logging.Logger
     output_limiter: OutputLimiter | None = None
+    burst_interval_ms: int = 0
 
     async def reply(self, content: str) -> bool:
         if self.output_limiter is not None and not self.output_limiter.try_acquire():
@@ -92,6 +100,7 @@ class CommandContext:
         self,
         content: str,
         count: int,
+        interval_ms: int | None = None,
     ) -> list[object]:
         """Await at most ten transport sends; retain every result or exception.
 
@@ -100,8 +109,13 @@ class CommandContext:
         """
         if type(count) is not int or not 1 <= count <= 10:
             raise ValueError("Burst repeat count must be an integer from 1 to 10.")
+        interval = validate_burst_interval(self.burst_interval_ms if interval_ms is None else interval_ms)
+        async def send(index: int) -> object:
+            if index and interval:
+                await asyncio.sleep(index * interval / 1000)
+            return await self._send_response(content)
         return await asyncio.gather(
-            *(self._send_response(content) for _ in range(count)), return_exceptions=True,
+            *(send(index) for index in range(count)), return_exceptions=True,
         )
 
 
@@ -123,6 +137,7 @@ class CommandRegistry:
         silent_invalid_arguments: bool = False,
         hidden: bool = False,
         requires_ai: bool = False,
+        minimum_permission: Permission = Permission.USER,
     ) -> Callable[[CommandHandler], CommandHandler]:
         def decorator(handler: CommandHandler) -> CommandHandler:
             self.register(
@@ -139,6 +154,7 @@ class CommandRegistry:
                     silent_invalid_arguments=silent_invalid_arguments,
                     hidden=hidden,
                     requires_ai=requires_ai,
+                    minimum_permission=minimum_permission,
                 )
             )
             return handler
@@ -169,6 +185,7 @@ class CommandRegistry:
             silent_invalid_arguments=definition.silent_invalid_arguments,
             hidden=definition.hidden,
             requires_ai=definition.requires_ai,
+            minimum_permission=definition.minimum_permission,
         )
         for command_name in normalized_names:
             self._commands[command_name] = normalized_definition
@@ -185,11 +202,12 @@ class CommandRegistry:
             sorted({definition.name for definition in self._commands.values() if not definition.hidden})
         )
 
-    def help_entries(self) -> tuple[str, ...]:
+    def help_entries(self, runtime_state: RuntimeState | None = None) -> tuple[str, ...]:
         return tuple(
             definition.help_text or f"!{definition.name}"
             for definition in self.definitions()
             if not definition.hidden
+            and (runtime_state is None or runtime_state.is_command_enabled(definition.name))
         )
 
 
@@ -274,7 +292,7 @@ class CommandDispatcher:
         response = render_response(command, arguments, sender, random_user, template=template)
         if response:
             if command.response_mode == "burst":
-                await context.reply_burst(response, count)
+                await context.reply_burst(response, count, interval_ms=command.burst_interval_ms)
             else:
                 await context.reply(response)
 
@@ -288,6 +306,13 @@ class CommandDispatcher:
 
             command_name, arguments = parsed_command
             definition = self._registry.get(command_name)
+            if definition is not None and self._runtime_state is not None and command_name != definition.name:
+                if command_name not in self._runtime_state.get_command_settings(definition.name).aliases:
+                    definition = None
+            if definition is None and self._runtime_state is not None:
+                canonical = self._runtime_state.resolve_command_alias(command_name)
+                if canonical is not None:
+                    definition = self._registry.get(canonical)
             custom = None
             if definition is None:
                 custom = None if self._custom_commands is None else self._custom_commands.get_by_name(command_name)
@@ -310,7 +335,7 @@ class CommandDispatcher:
                 None if definition.name == "tg" or (custom is not None and custom.response_mode == "burst") else self._output_limiter
             )
 
-            if not settings.enabled or command_unavailable_reason(definition, services) is not None:
+            if settings.removed or not settings.enabled or command_unavailable_reason(definition, services) is not None:
                 return True
 
             if len(arguments) > self._max_arguments_length:
@@ -322,7 +347,7 @@ class CommandDispatcher:
             ):
                 return True
 
-            if not has_permission(message.author, settings.permission):
+            if not has_permission(message.author, max(settings.permission, definition.minimum_permission)):
                 return True
 
             if (
@@ -403,6 +428,7 @@ class CommandDispatcher:
                     services=services,
                     logger=self._logger,
                     output_limiter=command_output_limiter,
+                    burst_interval_ms=settings.burst_interval_ms,
                 ),
                 arguments,
             )
