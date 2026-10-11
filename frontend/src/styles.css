@@ -154,7 +154,7 @@ td { color: #c6cfdf; }
 .command-identity-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 12px; margin-top: 12px; }
 .command-burst-interval { max-width: 320px; margin-top: 16px; }
 .command-behavior-note { margin: 14px 0 0; color: #9ba8bd; font-size: 13px; line-height: 1.5; }
-.command-action-group .command-remove { color: #e2a0ad; }
+.command-action-group .command-remove { margin-right: 8px; color: #e2a0ad; }
 .commands-layout input:not(.switch-input), .commands-layout select { min-width: 0; height: 38px; padding: 9px 10px; }
 .commands-layout .custom-name-input { height: 38px; }
 .commands-layout .custom-name-input input { height: 36px; }
@@ -487,6 +487,9 @@ td { color: #c6cfdf; }
   .command-identity-fields { grid-template-columns: 1fr; }
   .factory-command-row { align-items: flex-start; flex-wrap: wrap; }
   .command-action-group { min-width: 0; }
+  .command-action-footer { gap: 8px; }
+  .command-action-footer .command-action-group { display: grid; grid-template-columns: repeat(2, max-content); justify-content: end; }
+  .command-action-footer .command-action-group > button:last-child { grid-column: 2; }
   .custom-command-row, .custom-response-heading { align-items: flex-start; flex-direction: column; }
   .custom-command-fields { grid-template-columns: 1fr; }
   .custom-burst-controls { grid-template-columns: 1fr; gap: 12px; }
@@ -526,4 +529,27 @@ td { color: #c6cfdf; }
 @media (max-width: 480px) {
   .ai-user-block-form { grid-template-columns: minmax(0, 1fr); justify-content: stretch; }
   .ai-user-block-form button { justify-self: start; }
+}
+
+/* Single-level settings accordions. Keep their editor subtree mounted while collapsed. */
+.accordion-card { min-width: 0; padding: 0; overflow: hidden; }
+.accordion-header { margin: 0; font-size: inherit; font-weight: inherit; }
+.accordion-trigger { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 18px; padding: 22px; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.accordion-trigger:hover { background: rgba(124, 77, 255, .08); }
+.accordion-trigger:focus-visible { outline: 3px solid rgba(145, 71, 255, .42); outline-offset: -3px; }
+.accordion-heading { display: grid; min-width: 0; gap: 6px; }
+.accordion-heading .label { margin: 0; }
+.accordion-title { color: #e9eef8; font-size: 20px; font-weight: 750; line-height: 1.2; }
+.accordion-heading .section-copy { margin: 0; }
+.accordion-trigger-side { display: flex; flex: 0 0 auto; align-items: center; gap: 12px; }
+.accordion-caret { display: inline-grid; width: 26px; height: 26px; place-items: center; border: 1px solid #344057; border-radius: 50%; color: #c5b5f5; font-size: 18px; line-height: 1; transform: rotate(0deg); transition: transform .16s ease, background .16s ease; }
+.accordion-trigger[aria-expanded="true"] .accordion-caret { background: #201a36; transform: rotate(180deg); }
+.accordion-content { padding: 16px 22px 22px; border-top: 1px solid #273044; }
+@media (max-width: 760px) {
+  .accordion-trigger { display: grid; grid-template-columns: minmax(0, 1fr) 26px; align-items: start; gap: 10px; padding: 18px; }
+  .accordion-heading { grid-column: 1; grid-row: 1; }
+  .accordion-trigger-side { display: contents; }
+  .accordion-trigger-side > .personality-badges, .accordion-trigger-side > .mini-badge { grid-column: 1; grid-row: 2; justify-content: flex-start; justify-self: start; max-width: 100%; }
+  .accordion-caret { grid-column: 2; grid-row: 1; }
+  .accordion-content { padding: 16px 18px 18px; }
 }

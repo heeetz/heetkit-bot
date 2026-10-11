@@ -521,8 +521,8 @@ test('command actions share the editor footer with no Apply or duplicate Close c
   await expect(page.getByRole('button', { name: 'Apply', exact: true })).toHaveCount(0)
   await expect(fate.locator('.command-summary-row').getByRole('button', { name: 'Remove', exact: true })).toHaveCount(0)
   const actions = fate.locator('.command-editor-actions')
-  await expect(actions.getByRole('button')).toHaveText(['Save', 'Reset', 'Save', 'Reset', 'Remove', 'Close'])
-  await expect(fate.getByRole('group', { name: '!fate settings actions' }).getByRole('button')).toHaveText(['Save', 'Reset', 'Remove', 'Close'])
+  await expect(actions.getByRole('button')).toHaveText(['Reset', 'Save', 'Remove', 'Close', 'Reset', 'Save'])
+  await expect(fate.getByRole('group', { name: '!fate settings actions' }).getByRole('button')).toHaveText(['Remove', 'Close', 'Reset', 'Save'])
   await expect(fate.getByRole('button', { name: 'Close', exact: true })).toHaveCount(1)
   await fate.getByLabel('Display name').fill('Kept draft')
   await actions.getByRole('button', { name: 'Close', exact: true }).click()
@@ -585,6 +585,42 @@ test('styled dirty confirmation keeps failed-save input on Escape and closes on 
 })
 
 for (const width of [1280, 900, 390, 320]) {
+  test(`built-in action order and right alignment at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.goto('/tests/commands.fixture.html?extended')
+    for (const name of ['ask', 'fate', 'tg']) {
+      const card = await expandCommand(page, name)
+      const group = card.getByRole('group', { name: `!${name} settings actions`, exact: true })
+      const buttons = group.getByRole('button')
+      await expect(buttons).toHaveText(['Remove', 'Close', 'Reset', 'Save'])
+      await expect(buttons.last()).toHaveClass('primary')
+      const bounds = (await group.boundingBox())!
+      const boxes = await Promise.all((await buttons.all()).map((button) => button.boundingBox()))
+      for (let index = 0; index < boxes.length; index++) {
+        const box = boxes[index]!
+        expect(box.x).toBeGreaterThanOrEqual(bounds.x)
+        expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width + 1)
+        if (index > 0 && box.y === boxes[index - 1]!.y) {
+          expect(box.x).toBeGreaterThan(boxes[index - 1]!.x + boxes[index - 1]!.width)
+        }
+      }
+      const save = boxes.at(-1)!
+      expect(save.x + save.width).toBeCloseTo(bounds.x + bounds.width, 0)
+      if (width <= 390) {
+        expect(boxes[0]!.y).toBe(boxes[1]!.y)
+        expect(boxes[2]!.y).toBe(boxes[3]!.y)
+        expect(boxes[2]!.y).toBeGreaterThan(boxes[0]!.y)
+      }
+      if (boxes[0]!.y === boxes[1]!.y) {
+        expect(boxes[1]!.x - (boxes[0]!.x + boxes[0]!.width)).toBeGreaterThanOrEqual(14)
+      }
+      const responses = card.locator('.command-response-footer')
+      if (await responses.count()) await expect(responses.getByRole('button')).toHaveText(['Reset', 'Save'])
+      await card.screenshot({ path: `node_modules/.tmp/footer-${name}-${width}.png` })
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+  })
+
   test(`multiline editors stay compact inside their cards at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 })
     await page.goto('/tests/commands.fixture.html')

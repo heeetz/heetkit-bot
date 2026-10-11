@@ -87,6 +87,7 @@ jobs:
           tests/test_windows_runtime.py
           tests/test_runtime_distribution.py
           tests/test_profile_isolation.py
+          tests/test_release_publication.py
 
       - name: Install the pinned Inno Setup compiler
         id: inno
@@ -167,6 +168,12 @@ jobs:
         shell: pwsh
 
     steps:
+      - name: Check out the tagged curated release notes
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
       - name: Download only this run's verified Windows artifacts
         uses: actions/download-artifact@v4
         with:
@@ -182,6 +189,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if ($env:RELEASE_TAG -cne "v$env:APP_VERSION") { throw 'Release tag/version mismatch.' }
+          $notesPath = "docs/releases/$env:RELEASE_TAG.md"
+          if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) { throw "Missing curated release notes: $notesPath" }
+          $notes = Get-Content -LiteralPath $notesPath -Raw
+          if ($notes.Split("`n")[0].Trim() -cne "# HeetKit $env:RELEASE_TAG" -or $notes.Trim().Length -lt 100) {
+            throw 'Curated release notes must describe the matching release version.'
+          }
           $base = "HeetKit-$env:APP_VERSION-windows-x64"
           $suffixes = @('.zip', '.zip.sha256', '-setup.exe', '-setup.exe.sha256', '-setup.exe.build.json')
           $assets = @($suffixes | ForEach-Object { Join-Path 'release-artifacts' "$base$_" })
@@ -204,7 +217,7 @@ jobs:
               $trace.portable_sha256 -cne $hashes['.zip'] -or $trace.installer_sha256 -cne $hashes['-setup.exe']) {
             throw 'Installer traceability does not match the release artifacts.'
           }
-          $releaseArgs = @('release', 'create', $env:RELEASE_TAG, '--verify-tag', '--generate-notes')
+          $releaseArgs = @('release', 'create', $env:RELEASE_TAG, '--verify-tag', '--notes-file', $notesPath)
           if ($env:PRERELEASE -eq 'true') { $releaseArgs += @('--prerelease', '--latest=false') }
           gh @releaseArgs @assets
           if ($LASTEXITCODE -ne 0) { throw 'GitHub Release publication failed.' }

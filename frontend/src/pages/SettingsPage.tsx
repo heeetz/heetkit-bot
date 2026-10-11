@@ -11,6 +11,7 @@ import {
 } from '../bridge'
 import FeedbackToast from '../components/FeedbackToast'
 import Switch from '../components/Switch'
+import Accordion from '../components/Accordion'
 
 interface SettingsPageProps {
   active: boolean
@@ -494,15 +495,14 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
         )}
       </section>
 
-      <section className="card settings-page" id="twitch-settings">
-        <div className="section-heading">
-          <div>
-            <p className="label">TWITCH CONNECTION</p>
-            <h2>Channel and account</h2>
-            <p className="section-copy">Setup belongs to this profile. Client ID and bot identity changes require an application restart. Channel changes can be applied with reconnect.</p>
-          </div>
-          {twitchDirty && <span className="mini-badge dirty-badge">Edited</span>}
-        </div>
+      <Accordion
+        id="twitch-settings"
+        eyebrow="TWITCH CONNECTION"
+        title="Channel and account"
+        description="Setup belongs to this profile. Client ID and bot identity changes require an application restart. Channel changes can be applied with reconnect."
+        badges={twitchDirty && <span className="mini-badge dirty-badge">Edited</span>}
+        className="settings-page"
+      >
         {!twitchDraft ? <p className="muted">Loading Twitch settings…</p> : (
           <div className="settings-list twitch-settings-list">
             <section className="twitch-settings-group" aria-labelledby="twitch-preset-heading">
@@ -619,16 +619,15 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
             </section>
           </div>
         )}
-      </section>
+      </Accordion>
 
-      <section className="card settings-page" id="credential-settings">
-        <div className="section-heading">
-          <div>
-            <p className="label">SECURE CREDENTIALS</p>
-            <h2>Provider credentials</h2>
-            <p className="section-copy">Values are stored in the system keyring and are never displayed. Gemini is optional and changes apply immediately. Twitch credential changes require restart.</p>
-          </div>
-        </div>
+      <Accordion
+        id="credential-settings"
+        eyebrow="SECURE CREDENTIALS"
+        title="Provider credentials"
+        description="Values are stored in the system keyring and are never displayed. Gemini is optional and changes apply immediately. Twitch credential changes require restart."
+        className="settings-page"
+      >
         {!draft ? <p className="muted">Loading credential status…</p> : credentials.length === 0 ? (
           <div className="empty-state-inline">
             <strong>No credential providers are available</strong>
@@ -676,7 +675,7 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
             })}
           </div>
         )}
-      </section>
+      </Accordion>
       <section className="card settings-page" id="profile-location-settings" aria-labelledby="profile-location-heading">
         <div className="section-heading">
           <div>

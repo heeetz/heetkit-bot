@@ -1,8 +1,64 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
+
+async function openAI(page: Page) {
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  for (const selector of ['.ai-language-card', '.personality-editor', '.profile-instructions-editor']) {
+    const trigger = page.locator(`${selector} .accordion-trigger`)
+    if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
+  }
+}
+
+for (const width of [1280, 900, 390, 320]) {
+  test(`AI editor accordions stay accessible and preserve drafts at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/tests/fixture.html')
+    await page.getByRole('button', { name: 'AI', exact: true }).click()
+    const language = page.locator('#ai-language')
+    const personality = page.locator('#ai-personalities')
+    const profile = page.locator('#ai-profile-instructions')
+    for (const [section, contentId] of [[language, 'ai-language-content'], [personality, 'ai-personalities-content'], [profile, 'ai-profile-instructions-content']] as const) {
+      const trigger = section.locator('.accordion-trigger')
+      await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+      await expect(trigger).toHaveAttribute('aria-controls', contentId)
+      await expect(section.locator('.accordion-content')).toBeHidden()
+    }
+    const personalityTrigger = personality.locator('.accordion-trigger')
+    await personalityTrigger.press('Space')
+    await expect(personalityTrigger).toHaveAttribute('aria-expanded', 'true')
+    await personality.locator('textarea').fill('draft survives collapse')
+    await personalityTrigger.press('Enter')
+    await expect(personality.locator('.accordion-content')).toBeHidden()
+    await personalityTrigger.press('Enter')
+    await expect(personality.locator('textarea')).toHaveValue('draft survives collapse')
+    const languageTrigger = language.locator('.accordion-trigger')
+    await languageTrigger.click()
+    await language.getByLabel('Response language mode').selectOption('limited')
+    await language.getByLabel('German', { exact: true }).check()
+    await languageTrigger.click()
+    await expect(language.locator('.accordion-content')).toBeHidden()
+    await languageTrigger.click()
+    await expect(language.getByLabel('German', { exact: true })).toBeChecked()
+    const profileTrigger = profile.locator('.accordion-trigger')
+    await profileTrigger.press('Enter')
+    await profile.locator('textarea').fill('unsaved profile instructions')
+    await profileTrigger.press('Enter')
+    await expect(profile.locator('.accordion-content')).toBeHidden()
+    await profileTrigger.press('Space')
+    await expect(profile.locator('textarea')).toHaveValue('unsaved profile instructions')
+    await expect(profileTrigger).toBeFocused()
+    for (const section of [language, personality, profile]) {
+      const heading = (await section.locator('.accordion-heading').boundingBox())!
+      const trigger = (await section.locator('.accordion-trigger').boundingBox())!
+      if (width <= 390) expect(heading.width).toBeGreaterThan(trigger.width / 2)
+    }
+    await page.screenshot({ path: `node_modules/.tmp/ai-accordion-${width}.png`, fullPage: true })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+  })
+}
 
 test('profile actions preserve personality drafts and expose state', async ({ page }) => {
   await page.goto('/tests/fixture.html')
-  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await openAI(page)
 
   const personality = page.locator('.personality-editor')
   const profile = page.locator('.profile-instructions-editor')
@@ -42,7 +98,7 @@ test('profile actions preserve personality drafts and expose state', async ({ pa
 
 test('custom personality CRUD keeps save and activation separate', async ({ page }) => {
   await page.goto('/tests/fixture.html')
-  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await openAI(page)
   const personality = page.locator('.personality-editor')
 
   await personality.getByRole('button', { name: 'New personality', exact: true }).click()
@@ -93,7 +149,7 @@ test('custom personality CRUD keeps save and activation separate', async ({ page
 
 test('built-in controls restrict custom-only actions and reset', async ({ page }) => {
   await page.goto('/tests/fixture.html')
-  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await openAI(page)
   const personality = page.locator('.personality-editor')
 
   await expect(personality.getByRole('button', { name: 'Rename', exact: true }).first()).toBeDisabled()
@@ -112,7 +168,7 @@ test('built-in controls restrict custom-only actions and reset', async ({ page }
 
 test('personality save errors retain the unsaved draft', async ({ page }) => {
   await page.goto('/tests/fixture.html?savePersonalityError')
-  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await openAI(page)
   const personality = page.locator('.personality-editor')
   await personality.locator('textarea').fill('keep this personality draft')
   await personality.getByRole('button', { name: 'Save', exact: true }).click()
@@ -122,7 +178,7 @@ test('personality save errors retain the unsaved draft', async ({ page }) => {
 
 test('failed creation retains name and prompt and validates blank names', async ({ page }) => {
   await page.goto('/tests/fixture.html?createPersonalityError')
-  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await openAI(page)
   const personality = page.locator('.personality-editor')
   await personality.getByLabel('Editable prompt').fill('Keep the existing personality draft')
   await personality.getByRole('button', { name: 'New personality', exact: true }).click()
@@ -144,7 +200,7 @@ test('failed creation retains name and prompt and validates blank names', async 
 
 test('failed rename and delete retain the collection and drafts', async ({ page }) => {
   await page.goto('/tests/fixture.html?renamePersonalityError&deletePersonalityError')
-  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await openAI(page)
   const personality = page.locator('.personality-editor')
   await personality.getByRole('button', { name: 'New personality', exact: true }).click()
   const createForm = personality.locator('.personality-inline-form')
@@ -168,7 +224,7 @@ test('failed rename and delete retain the collection and drafts', async ({ page 
 
 test('failed profile action retains its draft', async ({ page }) => {
   await page.goto('/tests/fixture.html?profileError')
-  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await openAI(page)
 
   const profile = page.locator('.profile-instructions-editor')
   await profile.locator('textarea').fill('keep this after failure')
@@ -179,7 +235,7 @@ test('failed profile action retains its draft', async ({ page }) => {
 
 test('language settings default to Auto and validate Limited selections before saving', async ({ page }) => {
   await page.goto('/tests/fixture.html')
-  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await openAI(page)
   const language = page.locator('.ai-language-card')
 
   await expect(language.getByLabel('Response language mode')).toHaveValue('auto')
@@ -211,7 +267,7 @@ test('language settings default to Auto and validate Limited selections before s
 
 test('switching an invalid Limited draft back to Auto restores valid dormant fields before saving', async ({ page }) => {
   await page.goto('/tests/fixture.html')
-  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await openAI(page)
   const language = page.locator('.ai-language-card')
   const mode = language.getByLabel('Response language mode')
 
@@ -237,7 +293,7 @@ test('switching an invalid Limited draft back to Auto restores valid dormant fie
 
 test('language drafts survive leaving and reopening the AI page', async ({ page }) => {
   await page.goto('/tests/fixture.html')
-  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await openAI(page)
   const language = page.locator('.ai-language-card')
   await language.getByLabel('Response language mode').selectOption('limited')
   await language.getByLabel('German', { exact: true }).check()
@@ -245,7 +301,7 @@ test('language drafts survive leaving and reopening the AI page', async ({ page 
   await expect(language.getByText('Edited', { exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await openAI(page)
   const reopened = page.locator('.ai-language-card')
   await expect(reopened.getByLabel('Response language mode')).toHaveValue('limited')
   await expect(reopened.getByLabel('German', { exact: true })).toBeChecked()
@@ -255,7 +311,7 @@ test('language drafts survive leaving and reopening the AI page', async ({ page 
 
 test('language save errors retain the unsaved draft', async ({ page }) => {
   await page.goto('/tests/fixture.html?languageSaveError')
-  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await openAI(page)
   const language = page.locator('.ai-language-card')
   await language.getByLabel('Response language mode').selectOption('limited')
   await language.getByLabel('German', { exact: true }).check()

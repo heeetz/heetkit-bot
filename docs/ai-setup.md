@@ -25,6 +25,11 @@ credential that lets HeetKit send requests to Google's Gemini service.
 
 ## Choose how the bot replies
 
+Response Language, Personalities and Profile Instructions start collapsed. Select
+their headers to expand them, or use the AI sidebar shortcuts to open and scroll to
+a section. Collapsing keeps unsaved edits. **Settings → Credentials** similarly
+opens the collapsed Provider Credentials section.
+
 7. Open the **AI** page. Under **Models and fallback**, optionally choose a **Selected model**
    and **Fallback model**, then **Save models**. Use the supplied choices or **Discover
    models** to check availability with Google. For free usage, check your model's Free
@@ -56,7 +61,8 @@ credential that lets HeetKit send requests to Google's Gemini service.
 
 ## Blocked AI users
 
-On the **AI** page, enter a Twitch login under **Blocked AI users** and select
+Use **AI → Blocked AI users**, or find the card below Profile Instructions. Enter a
+Twitch login under **Blocked AI users** and select
 **Block user**. An optional `@` and surrounding whitespace are accepted; names are
 case-insensitive. Empty, duplicate or invalid login names are rejected. Select
 **Unblock** beside an entry to restore access. Changes apply immediately, save for

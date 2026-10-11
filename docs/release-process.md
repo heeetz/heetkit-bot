@@ -112,12 +112,17 @@ Only those files are uploaded; the source archive tool is not part of this workf
 ## Publish a versioned release
 
 1. Update `VERSION` in `app/version.py` to the intended release version.
-2. Commit and push the release-ready state to `main`.
-3. Create the matching tag, for example `git tag v0.1.3` for version `0.1.3`.
-4. Push that tag: `git push origin v0.1.3`.
-5. GitHub Actions tests and builds that tagged commit. If all checks pass, it downloads
+2. Write user-facing notes in `docs/releases/v<version>.md`, starting with
+   `# HeetKit v<version>`. These versioned files are the canonical release-notes
+   source; describe actual changes since the previous stable release.
+3. Commit and push the release-ready state to `main`. Wait for the Windows build
+   and artifact checks, and resolve the publication gates below before tagging.
+4. Create the matching tag, for example `git tag v0.1.3` for version `0.1.3`.
+5. Push that tag: `git push origin v0.1.3`.
+6. GitHub Actions tests and builds that tagged commit. If all checks pass, it downloads
    the five artifacts from that same run, verifies both SHA-256 checksums and installer
-   traceability, and publishes them with GitHub-generated release notes. It does not rebuild.
+   traceability, and publishes them with the matching curated notes from that exact
+   tagged checkout. Missing or mismatched notes stop publication. It does not rebuild.
 
 Versions below `1.0.0`, such as `v0.1.3`, publish as pre-releases; normal versions
 `v1.0.0` and later publish as stable releases. Only the publication job receives

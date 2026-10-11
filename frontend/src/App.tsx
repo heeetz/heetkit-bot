@@ -35,6 +35,7 @@ const subsections: Partial<Record<Section, { label: string; targetId: string }[]
   AI: [
     { label: 'Runtime', targetId: 'ai-runtime' },
     { label: 'Playground', targetId: 'ai-playground' },
+    { label: 'Blocked AI users', targetId: 'ai-blocked-users' },
     { label: 'Models and fallback', targetId: 'ai-models' },
     { label: 'Response language', targetId: 'ai-language' },
     { label: 'Personalities', targetId: 'ai-personalities' },
@@ -439,6 +440,16 @@ export default function App() {
       // Editor pages stay mounted while hidden; loaded content can also move anchors.
       if (!target || !main.current?.contains(target)
         || target.closest('[hidden], [aria-busy="true"]') || !target.getClientRects().length) return
+      const details = target.closest<HTMLDetailsElement>('details')
+      if (details && !details.open) {
+        details.open = true
+        return
+      }
+      const accordion = target.closest<HTMLElement>('[data-accordion-id]')
+      if (accordion && accordion.dataset.accordionOpen !== 'true') {
+        accordion.dispatchEvent(new CustomEvent('accordion:open', { bubbles: true }))
+        return
+      }
       observer.disconnect()
       main.current.style.setProperty('--sidebar-height', `${sidebar.current?.getBoundingClientRect().height ?? 0}px`)
       target.scrollIntoView({ block: 'start' })
@@ -448,7 +459,12 @@ export default function App() {
       frame = window.requestAnimationFrame(scroll)
     }
     if (navigationTarget.id) {
-      observer.observe(main.current, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-busy'] })
+      observer.observe(main.current, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['aria-busy', 'data-accordion-open', 'hidden', 'open'],
+      })
     }
     scheduleScroll()
     return () => {

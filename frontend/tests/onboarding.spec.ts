@@ -1,4 +1,40 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
+
+async function openTwitchSettings(page: Page) {
+  const trigger = page.locator('#twitch-settings .accordion-trigger')
+  if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
+}
+
+for (const width of [1280, 900, 390, 320]) {
+  test(`Settings accordions preserve Twitch and credential drafts at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.goto('/tests/fixture.html')
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    const twitch = page.locator('#twitch-settings')
+    const credentials = page.locator('#credential-settings')
+    for (const section of [twitch, credentials]) {
+      const trigger = section.locator('.accordion-trigger')
+      const content = section.locator('.accordion-content')
+      await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+      await expect(trigger).toHaveAttribute('aria-controls', `${await section.getAttribute('id')}-content`)
+      await expect(content).toBeHidden()
+      await trigger.press('Enter')
+      await expect(trigger).toHaveAttribute('aria-expanded', 'true')
+      const field = section === twitch
+        ? twitch.getByLabel('Target channel login')
+        : credentials.getByLabel('Replacement value', { exact: true }).first()
+      const draft = section === twitch ? 'unsaved_channel' : 'synthetic-credential-draft'
+      await field.fill(draft)
+      await trigger.press('Space')
+      await expect(content).toBeHidden()
+      await expect(trigger).toBeFocused()
+      await trigger.press('Enter')
+      await expect(field).toHaveValue(draft)
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    await page.screenshot({ path: `node_modules/.tmp/settings-accordion-${width}.png`, fullPage: true })
+  })
+}
 
 test('clean setup provides the developer action and copies the backend callback', async ({ page }) => {
   await page.addInitScript(() => {
@@ -8,6 +44,7 @@ test('clean setup provides the developer action and copies the backend callback'
   })
   await page.goto('/tests/fixture.html')
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await openTwitchSettings(page)
   const application = page.locator('.twitch-application-setup')
   await expect(application.getByLabel('Twitch application client ID')).toBeVisible()
   await application.getByRole('button', { name: 'Open Twitch Developer Console' }).click()
@@ -41,6 +78,7 @@ for (const permitted of [true, false]) {
       }
     }, permitted)
     await page.goto('/tests/fixture.html?settings')
+    await openTwitchSettings(page)
     const copy = page.getByRole('button', { name: 'Copy OAuth callback URL' })
     await copy.click()
     expect(await page.evaluate(() => Reflect.get(window, 'copiedCallback'))).toBe('http://localhost:4343/oauth/callback')
@@ -57,6 +95,7 @@ test('auto-start authorization stays manual, including with a stale token cache'
   await expect(page.getByRole('button', { name: 'Authorize Twitch', exact: true })).toBeEnabled()
   expect(await page.evaluate(() => Reflect.get(window, 'opened'))).toEqual([])
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await openTwitchSettings(page)
   await expect(page.locator('.twitch-status-grid > div').filter({ hasText: 'Twitch authorization' })).toHaveText('Twitch authorizationRequired')
   await page.getByRole('button', { name: 'Authorize Twitch', exact: true }).click()
   expect(await page.evaluate(() => Reflect.get(window, 'opened'))).toEqual(['twitch_authorization'])
@@ -75,6 +114,7 @@ for (const width of [1280, 900, 761, 760, 390, 320]) {
   test(`Twitch field pairs align responsively at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 })
     await page.goto('/tests/fixture.html?settings')
+    await openTwitchSettings(page)
     for (const [firstLabel, secondLabel] of [
       ['Connection preset', 'Preset name'],
       ['Bot account login', 'Bot account user ID'],

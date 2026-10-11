@@ -50,8 +50,9 @@ template editor.
 - **Close** collapses the editor while keeping unsaved input.
 
 Expand **Fate** or **Tg** to edit their response text. Settings and messages have
-separate Save and Reset controls in the same bottom action area, alongside Remove
-and Close. Fate accepts one non-empty response per line; blank
+separate Reset and Save controls in the same bottom action area. Settings actions
+are right-aligned in the order Remove, Close, Reset, Save, with Remove separated
+from the other actions. Fate accepts one non-empty response per line; blank
 lines are ignored and commas stay in the text. Responses must fit within 450 UTF-8 bytes.
 Other built-ins keep their original behavior and show a note when their response
 cannot be edited as a text template. Editing settings never replaces the AI, weather,

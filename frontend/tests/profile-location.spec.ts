@@ -1,4 +1,9 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
+
+async function openTwitchSettings(page: Page) {
+  const trigger = page.locator('#twitch-settings .accordion-trigger')
+  if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
+}
 
 const profilePath = `C:\\Synthetic profiles\\日本語 & data\\${'long-profile-name'.repeat(12)}`
 
@@ -36,6 +41,7 @@ for (const permitted of [true, false]) {
       }
     }, permitted)
     await page.goto(`/tests/fixture.html?settings&profilePath=${encodeURIComponent(profilePath)}`)
+    await openTwitchSettings(page)
     const copy = page.getByRole('button', { name: 'Copy path', exact: true })
     await copy.click()
     expect(await page.evaluate(() => Reflect.get(window, 'copiedPath'))).toBe(profilePath)
@@ -66,6 +72,7 @@ test('file manager and clipboard failures keep the displayed path and allow retr
 
 test('an unavailable profile location disables actions while other Settings sections load', async ({ page }) => {
   await page.goto('/tests/fixture.html?settings&profileLocationError')
+  await openTwitchSettings(page)
   const section = page.getByRole('region', { name: 'Data & diagnostics' })
   await expect(section.getByRole('alert')).toContainText('The profile location is unavailable.')
   await expect(section.getByRole('button', { name: 'Open profile folder', exact: true })).toBeDisabled()

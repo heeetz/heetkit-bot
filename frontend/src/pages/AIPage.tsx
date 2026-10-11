@@ -15,6 +15,7 @@ import FeedbackToast from '../components/FeedbackToast'
 import Switch from '../components/Switch'
 import AIPlayground from '../components/AIPlayground'
 import BlockedAIUsers from '../components/BlockedAIUsers'
+import Accordion from '../components/Accordion'
 
 interface AIPageProps {
   active: boolean
@@ -637,7 +638,6 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
           <strong>{data?.active_personality || 'Not selected'}</strong>
         </article>
       </div>
-      <BlockedAIUsers active={active} />
       <AIPlayground active={active} personality={data?.active_personality ?? ''} />
       <article className="card ai-provider-card" id="ai-models">
         <div className="section-heading">
@@ -690,18 +690,19 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
           </div>
         )}
       </article>
-      <article className="card ai-language-card" id="ai-language">
-        <div className="section-heading">
-          <div>
-            <p className="label">RESPONSE LANGUAGE</p>
-            <h2>AI response language</h2>
-            <p className="section-copy">Choose whether AI follows the incoming language or stays within a configurable set for this profile.</p>
-          </div>
-          <div className="personality-badges">
+      <Accordion
+        id="ai-language"
+        eyebrow="RESPONSE LANGUAGE"
+        title="AI response language"
+        description="Choose whether AI follows the incoming language or stays within a configurable set for this profile."
+        badges={(
+          <span className="personality-badges">
             {languageSaved && <span className="mini-badge saved-badge">Saved active policy</span>}
             {languageDirty && <span className="mini-badge dirty-badge">Edited</span>}
-          </div>
-        </div>
+          </span>
+        )}
+        className="ai-language-card"
+      >
         {!languageDraft || !languageSaved ? <p className="muted">Loading response language settings…</p> : (
           <div className="settings-list">
             <div className="language-policy-status">
@@ -772,22 +773,23 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
             <p className="settings-hint">Saved changes apply to the next AI request. Prompt guidance cannot perfectly guarantee a response language. In Limited mode, clear brief input uses its language; mixed or code-switched input uses the clear majority; uncertain, tied, unsupported, emoji-only, and code-only input uses the saved fallback.</p>
           </div>
         )}
-      </article>
-      <article className="card personality-editor" id="ai-personalities">
-        <div className="section-heading">
-          <div>
-            <p className="label">PERSONALITY EDITOR</p>
-            <h2>Personality-specific prompt</h2>
-            <p className="section-copy">Core shared instructions stay protected in Python.</p>
-          </div>
-          <div className="personality-badges">
+      </Accordion>
+      <Accordion
+        id="ai-personalities"
+        eyebrow="PERSONALITY EDITOR"
+        title="Personality-specific prompt"
+        description="Core shared instructions stay protected in Python."
+        badges={(
+          <span className="personality-badges">
             {personality && <span className="mini-badge">{personality.is_builtin ? 'Built-in' : 'Custom'}</span>}
             {isActive && <span className="mini-badge saved-badge">Active</span>}
             {personality?.has_saved_override && <span className="mini-badge saved-badge">Saved override</span>}
             {data && !data.active_personality_saved && isActive && <span className="mini-badge runtime-badge">Runtime only</span>}
             {dirty && <span className="mini-badge dirty-badge">Edited</span>}
-          </div>
-        </div>
+          </span>
+        )}
+        className="personality-editor"
+      >
         {data && data.personalities.length === 0 ? (
           <div className="empty-state-inline">
             <strong>No personalities are available</strong>
@@ -896,20 +898,21 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
             </>}
           </>
         )}
-      </article>
-      <article className="card profile-instructions-editor" id="ai-profile-instructions">
-        <div className="section-heading">
-          <div>
-            <p className="label">PROFILE INSTRUCTIONS</p>
-            <h2>Profile instructions</h2>
-            <p className="section-copy">Applies to every personality and follows the protected shared policy.</p>
-          </div>
-          <div className="personality-badges">
+      </Accordion>
+      <Accordion
+        id="ai-profile-instructions"
+        eyebrow="PROFILE INSTRUCTIONS"
+        title="Profile instructions"
+        description="Applies to every personality and follows the protected shared policy."
+        badges={(
+          <span className="personality-badges">
             {data?.profile_instructions_saved && <span className="mini-badge saved-badge">Saved</span>}
             {data && !data.profile_instructions_saved && <span className="mini-badge runtime-badge">Runtime only</span>}
             {profileDirty && <span className="mini-badge dirty-badge">Edited</span>}
-          </div>
-        </div>
+          </span>
+        )}
+        className="profile-instructions-editor"
+      >
         <label className="form-field">
           Profile instructions
           <textarea
@@ -931,7 +934,8 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
             <button className="ghost" disabled={!data || Boolean(busy) || !profileCanReset} onClick={() => void runProfileAction('reset')}>{busy === 'profile:reset' ? 'Resetting…' : 'Reset'}</button>
           </div>
         </div>
-      </article>
+      </Accordion>
+      <BlockedAIUsers active={active} />
       <details className="card protected-instructions-card" id="ai-shared-instructions">
         <summary className="protected-instructions-summary">
           <div>

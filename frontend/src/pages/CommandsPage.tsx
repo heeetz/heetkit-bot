@@ -726,17 +726,17 @@ export default function CommandsPage({ active }: CommandsPageProps) {
             {!command.hidden && responsePool && responseDraft !== null && <div className="command-response-footer">
               <span className="command-action-hint">{isRandom ? 'Responses' : 'Message'}</span>
               <div className="command-action-group" role="group" aria-label={`${data.command_prefix}${command.name} response actions`}>
-                <button className="primary" disabled={busy || (!responseDirty && responsePool.saved) || !responseValid} onClick={() => void runResponseAction(command, 'save')}>Save</button>
                 <button className="ghost" disabled={busy || (!responseDirty && !responsePool.has_saved_override && responsePool.saved)} onClick={() => void runResponseAction(command, 'reset')}>Reset</button>
+                <button className="primary" disabled={busy || (!responseDirty && responsePool.saved) || !responseValid} onClick={() => void runResponseAction(command, 'save')}>Save</button>
               </div>
             </div>}
             <div className="command-action-footer">
               <span className="command-action-hint">Settings</span>
               <div className="command-action-group" role="group" aria-label={`${data.command_prefix}${command.name} settings actions`}>
-                <button className="primary" disabled={busy || (!settingsDirty && command.saved) || !perUserValid || !globalValid || !intervalValid} onClick={() => void runAction(command, 'save')}>Save</button>
-                <button className="ghost" disabled={busy || (!settingsDirty && !command.has_saved_override && command.saved)} onClick={() => void runAction(command, 'reset')}>Reset</button>
                 {!command.hidden && <button className="ghost command-remove" disabled={busy} onClick={() => void runFactoryAction('remove', command)}>Remove</button>}
                 <button className="secondary" disabled={busy} onClick={() => { setExpandedCommands((current) => ({ ...current, [command.name]: false })); builtinEditorToggles.current[command.name]?.focus() }}>Close</button>
+                <button className="ghost" disabled={busy || (!settingsDirty && !command.has_saved_override && command.saved)} onClick={() => void runAction(command, 'reset')}>Reset</button>
+                <button className="primary" disabled={busy || (!settingsDirty && command.saved) || !perUserValid || !globalValid || !intervalValid} onClick={() => void runAction(command, 'save')}>Save</button>
               </div>
             </div>
           </div>

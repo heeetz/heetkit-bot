@@ -3,13 +3,14 @@ import { expect, test } from '@playwright/test'
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     const scrollIntoView = HTMLElement.prototype.scrollIntoView
-    Object.assign(window, { navigationScrolls: [] })
+    Object.assign(window, { navigationScrolls: [], navigationAccordionStates: [] })
     HTMLElement.prototype.scrollIntoView = function (options) {
       Reflect.get(window, 'navigationScrolls').push({
         id: this.id,
         hidden: Boolean(this.closest('[hidden]')),
         loading: Boolean(this.closest('[aria-busy="true"]')),
       })
+      Reflect.get(window, 'navigationAccordionStates').push({ id: this.id, open: this.getAttribute('data-accordion-open') })
       scrollIntoView.call(this, options)
     }
   })
@@ -41,7 +42,8 @@ const destinations = [
   { section: 'Commands', children: [['Your commands', 'custom-commands'], ['Built-in commands', 'builtin-commands']] },
   { section: 'Filters', children: [['Blocked words', 'filters-words'], ['Blocked phrases', 'filters-phrases'], ['Regex patterns', 'filters-patterns']] },
   { section: 'AI', children: [
-    ['Runtime', 'ai-runtime'], ['Models and fallback', 'ai-models'], ['Response language', 'ai-language'],
+    ['Runtime', 'ai-runtime'], ['Playground', 'ai-playground'], ['Blocked AI users', 'ai-blocked-users'],
+    ['Models and fallback', 'ai-models'], ['Response language', 'ai-language'],
     ['Personalities', 'ai-personalities'], ['Profile instructions', 'ai-profile-instructions'], ['Shared instructions', 'ai-shared-instructions'],
   ] },
   { section: 'Settings', children: [
@@ -62,6 +64,14 @@ for (const { section, children } of destinations) {
       await expect(parent).toHaveAttribute('aria-expanded', 'true')
       await expect(nav.locator('.sidebar-subnav:visible')).toHaveCount(1)
       await expect.poll(() => page.evaluate(() => Reflect.get(window, 'navigationScrolls').at(-1))).toEqual({ id, hidden: false, loading: false })
+      if (['ai-language', 'ai-personalities', 'ai-profile-instructions', 'twitch-settings', 'credential-settings'].includes(id)) {
+        await expect(page.locator(`#${id} .accordion-trigger`)).toHaveAttribute('aria-expanded', 'true')
+        await expect.poll(() => page.evaluate(() => Reflect.get(window, 'navigationAccordionStates').at(-1))).toEqual({ id, open: 'true' })
+      }
+      if (id === 'ai-blocked-users') {
+        expect(await page.locator('#ai-profile-instructions').evaluate((element) => Boolean(element.compareDocumentPosition(document.getElementById('ai-blocked-users')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true)
+        expect(await page.locator('#ai-blocked-users').evaluate((element) => Boolean(element.compareDocumentPosition(document.getElementById('ai-shared-instructions')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true)
+      }
       await expect(page.locator(`#${id}`)).toBeInViewport()
     }
   })

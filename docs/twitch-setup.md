@@ -30,6 +30,10 @@ application: a registration that lets HeetKit connect to Twitch. No coding is ne
 
 ## Save the details in HeetKit
 
+Twitch Connection and Provider Credentials start collapsed on Settings. Their
+sidebar shortcuts expand and scroll to them; you can also select each card header.
+Collapsing a section keeps unsaved input.
+
 5. In **Settings → Twitch connection**, enter:
 
    | Field | What to enter |
