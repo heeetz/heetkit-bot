@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
 import {
-  type ActionResult,
   type CommandInfo,
   type CommandsResponse,
   type CustomCommandInfo,
@@ -354,6 +353,14 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       ...(canEditIdentity(command) ? { aliases: parseAliases(draft.aliases), display_name: draft.displayName } : {}),
       ...(command.name === 'tg' ? { burst_interval_ms: burstInterval! } : {}),
     }
+    const responsePool = command.response_pool
+    const saveResponses = action === 'save' && responsePool && draft.responsePool !== null
+      && (responseDraftIsDirty(command, draft) || !responsePool.saved)
+    const responses = responsePool && draft.responsePool !== null ? parseResponsePool(responsePool, draft.responsePool) : []
+    if (saveResponses && responses.length === 0) {
+      setError('Keep at least one non-empty response or message.')
+      return
+    }
     if (action === 'reset' && !await confirmAction({
       title: `Reset !${command.name} settings?`,
       description: 'Reset only this command’s settings to factory defaults, including its enabled state. Its saved message is kept.',
@@ -365,13 +372,15 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     setBusyCommand(command.name)
     setError('')
     setNotice('')
+    let settingsSaved = false
+    let responsesSaved = false
     try {
       const api = await waitForBridge()
-      let result: ActionResult
       if (action === 'reset') {
-        result = await api.reset_command_settings(command.name)
-      } else {
-        result = await api.save_command_settings(
+        const result = await api.reset_command_settings(command.name)
+        if (!result.ok) throw new Error(result.error ?? 'Command settings could not be updated.')
+      } else if (settingsDraftIsDirty(command, draft) || !command.saved) {
+        const result = await api.save_command_settings(
           command.name,
           draft.enabled,
           perUserSeconds!,
@@ -379,16 +388,29 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           draft.permission,
           metadata,
         )
+        if (!result.ok) throw new Error(result.error ?? 'Command settings could not be saved.')
+        settingsSaved = true
       }
-      if (!result.ok) {
-        throw new Error(result.error ?? 'Command settings could not be updated.')
+      if (saveResponses) {
+        const result = await api.save_command_responses(command.name, responses)
+        if (!result.ok) throw new Error(result.error ?? 'Command text could not be saved.')
+        responsesSaved = true
       }
-      await loadCommands(command.name, 'settings')
+      await loadCommands(command.name, action === 'reset' ? 'settings' : undefined)
       setNotice(action === 'save'
-          ? `Saved !${command.name}.`
+          ? `Saved !${command.name}${responsePool ? ' text and settings' : ''}.`
           : `Reset !${command.name} settings to built-in defaults. Its message was kept.`)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Command settings could not be updated.')
+      const message = reason instanceof Error ? reason.message : 'Command could not be saved.'
+      if (settingsSaved && !responsesSaved && saveResponses) {
+        setError(`Saved !${command.name} settings, but its text could not be saved. ${message} Your text draft is kept; use Save command to retry.`)
+        // Refresh the committed settings while retaining this command's text and other drafts.
+        try { await loadCommands(command.name, 'settings') } catch { /* Keep the drafts if refreshing also fails. */ }
+      } else if (settingsSaved || responsesSaved) {
+        setError(`Saved !${command.name}, but could not refresh it. ${message} Reopen Commands to check the saved values.`)
+      } else {
+        setError(message)
+      }
     } finally {
       setBusyCommand('')
     }
@@ -396,20 +418,14 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
 
   const runResponseAction = async (
     command: CommandInfo,
-    action: 'save' | 'reset',
   ) => {
     const draft = drafts[command.name]
     const responsePool = command.response_pool
     if (!draft || !responsePool || draft.responsePool === null) {
       return
     }
-    const responses = parseResponsePool(responsePool, draft.responsePool)
     const responseNoun = responsePool.response_mode === 'random' ? 'responses' : 'message'
-    if (action !== 'reset' && responses.length === 0) {
-      setError(`Keep at least one non-empty ${responseNoun}.`)
-      return
-    }
-    if (action === 'reset' && !await confirmAction({
+    if (!await confirmAction({
       title: `Reset !${command.name} ${responseNoun}?`,
       description: 'Replace saved responses with factory defaults. Other command settings are kept.',
       danger: true,
@@ -422,19 +438,12 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     setNotice('')
     try {
       const api = await waitForBridge()
-      let result: ActionResult
-      if (action === 'reset') {
-        result = await api.reset_command_responses(command.name)
-      } else {
-        result = await api.save_command_responses(command.name, responses)
-      }
+      const result = await api.reset_command_responses(command.name)
       if (!result.ok) {
         throw new Error(result.error ?? `Command ${responseNoun} could not be updated.`)
       }
       await loadCommands(command.name, 'responses')
-      setNotice(action === 'save'
-          ? `Saved !${command.name} ${responseNoun}.`
-          : `Reset !${command.name} ${responseNoun} to built-in defaults.`)
+      setNotice(`Reset !${command.name} ${responseNoun} to built-in defaults.`)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : `Command ${responseNoun} could not be updated.`)
     } finally {
@@ -584,11 +593,11 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     const hasDirtyDraft = command && drafts[command.name] && draftIsDirty(command, drafts[command.name])
     const request: CommandConfirmation = action === 'remove' ? {
       title: `Remove and disable !${command!.name}?`,
-      description: `Disable and hide this built-in command. You can restore it from Factory commands.${hasDirtyDraft ? ' Unsaved changes will be discarded.' : ''}`,
+      description: `Disable and hide this built-in command. You can restore it from Removed commands.${hasDirtyDraft ? ' Unsaved changes will be discarded.' : ''}`,
       danger: true,
     } : action === 'restore' ? {
       title: `Restore defaults and enable !${command!.name}?`,
-      description: `Replace this command’s settings with factory defaults and enable it. Its saved message is kept.${hasDirtyDraft ? ' Unsaved changes will be discarded.' : ''}`,
+      description: `Replace this command’s settings with factory defaults and enable it. Previous custom settings are not recovered. Its saved message is kept.${hasDirtyDraft ? ' Unsaved changes will be discarded.' : ''}`,
       danger: true,
     } : {
       title: 'Restore all factory defaults?',
@@ -617,7 +626,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       await loadCommands(command?.name)
       if (command) setExpandedCommands((current) => ({ ...current, [command.name]: false }))
       setNotice(action === 'remove'
-        ? `Removed and disabled !${command!.name}. Restore it from Factory commands.`
+        ? `Removed and disabled !${command!.name}. Restore it from Removed commands.`
         : action === 'restore' ? `Restored !${command!.name} default settings and enabled it. Its saved message was kept.` : 'Restored all factory command settings and messages.')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Factory command could not be updated.')
@@ -755,21 +764,20 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
             {!command.hidden && responsePool && responseDraft !== null && <div className="command-response-footer">
               <span className="command-action-hint">{isRandom ? 'Responses' : 'Message'}</span>
               <div className="command-action-group" role="group" aria-label={`${data.command_prefix}${command.name} response actions`}>
-                <button className="ghost" disabled={busy || (!responseDirty && !responsePool.has_saved_override && responsePool.saved)} onClick={() => void runResponseAction(command, 'reset')}>{isRandom ? 'Reset responses' : 'Reset message'}</button>
-                <button className="primary" disabled={busy || (!responseDirty && responsePool.saved) || !responseValid} onClick={() => void runResponseAction(command, 'save')}>Save</button>
+                <button className="ghost" disabled={busy || (!responseDirty && !responsePool.has_saved_override && responsePool.saved)} onClick={() => void runResponseAction(command)}>{isRandom ? 'Reset responses' : 'Reset message'}</button>
               </div>
             </div>}
             <div className="command-action-footer">
-              <span className="command-action-hint">Settings</span>
+              <span className="command-action-hint">{responsePool ? 'Text & settings' : 'Settings'}</span>
               <div className="command-action-group" role="group" aria-label={`${data.command_prefix}${command.name} settings actions`}>
                 {!command.hidden && <button className="ghost command-remove" disabled={busy} onClick={() => void runFactoryAction('remove', command)}>Remove and disable</button>}
                 <button className="secondary" disabled={busy} onClick={() => { setExpandedCommands((current) => ({ ...current, [command.name]: false })); builtinEditorToggles.current[command.name]?.focus() }}>Collapse editor</button>
                 <button className="ghost" disabled={busy || (!settingsDirty && !command.has_saved_override && command.saved)} onClick={() => void runAction(command, 'reset')}>Reset settings</button>
-                <button className="primary" disabled={busy || (!settingsDirty && command.saved) || !perUserValid || !globalValid || !intervalValid} onClick={() => void runAction(command, 'save')}>Save</button>
+                <button className="primary" disabled={busy || (!dirty && command.saved && (!responsePool || responsePool.saved)) || !perUserValid || !globalValid || !intervalValid || (responsePool !== null && !responseValid)} onClick={() => void runAction(command, 'save')}>{responsePool ? 'Save command' : 'Save'}</button>
               </div>
             </div>
           </div>
-          <p className="settings-hint">Collapse editor keeps your unsaved draft. Settings and messages are saved or reset separately.</p>
+          <p className="settings-hint">Collapse editor keeps your unsaved draft. {responsePool ? 'Save command saves text and settings together; resets affect only the named area.' : 'Save keeps command settings. AI editors keep their own saves.'}</p>
         </div>}
       </article>
     )
@@ -798,29 +806,12 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           <div className="section-heading">
             <div>
               <h3>{customDraft.id ? 'Edit command' : 'New command'}</h3>
-              <p className="section-copy">Names omit {customData.command_prefix}; separate aliases with commas.</p>
+              <p className="section-copy">Choose a name, response type and text, then set access and cooldowns. Names omit {customData.command_prefix}.</p>
             </div>
           </div>
           <div className="custom-command-fields">
             <label className="form-field">Command name
               <span className="custom-name-input"><span>{customData.command_prefix}</span><input value={customDraft.name} onChange={(event) => updateCustomDraft({ name: event.target.value })} placeholder="hello" /></span>
-            </label>
-            <label className="form-field">Aliases, separated by commas
-              <input value={customDraft.aliases} onChange={(event) => updateCustomDraft({ aliases: event.target.value })} placeholder="hi, hey" />
-            </label>
-            <label className="form-field">Permission
-              <select value={customDraft.permission} onChange={(event) => updateCustomDraft({ permission: event.target.value })}>
-                {customData.permissions.filter((permission) => customDraft.responseMode !== 'burst' || burstPermissions.includes(permission)).map((permission) => <option key={permission} value={permission}>{permission.toLowerCase()}</option>)}
-              </select>
-            </label>
-            <Switch checked={customDraft.enabled} ariaLabel="Enable custom command" onCheckedChange={(enabled) => updateCustomDraft({ enabled })}>
-              <span>{customDraft.enabled ? 'Enabled' : 'Disabled'}</span>
-            </Switch>
-            <label className="form-field">Per-user cooldown (seconds)
-              <input type="number" min="0" step="0.5" value={customDraft.perUserSeconds} onChange={(event) => updateCustomDraft({ perUserSeconds: event.target.value })} />
-            </label>
-            <label className="form-field">Global cooldown (seconds)
-              <input type="number" min="0" step="0.5" value={customDraft.globalSeconds} onChange={(event) => updateCustomDraft({ globalSeconds: event.target.value })} />
             </label>
           </div>
           <div className="custom-response-heading">
@@ -828,7 +819,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
               <h3>Response</h3>
             </div>
           </div>
-          <label className="form-field custom-response-mode">Response mode
+          <label className="form-field custom-response-mode">Response type
             <select value={customDraft.responseMode} onChange={(event) => changeCustomMode(event.target.value as CustomResponseMode)}>
               <option value="single">Single</option>
               <option value="random">Random</option>
@@ -844,6 +835,43 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           </p>
           <label className="form-field custom-response-field">{customDraft.responseMode === 'random' ? 'Responses' : 'Message'}
             <textarea className="custom-response-textarea" rows={customDraft.responseMode === 'random' ? 7 : 4} value={customDraft.responseMode === 'random' ? customDraft.responses : customDraft.message} onChange={(event) => updateCustomDraft(customDraft.responseMode === 'random' ? { responses: event.target.value } : { message: event.target.value })} placeholder="Hello, {sender}!" />
+          </label>
+          <div className="custom-variable-help">
+            <strong>Available variables</strong>
+            <p>Use these in any message.</p>
+            <div className="custom-variable-list">
+              {commonVariables.filter((name) => customData.variables.some((variable) => variable.replace(/^\{|\}$/g, '') === name)).map((name) => <div key={name}><code>{`{${name}}`}</code><span>{variableHelp[name]}</span></div>)}
+            </div>
+            <details className="custom-advanced-variables">
+              <summary>Advanced variables</summary>
+              <div className="custom-variable-list">
+                {customData.variables.map((variable) => variable.replace(/^\{|\}$/g, '')).filter((name) => !commonVariables.includes(name)).map((name) => <div key={name}><code>{`{${name}}`}</code><span>{/^arg[1-9]$/.test(name) ? `Argument ${name.slice(3)}; blank when missing.` : 'A supported template variable.'}</span></div>)}
+              </div>
+            </details>
+          </div>
+          <div className="custom-response-heading"><h3>Access</h3></div>
+          <div className="custom-command-fields">
+            <label className="form-field">Permission
+              <select value={customDraft.permission} onChange={(event) => updateCustomDraft({ permission: event.target.value })}>
+                {customData.permissions.filter((permission) => customDraft.responseMode !== 'burst' || burstPermissions.includes(permission)).map((permission) => <option key={permission} value={permission}>{permission.toLowerCase()}</option>)}
+              </select>
+            </label>
+            <Switch checked={customDraft.enabled} ariaLabel="Enable custom command" onCheckedChange={(enabled) => updateCustomDraft({ enabled })}>
+              <span>{customDraft.enabled ? 'Enabled' : 'Disabled'}</span>
+            </Switch>
+          </div>
+          <div className="custom-response-heading"><h3>Cooldowns</h3></div>
+          <div className="custom-command-fields">
+            <label className="form-field">Per-user cooldown (seconds)
+              <input type="number" min="0" step="0.5" value={customDraft.perUserSeconds} onChange={(event) => updateCustomDraft({ perUserSeconds: event.target.value })} />
+            </label>
+            <label className="form-field">Global cooldown (seconds)
+              <input type="number" min="0" step="0.5" value={customDraft.globalSeconds} onChange={(event) => updateCustomDraft({ globalSeconds: event.target.value })} />
+            </label>
+          </div>
+          <div className="custom-response-heading"><h3>Aliases & advanced options</h3></div>
+          <label className="form-field">Aliases, separated by commas
+            <input value={customDraft.aliases} onChange={(event) => updateCustomDraft({ aliases: event.target.value })} placeholder="hi, hey" />
           </label>
           {customDraft.responseMode === 'burst' && <div className="custom-burst-controls">
             <label className="form-field">Default repeat count
@@ -863,19 +891,6 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
                 : 'Uses the default repeat count for every invocation.'}</p>
             </div>
           </div>}
-          <div className="custom-variable-help">
-            <strong>Available variables</strong>
-            <p>Use these in any message.</p>
-            <div className="custom-variable-list">
-              {commonVariables.filter((name) => customData.variables.some((variable) => variable.replace(/^\{|\}$/g, '') === name)).map((name) => <div key={name}><code>{`{${name}}`}</code><span>{variableHelp[name]}</span></div>)}
-            </div>
-            <details className="custom-advanced-variables">
-              <summary>Advanced variables</summary>
-              <div className="custom-variable-list">
-                {customData.variables.map((variable) => variable.replace(/^\{|\}$/g, '')).filter((name) => !commonVariables.includes(name)).map((name) => <div key={name}><code>{`{${name}}`}</code><span>{/^arg[1-9]$/.test(name) ? `Argument ${name.slice(3)}; blank when missing.` : 'A supported template variable.'}</span></div>)}
-              </div>
-            </details>
-          </div>
           <div className="settings-actions custom-editor-actions">
             <button className="primary" disabled={busyCustom || (customDraft.responseMode === 'burst' && (parsedBurstCount(customDraft.burstCount) === null || parsedBurstInterval(customDraft.burstIntervalMs) === null))} onClick={() => void saveCustom()}>{busyCustom ? 'Saving…' : 'Save command'}</button>
             <button className="secondary" disabled={busyCustom} onClick={() => void replaceCustomDraft(null)}>Discard and close</button>
@@ -927,15 +942,19 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           {data.commands.filter((command) => !command.hidden && !command.removed).map(renderBuiltin)}
         </div>
       )}
-      {data && <details className="factory-commands">
-        <summary>Factory commands</summary>
-        <p className="section-copy">Individual restoration replaces settings with defaults and enables the command, keeping its saved message. Full restoration resets every built-in setting and message.</p>
+      {data && <details className="factory-commands removed-commands">
+        <summary>Removed commands ({data.commands.filter((command) => !command.hidden && command.removed).length})</summary>
+        <p className="section-copy">Restore defaults and enable replaces a removed command’s settings with defaults, including access, cooldowns and aliases. Previous custom settings are not recovered; its saved text is kept.</p>
         <div className="factory-command-list">
-          {data.commands.filter((command) => !command.hidden).map((command) => <div className="factory-command-row" key={command.name} id={command.removed ? `command-editor-${command.name}` : undefined}>
-            <div><strong>{data.command_prefix}{command.name}</strong><span className="custom-field-hint">{command.removed ? 'Removed' : !command.enabled ? 'Disabled' : 'Active'}{command.has_saved_override ? ' · Customized settings' : ''}</span></div>
-            <button className="secondary" disabled={busyCommand !== '' || (!command.removed && !command.has_saved_override && command.saved)} onClick={() => void runFactoryAction('restore', command)}>Restore defaults and enable</button>
+          {data.commands.filter((command) => !command.hidden && command.removed).map((command) => <div className="factory-command-row" key={command.name} id={`command-editor-${command.name}`}>
+            <div><strong>{data.command_prefix}{command.name}</strong><span className="custom-field-hint">Removed and disabled</span></div>
+            <button className="secondary" disabled={busyCommand !== ''} onClick={() => void runFactoryAction('restore', command)}>Restore defaults and enable</button>
           </div>)}
         </div>
+        {!data.commands.some((command) => !command.hidden && command.removed) && <p className="muted">No removed commands.</p>}
+      </details>}
+      {data && <details className="factory-commands advanced-command-reset">
+        <summary>Advanced: reset all built-ins</summary>
         <div className="settings-actions"><button className="ghost" disabled={busyCommand !== ''} onClick={() => void runFactoryAction('resetAll')}>Restore all factory defaults</button></div>
         <p className="custom-field-hint">Complete reset restores built-in settings and messages. Your custom commands are kept.</p>
       </details>}

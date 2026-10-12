@@ -55,7 +55,7 @@ All three views share the same saved value, which survives restarts; no extra Co
 Save is needed. If saving fails, the previous enabled state stays active and an error
 is shown. Toggling `!ask` keeps other drafts and does not save permissions, cooldowns,
 messages or AI editor changes. Use **Save** for those settings as usual. A removed
-`!ask` must first be restored from **Factory commands**. **AI → AI access** links to
+`!ask` must first be restored from **Removed commands**. **AI → AI access** links to
 this existing `!ask` editor for permission and cooldown changes.
 
 `!erase` is restricted to the broadcaster and accepts a known username. It deletes only
@@ -68,10 +68,15 @@ memory or ban them from Twitch chat.
   shipped settings, including its enabled state. Its message is kept.
 - **Collapse editor** keeps unsaved input for when you expand the command again.
 
-Expand **Fate** or **Tg** to edit their response text. Settings and messages have
-separate Save controls in the same bottom action area. **Reset responses** or **Reset
-message** restores only the text; other settings are kept. Settings actions appear in
-the order **Remove and disable**, **Collapse editor**, **Reset settings**, **Save**.
+Expand **Fate** or **Tg** to edit their response text. One **Save command** saves edited
+text and settings, applies them immediately and keeps them across restarts. Other
+command drafts and the AI page's independent saves are kept. If settings save but
+text fails, the error identifies the saved settings and retains the text draft;
+use **Save command** to retry it. If settings fail, text is not saved. **Reset responses**
+or **Reset message** restores only the text; other settings and their drafts are kept.
+**Reset settings** retains saved text and any text draft. Settings actions appear in
+the order **Remove and disable**, **Collapse editor**, **Reset settings**, **Save command**
+(**Save** for commands without editable text).
 Fate accepts one non-empty response per line; blank
 lines are ignored and commas stay in the text. Responses must fit within 450 UTF-8 bytes.
 Other built-ins keep their original behavior and show a note when their response
@@ -79,10 +84,13 @@ cannot be edited as a text template. Editing settings never replaces the AI, wea
 memory-erasure or other built-in implementation.
 
 **Remove and disable** saves the command as disabled and hides it from the active collection.
-Its implementation is retained. Open **Factory commands** to discover the available
-defaults and select **Restore defaults and enable** to replace an individual
-command's settings with defaults and enable it. Its saved message is kept.
-**Restore all factory defaults** restores every built-in setting, enabled state and
+Its implementation is retained. The collapsed **Removed commands** list shows a count
+and only removed commands. Disabled commands remain in the working list. Select
+**Restore defaults and enable** to replace an individual removed command's settings
+with defaults and enable it. Previous custom access, cooldowns, aliases and UI names
+are not recovered; its saved message is kept. Removal discards that command's unsaved
+draft after confirmation; cancel keeps it. Custom and administrative groups remain separate.
+Under **Advanced: reset all built-ins**, **Restore all factory defaults** restores every built-in setting, enabled state and
 the Fate/Tg messages, returns removed commands and discards built-in drafts;
 custom commands are kept.
 These settings belong to the selected profile and survive a restart.
@@ -124,16 +132,17 @@ Malformed or unsupported files stay intact. A failed backup or replacement keeps
 the original on disk and uses the renamed values for that session; resolve the
 reported file problem with HeetKit stopped before restarting.
 
-Save and Reset work independently for settings and responses. Ordinary
+Fate/Tg use one **Save command** for text and settings; their resets remain independent. Ordinary
 command-setting saves retain their existing recovery behavior for unknown fields
 or external edits; protect recovery copies like the profile itself. See
 [backups and settings recovery](data-and-privacy.md#backups-and-settings-recovery).
 
 ## Custom commands
 
-Use **Custom Commands** to create a name, optional aliases, required permission,
-per-user/global cooldowns and a response mode. Custom command changes
-save immediately. Names and aliases use the same case-insensitive, single-word,
+Use **Custom Commands** to edit **Name → Response type → Text → Access → Cooldowns →
+Aliases & advanced options**. Variable help stays beside the text; Burst count,
+spacing and argument override follow aliases. **Save command** applies changes
+immediately and keeps them across restarts. Names and aliases use the same case-insensitive, single-word,
 40-character limit as built-ins, with at most ten aliases and no prefix in the editor.
 They cannot conflict with built-in commands.
 The top **New command** control becomes **Discard draft** while editing;
@@ -141,7 +150,7 @@ The top **New command** control becomes **Discard draft** while editing;
 changes only when the draft was edited. A successful save closes the editor; a failed
 save retains the draft and shows the error. Commands use styled confirmations with
 Confirm and Cancel actions; Escape dismisses without executing. Built-in removal
-is reversible through Factory commands; custom deletion is permanent.
+is reversible through Removed commands; custom deletion is permanent.
 
 - **Single** sends one configured message.
 - **Random** selects one of 1–10 templates, entered one per non-empty line.

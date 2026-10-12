@@ -80,6 +80,7 @@ function factoryAction(action: 'remove' | 'restore' | 'resetAll', name?: string)
 
 function responseAction(action: string, name: string, responses?: string[]) {
   commandCalls.push([`${action}_command_responses`, name, responses])
+  if (new URLSearchParams(window.location.search).has('responseThrow')) throw new Error('Synthetic response bridge failure.')
   if (new URLSearchParams(window.location.search).has('responseError')) {
     return { ok: false, error: 'Synthetic response save failure.' }
   }
