@@ -6,8 +6,9 @@ desktop control panel. Examples below use the default `!` prefix.
 Select **Commands**, **Filters**, **AI** or **Settings** in the sidebar to open that
 page and reveal its subsection shortcuts. A shortcut scrolls to the corresponding
 card and keeps the list open; selecting another page replaces the shortcuts.
-Shortcuts follow the page's block order, including **Filter Tester**, **Conversation
-memory** and **Blocked AI users**.
+Shortcuts follow the page's block order, including **Filter Tester** and the AI page's
+**State**, **Playground**, **Conversation memory**, **AI access** and **Built-in
+restrictions** sections.
 Dashboard, Logs and About remain direct page links.
 
 ## Built-in commands
@@ -54,7 +55,13 @@ All three views share the same saved value, which survives restarts; no extra Co
 Save is needed. If saving fails, the previous enabled state stays active and an error
 is shown. Toggling `!ask` keeps other drafts and does not save permissions, cooldowns,
 messages or AI editor changes. Use **Save** for those settings as usual. A removed
-`!ask` must first be restored from **Factory commands**.
+`!ask` must first be restored from **Factory commands**. **AI → AI access** links to
+this existing `!ask` editor for permission and cooldown changes.
+
+`!erase` is restricted to the broadcaster and accepts a known username. It deletes only
+that viewer's stored AI conversation memory. It does not remove activity history, Twitch
+messages or an AI block, and blocking a user from `!ask` does not erase their existing
+memory or ban them from Twitch chat.
 
 - **Save** immediately applies the settings and keeps them across restarts.
 - **Reset settings** removes this command's saved settings override and restores the

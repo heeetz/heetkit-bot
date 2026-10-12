@@ -45,6 +45,7 @@ interface CustomDraft {
 
 interface CommandsPageProps {
   active: boolean
+  revealCommand?: string
   onAIEnabledChanged?: (enabled: boolean) => void
 }
 
@@ -182,7 +183,7 @@ function commandPermissions(data: CommandsResponse, command: CommandInfo): strin
   return data.permissions.filter((permission) => levels.indexOf(permission) >= levels.indexOf(minimum))
 }
 
-export default function CommandsPage({ active, onAIEnabledChanged }: CommandsPageProps) {
+export default function CommandsPage({ active, revealCommand, onAIEnabledChanged }: CommandsPageProps) {
   const [data, setData] = useState<CommandsResponse | null>(null)
   const [customData, setCustomData] = useState<CustomCommandsResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -201,6 +202,10 @@ export default function CommandsPage({ active, onAIEnabledChanged }: CommandsPag
   const confirmationResult = useRef<((confirmed: boolean) => void) | null>(null)
 
   useEffect(() => () => { confirmationResult.current?.(false) }, [])
+
+  useEffect(() => {
+    if (active && revealCommand) setExpandedCommands((current) => ({ ...current, [revealCommand]: true }))
+  }, [active, revealCommand])
 
   const confirmAction = (request: CommandConfirmation): Promise<boolean> => new Promise((resolve) => {
     confirmationResult.current = resolve
@@ -639,7 +644,7 @@ export default function CommandsPage({ active, onAIEnabledChanged }: CommandsPag
     const busy = busyCommand !== ''
     const detailsId = `command-details-${command.name}`
     return (
-      <article className={`command-card ${dirty ? 'dirty' : ''}`} key={command.name}>
+      <article className={`command-card ${dirty ? 'dirty' : ''}`} key={command.name} id={`command-editor-${command.name}`}>
         <div className="command-summary-row">
           <button
             type="button"
@@ -926,7 +931,7 @@ export default function CommandsPage({ active, onAIEnabledChanged }: CommandsPag
         <summary>Factory commands</summary>
         <p className="section-copy">Individual restoration replaces settings with defaults and enables the command, keeping its saved message. Full restoration resets every built-in setting and message.</p>
         <div className="factory-command-list">
-          {data.commands.filter((command) => !command.hidden).map((command) => <div className="factory-command-row" key={command.name}>
+          {data.commands.filter((command) => !command.hidden).map((command) => <div className="factory-command-row" key={command.name} id={command.removed ? `command-editor-${command.name}` : undefined}>
             <div><strong>{data.command_prefix}{command.name}</strong><span className="custom-field-hint">{command.removed ? 'Removed' : !command.enabled ? 'Disabled' : 'Active'}{command.has_saved_override ? ' · Customized settings' : ''}</span></div>
             <button className="secondary" disabled={busyCommand !== '' || (!command.removed && !command.has_saved_override && command.saved)} onClick={() => void runFactoryAction('restore', command)}>Restore defaults and enable</button>
           </div>)}

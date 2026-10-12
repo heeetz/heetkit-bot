@@ -9,7 +9,7 @@ test('local Playground uses the prompt only and presents quota, active settings 
   const playground = page.locator('.ai-playground')
   await expect(playground).toContainText('Testing may consume real Gemini API quota')
   await expect(playground).toContainText('active personality (neutral)')
-  await expect(playground).toContainText('no viewer memory, chat activity or Twitch command cooldowns')
+  await expect(playground).toContainText('no viewer memory, stream context, chat activity, command permissions or cooldowns')
   await expect(playground.getByRole('button', { name: 'Test prompt' })).toBeDisabled()
   await personality.locator('textarea').fill('unsaved personality draft')
   await playground.getByLabel('Playground prompt').fill('Tell me a story')

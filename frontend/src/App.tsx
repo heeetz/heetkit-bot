@@ -35,15 +35,15 @@ const subsections: Partial<Record<Section, { label: string; targetId: string }[]
     { label: 'Regex patterns', targetId: 'filters-patterns' },
   ],
   AI: [
-    { label: 'Runtime', targetId: 'ai-runtime' },
-    { label: 'Conversation memory', targetId: 'ai-memory' },
+    { label: 'State', targetId: 'ai-runtime' },
     { label: 'Playground', targetId: 'ai-playground' },
-    { label: 'Models and fallback', targetId: 'ai-models' },
-    { label: 'Response language', targetId: 'ai-language' },
     { label: 'Personalities', targetId: 'ai-personalities' },
     { label: 'Profile instructions', targetId: 'ai-profile-instructions' },
-    { label: 'Blocked AI users', targetId: 'ai-blocked-users' },
-    { label: 'Shared instructions', targetId: 'ai-shared-instructions' },
+    { label: 'Response language', targetId: 'ai-language' },
+    { label: 'Models', targetId: 'ai-models' },
+    { label: 'Conversation memory', targetId: 'ai-memory' },
+    { label: 'AI access', targetId: 'ai-blocked-users' },
+    { label: 'Built-in restrictions', targetId: 'ai-shared-instructions' },
   ],
   Settings: [
     { label: 'Twitch connection', targetId: 'twitch-settings' },
@@ -642,11 +642,11 @@ export default function App() {
             onNavigate={navigate}
           />
         )}
-        <div hidden={section !== 'Commands'}><CommandsPage active={section === 'Commands'} onAIEnabledChanged={synchronizeAIEnabled} /></div>
+        <div hidden={section !== 'Commands'}><CommandsPage active={section === 'Commands'} revealCommand={navigationTarget?.id === 'command-editor-ask' ? 'ask' : undefined} onAIEnabledChanged={synchronizeAIEnabled} /></div>
         <div hidden={section !== 'Filters'}><FiltersPage active={section === 'Filters'} /></div>
-        <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} onOpenSettings={() => navigate('Settings', 'credential-settings')} onAIEnabledChanged={synchronizeAIEnabled} /></div>
+        <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} onOpenSettings={() => navigate('Settings', 'credential-settings')} onOpenPlayground={() => navigate('AI', 'ai-playground')} onOpenAsk={() => navigate('Commands', 'command-editor-ask')} onAIEnabledChanged={synchronizeAIEnabled} /></div>
         {section === 'Logs' && <LogsPage />}
-        <div hidden={section !== 'Settings'}><SettingsPage active={section === 'Settings'} status={status} /></div>
+        <div hidden={section !== 'Settings'}><SettingsPage active={section === 'Settings'} status={status} onReturnToAI={() => navigate('AI', 'ai-playground')} /></div>
         {section === 'About' && <AboutPage />}
       </main>
     </div>

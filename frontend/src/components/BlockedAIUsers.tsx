@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { type BlockedAIUser, waitForBridge } from '../bridge'
 
-export default function BlockedAIUsers({ active }: { active: boolean }) {
+export default function BlockedAIUsers({ active, onOpenAsk }: { active: boolean; onOpenAsk?: () => void }) {
   const [users, setUsers] = useState<BlockedAIUser[] | null>(null)
   const [username, setUsername] = useState('')
   const [busy, setBusy] = useState(false)
@@ -42,10 +42,13 @@ export default function BlockedAIUsers({ active }: { active: boolean }) {
 
   return <article className="card ai-user-blocks" id="ai-blocked-users" aria-busy={busy}>
     <div className="section-heading">
-      <div><p className="label">AI ACCESS</p><h2>Blocked AI users</h2>
+      <div><p className="label">AI ACCESS</p><h2>AI access</h2>
         <p className="section-copy">Silently ignore these users' !ask requests. Other chat and the local Playground stay available.</p>
+        <p className="setting-effect">AI blocking does not ban a Twitch user or delete their messages.</p>
       </div>
     </div>
+    {onOpenAsk && <div className="row-actions"><button className="secondary" onClick={onOpenAsk}>Edit !ask access and cooldowns</button></div>}
+    <h3>Blocked AI users</h3>
     <form className="ai-user-block-form" onSubmit={(event) => { event.preventDefault(); void changeBlock(username) }}>
       <label className="form-field">Twitch username
         <input value={username} disabled={busy || users === null} autoComplete="off" placeholder="username or @username" onChange={(event) => { setUsername(event.target.value); setError(''); setNotice('') }} />

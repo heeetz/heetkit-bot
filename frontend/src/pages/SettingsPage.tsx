@@ -17,9 +17,10 @@ import Accordion from '../components/Accordion'
 interface SettingsPageProps {
   active: boolean
   status: AppStatus | null
+  onReturnToAI?: () => void
 }
 
-export default function SettingsPage({ active, status }: SettingsPageProps) {
+export default function SettingsPage({ active, status, onReturnToAI }: SettingsPageProps) {
   const [saved, setSaved] = useState<AppSettings | null>(null)
   const [draft, setDraft] = useState<AppSettings | null>(null)
   const [loading, setLoading] = useState(true)
@@ -534,7 +535,7 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
           <button className="primary" disabled={Boolean(busy) || !credentialDrafts[credential.name].trim()} onClick={() => void runCredentialAction(credential.name, 'replace')}>
             {replacing ? 'Saving…' : credential.configured ? presentActionLabel : absentActionLabel}
           </button>
-          <button className="secondary" disabled={Boolean(busy) || !credential.configured} onClick={() => void runCredentialAction(credential.name, 'test')}>{testing ? 'Testing…' : 'Test'}</button>
+          <button className="secondary" disabled={Boolean(busy) || !credential.configured} onClick={() => void runCredentialAction(credential.name, 'test')}>{testing ? 'Testing…' : credential.name === 'gemini_api_key' ? 'Test credential' : 'Test'}</button>
           <button className="danger" disabled={Boolean(busy) || credential.source !== 'credential_store'} onClick={() => void runCredentialAction(credential.name, 'remove')}>{removing ? 'Removing…' : 'Remove secure value'}</button>
         </div>
       </article>
@@ -697,6 +698,8 @@ export default function SettingsPage({ active, status }: SettingsPageProps) {
         {!draft ? <p className="muted">Loading credential status…</p> : (
           <div className="credential-list">
             {renderCredentialRow(geminiCredential, 'Add key', 'Replace key')}
+            <p className="setting-effect">Test credential validates the stored key without generating a reply. Use AI Playground separately to test real generation with your saved settings and applied instructions.</p>
+            {onReturnToAI && <div className="row-actions"><button className="secondary" onClick={onReturnToAI}>Return to AI Playground</button></div>}
           </div>
         )}
       </Accordion>

@@ -20,6 +20,8 @@ import Accordion from '../components/Accordion'
 interface AIPageProps {
   active: boolean
   onOpenSettings: () => void
+  onOpenPlayground: () => void
+  onOpenAsk: () => void
   onAIEnabledChanged?: (enabled: boolean) => void
 }
 
@@ -72,6 +74,7 @@ function ModelSelector({
       <label className="form-field">
         {label}
         <select
+          aria-label={label}
           value={usesCustomValue ? CUSTOM_MODEL_VALUE : value}
           onChange={(event) => onChange(
             event.target.value === CUSTOM_MODEL_VALUE ? '' : event.target.value,
@@ -87,6 +90,8 @@ function ModelSelector({
         <small>{help}</small>
       </label>
       {usesCustomValue && (
+        <details className="custom-model-options">
+          <summary>Custom model ID (advanced): {value || 'not set'}</summary>
         <label className="form-field custom-model-field">
           Custom model ID
           <input
@@ -95,12 +100,13 @@ function ModelSelector({
             onChange={(event) => onChange(event.target.value)}
           />
         </label>
+        </details>
       )}
     </div>
   )
 }
 
-export default function AIPage({ active, onOpenSettings, onAIEnabledChanged }: AIPageProps) {
+export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpenAsk, onAIEnabledChanged }: AIPageProps) {
   const [status, setStatus] = useState<AIStatus | null>(null)
   const [data, setData] = useState<PersonalitiesResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -121,6 +127,7 @@ export default function AIPage({ active, onOpenSettings, onAIEnabledChanged }: A
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [playgroundSource, setPlaygroundSource] = useState<'personality' | 'profile' | 'language' | 'models' | null>(null)
 
   const mergeData = (
     response: PersonalitiesResponse,
@@ -249,17 +256,17 @@ export default function AIPage({ active, onOpenSettings, onAIEnabledChanged }: A
 
   const saveProviderModels = async () => {
     if (!providerDraft) {
-      return
+      return false
     }
     const selectedModel = providerDraft.selected_model.trim()
     const fallbackModel = providerDraft.fallback_model.trim()
     if (!selectedModel || !fallbackModel) {
       setError('Selected and fallback model IDs are required.')
-      return
+      return false
     }
     if (selectedModel === fallbackModel) {
       setError('Selected and fallback models must be different.')
-      return
+      return false
     }
     setBusy('provider:save')
     setError('')
@@ -278,8 +285,10 @@ export default function AIPage({ active, onOpenSettings, onAIEnabledChanged }: A
       setProviderDraft(refreshed.settings)
       setStatus(await api.get_ai_status())
       setNotice('AI model settings saved and active for the next request.')
+      return true
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'AI model settings could not be saved.')
+      return false
     } finally {
       setBusy('')
     }
@@ -318,16 +327,16 @@ export default function AIPage({ active, onOpenSettings, onAIEnabledChanged }: A
 
   const saveLanguageSettings = async () => {
     if (!languageDraft) {
-      return
+      return false
     }
     const allowedLanguages = Array.from(new Set(languageDraft.allowed_languages))
     if (languageDraft.mode === 'limited' && allowedLanguages.length === 0) {
       setError('Limited mode requires at least one allowed language.')
-      return
+      return false
     }
     if (languageDraft.mode === 'limited' && !allowedLanguages.includes(languageDraft.fallback_language)) {
       setError('The fallback language must be one of the allowed languages.')
-      return
+      return false
     }
     setBusy('language:save')
     setError('')
@@ -351,8 +360,10 @@ export default function AIPage({ active, onOpenSettings, onAIEnabledChanged }: A
       setLanguageDraft(refreshed.settings)
       await refresh()
       setNotice('AI language settings saved and active for the next request.')
+      return true
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'AI language settings could not be saved.')
+      return false
     } finally {
       setBusy('')
     }
@@ -377,33 +388,15 @@ export default function AIPage({ active, onOpenSettings, onAIEnabledChanged }: A
     }
   }
 
-  const testGeminiCredential = async () => {
-    setBusy('provider:test')
-    setError('')
-    setNotice('')
-    try {
-      const api = await waitForBridge()
-      const result = await api.test_credential('gemini_api_key')
-      if (!result.ok) {
-        throw new Error(result.error ?? 'Gemini credential test failed.')
-      }
-      setNotice('Gemini credential test passed.')
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Gemini credential test failed.')
-    } finally {
-      setBusy('')
-    }
-  }
-
   const runPersonalityAction = async (action: 'save' | 'reset' | 'active') => {
     const personality = data?.personalities.find((item) => item.name === selected)
     const prompt = drafts[selected]
     if (!personality || prompt === undefined) {
-      return
+      return false
     }
     if (action === 'reset' && (!personality.is_builtin
       || !window.confirm(`Reset ${selected} to its built-in prompt?`))) {
-      return
+      return false
     }
     setBusy(action)
     setError('')
@@ -424,8 +417,10 @@ export default function AIPage({ active, onOpenSettings, onAIEnabledChanged }: A
         : action === 'save'
           ? `Saved ${selected}.`
           : `Restored the built-in ${selected} prompt.`)
+      return true
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Personality could not be updated.')
+      return false
     } finally {
       setBusy('')
     }
@@ -534,10 +529,10 @@ export default function AIPage({ active, onOpenSettings, onAIEnabledChanged }: A
 
   const runProfileAction = async (action: 'apply' | 'save' | 'reset') => {
     if (!data) {
-      return
+      return false
     }
     if (action === 'reset' && !window.confirm('Reset profile instructions to empty?')) {
-      return
+      return false
     }
     setBusy(`profile:${action}`)
     setError('')
@@ -558,8 +553,10 @@ export default function AIPage({ active, onOpenSettings, onAIEnabledChanged }: A
         : action === 'save'
           ? 'Saved profile instructions.'
           : 'Reset profile instructions to empty.')
+      return true
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Profile instructions could not be updated.')
+      return false
     } finally {
       setBusy('')
     }
@@ -597,6 +594,44 @@ export default function AIPage({ active, onOpenSettings, onAIEnabledChanged }: A
         : ''
     : ''
 
+  const hasDrafts = Boolean(profileDirty || providerDirty || languageDirty
+    || data?.personalities.some((item) => drafts[item.name] !== undefined && drafts[item.name] !== item.prompt)
+    || (createOpen && (createName || createPrompt)))
+
+  const openPlayground = () => {
+    setPlaygroundSource(null)
+    onOpenPlayground()
+  }
+
+  const saveForPlayground = async (source: NonNullable<typeof playgroundSource>, apply = false) => {
+    const succeeded = source === 'personality' ? await runPersonalityAction('save')
+      : source === 'profile' ? await runProfileAction(apply ? 'apply' : 'save')
+        : source === 'language' ? await saveLanguageSettings() : await saveProviderModels()
+    if (succeeded) openPlayground()
+  }
+
+  const playgroundLink = (source: NonNullable<typeof playgroundSource>, needsChoice: boolean) => (
+    <div className="settings-list playground-editor-link">
+      <div className="row-actions">
+        <button className="secondary" disabled={loading || Boolean(busy)} onClick={() => needsChoice ? setPlaygroundSource(source) : openPlayground()}>Open Playground</button>
+      </div>
+      {playgroundSource === source && <div className="setup-callout playground-draft-choice">
+        <div>
+          <strong>Choose what Playground will use</strong>
+          <p>Other editor drafts are kept and are never used automatically.</p>
+          {source === 'personality' && <p>Playground uses {data?.active_personality || 'the active personality'}. Saving {selected} does not activate it; use Set active separately to test an inactive personality.</p>}
+          {source === 'profile' && <p>Apply uses this draft for the current session. Save also keeps it across restarts.</p>}
+          <div className="row-actions">
+            {(source !== 'personality' || dirty || !personality?.prompt_saved) && <button className="primary" disabled={Boolean(busy) || (source === 'language' && Boolean(languageValidation))} onClick={() => void saveForPlayground(source)}>Save {source === 'profile' && !profileDirty ? 'applied instructions' : source === 'personality' && !dirty ? 'applied prompt' : 'draft'} and open Playground</button>}
+            {source === 'profile' && profileDirty && <button className="secondary" disabled={Boolean(busy)} onClick={() => void saveForPlayground(source, true)}>Apply draft and open Playground</button>}
+            <button className="secondary" disabled={Boolean(busy)} onClick={openPlayground}>Use current applied settings</button>
+            <button className="ghost" disabled={Boolean(busy)} onClick={() => setPlaygroundSource(null)}>Cancel</button>
+          </div>
+        </div>
+      </div>}
+    </div>
+  )
+
   return (
     <section className="ai-layout" aria-busy={loading}>
       <FeedbackToast
@@ -619,18 +654,11 @@ export default function AIPage({ active, onOpenSettings, onAIEnabledChanged }: A
           <p className="setting-effect">Saved immediately across restarts. Dashboard, AI and Commands share this !ask setting.</p>
           {status && !status.available && <p className="setting-effect">AI replies are unavailable. Gemini is optional; add a usable API key to enable AI features. Your enabled preference is retained.</p>}
         </article>
-        <article className="card compact-card" id="ai-memory">
-          <p className="label">Conversation memory</p>
-          <Switch
-            className="settings-toggle"
-            checked={status?.memory_enabled ?? false}
-            disabled={!status || Boolean(busy)}
-            ariaLabel="Enable conversation memory"
-            onCheckedChange={(enabled) => void changeToggle('memory', enabled)}
-          >
-            <span>{status?.memory_enabled ? 'Enabled' : 'Disabled'}</span>
-          </Switch>
-          <p className="setting-effect">Applies immediately and is saved across restarts.</p>
+        <article className="card compact-card">
+          <p className="label">Gemini availability</p>
+          <strong>{status ? status.available ? 'Configured for requests' : 'Unavailable' : 'Loading…'}</strong>
+          <div className="row-actions"><button className="secondary" disabled={loading} onClick={onOpenSettings}>{providerSaved?.credential?.configured ? 'Manage Gemini key' : 'Add Gemini key'}</button></div>
+          <p className="setting-effect">Validate the key in Settings. Test generation separately in Playground.</p>
         </article>
         <article className="card compact-card">
           <p className="label">Gemini model</p>
@@ -641,147 +669,12 @@ export default function AIPage({ active, onOpenSettings, onAIEnabledChanged }: A
           <strong>{data?.active_personality || 'Not selected'}</strong>
         </article>
       </div>
-      <AIPlayground active={active} personality={data?.active_personality ?? ''} />
-      <article className="card ai-provider-card" id="ai-models">
-        <div className="section-heading">
-          <div>
-            <p className="label">GEMINI PROVIDER</p>
-            <h2>Models and fallback</h2>
-            <p className="section-copy">Choose the model used for AI requests and its unavailable-model fallback.</p>
-          </div>
-          {providerDirty && <span className="mini-badge dirty-badge">Edited</span>}
-        </div>
-        {!providerDraft ? <p className="muted">Loading AI provider settings…</p> : (
-          <div className="settings-list">
-            {!providerDraft.credential?.configured && (
-              <div className="setup-callout">
-                <div>
-                  <strong>Add a Gemini API key</strong>
-                  <p>Store a Gemini credential before testing models or using AI chat.</p>
-                </div>
-                <button className="secondary" onClick={onOpenSettings}>Add Gemini key</button>
-              </div>
-            )}
-            <div className="ai-provider-status">
-              <div><span>Provider</span><strong>{providerDraft.provider}</strong></div>
-              <div><span>Credential</span><strong className={providerDraft.credential?.configured ? 'status-good' : ''}>{providerDraft.credential?.configured ? 'Configured' : 'Missing'}</strong></div>
-            </div>
-            <div className="model-fields">
-              <ModelSelector
-                label="Selected model"
-                value={providerDraft.selected_model}
-                presets={providerDraft.presets}
-                discoveredModels={discoveredModels}
-                onChange={(selected_model) => updateProviderDraft({ selected_model })}
-                help="Saved model changes apply to the next AI request."
-              />
-              <ModelSelector
-                label="Fallback model"
-                value={providerDraft.fallback_model}
-                presets={providerDraft.presets}
-                discoveredModels={discoveredModels}
-                onChange={(fallback_model) => updateProviderDraft({ fallback_model })}
-                help="Used only when the selected model is unavailable or unsupported."
-              />
-            </div>
-            <div className="settings-actions">
-              <button className="secondary" disabled={Boolean(busy) || !providerDraft.credential?.configured} onClick={() => void testGeminiCredential()}>{busy === 'provider:test' ? 'Testing…' : 'Test credential'}</button>
-              <button className="secondary" disabled={Boolean(busy) || !providerDraft.credential?.configured} onClick={() => void discoverModels()}>{busy === 'provider:discover' ? 'Discovering…' : 'Discover models'}</button>
-              <button className="primary" disabled={Boolean(busy) || !providerDirty} onClick={() => void saveProviderModels()}>{busy === 'provider:save' ? 'Saving…' : 'Save models'}</button>
-            </div>
-            <p className="settings-hint">Manage the Gemini API key in Settings. Authentication, network, policy, and rate-limit failures never trigger model fallback.</p>
-          </div>
-        )}
-      </article>
-      <Accordion
-        id="ai-language"
-        eyebrow="RESPONSE LANGUAGE"
-        title="AI response language"
-        description="Choose whether AI follows the incoming language or stays within a configurable set for this profile."
-        badges={(
-          <span className="personality-badges">
-            {languageSaved && <span className="mini-badge saved-badge">Saved active policy</span>}
-            {languageDirty && <span className="mini-badge dirty-badge">Edited</span>}
-          </span>
-        )}
-        className="ai-language-card"
-      >
-        {!languageDraft || !languageSaved ? <p className="muted">Loading response language settings…</p> : (
-          <div className="settings-list">
-            <div className="language-policy-status">
-              <div>
-                <span>Active policy</span>
-                <strong>{languageSettingsLabel(languageSaved, languageCatalogue)}</strong>
-              </div>
-              <div>
-                <span>Draft configuration</span>
-                <strong>{languageSettingsLabel(languageDraft, languageCatalogue)}</strong>
-              </div>
-            </div>
-            <div className="language-fields">
-              <label className="form-field">
-                Response language mode
-                <select
-                  aria-label="Response language mode"
-                  value={languageDraft.mode}
-                  disabled={Boolean(busy)}
-                  onChange={(event) => updateLanguageDraft({ mode: event.target.value as AILanguageMode })}
-                >
-                  <option value="auto">Auto</option>
-                  <option value="limited">Limited</option>
-                </select>
-                <small>Auto follows the user without language restrictions. Limited uses the allowed set below.</small>
-              </label>
-              <label className="form-field">
-                Fallback language
-                <select
-                  aria-label="Fallback language"
-                  value={languageDraft.fallback_language}
-                  disabled={Boolean(busy) || languageDraft.mode !== 'limited'}
-                  onChange={(event) => updateLanguageDraft({ fallback_language: event.target.value })}
-                >
-                  {languageCatalogue
-                    .filter((language) => languageDraft.allowed_languages.includes(language.code)
-                      || language.code === languageDraft.fallback_language)
-                    .map((language) => <option key={language.code} value={language.code}>{language.label}</option>)}
-                </select>
-                <small>Used when Limited mode cannot identify an allowed response language.</small>
-              </label>
-            </div>
-            <fieldset className="language-picker" disabled={Boolean(busy) || languageDraft.mode !== 'limited'}>
-              <legend>Allowed languages</legend>
-              <div className="language-options">
-                {languageCatalogue.map((language) => (
-                  <label className="language-option" key={language.code}>
-                    <input
-                      type="checkbox"
-                      aria-label={language.label}
-                      checked={languageDraft.allowed_languages.includes(language.code)}
-                      onChange={(event) => updateLanguageDraft({
-                        allowed_languages: event.target.checked
-                          ? [...languageDraft.allowed_languages, language.code]
-                          : languageDraft.allowed_languages.filter((code) => code !== language.code),
-                      })}
-                    />
-                    <span>{language.label}</span>
-                    <code>{language.code}</code>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            {languageValidation && <p className="language-validation" role="status">{languageValidation}</p>}
-            <div className="settings-actions">
-              <button className="primary" disabled={Boolean(busy) || !languageDirty || Boolean(languageValidation)} onClick={() => void saveLanguageSettings()}>{busy === 'language:save' ? 'Saving…' : 'Save language settings'}</button>
-            </div>
-            <p className="settings-hint">Saved changes apply to the next AI request. Prompt guidance cannot perfectly guarantee a response language. In Limited mode, clear brief input uses its language; mixed or code-switched input uses the clear majority; uncertain, tied, unsupported, emoji-only, and code-only input uses the saved fallback.</p>
-          </div>
-        )}
-      </Accordion>
+      <AIPlayground active={active} personality={data?.active_personality ?? ''} hasDrafts={hasDrafts} />
       <Accordion
         id="ai-personalities"
         eyebrow="PERSONALITY EDITOR"
         title="Personality-specific prompt"
-        description="Core shared instructions stay protected in Python."
+        description="Save this personality independently of profile instructions. Set active selects its applied prompt and does not save an editor draft."
         badges={(
           <span className="personality-badges">
             {personality && <span className="mini-badge">{personality.is_builtin ? 'Built-in' : 'Custom'}</span>}
@@ -877,6 +770,8 @@ export default function AIPage({ active, onOpenSettings, onAIEnabledChanged }: A
               </div>
             )}
             {!createOpen && <>
+            <p className="setting-effect">Editing <strong>{selected}</strong>; Playground uses <strong>{data?.active_personality || 'the active personality'}</strong>. Saving an inactive personality does not activate it.</p>
+            <p className="setting-effect">{dirty ? 'Unsaved prompt draft; it is not used by AI requests.' : personality?.prompt_saved ? 'Prompt saved across restarts.' : 'Prompt applied for this session; not saved across restarts.'}</p>
             <label className="form-field">
               Editable prompt
               <textarea
@@ -898,6 +793,7 @@ export default function AIPage({ active, onOpenSettings, onAIEnabledChanged }: A
                 <button className="ghost" disabled={!personality || Boolean(busy) || !canReset} onClick={() => void runPersonalityAction('reset')}>{busy === 'reset' ? 'Resetting…' : 'Reset'}</button>
               </div>
             </div>
+            {playgroundLink('personality', dirty || !isActive || !Boolean(personality?.prompt_saved))}
             </>}
           </>
         )}
@@ -916,6 +812,7 @@ export default function AIPage({ active, onOpenSettings, onAIEnabledChanged }: A
         )}
         className="profile-instructions-editor"
       >
+        <p className="setting-effect">{data?.profile_instructions_saved ? 'Applied instructions are saved across restarts.' : 'Instructions applied for this session only; Save keeps them across restarts.'} {profileDirty && 'This unsaved editor draft is not applied. Apply or Save it explicitly before testing.'}</p>
         <label className="form-field">
           Profile instructions
           <textarea
@@ -937,13 +834,153 @@ export default function AIPage({ active, onOpenSettings, onAIEnabledChanged }: A
             <button className="ghost" disabled={!data || Boolean(busy) || !profileCanReset} onClick={() => void runProfileAction('reset')}>{busy === 'profile:reset' ? 'Resetting…' : 'Reset'}</button>
           </div>
         </div>
+        {playgroundLink('profile', profileDirty || !Boolean(data?.profile_instructions_saved))}
       </Accordion>
-      <BlockedAIUsers active={active} />
+      <Accordion
+        id="ai-language"
+        eyebrow="RESPONSE LANGUAGE"
+        title="AI response language"
+        description="Choose whether AI follows the incoming language or stays within a configurable set for this profile."
+        badges={(
+          <span className="personality-badges">
+            {languageSaved && <span className="mini-badge saved-badge">Saved active policy</span>}
+            {languageDirty && <span className="mini-badge dirty-badge">Edited</span>}
+          </span>
+        )}
+        className="ai-language-card"
+      >
+        {!languageDraft || !languageSaved ? <p className="muted">Loading response language settings…</p> : (
+          <div className="settings-list">
+            <div className="language-policy-status">
+              <div>
+                <span>Active policy</span>
+                <strong>{languageSettingsLabel(languageSaved, languageCatalogue)}</strong>
+              </div>
+              <div>
+                <span>Draft configuration</span>
+                <strong>{languageSettingsLabel(languageDraft, languageCatalogue)}</strong>
+              </div>
+            </div>
+            <div className="language-fields">
+              <label className="form-field">
+                Response language mode
+                <select
+                  aria-label="Response language mode"
+                  value={languageDraft.mode}
+                  disabled={Boolean(busy)}
+                  onChange={(event) => updateLanguageDraft({ mode: event.target.value as AILanguageMode })}
+                >
+                  <option value="auto">Auto</option>
+                  <option value="limited">Limited</option>
+                </select>
+                <small>Auto follows the user without language restrictions. Limited uses the allowed set below.</small>
+              </label>
+              <label className="form-field">
+                Fallback language
+                <select
+                  aria-label="Fallback language"
+                  value={languageDraft.fallback_language}
+                  disabled={Boolean(busy) || languageDraft.mode !== 'limited'}
+                  onChange={(event) => updateLanguageDraft({ fallback_language: event.target.value })}
+                >
+                  {languageCatalogue
+                    .filter((language) => languageDraft.allowed_languages.includes(language.code)
+                      || language.code === languageDraft.fallback_language)
+                    .map((language) => <option key={language.code} value={language.code}>{language.label}</option>)}
+                </select>
+                <small>Used when Limited mode cannot identify an allowed response language.</small>
+              </label>
+            </div>
+            <fieldset className="language-picker" disabled={Boolean(busy) || languageDraft.mode !== 'limited'}>
+              <legend>Allowed languages</legend>
+              <div className="language-options">
+                {languageCatalogue.map((language) => (
+                  <label className="language-option" key={language.code}>
+                    <input
+                      type="checkbox"
+                      aria-label={language.label}
+                      checked={languageDraft.allowed_languages.includes(language.code)}
+                      onChange={(event) => updateLanguageDraft({
+                        allowed_languages: event.target.checked
+                          ? [...languageDraft.allowed_languages, language.code]
+                          : languageDraft.allowed_languages.filter((code) => code !== language.code),
+                      })}
+                    />
+                    <span>{language.label}</span>
+                    <code>{language.code}</code>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            {languageValidation && <p className="language-validation" role="status">{languageValidation}</p>}
+            <div className="settings-actions">
+              <button className="primary" disabled={Boolean(busy) || !languageDirty || Boolean(languageValidation)} onClick={() => void saveLanguageSettings()}>{busy === 'language:save' ? 'Saving…' : 'Save language settings'}</button>
+            </div>
+            <p className="settings-hint">Saved changes apply to the next AI request. Prompt guidance cannot perfectly guarantee a response language. In Limited mode, clear brief input uses its language; mixed or code-switched input uses the clear majority; uncertain, tied, unsupported, emoji-only, and code-only input uses the saved fallback.</p>
+            <p className="setting-effect">{languageDirty ? 'Unsaved language draft; Playground keeps using the saved policy.' : 'Language policy is saved and applied.'}</p>
+            {playgroundLink('language', languageDirty)}
+          </div>
+        )}
+      </Accordion>
+      <article className="card ai-provider-card" id="ai-models">
+        <div className="section-heading">
+          <div>
+            <p className="label">GEMINI PROVIDER</p>
+            <h2>Models and fallback</h2>
+            <p className="section-copy">Choose the model used for AI requests and its unavailable-model fallback.</p>
+          </div>
+          {providerDirty && <span className="mini-badge dirty-badge">Edited</span>}
+        </div>
+        {!providerDraft ? <p className="muted">Loading AI provider settings…</p> : (
+          <div className="settings-list">
+            <div className="ai-provider-status">
+              <div><span>Provider</span><strong>{providerDraft.provider}</strong></div>
+              <div><span>Credential</span><strong className={providerDraft.credential?.configured ? 'status-good' : ''}>{providerDraft.credential?.configured ? 'Configured' : 'Missing'}</strong></div>
+            </div>
+            <p className="setting-effect">Saved primary model: <strong>{providerSaved?.selected_model || 'Not selected'}</strong>. {providerDirty ? 'Unsaved model draft; Playground keeps using the saved models.' : 'Saved models apply to the next request.'}</p>
+              <ModelSelector
+                label="Primary model"
+                value={providerDraft.selected_model}
+                presets={providerDraft.presets}
+                discoveredModels={discoveredModels}
+                onChange={(selected_model) => updateProviderDraft({ selected_model })}
+                help="Saved model changes apply to the next AI request."
+              />
+            <details className="model-advanced">
+              <summary>Advanced model options</summary>
+              <ModelSelector
+                label="Fallback model"
+                value={providerDraft.fallback_model}
+                presets={providerDraft.presets}
+                discoveredModels={discoveredModels}
+                onChange={(fallback_model) => updateProviderDraft({ fallback_model })}
+                help="Used only after the primary model returns 404. Key, network, quota and billing failures do not trigger fallback."
+              />
+              <button className="secondary" disabled={Boolean(busy) || !providerDraft.credential?.configured} onClick={() => void discoverModels()}>{busy === 'provider:discover' ? 'Discovering…' : 'Discover models'}</button>
+            </details>
+            <div className="settings-actions">
+              <button className="primary" disabled={Boolean(busy) || !providerDirty} onClick={() => void saveProviderModels()}>{busy === 'provider:save' ? 'Saving…' : 'Save models'}</button>
+            </div>
+            {playgroundLink('models', providerDirty)}
+          </div>
+        )}
+      </article>
+      <article className="card compact-card" id="ai-memory">
+        <p className="label">CONVERSATION MEMORY</p>
+        <h2>Conversation memory</h2>
+        <Switch className="settings-toggle" checked={status?.memory_enabled ?? false} disabled={!status || Boolean(busy)} ariaLabel="Enable conversation memory" onCheckedChange={(enabled) => void changeToggle('memory', enabled)}>
+          <span>{status?.memory_enabled ? 'Enabled' : 'Disabled'}</span>
+        </Switch>
+        <p className="setting-effect">Saved immediately. Turning memory off stops subsequent use and storage; previously stored data is retained.</p>
+        <p className="setting-effect">!ask uses up to five successful exchanges per viewer. Playground never reads or stores viewer memory.</p>
+        <p className="setting-effect">The broadcaster-only !erase username command clears AI memory for a known viewer. It does not delete chat or activity records.</p>
+      </article>
+      <BlockedAIUsers active={active} onOpenAsk={onOpenAsk} />
       <details className="card protected-instructions-card" id="ai-shared-instructions">
         <summary className="protected-instructions-summary">
           <div>
             <p className="label">PROTECTED SHARED INSTRUCTIONS</p>
-            <h2>Protected shared instructions</h2>
+            <h2>Built-in restrictions</h2>
             <p className="section-copy">These instructions are managed by the application and cannot be edited here.</p>
           </div>
           <span className="mini-badge">Application-owned</span>

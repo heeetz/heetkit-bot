@@ -383,6 +383,12 @@ td { color: #c6cfdf; }
 .model-selector { display: grid; align-content: start; gap: 10px; }
 .model-selector select { cursor: pointer; }
 .custom-model-field { padding: 10px; border: 1px solid #493d69; border-radius: 8px; background: #151426; }
+.model-advanced, .custom-model-options { display: grid; gap: 12px; min-width: 0; }
+.model-advanced > summary, .custom-model-options > summary { cursor: pointer; color: #bac4d6; overflow-wrap: anywhere; margin-bottom: 10px; }
+.playground-draft-choice > div { min-width: 0; width: 100%; }
+.playground-draft-choice .row-actions { margin-top: 12px; }
+.playground-draft-choice button { flex-shrink: 1; white-space: normal; }
+.playground-draft-warning { padding: 10px 12px; border: 1px solid #6a5428; border-radius: 8px; }
 .credential-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 12px; }
 .credential-row { padding: 16px; border: 1px solid #2a354a; border-radius: 10px; background: #111722; }
 .credential-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 14px; margin-bottom: 14px; }

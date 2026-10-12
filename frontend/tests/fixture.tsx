@@ -43,7 +43,7 @@ let status: AppStatus = {
 let aiStatus = {
   enabled: query.has('askToggle') ? JSON.parse(sessionStorage.getItem('askEnabled') ?? 'false') as boolean : false,
   available: query.has('aiAvailable'), memory_enabled: false,
-  active_personality: 'neutral', available_personalities: ['neutral'], model: query.has('aiAvailable') ? 'synthetic-model' : '',
+  active_personality: 'neutral', available_personalities: ['neutral'], model: query.has('a4Models') ? 'synthetic-primary' : query.has('aiAvailable') ? 'synthetic-model' : '',
 }
 let personalities: PersonalitiesResponse = {
   active_personality: 'neutral',
@@ -85,11 +85,12 @@ Object.assign(window, { credentialCalls, twitchCalls, setFixtureStatus: (values:
 const opened: string[] = []
 const aiCalls: unknown[][] = []
 const playgroundCalls: unknown[][] = []
+const playgroundSettings: unknown[] = []
 let playgroundId = 0
 let playgroundCancelled = false
 let playgroundStartedAt = 0
 const updateCalls: unknown[][] = []
-Object.assign(window, { opened, aiCalls, updateCalls, playgroundCalls })
+Object.assign(window, { opened, aiCalls, updateCalls, playgroundCalls, playgroundSettings })
 const toggleCommands: CommandInfo[] = ['ask', 'ping'].map((name) => ({
   name, enabled: name === 'ask' ? aiStatus.enabled : true,
   permission: 'USER', cooldown: { per_user_seconds: 3, global_seconds: 15 },
@@ -146,6 +147,13 @@ window.pywebview = { api: {
   },
   start_ai_playground: async (prompt: string) => {
     playgroundCalls.push(['start', prompt])
+    playgroundSettings.push(structuredClone({
+      personality: personalities.active_personality,
+      personalityPrompt: personalities.personalities.find((item) => item.name === personalities.active_personality)?.prompt,
+      profile: personalities.profile_instructions,
+      language: languageSettings,
+      model: aiStatus.model,
+    }))
     if (query.has('playgroundStartDelay')) await new Promise((resolve) => window.setTimeout(resolve, 350))
     if (query.has('playgroundStartError')) return { ok: false, error: 'A Playground request is already running.' }
     playgroundCancelled = false
@@ -235,8 +243,18 @@ window.pywebview = { api: {
   },
   test_credential: async (name: string) => { credentialCalls.push(['test', name]); return { ok: true } },
   get_ai_provider_settings: async () => ({ ok: true, settings: {
-    provider: 'Gemini', selected_model: aiStatus.model, fallback_model: '', presets: [], credential: credentials[1],
+    provider: 'Gemini', selected_model: query.has('a4Models') && !aiStatus.model ? 'synthetic-primary' : aiStatus.model,
+    fallback_model: sessionStorage.getItem('a4Fallback') ?? (query.has('a4Models') ? 'synthetic-fallback' : ''),
+    presets: query.has('a4Models') ? ['synthetic-primary', 'synthetic-fallback'].map((id) => ({ id, label: id, description: '' })) : [],
+    credential: credentials[1],
   } }),
+  update_ai_provider_settings: async (primary: string, fallback: string) => {
+    aiCalls.push(['update_ai_provider_settings', primary, fallback])
+    if (query.has('modelSaveError')) return { ok: false, error: 'AI model settings could not be saved.' }
+    aiStatus = { ...aiStatus, model: primary }
+    sessionStorage.setItem('a4Fallback', fallback)
+    return { ok: true }
+  },
   get_ai_language_settings: async () => {
     if (query.has('languageLoadError')) return { ok: false, error: 'AI language settings are unavailable.' }
     return { ok: true, settings: languageSettings, languages: languageCatalogue, active_policy: activeLanguagePolicy }

@@ -12,7 +12,7 @@ const STATUS_LABELS = {
   cancelled: 'Cancelled',
 }
 
-export default function AIPlayground({ active, personality }: { active: boolean; personality: string }) {
+export default function AIPlayground({ active, personality, hasDrafts = false }: { active: boolean; personality: string; hasDrafts?: boolean }) {
   const [prompt, setPrompt] = useState('')
   const [pending, setPending] = useState(false)
   const [cancelling, setCancelling] = useState(false)
@@ -121,7 +121,8 @@ export default function AIPlayground({ active, personality }: { active: boolean;
         <span className="mini-badge">Real API quota</span>
       </div>
       <p className="setting-effect">Testing may consume real Gemini API quota. Uses active filters, the active personality ({personality || 'not selected'}), applied profile instructions and saved model/language settings. Apply or save editor changes first.</p>
-      <p className="setting-effect">Each prompt is independent: no viewer memory, chat activity or Twitch command cooldowns. The bot can be stopped and Ask disabled.</p>
+      <p className="setting-effect">Each prompt is independent: no viewer memory, stream context, chat activity, command permissions or cooldowns. The bot can be stopped and !ask disabled. Success does not prove Twitch delivery.</p>
+      {hasDrafts && <p className="setting-effect playground-draft-warning">Unsaved editor drafts are not used. Use an editor's Open Playground choices to save or apply that draft first, or test the current applied settings.</p>}
       <label className="form-field">
         Playground prompt
         <textarea value={prompt} disabled={pending} placeholder="Enter a prompt to test…" onChange={(event) => {

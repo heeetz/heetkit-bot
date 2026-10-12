@@ -20,67 +20,81 @@ credential that lets HeetKit send requests to Google's Gemini service.
    select **Add key**. For an existing key, use **Replacement value → Replace key**. HeetKit
    stores it securely through your operating system. It applies immediately; no restart
    is needed.
-6. Select **Test** beside the credential to check access with Google. This verifies the
+6. Select **Test credential** beside the credential to check access with Google. This verifies the
    key; model access and usage limits still apply.
 
 ## Choose how the bot replies
 
-Response Language, Personalities and Profile Instructions start collapsed. Select
-their headers to expand them, or use the AI sidebar shortcuts to open and scroll to
-a section. Collapsing keeps unsaved edits. **Settings → Gemini API key** similarly
-opens the collapsed key section; the Twitch client secret stays under Twitch connection.
+Open **AI**. Its sections follow the working order **State → Playground → Personality
+and profile instructions → Language → Models → Memory → AI access → Built-in
+restrictions**. Use the AI sidebar shortcuts to open and scroll to a section. Collapsing
+an editor keeps its draft.
 
-7. Open the **AI** page. Under **Models and fallback**, optionally choose a **Selected model**
-   and **Fallback model**, then **Save models**. Use the supplied choices or **Discover
-   models** with the configured key to list compatible text-generation models visible
-   through Google. For free usage, check your model's Free Tier support. The fallback is
-   tried only when Google reports that the selected model is unavailable (404).
-   Authentication, network, policy, quota, rate-limit and billing failures do not trigger it.
-8. Configure your AI style:
+7. Configure the instructions used for generation:
 
-   - **Response language:** on the **AI** page, keep **Auto** to match the current
-     question without language restrictions, or choose **Limited**, select allowed
-     languages and a fallback, then **Save language settings**. Changes apply to the next AI
-     request and are saved for this profile. The initial Limited selection is English,
-     Ukrainian and Russian, with English fallback; Auto remains the default.
    - **Personality:** choose the supplied `neutral` personality or use **New personality**
-     to create your own named style.
-   - **Personality prompt:** describe the tone and behavior you want, such as
-     “Keep replies short, playful and welcoming.” Choose **Save**, then **Set active**.
-     Creating or selecting a personality in the editor alone does not activate it.
-   - **Profile instructions:** optionally add guidance that applies to every personality
-     in this local profile, such as your community's vocabulary. Choose **Save**
-     to keep it across restarts; **Apply** affects only this session.
-   - **Conversation memory:** choose whether recent successful exchanges for each chatter
-     are saved locally and included in later AI requests. Turning memory off stops that
-     context from being used; it does not erase stored exchanges. Do not put secrets or
-     private information in prompts or chat sent to Google.
+     to create a saved custom style without activating it. Editing a prompt creates a draft;
+     the draft is not used until you save it. Saving a personality prompt does not make
+     that personality active. Setting a personality active does not save an unsaved prompt
+     draft.
+   - **Profile instructions:** optionally add guidance that applies to every personality in
+     this local profile, such as your community's vocabulary. Apply/use the draft for the
+     current session, or save it to apply it now and keep it across restarts. Personality
+     prompt, active-personality and profile-instruction saves are independent.
+   - Each editor links directly to **Playground**. With a draft, choose whether to save it
+     before opening Playground or use the current applied settings and keep the draft.
+     Profile instructions also offer a session-only apply choice. To test an inactive
+     personality, save its prompt and set that personality active separately.
+
+8. Configure the remaining saved request settings:
+
+   - **Response language:** keep **Auto** to match the current question without language
+     restrictions, or choose **Limited**, select allowed languages and a fallback, then
+     **Save language settings**. The initial Limited selection is English, Ukrainian and
+     Russian, with English fallback; Auto remains the default.
+   - **Models:** the primary model is shown directly. Custom primary-model selection and
+     the fallback model are advanced controls. Save model changes before testing them.
+     **Discover models** lists compatible text-generation models visible through Google.
+     The fallback is tried only when a request to the primary model returns 404. Key,
+     network, policy, quota, rate-limit and billing failures do not trigger it.
+   - **Conversation memory:** choose whether successful `!ask` exchanges are kept locally
+     and included in later requests for that viewer. At most five exchanges per viewer are
+     retained. Turning memory off stops subsequent use and storage but does not erase prior
+     exchanges. Do not put secrets or private information in prompts or chat sent to Google.
+
+The Gemini key is managed only under **Settings → Gemini API key**; AI provides a link
+there and Settings provides a return path. **Test credential** checks access with Google,
+but it does not prove that a generation request, selected model or quota will succeed.
 
 9. With Twitch connected, check that **AI command** is enabled and try
    `!ask Say hello to chat` from another account in the target channel. The enabled switch
    on **Dashboard**, **AI** or **Commands** saves immediately and survives restarts;
    all three views stay synchronized. A save failure keeps the previous value and shows
    an error. Other drafts, permissions and cooldowns still need their own Save/Apply.
-   Permissions, cooldowns and filters still apply.
+   Permissions, cooldowns and filters still apply. Use **AI access** to open the existing
+   `!ask` editor in Commands when you need to change its permission or cooldowns.
 
 ## Test locally with AI Playground
 
-Open **AI → AI Playground** and enter a prompt to make a real Gemini request without
-posting to Twitch. Testing can consume API quota. The Playground uses the active global
-filters and personality, applied profile instructions, and saved model and response-language
-settings. Apply or save editor changes first when you want them included.
+Open **AI → Playground** and enter a prompt to make a real Gemini request without
+posting to Twitch. Testing can consume real Gemini API quota. The Playground uses the
+active filters and personality, applied profile instructions, and saved model and
+response-language settings. It does not automatically use editor drafts: explicitly
+save a personality, model or language draft first; apply or save a profile-instruction
+draft. Choosing **Use current applied settings** keeps all editor drafts out of the test.
 
-Each prompt is independent of viewer memory, Twitch chat activity, stream context and
-command cooldowns. The bot may be stopped and the Ask command may be disabled. Only one
-Playground request runs at a time; you can cancel it, and it times out after 60 seconds.
-The result distinguishes a successful response, editable-filter or protected-policy input
-and output blocks, filter timeouts, provider unavailability, API errors, timeouts and
-cancellation. Protected decisions do not reveal hidden instructions.
+Each prompt is independent of viewer memory, Twitch chat activity, stream context,
+`!ask` permissions and command cooldowns. The bot may be stopped and `!ask` may be
+disabled. A successful result confirms only this local Gemini path; it does not prove
+that Twitch is connected or that a chat reply can be delivered. Only one Playground
+request runs at a time; you can cancel it, and it times out after 60 seconds. The result
+distinguishes a successful response, editable-filter or protected-policy input and output
+blocks, filter timeouts, provider unavailability, API errors, timeouts and cancellation.
+Protected decisions do not reveal hidden instructions.
 
 ## Blocked AI users
 
-Use **AI → Blocked AI users**, or find the card below Profile Instructions. Enter a
-Twitch login under **Blocked AI users** and select
+Open **AI → AI access**. Enter a Twitch login under **Blocked AI users** and select
 **Block user**. An optional `@` and surrounding whitespace are accepted; names are
 case-insensitive. Empty, duplicate or invalid login names are rejected. Select
 **Unblock** beside an entry to restore access. Changes apply immediately, save for
@@ -97,7 +111,10 @@ Blocked `!ask` requests, including aliases, are silently ignored before AI coold
 conversation memory, Gemini calls or prompt-text logging. A minimal `ai_user_blocked`
 event may appear in Logs. Other commands and ordinary chat are unaffected, and the
 local **AI Playground** remains available to the owner. This list does not ban users
-from Twitch chat or replace filters and command permissions.
+from Twitch chat, delete Twitch messages or erase existing activity or AI memory. Use the
+broadcaster-only `!erase <username>` command to delete stored AI memory for a known user;
+it does not delete the user's activity record. AI blocking, Twitch moderation and data
+deletion are separate actions.
 
 ## Response language
 
@@ -122,16 +139,20 @@ necessary quotations may retain their original text. Non-AI commands are unaffec
 
 ## Personality editing
 
-**Save** keeps a prompt without changing the active personality. **Set active** saves
-the selection separately and uses it for future replies; it does not save an unsaved
-prompt draft. **New personality** creates a local name and prompt without activating it.
+An editor change starts as a draft and is unused until saved. **Save** persists the prompt
+and updates that personality's runtime copy without changing which personality is active.
+Future replies use it when that personality is active. **Set active** persists the
+personality selection separately; it does not save an unsaved prompt draft.
+**New personality** creates a saved local name and prompt without activating it.
 Custom personalities can be renamed or deleted; deleting the active one selects
 `neutral`. Built-ins cannot be renamed or deleted, but their prompts can be overridden;
 **Reset** restores the shipped prompt.
 
-Profile instructions apply to every personality in the current profile. **Reset** clears
-that field without changing personality prompts or selection. Protected shared
-instructions are read-only. Separate profiles keep their own styles and instructions.
+Profile instructions apply to every personality in the current profile. Applying a draft
+uses it for this session; saving uses it now and persists it. Neither action saves a
+personality prompt or active selection. **Reset** clears that field without changing
+personality prompts or selection. Protected shared instructions are read-only. Separate
+profiles keep their own styles and instructions.
 
 The protected policy allows gaming trash talk, sarcasm and light swearing about
 behavior, plus neutral discussion of children, disabilities and illness. It excludes

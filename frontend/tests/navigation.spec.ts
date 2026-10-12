@@ -45,10 +45,10 @@ const destinations = [
     ['Blocked phrases', 'filters-phrases'], ['Regex patterns', 'filters-patterns'],
   ] },
   { section: 'AI', children: [
-    ['Runtime', 'ai-runtime'], ['Conversation memory', 'ai-memory'], ['Playground', 'ai-playground'],
-    ['Models and fallback', 'ai-models'], ['Response language', 'ai-language'],
+    ['State', 'ai-runtime'], ['Playground', 'ai-playground'],
     ['Personalities', 'ai-personalities'], ['Profile instructions', 'ai-profile-instructions'],
-    ['Blocked AI users', 'ai-blocked-users'], ['Shared instructions', 'ai-shared-instructions'],
+    ['Response language', 'ai-language'], ['Models', 'ai-models'], ['Conversation memory', 'ai-memory'],
+    ['AI access', 'ai-blocked-users'], ['Built-in restrictions', 'ai-shared-instructions'],
   ] },
   { section: 'Settings', children: [
     ['Twitch connection', 'twitch-settings'], ['Gemini API key', 'credential-settings'],
@@ -182,18 +182,12 @@ test('parents and children work with Space, Enter, Tab and visible keyboard focu
   await parent.press('Space')
   await expect(parent).toHaveAttribute('aria-expanded', 'true')
   await page.keyboard.press('Tab')
-  const child = nav.getByRole('button', { name: 'Runtime', exact: true })
+  const child = nav.getByRole('button', { name: 'State', exact: true })
   await expect(child).toBeFocused()
   await expect(child).toHaveCSS('outline-style', 'solid')
   await child.press('Enter')
   await expect(child).toHaveAttribute('aria-current', 'location')
   await expect(parent).toHaveAttribute('aria-expanded', 'true')
-  await page.keyboard.press('Tab')
-  const memory = nav.getByRole('button', { name: 'Conversation memory', exact: true })
-  await expect(memory).toBeFocused()
-  await memory.press('Enter')
-  await expect(memory).toHaveAttribute('aria-current', 'location')
-  await expect(page.locator('#ai-memory')).toBeInViewport()
   await page.keyboard.press('Tab')
   const playground = nav.getByRole('button', { name: 'Playground', exact: true })
   await expect(playground).toBeFocused()
@@ -224,7 +218,7 @@ for (const width of [1280, 1080, 900, 760, 390, 320]) {
     await nav.getByRole('button', { name: 'AI', exact: true }).click()
     await nav.getByRole('button', { name: 'Conversation memory', exact: true }).click()
     await expect(page.locator('#ai-memory')).toBeInViewport()
-    await nav.getByRole('button', { name: 'Blocked AI users', exact: true }).click()
+    await nav.getByRole('button', { name: 'AI access', exact: true }).click()
     await expect(page.locator('#ai-blocked-users')).toBeInViewport()
     if (width < 761) {
       const sidebarBounds = (await page.locator('.sidebar').boundingBox())!
