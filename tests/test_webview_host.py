@@ -22,7 +22,7 @@ from app.app_settings import (
 )
 from app.config.settings import Settings
 from app.container import Application
-from app.credentials import CredentialStatus
+from app.credentials import CredentialError, CredentialName, CredentialStatus
 from app.runtime_paths import DATA_DIR_ENV
 from app.runtime_state import RuntimeState
 from app.services.updates import RELEASE_PAGE_URL, UpdateCheckError
@@ -575,6 +575,53 @@ def test_twitch_authorization_rejects_pending_identity_changes(monkeypatch, tmp_
     result = bridge.open_external_link("twitch_authorization")
     assert result["ok"] is False
     assert "Restart" in result["error"]
+
+
+@pytest.mark.parametrize("action", ["replace", "remove"])
+def test_twitch_secret_changes_report_restart_and_prevent_using_stale_setup(
+    monkeypatch, tmp_path, action,
+) -> None:
+    bridge = twitch_authorization_bridge(tmp_path)
+    bridge._credential_manager = SimpleNamespace(
+        parse_name=lambda name: CredentialName(name),
+        replace=lambda name, value: None,
+        remove=lambda name: True,
+    )
+    monkeypatch.setattr(
+        "app.webview_host.webbrowser.open", lambda *args, **kwargs: pytest.fail("opened browser"),
+    )
+    assert bridge.get_twitch_settings()["settings"]["requires_restart"] is False
+    result = (bridge.replace_credential("twitch_client_secret", "synthetic-new-secret")
+              if action == "replace" else bridge.remove_credential("twitch_client_secret"))
+    assert result["ok"] is True
+    assert bridge.get_twitch_settings()["settings"]["requires_restart"] is True
+    assert bridge._backend.application.settings.twitch_client_secret.get_secret_value() == "synthetic-secret"
+    for operation in (bridge.start_bot, bridge.reconnect_twitch,
+                      lambda: bridge.open_external_link("twitch_authorization")):
+        result = operation()
+        assert result["ok"] is False
+        assert "Restart" in result["error"]
+
+
+@pytest.mark.parametrize("action", ["failed_replace", "unchanged_remove", "gemini"])
+def test_unchanged_twitch_secret_and_gemini_edits_do_not_require_restart(tmp_path, action) -> None:
+    bridge = twitch_authorization_bridge(tmp_path)
+    def fail_replace(name, value):
+        raise CredentialError("Could not store the credential securely.")
+    bridge._credential_manager = SimpleNamespace(
+        parse_name=lambda name: CredentialName(name),
+        replace=fail_replace if action == "failed_replace" else lambda name, value: None,
+        remove=lambda name: action == "gemini",
+        effective_value=lambda name: "synthetic-gemini",
+    )
+    if action == "failed_replace":
+        assert bridge.replace_credential("twitch_client_secret", "synthetic-new-secret")["ok"] is False
+    elif action == "unchanged_remove":
+        assert bridge.remove_credential("twitch_client_secret") == {"ok": True, "changed": False}
+    else:
+        assert bridge.replace_credential("gemini_api_key", "synthetic-gemini")["ok"] is True
+        assert bridge.remove_credential("gemini_api_key")["ok"] is True
+    assert bridge.get_twitch_settings()["settings"]["requires_restart"] is False
 
 
 @pytest.mark.parametrize("destination", ["twitch_developer_console", "twitch_authorization"])

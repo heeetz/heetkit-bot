@@ -26,11 +26,12 @@ application: a registration that lets HeetKit connect to Twitch. No coding is ne
 4. **Open Manage for your application.** Copy its **Client ID**, then select **New Secret**
    to generate a **Client Secret**. The Client ID is an application identifier, not a password.
    The Client Secret is sensitive: never share or commit it. Enter it through HeetKit's
-   Secure credentials UI below. A new secret invalidates the previous one.
+   Twitch connection section below. A new secret invalidates the previous one.
 
 ## Save the details in HeetKit
 
-Twitch Connection and Provider Credentials start collapsed on Settings. Their
+Settings is ordered **Twitch connection → Gemini API key → Desktop behavior → Data & diagnostics**.
+Twitch connection and Gemini API key start collapsed. Their
 sidebar shortcuts expand and scroll to them; you can also select each card header.
 Collapsing a section keeps unsaved input.
 
@@ -47,10 +48,12 @@ Collapsing a section keeps unsaved input.
    use a public lookup such as [StreamWeasels' converter](https://www.streamweasels.com/tools/convert-twitch-username-to-user-id/).
    Give this third-party lookup only the public login, never credentials. HeetKit requires
    both names and IDs. Select **Save for later**.
-6. Open **Settings → Secure credentials**. Under **Twitch client secret**, paste the
-   secret into **Replacement value** and select **Replace**, even when adding it for the
-   first time. It is saved in your system's secure storage (Windows Credential Manager
-   on Windows).
+6. In the same **Settings → Twitch connection → Twitch application** section, under
+   **Twitch client secret**, paste the secret into **New value** and select **Add secret**.
+   If already configured, use **Replacement value → Replace secret**. It is saved in your
+   system's secure storage (Windows Credential Manager on Windows), never in ordinary settings.
+   Client ID, bot identity and secret changes require an application restart;
+   changing only the target channel requires reconnect instead.
 
 ## Give the bot channel access, then connect
 
@@ -76,12 +79,23 @@ Collapsing a section keeps unsaved input.
 
 To change only the target channel later, use **Save & reconnect** while the bot is
 running, or **Save & apply** while stopped. **Save for later** persists the target
-without changing the current session. Connection presets save named channel targets;
-they share the configured bot account and authorization. Client ID, bot identity and
-client secret changes still require an application restart.
+without changing the current session. Under **Saved channels**, enter a name and select
+**Save channel** to save a target for later switching. Selecting a saved channel fills the
+target fields; use **Save & reconnect** or **Save & apply** to apply it. All saved channels
+share the configured bot account and authorization, and the bot needs access to each target.
+Client ID, bot identity and client secret changes still require an application restart.
 
-**Settings → Startup, window and tray behavior → Start bot automatically** saves whether
+**Settings → Desktop behavior → Start bot automatically** saves whether
 to connect on the next launch; it defaults to off and is independent of **Start minimized**.
+
+Dashboard **Running** describes the bot session, which can be waiting for authorization
+or reconnecting. Check **Twitch connection**, **Authorization** and **Next step** separately:
+**Connecting** means startup is in progress; **Connected** means the chat connection is ready;
+**Reconnecting** means the connection was lost and TwitchIO is attempting recovery.
+**Authorization required** needs the configured bot account's approval. A token cache found
+while stopped, connecting or disconnected is **Not verified** until the connection succeeds.
+**Connection failed** points to Logs before another start. AI availability is separate and
+optional. Filter Tester and AI Playground can be used while stopped; Playground needs Gemini.
 
 If connection fails, check that each login matches its numeric ID, the callback matches
 exactly, the bot has channel access and you authorized the bot account. Do not share your

@@ -18,6 +18,8 @@ import type {
 const query = new URLSearchParams(window.location.search)
 const configured = query.has('configured')
 const authRequired = query.has('auth')
+const initialConnection = (query.get('connection') ?? (authRequired ? 'auth_required' : 'stopped')) as AppStatus['twitch_connection_state']
+const sessionRunning = authRequired || ['connecting', 'connected', 'reconnecting'].includes(initialConnection)
 const twitch: TwitchConnectionSettings = {
   client_id: configured ? 'synthetic-client' : '',
   bot_username: configured ? 'testbot' : '',
@@ -27,21 +29,21 @@ const twitch: TwitchConnectionSettings = {
   active_channel: configured ? 'testchannel' : '',
   active_channel_user_id: configured ? '200' : '',
   presets: [], selected_preset_id: null, active_preset_id: null,
-  requires_restart: false, requires_reconnect: false,
-  running: authRequired, connected: false,
+  requires_restart: query.has('restartRequired'), requires_reconnect: false,
+  running: sessionRunning, connected: initialConnection === 'connected',
   oauth_token_available: query.has('cachedToken'),
   oauth_callback_url: 'http://localhost:4343/oauth/callback',
   has_local_override: false,
 }
 let status: AppStatus = {
-  running: authRequired, twitch_connected: false,
-  twitch_connection_state: authRequired ? 'auth_required' : 'stopped',
+  running: sessionRunning, twitch_connected: twitch.connected,
+  twitch_connection_state: initialConnection,
   uptime_seconds: 0, channel: twitch.active_channel, account: twitch.bot_username,
 }
 let aiStatus = {
   enabled: query.has('askToggle') ? JSON.parse(sessionStorage.getItem('askEnabled') ?? 'false') as boolean : false,
-  available: false, memory_enabled: false,
-  active_personality: 'neutral', available_personalities: ['neutral'], model: '',
+  available: query.has('aiAvailable'), memory_enabled: false,
+  active_personality: 'neutral', available_personalities: ['neutral'], model: query.has('aiAvailable') ? 'synthetic-model' : '',
 }
 let personalities: PersonalitiesResponse = {
   active_personality: 'neutral',
@@ -69,8 +71,17 @@ const aiBlockCalls: unknown[][] = []
 Object.assign(window, { aiBlockCalls })
 const credentials = [
   { name: 'twitch_client_secret', label: 'Twitch client secret', configured, source: configured ? 'credential_store' : 'missing', secure_storage_available: true },
-  { name: 'gemini_api_key', label: 'Gemini API key', configured: false, source: 'missing', secure_storage_available: true },
+  { name: 'gemini_api_key', label: 'Gemini API key', configured: aiStatus.available, source: aiStatus.available ? 'credential_store' : 'missing', secure_storage_available: true },
 ]
+const activeIdentity = { client_id: twitch.client_id, bot_username: twitch.bot_username, bot_user_id: twitch.bot_user_id }
+let secretRestartRequired = query.has('restartRequired')
+const credentialCalls: unknown[][] = []
+const twitchCalls: unknown[][] = []
+Object.assign(window, { credentialCalls, twitchCalls, setFixtureStatus: (values: Partial<AppStatus>) => {
+  status = { ...status, ...values }
+  twitch.running = status.running
+  twitch.connected = status.twitch_connected
+} })
 const opened: string[] = []
 const aiCalls: unknown[][] = []
 const playgroundCalls: unknown[][] = []
@@ -170,10 +181,61 @@ window.pywebview = { api: {
     opened.push('profile_folder')
     return query.has('folderOpenError') ? { ok: false, error: 'Could not open the profile folder in the system file manager.' } : { ok: true }
   },
-  get_twitch_settings: async () => ({ ok: true, settings: twitch }),
-  get_credentials: async () => ({ ok: true, credentials }),
+  get_twitch_settings: async () => ({ ok: true, settings: structuredClone(twitch) }),
+  update_twitch_settings: async (channel: string, channelId: string, presetId: string | null, clientId: string, botUsername: string, botId: string) => {
+    twitchCalls.push(['save', channel, channelId, presetId, clientId, botUsername, botId])
+    if (query.has('twitchSaveError')) return { ok: false, error: 'Twitch settings could not be saved.' }
+    Object.assign(twitch, { target_channel: channel.toLowerCase(), target_channel_user_id: channelId,
+      selected_preset_id: presetId, client_id: clientId, bot_username: botUsername, bot_user_id: botId,
+      requires_restart: secretRestartRequired || clientId !== activeIdentity.client_id || botUsername !== activeIdentity.bot_username || botId !== activeIdentity.bot_user_id,
+      requires_reconnect: channel.toLowerCase() !== twitch.active_channel || channelId !== twitch.active_channel_user_id,
+    })
+    return { ok: true, requires_restart: twitch.requires_restart, requires_reconnect: twitch.requires_reconnect }
+  },
+  reconnect_twitch: async () => {
+    twitchCalls.push(['reconnect'])
+    Object.assign(twitch, { active_channel: twitch.target_channel, active_channel_user_id: twitch.target_channel_user_id,
+      active_preset_id: twitch.selected_preset_id, requires_reconnect: false })
+    status = { ...status, channel: twitch.active_channel }
+    if (status.running) {
+      status = { ...status, twitch_connected: false, twitch_connection_state: 'connecting' }
+      twitch.connected = false
+    }
+    return { ok: true, changed: status.running }
+  },
+  save_twitch_preset: async (presetId: string | null, displayName: string, channel: string, channelId: string) => {
+    const id = presetId ?? `synthetic-${twitch.presets.length + 1}`
+    twitchCalls.push(['save_channel', id])
+    twitch.presets = [...twitch.presets.filter((preset) => preset.id !== id), { id, display_name: displayName, target_channel: channel, target_channel_user_id: channelId }]
+    Object.assign(twitch, { selected_preset_id: id, target_channel: channel, target_channel_user_id: channelId,
+      requires_reconnect: channel !== twitch.active_channel || channelId !== twitch.active_channel_user_id })
+    return { ok: true, preset_id: id, requires_reconnect: twitch.requires_reconnect }
+  },
+  delete_twitch_preset: async (presetId: string) => {
+    twitchCalls.push(['delete_channel', presetId])
+    twitch.presets = twitch.presets.filter((preset) => preset.id !== presetId)
+    twitch.selected_preset_id = null
+    return { ok: true }
+  },
+  get_credentials: async () => ({ ok: true, credentials: structuredClone(credentials) }),
+  replace_credential: async (name: string) => {
+    credentialCalls.push(['replace', name])
+    if (query.has('credentialSaveError')) return { ok: false, error: 'Could not store the credential securely.' }
+    Object.assign(credentials.find((credential) => credential.name === name)!, { configured: true, source: 'credential_store' })
+    if (name === 'twitch_client_secret') secretRestartRequired = twitch.requires_restart = true
+    else aiStatus = { ...aiStatus, available: true }
+    return { ok: true }
+  },
+  remove_credential: async (name: string) => {
+    credentialCalls.push(['remove', name])
+    Object.assign(credentials.find((credential) => credential.name === name)!, { configured: false, source: 'missing' })
+    if (name === 'twitch_client_secret') secretRestartRequired = twitch.requires_restart = true
+    else aiStatus = { ...aiStatus, available: false }
+    return { ok: true, changed: true }
+  },
+  test_credential: async (name: string) => { credentialCalls.push(['test', name]); return { ok: true } },
   get_ai_provider_settings: async () => ({ ok: true, settings: {
-    provider: 'Gemini', selected_model: '', fallback_model: '', presets: [], credential: credentials[1],
+    provider: 'Gemini', selected_model: aiStatus.model, fallback_model: '', presets: [], credential: credentials[1],
   } }),
   get_ai_language_settings: async () => {
     if (query.has('languageLoadError')) return { ok: false, error: 'AI language settings are unavailable.' }

@@ -51,8 +51,8 @@ const destinations = [
     ['Blocked AI users', 'ai-blocked-users'], ['Shared instructions', 'ai-shared-instructions'],
   ] },
   { section: 'Settings', children: [
-    ['Desktop behavior', 'desktop-settings'], ['Twitch connection', 'twitch-settings'],
-    ['Credentials', 'credential-settings'], ['Data & diagnostics', 'profile-location-settings'],
+    ['Twitch connection', 'twitch-settings'], ['Gemini API key', 'credential-settings'],
+    ['Desktop behavior', 'desktop-settings'], ['Data & diagnostics', 'profile-location-settings'],
   ] },
 ]
 
@@ -119,7 +119,7 @@ test('existing cross-page setup actions expand Settings and scroll only after it
   await page.getByRole('button', { name: 'Add Gemini key', exact: true }).click()
   await expect(nav.locator('#nav-AI')).toBeHidden()
   await expect(nav.locator('#nav-Settings')).toBeVisible()
-  await expect(nav.getByRole('button', { name: 'Credentials', exact: true })).toHaveAttribute('aria-current', 'location')
+  await expect(nav.getByRole('button', { name: 'Gemini API key', exact: true })).toHaveAttribute('aria-current', 'location')
   await expect.poll(() => page.evaluate(() => Reflect.get(window, 'navigationScrolls').at(-1))).toEqual({ id: 'credential-settings', hidden: false, loading: false })
   await expect(page.locator('#credential-settings')).toBeInViewport()
 })

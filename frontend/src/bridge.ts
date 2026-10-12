@@ -26,6 +26,12 @@ export function twitchConnectionLabel(state: TwitchConnectionState): string {
   }
 }
 
+export function twitchAuthorizationLabel(state: TwitchConnectionState, tokenCacheAvailable: boolean): string {
+  if (state === 'connected') return 'Verified for this connection'
+  if (state === 'auth_required') return 'Required'
+  return tokenCacheAvailable ? 'Not verified (token cache found)' : 'Not verified'
+}
+
 export interface CommandInfo {
   name: string
   aliases: string[]

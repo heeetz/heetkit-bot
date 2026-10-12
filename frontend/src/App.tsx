@@ -6,6 +6,7 @@ import {
   type CredentialInfo,
   type LogEntry,
   type TwitchConnectionSettings,
+  twitchAuthorizationLabel,
   twitchConnectionLabel,
   waitForBridge,
 } from './bridge'
@@ -45,9 +46,9 @@ const subsections: Partial<Record<Section, { label: string; targetId: string }[]
     { label: 'Shared instructions', targetId: 'ai-shared-instructions' },
   ],
   Settings: [
-    { label: 'Desktop behavior', targetId: 'desktop-settings' },
     { label: 'Twitch connection', targetId: 'twitch-settings' },
-    { label: 'Credentials', targetId: 'credential-settings' },
+    { label: 'Gemini API key', targetId: 'credential-settings' },
+    { label: 'Desktop behavior', targetId: 'desktop-settings' },
     { label: 'Data & diagnostics', targetId: 'profile-location-settings' },
   ],
 }
@@ -126,15 +127,36 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
   }, [])
 
   const statusLabel = status ? (status.running ? 'Running' : 'Stopped') : 'Loading…'
+  const twitchCredential = setup?.credentials.find(
+    (credential) => credential.name === 'twitch_client_secret',
+  )
+  const twitchTargetReady = Boolean(
+    setup?.twitch.target_channel.trim() && setup.twitch.target_channel_user_id.trim()
+      && setup.twitch.client_id.trim() && setup.twitch.bot_username.trim() && setup.twitch.bot_user_id.trim(),
+  )
+  const nextTwitchStep = !setup
+    ? 'Open Settings to review Twitch setup.'
+    : !twitchTargetReady || !twitchCredential?.configured
+      ? 'Complete Twitch connection in Settings, save the details and secret, then restart the application.'
+      : setup.twitch.requires_restart
+        ? 'Restart the application to apply the saved client ID, bot identity or secret.'
+        : status?.twitch_connection_state === 'auth_required'
+          ? status.running
+            ? 'Select Authorize Twitch and sign in as the configured bot account.'
+            : 'Start Bot again, then select Authorize Twitch as the configured bot account.'
+          : setup.twitch.requires_reconnect
+            ? 'Use Save & reconnect in Settings to switch the running bot, or Save & apply while stopped.'
+            : status?.twitch_connection_state === 'connected'
+              ? 'Connected to Twitch chat. No connection action is required.'
+              : status?.twitch_connection_state === 'connecting'
+                ? 'Wait for Twitch to connect or request authorization.'
+                : status?.twitch_connection_state === 'reconnecting'
+                  ? 'Connection lost. TwitchIO is reconnecting automatically; check Logs if it does not recover.'
+                  : status?.twitch_connection_state === 'failed'
+                    ? 'Check Logs, then Start Bot again. If the session is still running, stop it first.'
+                    : 'Select Start Bot. Authorize Twitch if prompted; saved tokens are checked on connection.'
   const setupTasks: SetupTask[] = []
   if (setup) {
-    const twitchCredential = setup.credentials.find(
-      (credential) => credential.name === 'twitch_client_secret',
-    )
-    const twitchTargetReady = Boolean(
-      setup.twitch.target_channel.trim() && setup.twitch.target_channel_user_id.trim()
-        && setup.twitch.client_id.trim() && setup.twitch.bot_username.trim() && setup.twitch.bot_user_id.trim(),
-    )
     if (!twitchTargetReady || !twitchCredential?.configured) {
       setupTasks.push({
         title: 'Configure Twitch',
@@ -146,15 +168,16 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
     } else if (setup.twitch.requires_restart) {
       setupTasks.push({
         title: 'Restart to apply Twitch setup',
-        description: 'The saved client ID or bot identity is pending. Restart the application before connecting.',
+        description: 'The saved client ID, bot identity or secret is pending. Restart the application before connecting.',
         action: 'Review setup',
         section: 'Settings',
         targetId: 'twitch-settings',
       })
-    } else if (!setup.twitch.oauth_token_available && !status?.twitch_connected) {
+    } else if (status?.twitch_connection_state === 'auth_required'
+      || (!setup.twitch.oauth_token_available && !status?.twitch_connected)) {
       setupTasks.push({
         title: 'Authorize Twitch',
-        description: 'Start the bot to complete Twitch authorization, or review the connection settings first.',
+        description: 'Start Bot, wait for Authorization required, then select Authorize Twitch as the configured bot account.',
         action: 'Review Twitch',
         section: 'Settings',
         targetId: 'twitch-settings',
@@ -194,11 +217,11 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
       <article className="card dashboard-hero">
         <div className="dashboard-hero-status">
           <span className={`status-dot ${status?.running ? 'online' : ''}`} />
-          <div><p className="label">BOT STATUS</p><h2>{statusLabel}</h2></div>
+          <div><p className="label">BOT SESSION</p><h2>{statusLabel}</h2><p className="section-copy">Running means the session has started. Check Twitch connection below for chat readiness.</p></div>
         </div>
         <button
           className={status?.running ? 'danger' : 'primary'}
-          disabled={!status || Boolean(busy)}
+          disabled={!status || Boolean(busy) || (!status.running && Boolean(setup?.twitch.requires_restart))}
           onClick={() => onChangeBotState(!status?.running)}
         >
           {busy === 'bot' ? 'Working…' : status?.running ? 'Stop Bot' : 'Start Bot'}
@@ -238,19 +261,12 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
           <h3 className={status?.twitch_connected ? 'success-text' : ''}>
             {status ? twitchConnectionLabel(status.twitch_connection_state) : 'Loading…'}
           </h3>
-          <p>{status?.twitch_connection_state === 'reconnecting'
-            ? 'TwitchIO is restoring the chat connection automatically.'
-            : status?.twitch_connection_state === 'auth_required'
-              ? status.running
-                ? 'Authorize the configured bot account in your browser.'
-                : 'Start Bot again, then authorize the configured bot account.'
-              : status?.twitch_connection_state === 'failed'
-                ? 'The session stopped. Check Logs, then start the bot again.'
-                : status?.running
-                  ? 'Connection state from the active bot session.'
-                  : 'Start the bot when you are ready to connect.'}</p>
+          <p><strong>Authorization:</strong> {status && setup
+            ? twitchAuthorizationLabel(status.twitch_connection_state, setup.twitch.oauth_token_available)
+            : 'Loading…'}</p>
+          <p><strong>Next step:</strong> {nextTwitchStep}</p>
           {status?.twitch_connection_state === 'auth_required' && (
-            <button className="primary" disabled={Boolean(busy) || !status.running} onClick={onAuthorizeTwitch}>
+            <button className="primary" disabled={Boolean(busy) || !status.running || Boolean(setup?.twitch.requires_restart)} onClick={onAuthorizeTwitch}>
               {busy === 'twitch:authorize' ? 'Opening…' : 'Authorize Twitch'}
             </button>
           )}
@@ -270,6 +286,9 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
             <div><p className="label">AI RUNTIME</p><h3>{aiStatus?.model || setup?.aiProvider.selected_model || 'Not configured'}</h3></div>
             <span className="mini-badge">{aiStatus?.active_personality || 'Not selected'}</span>
           </div>
+          <p><strong>AI availability:</strong> {aiStatus
+            ? aiStatus.available ? 'Configured for requests' : 'Unavailable · Gemini setup is optional'
+            : 'Loading…'}</p>
           <div className="dashboard-switches">
             <Switch
               checked={aiStatus?.enabled ?? false}
@@ -289,6 +308,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
             </Switch>
           </div>
           <p className="setting-effect">!ask enabled state is saved immediately across restarts and shared with AI and Commands.</p>
+          <p className="setting-effect">Filter Tester works while stopped. AI Playground also works while stopped with Gemini configured.</p>
         </article>
       </div>
     </section>

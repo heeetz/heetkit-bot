@@ -52,10 +52,10 @@ Windows 10/11 x64 is the primary supported platform.
 ## Getting started
 
 1. Install HeetKit or extract the portable build.
-2. Connect a Twitch Developer application and choose the bot account and target channel.
-3. Authorize the bot account through Twitch.
-4. Optionally add a Gemini API key to enable AI chat.
-5. Start the bot.
+2. In Settings, save the Twitch application details, client secret, bot account and target channel, then restart HeetKit.
+3. Select **Start Bot** on Dashboard, then **Authorize Twitch** as the configured bot account when prompted.
+4. Wait for **Connected**. Session **Running** alone does not mean Twitch chat is connected.
+5. Optionally add a Gemini API key to enable AI chat.
 
 New to Twitch applications or Gemini API keys?
 

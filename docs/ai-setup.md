@@ -16,8 +16,8 @@ credential that lets HeetKit send requests to Google's Gemini service.
    Google's [API key guide](https://ai.google.dev/gemini-api/docs/api-key) covers the current steps.
 4. Copy the key. Treat it like a password: never share it, post it in chat, commit it to
    Git or include it in screenshots.
-5. In HeetKit, open **Settings → Credentials**. Under **Gemini API key**, paste it
-   into **Replacement value** and select **Replace**, even for the first key. HeetKit
+5. In HeetKit, open **Settings → Gemini API key**. Paste it into **New value** and
+   select **Add key**. For an existing key, use **Replacement value → Replace key**. HeetKit
    stores it securely through your operating system. It applies immediately; no restart
    is needed.
 6. Select **Test** beside the credential to check access with Google. This verifies the
@@ -27,8 +27,8 @@ credential that lets HeetKit send requests to Google's Gemini service.
 
 Response Language, Personalities and Profile Instructions start collapsed. Select
 their headers to expand them, or use the AI sidebar shortcuts to open and scroll to
-a section. Collapsing keeps unsaved edits. **Settings → Credentials** similarly
-opens the collapsed Provider Credentials section.
+a section. Collapsing keeps unsaved edits. **Settings → Gemini API key** similarly
+opens the collapsed key section; the Twitch client secret stays under Twitch connection.
 
 7. Open the **AI** page. Under **Models and fallback**, optionally choose a **Selected model**
    and **Fallback model**, then **Save models**. Use the supplied choices or **Discover

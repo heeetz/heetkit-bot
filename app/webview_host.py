@@ -361,6 +361,7 @@ class WebUIBridge:
         self._log_buffer = log_buffer or get_recent_log_buffer()
         self._app_settings = app_settings
         self._credential_manager = credential_manager
+        self._twitch_secret_requires_restart = False
         self._profile_root = RuntimePaths.default().root.resolve()
         # Owned exclusively by the backend loop; one ephemeral local request.
         self._playground_request_id: str | None = None
@@ -582,10 +583,10 @@ class WebUIBridge:
                 application.settings.validate_twitch_configuration()
             except TwitchConfigurationError as error:
                 return {"ok": False, "error": str(error)}
-            if self._app_settings is not None and self._twitch_identity_requires_restart(
+            if self._app_settings is not None and self._twitch_setup_requires_restart(
                 self._app_settings.snapshot().twitch
             ):
-                return {"ok": False, "error": "Restart the application to apply the saved Twitch client ID and bot identity."}
+                return {"ok": False, "error": "Restart the application to apply the saved Twitch client ID, bot identity or secret."}
             try:
                 if application.services.twitch is None:
                     return {"ok": False, "error": "Twitch authorization is not ready."}
@@ -1408,7 +1409,7 @@ class WebUIBridge:
                 "client_id": local.client_id or getattr(application.settings, "twitch_client_id", ""),
                 "bot_username": local.bot_username or application.settings.twitch_bot_username,
                 "bot_user_id": local.bot_user_id or application.settings.twitch_bot_user_id,
-                "requires_restart": self._twitch_identity_requires_restart(local),
+                "requires_restart": self._twitch_setup_requires_restart(local),
                 "running": runtime_state.status()[0],
                 "connected": runtime_state.twitch_connected,
                 "oauth_token_available": Path(
@@ -1463,12 +1464,12 @@ class WebUIBridge:
         )
         return {
             "ok": True, "requires_reconnect": requires_reconnect,
-            "requires_restart": self._twitch_identity_requires_restart(updated.twitch),
+            "requires_restart": self._twitch_setup_requires_restart(updated.twitch),
         }
 
-    def _twitch_identity_requires_restart(self, local: TwitchSettings) -> bool:
+    def _twitch_setup_requires_restart(self, local: TwitchSettings) -> bool:
         active = self._backend.application.settings
-        return any(
+        return self._twitch_secret_requires_restart or any(
             value is not None and value != getattr(active, f"twitch_{name}", "")
             for name, value in (
                 ("client_id", local.client_id), ("bot_username", local.bot_username),
@@ -1541,8 +1542,8 @@ class WebUIBridge:
             return {"ok": False, "error": "Desktop settings are not configured."}
         application = self._backend.application
         local = self._app_settings.snapshot().twitch
-        if self._twitch_identity_requires_restart(local):
-            return {"ok": False, "error": "Restart the application to apply the saved Twitch client ID and bot identity."}
+        if self._twitch_setup_requires_restart(local):
+            return {"ok": False, "error": "Restart the application to apply the saved Twitch client ID, bot identity or secret."}
         channel = local.channel or application.settings.twitch_channel
         channel_user_id = (
             local.channel_user_id or application.settings.twitch_channel_user_id
@@ -1716,6 +1717,8 @@ class WebUIBridge:
                 self._refresh_gemini_credential(), operation="apply_gemini_credential",
                 timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
             )
+        else:
+            self._twitch_secret_requires_restart = True
 
     def replace_credential(self, name: object, value: object) -> dict[str, object]:
         if self._credential_manager is None:
@@ -1752,7 +1755,8 @@ class WebUIBridge:
         try:
             parsed_name = self._credential_manager.parse_name(name)
             removed = self._credential_manager.remove(parsed_name.value)
-            self._apply_credential_change(parsed_name)
+            if removed or parsed_name is CredentialName.GEMINI_API_KEY:
+                self._apply_credential_change(parsed_name)
         except BridgeOperationTimedOut:
             return {"ok": False, "error": "Credential removed. Restart to apply the fallback; the backend timed out."}
         except ValueError as error:
@@ -1834,6 +1838,10 @@ class WebUIBridge:
         }
 
     def start_bot(self) -> dict[str, object]:
+        if self._app_settings is not None and self._twitch_setup_requires_restart(
+            self._app_settings.snapshot().twitch
+        ):
+            return {"ok": False, "changed": False, "error": "Restart the application to apply the saved Twitch client ID, bot identity or secret."}
         try:
             started = self._wait_for_backend(
                 self._backend.bot_runtime.start_bot(),
