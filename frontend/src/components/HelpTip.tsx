@@ -16,7 +16,7 @@ export default function HelpTip({ label, children, className = '' }: HelpTipProp
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const triggerHovered = useRef(false)
   const tooltipHovered = useRef(false)
-  const focused = useRef(false)
+  const keyboardFocused = useRef(false)
   const dismissed = useRef(false)
   const [open, setOpen] = useState(false)
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
@@ -47,7 +47,7 @@ export default function HelpTip({ label, children, className = '' }: HelpTipProp
     clearClose()
     closeTimer.current = setTimeout(() => {
       closeTimer.current = null
-      if (!focused.current && !triggerHovered.current && !tooltipHovered.current) {
+      if (!keyboardFocused.current && !triggerHovered.current && !tooltipHovered.current) {
         setOpen(false)
         setPosition(null)
       }
@@ -137,7 +137,7 @@ export default function HelpTip({ label, children, className = '' }: HelpTipProp
           dismissed.current = false
           clearClose()
           clearHover()
-          if (!focused.current) {
+          if (!keyboardFocused.current) {
             hoverTimer.current = setTimeout(() => {
               hoverTimer.current = null
               if (triggerHovered.current && !dismissed.current) setOpen(true)
@@ -149,12 +149,15 @@ export default function HelpTip({ label, children, className = '' }: HelpTipProp
           clearHover()
           scheduleClose()
         }}
-        onFocus={() => {
-          focused.current = true
+        onPointerDown={() => {
+          keyboardFocused.current = false
+        }}
+        onFocus={(event) => {
+          keyboardFocused.current = event.currentTarget.matches(':focus-visible')
           show()
         }}
         onBlur={() => {
-          focused.current = false
+          keyboardFocused.current = false
           scheduleClose()
         }}
         onClick={(event) => {

@@ -15,6 +15,8 @@ Expandable headers use a chevron on the right. Select the header, or focus it an
 press Enter or Space, to open or close it. Question-mark buttons beside labels give
 extra help: hover briefly, focus with the keyboard, or select one to read it. Escape
 closes the help; using help in a header does not open or close that section.
+Mouse-opened help closes shortly after the pointer leaves both the button and its
+text. Keyboard-opened help stays available until focus moves away or Escape is pressed.
 Setup steps, errors, unsaved changes and reset/delete consequences remain visible.
 
 ## Built-in commands

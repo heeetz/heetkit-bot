@@ -560,8 +560,8 @@ td { color: var(--text); }
 .accordion-caret { position: absolute; right: 16px; top: calc(50% - 10px); transform: rotate(0deg); transition: transform 140ms ease; }
 .accordion-trigger[aria-expanded="true"] .accordion-caret { transform: rotate(180deg); }
 .accordion-content { padding: var(--space-4); border-top: 1px solid var(--separator); }
-.help-trigger { position: relative; z-index: 3; pointer-events: auto; flex: 0 0 auto; display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 1px solid var(--input-border); border-radius: 50%; color: var(--text); background: var(--panel); font-size: 14px; font-weight: 700; line-height: 1; cursor: help; }
-.help-trigger:hover { background: var(--hover); }
+.help-trigger { position: relative; z-index: 3; pointer-events: auto; flex: 0 0 auto; display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 1px solid var(--separator); border-radius: 50%; color: var(--muted); background: transparent; font-size: 14px; font-weight: 500; line-height: 1; cursor: help; }
+.help-trigger:hover, .help-trigger:focus-visible { color: var(--text); border-color: var(--input-border); background: var(--hover); }
 .help-tooltip { z-index: 1100; padding: var(--space-3); border: 1px solid var(--input-border); border-radius: 8px; background: var(--panel); color: var(--text); font-size: 13px; font-weight: 400; line-height: 1.5; overflow-wrap: anywhere; }
 button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 h2 { font-size: 20px; }

@@ -62,6 +62,64 @@ test('hover waits 900 ms and the pointer can enter the help content', async ({ p
   await expect(tooltip).toHaveCount(0)
 })
 
+test('pointer-opened help closes after leaving even when its button remains focused', async ({ page }) => {
+  for (const keyboardFirst of [false, true]) {
+    await page.goto('/tests/fixture.html?configured')
+    const help = page.getByRole('button', { name: 'Help: Bot session', exact: true })
+    if (keyboardFirst) {
+      await page.keyboard.press('Tab')
+      await help.focus()
+      await expect(page.getByRole('tooltip')).toBeVisible()
+    }
+    await help.click()
+    await expect(help).toBeFocused()
+    await expect(page.getByRole('tooltip')).toBeVisible()
+    await page.clock.install()
+    await page.getByRole('tooltip').hover()
+    await page.clock.runFor(300)
+    await expect(page.getByRole('tooltip')).toBeVisible()
+    await page.mouse.move(1, 1)
+    await page.clock.runFor(151)
+    await expect(page.getByRole('tooltip')).toHaveCount(0)
+    await expect(help).toBeFocused()
+    await expect(help).not.toHaveAttribute('aria-describedby')
+    // A mouse-focused button still supports delayed hover after auto-dismissal.
+    await help.hover()
+    await page.clock.runFor(900)
+    await expect(page.getByRole('tooltip')).toBeVisible()
+    await page.mouse.move(1, 1)
+    await page.clock.runFor(151)
+    await expect(page.getByRole('tooltip')).toHaveCount(0)
+  }
+})
+
+test('keyboard help retains focus behavior while idle icons stay muted at the same size', async ({ page }) => {
+  await page.goto('/tests/fixture.html?configured')
+  const help = page.getByRole('button', { name: 'Help: Bot session', exact: true })
+  await expect(help).toHaveCSS('color', 'rgb(156, 163, 175)')
+  await expect(help).toHaveCSS('border-color', 'rgb(55, 65, 81)')
+  await expect(help).toHaveCSS('font-weight', '500')
+  await expect(help).toHaveCSS('width', '24px')
+  await expect(help).toHaveCSS('height', '24px')
+  await page.keyboard.press('Tab')
+  await help.focus()
+  await expect(page.getByRole('tooltip')).toBeVisible()
+  await expect(help).toHaveCSS('color', 'rgb(243, 244, 246)')
+  await page.clock.install()
+  await help.hover()
+  await page.mouse.move(1, 1)
+  await page.clock.runFor(1000)
+  await expect(page.getByRole('tooltip')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
+  await help.press('Tab')
+  await help.press('Shift+Tab')
+  await expect(page.getByRole('tooltip')).toBeVisible()
+  await help.press('Tab')
+  await page.clock.runFor(151)
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
+})
+
 for (const width of [1180, 390, 320]) {
   test(`help escapes clipping and stays within ${width}px viewport edges`, async ({ page }) => {
     await page.setViewportSize({ width, height: 620 })
