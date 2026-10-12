@@ -101,7 +101,18 @@ databases, backups and private defaults must never become build inputs or releas
 Open **Actions → Windows build → Run workflow** to start a manual build, or inspect the
 run for a `main` push. CI uses `windows-2022`, the pinned Python/Node toolchains and a
 SHA-256-verified official Inno Setup download. It requires no personal secrets or profile
-data, and dependency caching is disabled.
+data. Only pip/npm dependency downloads are cached, keyed to
+`packaging/windows/requirements.txt` and `frontend/package-lock.json` respectively.
+Every run still installs Python dependencies into clean environments and runs `npm ci`;
+virtual environments, `node_modules`, build trees, release artifacts and profiles are
+never cached. Frontend tests reuse installed Microsoft Edge at Playwright's standard
+Windows locations, installing it only when missing; the browser channel remains `msedge`.
+
+Artifact transfer uses the Node-24-native
+[upload-artifact v6](https://github.com/actions/upload-artifact/releases/tag/v6.0.0) and
+[download-artifact v7](https://github.com/actions/download-artifact/releases/tag/v7.0.0)
+actions. These retain the existing archive/download behavior and validation; the newer
+download v8 changes digest-failure defaults and is outside this optimization.
 
 CI runs focused Python packaging/prerequisite/profile-isolation tests, the existing
 standalone builder, frontend tests in Edge and the installer builder. After a successful
