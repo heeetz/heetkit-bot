@@ -165,6 +165,8 @@ test('Filter Tester keeps active and draft evaluation isolated and sends drafts 
   await sample.fill('allowed sample')
   await tester.getByRole('button', { name: 'Test sample' }).click()
   await expect(tester.locator('.filter-test-result')).toContainText('ALLOW')
+  await expect(tester.locator('.filter-test-result')).toContainText('User filters passed')
+  await expect(tester.locator('.filter-test-result')).toContainText('Protected AI safety may still block')
   expect((await calls(page))[0]).toEqual(['test_filters', 'allowed sample', 'active', null])
 
   const words = await expand(page, 'words')
@@ -173,6 +175,7 @@ test('Filter Tester keeps active and draft evaluation isolated and sends drafts 
   await sample.fill('blocked word')
   await tester.getByRole('button', { name: 'Test sample' }).click()
   await expect(tester.locator('.filter-test-result')).toContainText('BLOCK')
+  await expect(tester.locator('.filter-test-result')).toContainText('User filter matched')
   await expect(tester.locator('.filter-test-result')).toContainText('Blocked words')
   await expect(tester.locator('.filter-test-result code')).toHaveText('alpha')
   expect((await calls(page))[1]).toEqual(['test_filters', 'blocked word', 'draft', {
@@ -197,7 +200,9 @@ test('Filter Tester renders backend invalid-draft, timeout, and rejected-request
   await tester.getByRole('button', { name: 'Test sample' }).click()
   const timeout = tester.locator('.filter-test-result')
   await expect(timeout).toContainText('BLOCK')
-  await expect(timeout).toContainText('Evaluation timed out.')
+  await expect(timeout).toContainText('Regex timeout')
+  await expect(timeout).toContainText('Regex evaluation timed out.')
+  await expect(timeout).toContainText('Protected AI safety was not evaluated')
   await expect(timeout).toContainText('no rule is claimed as a match')
   await expect(timeout).not.toContainText('Category')
   await expect(timeout).not.toContainText('Editable rule')
@@ -278,10 +283,17 @@ test('Filter Tester stays unavailable while Apply changes the active rules', asy
   expect((await calls(page)).filter((call) => call[0] === 'test_filters')).toHaveLength(1)
 })
 
-for (const width of [1280, 390]) {
+for (const width of [1280, 900, 390, 320]) {
   test(`large multiline editors stay compact inside their cards at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 })
     await page.goto('/tests/filters.fixture.html?large')
+    await expect(page.getByRole('heading', { name: 'Bot filters', exact: true })).toBeVisible()
+    await expect(page.locator('.filters-intro')).toContainText('They do not delete Twitch messages or ban users')
+    const tester = page.locator('#filter-tester')
+    expect(await tester.evaluate((element) => Boolean(element.compareDocumentPosition(document.getElementById('filters-words')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true)
+    await expect(tester).toContainText('without changing rules')
+    await expect(tester).toContainText('Protected AI safety is separate and is not tested here')
+    await expect(card(page, 'patterns').getByText('Advanced', { exact: true })).toBeVisible()
     const words = await expand(page, 'words')
     const phrases = await expand(page, 'phrases')
     await expect(words.locator('textarea')).toHaveCount(1)
@@ -298,6 +310,7 @@ for (const width of [1280, 390]) {
       expect(bounds.x).toBeGreaterThanOrEqual(containerBounds.x)
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(containerBounds.x + containerBounds.width + 1)
     }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
     await page.screenshot({ path: `node_modules/.tmp/filters-${width}.png`, fullPage: true })
   })
 }

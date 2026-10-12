@@ -487,8 +487,9 @@ td { color: #c6cfdf; }
   .command-identity-fields { grid-template-columns: 1fr; }
   .factory-command-row { align-items: flex-start; flex-wrap: wrap; }
   .command-action-group { min-width: 0; }
-  .command-action-footer { gap: 8px; }
-  .command-action-footer .command-action-group { display: grid; grid-template-columns: repeat(2, max-content); justify-content: end; }
+  .command-action-footer, .command-response-footer { align-items: stretch; flex-direction: column; gap: 8px; }
+  .command-action-footer .command-action-group { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); justify-content: end; column-gap: 15px; }
+  .command-action-footer .command-remove { margin-right: 0; }
   .command-action-footer .command-action-group > button:last-child { grid-column: 2; }
   .custom-command-row, .custom-response-heading { align-items: flex-start; flex-direction: column; }
   .custom-command-fields { grid-template-columns: 1fr; }

@@ -329,7 +329,7 @@ export default function CommandsPage({ active }: CommandsPageProps) {
     }
     if (action === 'reset' && !await confirmAction({
       title: `Reset !${command.name} settings?`,
-      description: 'Replace saved settings with factory defaults. The command message is kept.',
+      description: 'Reset only this command’s settings to factory defaults, including its enabled state. Its saved message is kept.',
       danger: true,
     })) {
       return
@@ -359,7 +359,7 @@ export default function CommandsPage({ active }: CommandsPageProps) {
       await loadCommands(command.name, 'settings')
       setNotice(action === 'save'
           ? `Saved !${command.name}.`
-          : `Reset !${command.name} to built-in defaults.`)
+          : `Reset !${command.name} settings to built-in defaults. Its message was kept.`)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Command settings could not be updated.')
     } finally {
@@ -556,16 +556,16 @@ export default function CommandsPage({ active }: CommandsPageProps) {
   const runFactoryAction = async (action: 'remove' | 'restore' | 'resetAll', command?: CommandInfo) => {
     const hasDirtyDraft = command && drafts[command.name] && draftIsDirty(command, drafts[command.name])
     const request: CommandConfirmation = action === 'remove' ? {
-      title: `Remove !${command!.name}?`,
+      title: `Remove and disable !${command!.name}?`,
       description: `Disable and hide this built-in command. You can restore it from Factory commands.${hasDirtyDraft ? ' Unsaved changes will be discarded.' : ''}`,
       danger: true,
     } : action === 'restore' ? {
-      title: `Restore !${command!.name}?`,
-      description: `Restore factory settings and re-enable the command. Its saved message is kept.${hasDirtyDraft ? ' Unsaved changes will be discarded.' : ''}`,
+      title: `Restore defaults and enable !${command!.name}?`,
+      description: `Replace this command’s settings with factory defaults and enable it. Its saved message is kept.${hasDirtyDraft ? ' Unsaved changes will be discarded.' : ''}`,
       danger: true,
     } : {
       title: 'Restore all factory defaults?',
-      description: 'Replace all built-in settings and messages with factory defaults. Custom commands are kept.',
+      description: 'Replace all built-in settings and messages with factory defaults, including enabled states. Removed commands return. Unsaved built-in drafts will be discarded. Custom commands are kept.',
       danger: true,
     }
     if (!await confirmAction(request)) return
@@ -590,8 +590,8 @@ export default function CommandsPage({ active }: CommandsPageProps) {
       await loadCommands(command?.name)
       if (command) setExpandedCommands((current) => ({ ...current, [command.name]: false }))
       setNotice(action === 'remove'
-        ? `Removed !${command!.name} from active commands. Restore it from Factory commands.`
-        : action === 'restore' ? `Restored !${command!.name} factory settings.` : 'Restored all factory command settings and messages.')
+        ? `Removed and disabled !${command!.name}. Restore it from Factory commands.`
+        : action === 'restore' ? `Restored !${command!.name} default settings and enabled it. Its saved message was kept.` : 'Restored all factory command settings and messages.')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Factory command could not be updated.')
     } finally {
@@ -679,7 +679,7 @@ export default function CommandsPage({ active }: CommandsPageProps) {
             </label>
           </div>
           {canEditIdentity(command) && <div className="command-identity-fields">
-            <label className="form-field">Display name
+            <label className="form-field">Name in UI
               <input disabled={busy} value={draft.displayName} maxLength={80} onChange={(event) => updateDraft(command.name, { displayName: event.target.value })} placeholder="Optional label" />
               <span className="custom-field-hint">Label only; command stays {data.command_prefix}{command.name}.</span>
             </label>
@@ -726,20 +726,21 @@ export default function CommandsPage({ active }: CommandsPageProps) {
             {!command.hidden && responsePool && responseDraft !== null && <div className="command-response-footer">
               <span className="command-action-hint">{isRandom ? 'Responses' : 'Message'}</span>
               <div className="command-action-group" role="group" aria-label={`${data.command_prefix}${command.name} response actions`}>
-                <button className="ghost" disabled={busy || (!responseDirty && !responsePool.has_saved_override && responsePool.saved)} onClick={() => void runResponseAction(command, 'reset')}>Reset</button>
+                <button className="ghost" disabled={busy || (!responseDirty && !responsePool.has_saved_override && responsePool.saved)} onClick={() => void runResponseAction(command, 'reset')}>{isRandom ? 'Reset responses' : 'Reset message'}</button>
                 <button className="primary" disabled={busy || (!responseDirty && responsePool.saved) || !responseValid} onClick={() => void runResponseAction(command, 'save')}>Save</button>
               </div>
             </div>}
             <div className="command-action-footer">
               <span className="command-action-hint">Settings</span>
               <div className="command-action-group" role="group" aria-label={`${data.command_prefix}${command.name} settings actions`}>
-                {!command.hidden && <button className="ghost command-remove" disabled={busy} onClick={() => void runFactoryAction('remove', command)}>Remove</button>}
-                <button className="secondary" disabled={busy} onClick={() => { setExpandedCommands((current) => ({ ...current, [command.name]: false })); builtinEditorToggles.current[command.name]?.focus() }}>Close</button>
-                <button className="ghost" disabled={busy || (!settingsDirty && !command.has_saved_override && command.saved)} onClick={() => void runAction(command, 'reset')}>Reset</button>
+                {!command.hidden && <button className="ghost command-remove" disabled={busy} onClick={() => void runFactoryAction('remove', command)}>Remove and disable</button>}
+                <button className="secondary" disabled={busy} onClick={() => { setExpandedCommands((current) => ({ ...current, [command.name]: false })); builtinEditorToggles.current[command.name]?.focus() }}>Collapse editor</button>
+                <button className="ghost" disabled={busy || (!settingsDirty && !command.has_saved_override && command.saved)} onClick={() => void runAction(command, 'reset')}>Reset settings</button>
                 <button className="primary" disabled={busy || (!settingsDirty && command.saved) || !perUserValid || !globalValid || !intervalValid} onClick={() => void runAction(command, 'save')}>Save</button>
               </div>
             </div>
           </div>
+          <p className="settings-hint">Collapse editor keeps your unsaved draft. Settings and messages are saved or reset separately.</p>
         </div>}
       </article>
     )
@@ -761,7 +762,7 @@ export default function CommandsPage({ active }: CommandsPageProps) {
           <h2>Your commands</h2>
           <p className="section-copy">Create responses with template variables. Save applies changes immediately.</p>
         </div>
-        <button ref={customEditorToggle} className="primary" disabled={!customData || busyCustom} aria-expanded={Boolean(customDraft)} aria-controls="custom-command-editor" onClick={() => void replaceCustomDraft(customDraft ? null : newCustomDraft(customData?.permissions[0] ?? 'USER'))}>{customDraft ? 'Hide editor' : 'New command'}</button>
+        <button ref={customEditorToggle} className="primary" disabled={!customData || busyCustom} aria-expanded={Boolean(customDraft)} aria-controls="custom-command-editor" onClick={() => void replaceCustomDraft(customDraft ? null : newCustomDraft(customData?.permissions[0] ?? 'USER'))}>{customDraft ? 'Discard draft' : 'New command'}</button>
       </div>
       {customDraft && customData && (
         <div className="custom-command-editor" id="custom-command-editor">
@@ -848,7 +849,7 @@ export default function CommandsPage({ active }: CommandsPageProps) {
           </div>
           <div className="settings-actions custom-editor-actions">
             <button className="primary" disabled={busyCustom || (customDraft.responseMode === 'burst' && (parsedBurstCount(customDraft.burstCount) === null || parsedBurstInterval(customDraft.burstIntervalMs) === null))} onClick={() => void saveCustom()}>{busyCustom ? 'Saving…' : 'Save command'}</button>
-            <button className="secondary" disabled={busyCustom} onClick={() => void replaceCustomDraft(null)}>Close</button>
+            <button className="secondary" disabled={busyCustom} onClick={() => void replaceCustomDraft(null)}>Discard and close</button>
           </div>
         </div>
       )}
@@ -899,11 +900,11 @@ export default function CommandsPage({ active }: CommandsPageProps) {
       )}
       {data && <details className="factory-commands">
         <summary>Factory commands</summary>
-        <p className="section-copy">Restore removed commands or their original settings.</p>
+        <p className="section-copy">Individual restoration replaces settings with defaults and enables the command, keeping its saved message. Full restoration resets every built-in setting and message.</p>
         <div className="factory-command-list">
           {data.commands.filter((command) => !command.hidden).map((command) => <div className="factory-command-row" key={command.name}>
             <div><strong>{data.command_prefix}{command.name}</strong><span className="custom-field-hint">{command.removed ? 'Removed' : !command.enabled ? 'Disabled' : 'Active'}{command.has_saved_override ? ' · Customized settings' : ''}</span></div>
-            <button className="secondary" disabled={busyCommand !== '' || (!command.removed && !command.has_saved_override && command.saved)} onClick={() => void runFactoryAction('restore', command)}>Restore default command</button>
+            <button className="secondary" disabled={busyCommand !== '' || (!command.removed && !command.has_saved_override && command.saved)} onClick={() => void runFactoryAction('restore', command)}>Restore defaults and enable</button>
           </div>)}
         </div>
         <div className="settings-actions"><button className="ghost" disabled={busyCommand !== ''} onClick={() => void runFactoryAction('resetAll')}>Restore all factory defaults</button></div>

@@ -6,6 +6,8 @@ desktop control panel. Examples below use the default `!` prefix.
 Select **Commands**, **Filters**, **AI** or **Settings** in the sidebar to open that
 page and reveal its subsection shortcuts. A shortcut scrolls to the corresponding
 card and keeps the list open; selecting another page replaces the shortcuts.
+Shortcuts follow the page's block order, including **Filter Tester**, **Conversation
+memory** and **Blocked AI users**.
 Dashboard, Logs and About remain direct page links.
 
 ## Built-in commands
@@ -35,7 +37,7 @@ Gemini. `!uptime` measures the bot session, rather than the stream's uptime.
 
 Select **Edit** on a built-in command on **Commands** to edit its enabled state,
 permission and per-user/global cooldowns. Most commands also accept alternate
-aliases and a display label. The label does not rename the chat command: its original
+aliases and **Name in UI**. This label does not rename the chat command: its original
 name stays available. Enter up to ten comma-separated aliases; each is a single
 command word of at most 40 characters, without the prefix. Names and aliases are
 case-insensitive. Those already reserved by another built-in or custom command are
@@ -48,23 +50,27 @@ the separate **Administrative commands** section with fixed identities and no te
 template editor.
 
 - **Save** immediately applies the settings and keeps them across restarts.
-- **Reset** removes the saved settings override and restores the shipped settings.
-- **Close** collapses the editor while keeping unsaved input.
+- **Reset settings** removes this command's saved settings override and restores the
+  shipped settings, including its enabled state. Its message is kept.
+- **Collapse editor** keeps unsaved input for when you expand the command again.
 
 Expand **Fate** or **Tg** to edit their response text. Settings and messages have
-separate Reset and Save controls in the same bottom action area. Settings actions
-are right-aligned in the order Remove, Close, Reset, Save, with Remove separated
-from the other actions. Fate accepts one non-empty response per line; blank
+separate Save controls in the same bottom action area. **Reset responses** or **Reset
+message** restores only the text; other settings are kept. Settings actions appear in
+the order **Remove and disable**, **Collapse editor**, **Reset settings**, **Save**.
+Fate accepts one non-empty response per line; blank
 lines are ignored and commas stay in the text. Responses must fit within 450 UTF-8 bytes.
 Other built-ins keep their original behavior and show a note when their response
 cannot be edited as a text template. Editing settings never replaces the AI, weather,
 memory-erasure or other built-in implementation.
 
-**Remove** saves the command as disabled and hides it from the active collection.
+**Remove and disable** saves the command as disabled and hides it from the active collection.
 Its implementation is retained. Open **Factory commands** to discover the available
-defaults and select **Restore default command** to restore an individual command's
-settings. Its saved message remains unchanged. **Restore all factory defaults**
-restores every built-in setting and the Fate/Tg messages; custom commands are kept.
+defaults and select **Restore defaults and enable** to replace an individual
+command's settings with defaults and enable it. Its saved message is kept.
+**Restore all factory defaults** restores every built-in setting, enabled state and
+the Fate/Tg messages, returns removed commands and discards built-in drafts;
+custom commands are kept.
 These settings belong to the selected profile and survive a restart.
 
 ### Burst spacing
@@ -116,8 +122,8 @@ per-user/global cooldowns and a response mode. Custom command changes
 save immediately. Names and aliases use the same case-insensitive, single-word,
 40-character limit as built-ins, with at most ten aliases and no prefix in the editor.
 They cannot conflict with built-in commands.
-The top **New command** control becomes **Hide editor** while editing; **Close**
-is also available inside. Closing or switching commands asks to discard
+The top **New command** control becomes **Discard draft** while editing;
+**Discard and close** is also available inside. Discarding or switching commands asks to discard
 changes only when the draft was edited. A successful save closes the editor; a failed
 save retains the draft and shows the error. Commands use styled confirmations with
 Confirm and Cancel actions; Escape dismisses without executing. Built-in removal
@@ -155,9 +161,12 @@ commands with no interval setting retain simultaneous dispatch at 0 ms.
 
 ## Filters
 
-On **Filters**, expand a category to edit whole words, literal phrases or regular
+On **Filters**, **Bot filters** control bot processing: matching incoming messages
+are ignored by the bot and matching generated AI replies are blocked. These rules
+do not delete Twitch messages or ban users. Expand a category to edit whole words, literal phrases or regular
 expressions. Words and phrases use one non-empty rule per line, with surrounding
-whitespace trimmed; commas remain text. Regex rules have individual validation.
+whitespace trimmed; commas remain text. Regex is an advanced, collapsed category
+with individual validation and evaluation time limits.
 **Apply** changes the running session and **Save** keeps validated rules across restarts.
 New profiles start with empty filter rules. Filters apply to incoming chat and AI replies.
 
@@ -166,8 +175,10 @@ New profiles start with empty filter rules. Filters apply to incoming chat and A
 Use **Filter Tester** to check sample text without posting to Twitch or making an API
 request. Choose **Active filters** to test the rules currently used by the session, or
 **Unsaved draft** to test the editors exactly as shown without applying or saving them.
-The result is `ALLOW` or `BLOCK`; a block reports its category and editable rule when
-available. A regex timeout blocks safely without claiming a matched rule. Tests do not
+The result shows **User filters passed** (`ALLOW`), **User filter matched** (`BLOCK`)
+with its category and editable rule when available, or **Regex timeout** (`BLOCK`)
+without claiming a matched rule. Passing user filters does not guarantee an AI
+request or reply will pass protected AI safety. Tests do not
 change the active or saved rules and cover only editable global filters, not the separate
 protected AI safety policy.
 

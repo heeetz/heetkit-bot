@@ -28,18 +28,20 @@ const subsections: Partial<Record<Section, { label: string; targetId: string }[]
     { label: 'Built-in commands', targetId: 'builtin-commands' },
   ],
   Filters: [
+    { label: 'Filter Tester', targetId: 'filter-tester' },
     { label: 'Blocked words', targetId: 'filters-words' },
     { label: 'Blocked phrases', targetId: 'filters-phrases' },
     { label: 'Regex patterns', targetId: 'filters-patterns' },
   ],
   AI: [
     { label: 'Runtime', targetId: 'ai-runtime' },
+    { label: 'Conversation memory', targetId: 'ai-memory' },
     { label: 'Playground', targetId: 'ai-playground' },
-    { label: 'Blocked AI users', targetId: 'ai-blocked-users' },
     { label: 'Models and fallback', targetId: 'ai-models' },
     { label: 'Response language', targetId: 'ai-language' },
     { label: 'Personalities', targetId: 'ai-personalities' },
     { label: 'Profile instructions', targetId: 'ai-profile-instructions' },
+    { label: 'Blocked AI users', targetId: 'ai-blocked-users' },
     { label: 'Shared instructions', targetId: 'ai-shared-instructions' },
   ],
   Settings: [

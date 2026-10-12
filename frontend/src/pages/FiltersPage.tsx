@@ -25,17 +25,17 @@ interface FiltersPageProps {
 const categoryInfo: Record<FilterCategoryName, { label: string; description: string; empty: string }> = {
   words: {
     label: 'Blocked words',
-    description: 'Match individual words in incoming chat messages.',
+    description: 'Match individual words before bot processing and in generated AI replies.',
     empty: 'No blocked words configured.',
   },
   phrases: {
     label: 'Blocked phrases',
-    description: 'Match longer text snippets in incoming chat messages.',
+    description: 'Match literal text snippets before bot processing and in generated AI replies.',
     empty: 'No blocked phrases configured.',
   },
   patterns: {
     label: 'Regex patterns',
-    description: 'Match messages with Python regular expressions. Validation is performed by the backend.',
+    description: 'Advanced: match text with Python regular expressions. Python validates rules and limits evaluation time.',
     empty: 'No regex patterns configured.',
   },
 }
@@ -275,9 +275,9 @@ export default function FiltersPage({ active }: FiltersPageProps) {
       <section className="card filters-intro">
         <div className="section-heading">
           <div>
-            <p className="label">MESSAGE FILTERS</p>
-            <h2>Moderation rules</h2>
-            <p className="section-copy">Manage blocked words, phrases, and regex patterns. Apply changes to this session or save them for future launches.</p>
+            <p className="label">BOT PROCESSING</p>
+            <h2>Bot filters</h2>
+            <p className="section-copy">These rules stop matching messages from being processed by the bot and block matching AI replies. They do not delete Twitch messages or ban users. Start with words and phrases; regex is advanced.</p>
           </div>
           <span className="read-only-badge">{data ? 'Loaded' : 'Loading…'}</span>
         </div>
@@ -335,7 +335,7 @@ export default function FiltersPage({ active }: FiltersPageProps) {
           </label>
         </fieldset>
         <div className="filter-test-footer">
-          <p className="settings-hint">Tests editable global filters only. Protected AI safety is separate. This runs locally without Twitch or an API request.</p>
+          <p className="settings-hint">Tests user-editable bot filters only, without changing rules. Protected AI safety is separate and is not tested here. This runs locally without Twitch or an API request.</p>
           <button className="primary" type="button" disabled={testBusy || busy || !data} onClick={() => void runFilterTest()}>
             {testBusy ? 'Testing…' : 'Test sample'}
           </button>
@@ -344,18 +344,18 @@ export default function FiltersPage({ active }: FiltersPageProps) {
         {testResult && (
           <div className={`filter-test-result ${testResult.decision.toLowerCase()}${testResult.timed_out ? ' timed-out' : ''}`} role="status" aria-live="polite">
             <div className="filter-test-decision">
-              <span>Decision</span>
+              <span>{testResult.timed_out ? 'Regex timeout' : testResult.decision === 'ALLOW' ? 'User filters passed' : 'User filter matched'}</span>
               <strong>{testResult.decision}</strong>
             </div>
             {testResult.timed_out ? (
-              <p><strong>Evaluation timed out.</strong> The message was blocked safely; no rule is claimed as a match.</p>
+              <p><strong>Regex evaluation timed out.</strong> Bot processing was blocked safely; no rule is claimed as a match. Protected AI safety was not evaluated.</p>
             ) : testResult.decision === 'BLOCK' ? (
               <dl>
                 <div><dt>Category</dt><dd>{testResult.category ? categoryInfo[testResult.category].label : 'Not reported'}</dd></div>
                 <div><dt>Editable rule</dt><dd>{testResult.rule ? <code>{testResult.rule}</code> : 'Not available'}</dd></div>
               </dl>
             ) : (
-              <p>No editable global filter matched this sample.</p>
+              <p>No user-editable bot filter matched this sample. Protected AI safety may still block an AI request or reply.</p>
             )}
             <small>Tested {testResult.source === 'draft' ? 'unsaved draft rules' : 'active session filters'}.</small>
           </div>
@@ -383,6 +383,7 @@ export default function FiltersPage({ active }: FiltersPageProps) {
               >
                 <span>{info.label}</span>
                 <span className="filter-category-status">
+                  {name === 'patterns' && <span className="mini-badge">Advanced</span>}
                   <span className="read-only-badge">{count} {count === 1 ? 'rule' : 'rules'}</span>
                   {invalidCount > 0 && <span className="filter-invalid-label">{invalidCount} invalid</span>}
                   {category.load_error && <span className="filter-warning-label">File warning</span>}

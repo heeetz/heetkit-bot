@@ -40,17 +40,36 @@ test('the selected top-level page alone expands its submenu, and repeated clicks
 
 const destinations = [
   { section: 'Commands', children: [['Your commands', 'custom-commands'], ['Built-in commands', 'builtin-commands']] },
-  { section: 'Filters', children: [['Blocked words', 'filters-words'], ['Blocked phrases', 'filters-phrases'], ['Regex patterns', 'filters-patterns']] },
+  { section: 'Filters', children: [
+    ['Filter Tester', 'filter-tester'], ['Blocked words', 'filters-words'],
+    ['Blocked phrases', 'filters-phrases'], ['Regex patterns', 'filters-patterns'],
+  ] },
   { section: 'AI', children: [
-    ['Runtime', 'ai-runtime'], ['Playground', 'ai-playground'], ['Blocked AI users', 'ai-blocked-users'],
+    ['Runtime', 'ai-runtime'], ['Conversation memory', 'ai-memory'], ['Playground', 'ai-playground'],
     ['Models and fallback', 'ai-models'], ['Response language', 'ai-language'],
-    ['Personalities', 'ai-personalities'], ['Profile instructions', 'ai-profile-instructions'], ['Shared instructions', 'ai-shared-instructions'],
+    ['Personalities', 'ai-personalities'], ['Profile instructions', 'ai-profile-instructions'],
+    ['Blocked AI users', 'ai-blocked-users'], ['Shared instructions', 'ai-shared-instructions'],
   ] },
   { section: 'Settings', children: [
     ['Desktop behavior', 'desktop-settings'], ['Twitch connection', 'twitch-settings'],
     ['Credentials', 'credential-settings'], ['Data & diagnostics', 'profile-location-settings'],
   ] },
 ]
+
+for (const { section, children } of destinations) {
+  test(`${section} submenu follows the order of its page blocks`, async ({ page }) => {
+    const nav = page.getByRole('navigation', { name: 'Main navigation' })
+    await nav.getByRole('button', { name: section, exact: true }).click()
+    const submenu = nav.locator(`#nav-${section}`)
+    await expect(submenu.getByRole('button')).toHaveText(children.map(([label]) => label))
+    await expect.poll(async () => page.evaluate((targetIds) => targetIds.map((id, index) => {
+      if (index === targetIds.length - 1) return true
+      const current = document.getElementById(id)
+      const next = document.getElementById(targetIds[index + 1])
+      return Boolean(current && next && (current.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING))
+    }), children.map(([, id]) => id))).toEqual(children.map(() => true))
+  })
+}
 
 for (const { section, children } of destinations) {
   test(`${section} child controls scroll to their real subsections and keep the parent open`, async ({ page }) => {
@@ -67,10 +86,6 @@ for (const { section, children } of destinations) {
       if (['ai-language', 'ai-personalities', 'ai-profile-instructions', 'twitch-settings', 'credential-settings'].includes(id)) {
         await expect(page.locator(`#${id} .accordion-trigger`)).toHaveAttribute('aria-expanded', 'true')
         await expect.poll(() => page.evaluate(() => Reflect.get(window, 'navigationAccordionStates').at(-1))).toEqual({ id, open: 'true' })
-      }
-      if (id === 'ai-blocked-users') {
-        expect(await page.locator('#ai-profile-instructions').evaluate((element) => Boolean(element.compareDocumentPosition(document.getElementById('ai-blocked-users')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true)
-        expect(await page.locator('#ai-blocked-users').evaluate((element) => Boolean(element.compareDocumentPosition(document.getElementById('ai-shared-instructions')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true)
       }
       await expect(page.locator(`#${id}`)).toBeInViewport()
     }
@@ -174,6 +189,12 @@ test('parents and children work with Space, Enter, Tab and visible keyboard focu
   await expect(child).toHaveAttribute('aria-current', 'location')
   await expect(parent).toHaveAttribute('aria-expanded', 'true')
   await page.keyboard.press('Tab')
+  const memory = nav.getByRole('button', { name: 'Conversation memory', exact: true })
+  await expect(memory).toBeFocused()
+  await memory.press('Enter')
+  await expect(memory).toHaveAttribute('aria-current', 'location')
+  await expect(page.locator('#ai-memory')).toBeInViewport()
+  await page.keyboard.press('Tab')
   const playground = nav.getByRole('button', { name: 'Playground', exact: true })
   await expect(playground).toBeFocused()
   await playground.press('Enter')
@@ -193,16 +214,21 @@ test('dismissing a load error does not block navigation to the existing page car
   await expect(page.locator('#ai-profile-instructions')).toBeInViewport()
 })
 
-for (const width of [1280, 390]) {
-  test(`expanded navigation fits the existing layout at ${width}px`, async ({ page }) => {
+for (const width of [1280, 1080, 900, 760, 390, 320]) {
+  test(`new direct destinations navigate within the existing layout at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
     const nav = page.getByRole('navigation', { name: 'Main navigation' })
+    await nav.getByRole('button', { name: 'Filters', exact: true }).click()
+    await nav.getByRole('button', { name: 'Filter Tester', exact: true }).click()
+    await expect(page.locator('#filter-tester')).toBeInViewport()
     await nav.getByRole('button', { name: 'AI', exact: true }).click()
-    await nav.getByRole('button', { name: 'Profile instructions', exact: true }).click()
-    await expect(page.locator('#ai-profile-instructions')).toBeInViewport()
+    await nav.getByRole('button', { name: 'Conversation memory', exact: true }).click()
+    await expect(page.locator('#ai-memory')).toBeInViewport()
+    await nav.getByRole('button', { name: 'Blocked AI users', exact: true }).click()
+    await expect(page.locator('#ai-blocked-users')).toBeInViewport()
     if (width < 761) {
       const sidebarBounds = (await page.locator('.sidebar').boundingBox())!
-      await expect.poll(async () => (await page.locator('#ai-profile-instructions').boundingBox())!.y).toBeGreaterThanOrEqual(sidebarBounds.y + sidebarBounds.height)
+      await expect.poll(async () => (await page.locator('#ai-blocked-users').boundingBox())!.y).toBeGreaterThanOrEqual(sidebarBounds.y + sidebarBounds.height)
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
   })
