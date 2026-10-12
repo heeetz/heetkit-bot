@@ -89,13 +89,23 @@ Client ID, bot identity and client secret changes still require an application r
 to connect on the next launch; it defaults to off and is independent of **Start minimized**.
 
 Dashboard **Running** describes the bot session, which can be waiting for authorization
-or reconnecting. Check **Twitch connection**, **Authorization** and **Next step** separately:
-**Connecting** means startup is in progress; **Connected** means the chat connection is ready;
+or reconnecting. Its Start/Stop row is followed by Twitch connection, channel/bot account
+and session uptime panels, then AI controls. The question-mark help beside **Bot session**
+explains the difference between a running session and a ready chat connection.
+**Connecting** means startup is in progress; **Connected** means the chat connection is ready
+and needs no further connection action;
 **Reconnecting** means the connection was lost and TwitchIO is attempting recovery.
 **Authorization required** needs the configured bot account's approval. A token cache found
-while stopped, connecting or disconnected is **Not verified** until the connection succeeds.
-**Connection failed** points to Logs before another start. AI availability is separate and
-optional. Filter Tester and AI Playground can be used while stopped; Playground needs Gemini.
+while stopped, connecting or disconnected is **Not verified** until the connection succeeds;
+authorization details are in the **Twitch connection** help. **Connection failed** provides
+**Open Logs** and guidance before another start.
+
+A fresh profile shows one required Twitch setup step with **Configure Twitch** opening
+the correct Settings section. Pending application restarts and saved channel changes appear
+as separate notices; a healthy connection can still have a channel change waiting to apply.
+Gemini remains optional: commands-only users do not receive an optional AI setup checklist.
+**Manage AI** opens AI controls when needed. Filter Tester and AI Playground can be used
+while stopped; Playground needs Gemini.
 
 If connection fails, check that each login matches its numeric ID, the callback matches
 exactly, the bot has channel access and you authorized the bot account. Do not share your

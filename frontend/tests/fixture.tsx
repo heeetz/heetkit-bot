@@ -29,7 +29,7 @@ const twitch: TwitchConnectionSettings = {
   active_channel: configured ? 'testchannel' : '',
   active_channel_user_id: configured ? '200' : '',
   presets: [], selected_preset_id: null, active_preset_id: null,
-  requires_restart: query.has('restartRequired'), requires_reconnect: false,
+  requires_restart: query.has('restartRequired'), requires_reconnect: query.has('reconnectRequired'),
   running: sessionRunning, connected: initialConnection === 'connected',
   oauth_token_available: query.has('cachedToken'),
   oauth_callback_url: 'http://localhost:4343/oauth/callback',
@@ -101,7 +101,10 @@ const toggleCommands: CommandInfo[] = ['ask', 'ping'].map((name) => ({
   saved: true, has_saved_override: true,
 }))
 window.pywebview = { api: {
-  get_app_status: async () => status,
+  get_app_status: async () => {
+    if (query.has('statusDelay')) await new Promise((resolve) => window.setTimeout(resolve, 800))
+    return status
+  },
   get_commands: async () => ({ command_prefix: '!', permissions: ['USER', 'VIP', 'MODERATOR'], commands: query.has('askToggle') ? structuredClone(toggleCommands) : [] }),
   set_ai_enabled: async (enabled: boolean) => {
     aiCalls.push(['set_ai_enabled', enabled])
@@ -110,6 +113,12 @@ window.pywebview = { api: {
     aiStatus = { ...aiStatus, enabled }
     toggleCommands[0].enabled = enabled
     sessionStorage.setItem('askEnabled', JSON.stringify(enabled))
+    return { ok: true }
+  },
+  set_ai_memory_enabled: async (enabled: boolean) => {
+    aiCalls.push(['set_ai_memory_enabled', enabled])
+    if (query.has('memorySaveError')) return { ok: false, error: 'Could not save conversation memory setting.' }
+    aiStatus = { ...aiStatus, memory_enabled: enabled }
     return { ok: true }
   },
   save_command_settings: async (name: string, enabled: boolean, perUser: number, global: number, permission: string) => {
@@ -192,7 +201,9 @@ window.pywebview = { api: {
     opened.push('profile_folder')
     return query.has('folderOpenError') ? { ok: false, error: 'Could not open the profile folder in the system file manager.' } : { ok: true }
   },
-  get_twitch_settings: async () => ({ ok: true, settings: structuredClone(twitch) }),
+  get_twitch_settings: async () => query.has('setupError')
+    ? { ok: false, error: 'Synthetic Twitch setup load failure.' }
+    : { ok: true, settings: structuredClone(twitch) },
   update_twitch_settings: async (channel: string, channelId: string, presetId: string | null, clientId: string, botUsername: string, botId: string) => {
     twitchCalls.push(['save', channel, channelId, presetId, clientId, botUsername, botId])
     if (query.has('twitchSaveError')) return { ok: false, error: 'Twitch settings could not be saved.' }

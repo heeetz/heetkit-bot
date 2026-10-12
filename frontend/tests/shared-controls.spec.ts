@@ -153,7 +153,7 @@ test('required setup, unsaved drafts and full-reset consequences stay visible', 
   await expect(page.locator('#ai-profile-instructions .dirty-badge')).toHaveText('Edited')
   await expect(page.locator('#ai-profile-instructions .setting-effect')).toContainText('unsaved editor draft is not applied')
   await nav.getByRole('button', { name: 'Commands', exact: true }).click()
-  await page.getByText('Advanced: reset all built-ins', { exact: true }).click()
+  await page.locator('.advanced-command-reset > summary').click()
   await page.getByRole('button', { name: 'Restore all factory defaults', exact: true }).click()
   await expect(page.getByRole('dialog')).toContainText('Unsaved built-in drafts will be discarded')
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()

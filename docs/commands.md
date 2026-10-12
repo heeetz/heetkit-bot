@@ -72,7 +72,8 @@ memory or ban them from Twitch chat.
 - **Save** immediately applies the settings and keeps them across restarts.
 - **Reset settings** removes this command's saved settings override and restores the
   shipped settings, including its enabled state. Its message is kept.
-- **Collapse editor** keeps unsaved input for when you expand the command again.
+- Select the command header again to collapse it; unsaved input is kept for when
+  you expand the command again.
 
 Expand **Fate** or **Tg** to edit their response text. One **Save command** saves edited
 text and settings, applies them immediately and keeps them across restarts. Other
@@ -80,13 +81,15 @@ command drafts and the AI page's independent saves are kept. If settings save bu
 text fails, the error identifies the saved settings and retains the text draft;
 use **Save command** to retry it. If settings fail, text is not saved. **Reset responses**
 or **Reset message** restores only the text; other settings and their drafts are kept.
-**Reset settings** retains saved text and any text draft. Settings actions appear in
-the order **Remove and disable**, **Collapse editor**, **Reset settings**, **Save command**
-(**Save** for commands without editable text).
+**Reset settings** retains saved text and any text draft. One editor footer places
+**Remove and disable** on the left, with the applicable **Reset responses** or
+**Reset message**, **Reset settings** and **Save command** on the right
+(**Save** for commands without editable text). Actions wrap within the editor on
+narrow windows, keeping Save last.
 Fate accepts one non-empty response per line; blank
 lines are ignored and commas stay in the text. Responses must fit within 450 UTF-8 bytes.
-Other built-ins keep their original behavior and show a note when their response
-cannot be edited as a text template. Editing settings never replaces the AI, weather,
+Other built-ins show a short **Dynamic response** note, with details in its question-mark
+help. Their response cannot be edited as a text template. Editing settings never replaces the AI, weather,
 memory-erasure or other built-in implementation.
 
 **Remove and disable** saves the command as disabled and hides it from the active collection.
@@ -96,7 +99,9 @@ and only removed commands. Disabled commands remain in the working list. Select
 with defaults and enable it. Previous custom access, cooldowns, aliases and UI names
 are not recovered; its saved message is kept. Removal discards that command's unsaved
 draft after confirmation; cancel keeps it. Custom and administrative groups remain separate.
-Under **Advanced: reset all built-ins**, **Restore all factory defaults** restores every built-in setting, enabled state and
+**Advanced: reset all built-ins** follows **Administrative commands**, matching the
+sidebar shortcut order. Its **Restore all factory defaults** action asks for explicit
+confirmation before restoring every built-in setting, enabled state and
 the Fate/Tg messages, returns removed commands and discards built-in drafts;
 custom commands are kept.
 These settings belong to the selected profile and survive a restart.

@@ -39,7 +39,11 @@ test('the selected top-level page alone expands its submenu, and repeated clicks
 })
 
 const destinations = [
-  { section: 'Commands', children: [['Your commands', 'custom-commands'], ['Built-in commands', 'builtin-commands']] },
+  { section: 'Commands', children: [
+    ['Your commands', 'custom-commands'], ['Built-in commands', 'builtin-commands'],
+    ['Removed commands', 'removed-commands'], ['Administrative commands', 'administrative-commands'],
+    ['Advanced: reset all built-ins', 'advanced-command-reset'],
+  ] },
   { section: 'Filters', children: [
     ['Filter Tester', 'filter-tester'], ['Blocked words', 'filters-words'],
     ['Blocked phrases', 'filters-phrases'], ['Regex patterns', 'filters-patterns'],

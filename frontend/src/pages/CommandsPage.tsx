@@ -13,6 +13,7 @@ import FeedbackToast from '../components/FeedbackToast'
 import Confirmation from '../components/Confirmation'
 import Switch from '../components/Switch'
 import AccordionHeader from '../components/AccordionHeader'
+import HelpTip from '../components/HelpTip'
 
 interface CommandDraft {
   enabled: boolean
@@ -191,7 +192,6 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
   const [customDraft, setCustomDraft] = useState<CustomDraft | null>(null)
   const customBaseline = useRef<CustomDraft | null>(null)
   const customEditorToggle = useRef<HTMLButtonElement>(null)
-  const builtinEditorToggles = useRef<Record<string, HTMLButtonElement | null>>({})
   const [busyCommand, setBusyCommand] = useState('')
   const [busyCustom, setBusyCustom] = useState(false)
   const [expandedCommands, setExpandedCommands] = useState<Record<string, boolean>>({})
@@ -678,7 +678,6 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           help={command.help_text || 'Permission is the minimum chat role. Per-user cooldown limits one viewer; global cooldown limits all viewers.'}
           helpLabel={`${data.command_prefix}${command.name}`}
           expanded={expanded} contentId={detailsId}
-          triggerRef={(element) => { builtinEditorToggles.current[command.name] = element }}
           ariaLabel={`${expanded ? 'Collapse' : 'Edit'} ${data.command_prefix}${command.name}`}
           onToggle={() => setExpandedCommands((current) => ({ ...current, [command.name]: !expanded }))}
         />
@@ -719,7 +718,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           {canEditIdentity(command) && <div className="command-identity-fields">
             <label className="form-field">Name in UI
               <input disabled={busy} value={draft.displayName} maxLength={80} onChange={(event) => updateDraft(command.name, { displayName: event.target.value })} placeholder="Optional label" />
-              <span className="custom-field-hint">Label only; command stays {data.command_prefix}{command.name}.</span>
+              <span className="custom-field-hint">Display label only; chat name is unchanged.</span>
             </label>
             <label className="form-field">Aliases, separated by commas
               <input disabled={busy} value={draft.aliases} onChange={(event) => updateDraft(command.name, { aliases: event.target.value })} placeholder="Optional alternate commands" />
@@ -730,7 +729,10 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
             <span className="custom-field-hint">0–1000 ms between request starts; 0 sends concurrently.</span>
           </label>}
           {command.hidden && <p className="command-behavior-note">Protected administrative command; identity is fixed.</p>}
-          {!responsePool && <p className="command-behavior-note">Dynamic response; cannot be edited as a text template.</p>}
+          {!responsePool && <div className="command-behavior-note command-dynamic-note">
+            <span>Dynamic response</span>
+            <HelpTip label="Dynamic response">This command generates its response from its built-in behavior and cannot be edited as a text template. Enabled state, permission and cooldowns still apply.</HelpTip>
+          </div>}
           {(command.minimum_permission && command.minimum_permission !== 'USER') && <p className="command-behavior-note">Minimum permission: {command.minimum_permission.toLowerCase()}.</p>}
           {!command.available && <p className="command-unavailable"><strong>Unavailable:</strong> {command.unavailable_reason ?? 'The optional AI provider is not configured. Add a key to enable AI features.'}</p>}
           {!command.hidden && responsePool && responseDraft !== null && <div className="command-response-editor">
@@ -760,23 +762,15 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
             <p className="command-meta">{isRandom ? `${parsedResponses.length} responses ready` : responseValid ? 'Message ready' : 'Message required'}</p>
           </div>}
           <div className="command-editor-actions">
-            {!command.hidden && responsePool && responseDraft !== null && <div className="command-response-footer">
-              <span className="command-action-hint">{isRandom ? 'Responses' : 'Message'}</span>
-              <div className="command-action-group" role="group" aria-label={`${data.command_prefix}${command.name} response actions`}>
-                <button className="ghost" disabled={busy || (!responseDirty && !responsePool.has_saved_override && responsePool.saved)} onClick={() => void runResponseAction(command)}>{isRandom ? 'Reset responses' : 'Reset message'}</button>
-              </div>
-            </div>}
-            <div className="command-action-footer">
-              <span className="command-action-hint">{responsePool ? 'Text & settings' : 'Settings'}</span>
-              <div className="command-action-group" role="group" aria-label={`${data.command_prefix}${command.name} settings actions`}>
-                {!command.hidden && <button className="ghost command-remove" disabled={busy} onClick={() => void runFactoryAction('remove', command)}>Remove and disable</button>}
-                <button className="secondary" disabled={busy} onClick={() => { setExpandedCommands((current) => ({ ...current, [command.name]: false })); builtinEditorToggles.current[command.name]?.focus() }}>Collapse editor</button>
+            <div className="command-action-footer" role="group" aria-label={`${data.command_prefix}${command.name} settings actions`}>
+              {!command.hidden && <button className="ghost command-remove" disabled={busy} onClick={() => void runFactoryAction('remove', command)}>Remove and disable</button>}
+              <div className="command-action-group">
+                {!command.hidden && responsePool && responseDraft !== null && <button className="ghost" disabled={busy || (!responseDirty && !responsePool.has_saved_override && responsePool.saved)} onClick={() => void runResponseAction(command)}>{isRandom ? 'Reset responses' : 'Reset message'}</button>}
                 <button className="ghost" disabled={busy || (!settingsDirty && !command.has_saved_override && command.saved)} onClick={() => void runAction(command, 'reset')}>Reset settings</button>
                 <button className="primary" disabled={busy || (!dirty && command.saved && (!responsePool || responsePool.saved)) || !perUserValid || !globalValid || !intervalValid || (responsePool !== null && !responseValid)} onClick={() => void runAction(command, 'save')}>{responsePool ? 'Save command' : 'Save'}</button>
               </div>
             </div>
           </div>
-          <p className="settings-hint">Collapse editor keeps your unsaved draft. {responsePool ? 'Save command saves text and settings together; resets affect only the named area.' : 'Save keeps command settings. AI editors keep their own saves.'}</p>
         </div>}
       </article>
     )
@@ -939,7 +933,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           {data.commands.filter((command) => !command.hidden && !command.removed).map(renderBuiltin)}
         </div>
       )}
-      {data && <details className="factory-commands removed-commands">
+      {data && <details className="factory-commands removed-commands" id="removed-commands">
         <summary>Removed commands ({data.commands.filter((command) => !command.hidden && command.removed).length})</summary>
         <p className="section-copy">Restore defaults and enable replaces a removed command’s settings with defaults, including access, cooldowns and aliases. Previous custom settings are not recovered; its saved text is kept.</p>
         <div className="factory-command-list">
@@ -950,15 +944,18 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         </div>
         {!data.commands.some((command) => !command.hidden && command.removed) && <p className="muted">No removed commands.</p>}
       </details>}
-      {data && <details className="factory-commands advanced-command-reset">
-        <summary>Advanced: reset all built-ins</summary>
-        <div className="settings-actions"><button className="ghost destructive" disabled={busyCommand !== ''} onClick={() => void runFactoryAction('resetAll')}>Restore all factory defaults</button></div>
-        <p className="custom-field-hint">Complete reset restores built-in settings and messages. Your custom commands are kept.</p>
-      </details>}
-      {data && data.commands.some((command) => command.hidden) && <details className="factory-commands administrative-commands">
+      {data && <details className="factory-commands administrative-commands" id="administrative-commands">
         <summary>Administrative commands</summary>
         <p className="section-copy">Protected commands retain their original names, minimum permissions and implementations.</p>
         <div className="command-list">{data.commands.filter((command) => command.hidden).map(renderBuiltin)}</div>
+        {!data.commands.some((command) => command.hidden) && <p className="muted">No administrative commands.</p>}
+      </details>}
+      {data && <details className="factory-commands advanced-command-reset" id="advanced-command-reset">
+        <summary>Advanced: reset all built-ins</summary>
+        <div className="command-reset-row">
+          <p className="custom-field-hint">Complete reset restores built-in settings and messages. Your custom commands are kept.</p>
+          <button className="ghost destructive" disabled={busyCommand !== ''} onClick={() => void runFactoryAction('resetAll')}>Restore all factory defaults</button>
+        </div>
       </details>}
     </section>
     </div>
