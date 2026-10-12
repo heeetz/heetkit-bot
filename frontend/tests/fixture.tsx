@@ -130,6 +130,8 @@ window.pywebview = { api: {
   get_blocked_ai_users: async () => ({ ok: true, users: structuredClone(blockedAIUsers) }),
   block_ai_user: async (input: string) => {
     aiBlockCalls.push(['block', input])
+    if (query.has('aiBlockReject')) throw new Error('Could not reach the desktop backend. Reopen the AI page and try again.')
+    if (query.has('aiBlockTimeout')) return { ok: false, error: 'Blocking the AI user timed out. Check Logs and reopen the AI page before trying again.' }
     if (query.has('aiBlockError')) return { ok: false, error: 'Synthetic AI block save failure.' }
     const username = input.trim().replace(/^@/, '').toLowerCase()
     if (!/^[a-z0-9_]{1,25}$/.test(username)) return { ok: false, error: 'Use a Twitch login of up to 25 letters, numbers or underscores.' }
@@ -140,6 +142,7 @@ window.pywebview = { api: {
   },
   unblock_ai_user: async (username: string) => {
     aiBlockCalls.push(['unblock', username])
+    if (query.has('aiBlockReject')) throw new Error('Could not reach the desktop backend. Reopen the AI page and try again.')
     if (query.has('aiBlockError')) return { ok: false, error: 'Synthetic AI block save failure.' }
     blockedAIUsers = blockedAIUsers.filter((user) => user.username !== username)
     sessionStorage.setItem('blockedAIUsers', JSON.stringify(blockedAIUsers))

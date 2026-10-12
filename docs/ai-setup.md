@@ -99,6 +99,11 @@ Open **AI → AI access**. Enter a Twitch login under **Blocked AI users** and s
 case-insensitive. Empty, duplicate or invalid login names are rejected. Select
 **Unblock** beside an entry to restore access. Changes apply immediately, save for
 the selected profile and survive a restart; the user does not need to be online.
+Blocking and unblocking also work while the bot is stopped. If a change fails,
+feedback beside the form explains the next action; the entered username and previous
+list remain available. A timed-out block requests cancellation. Check **Logs** and
+reopen the AI page to refresh the saved list before retrying, since work that already
+finished saving may complete after the deadline.
 
 When available, HeetKit resolves the account ID through its existing Twitch connection
 or previously observed chatter records. Otherwise it keeps the normalized login and

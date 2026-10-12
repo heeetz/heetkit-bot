@@ -9,7 +9,7 @@ import pytest
 
 from app.commands.registry import CommandDispatcher, CommandRegistry
 from app.message_triggers import MessageTriggerStore
-from app.runtime_paths import RuntimePaths, prepare_runtime_data
+from app.runtime_paths import DEFAULT_TRIGGERS, RuntimePaths, prepare_runtime_data
 from app.services.facade import ApplicationServices
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.utils.cooldown import CooldownManager
@@ -31,12 +31,65 @@ def save(path, *triggers):
 
 def test_local_defaults_seed_and_remain_editable(tmp_path):
     paths = RuntimePaths(tmp_path / "appdata")
+    assert not paths.root.exists()
     prepare_runtime_data("missing-tokens", "sqlite+aiosqlite:///:memory:", paths=paths, legacy_data=tmp_path)
     seeded = MessageTriggerStore(paths.message_triggers).list()
     assert seeded == ()
+    assert paths.message_triggers.read_bytes() == DEFAULT_TRIGGERS.read_bytes()
     save(paths.message_triggers, trigger(enabled=False))
     prepare_runtime_data("missing-tokens", "sqlite+aiosqlite:///:memory:", paths=paths, legacy_data=tmp_path)
     assert MessageTriggerStore(paths.message_triggers).list()[0].enabled is False
+
+
+@pytest.mark.parametrize("bom", [b"", b"\xef\xbb\xbf"])
+def test_utf8_with_bom_loads_like_utf8_without_bom(tmp_path, bom):
+    path = tmp_path / "message_triggers.json"
+    payload = json.dumps({"version": 1, "triggers": [trigger()]}, ensure_ascii=False)
+    path.write_bytes(bom + payload.encode("utf-8"))
+
+    loaded = MessageTriggerStore(path).list()
+
+    assert len(loaded) == 1
+    assert loaded[0].text == trigger()["text"]
+    assert path.read_bytes() == bom + payload.encode("utf-8")
+
+
+@pytest.mark.parametrize(
+    "contents",
+    (
+        b"",
+        b'{"version": 1,\n "triggers": [} /* PRIVATE REACTION */',
+    ),
+)
+def test_corrupt_files_disable_reactions_preserve_bytes_and_log_json_location(
+    tmp_path, caplog, contents
+):
+    paths = RuntimePaths(tmp_path / "profile")
+    paths.config.mkdir(parents=True)
+    path = paths.message_triggers
+    path.write_bytes(contents)
+    prepare_runtime_data("missing-tokens", "sqlite+aiosqlite:///:memory:", paths=paths, legacy_data=None)
+    with pytest.raises(json.JSONDecodeError) as decoded:
+        json.loads(contents)
+
+    with caplog.at_level(logging.WARNING, logger="app.message_triggers"):
+        assert MessageTriggerStore(path).list() == ()
+
+    assert path.read_bytes() == contents
+    assert str(path) in caplog.text
+    assert f"line={decoded.value.lineno} column={decoded.value.colno} position={decoded.value.pos}" in caplog.text
+    assert "PRIVATE REACTION" not in caplog.text
+
+
+def test_invalid_utf8_diagnostic_does_not_include_content(tmp_path, caplog):
+    path = tmp_path / "message_triggers.json"
+    original = b'PRIVATE REACTION\xff'
+    path.write_bytes(original)
+    with caplog.at_level(logging.WARNING, logger="app.message_triggers"):
+        assert MessageTriggerStore(path).list() == ()
+    assert str(path) in caplog.text and "UnicodeDecodeError" in caplog.text
+    assert "position=16" in caplog.text
+    assert "PRIVATE REACTION" not in caplog.text and path.read_bytes() == original
 
 
 def test_validation_skips_bad_entries_and_bounds_matching(tmp_path):

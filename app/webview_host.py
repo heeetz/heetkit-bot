@@ -16,7 +16,7 @@ from uuid import uuid4
 from functools import wraps
 from inspect import signature
 from urllib.parse import urlsplit
-from concurrent.futures import Future, TimeoutError as FutureTimeoutError
+from concurrent.futures import CancelledError as FutureCancelledError, Future, TimeoutError as FutureTimeoutError
 from contextlib import ExitStack
 from dataclasses import asdict
 from pathlib import Path
@@ -455,9 +455,20 @@ class WebUIBridge:
 
     def block_ai_user(self, username: object) -> dict[str, object]:
         try:
-            self._wait_for_backend(self._block_ai_user(username), operation="block_ai_user")
+            self._wait_for_backend(
+                self._block_ai_user(username),
+                operation="block_ai_user",
+                timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
+            )
         except ValueError as error:
             return {"ok": False, "error": str(error)}
+        except BridgeOperationTimedOut:
+            return {
+                "ok": False,
+                "error": "Blocking the AI user timed out. Check Logs and reopen the AI page before trying again.",
+            }
+        except FutureCancelledError:
+            return {"ok": False, "error": "Blocking the AI user was cancelled. Reopen the AI page and try again."}
         except (OSError, RuntimeError):
             self._logger.exception("Could not save AI user block")
             return {"ok": False, "error": "Could not save AI user block. Check the profile file and try again."}

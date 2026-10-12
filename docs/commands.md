@@ -217,4 +217,11 @@ Matching follows file order, with at most one reaction per message. Bot messages
 command-prefixed messages are excluded. Replies share the output limiter and 450-byte
 limit. Invalid entries are skipped. Keep a backup before editing profile files.
 
+The starter file is copied only when missing; existing files are never replaced at
+startup. UTF-8 files with or without a BOM are supported. Empty, malformed or unreadable
+files disable reactions while other application functions remain available. **Logs**
+identifies the file path and, for invalid JSON, the line, column and character position
+without including reaction text. The original file stays in place for recovery: back
+it up, correct the reported problem and restart HeetKit.
+
 [Back to README](../README.md#documentation).

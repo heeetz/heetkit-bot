@@ -3,6 +3,8 @@
 import asyncio
 import json
 import logging
+import threading
+from concurrent.futures import Future
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -14,6 +16,8 @@ from app.commands.ai import register_ai_commands
 from app.commands.fun import register_fun_commands
 from app.commands.info import register_info_commands
 from app.commands.registry import CommandDispatcher, CommandRegistry
+from app.config.settings import Settings
+from app.runtime_paths import RuntimePaths, prepare_runtime_data
 from app.runtime_state import RuntimeState
 from app.fun_settings import FunSettingsStore
 from app.services.ai_request_policy import AIRequestPolicy
@@ -23,7 +27,7 @@ from app.services.twitch import TwitchAPIService
 from app.twitch.client import process_twitch_message
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.utils.cooldown import CooldownManager
-from app.webview_host import WebUIBridge
+from app.webview_host import AsyncioBackendHost, WebUIBridge
 
 
 def setup(root):
@@ -166,13 +170,140 @@ async def test_failed_id_capture_still_blocks_without_prompt_logging(tmp_path, m
 def test_bridge_add_list_and_unblock_use_backend_and_observed_id(tmp_path, monkeypatch):
     blocks, services, _, bridge, _ = setup(tmp_path)
     services.users.get_by_username.return_value = SimpleNamespace(twitch_user_id="123")
-    monkeypatch.setattr(bridge, "_wait_for_backend", lambda coro, **kwargs: asyncio.run(coro))
+    def submit(coroutine):
+        future = Future()
+        try:
+            future.set_result(asyncio.run(coroutine))
+        except Exception as error:
+            future.set_exception(error)
+        return future
+
+    monkeypatch.setattr(bridge._backend, "submit", submit, raising=False)
     assert bridge.get_blocked_ai_users() == {"ok": True, "users": []}
     assert bridge.block_ai_user("@VIEWER") == {"ok": True, "users": [{"username": "viewer", "has_user_id": True}]}
     assert blocks.list()[0].twitch_user_id == "123"
     assert bridge.block_ai_user("viewer")["ok"] is False
     assert bridge.unblock_ai_user("@viewer") == {"ok": True, "users": []}
     assert bridge.unblock_ai_user("viewer")["ok"] is False
+
+
+@pytest.fixture
+def stopped_backend(tmp_path, monkeypatch):
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)
+    paths = RuntimePaths(tmp_path / "profile")
+    monkeypatch.setenv("HEETKIT_DATA_DIR", str(paths.root))
+    settings = Settings()
+    prepare_runtime_data(settings.twitch_token_file, settings.database_url, paths=paths, legacy_data=None)
+    backend = AsyncioBackendHost(settings)
+    try:
+        backend.start()
+        yield backend, paths, settings
+    finally:
+        backend.close()
+
+
+def test_bridge_blocks_and_unblocks_with_stopped_bot_and_after_backend_restart(stopped_backend):
+    backend, paths, settings = stopped_backend
+    bridge = WebUIBridge(backend)
+    assert bridge.get_app_status()["running"] is False
+    expected = {"ok": True, "users": [{"username": "viewer", "has_user_id": False}]}
+    assert bridge.block_ai_user(" @VIEWER ") == expected
+    backend.close()
+    restarted = AsyncioBackendHost(settings)
+    try:
+        restarted.start()
+        bridge = WebUIBridge(restarted)
+        assert bridge.get_app_status()["running"] is False
+        assert bridge.get_blocked_ai_users() == expected
+        assert bridge.unblock_ai_user("@viewer") == {"ok": True, "users": []}
+    finally:
+        restarted.close()
+    assert AIUserBlocklist(paths.config / "ai_user_blocks.json").list() == ()
+
+
+def test_bridge_block_timeout_cancels_lookup_without_a_late_write(stopped_backend, monkeypatch):
+    backend, paths, _ = stopped_backend
+    bridge = WebUIBridge(backend)
+    assert bridge.block_ai_user("existing")["ok"] is True
+    original = (paths.config / "ai_user_blocks.json").read_bytes()
+    entered, cancelled = threading.Event(), threading.Event()
+
+    async def pending_lookup(username):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    monkeypatch.setattr(backend.application.services.twitch, "resolve_user_id", pending_lookup)
+    monkeypatch.setattr("app.webview_host.BRIDGE_SETTINGS_TIMEOUT_SECONDS", 0.05)
+    result = bridge.block_ai_user("another")
+    assert result["ok"] is False and "timed out" in result["error"]
+    assert "Check Logs" in result["error"] and "reopen" in result["error"]
+    assert entered.is_set() and cancelled.wait(timeout=1)
+    assert (paths.config / "ai_user_blocks.json").read_bytes() == original
+    assert [user["username"] for user in bridge.get_blocked_ai_users()["users"]] == ["existing"]
+
+
+@pytest.mark.parametrize("late_failure", [False, True])
+def test_bridge_block_observes_uncancellable_late_results(tmp_path, monkeypatch, caplog, late_failure):
+    _, _, _, bridge, _ = setup(tmp_path)
+    future = Future()
+    future.set_running_or_notify_cancel()
+
+    def submit(coroutine):
+        coroutine.close()
+        return future
+
+    monkeypatch.setattr(bridge._backend, "submit", submit, raising=False)
+    monkeypatch.setattr("app.webview_host.BRIDGE_SETTINGS_TIMEOUT_SECONDS", 0.01)
+    with caplog.at_level(logging.WARNING, logger="app.webview.bridge"):
+        result = bridge.block_ai_user("viewer")
+        if late_failure:
+            future.set_exception(OSError("synthetic late failure"))
+        else:
+            future.set_result(None)
+    assert result["ok"] is False and "timed out" in result["error"]
+    assert "after its UI deadline operation=block_ai_user" in caplog.text
+    assert bridge.get_blocked_ai_users() == {"ok": True, "users": []}
+
+
+def test_bridge_cancelled_block_reports_actionable_failure(tmp_path, monkeypatch):
+    _, _, _, bridge, _ = setup(tmp_path)
+    future = Future()
+    future.cancel()
+
+    def submit(coroutine):
+        coroutine.close()
+        return future
+
+    monkeypatch.setattr(bridge._backend, "submit", submit, raising=False)
+    result = bridge.block_ai_user("viewer")
+    assert result["ok"] is False and "cancelled" in result["error"] and "try again" in result["error"]
+    assert bridge.get_blocked_ai_users() == {"ok": True, "users": []}
+
+
+@pytest.mark.parametrize("unblock", [False, True])
+def test_bridge_save_failure_preserves_previous_list_and_file(tmp_path, monkeypatch, unblock):
+    blocks, _, _, bridge, _ = setup(tmp_path)
+    blocks.block("viewer")
+    original = (tmp_path / "ai_user_blocks.json").read_bytes()
+
+    def submit(coroutine):
+        future = Future()
+        try:
+            future.set_result(asyncio.run(coroutine))
+        except Exception as error:
+            future.set_exception(error)
+        return future
+
+    monkeypatch.setattr(bridge._backend, "submit", submit, raising=False)
+    monkeypatch.setattr(blocks, "_save", Mock(side_effect=OSError("synthetic save failure")))
+    result = bridge.unblock_ai_user("viewer") if unblock else bridge.block_ai_user("another")
+    assert result["ok"] is False and "Check the profile file" in result["error"]
+    assert (tmp_path / "ai_user_blocks.json").read_bytes() == original
+    assert bridge.get_blocked_ai_users() == {"ok": True, "users": [{"username": "viewer", "has_user_id": False}]}
 
 
 async def test_bridge_prefers_resolved_account_id_and_falls_back_when_not_observed(tmp_path):

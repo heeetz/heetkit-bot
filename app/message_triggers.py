@@ -93,14 +93,41 @@ class MessageTriggerStore:
     def __init__(self, path: Path) -> None:
         self._triggers: tuple[MessageTrigger, ...] = ()
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            # ``utf-8-sig`` accepts both ordinary UTF-8 and the BOM emitted by
+            # some Windows editors while still rejecting other encodings.
+            payload = json.loads(path.read_text(encoding="utf-8-sig"))
         except FileNotFoundError:
             return
-        except (OSError, UnicodeError, json.JSONDecodeError) as error:
-            logger.warning("Could not load message triggers: %s", type(error).__name__)
+        except json.JSONDecodeError as error:
+            logger.warning(
+                "Could not load message triggers path=%s error=%s line=%d column=%d position=%d; reactions disabled",
+                path,
+                type(error).__name__,
+                error.lineno,
+                error.colno,
+                error.pos,
+            )
+            return
+        except UnicodeError as error:
+            logger.warning(
+                "Could not load message triggers path=%s error=%s position=%s; reactions disabled",
+                path,
+                type(error).__name__,
+                getattr(error, "start", "unknown"),
+            )
+            return
+        except OSError as error:
+            logger.warning(
+                "Could not load message triggers path=%s error=%s; reactions disabled",
+                path,
+                type(error).__name__,
+            )
             return
         if not isinstance(payload, dict) or type(payload.get("version")) is not int or payload["version"] != SCHEMA_VERSION or not isinstance(payload.get("triggers"), list):
-            logger.warning("Ignoring unsupported or malformed message trigger data")
+            logger.warning(
+                "Ignoring unsupported or malformed message trigger data path=%s; reactions disabled",
+                path,
+            )
             return
         loaded: list[MessageTrigger] = []
         used: set[str] = set()
@@ -110,7 +137,7 @@ class MessageTriggerStore:
                 if trigger.id in used:
                     raise ValueError("Duplicate trigger ID")
             except ValueError as error:
-                logger.warning("Ignoring invalid message trigger: %s", error)
+                logger.warning("Ignoring invalid message trigger path=%s: %s", path, error)
                 continue
             loaded.append(trigger)
             used.add(trigger.id)

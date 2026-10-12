@@ -39,8 +39,10 @@ test('failed AI block changes retain input and the current list', async ({ page 
   await page.goto('/tests/fixture.html?aiBlockError')
   await page.getByRole('button', { name: 'AI', exact: true }).click()
   const section = page.locator('#ai-blocked-users')
+  await section.getByLabel('Twitch username').fill('another')
   await section.getByRole('button', { name: 'Unblock viewer' }).click()
   await expect(section.getByRole('alert')).toContainText('save failure')
+  await expect(section.getByLabel('Twitch username')).toHaveValue('another')
   await expect(section.locator('li')).toHaveCount(1)
   await section.getByLabel('Twitch username').fill('another')
   await section.getByRole('button', { name: 'Block user' }).click()
@@ -48,6 +50,34 @@ test('failed AI block changes retain input and the current list', async ({ page 
   await expect(section.getByLabel('Twitch username')).toHaveValue('another')
   await expect(section.locator('li')).toHaveCount(1)
 })
+
+for (const failure of ['aiBlockTimeout', 'aiBlockReject']) {
+  test(`AI block ${failure} keeps the draft and previous list while stopped`, async ({ page }) => {
+    await page.goto('/tests/fixture.html?configured')
+    await page.getByRole('button', { name: 'AI', exact: true }).click()
+    let section = page.locator('#ai-blocked-users')
+    await section.getByLabel('Twitch username').fill('viewer')
+    await section.getByRole('button', { name: 'Block user' }).click()
+    await expect(section.getByText('@viewer', { exact: true })).toBeVisible()
+    await page.goto(`/tests/fixture.html?configured&${failure}`)
+    await page.getByRole('button', { name: 'AI', exact: true }).click()
+    section = page.locator('#ai-blocked-users')
+    await section.getByLabel('Twitch username').fill('another')
+    await section.getByRole('button', { name: 'Block user' }).click()
+    await expect(section.getByRole('alert')).toContainText('Reopen', { ignoreCase: true })
+    await expect(section.getByLabel('Twitch username')).toHaveValue('another')
+    await expect(section.getByText('@viewer', { exact: true })).toBeVisible()
+    await expect(section.locator('li')).toHaveCount(1)
+    await expect(section.getByRole('button', { name: 'Block user' })).toBeEnabled()
+    if (failure === 'aiBlockReject') {
+      await section.getByRole('button', { name: 'Unblock viewer' }).click()
+      await expect(section.getByRole('alert')).toContainText('Reopen')
+      await expect(section.getByLabel('Twitch username')).toHaveValue('another')
+      await expect(section.locator('li')).toHaveCount(1)
+      await expect(section.getByRole('button', { name: 'Unblock viewer' })).toBeEnabled()
+    }
+  })
+}
 
 test('local Playground stays usable while AI users are blocked', async ({ page }) => {
   await page.goto('/tests/fixture.html')
