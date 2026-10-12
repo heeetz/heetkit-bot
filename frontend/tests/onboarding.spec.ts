@@ -2,7 +2,8 @@ import { expect, test, type Page } from '@playwright/test'
 
 async function openTwitchSettings(page: Page) {
   const trigger = page.locator('#twitch-settings .accordion-trigger')
-  if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
+  // The independent Help button can cover the header's center; click its expand caret.
+  if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.locator('.accordion-caret').click()
 }
 
 for (const width of [1280, 900, 390, 320]) {

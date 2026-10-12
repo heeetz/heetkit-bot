@@ -141,7 +141,7 @@ for (const [id, failure, field] of [
       await editor.locator('.model-advanced summary').click()
       await editor.getByLabel('Fallback model', { exact: true }).selectOption('synthetic-primary')
     }
-    else await editor.getByLabel(field).fill('Retain failed draft')
+    else await editor.getByRole('textbox', { name: field, exact: true }).fill('Retain failed draft')
     await editor.getByRole('button', { name: 'Open Playground' }).click()
     await editor.getByRole('button', { name: 'Save draft and open Playground' }).click()
     await expect(page.getByRole('alert')).toBeVisible()
