@@ -1,0 +1,160 @@
+import { expect, test } from '@playwright/test'
+
+for (const { section, id } of [
+  { section: 'Commands', id: 'command-editor-ask' },
+  { section: 'Filters', id: 'filters-words' },
+  { section: 'AI', id: 'ai-profile-instructions' },
+  { section: 'Settings', id: 'twitch-settings' },
+]) {
+  test(`${section} uses the shared keyboard header and independent help`, async ({ page }) => {
+    await page.goto('/tests/fixture.html?askToggle')
+    await page.getByRole('navigation').getByRole('button', { name: section, exact: true }).click()
+    const card = page.locator(`#${id}`)
+    const header = card.locator('.accordion-header')
+    const trigger = header.locator('.accordion-trigger')
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    await trigger.press('Enter')
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    await trigger.press('Space')
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    const help = header.getByRole('button', { name: /^Help:/ })
+    await help.focus()
+    await expect(page.getByRole('tooltip')).toBeVisible()
+    await expect(help).toHaveAttribute('aria-describedby', await page.getByRole('tooltip').getAttribute('id') as string)
+    await help.press('Enter')
+    await help.press('Space')
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    await help.press('Escape')
+    await expect(page.getByRole('tooltip')).toHaveCount(0)
+    await expect(help).toBeFocused()
+    await expect(help).not.toHaveAttribute('aria-describedby')
+    // The button spans the whole header and still toggles away from the text/help.
+    const bounds = await trigger.boundingBox()
+    const row = await header.boundingBox()
+    expect(bounds?.width).toBe(row?.width)
+    await trigger.click({ position: { x: bounds!.width - 16, y: bounds!.height / 2 } })
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true')
+  })
+}
+
+test('hover waits 900 ms and the pointer can enter the help content', async ({ page }) => {
+  await page.goto('/tests/fixture.html')
+  await page.getByRole('navigation').getByRole('button', { name: 'AI', exact: true }).click()
+  const help = page.locator('#ai-profile-instructions .help-trigger')
+  await page.clock.install()
+  await help.hover()
+  await page.clock.runFor(799)
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
+  await page.clock.runFor(101)
+  const tooltip = page.getByRole('tooltip')
+  await expect(tooltip).toBeVisible()
+  await tooltip.hover()
+  await page.clock.runFor(300)
+  await expect(tooltip).toBeVisible()
+  await page.keyboard.press('Escape')
+  await page.clock.runFor(1000)
+  await expect(tooltip).toHaveCount(0)
+  await help.hover()
+  await page.clock.runFor(900)
+  await expect(tooltip).toBeVisible()
+  await page.mouse.move(1, 1)
+  await page.clock.runFor(151)
+  await expect(tooltip).toHaveCount(0)
+})
+
+for (const width of [1180, 390, 320]) {
+  test(`help escapes clipping and stays within ${width}px viewport edges`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 620 })
+    await page.goto('/tests/fixture.html')
+    await page.getByRole('navigation').getByRole('button', { name: 'Settings', exact: true }).click()
+    const card = page.locator('#credential-settings')
+    // Exercise the real component inside a deliberately clipped edge container.
+    await card.evaluate((element) => Object.assign((element as HTMLElement).style, {
+      position: 'fixed', right: '0', bottom: '0', width: '250px', height: '72px', overflow: 'hidden', zIndex: '30',
+    }))
+    await card.locator('.help-trigger').focus()
+    const tip = page.getByRole('tooltip')
+    await expect(tip).toBeVisible()
+    expect(await tip.evaluate((element) => element.parentElement === document.body)).toBe(true)
+    let bounds = await tip.boundingBox()
+    expect(bounds!.x).toBeGreaterThanOrEqual(12)
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width - 12)
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(608)
+    await card.evaluate((element) => Object.assign((element as HTMLElement).style, { right: 'auto', left: '0', bottom: 'auto', top: '0' }))
+    await page.setViewportSize({ width: width + 10, height: 630 })
+    await expect.poll(async () => (await tip.boundingBox())!.y).toBeGreaterThanOrEqual(12)
+    bounds = await tip.boundingBox()
+    expect(bounds!.x).toBeGreaterThanOrEqual(12)
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width - 2)
+    await page.keyboard.press('Escape')
+  })
+}
+
+test('changing pages closes help from the hidden page', async ({ page }) => {
+  await page.goto('/tests/fixture.html')
+  const nav = page.getByRole('navigation')
+  await nav.getByRole('button', { name: 'AI', exact: true }).click()
+  await page.locator('#ai-profile-instructions .help-trigger').focus()
+  await expect(page.getByRole('tooltip')).toBeVisible()
+  await nav.getByRole('button', { name: 'Commands', exact: true }).click()
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
+})
+
+test('shared colors, control sizes, contrast and reduced motion follow A2', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.goto('/tests/fixture.html?configured&connection=connected&askToggle')
+  const stop = page.getByRole('button', { name: 'Stop Bot', exact: true })
+  await expect(stop).toHaveClass('secondary')
+  await expect(stop).toHaveCSS('background-color', 'rgb(31, 41, 55)')
+  await expect(page.locator('.app-shell')).toHaveCSS('background-image', 'none')
+  await expect(page.locator('.app-shell')).toHaveCSS('background-color', 'rgb(11, 15, 23)')
+  await expect(page.locator('html')).toHaveCSS('background-color', 'rgb(11, 15, 23)')
+  await expect(page.locator('.card').first()).toHaveCSS('background-color', 'rgb(17, 24, 39)')
+  await expect(page.locator('.card').first()).toHaveCSS('box-shadow', 'none')
+  await expect(page.locator('h1')).toHaveCSS('font-size', '28px')
+  await page.getByRole('navigation').getByRole('button', { name: 'Settings', exact: true }).click()
+  const trigger = page.locator('#twitch-settings .accordion-trigger')
+  await trigger.press('Enter')
+  await expect(trigger.locator('svg')).toHaveCSS('transition-duration', '0s')
+  const input = page.getByLabel('Target channel login')
+  await expect(input).toHaveCSS('height', '40px')
+  await input.focus()
+  await expect(input).toHaveCSS('outline-style', 'solid')
+  await expect(input).toHaveCSS('outline-color', 'rgb(243, 244, 246)')
+  // WCAG ratios for the actual shared opaque tokens, including text and input/focus borders.
+  const ratios = await page.evaluate(() => {
+    const style = getComputedStyle(document.documentElement)
+    const luminance = (token: string) => {
+      const hex = style.getPropertyValue(token).trim().slice(1)
+      const values = [0, 2, 4].map((offset) => parseInt(hex.slice(offset, offset + 2), 16) / 255)
+        .map((value) => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4)
+      return values[0] * .2126 + values[1] * .7152 + values[2] * .0722
+    }
+    return [['--text', '--panel'], ['--muted', '--hover'], ['--text', '--primary'],
+      ['--success', '--panel'], ['--error', '--panel'], ['--input-border', '--panel']]
+      .map(([a, b]) => (Math.max(luminance(a), luminance(b)) + .05) / (Math.min(luminance(a), luminance(b)) + .05))
+  })
+  ratios.slice(0, 5).forEach((ratio) => expect(ratio).toBeGreaterThanOrEqual(4.5))
+  expect(ratios[5]).toBeGreaterThanOrEqual(3)
+  await page.getByRole('navigation').getByRole('button', { name: 'Commands', exact: true }).click()
+  await page.locator('#command-editor-ask .accordion-trigger').click()
+  const cooldown = page.locator('#command-editor-ask input[type="number"]').first()
+  await cooldown.fill('-1')
+  await expect(cooldown).toHaveCSS('border-color', 'rgb(248, 113, 113)')
+})
+
+test('required setup, unsaved drafts and full-reset consequences stay visible', async ({ page }) => {
+  await page.goto('/tests/fixture.html?askToggle')
+  await expect(page.getByRole('heading', { name: 'Finish Twitch setup', exact: true })).toBeVisible()
+  const nav = page.getByRole('navigation')
+  await nav.getByRole('button', { name: 'AI', exact: true }).click()
+  await page.locator('#ai-profile-instructions .accordion-trigger').press('Enter')
+  await page.locator('#ai-profile-instructions textarea').fill('Synthetic draft')
+  await expect(page.locator('#ai-profile-instructions .dirty-badge')).toHaveText('Edited')
+  await expect(page.locator('#ai-profile-instructions .setting-effect')).toContainText('unsaved editor draft is not applied')
+  await nav.getByRole('button', { name: 'Commands', exact: true }).click()
+  await page.getByText('Advanced: reset all built-ins', { exact: true }).click()
+  await page.getByRole('button', { name: 'Restore all factory defaults', exact: true }).click()
+  await expect(page.getByRole('dialog')).toContainText('Unsaved built-in drafts will be discarded')
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+})

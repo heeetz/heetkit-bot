@@ -11,6 +11,12 @@ Shortcuts follow the page's block order, including **Filter Tester** and the AI 
 restrictions** sections.
 Dashboard, Logs and About remain direct page links.
 
+Expandable headers use a chevron on the right. Select the header, or focus it and
+press Enter or Space, to open or close it. Question-mark buttons beside labels give
+extra help: hover briefly, focus with the keyboard, or select one to read it. Escape
+closes the help; using help in a header does not open or close that section.
+Setup steps, errors, unsaved changes and reset/delete consequences remain visible.
+
 ## Built-in commands
 
 These are the shipped permissions; saved settings can change them within protected
@@ -36,7 +42,7 @@ Gemini. `!uptime` measures the bot session, rather than the stream's uptime.
 
 ## Permissions, cooldowns and responses
 
-Select **Edit** on a built-in command on **Commands** to edit its enabled state,
+Select a built-in command's header on **Commands** to edit its enabled state,
 permission and per-user/global cooldowns. Most commands also accept alternate
 aliases and **Name in UI**. This label does not rename the chat command: its original
 name stays available. Enter up to ten comma-separated aliases; each is a single

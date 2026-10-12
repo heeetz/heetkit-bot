@@ -11,6 +11,7 @@ import {
   waitForBridge,
 } from '../bridge'
 import FeedbackToast from '../components/FeedbackToast'
+import AccordionHeader from '../components/AccordionHeader'
 
 interface FilterDraft extends FilterEntry {
   id: number
@@ -275,7 +276,6 @@ export default function FiltersPage({ active }: FiltersPageProps) {
       <section className="card filters-intro">
         <div className="section-heading">
           <div>
-            <p className="label">BOT PROCESSING</p>
             <h2>Bot filters</h2>
             <p className="section-copy">These rules stop matching messages from being processed by the bot and block matching AI replies. They do not delete Twitch messages or ban users. Start with words and phrases; regex is advanced.</p>
           </div>
@@ -288,7 +288,6 @@ export default function FiltersPage({ active }: FiltersPageProps) {
       <section className="card filter-tester-card" id="filter-tester">
         <div className="section-heading">
           <div>
-            <p className="label">LOCAL VALIDATION</p>
             <h2>Filter Tester</h2>
             <p className="section-copy">Try sample text against the filters used in this session or the unsaved rules currently shown below.</p>
           </div>
@@ -373,26 +372,17 @@ export default function FiltersPage({ active }: FiltersPageProps) {
         const detailsId = `filter-details-${name}`
         return (
           <section className="card filter-category-card" id={`filters-${name}`} data-category={name} key={name}>
-            <h2 className="filter-category-heading">
-              <button
-                type="button"
-                className="filter-category-summary"
-                aria-expanded={expanded[name]}
-                aria-controls={detailsId}
-                onClick={() => setExpanded((current) => ({ ...current, [name]: !current[name] }))}
-              >
-                <span>{info.label}</span>
-                <span className="filter-category-status">
-                  {name === 'patterns' && <span className="mini-badge">Advanced</span>}
+            <AccordionHeader title={<span role="heading" aria-level={2}>{info.label}</span>}
+              helpLabel={info.label} help={info.description}
+              expanded={expanded[name]} contentId={detailsId} ariaLabel={info.label}
+              onToggle={() => setExpanded((current) => ({ ...current, [name]: !current[name] }))}
+              badges={(<span className="filter-category-status">
                   <span className="read-only-badge">{count} {count === 1 ? 'rule' : 'rules'}</span>
                   {invalidCount > 0 && <span className="filter-invalid-label">{invalidCount} invalid</span>}
                   {category.load_error && <span className="filter-warning-label">File warning</span>}
-                  <span className="filter-expand-label">{expanded[name] ? 'Hide rules' : 'Show rules'}</span>
-                </span>
-              </button>
-            </h2>
+                </span>)}
+            />
             {expanded[name] && <div className="filter-category-details" id={detailsId}>
-              <p className="section-copy">{info.description}</p>
               {category.load_error && (
                 <div className="filter-load-warning" role="status">
                   Could not load the latest file: {category.load_error}. Existing rules remain available.

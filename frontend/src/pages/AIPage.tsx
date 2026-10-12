@@ -672,7 +672,6 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
       <AIPlayground active={active} personality={data?.active_personality ?? ''} hasDrafts={hasDrafts} />
       <Accordion
         id="ai-personalities"
-        eyebrow="PERSONALITY EDITOR"
         title="Personality-specific prompt"
         description="Save this personality independently of profile instructions. Set active selects its applied prompt and does not save an editor draft."
         badges={(
@@ -719,7 +718,7 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
                   setError('')
                   setNotice('')
                 }}>{renameOpen ? 'Cancel rename' : 'Rename'}</button>
-                <button className="ghost" disabled={!personality || personality.is_builtin || Boolean(busy)} onClick={() => void deletePersonality()}>Delete</button>
+                <button className="ghost destructive" disabled={!personality || personality.is_builtin || Boolean(busy)} onClick={() => void deletePersonality()}>Delete</button>
               </div>
             </div>
             {createOpen && (
@@ -800,7 +799,6 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
       </Accordion>
       <Accordion
         id="ai-profile-instructions"
-        eyebrow="PROFILE INSTRUCTIONS"
         title="Profile instructions"
         description="Applies to every personality and follows the protected shared policy."
         badges={(
@@ -838,7 +836,6 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
       </Accordion>
       <Accordion
         id="ai-language"
-        eyebrow="RESPONSE LANGUAGE"
         title="AI response language"
         description="Choose whether AI follows the incoming language or stays within a configurable set for this profile."
         badges={(
@@ -925,7 +922,6 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
       <article className="card ai-provider-card" id="ai-models">
         <div className="section-heading">
           <div>
-            <p className="label">GEMINI PROVIDER</p>
             <h2>Models and fallback</h2>
             <p className="section-copy">Choose the model used for AI requests and its unavailable-model fallback.</p>
           </div>
@@ -966,7 +962,6 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
         )}
       </article>
       <article className="card compact-card" id="ai-memory">
-        <p className="label">CONVERSATION MEMORY</p>
         <h2>Conversation memory</h2>
         <Switch className="settings-toggle" checked={status?.memory_enabled ?? false} disabled={!status || Boolean(busy)} ariaLabel="Enable conversation memory" onCheckedChange={(enabled) => void changeToggle('memory', enabled)}>
           <span>{status?.memory_enabled ? 'Enabled' : 'Disabled'}</span>
@@ -979,7 +974,6 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
       <details className="card protected-instructions-card" id="ai-shared-instructions">
         <summary className="protected-instructions-summary">
           <div>
-            <p className="label">PROTECTED SHARED INSTRUCTIONS</p>
             <h2>Built-in restrictions</h2>
             <p className="section-copy">These instructions are managed by the application and cannot be edited here.</p>
           </div>

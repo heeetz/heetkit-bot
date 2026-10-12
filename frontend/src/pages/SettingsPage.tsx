@@ -551,7 +551,6 @@ export default function SettingsPage({ active, status, onReturnToAI }: SettingsP
       />
       <Accordion
         id="twitch-settings"
-        eyebrow="TWITCH CONNECTION"
         title="Application, account and channel"
         description="Complete the initial Twitch setup here, then use saved channels when you need to switch targets."
         badges={twitchDirty && <span className="mini-badge dirty-badge">Edited</span>}
@@ -641,7 +640,7 @@ export default function SettingsPage({ active, status, onReturnToAI }: SettingsP
                 </label>
                 <div className="preset-actions">
                   <button className="secondary" disabled={Boolean(busy) || !presetName.trim()} onClick={() => void saveTwitchPreset()}>{busy === 'twitch:preset-save' ? 'Saving...' : twitchDraft.selected_preset_id ? 'Update saved channel' : 'Save channel'}</button>
-                  <button className="ghost" disabled={Boolean(busy) || !twitchDraft.selected_preset_id} onClick={() => void deleteTwitchPreset()}>{busy === 'twitch:preset-delete' ? 'Deleting...' : 'Delete saved channel'}</button>
+                  <button className="ghost destructive" disabled={Boolean(busy) || !twitchDraft.selected_preset_id} onClick={() => void deleteTwitchPreset()}>{busy === 'twitch:preset-delete' ? 'Deleting...' : 'Delete saved channel'}</button>
                 </div>
               </div>
             </section>
@@ -690,7 +689,6 @@ export default function SettingsPage({ active, status, onReturnToAI }: SettingsP
 
       <Accordion
         id="credential-settings"
-        eyebrow="OPTIONAL AI"
         title="Gemini API key"
         description="The key is stored in the system keyring and is never displayed. Gemini is optional and key changes apply immediately."
         className="settings-page"
@@ -707,7 +705,6 @@ export default function SettingsPage({ active, status, onReturnToAI }: SettingsP
       <section className="card settings-page" id="desktop-settings">
         <div className="section-heading">
           <div>
-            <p className="label">DESKTOP BEHAVIOR</p>
             <h2>Startup, window and tray behavior</h2>
             <p className="section-copy">These settings are local to this computer.</p>
           </div>

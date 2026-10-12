@@ -220,7 +220,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
           <div><p className="label">BOT SESSION</p><h2>{statusLabel}</h2><p className="section-copy">Running means the session has started. Check Twitch connection below for chat readiness.</p></div>
         </div>
         <button
-          className={status?.running ? 'danger' : 'primary'}
+          className={status?.running ? 'secondary' : 'primary'}
           disabled={!status || Boolean(busy) || (!status.running && Boolean(setup?.twitch.requires_restart))}
           onClick={() => onChangeBotState(!status?.running)}
         >
@@ -629,7 +629,7 @@ export default function App() {
         </nav>
       </aside>
       <main ref={main}>
-        <header><div><p className="eyebrow">CONTROL CENTER</p><h1>{section}</h1></div></header>
+        <header><h1>{section}</h1></header>
         <FeedbackToast error={error} onDismiss={() => setError('')} />
         {section === 'Dashboard' && (
           <Dashboard

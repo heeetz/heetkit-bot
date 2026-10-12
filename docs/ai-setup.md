@@ -28,7 +28,9 @@ credential that lets HeetKit send requests to Google's Gemini service.
 Open **AI**. Its sections follow the working order **State → Playground → Personality
 and profile instructions → Language → Models → Memory → AI access → Built-in
 restrictions**. Use the AI sidebar shortcuts to open and scroll to a section. Collapsing
-an editor keeps its draft.
+an editor keeps its draft. Editor headers also open or close with Enter or Space.
+Use the question-mark buttons for extra explanations; focus or select one for
+immediate help, or hover briefly. Escape dismisses help without changing your draft.
 
 7. Configure the instructions used for generation:
 

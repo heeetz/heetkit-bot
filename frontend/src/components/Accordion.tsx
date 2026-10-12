@@ -1,8 +1,8 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
+import AccordionHeader from './AccordionHeader'
 
 interface AccordionProps {
   id: string
-  eyebrow: string
   title: string
   description?: string
   badges?: ReactNode
@@ -13,7 +13,6 @@ interface AccordionProps {
 /** A single-level, mounted accordion used for long settings editors. */
 export default function Accordion({
   id,
-  eyebrow,
   title,
   description,
   badges,
@@ -40,25 +39,9 @@ export default function Accordion({
       data-accordion-id={id}
       data-accordion-open={open ? 'true' : 'false'}
     >
-      <h2 className="accordion-header">
-        <button
-          type="button"
-          className="accordion-trigger"
-          aria-expanded={open}
-          aria-controls={contentId}
-          onClick={() => setOpen((current) => !current)}
-        >
-          <span className="accordion-heading">
-            <span className="label">{eyebrow}</span>
-            <span className="accordion-title">{title}</span>
-            {description && <span className="section-copy">{description}</span>}
-          </span>
-          <span className="accordion-trigger-side">
-            {badges}
-            <span className="accordion-caret" aria-hidden="true">v</span>
-          </span>
-        </button>
-      </h2>
+      <AccordionHeader title={<span role="heading" aria-level={2}>{title}</span>}
+        helpLabel={title} help={description} expanded={open} contentId={contentId}
+        onToggle={() => setOpen((current) => !current)} badges={badges} ariaLabel={title} />
       <div id={contentId} className="accordion-content" hidden={!open}>
         {children}
       </div>

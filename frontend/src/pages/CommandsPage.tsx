@@ -12,6 +12,7 @@ import {
 import FeedbackToast from '../components/FeedbackToast'
 import Confirmation from '../components/Confirmation'
 import Switch from '../components/Switch'
+import AccordionHeader from '../components/AccordionHeader'
 
 interface CommandDraft {
   enabled: boolean
@@ -654,23 +655,18 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     const detailsId = `command-details-${command.name}`
     return (
       <article className={`command-card ${dirty ? 'dirty' : ''}`} key={command.name} id={`command-editor-${command.name}`}>
-        <div className="command-summary-row">
-          <button
-            type="button"
-            className="command-summary"
-            ref={(element) => { builtinEditorToggles.current[command.name] = element }}
-            aria-expanded={expanded}
-            aria-controls={detailsId}
-            aria-label={`${expanded ? 'Collapse' : 'Edit'} ${data.command_prefix}${command.name}`}
-            onClick={() => setExpandedCommands((current) => ({ ...current, [command.name]: !expanded }))}
-          >
-            <span className="command-summary-title">
+        <AccordionHeader
+          title={(<span className="command-summary-title">
               <strong>{data.command_prefix}{command.name}</strong>
               {command.display_name && <span className="command-display-name">{command.display_name}</span>}
+            </span>)}
+          badges={(
+            <span className="command-summary-title">
               <span className={`state-pill ${draft.enabled ? 'enabled' : ''}`}>{draft.enabled ? 'Enabled' : 'Disabled'}</span>
               {!command.available && <span className="state-pill unavailable-pill">Unavailable</span>}
             </span>
-            <span className="command-summary-meta">
+          )}
+          metadata={(<span className="command-summary-meta">
               {command.hidden && <span className="mini-badge">Hidden</span>}
               {(command.has_saved_override || responsePool?.has_saved_override) && <span className="mini-badge saved-badge">Saved override</span>}
               {(!command.saved || (responsePool && !responsePool.saved)) && <span className="mini-badge runtime-badge">Runtime only</span>}
@@ -678,10 +674,14 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
               <span>Permission: {draft.permission.toLowerCase()}</span>
               <span>Cooldown: {draft.perUserSeconds}s / {draft.globalSeconds}s</span>
               {command.aliases.length > 0 && <span>Aliases: {command.aliases.map((alias) => `${data.command_prefix}${alias}`).join(', ')}</span>}
-            </span>
-            <span className="command-expand-label" aria-hidden="true">{expanded ? '▴' : 'Edit'}</span>
-          </button>
-        </div>
+            </span>)}
+          help={command.help_text || 'Permission is the minimum chat role. Per-user cooldown limits one viewer; global cooldown limits all viewers.'}
+          helpLabel={`${data.command_prefix}${command.name}`}
+          expanded={expanded} contentId={detailsId}
+          triggerRef={(element) => { builtinEditorToggles.current[command.name] = element }}
+          ariaLabel={`${expanded ? 'Collapse' : 'Edit'} ${data.command_prefix}${command.name}`}
+          onToggle={() => setExpandedCommands((current) => ({ ...current, [command.name]: !expanded }))}
+        />
         {expanded && <div className="command-details" id={detailsId}>
           <div className="command-fields">
             <Switch
@@ -730,7 +730,6 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
             <span className="custom-field-hint">0–1000 ms between request starts; 0 sends concurrently.</span>
           </label>}
           {command.hidden && <p className="command-behavior-note">Protected administrative command; identity is fixed.</p>}
-          {command.help_text && <p className="command-behavior-note">{command.help_text}</p>}
           {!responsePool && <p className="command-behavior-note">Dynamic response; cannot be edited as a text template.</p>}
           {(command.minimum_permission && command.minimum_permission !== 'USER') && <p className="command-behavior-note">Minimum permission: {command.minimum_permission.toLowerCase()}.</p>}
           {!command.available && <p className="command-unavailable"><strong>Unavailable:</strong> {command.unavailable_reason ?? 'The optional AI provider is not configured. Add a key to enable AI features.'}</p>}
@@ -795,7 +794,6 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     <section className="card command-editor-card" id="custom-commands">
       <div className="section-heading">
         <div>
-          <p className="label">CUSTOM COMMANDS</p>
           <h2>Your commands</h2>
           <p className="section-copy">Create responses with template variables. Save applies changes immediately.</p>
         </div>
@@ -921,7 +919,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
               <div className="row-actions">
                 <button className="secondary" disabled={busyCustom} onClick={() => replaceCustomDraft(customDraftFromCommand(command))}>Edit</button>
                 <button className="secondary" disabled={busyCustom} onClick={() => void toggleCustom(command)}>{command.enabled ? 'Disable' : 'Enable'}</button>
-                <button className="ghost" disabled={busyCustom} onClick={() => void deleteCustom(command)}>Delete</button>
+                <button className="ghost destructive" disabled={busyCustom} onClick={() => void deleteCustom(command)}>Delete</button>
               </div>
             </article>
           ))}
@@ -931,7 +929,6 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     <section className="card command-editor-card" id="builtin-commands">
       <div className="section-heading">
         <div>
-          <p className="label">BUILT-IN COMMANDS</p>
           <h2>Built-in commands</h2>
           <p className="section-copy">Save applies changes immediately and keeps them across restarts.</p>
         </div>
@@ -955,7 +952,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       </details>}
       {data && <details className="factory-commands advanced-command-reset">
         <summary>Advanced: reset all built-ins</summary>
-        <div className="settings-actions"><button className="ghost" disabled={busyCommand !== ''} onClick={() => void runFactoryAction('resetAll')}>Restore all factory defaults</button></div>
+        <div className="settings-actions"><button className="ghost destructive" disabled={busyCommand !== ''} onClick={() => void runFactoryAction('resetAll')}>Restore all factory defaults</button></div>
         <p className="custom-field-hint">Complete reset restores built-in settings and messages. Your custom commands are kept.</p>
       </details>}
       {data && data.commands.some((command) => command.hidden) && <details className="factory-commands administrative-commands">
