@@ -45,6 +45,7 @@ interface CustomDraft {
 
 interface CommandsPageProps {
   active: boolean
+  onAIEnabledChanged?: (enabled: boolean) => void
 }
 
 interface CommandConfirmation {
@@ -181,7 +182,7 @@ function commandPermissions(data: CommandsResponse, command: CommandInfo): strin
   return data.permissions.filter((permission) => levels.indexOf(permission) >= levels.indexOf(minimum))
 }
 
-export default function CommandsPage({ active }: CommandsPageProps) {
+export default function CommandsPage({ active, onAIEnabledChanged }: CommandsPageProps) {
   const [data, setData] = useState<CommandsResponse | null>(null)
   const [customData, setCustomData] = useState<CustomCommandsResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -223,7 +224,7 @@ export default function CommandsPage({ active }: CommandsPageProps) {
       const nextDraft = draftFromCommand(command)
       if (command.name !== completedCommand && previousCommand && previousDraft) {
         if (settingsDraftIsDirty(previousCommand, previousDraft)) {
-          nextDraft.enabled = previousDraft.enabled
+          if (command.name !== 'ask') nextDraft.enabled = previousDraft.enabled
           nextDraft.permission = previousDraft.permission
           nextDraft.perUserSeconds = previousDraft.perUserSeconds
           nextDraft.globalSeconds = previousDraft.globalSeconds
@@ -237,7 +238,7 @@ export default function CommandsPage({ active }: CommandsPageProps) {
       } else if (command.name === completedCommand && completedArea === 'settings' && previousCommand && previousDraft && responseDraftIsDirty(previousCommand, previousDraft)) {
         nextDraft.responsePool = previousDraft.responsePool
       } else if (command.name === completedCommand && completedArea === 'responses' && previousCommand && previousDraft && settingsDraftIsDirty(previousCommand, previousDraft)) {
-        nextDraft.enabled = previousDraft.enabled
+        if (command.name !== 'ask') nextDraft.enabled = previousDraft.enabled
         nextDraft.permission = previousDraft.permission
         nextDraft.perUserSeconds = previousDraft.perUserSeconds
         nextDraft.globalSeconds = previousDraft.globalSeconds
@@ -248,6 +249,8 @@ export default function CommandsPage({ active }: CommandsPageProps) {
       return [command.name, nextDraft]
     })))
     commandSnapshot.current = Object.fromEntries(response.commands.map((command) => [command.name, command]))
+    const ask = response.commands.find((command) => command.name === 'ask')
+    if (ask) onAIEnabledChanged?.(ask.enabled)
   }
 
   const loadCustomCommands = async () => {
@@ -278,7 +281,9 @@ export default function CommandsPage({ active }: CommandsPageProps) {
             const keepDraft = previousCommand
               && previousDraft
               && draftIsDirty(previousCommand, previousDraft)
-            return [command.name, keepDraft ? previousDraft : draftFromCommand(command)]
+            const draft = keepDraft ? { ...previousDraft } : draftFromCommand(command)
+            if (command.name === 'ask') draft.enabled = command.enabled
+            return [command.name, draft]
           })))
           commandSnapshot.current = Object.fromEntries(response.commands.map((command) => [command.name, command]))
           setError('')
@@ -302,6 +307,23 @@ export default function CommandsPage({ active }: CommandsPageProps) {
     }))
     setError('')
     setNotice('')
+  }
+
+  const changeAIEnabled = async (enabled: boolean) => {
+    setBusyCommand('ask')
+    setError('')
+    setNotice('')
+    try {
+      const api = await waitForBridge()
+      const result = await api.set_ai_enabled(enabled)
+      if (!result.ok) throw new Error(result.error ?? 'AI command enabled setting could not be saved.')
+      await loadCommands()
+      setNotice('AI command enabled setting saved. Other command drafts are kept.')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'AI command enabled setting could not be saved.')
+    } finally {
+      setBusyCommand('')
+    }
   }
 
   const runAction = async (
@@ -653,7 +675,8 @@ export default function CommandsPage({ active }: CommandsPageProps) {
               checked={draft.enabled}
               disabled={busy}
               ariaLabel={`Enable ${data.command_prefix}${command.name}`}
-              onCheckedChange={(enabled) => updateDraft(command.name, { enabled })}
+              onCheckedChange={(enabled) => command.name === 'ask'
+                ? void changeAIEnabled(enabled) : updateDraft(command.name, { enabled })}
             >
               <span>{draft.enabled ? 'Enabled' : 'Disabled'}</span>
             </Switch>
@@ -678,6 +701,7 @@ export default function CommandsPage({ active }: CommandsPageProps) {
               </span>
             </label>
           </div>
+          {command.name === 'ask' && <p className="setting-effect">Enabled state is saved immediately and shared with Dashboard and AI. Save applies only your other settings edits.</p>}
           {canEditIdentity(command) && <div className="command-identity-fields">
             <label className="form-field">Name in UI
               <input disabled={busy} value={draft.displayName} maxLength={80} onChange={(event) => updateDraft(command.name, { displayName: event.target.value })} placeholder="Optional label" />

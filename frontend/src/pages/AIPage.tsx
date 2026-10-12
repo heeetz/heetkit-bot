@@ -20,6 +20,7 @@ import Accordion from '../components/Accordion'
 interface AIPageProps {
   active: boolean
   onOpenSettings: () => void
+  onAIEnabledChanged?: (enabled: boolean) => void
 }
 
 const CUSTOM_MODEL_VALUE = '__custom_model__'
@@ -99,7 +100,7 @@ function ModelSelector({
   )
 }
 
-export default function AIPage({ active, onOpenSettings }: AIPageProps) {
+export default function AIPage({ active, onOpenSettings, onAIEnabledChanged }: AIPageProps) {
   const [status, setStatus] = useState<AIStatus | null>(null)
   const [data, setData] = useState<PersonalitiesResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -229,8 +230,10 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
       if (!result.ok) {
         throw new Error(result.error ?? 'AI setting could not be changed.')
       }
-      setStatus(await api.get_ai_status())
-      setNotice(kind === 'enabled' ? 'AI command state updated.' : 'AI memory state updated.')
+      const nextStatus = await api.get_ai_status()
+      setStatus(nextStatus)
+      onAIEnabledChanged?.(nextStatus.enabled)
+      setNotice(kind === 'enabled' ? 'AI command enabled setting saved.' : 'AI memory state updated.')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'AI setting could not be changed.')
     } finally {
@@ -613,7 +616,7 @@ export default function AIPage({ active, onOpenSettings }: AIPageProps) {
           >
             <span>{status?.enabled ? 'Enabled' : 'Disabled'}</span>
           </Switch>
-          <p className="setting-effect">Applies immediately for this session. Save the Ask command on the Commands page to persist it.</p>
+          <p className="setting-effect">Saved immediately across restarts. Dashboard, AI and Commands share this !ask setting.</p>
           {status && !status.available && <p className="setting-effect">AI replies are unavailable. Gemini is optional; add a usable API key to enable AI features. Your enabled preference is retained.</p>}
         </article>
         <article className="card compact-card" id="ai-memory">

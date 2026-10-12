@@ -57,8 +57,10 @@ opens the collapsed Provider Credentials section.
      private information in prompts or chat sent to Google.
 
 9. With Twitch connected, check that **AI command** is enabled and try
-   `!ask Say hello to chat` from another account in the target channel. If you enable the
-   command here, save the Ask command on **Commands** to keep it enabled after restart.
+   `!ask Say hello to chat` from another account in the target channel. The enabled switch
+   on **Dashboard**, **AI** or **Commands** saves immediately and survives restarts;
+   all three views stay synchronized. A save failure keeps the previous value and shows
+   an error. Other drafts, permissions and cooldowns still need their own Save/Apply.
    Permissions, cooldowns and filters still apply.
 
 ## Test locally with AI Playground

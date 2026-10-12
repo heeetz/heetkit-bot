@@ -288,6 +288,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
               <span><strong>Conversation memory</strong><small>{aiStatus?.memory_enabled ? 'Enabled' : 'Disabled'}</small></span>
             </Switch>
           </div>
+          <p className="setting-effect">!ask enabled state is saved immediately across restarts and shared with AI and Commands.</p>
         </article>
       </div>
     </section>
@@ -570,6 +571,10 @@ export default function App() {
     }
   }
 
+  const synchronizeAIEnabled = (enabled: boolean) => {
+    setAIStatus((current) => current ? { ...current, enabled } : current)
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar" ref={sidebar}>
@@ -617,9 +622,9 @@ export default function App() {
             onNavigate={navigate}
           />
         )}
-        <div hidden={section !== 'Commands'}><CommandsPage active={section === 'Commands'} /></div>
+        <div hidden={section !== 'Commands'}><CommandsPage active={section === 'Commands'} onAIEnabledChanged={synchronizeAIEnabled} /></div>
         <div hidden={section !== 'Filters'}><FiltersPage active={section === 'Filters'} /></div>
-        <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} onOpenSettings={() => navigate('Settings', 'credential-settings')} /></div>
+        <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} onOpenSettings={() => navigate('Settings', 'credential-settings')} onAIEnabledChanged={synchronizeAIEnabled} /></div>
         {section === 'Logs' && <LogsPage />}
         <div hidden={section !== 'Settings'}><SettingsPage active={section === 'Settings'} status={status} /></div>
         {section === 'About' && <AboutPage />}

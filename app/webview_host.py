@@ -1153,13 +1153,16 @@ class WebUIBridge:
             )
         except ValueError as error:
             return {"ok": False, "error": str(error)}
+        except (OSError, RuntimeError):
+            self._logger.exception("Could not save AI command enabled setting")
+            return {"ok": False, "error": "Could not save AI command enabled setting."}
         self._logger.info(
-            "AI command runtime state changed enabled=%s",
+            "AI command enabled setting saved enabled=%s",
             parsed_enabled,
             extra={
                 "event_kind": "settings.ai",
                 "event_setting": "enabled",
-                "event_action": "update",
+                "event_action": "save",
             },
         )
         return {"ok": True}

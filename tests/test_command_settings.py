@@ -232,3 +232,36 @@ def test_failed_atomic_write_cleans_up_temporary_file(tmp_path, monkeypatch) -> 
 
     assert not settings_path.exists()
     assert list(tmp_path.glob(".command_settings.json.*.tmp")) == []
+
+
+def test_ai_toggle_preserves_other_saved_commands_and_unsaved_runtime_changes(tmp_path) -> None:
+    path = tmp_path / "command_settings.json"
+    registry = build_registry()
+
+    @registry.command("ask")
+    async def ask(context, arguments: str) -> None:
+        return None
+
+    state = RuntimeState(command_settings_path=path)
+    state.configure_commands(registry.definitions())
+    state.save_command_settings(
+        "ping", enabled=False, cooldown=CooldownPolicy(global_seconds=30),
+        permission=Permission.VIP,
+    )
+    saved_ping = json.loads(path.read_text(encoding="utf-8"))["ping"]
+    state.apply_command_settings("ping", enabled=True, permission=Permission.BROADCASTER)
+    state.apply_command_settings("weather", enabled=False)
+
+    state.set_ai_enabled(False)
+
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "ask": {"enabled": False}, "ping": saved_ping,
+    }
+    assert state.get_command_settings("ping").enabled is True
+    assert state.get_command_settings("ping").permission is Permission.BROADCASTER
+    assert state.get_command_settings("weather").enabled is False
+    restarted = RuntimeState(command_settings_path=path)
+    restarted.configure_commands(registry.definitions())
+    assert restarted.ai_enabled is False
+    assert restarted.get_command_settings("ping").enabled is False
+    assert restarted.get_command_settings("weather").enabled is True

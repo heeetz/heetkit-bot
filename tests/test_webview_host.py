@@ -1384,6 +1384,79 @@ def test_bridge_updates_ai_runtime_toggles_with_validation(tmp_path) -> None:
     }
 
 
+@pytest.mark.parametrize("enabled", [False, True])
+def test_bridge_ai_toggle_persists_and_matches_command_state(tmp_path, enabled) -> None:
+    bridge, state = build_ai_bridge(tmp_path)
+    assert bridge.set_ai_enabled(not enabled) == {"ok": True}
+    assert bridge.set_ai_enabled(enabled) == {"ok": True}
+
+    assert bridge.get_ai_status()["enabled"] is enabled
+    assert bridge.get_commands()["commands"][0]["enabled"] is enabled
+    assert state.command_settings_are_saved("ask")
+    _, restarted = build_ai_bridge(tmp_path)
+    assert restarted.ai_enabled is enabled
+
+
+def test_bridge_ai_toggle_keeps_saved_and_applied_settings_separate(tmp_path) -> None:
+    bridge, state = build_ai_bridge(tmp_path)
+    state.save_command_settings(
+        "ask", enabled=True, permission=Permission.VIP,
+        cooldown=CooldownPolicy(per_user_seconds=7, global_seconds=11),
+    )
+    state.apply_command_settings(
+        "ask", permission=Permission.MODERATOR,
+        cooldown=CooldownPolicy(per_user_seconds=21, global_seconds=35),
+    )
+
+    assert bridge.set_ai_enabled(False) == {"ok": True}
+    assert state.ai_enabled is False
+    assert state.get_command_settings("ask").permission is Permission.MODERATOR
+    assert state.get_command_settings("ask").cooldown.global_seconds == 35
+    assert not state.command_settings_are_saved("ask")
+    _, restarted = build_ai_bridge(tmp_path)
+    assert restarted.ai_enabled is False
+    assert restarted.get_command_settings("ask").permission is Permission.VIP
+    assert restarted.get_command_settings("ask").cooldown == CooldownPolicy(
+        per_user_seconds=7, global_seconds=11,
+    )
+
+
+@pytest.mark.parametrize("failure", ["replace", "unconfigured"])
+def test_bridge_ai_toggle_save_failure_keeps_previous_state(tmp_path, monkeypatch, failure) -> None:
+    bridge, state = build_ai_bridge(tmp_path)
+    assert bridge.set_ai_enabled(False) == {"ok": True}
+    path = tmp_path / "command_settings.json"
+    original = path.read_bytes()
+    if failure == "replace":
+        def fail_replace(*args):
+            raise OSError("Synthetic replacement failure")
+        monkeypatch.setattr("app.command_settings.os.replace", fail_replace)
+    else:
+        state._command_settings_path = None
+
+    assert bridge.set_ai_enabled(True) == {
+        "ok": False, "error": "Could not save AI command enabled setting.",
+    }
+    assert bridge.get_ai_status()["enabled"] is False
+    assert bridge.get_commands()["commands"][0]["enabled"] is False
+    assert state.command_settings_are_saved("ask")
+    assert path.read_bytes() == original
+    assert list(tmp_path.glob(".command_settings.json.*.tmp")) == []
+    _, restarted = build_ai_bridge(tmp_path)
+    assert restarted.ai_enabled is False
+
+
+def test_bridge_ai_toggle_does_not_reenable_removed_ask(tmp_path) -> None:
+    bridge, state = build_ai_bridge(tmp_path)
+    state.remove_builtin_command("ask")
+    assert bridge.set_ai_enabled(True) == {
+        "ok": False, "error": "Restore !ask in Commands before enabling it.",
+    }
+    _, restarted = build_ai_bridge(tmp_path)
+    assert restarted.get_command_settings("ask").removed
+    assert restarted.ai_enabled is False
+
+
 def test_bridge_reads_bounded_logs_with_validated_cursor_arguments() -> None:
     log_buffer = RecentLogBuffer(max_entries=2)
     handler = RecentLogHandler(log_buffer)

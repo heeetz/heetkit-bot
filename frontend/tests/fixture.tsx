@@ -9,6 +9,7 @@ import type {
   AILanguageSettings,
   BlockedAIUser,
   AppStatus,
+  CommandInfo,
   PersonalitiesResponse,
   TwitchConnectionSettings,
   waitForBridge,
@@ -38,7 +39,8 @@ let status: AppStatus = {
   uptime_seconds: 0, channel: twitch.active_channel, account: twitch.bot_username,
 }
 let aiStatus = {
-  enabled: false, available: false, memory_enabled: false,
+  enabled: query.has('askToggle') ? JSON.parse(sessionStorage.getItem('askEnabled') ?? 'false') as boolean : false,
+  available: false, memory_enabled: false,
   active_personality: 'neutral', available_personalities: ['neutral'], model: '',
 }
 let personalities: PersonalitiesResponse = {
@@ -77,9 +79,34 @@ let playgroundCancelled = false
 let playgroundStartedAt = 0
 const updateCalls: unknown[][] = []
 Object.assign(window, { opened, aiCalls, updateCalls, playgroundCalls })
+const toggleCommands: CommandInfo[] = ['ask', 'ping'].map((name) => ({
+  name, enabled: name === 'ask' ? aiStatus.enabled : true,
+  permission: 'USER', cooldown: { per_user_seconds: 3, global_seconds: 15 },
+  aliases: [], hidden: false, available: true, unavailable_reason: null,
+  removed: false, identity_editable: name !== 'ask', minimum_permission: 'USER',
+  display_name: '', burst_interval_ms: 0, response_pool: null,
+  default_settings: { enabled: true, permission: 'USER', cooldown: { per_user_seconds: 3, global_seconds: 15 } },
+  saved: true, has_saved_override: true,
+}))
 window.pywebview = { api: {
   get_app_status: async () => status,
-  get_commands: async () => ({ command_prefix: '!', permissions: ['USER'], commands: [] }),
+  get_commands: async () => ({ command_prefix: '!', permissions: ['USER', 'VIP', 'MODERATOR'], commands: query.has('askToggle') ? structuredClone(toggleCommands) : [] }),
+  set_ai_enabled: async (enabled: boolean) => {
+    aiCalls.push(['set_ai_enabled', enabled])
+    if (query.has('askSaveDelay')) await new Promise((resolve) => window.setTimeout(resolve, 800))
+    if (query.has('askSaveError')) return { ok: false, error: 'Could not save AI command enabled setting.' }
+    aiStatus = { ...aiStatus, enabled }
+    toggleCommands[0].enabled = enabled
+    sessionStorage.setItem('askEnabled', JSON.stringify(enabled))
+    return { ok: true }
+  },
+  save_command_settings: async (name: string, enabled: boolean, perUser: number, global: number, permission: string) => {
+    aiCalls.push(['save_command_settings', name, enabled, perUser, global, permission])
+    const command = toggleCommands.find((item) => item.name === name)!
+    Object.assign(command, { enabled, permission, cooldown: { per_user_seconds: perUser, global_seconds: global } })
+    if (name === 'ask') aiStatus = { ...aiStatus, enabled }
+    return { ok: true }
+  },
   get_custom_commands: async () => ({ command_prefix: '!', permissions: ['USER'], variables: ['sender'], commands: [] }),
   get_filters: async () => ({
     words: { rules: [], defaults: [] },

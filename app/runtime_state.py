@@ -337,7 +337,17 @@ class RuntimeState:
         return self.command_enabled("ask")
 
     def set_ai_enabled(self, enabled: bool) -> None:
-        self.set_command_enabled("ask", enabled)
+        """Persist only Ask enablement, then publish it without saving other edits."""
+        with self._lock:
+            current = self.get_command_settings("ask")
+            if enabled and current.removed:
+                raise ValueError("Restore !ask in Commands before enabling it.")
+            defaults = self.get_command_default_settings("ask")
+            saved = self._persisted_command_overrides.get(
+                "ask", CommandSettingsOverride(),
+            ).apply(defaults)
+            self._save_command_settings("ask", replace(saved, enabled=enabled))
+            self._command_settings["ask"] = replace(current, enabled=enabled)
 
     @property
     def ai_memory_enabled(self) -> bool:

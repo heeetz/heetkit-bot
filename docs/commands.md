@@ -49,6 +49,13 @@ requires Broadcaster. `!ask` keeps its fixed identity. Protected commands appear
 the separate **Administrative commands** section with fixed identities and no text
 template editor.
 
+The `!ask` enabled switch saves immediately on **Dashboard**, **AI** and **Commands**.
+All three views share the same saved value, which survives restarts; no extra Commands
+Save is needed. If saving fails, the previous enabled state stays active and an error
+is shown. Toggling `!ask` keeps other drafts and does not save permissions, cooldowns,
+messages or AI editor changes. Use **Save** for those settings as usual. A removed
+`!ask` must first be restored from **Factory commands**.
+
 - **Save** immediately applies the settings and keeps them across restarts.
 - **Reset settings** removes this command's saved settings override and restores the
   shipped settings, including its enabled state. Its message is kept.
