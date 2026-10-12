@@ -1,9 +1,10 @@
 # Third-party notices
 
 HeetKit is licensed under Apache-2.0; dependencies retain their own licenses.
-The source-inventory snapshot below is dated **2026-10-04**, for application version **0.1.0**.
-It inventories the 54-package Windows runtime dependency closure in the existing
-Python 3.14 environment and all 119 packages in `frontend/package-lock.json`.
+The Python source inventory began as a **2026-10-04** snapshot for application version
+**0.1.0**, covering the 54-package Windows runtime dependency closure; later corrections
+are identified below. The frontend tables reflect the current
+`frontend/package-lock.json` (**125 packages**).
 The Python declarations support 3.12+ and mostly use version ranges: this snapshot
 is evidence of inspected versions, not a Python lockfile or a released artifact.
 
@@ -289,7 +290,7 @@ Package installation tooling is not a reason to distribute the entire virtual en
 | [pygments](https://pypi.org/project/pygments/2.21.0/) | 2.21.0 | BSD-2-Clause | Test/audit tooling; not selected by runtime requirements |
 | [pytest](https://pypi.org/project/pytest/8.4.2/) | 8.4.2 | MIT | Direct test dependency |
 | [pytest-asyncio](https://pypi.org/project/pytest-asyncio/0.26.0/) | 0.26.0 | Apache-2.0 | Direct test dependency |
-| [setuptools](https://github.com/pypa/setuptools/blob/main/LICENSE) | >=69; isolated build version not pinned | MIT | Declared build backend; not a runtime dependency |
+| [setuptools](https://github.com/pypa/setuptools/blob/main/LICENSE) | >=69 for source; Windows build pins 84.0.0 | MIT | Declared build backend; not a runtime dependency |
 
 No license-audit tool has been added as a runtime dependency.
 
@@ -436,7 +437,7 @@ test runner nor test browsers are part of the application frontend bundle.
 | react-refresh | 0.18.0 | MIT | No |
 | rollup | 4.63.5 | MIT | No |
 | semver | 6.3.1 | ISC | No |
-| source-map-js | 1.2.1 | BSD-3-Clause | No |
+| source-map-js | 1.2.2 | BSD-3-Clause | No |
 | tinyglobby | 0.2.17 | MIT | No |
 | typescript | 5.9.3 | Apache-2.0 | No |
 | undici-types | 7.8.0 | MIT | No |

@@ -9,8 +9,8 @@ privately on Discord at **de.tected**. Send a short description first; agree on 
 private way to share sensitive details. Never send working credentials.
 
 Include the affected version or commit, operating system, reproduction steps,
-and likely impact using synthetic data. The latest `main` source is supported;
-there are currently no supported standalone releases. Response times are best effort.
+and likely impact using synthetic data. Identify whether the issue affects the latest
+`main` source or a published Windows release. Response times are best effort.
 Coordinate disclosure with the maintainer so a fix can be prepared before publication.
 
 ## Credentials and private data

@@ -36,8 +36,10 @@ Gemini. `!uptime` measures the bot session, rather than the stream's uptime.
 Select **Edit** on a built-in command on **Commands** to edit its enabled state,
 permission and per-user/global cooldowns. Most commands also accept alternate
 aliases and a display label. The label does not rename the chat command: its original
-name stays available. Names and aliases already reserved by another built-in or
-custom command are rejected, including removed factory commands.
+name stays available. Enter up to ten comma-separated aliases; each is a single
+command word of at most 40 characters, without the prefix. Names and aliases are
+case-insensitive. Those already reserved by another built-in or custom command are
+rejected, including removed factory commands.
 
 The permission order is User → Subscriber → VIP → Moderator → Broadcaster; higher
 roles also satisfy lower requirements. `!tg` requires at least Moderator and `!erase`
@@ -111,7 +113,9 @@ or external edits; protect recovery copies like the profile itself. See
 
 Use **Custom Commands** to create a name, optional aliases, required permission,
 per-user/global cooldowns and a response mode. Custom command changes
-save immediately. Names and aliases cannot conflict with built-in commands.
+save immediately. Names and aliases use the same case-insensitive, single-word,
+40-character limit as built-ins, with at most ten aliases and no prefix in the editor.
+They cannot conflict with built-in commands.
 The top **New command** control becomes **Hide editor** while editing; **Close**
 is also available inside. Closing or switching commands asks to discard
 changes only when the draft was edited. A successful save closes the editor; a failed
@@ -156,6 +160,16 @@ expressions. Words and phrases use one non-empty rule per line, with surrounding
 whitespace trimmed; commas remain text. Regex rules have individual validation.
 **Apply** changes the running session and **Save** keeps validated rules across restarts.
 New profiles start with empty filter rules. Filters apply to incoming chat and AI replies.
+
+### Test filters locally
+
+Use **Filter Tester** to check sample text without posting to Twitch or making an API
+request. Choose **Active filters** to test the rules currently used by the session, or
+**Unsaved draft** to test the editors exactly as shown without applying or saving them.
+The result is `ALLOW` or `BLOCK`; a block reports its category and editable rule when
+available. A regex timeout blocks safely without claiming a matched rule. Tests do not
+change the active or saved rules and cover only editable global filters, not the separate
+protected AI safety policy.
 
 ## Reactions to ordinary messages
 

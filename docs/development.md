@@ -15,6 +15,8 @@ This guide covers source development; Windows distribution builds are covered in
 
 Windows tray and start-minimized controls are Windows-only. macOS/Linux source launches
 keep the window visible and close normally; native distributables are not provided yet.
+The current entry point requires a desktop; headless and container operation are not
+implemented.
 
 ## Source setup
 
@@ -65,6 +67,21 @@ Python owns behavior, validation, providers, persistence and lifecycle. React pr
 backend state through the typed `WebUIBridge`. Keep credentials and mutable profile
 data outside the application bundle, and use synthetic fixtures in tests.
 
+`app/main.py` enters the pywebview host in `app/webview_host.py`. Its background asyncio
+loop owns one composed `Application` (`app/container.py`) and one `BotRuntime`
+(`app/bot_runtime.py`). The application wires repositories, Twitch/Gemini/weather services,
+filters and the command dispatcher; `BotRuntime` starts and stops Twitch sessions.
+One desktop controller owns the window, tray and application shutdown.
+
+The registry defines built-in commands; `RuntimeState` holds their effective settings
+and current AI/session state. Profile stores own saved overrides. React calls only
+allowlisted bridge operations and holds temporary editor drafts. Stopping the bot
+disconnects Twitch while keeping the desktop and local tools available; exiting closes
+the backend and its provider, HTTP and database resources.
+
+Documentation-only changes need content/link review and `git diff --check`, without
+test suites or builds.
+
 Run focused Python tests for the changed subsystem:
 
 ```powershell
@@ -84,6 +101,9 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for pull requests.
 Configure ordinary desktop use in Settings. Saved non-secret profile values override
 process defaults; OS keyring credentials override process credential fallbacks.
 HeetKit never loads dotenv files. Do not record or commit environment contents.
+Defaults live under `app/config/`, and shipped starter data lives under `app/resources/`.
+For saved settings, profile paths and recovery, see
+[data and privacy](data-and-privacy.md#credentials-and-local-data).
 
 | Variable | Purpose |
 | --- | --- |

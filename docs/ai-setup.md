@@ -32,8 +32,10 @@ opens the collapsed Provider Credentials section.
 
 7. Open the **AI** page. Under **Models and fallback**, optionally choose a **Selected model**
    and **Fallback model**, then **Save models**. Use the supplied choices or **Discover
-   models** to check availability with Google. For free usage, check your model's Free
-   Tier support. Fallback handles unavailable models, not quota or billing errors.
+   models** with the configured key to list compatible text-generation models visible
+   through Google. For free usage, check your model's Free Tier support. The fallback is
+   tried only when Google reports that the selected model is unavailable (404).
+   Authentication, network, policy, quota, rate-limit and billing failures do not trigger it.
 8. Configure your AI style:
 
    - **Response language:** on the **AI** page, keep **Auto** to match the current
@@ -58,6 +60,20 @@ opens the collapsed Provider Credentials section.
    `!ask Say hello to chat` from another account in the target channel. If you enable the
    command here, save the Ask command on **Commands** to keep it enabled after restart.
    Permissions, cooldowns and filters still apply.
+
+## Test locally with AI Playground
+
+Open **AI → AI Playground** and enter a prompt to make a real Gemini request without
+posting to Twitch. Testing can consume API quota. The Playground uses the active global
+filters and personality, applied profile instructions, and saved model and response-language
+settings. Apply or save editor changes first when you want them included.
+
+Each prompt is independent of viewer memory, Twitch chat activity, stream context and
+command cooldowns. The bot may be stopped and the Ask command may be disabled. Only one
+Playground request runs at a time; you can cancel it, and it times out after 60 seconds.
+The result distinguishes a successful response, editable-filter or protected-policy input
+and output blocks, filter timeouts, provider unavailability, API errors, timeouts and
+cancellation. Protected decisions do not reveal hidden instructions.
 
 ## Blocked AI users
 

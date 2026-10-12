@@ -28,8 +28,9 @@ For source launches, use `python -m app.main` with the same options. `--stopped`
 automatic connection. `--data-dir` takes priority over `HEETKIT_DATA_DIR`; the legacy
 `TWITCH_BOT_DATA_DIR` override is used only when the HeetKit variable is absent.
 Each alternate profile needs its own setup. Credentials are associated with its resolved
-location, so moving it requires entering them again. Avoid simultaneous Twitch
-authorization flows across profiles because they share the callback port.
+location, so moving it requires entering them again. Only one desktop instance can open
+the same profile at a time. Separate profiles share the OAuth callback port and can use
+the same Twitch account; avoid simultaneous authorization flows or duplicate bot connections.
 
 The portable build keeps its profile in app-data too; copying the application folder
 does not transfer settings or credentials. Upgrades, same-version reinstalls and
@@ -43,6 +44,10 @@ the reported conflict with the application stopped.
 
 ## Credentials and local data
 
+Within the profile, `config/` holds JSON settings, commands, personalities, AI blocks
+and reactions, plus editable filter text in `config/filters/`. Activity and AI memory
+use `data/heetkit.db`; Twitch authorization uses `auth/twitchio_tokens.json`.
+
 - Gemini keys and Twitch client secrets entered in Settings use the OS keyring
   (Windows Credential Manager on Windows). They are separate from profile backups.
 - Twitch access and refresh tokens are stored in the profile's `auth/` directory.
@@ -52,8 +57,10 @@ the reported conflict with the application stopped.
   Twitch account IDs in this profile's `config/ai_user_blocks.json`.
 - Settings, personality prompts, profile instructions, custom replies, filters and
   recovery copies can contain private community information.
-- The Logs page can contain chat and diagnostic details. Clearing its displayed entries
-  does not delete stored activity or other application state.
+- The Logs page can contain chat and diagnostic details. Recent logs stay in memory;
+  source launches also write console diagnostics. HeetKit does not create application
+  log files. Clear affects only the displayed entries, leaving the backend buffer and
+  stored activity intact.
 
 Advanced deployments can provide process environment credentials; stored keyring
 values take priority. HeetKit does not load `.env` files. See
@@ -61,12 +68,19 @@ values take priority. HeetKit does not load `.env` files. See
 
 ## AI processing and memory
 
-AI requests send the chatter's prompt, protected shared instructions, profile
-instructions, the selected personality prompt and stream category to Google. When
-memory is enabled, recent exchanges for that chatter are included too. Requests needing
-current information may use Google Search grounding. Credential **Test** and **Discover
+Twitch AI requests send the chatter's prompt, protected shared instructions, profile
+instructions and the selected personality prompt to Google, with the current stream
+category when available. When memory is enabled, up to five recent successful exchanges
+for that chatter are included too. Requests needing current information may use Google
+Search grounding. Credential **Test** and **Discover
 models** also contact Google. Google's terms and data handling apply; see the live
 [Gemini pricing and data-use information](https://ai.google.dev/gemini-api/docs/pricing).
+
+The **AI Playground** makes real Gemini requests with the same instructions and output
+checks, but sends no viewer memory or stream category and writes no chat activity or AI
+memory. Prompts and results are not saved as test cases. **Filter Tester** runs locally
+without contacting Twitch or Google. See [AI setup](ai-setup.md#test-locally-with-ai-playground)
+and [filter testing](commands.md#test-filters-locally).
 
 The `!weather` command sends the supplied place query to Open-Meteo's geocoding
 service, then sends the returned coordinates to its forecast service.
@@ -80,8 +94,8 @@ receives ordinary connection information such as your IP address. **Open release
 downloads** opens the official release page in your browser; browser privacy settings
 apply there. See [update checking](release-process.md#check-for-updates).
 
-Turning memory off stops stored context being included in later requests; it does not
-erase existing exchanges. The broadcaster-only `!erase <username>` command deletes
+Turning memory off stops using and saving exchanges for subsequent requests; existing
+exchanges remain stored. The broadcaster-only `!erase <username>` command deletes
 stored AI memory for a known user. It does not remove that user's activity record.
 See [commands](commands.md) and [AI setup](ai-setup.md).
 

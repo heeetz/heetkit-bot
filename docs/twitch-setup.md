@@ -74,6 +74,15 @@ Collapsing a section keeps unsaved input.
     account access without giving it your password. Return to HeetKit, wait for
     **Connected**, then try `!help` from another account in the target chat.
 
+To change only the target channel later, use **Save & reconnect** while the bot is
+running, or **Save & apply** while stopped. **Save for later** persists the target
+without changing the current session. Connection presets save named channel targets;
+they share the configured bot account and authorization. Client ID, bot identity and
+client secret changes still require an application restart.
+
+**Settings → Startup, window and tray behavior → Start bot automatically** saves whether
+to connect on the next launch; it defaults to off and is independent of **Start minimized**.
+
 If connection fails, check that each login matches its numeric ID, the callback matches
 exactly, the bot has channel access and you authorized the bot account. Do not share your
 local profile folder: it contains Twitch authorization credentials.
