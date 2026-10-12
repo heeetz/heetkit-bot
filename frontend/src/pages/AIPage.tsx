@@ -16,6 +16,7 @@ import Switch from '../components/Switch'
 import AIPlayground from '../components/AIPlayground'
 import BlockedAIUsers from '../components/BlockedAIUsers'
 import Accordion from '../components/Accordion'
+import HelpTip from '../components/HelpTip'
 
 interface AIPageProps {
   active: boolean
@@ -610,12 +611,12 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
     if (succeeded) openPlayground()
   }
 
-  const playgroundLink = (source: NonNullable<typeof playgroundSource>, needsChoice: boolean) => (
-    <div className="settings-list playground-editor-link">
-      <div className="row-actions">
-        <button className="secondary" disabled={loading || Boolean(busy)} onClick={() => needsChoice ? setPlaygroundSource(source) : openPlayground()}>Open Playground</button>
-      </div>
-      {playgroundSource === source && <div className="setup-callout playground-draft-choice">
+  const playgroundButton = (source: NonNullable<typeof playgroundSource>, needsChoice: boolean) => (
+    <button className="secondary" disabled={loading || Boolean(busy)} onClick={() => needsChoice ? setPlaygroundSource(source) : openPlayground()}>Open Playground</button>
+  )
+
+  const playgroundChoice = (source: NonNullable<typeof playgroundSource>) => (
+    playgroundSource === source && <div className="setup-callout playground-draft-choice">
         <div>
           <strong>Choose what Playground will use</strong>
           <p>Other editor drafts are kept and are never used automatically.</p>
@@ -628,7 +629,13 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
             <button className="ghost" disabled={Boolean(busy)} onClick={() => setPlaygroundSource(null)}>Cancel</button>
           </div>
         </div>
-      </div>}
+      </div>
+  )
+
+  const playgroundLink = (source: NonNullable<typeof playgroundSource>, needsChoice: boolean) => (
+    <div className="settings-list playground-editor-link">
+      <div className="row-actions">{playgroundButton(source, needsChoice)}</div>
+      {playgroundChoice(source)}
     </div>
   )
 
@@ -640,8 +647,11 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
         onDismiss={() => { setError(''); setNotice('') }}
       />
       <div className="ai-status-grid" id="ai-runtime">
-        <article className="card compact-card">
-          <p className="label">AI command</p>
+        <article className="card ai-state-panel">
+          <div className="ai-state-heading">
+            <h2>AI command</h2>
+            <HelpTip label="AI command">Saved immediately across restarts. Dashboard, AI and Commands share this !ask setting. If Gemini is unavailable, the enabled preference is retained; add a usable API key to enable replies.</HelpTip>
+          </div>
           <Switch
             className="settings-toggle"
             checked={status?.enabled ?? false}
@@ -649,24 +659,33 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
             ariaLabel="Enable AI command"
             onCheckedChange={(enabled) => void changeToggle('enabled', enabled)}
           >
-            <span>{status?.enabled ? 'Enabled' : 'Disabled'}</span>
+            <span>{status ? status.enabled ? 'Enabled' : 'Disabled' : 'Loading…'}</span>
           </Switch>
-          <p className="setting-effect">Saved immediately across restarts. Dashboard, AI and Commands share this !ask setting.</p>
-          {status && !status.available && <p className="setting-effect">AI replies are unavailable. Gemini is optional; add a usable API key to enable AI features. Your enabled preference is retained.</p>}
         </article>
-        <article className="card compact-card">
-          <p className="label">Gemini availability</p>
-          <strong>{status ? status.available ? 'Configured for requests' : 'Unavailable' : 'Loading…'}</strong>
-          <div className="row-actions"><button className="secondary" disabled={loading} onClick={onOpenSettings}>{providerSaved?.credential?.configured ? 'Manage Gemini key' : 'Add Gemini key'}</button></div>
-          <p className="setting-effect">Validate the key in Settings. Test generation separately in Playground.</p>
+        <article className="card ai-state-panel" id="ai-memory">
+          <div className="ai-state-heading">
+            <h2>Conversation memory</h2>
+            <HelpTip label="Conversation memory">Saved immediately. Turning memory off stops subsequent use and storage; previously stored data is retained. !ask uses up to five successful exchanges per viewer. Playground never reads or stores viewer memory. The broadcaster-only !erase username command clears AI memory for a known viewer; it does not delete chat or activity records.</HelpTip>
+          </div>
+          <Switch className="settings-toggle" checked={status?.memory_enabled ?? false} disabled={!status || Boolean(busy)} ariaLabel="Enable conversation memory" onCheckedChange={(enabled) => void changeToggle('memory', enabled)}>
+            <span>{status ? status.memory_enabled ? 'Enabled' : 'Disabled' : 'Loading…'}</span>
+          </Switch>
         </article>
-        <article className="card compact-card">
-          <p className="label">Gemini model</p>
-          <strong>{status?.model || 'Not selected'}</strong>
+        <article className="card ai-state-panel">
+          <div className="ai-state-heading ai-gemini-heading">
+            <h2>Gemini</h2>
+            <div className="ai-state-actions">
+              <HelpTip label="Gemini">Gemini is optional. Manage the API key in Settings and use Test credential to validate access. A valid key does not prove model availability or quota; test generation separately in Playground.</HelpTip>
+              <button className="secondary" disabled={loading} aria-label={providerSaved?.credential?.configured ? 'Manage Gemini key' : 'Add Gemini key'} onClick={onOpenSettings}>Manage</button>
+            </div>
+          </div>
+          <span className="ai-availability">{status ? status.available ? 'Configured for requests' : 'Unavailable' : 'Loading…'}</span>
+          <span className="ai-model-label">Active model</span>
+          <strong>{status ? status.model || 'Not selected' : 'Loading…'}</strong>
         </article>
-        <article className="card compact-card">
-          <p className="label">Active personality</p>
-          <strong>{data?.active_personality || 'Not selected'}</strong>
+        <article className="card ai-state-panel">
+          <div className="ai-state-heading"><h2>Active personality</h2></div>
+          <strong>{data ? data.active_personality || 'Not selected' : 'Loading…'}</strong>
         </article>
       </div>
       <AIPlayground active={active} personality={data?.active_personality ?? ''} hasDrafts={hasDrafts} />
@@ -848,19 +867,19 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
       >
         {!languageDraft || !languageSaved ? <p className="muted">Loading response language settings…</p> : (
           <div className="settings-list">
-            <div className="language-policy-status">
+            <div className={`language-policy-status${languageDirty ? ' has-draft' : ''}`}>
               <div>
                 <span>Active policy</span>
                 <strong>{languageSettingsLabel(languageSaved, languageCatalogue)}</strong>
               </div>
-              <div>
+              {languageDirty && <div>
                 <span>Draft configuration</span>
                 <strong>{languageSettingsLabel(languageDraft, languageCatalogue)}</strong>
-              </div>
+              </div>}
             </div>
             <div className="language-fields">
               <label className="form-field">
-                Response language mode
+                <span>Response language mode</span>
                 <select
                   aria-label="Response language mode"
                   value={languageDraft.mode}
@@ -873,7 +892,7 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
                 <small>Auto follows the user without language restrictions. Limited uses the allowed set below.</small>
               </label>
               <label className="form-field">
-                Fallback language
+                <span>Fallback language</span>
                 <select
                   aria-label="Fallback language"
                   value={languageDraft.fallback_language}
@@ -929,18 +948,14 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
         </div>
         {!providerDraft ? <p className="muted">Loading AI provider settings…</p> : (
           <div className="settings-list">
-            <div className="ai-provider-status">
-              <div><span>Provider</span><strong>{providerDraft.provider}</strong></div>
-              <div><span>Credential</span><strong className={providerDraft.credential?.configured ? 'status-good' : ''}>{providerDraft.credential?.configured ? 'Configured' : 'Missing'}</strong></div>
-            </div>
-            <p className="setting-effect">Saved primary model: <strong>{providerSaved?.selected_model || 'Not selected'}</strong>. {providerDirty ? 'Unsaved model draft; Playground keeps using the saved models.' : 'Saved models apply to the next request.'}</p>
+            <p className="model-policy-status">Saved primary model: <strong>{providerSaved?.selected_model || 'Not selected'}</strong>. {providerDirty ? 'Unsaved model draft; Playground keeps using the saved models.' : 'Changes apply after Save models.'}</p>
               <ModelSelector
                 label="Primary model"
                 value={providerDraft.selected_model}
                 presets={providerDraft.presets}
                 discoveredModels={discoveredModels}
                 onChange={(selected_model) => updateProviderDraft({ selected_model })}
-                help="Saved model changes apply to the next AI request."
+                help="Used for AI requests."
               />
             <details className="model-advanced">
               <summary>Advanced model options</summary>
@@ -952,23 +967,19 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
                 onChange={(fallback_model) => updateProviderDraft({ fallback_model })}
                 help="Used only after the primary model returns 404. Key, network, quota and billing failures do not trigger fallback."
               />
-              <button className="secondary" disabled={Boolean(busy) || !providerDraft.credential?.configured} onClick={() => void discoverModels()}>{busy === 'provider:discover' ? 'Discovering…' : 'Discover models'}</button>
             </details>
-            <div className="settings-actions">
-              <button className="primary" disabled={Boolean(busy) || !providerDirty} onClick={() => void saveProviderModels()}>{busy === 'provider:save' ? 'Saving…' : 'Save models'}</button>
+            <div className="model-action-row">
+              <div className="model-action-group">
+                <button className="secondary" disabled={Boolean(busy) || !providerDraft.credential?.configured} onClick={() => void discoverModels()}>{busy === 'provider:discover' ? 'Discovering…' : 'Discover models'}</button>
+              </div>
+              <div className="model-action-group model-save-actions">
+                {playgroundButton('models', providerDirty)}
+                <button className="primary" disabled={Boolean(busy) || !providerDirty} onClick={() => void saveProviderModels()}>{busy === 'provider:save' ? 'Saving…' : 'Save models'}</button>
+              </div>
             </div>
-            {playgroundLink('models', providerDirty)}
+            {playgroundChoice('models')}
           </div>
         )}
-      </article>
-      <article className="card compact-card" id="ai-memory">
-        <h2>Conversation memory</h2>
-        <Switch className="settings-toggle" checked={status?.memory_enabled ?? false} disabled={!status || Boolean(busy)} ariaLabel="Enable conversation memory" onCheckedChange={(enabled) => void changeToggle('memory', enabled)}>
-          <span>{status?.memory_enabled ? 'Enabled' : 'Disabled'}</span>
-        </Switch>
-        <p className="setting-effect">Saved immediately. Turning memory off stops subsequent use and storage; previously stored data is retained.</p>
-        <p className="setting-effect">!ask uses up to five successful exchanges per viewer. Playground never reads or stores viewer memory.</p>
-        <p className="setting-effect">The broadcaster-only !erase username command clears AI memory for a known viewer. It does not delete chat or activity records.</p>
       </article>
       <BlockedAIUsers active={active} onOpenAsk={onOpenAsk} />
       <details className="card protected-instructions-card" id="ai-shared-instructions">

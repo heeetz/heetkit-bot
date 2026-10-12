@@ -160,10 +160,14 @@ test('AI scope and memory/access explanations remain available while stopped', a
   await expect(playground).toContainText('The bot can be stopped and !ask disabled')
   await expect(playground).toContainText('Success does not prove Twitch delivery')
   await expect(playground).toContainText('real Gemini API quota')
-  await expect(page.locator('#ai-memory')).toContainText('previously stored data is retained')
-  await expect(page.locator('#ai-memory')).toContainText('up to five successful exchanges per viewer')
-  await expect(page.locator('#ai-memory')).toContainText('broadcaster-only !erase')
-  await expect(page.locator('#ai-blocked-users')).toContainText('does not ban a Twitch user or delete their messages')
+  await page.getByRole('button', { name: 'Help: Conversation memory', exact: true }).click()
+  await expect(page.getByRole('tooltip')).toContainText('previously stored data is retained')
+  await expect(page.getByRole('tooltip')).toContainText('up to five successful exchanges per viewer')
+  await expect(page.getByRole('tooltip')).toContainText('broadcaster-only !erase')
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Help: AI access', exact: true }).click()
+  await expect(page.getByRole('tooltip')).toContainText('does not ban a Twitch user or delete their messages')
+  await page.keyboard.press('Escape')
   expect(await testPrompt(page)).toMatchObject({ personality: 'neutral' })
 })
 
@@ -194,4 +198,120 @@ test('the !ask access link reaches recovery when the command is removed', async 
   await expect(ask).toBeInViewport()
   await expect(ask).toContainText('Removed')
   await expect(ask.getByRole('button', { name: 'Restore defaults and enable' })).toBeVisible()
+})
+
+for (const width of [1280, 900, 761, 390, 320]) {
+  test(`compact AI state and editor rows fit long text and drafts at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/tests/fixture.html?a4Models&aiAvailable')
+    await page.evaluate(() => {
+      const api = window.pywebview!.api
+      const getStatus = api.get_ai_status
+      api.get_ai_status = async () => ({ ...await getStatus(), model: 'synthetic-long-model-'.repeat(6) })
+      const getPersonalities = api.get_personalities
+      api.get_personalities = async () => ({ ...await getPersonalities(), active_personality: 'LongPersonality'.repeat(4) })
+    })
+    await page.getByRole('button', { name: 'AI', exact: true }).click()
+    await expect(page.locator('.ai-layout')).toHaveAttribute('aria-busy', 'false')
+    const state = page.locator('#ai-runtime')
+    await expect(state.getByRole('heading')).toHaveText(['AI command', 'Conversation memory', 'Gemini', 'Active personality'])
+    await expect(state.locator('.ai-state-panel')).toHaveCount(4)
+    const panels = await state.locator('.ai-state-panel').all()
+    const panelBoxes = await Promise.all(panels.map(async (panel) => (await panel.boundingBox())!))
+    if (width === 1280) expect(new Set(panelBoxes.map((box) => box.y)).size).toBe(1)
+    if (width === 900 || width === 761) expect(new Set(panelBoxes.map((box) => box.y)).size).toBe(2)
+    for (const panel of panels) {
+      expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy()
+    }
+    await state.screenshot({ path: `node_modules/.tmp/a4-state-${width}.png` })
+
+    const language = page.locator('#ai-language')
+    await language.locator('.accordion-caret').click()
+    await expect(language.locator('.language-policy-status > div')).toHaveCount(1)
+    await language.getByLabel('Response language mode').selectOption('limited')
+    await expect(language.locator('.language-policy-status > div')).toHaveCount(2)
+    await expect(language.locator('.language-policy-status')).toContainText('Draft configuration')
+    await language.locator('.language-fields small').first().evaluate((element) => {
+      element.textContent = 'A longer explanation can wrap onto several lines without moving the neighboring selector. '.repeat(3)
+    })
+    const mode = (await language.getByLabel('Response language mode').boundingBox())!
+    const fallback = (await language.getByLabel('Fallback language').boundingBox())!
+    expect(mode.height).toBe(40)
+    expect(fallback.height).toBe(mode.height)
+    expect(fallback.width).toBeCloseTo(mode.width, 0)
+    if (width > 760) {
+      expect(fallback.y).toBe(mode.y)
+      const helpers = await language.locator('.language-fields small').all()
+      expect((await helpers[0].boundingBox())!.y).toBe((await helpers[1].boundingBox())!.y)
+    } else expect(fallback.y).toBeGreaterThan(mode.y + mode.height)
+    await language.screenshot({ path: `node_modules/.tmp/a4-language-${width}.png` })
+
+    const models = page.locator('#ai-models')
+    const discover = (await models.getByRole('button', { name: 'Discover models' }).boundingBox())!
+    const playground = (await models.getByRole('button', { name: 'Open Playground' }).boundingBox())!
+    const save = (await models.getByRole('button', { name: 'Save models', exact: true }).boundingBox())!
+    expect(playground.y).toBe(save.y)
+    expect(playground.height).toBe(save.height)
+    expect(playground.x).toBeLessThan(save.x)
+    if (width >= 900) expect(discover.y).toBe(playground.y)
+    if (width <= 390) expect(discover.y + discover.height).toBeLessThanOrEqual(playground.y)
+    await models.getByLabel('Primary model').selectOption('synthetic-fallback')
+    await models.getByRole('button', { name: 'Open Playground' }).click()
+    await expect(models.locator('.playground-draft-choice')).toBeVisible()
+    await models.screenshot({ path: `node_modules/.tmp/a4-models-${width}.png` })
+    await expect(page.locator('#ai-memory').getByRole('checkbox')).not.toBeChecked()
+    expect(await page.locator('.ai-layout').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+  })
+}
+
+test('compact memory toggle saves independently and reports failures without changing its value', async ({ page }) => {
+  await openAI(page)
+  const profile = page.locator('#ai-profile-instructions')
+  await profile.locator('textarea').fill('Keep unrelated profile draft')
+  const memory = page.locator('#ai-memory').getByRole('checkbox', { name: 'Enable conversation memory' })
+  await memory.press('Space')
+  await expect(memory).toBeChecked()
+  await expect(profile.locator('textarea')).toHaveValue('Keep unrelated profile draft')
+  expect(await page.evaluate(() => Reflect.get(window, 'aiCalls'))).toEqual([['set_ai_memory_enabled', true]])
+  await openAI(page, 'memorySaveError')
+  await page.locator('#ai-memory').getByRole('checkbox').press('Space')
+  await expect(page.getByRole('alert')).toContainText('Could not save conversation memory setting.')
+  await expect(page.locator('#ai-memory').getByRole('checkbox')).not.toBeChecked()
+})
+
+test('compact state displays loading and unavailable Gemini with reachable key management', async ({ page }) => {
+  await page.goto('/tests/fixture.html')
+  await page.evaluate(() => {
+    const api = window.pywebview!.api
+    const getStatus = api.get_ai_status
+    const pending = new Promise<void>((resolve) => Reflect.set(window, 'releaseAIStatus', resolve))
+    api.get_ai_status = async () => { await pending; return getStatus() }
+  })
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  const state = page.locator('#ai-runtime')
+  await expect(state.locator('.ai-state-panel')).toHaveCount(4)
+  await expect(state.getByRole('checkbox', { name: 'Enable conversation memory' })).toBeDisabled()
+  await expect(state.getByRole('button', { name: 'Add Gemini key' })).toBeDisabled()
+  await expect(state).toContainText('Loading…')
+  await page.evaluate(() => Reflect.get(window, 'releaseAIStatus')())
+  await expect(page.locator('.ai-layout')).toHaveAttribute('aria-busy', 'false')
+  await expect(state).toContainText('Unavailable')
+  await expect(state).toContainText('Not selected')
+  await state.getByRole('button', { name: 'Add Gemini key' }).click()
+  await expect(page.locator('#credential-settings')).toBeInViewport()
+})
+
+test('model discovery shares the action row and leaves drafts unsaved', async ({ page }) => {
+  await openAI(page)
+  await page.evaluate(() => {
+    window.pywebview!.api.discover_gemini_models = async () => ({ ok: true, models: ['synthetic-discovered'] })
+  })
+  const models = page.locator('#ai-models')
+  await models.getByRole('button', { name: 'Discover models' }).click()
+  await expect(models.getByLabel('Primary model').locator('option[value="synthetic-discovered"]')).toHaveCount(1)
+  await models.getByLabel('Primary model').selectOption('synthetic-discovered')
+  await expect(models.getByRole('button', { name: 'Save models', exact: true })).toBeEnabled()
+  await expect(models).toContainText('Saved primary model: synthetic-primary')
+  expect(await page.evaluate(() => Reflect.get(window, 'aiCalls'))).toEqual([])
 })

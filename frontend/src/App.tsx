@@ -45,7 +45,6 @@ const subsections: Partial<Record<Section, { label: string; targetId: string }[]
     { label: 'Profile instructions', targetId: 'ai-profile-instructions' },
     { label: 'Response language', targetId: 'ai-language' },
     { label: 'Models', targetId: 'ai-models' },
-    { label: 'Conversation memory', targetId: 'ai-memory' },
     { label: 'AI access', targetId: 'ai-blocked-users' },
     { label: 'Built-in restrictions', targetId: 'ai-shared-instructions' },
   ],

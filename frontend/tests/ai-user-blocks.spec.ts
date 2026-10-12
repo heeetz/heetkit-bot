@@ -92,6 +92,35 @@ test('local Playground stays usable while AI users are blocked', async ({ page }
   await expect(section.locator('li')).toHaveCount(1)
 })
 
+test('AI access keeps the compact header action and explains blocking scope', async ({ page }) => {
+  await page.goto('/tests/fixture.html')
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  const section = page.locator('#ai-blocked-users')
+  await expect(section.locator('.ai-access-heading')).toContainText('AI access')
+  await expect(section.locator('.ai-access-heading').getByRole('heading', { name: 'Blocked AI users' })).toHaveCount(0)
+  await expect(section.locator('.ai-access-heading').getByRole('button', { name: 'Help: AI access' })).toBeVisible()
+  await expect(section.locator('.ai-access-actions').getByRole('button', { name: 'Edit !ask access and cooldowns' })).toBeVisible()
+  await section.locator('.ai-access-heading').getByRole('button', { name: 'Help: AI access' }).focus()
+  await expect(page.getByRole('tooltip')).toContainText('does not ban a Twitch user or delete their messages')
+})
+
+for (const width of [1280, 900]) {
+  test(`AI access form controls match height and bottom edge at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/tests/fixture.html')
+    await page.getByRole('button', { name: 'AI', exact: true }).click()
+    const section = page.locator('#ai-blocked-users')
+    const input = section.getByLabel('Twitch username')
+    const button = section.getByRole('button', { name: 'Block user' })
+    const inputBox = await input.boundingBox()
+    const buttonBox = await button.boundingBox()
+    expect(inputBox).not.toBeNull()
+    expect(buttonBox).not.toBeNull()
+    expect(Math.abs(inputBox!.height - buttonBox!.height)).toBeLessThanOrEqual(1)
+    expect(Math.abs((inputBox!.y + inputBox!.height) - (buttonBox!.y + buttonBox!.height))).toBeLessThanOrEqual(1)
+  })
+}
+
 for (const width of [1280, 900, 390, 320]) {
   test(`blocked AI user controls stay aligned at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })

@@ -240,7 +240,7 @@ test('language settings default to Auto and validate Limited selections before s
 
   await expect(language.getByLabel('Response language mode')).toHaveValue('auto')
   await expect(language.getByText('Saved active policy', { exact: true })).toBeVisible()
-  await expect(language.getByText('Auto — match the incoming language without restrictions.', { exact: true })).toHaveCount(2)
+  await expect(language.getByText('Auto — match the incoming language without restrictions.', { exact: true })).toHaveCount(1)
 
   await language.getByLabel('Response language mode').selectOption('limited')
   await expect(language.getByLabel('English', { exact: true })).toBeChecked()
@@ -259,7 +259,7 @@ test('language settings default to Auto and validate Limited selections before s
   await language.getByRole('button', { name: 'Save language settings', exact: true }).click()
 
   await expect(page.getByRole('status').locator('span')).toHaveText('AI language settings saved and active for the next request.')
-  await expect(language.getByText('Limited — English, Ukrainian, Russian; fallback English.', { exact: true })).toHaveCount(2)
+  await expect(language.getByText('Limited — English, Ukrainian, Russian; fallback English.', { exact: true })).toHaveCount(1)
   const protectedInstructions = page.locator('.protected-instructions-card')
   await protectedInstructions.locator('summary').click()
   await expect(protectedInstructions.locator('textarea')).toHaveValue(/Active language policy: Limited — English, Ukrainian, Russian; fallback English\./)

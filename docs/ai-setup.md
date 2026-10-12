@@ -26,11 +26,16 @@ credential that lets HeetKit send requests to Google's Gemini service.
 ## Choose how the bot replies
 
 Open **AI**. Its sections follow the working order **State → Playground → Personality
-and profile instructions → Language → Models → Memory → AI access → Built-in
+and profile instructions → Language → Models → AI access → Built-in
 restrictions**. Use the AI sidebar shortcuts to open and scroll to a section. Collapsing
 an editor keeps its draft. Editor headers also open or close with Enter or Space.
 Use the question-mark buttons for extra explanations; focus or select one for
 immediate help, or hover briefly. Escape dismisses help without changing your draft.
+
+**State** contains four compact panels: **AI command**, **Conversation memory**,
+**Gemini** and **Active personality**. The command and memory switches save immediately.
+Gemini shows availability and the active model together; **Manage** opens its key in
+Settings. State's help explains key validation and memory retention.
 
 7. Configure the instructions used for generation:
 
@@ -57,9 +62,11 @@ immediate help, or hover briefly. Escape dismisses help without changing your dr
    - **Models:** the primary model is shown directly. Custom primary-model selection and
      the fallback model are advanced controls. Save model changes before testing them.
      **Discover models** lists compatible text-generation models visible through Google.
+     It shares an action row with **Open Playground** and **Save models**; opening
+     Playground with a draft still requires an explicit choice.
      The fallback is tried only when a request to the primary model returns 404. Key,
      network, policy, quota, rate-limit and billing failures do not trigger it.
-   - **Conversation memory:** choose whether successful `!ask` exchanges are kept locally
+   - **Conversation memory** in **AI → State:** choose whether successful `!ask` exchanges are kept locally
      and included in later requests for that viewer. At most five exchanges per viewer are
      retained. Turning memory off stops subsequent use and storage but does not erase prior
      exchanges. Do not put secrets or private information in prompts or chat sent to Google.
@@ -96,7 +103,7 @@ Protected decisions do not reveal hidden instructions.
 
 ## Blocked AI users
 
-Open **AI → AI access**. Enter a Twitch login under **Blocked AI users** and select
+Open **AI → AI access**. Enter a **Twitch username** and select
 **Block user**. An optional `@` and surrounding whitespace are accepted; names are
 case-insensitive. Empty, duplicate or invalid login names are rejected. Select
 **Unblock** beside an entry to restore access. Changes apply immediately, save for
@@ -106,6 +113,9 @@ feedback beside the form explains the next action; the entered username and prev
 list remain available. A timed-out block requests cancellation. Check **Logs** and
 reopen the AI page to refresh the saved list before retrying, since work that already
 finished saving may complete after the deadline.
+
+The header's **Edit !ask access and cooldowns** opens the command's existing settings.
+Use the help beside **AI access** for the distinction between AI blocking and Twitch bans.
 
 When available, HeetKit resolves the account ID through its existing Twitch connection
 or previously observed chatter records. Otherwise it keeps the normalized login and
@@ -127,8 +137,8 @@ deletion are separate actions.
 
 In **Limited**, a clearly identified input language is used when it is allowed;
 otherwise the bot uses the selected fallback. The allowed set must contain at least
-one language, and the fallback must belong to it. The AI page shows the saved active
-policy separately from any unsaved selection.
+one language, and the fallback must belong to it. The AI page shows one saved active
+policy description when unchanged, and compares it with the draft when edited.
 
 Language selection uses prose in the current question. Clear short greetings such as
 “Привіт” or “Привет” identify Ukrainian or Russian. Mixed or code-switching messages

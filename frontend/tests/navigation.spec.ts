@@ -51,7 +51,7 @@ const destinations = [
   { section: 'AI', children: [
     ['State', 'ai-runtime'], ['Playground', 'ai-playground'],
     ['Personalities', 'ai-personalities'], ['Profile instructions', 'ai-profile-instructions'],
-    ['Response language', 'ai-language'], ['Models', 'ai-models'], ['Conversation memory', 'ai-memory'],
+    ['Response language', 'ai-language'], ['Models', 'ai-models'],
     ['AI access', 'ai-blocked-users'], ['Built-in restrictions', 'ai-shared-instructions'],
   ] },
   { section: 'Settings', children: [
@@ -220,7 +220,8 @@ for (const width of [1280, 1080, 900, 760, 390, 320]) {
     await nav.getByRole('button', { name: 'Filter Tester', exact: true }).click()
     await expect(page.locator('#filter-tester')).toBeInViewport()
     await nav.getByRole('button', { name: 'AI', exact: true }).click()
-    await nav.getByRole('button', { name: 'Conversation memory', exact: true }).click()
+    await expect(nav.getByRole('button', { name: 'Conversation memory', exact: true })).toHaveCount(0)
+    await nav.getByRole('button', { name: 'State', exact: true }).click()
     await expect(page.locator('#ai-memory')).toBeInViewport()
     await nav.getByRole('button', { name: 'AI access', exact: true }).click()
     await expect(page.locator('#ai-blocked-users')).toBeInViewport()
