@@ -1,6 +1,6 @@
 """Tests for the async user repository."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 import pytest
 
@@ -14,7 +14,7 @@ async def test_user_repository_creates_and_updates_user() -> None:
     database = Database("sqlite+aiosqlite:///:memory:")
     await database.initialize()
     repository = UserRepository(database.session_factory)
-    first_seen = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    first_seen = utcnow()
     second_seen = first_seen + timedelta(days=1)
 
     created = await repository.upsert_seen("42", "first_name", first_seen)

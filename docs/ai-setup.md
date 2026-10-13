@@ -71,9 +71,11 @@ Settings. State's help explains key validation and memory retention.
      The fallback is tried only when a request to the primary model returns 404. Key,
      network, policy, quota, rate-limit and billing failures do not trigger it.
    - **Conversation memory** in **AI → State:** choose whether successful `!ask` exchanges are kept locally
-     and included in later requests for that viewer. At most five exchanges per viewer are
-     retained. Turning memory off stops subsequent use and storage but does not erase prior
-     exchanges. Do not put secrets or private information in prompts or chat sent to Google.
+     and included in later requests for that viewer. Successful history expires after 90 days;
+     only the five most recent unexpired exchanges are used as context. Turning memory off
+     stops subsequent use and storage; automatic expiry still applies to prior exchanges.
+     See [privacy requests and provider restrictions](data-and-privacy.md) before using AI
+     with viewers. Do not put secrets or private information in prompts or chat sent to Google.
 
 The Gemini key is managed only under **Settings → Gemini API key**; AI provides a link
 there and Settings provides a return path. **Test credential** checks access with Google,

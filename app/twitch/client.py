@@ -25,6 +25,7 @@ from app.services.facade import ApplicationServices
 from app.services.ai_request_policy import PolicyDecision
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.utils.text import parse_command
+from app.utils.logging import privacy_log_scope
 
 
 class TwitchConnectionError(RuntimeError):
@@ -111,7 +112,33 @@ async def process_twitch_message(
         logger.exception("Could not map incoming Twitch chat message")
         return
 
-    # Reject blocked Ask accounts before filters, content logging, user or AI work.
+    opted_out = False
+    privacy_check = getattr(services.users, "is_storage_opted_out", None)
+    if privacy_check is not None:
+        try:
+            opted_out = await privacy_check(incoming.author.twitch_user_id)
+        except Exception as error:
+            # Keep commands working, but fail closed for personal diagnostics.
+            opted_out = True
+            logger.error("Could not check storage opt-out: %s", type(error).__name__)
+    with privacy_log_scope(opted_out):
+        try:
+            await _process_incoming_message(incoming, services, dispatcher, logger)
+        except Exception:
+            if not opted_out:
+                raise
+            # An outer transport exception logger must not expose private input.
+            logger.error("Unexpected opted-out chat processing failure")
+
+
+async def _process_incoming_message(
+    incoming: IncomingChatMessage,
+    services: ApplicationServices,
+    dispatcher: CommandDispatcher,
+    logger: logging.Logger,
+) -> None:
+
+    # Reject blocked Ask accounts before filters, content logging, user writes or AI work.
     if getattr(services, "ai_user_blocks", None) is not None and dispatcher.is_ai_request_blocked(incoming, services):
         return
 

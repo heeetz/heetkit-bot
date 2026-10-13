@@ -2,6 +2,8 @@
 
 import logging
 from collections import deque
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from threading import RLock
@@ -20,6 +22,23 @@ EVENT_CONTEXT_ATTRIBUTES = {
     "event_action": "action",
 }
 EventContextValue = str | int | float | bool
+
+_suppress_private_chat_logs: ContextVar[bool] = ContextVar("suppress_private_chat_logs", default=False)
+
+
+@contextmanager
+def privacy_log_scope(suppressed: bool):
+    """Suppress this request's diagnostics without affecting concurrent viewers."""
+    token = _suppress_private_chat_logs.set(suppressed)
+    try:
+        yield
+    finally:
+        _suppress_private_chat_logs.reset(token)
+
+
+class PrivacyLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not _suppress_private_chat_logs.get()
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +100,8 @@ class RecentLogHandler(logging.Handler):
         self._buffer = buffer
 
     def emit(self, record: logging.LogRecord) -> None:
+        if _suppress_private_chat_logs.get():
+            return
         try:
             message = record.getMessage()
             if record.exc_info:
@@ -103,6 +124,9 @@ def configure_logging(level: str) -> None:
     root_logger = logging.getLogger()
     if _recent_log_handler not in root_logger.handlers:
         root_logger.addHandler(_recent_log_handler)
+    for handler in root_logger.handlers:
+        if not any(isinstance(item, PrivacyLogFilter) for item in handler.filters):
+            handler.addFilter(PrivacyLogFilter())
     logging.getLogger("twitchio").setLevel(logging.CRITICAL + 1)
 
 

@@ -70,6 +70,8 @@ this existing `!ask` editor for permission and cooldown changes.
 that viewer's stored AI conversation memory. It does not remove activity history, Twitch
 messages or an AI block, and blocking a user from `!ask` does not erase their existing
 memory or ban them from Twitch chat.
+For deletion of both activity and AI history, or a persistent local-storage opt-out,
+follow the operator's [manual privacy-request procedure](data-and-privacy.md#manual-privacy-requests).
 
 - **Save** immediately applies the settings and keeps them across restarts.
 - **Reset settings** removes this command's saved settings override and restores the

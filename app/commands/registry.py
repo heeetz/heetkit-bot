@@ -64,8 +64,8 @@ class CommandContext:
     async def reply(self, content: str) -> bool:
         if self.output_limiter is not None and not self.output_limiter.try_acquire():
             return False
-        await self._send_response(content)
-        return True
+        result = await self._send_response(content)
+        return getattr(result, "sent", None) is not False
 
     async def _send_response(self, content: str) -> object:
         try:

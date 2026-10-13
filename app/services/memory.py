@@ -26,11 +26,10 @@ class AIMemoryService:
         request_text: str,
         response_text: str,
     ) -> None:
-        await self._repository.append_and_prune(
+        await self._repository.append(
             twitch_user_id=twitch_user_id,
             request_text=request_text,
             response_text=response_text,
-            limit=AI_MEMORY_MAX_ENTRIES,
         )
 
     async def erase_for_user(self, twitch_user_id: str) -> None:

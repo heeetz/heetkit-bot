@@ -49,3 +49,11 @@ class AIMemoryEntry(Base):
     request_text: Mapped[str] = mapped_column(String(500))
     response_text: Mapped[str] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+
+
+class PrivacyOptOut(Base):
+    """Minimal suppression record; deliberately independent of user retention."""
+
+    __tablename__ = "privacy_opt_outs"
+
+    twitch_user_id: Mapped[str] = mapped_column(String(32), primary_key=True)

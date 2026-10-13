@@ -1,6 +1,6 @@
 """AI defaults and internal request/output bounds.
 
-Memory enablement is overlaid by profile settings; response and retention limits
+Memory enablement is overlaid by profile settings; response and context limits
 are owned by the application and are not desktop preferences.
 """
 
