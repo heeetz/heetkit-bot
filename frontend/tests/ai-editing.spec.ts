@@ -218,8 +218,9 @@ for (const width of [1280, 900, 761, 390, 320]) {
     await expect(state.locator('.ai-state-panel')).toHaveCount(4)
     const panels = await state.locator('.ai-state-panel').all()
     const panelBoxes = await Promise.all(panels.map(async (panel) => (await panel.boundingBox())!))
-    if (width === 1280) expect(new Set(panelBoxes.map((box) => box.y)).size).toBe(1)
-    if (width === 900 || width === 761) expect(new Set(panelBoxes.map((box) => box.y)).size).toBe(2)
+    const contentWidth = (await page.locator('.page-content').boundingBox())!.width
+    const columns = width <= 760 || contentWidth < 480 ? 1 : contentWidth < 1000 ? 2 : 4
+    expect(new Set(panelBoxes.map((box) => box.y)).size).toBe(4 / columns)
     for (const panel of panels) {
       expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy()
     }
@@ -239,7 +240,7 @@ for (const width of [1280, 900, 761, 390, 320]) {
     expect(mode.height).toBe(40)
     expect(fallback.height).toBe(mode.height)
     expect(fallback.width).toBeCloseTo(mode.width, 0)
-    if (width > 760) {
+    if (width > 760 && contentWidth > 620) {
       expect(fallback.y).toBe(mode.y)
       const helpers = await language.locator('.language-fields small').all()
       expect((await helpers[0].boundingBox())!.y).toBe((await helpers[1].boundingBox())!.y)

@@ -96,6 +96,38 @@ on other development platforms install Chromium with `npx playwright install chr
 Native window, tray and OAuth behavior may need platform-specific manual validation.
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for pull requests.
 
+### Desktop layout checks
+
+Page headers and content share a centered maximum width of 1280 CSS pixels. Columns
+respond to that area's available width after the sidebar, padding and scrollbar:
+AI State uses four panels from 1000px, two from 480px, then one. Dashboard keeps
+three panels from 720px, two from 480px, then one. Two-field forms stack at 620px.
+The existing browser layout at 760px and below keeps its top navigation and single
+columns. On desktop, the sidebar menu scrolls independently of the brand and page.
+
+Run the focused viewport matrix in `frontend/`:
+
+```powershell
+npm test -- tests/responsive.spec.ts
+```
+
+The matrix covers 900×620, 1180×760, 1440×900, 1920×1080 and 2560×1440 CSS-pixel
+viewports, plus the 761/760px navigation boundary and 390/320px narrow layouts.
+Synthetic fixtures cover fresh setup, configured stopped/connected sessions,
+missing Gemini, loading, errors, drafts and long names. Checks include content and
+control bounds, form/action order, independent menu scrolling and keyboard help.
+
+Browser viewport checks do not establish Windows DPI acceptance. Separately launch
+the native application stopped with an isolated `--data-dir`, keeping the default
+1180×760 and minimum 900×620 window sizes. Check restored, minimum and maximized
+windows at Windows display scaling of 100%, 125% and 150%. Record each actual
+WebView content size (`window.innerWidth`/`innerHeight`), `devicePixelRatio`, and
+the main/page client and scroll widths using the development renderer's tools.
+Native window dimensions and screenshot pixels can differ from CSS content bounds.
+Check actions, navigation, help near edges and keyboard interaction in those actual
+bounds; record unavailable scales or scenarios as unverified. Use synthetic profiles
+and do not connect Twitch or call Gemini for layout validation.
+
 ## Advanced process configuration
 
 Configure ordinary desktop use in Settings. Saved non-secret profile values override

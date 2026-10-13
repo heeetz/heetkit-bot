@@ -522,7 +522,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar" ref={sidebar}>
-        <div className="brand"><img className="brand-mark" src="./icon.png" alt="" /><div><strong>HeetKit</strong><small>Desktop control center for Twitch chat</small></div></div>
+        <div className="brand"><img className="brand-mark" src="./icon.png" alt="" /><div><strong>HeetKit</strong><small>Twitch bot controls</small></div></div>
         <nav aria-label="Main navigation">
           {sections.map((item) => (
             <div className="nav-section" key={item}>
@@ -553,25 +553,27 @@ export default function App() {
         </nav>
       </aside>
       <main ref={main}>
-        <header><h1>{section}</h1></header>
-        <FeedbackToast error={error} onDismiss={() => setError('')} />
-        {section === 'Dashboard' && (
-          <Dashboard
-            status={status}
-            aiStatus={aiStatus}
-            busy={actionBusy}
-            onChangeBotState={(shouldRun) => void changeBotState(shouldRun)}
-            onChangeAIState={(kind, enabled) => void changeAIState(kind, enabled)}
-            onAuthorizeTwitch={() => void authorizeTwitch()}
-            onNavigate={navigate}
-          />
-        )}
-        <div hidden={section !== 'Commands'}><CommandsPage active={section === 'Commands'} revealCommand={navigationTarget?.id === 'command-editor-ask' ? 'ask' : undefined} onAIEnabledChanged={synchronizeAIEnabled} /></div>
-        <div hidden={section !== 'Filters'}><FiltersPage active={section === 'Filters'} /></div>
-        <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} onOpenSettings={() => navigate('Settings', 'credential-settings')} onOpenPlayground={() => navigate('AI', 'ai-playground')} onOpenAsk={() => navigate('Commands', 'command-editor-ask')} onAIEnabledChanged={synchronizeAIEnabled} /></div>
-        {section === 'Logs' && <LogsPage />}
-        <div hidden={section !== 'Settings'}><SettingsPage active={section === 'Settings'} status={status} onReturnToAI={() => navigate('AI', 'ai-playground')} /></div>
-        {section === 'About' && <AboutPage />}
+        <div className="page-content">
+          <header><h1>{section}</h1></header>
+          <FeedbackToast error={error} onDismiss={() => setError('')} />
+          {section === 'Dashboard' && (
+            <Dashboard
+              status={status}
+              aiStatus={aiStatus}
+              busy={actionBusy}
+              onChangeBotState={(shouldRun) => void changeBotState(shouldRun)}
+              onChangeAIState={(kind, enabled) => void changeAIState(kind, enabled)}
+              onAuthorizeTwitch={() => void authorizeTwitch()}
+              onNavigate={navigate}
+            />
+          )}
+          <div hidden={section !== 'Commands'}><CommandsPage active={section === 'Commands'} revealCommand={navigationTarget?.id === 'command-editor-ask' ? 'ask' : undefined} onAIEnabledChanged={synchronizeAIEnabled} /></div>
+          <div hidden={section !== 'Filters'}><FiltersPage active={section === 'Filters'} /></div>
+          <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} onOpenSettings={() => navigate('Settings', 'credential-settings')} onOpenPlayground={() => navigate('AI', 'ai-playground')} onOpenAsk={() => navigate('Commands', 'command-editor-ask')} onAIEnabledChanged={synchronizeAIEnabled} /></div>
+          {section === 'Logs' && <LogsPage />}
+          <div hidden={section !== 'Settings'}><SettingsPage active={section === 'Settings'} status={status} onReturnToAI={() => navigate('AI', 'ai-playground')} /></div>
+          {section === 'About' && <AboutPage />}
+        </div>
       </main>
     </div>
   )
