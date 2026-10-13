@@ -23,6 +23,9 @@ credential that lets HeetKit send requests to Google's Gemini service.
 6. Select **Test credential** beside the credential to check access with Google. This verifies the
    key; model access and usage limits still apply.
 
+The key field spans the section. **Return to AI Playground** and the key actions
+share its footer; the question-mark help explains validation and generation testing.
+
 ## Choose how the bot replies
 
 Open **AI**. Its sections follow the working order **State → Playground → Personality
@@ -48,7 +51,8 @@ Settings. State's help explains key validation and memory retention.
      this local profile, such as your community's vocabulary. Apply/use the draft for the
      current session, or save it to apply it now and keep it across restarts. Personality
      prompt, active-personality and profile-instruction saves are independent.
-   - Each editor links directly to **Playground**. With a draft, choose whether to save it
+   - Personality and profile editors place **Open Playground** on the left of the
+     same footer as their save/apply/reset actions. With a draft, choose whether to save it
      before opening Playground or use the current applied settings and keep the draft.
      Profile instructions also offer a session-only apply choice. To test an inactive
      personality, save its prompt and set that personality active separately.
@@ -114,7 +118,7 @@ list remain available. A timed-out block requests cancellation. Check **Logs** a
 reopen the AI page to refresh the saved list before retrying, since work that already
 finished saving may complete after the deadline.
 
-The header's **Edit !ask access and cooldowns** opens the command's existing settings.
+The footer's **Edit !ask access and cooldowns** opens the command's existing settings.
 Use the help beside **AI access** for the distinction between AI blocking and Twitch bans.
 
 When available, HeetKit resolves the account ID through its existing Twitch connection
@@ -153,6 +157,9 @@ Gemini interprets these rules within the existing generation request: no separat
 language-detector service or extra model call is used. These are prompt instructions,
 not a guarantee of perfect detection or output language. Literal names, code and
 necessary quotations may retain their original text. Non-AI commands are unaffected.
+
+The language footer shows the saved/draft state beside **Open Playground** and
+**Save language settings**. Its question-mark help holds the detailed policy explanation.
 
 ## Personality editing
 

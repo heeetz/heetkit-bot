@@ -116,6 +116,8 @@ viewports, plus the 761/760px navigation boundary and 390/320px narrow layouts.
 Synthetic fixtures cover fresh setup, configured stopped/connected sessions,
 missing Gemini, loading, errors, drafts and long names. Checks include content and
 control bounds, form/action order, independent menu scrolling and keyboard help.
+It also checks aligned AI editor/key/access footers. About checks cover compact
+manual-update actions and version boxes through loading, results and failures.
 
 Browser viewport checks do not establish Windows DPI acceptance. Separately launch
 the native application stopped with an isolated `--data-dir`, keeping the default

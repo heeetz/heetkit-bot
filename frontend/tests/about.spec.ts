@@ -42,7 +42,7 @@ test('About does not check automatically and checks the latest stable release on
   await expect(card).toContainText('0.1.0')
   expect(await page.evaluate(() => Reflect.get(window, 'updateCalls'))).toEqual([])
 
-  await card.getByRole('button', { name: 'Check for updates' }).click()
+  await card.getByRole('button', { name: 'Check for updates', exact: true }).click()
   await expect(card).toContainText('You are up to date')
   await expect(card).toContainText('Latest version')
   expect(await page.evaluate(() => Reflect.get(window, 'updateCalls'))).toEqual([['check_for_updates']])
@@ -62,7 +62,7 @@ test('App navigation does not trigger an update check', async ({ page }) => {
 test('About shows the current and newer release states with plain-text notes', async ({ page }) => {
   await page.goto('/tests/fixture.html?about&updateNewer&notesMarkup')
   const card = page.locator('.update-card')
-  await card.getByRole('button', { name: 'Check for updates' }).click()
+  await card.getByRole('button', { name: 'Check for updates', exact: true }).click()
 
   await expect(card).toContainText('Update available')
   await expect(card).toContainText('Latest version')
@@ -75,7 +75,7 @@ test('About shows the current and newer release states with plain-text notes', a
 test('About prevents duplicate checks while busy', async ({ page }) => {
   await page.goto('/tests/fixture.html?about&updateDelay=250')
   const card = page.locator('.update-card')
-  const check = card.getByRole('button', { name: 'Check for updates' })
+  const check = card.getByRole('button', { name: 'Check for updates', exact: true })
   await check.click()
   const busyCheck = card.getByRole('button', { name: 'Checking…' })
   await expect(busyCheck).toBeDisabled()
@@ -86,7 +86,7 @@ test('About prevents duplicate checks while busy', async ({ page }) => {
 test('About clears stale results and exposes retry after a failed or rejected check', async ({ page }) => {
   await page.goto('/tests/fixture.html?about&updateSequence=newer,error,current')
   const card = page.locator('.update-card')
-  const check = card.getByRole('button', { name: 'Check for updates' })
+  const check = card.getByRole('button', { name: 'Check for updates', exact: true })
   await check.click()
   await expect(card).toContainText('Update available')
 
@@ -103,19 +103,42 @@ test('About clears stale results and exposes retry after a failed or rejected ch
 
   await page.goto('/tests/fixture.html?about&updateReject')
   const rejectedCard = page.locator('.update-card')
-  await rejectedCard.getByRole('button', { name: 'Check for updates' }).click()
+  await rejectedCard.getByRole('button', { name: 'Check for updates', exact: true }).click()
   await expect(rejectedCard.getByRole('alert')).toContainText('Update service is unavailable.')
 })
 
-test('About update card remains responsive', async ({ page }) => {
-  for (const [width, expectedColumns] of [[1000, 2], [600, 1]] as const) {
+test('About update actions lead compact version boxes and wrap within their card', async ({ page }) => {
+  for (const width of [1180, 900, 390, 320]) {
     await page.setViewportSize({ width, height: 800 })
-    await page.goto('/tests/fixture.html?about')
-    const columns = await page.locator('.update-summary').evaluate((element) => {
-      const value = getComputedStyle(element).gridTemplateColumns
-      return value.split(' ').filter(Boolean).length
-    })
-    expect(columns, `expected ${expectedColumns} columns at ${width}px`).toBe(expectedColumns)
+    await page.goto('/tests/fixture.html?configured&updateNewer')
+    await page.getByRole('navigation').getByRole('button', { name: 'About', exact: true }).click()
+    const card = page.locator('.update-card')
+    const check = card.getByRole('button', { name: 'Check for updates', exact: true })
+    const downloads = card.getByRole('button', { name: 'Open release / downloads' })
+    const version = card.locator('.update-summary > div').first()
+    if (width >= 900) {
+      const boxes = await Promise.all([check, downloads, version].map(async (item) => (await item.boundingBox())!))
+      expect(boxes[0].x + boxes[0].width).toBeLessThanOrEqual(boxes[1].x)
+      expect(boxes[1].x + boxes[1].width).toBeLessThanOrEqual(boxes[2].x)
+      for (const box of boxes) expect(box.y + box.height / 2).toBeCloseTo(boxes[0].y + boxes[0].height / 2, 0)
+    }
+    await check.click()
+    await expect(card.locator('.update-summary > div')).toHaveCount(2)
+    for (const item of await card.locator('.update-summary > div, .update-actions button').all()) {
+      const box = (await item.boundingBox())!
+      const parent = (await card.boundingBox())!
+      expect(box.x).toBeGreaterThanOrEqual(parent.x)
+      expect(box.x + box.width).toBeLessThanOrEqual(parent.x + parent.width)
+      if (await item.evaluate((element) => element.parentElement?.classList.contains('update-summary'))) {
+        expect(box.width).toBeLessThanOrEqual(220)
+      }
+    }
+    expect(await card.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+    if (width === 1180 || width === 320) await card.screenshot({ path: `node_modules/.tmp/ui-update-${width}.png` })
+    const help = card.getByRole('button', { name: 'Help: Check for updates' })
+    await help.focus()
+    await expect(page.getByRole('tooltip')).toContainText('Nothing is downloaded or installed automatically')
+    await help.press('Escape')
   }
 })
 
@@ -126,6 +149,6 @@ test('A release browser failure leaves manual checking and About links usable', 
   await expect(page.getByRole('alert')).toContainText('Could not open the external link.')
   await expect(card.getByRole('button', { name: 'Open release / downloads' })).toBeEnabled()
   await expect(page.getByRole('button', { name: 'GitHub repository' })).toBeEnabled()
-  await card.getByRole('button', { name: 'Check for updates' }).click()
+  await card.getByRole('button', { name: 'Check for updates', exact: true }).click()
   await expect(card).toContainText('You are up to date')
 })

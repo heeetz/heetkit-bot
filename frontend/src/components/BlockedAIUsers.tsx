@@ -47,7 +47,6 @@ export default function BlockedAIUsers({ active, onOpenAsk }: { active: boolean;
         <h2>AI access</h2>
         <HelpTip label="AI access">Blocking only affects !ask requests. It does not ban a Twitch user or delete their messages.</HelpTip>
       </div>
-      {onOpenAsk && <div className="ai-access-actions"><button className="secondary" onClick={onOpenAsk}>Edit !ask access and cooldowns</button></div>}
     </div>
     <p className="section-copy">Silently ignore these users' !ask requests.</p>
     <form className="ai-user-block-form" onSubmit={(event) => { event.preventDefault(); void changeBlock(username) }}>
@@ -58,11 +57,14 @@ export default function BlockedAIUsers({ active, onOpenAsk }: { active: boolean;
     </form>
     {error && <p className="inline-feedback error" role="alert">{error}</p>}
     {notice && <p className="inline-feedback" role="status">{notice}</p>}
-    {users === null ? <p className="muted">Blocked users are unavailable until loaded.</p>
-      : users.length === 0 ? <p className="muted">No blocked AI users.</p>
-        : <ul className="ai-user-block-list">{users.map((user) => <li key={user.username}>
+    {users && users.length > 0 && <ul className="ai-user-block-list">{users.map((user) => <li key={user.username}>
           <span>@{user.username}</span>
           <button type="button" className="secondary" disabled={busy} aria-label={`Unblock ${user.username}`} onClick={() => void changeBlock(user.username, true)}>Unblock</button>
         </li>)}</ul>}
+    <div className="ai-access-footer">
+      {users === null ? <p className="muted">Blocked users are unavailable until loaded.</p>
+        : users.length === 0 && <p className="muted">No blocked AI users.</p>}
+      {onOpenAsk && <div className="ai-access-actions"><button className="secondary" onClick={onOpenAsk}>Edit !ask access and cooldowns</button></div>}
+    </div>
   </article>
 }

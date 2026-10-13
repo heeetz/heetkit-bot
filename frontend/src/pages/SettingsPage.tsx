@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 
 import {
   type AppSettings,
@@ -493,12 +493,14 @@ export default function SettingsPage({ active, status, onReturnToAI }: SettingsP
     credential: CredentialInfo | undefined,
     absentActionLabel: string,
     presentActionLabel: string,
+    leadingAction?: ReactNode,
   ) => {
     if (!credential) {
       return (
         <div className="empty-state-inline">
           <strong>Credential status is unavailable</strong>
           <p>Check Logs for details.</p>
+          {leadingAction}
         </div>
       )
     }
@@ -511,9 +513,9 @@ export default function SettingsPage({ active, status, onReturnToAI }: SettingsP
         ? 'Using process environment'
         : 'Not configured'
     return (
-      <article className="credential-row" key={credential.name}>
+      <article className={`credential-row${credential.name === 'gemini_api_key' ? ' gemini-credential-row' : ''}`} key={credential.name}>
         <div className="credential-heading">
-          <div><strong>{credential.label}</strong><small>{sourceLabel}</small></div>
+          <div>{credential.name === 'gemini_api_key' ? <strong>{sourceLabel}</strong> : <><strong>{credential.label}</strong><small>{sourceLabel}</small></>}</div>
           <span className={`state-pill ${credential.configured ? 'enabled' : ''}`}>{credential.configured ? 'Configured' : 'Missing'}</span>
         </div>
         {!credential.secure_storage_available && <p className="credential-warning">OS keyring storage is unavailable; an advanced process environment fallback is active when configured.</p>}
@@ -531,12 +533,15 @@ export default function SettingsPage({ active, status, onReturnToAI }: SettingsP
             }}
           />
         </label>
-        <div className="credential-actions">
-          <button className="primary" disabled={Boolean(busy) || !credentialDrafts[credential.name].trim()} onClick={() => void runCredentialAction(credential.name, 'replace')}>
-            {replacing ? 'Saving…' : credential.configured ? presentActionLabel : absentActionLabel}
-          </button>
-          <button className="secondary" disabled={Boolean(busy) || !credential.configured} onClick={() => void runCredentialAction(credential.name, 'test')}>{testing ? 'Testing…' : credential.name === 'gemini_api_key' ? 'Test credential' : 'Test'}</button>
-          <button className="danger" disabled={Boolean(busy) || credential.source !== 'credential_store'} onClick={() => void runCredentialAction(credential.name, 'remove')}>{removing ? 'Removing…' : 'Remove secure value'}</button>
+        <div className="credential-footer">
+          {leadingAction}
+          <div className="credential-actions">
+            <button className="primary" disabled={Boolean(busy) || !credentialDrafts[credential.name].trim()} onClick={() => void runCredentialAction(credential.name, 'replace')}>
+              {replacing ? 'Saving…' : credential.configured ? presentActionLabel : absentActionLabel}
+            </button>
+            <button className="secondary" disabled={Boolean(busy) || !credential.configured} onClick={() => void runCredentialAction(credential.name, 'test')}>{testing ? 'Testing…' : credential.name === 'gemini_api_key' ? 'Test credential' : 'Test'}</button>
+            <button className="danger" disabled={Boolean(busy) || credential.source !== 'credential_store'} onClick={() => void runCredentialAction(credential.name, 'remove')}>{removing ? 'Removing…' : 'Remove secure value'}</button>
+          </div>
         </div>
       </article>
     )
@@ -690,15 +695,12 @@ export default function SettingsPage({ active, status, onReturnToAI }: SettingsP
       <Accordion
         id="credential-settings"
         title="Gemini API key"
-        description="The key is stored in the system keyring and is never displayed. Gemini is optional and key changes apply immediately."
+        description="Gemini is optional. The key is stored in the system keyring and is never displayed; changes apply immediately. Test credential validates access without generating a reply. Use AI Playground separately to test real generation with your saved settings and applied instructions; a valid key does not prove model access or available quota."
         className="settings-page"
       >
         {!draft ? <p className="muted">Loading credential status…</p> : (
-          <div className="credential-list">
-            {renderCredentialRow(geminiCredential, 'Add key', 'Replace key')}
-            <p className="setting-effect">Test credential validates the stored key without generating a reply. Use AI Playground separately to test real generation with your saved settings and applied instructions.</p>
-            {onReturnToAI && <div className="row-actions"><button className="secondary" onClick={onReturnToAI}>Return to AI Playground</button></div>}
-          </div>
+          renderCredentialRow(geminiCredential, 'Add key', 'Replace key',
+            onReturnToAI && <button className="secondary" onClick={onReturnToAI}>Return to AI Playground</button>)
         )}
       </Accordion>
 

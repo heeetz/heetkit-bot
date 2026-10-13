@@ -245,6 +245,14 @@ test('loading and a long error remain contained at the 320px minimum width', asy
 
 test('the desktop menu scrolls independently at minimum height and keyboard help stays in the window', async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 620 })
+  await page.addInitScript(() => {
+    const scrollIntoView = HTMLElement.prototype.scrollIntoView
+    Object.assign(window, { lastNavigationScroll: '' })
+    HTMLElement.prototype.scrollIntoView = function (options) {
+      scrollIntoView.call(this, options)
+      Reflect.set(window, 'lastNavigationScroll', this.id)
+    }
+  })
   await page.goto('/tests/fixture.html')
   const sidebar = page.locator('.sidebar')
   const brand = sidebar.locator('.brand')
@@ -261,6 +269,8 @@ test('the desktop menu scrolls independently at minimum height and keyboard help
   await nav.getByRole('button', { name: 'Profile instructions', exact: true }).click()
   const card = page.locator('#ai-profile-instructions')
   const trigger = card.locator('.accordion-trigger')
+  // Complete navigation's automatic expansion and scroll before testing deliberate toggles.
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, 'lastNavigationScroll'))).toBe('ai-profile-instructions')
   await trigger.focus()
   await expect(trigger).toHaveAttribute('aria-expanded', 'true')
   await trigger.press('Enter')
@@ -280,3 +290,69 @@ test('the desktop menu scrolls independently at minimum height and keyboard help
   await expect(tooltip).toHaveCount(0)
   await expect(help).toBeFocused()
 })
+
+for (const width of [1440, 1180, 900, 390, 320]) {
+  test(`AI editor, key and access actions share clean footer rows at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/tests/fixture.html?configured&aiAvailable&a4Models')
+    const nav = page.getByRole('navigation')
+    await nav.getByRole('button', { name: 'AI', exact: true }).click()
+    await expect(page.locator('.ai-layout')).toHaveAttribute('aria-busy', 'false')
+    for (const id of ['ai-personalities', 'ai-profile-instructions', 'ai-language']) {
+      const card = page.locator(`#${id}`)
+      await card.locator('.accordion-caret').click()
+      const footer = card.locator('.ai-editor-footer')
+      const playground = footer.getByRole('button', { name: 'Open Playground' })
+      await expect(playground).toBeVisible()
+      if (width >= 1180) {
+        const controls = await footer.getByRole('button').all()
+        const boxes = await Promise.all(controls.map(async (control) => (await control.boundingBox())!))
+        for (let index = 0; index < boxes.length; index++) {
+          expect(boxes[index].y).toBeCloseTo(boxes[0].y, 0)
+          expect(boxes[index].height).toBeCloseTo(boxes[0].height, 0)
+          if (index) expect(boxes[index - 1].x + boxes[index - 1].width).toBeLessThanOrEqual(boxes[index].x)
+        }
+      }
+      await expectNoHorizontalOverflow(page)
+      if (width === 1180 || width === 320) {
+        await footer.screenshot({ path: `node_modules/.tmp/ui-${id}-footer-${width}.png` })
+      }
+    }
+    const language = page.locator('#ai-language')
+    await language.getByLabel('Response language mode').selectOption('limited')
+    await expect(language.locator('.ai-editor-footer')).toContainText('Unsaved draft')
+    await language.getByRole('button', { name: 'Help: AI response language' }).focus()
+    await expect(page.getByRole('tooltip')).toContainText('Prompt guidance cannot perfectly guarantee')
+    await page.keyboard.press('Escape')
+
+    const access = page.locator('#ai-blocked-users')
+    const settings = access.getByRole('button', { name: 'Edit !ask access and cooldowns' })
+    await expect(access.locator('.ai-access-footer')).toContainText('No blocked AI users.')
+    expect((await settings.boundingBox())!.y).toBeGreaterThanOrEqual((await access.getByLabel('Twitch username').boundingBox())!.y + 40)
+    await expectNoHorizontalOverflow(page)
+    if (width === 1180) await access.screenshot({ path: 'node_modules/.tmp/ui-ai-access-1180.png' })
+
+    await nav.getByRole('button', { name: 'Settings', exact: true }).click()
+    const key = page.locator('#credential-settings')
+    await key.locator('.accordion-caret').click()
+    const input = key.getByLabel('Replacement value', { exact: true })
+    await input.fill('synthetic-key-draft')
+    if (width >= 1180) {
+      const controls = await key.locator('.credential-footer').getByRole('button').all()
+      const boxes = await Promise.all(controls.map(async (control) => (await control.boundingBox())!))
+      for (let index = 0; index < boxes.length; index++) {
+        expect(boxes[index].y).toBeCloseTo(boxes[0].y, 0)
+        expect(boxes[index].height).toBeCloseTo(boxes[0].height, 0)
+        if (index) expect(boxes[index - 1].x + boxes[index - 1].width).toBeLessThanOrEqual(boxes[index].x)
+      }
+      const row = (await key.locator('.credential-row').boundingBox())!
+      expect((await input.boundingBox())!.width).toBeCloseTo(row.width, 0)
+    }
+    await expectNoHorizontalOverflow(page)
+    if (width === 1180 || width === 320) await key.screenshot({ path: `node_modules/.tmp/ui-gemini-key-${width}.png` })
+    await key.getByRole('button', { name: 'Help: Gemini API key' }).focus()
+    await expect(page.getByRole('tooltip')).toContainText('without generating a reply')
+    await page.keyboard.press('Escape')
+    await expect(input).toHaveValue('synthetic-key-draft')
+  })
+}

@@ -632,13 +632,6 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
       </div>
   )
 
-  const playgroundLink = (source: NonNullable<typeof playgroundSource>, needsChoice: boolean) => (
-    <div className="settings-list playground-editor-link">
-      <div className="row-actions">{playgroundButton(source, needsChoice)}</div>
-      {playgroundChoice(source)}
-    </div>
-  )
-
   return (
     <section className="ai-layout" aria-busy={loading}>
       <FeedbackToast
@@ -803,15 +796,18 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
                 }}
               />
             </label>
-            <div className="editor-footer">
-              <span className="muted">{prompt.length.toLocaleString()} / 50,000 characters</span>
+            <div className="editor-footer ai-editor-footer">
+              <div className="ai-editor-leading">
+                {playgroundButton('personality', dirty || !isActive || !Boolean(personality?.prompt_saved))}
+                <span className="muted">{prompt.length.toLocaleString()} / 50,000 characters</span>
+              </div>
               <div className="row-actions">
                 <button className="secondary" disabled={!personality || Boolean(busy) || (isActive && Boolean(data?.active_personality_saved))} onClick={() => void runPersonalityAction('active')}>{busy === 'active' ? 'Setting active…' : 'Set active'}</button>
                 <button className="primary" disabled={!personality || Boolean(busy) || (!dirty && personality.prompt_saved)} onClick={() => void runPersonalityAction('save')}>{busy === 'save' ? 'Saving…' : 'Save'}</button>
                 <button className="ghost" disabled={!personality || Boolean(busy) || !canReset} onClick={() => void runPersonalityAction('reset')}>{busy === 'reset' ? 'Resetting…' : 'Reset'}</button>
               </div>
             </div>
-            {playgroundLink('personality', dirty || !isActive || !Boolean(personality?.prompt_saved))}
+            {playgroundChoice('personality')}
             </>}
           </>
         )}
@@ -843,20 +839,23 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
             }}
           />
         </label>
-        <div className="editor-footer">
-          <span className="muted">{profileValue.length.toLocaleString()} / 50,000 characters</span>
+        <div className="editor-footer ai-editor-footer">
+          <div className="ai-editor-leading">
+            {playgroundButton('profile', profileDirty || !Boolean(data?.profile_instructions_saved))}
+            <span className="muted">{profileValue.length.toLocaleString()} / 50,000 characters</span>
+          </div>
           <div className="row-actions">
             <button className="secondary" disabled={!data || Boolean(busy) || !profileDirty} onClick={() => void runProfileAction('apply')}>{busy === 'profile:apply' ? 'Applying…' : 'Apply'}</button>
             <button className="primary" disabled={!data || Boolean(busy) || (!profileDirty && Boolean(data.profile_instructions_saved))} onClick={() => void runProfileAction('save')}>{busy === 'profile:save' ? 'Saving…' : 'Save'}</button>
             <button className="ghost" disabled={!data || Boolean(busy) || !profileCanReset} onClick={() => void runProfileAction('reset')}>{busy === 'profile:reset' ? 'Resetting…' : 'Reset'}</button>
           </div>
         </div>
-        {playgroundLink('profile', profileDirty || !Boolean(data?.profile_instructions_saved))}
+        {playgroundChoice('profile')}
       </Accordion>
       <Accordion
         id="ai-language"
         title="AI response language"
-        description="Choose whether AI follows the incoming language or stays within a configurable set for this profile."
+        description="Auto follows the incoming language; Limited uses this profile's allowed languages and fallback. Saved changes apply to the next AI request. Prompt guidance cannot perfectly guarantee a response language. In Limited mode, clear brief input uses its language; mixed or code-switched input uses the clear majority; uncertain, tied, unsupported, emoji-only and code-only input uses the saved fallback. Playground uses the saved policy until you explicitly save a draft."
         badges={(
           <span className="personality-badges">
             {languageSaved && <span className="mini-badge saved-badge">Saved active policy</span>}
@@ -929,12 +928,14 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
               </div>
             </fieldset>
             {languageValidation && <p className="language-validation" role="status">{languageValidation}</p>}
-            <div className="settings-actions">
-              <button className="primary" disabled={Boolean(busy) || !languageDirty || Boolean(languageValidation)} onClick={() => void saveLanguageSettings()}>{busy === 'language:save' ? 'Saving…' : 'Save language settings'}</button>
+            <div className="editor-footer ai-editor-footer">
+              <span className="muted">{languageDirty ? 'Unsaved draft; saved policy applies.' : 'Saved and applied.'}</span>
+              <div className="row-actions">
+                {playgroundButton('language', languageDirty)}
+                <button className="primary" disabled={Boolean(busy) || !languageDirty || Boolean(languageValidation)} onClick={() => void saveLanguageSettings()}>{busy === 'language:save' ? 'Saving…' : 'Save language settings'}</button>
+              </div>
             </div>
-            <p className="settings-hint">Saved changes apply to the next AI request. Prompt guidance cannot perfectly guarantee a response language. In Limited mode, clear brief input uses its language; mixed or code-switched input uses the clear majority; uncertain, tied, unsupported, emoji-only, and code-only input uses the saved fallback.</p>
-            <p className="setting-effect">{languageDirty ? 'Unsaved language draft; Playground keeps using the saved policy.' : 'Language policy is saved and applied.'}</p>
-            {playgroundLink('language', languageDirty)}
+            {playgroundChoice('language')}
           </div>
         )}
       </Accordion>

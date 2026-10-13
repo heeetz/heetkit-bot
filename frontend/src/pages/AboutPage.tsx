@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { type AboutInfo, type UpdateCheckResponse, waitForBridge } from '../bridge'
+import HelpTip from '../components/HelpTip'
 
 type ExternalDestination = 'repository' | 'license' | 'third_party_notices' | 'author_twitch' | 'releases'
 
@@ -121,25 +122,35 @@ function AboutPage() {
       </article>
 
       <article className="card update-card">
-        <div className="section-heading">
-          <div>
-            <p className="label">UPDATES</p>
+        <div className="section-heading update-heading">
+          <div className="update-title">
             <h2>Check for updates</h2>
-            <p className="section-copy">Check manually for the latest stable release. Nothing is downloaded or installed automatically.</p>
+            <HelpTip label="Check for updates">Checks the latest stable release only when requested. Nothing is downloaded or installed automatically. Open release / downloads to review the release and choose a download.</HelpTip>
           </div>
           <span className="mini-badge">Manual</span>
         </div>
-        <div className="update-summary" aria-live="polite">
-          <div>
-            <span className="update-label">Current version</span>
-            <strong>{currentVersion}</strong>
+        <p className="section-copy">Check manually for the latest stable release.</p>
+        <div className="update-toolbar">
+          <div className="update-actions">
+            <button className="primary" onClick={() => void checkForUpdates()} disabled={updateBusy}>
+              {updateBusy ? 'Checking…' : updateResult || updateError ? 'Check again' : 'Check for updates'}
+            </button>
+            <button className="secondary" onClick={() => void openExternal('releases')} disabled={opening === 'releases'}>
+              {opening === 'releases' ? 'Opening…' : 'Open release / downloads'}
+            </button>
           </div>
-          {updateResult && (
+          <div className="update-summary" aria-live="polite">
             <div>
-              <span className="update-label">Latest version</span>
-              <strong>{updateResult.latest_version ?? 'Unavailable'}</strong>
+              <span className="update-label">Current version</span>
+              <strong>{currentVersion}</strong>
             </div>
-          )}
+            {updateResult && (
+              <div>
+                <span className="update-label">Latest version</span>
+                <strong>{updateResult.latest_version ?? 'Unavailable'}</strong>
+              </div>
+            )}
+          </div>
         </div>
         {updateResult && (
           <div className={`update-result ${updateResult.update_available ? 'update-available' : 'update-current'}`} role="status">
@@ -150,14 +161,6 @@ function AboutPage() {
           </div>
         )}
         {updateError && <p className="inline-error update-error" role="alert">{updateError}</p>}
-        <div className="update-actions">
-          <button className="primary" onClick={() => void checkForUpdates()} disabled={updateBusy}>
-            {updateBusy ? 'Checking…' : updateResult || updateError ? 'Check again' : 'Check for updates'}
-          </button>
-          <button className="secondary" onClick={() => void openExternal('releases')} disabled={opening === 'releases'}>
-            {opening === 'releases' ? 'Opening…' : 'Open release / downloads'}
-          </button>
-        </div>
       </article>
 
       <article className="card about-links-card">

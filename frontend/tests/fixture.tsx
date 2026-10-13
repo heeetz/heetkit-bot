@@ -452,6 +452,6 @@ function ToastFixture() {
 
 createRoot(document.getElementById('root')!).render(
   query.has('toast') ? <ToastFixture />
-    : query.has('about') ? <AboutPage />
+    : query.has('about') ? <main><div className="page-content"><AboutPage /></div></main>
     : query.has('settings') ? <main><SettingsPage active status={status} /></main> : <App />,
 )
