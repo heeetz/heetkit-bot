@@ -45,7 +45,8 @@ Gemini. `!uptime` measures the bot session, rather than the stream's uptime.
 ## Permissions, cooldowns and responses
 
 Select a built-in command's header on **Commands** to edit its enabled state,
-permission and per-user/global cooldowns. Most commands also accept alternate
+permission and per-user/global cooldowns. Opening the editor scrolls it into view
+and focuses **Permission**. Most commands also accept alternate
 aliases and **Name in UI**. This label does not rename the chat command: its original
 name stays available. Enter up to ten comma-separated aliases; each is a single
 command word of at most 40 characters, without the prefix. Names and aliases are
@@ -166,6 +167,11 @@ or external edits; protect recovery copies like the profile itself. See
 [backups and settings recovery](data-and-privacy.md#backups-and-settings-recovery).
 
 ## Custom commands
+
+Select **New command** or an existing command's **Edit** button to bring its editor
+into view and focus **Command name**. Keyboard focus surrounds the complete name
+field, including the command prefix. Unsaved changes still require confirmation
+before replacing or discarding a draft.
 
 Use **Custom Commands** to edit **Name → Response type → Text → Access → Cooldowns →
 Aliases & advanced options**. Variable help stays beside the text; Burst count,

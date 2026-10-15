@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client'
+import App from '../src/App'
 import type { CommandInfo, CommandSettingsMetadata, CustomCommandInfo, CustomCommandInput, waitForBridge } from '../src/bridge'
 import CommandsPage from '../src/pages/CommandsPage'
 import '../src/styles.css'
@@ -101,6 +102,10 @@ window.pywebview = { api: {
     running: false, twitch_connected: false, twitch_connection_state: 'stopped',
     uptime_seconds: 0, channel: '', account: '',
   }),
+  get_ai_status: async () => ({
+    enabled: false, available: false, memory_enabled: false,
+    active_personality: 'neutral', available_personalities: ['neutral'], model: '',
+  }),
   get_commands: async () => ({ command_prefix: '!', permissions: ['USER', 'SUBSCRIBER', 'VIP', 'MODERATOR', 'BROADCASTER'], commands: structuredClone(commands) }),
   get_custom_commands: async () => ({
     command_prefix: '!', permissions: ['USER', 'MODERATOR', 'BROADCASTER'],
@@ -136,4 +141,7 @@ window.pywebview = { api: {
   },
 } as unknown as Awaited<ReturnType<typeof waitForBridge>> }
 
-createRoot(document.getElementById('root')!).render(<main><CommandsPage active /></main>)
+createRoot(document.getElementById('root')!).render(
+  new URLSearchParams(window.location.search).has('shell')
+    ? <App /> : <main><CommandsPage active /></main>,
+)

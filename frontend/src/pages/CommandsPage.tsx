@@ -208,6 +208,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
   const [customDraft, setCustomDraft] = useState<CustomDraft | null>(null)
   const customBaseline = useRef<CustomDraft | null>(null)
   const customEditorToggle = useRef<HTMLButtonElement>(null)
+  const [focusTarget, setFocusTarget] = useState<string | null>(null)
   const [busyCommand, setBusyCommand] = useState('')
   const [busyCustom, setBusyCustom] = useState(false)
   const [expandedCommands, setExpandedCommands] = useState<Record<string, boolean>>({})
@@ -218,6 +219,23 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
   const confirmationResult = useRef<((confirmed: boolean) => void) | null>(null)
 
   useEffect(() => () => { confirmationResult.current?.(false) }, [])
+
+  useEffect(() => {
+    if (!focusTarget) return
+    setFocusTarget(null)
+    if (!active) return
+    // Restore after the editor unmounts and the save button is enabled again.
+    if (focusTarget === 'custom-command-toggle') {
+      customEditorToggle.current?.focus({ preventScroll: true })
+      return
+    }
+    // Only explicit opens scroll, after any dialog restores focus. Match shell navigation.
+    const editor = document.getElementById(focusTarget)
+    const sidebar = editor?.closest('.app-shell')?.querySelector('.sidebar')
+    editor?.closest('main')?.style.setProperty('--sidebar-height', `${sidebar?.getBoundingClientRect().height ?? 0}px`)
+    editor?.scrollIntoView({ block: 'start', inline: 'nearest' })
+    editor?.querySelector<HTMLElement>('input:not([type="checkbox"]):not(:disabled), select:not(:disabled), textarea:not(:disabled)')?.focus({ preventScroll: true })
+  }, [active, focusTarget])
 
   useEffect(() => {
     if (active && revealCommand) setExpandedCommands((current) => ({ ...current, [revealCommand]: true }))
@@ -486,7 +504,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       && !await confirmAction({ title: 'Discard unsaved command changes?', description: 'Your current draft will be lost.', danger: true })) return
     customBaseline.current = draft ? { ...draft } : null
     setCustomDraft(draft)
-    if (!draft) customEditorToggle.current?.focus()
+    setFocusTarget(draft ? 'custom-command-editor' : 'custom-command-toggle')
     setError('')
     setNotice('')
   }
@@ -551,7 +569,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       await loadCustomCommands()
       setCustomDraft(null)
       customBaseline.current = null
-      customEditorToggle.current?.focus()
+      setFocusTarget('custom-command-toggle')
       setNotice(`Saved ${customData?.command_prefix ?? '!'}${name}.`)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not save custom command.')
@@ -704,7 +722,10 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           helpLabel={`${data.command_prefix}${command.name}`}
           expanded={expanded} contentId={detailsId}
           ariaLabel={`${expanded ? 'Collapse' : 'Edit'} ${data.command_prefix}${command.name}`}
-          onToggle={() => setExpandedCommands((current) => ({ ...current, [command.name]: !expanded }))}
+          onToggle={() => {
+            setExpandedCommands((current) => ({ ...current, [command.name]: !expanded }))
+            if (!expanded) setFocusTarget(`command-editor-${command.name}`)
+          }}
         />
         {expanded && <div className="command-details" id={detailsId}>
           <div className="command-fields">
