@@ -130,7 +130,7 @@ class RuntimeState:
             if validated != settings:
                 # Lossy input still gets an exact recovery copy at the next save.
                 changed = {key: getattr(validated, key) for key in (
-                    "enabled", "permission", "aliases", "display_name", "burst_interval_ms"
+                    "enabled", "permission", "aliases", "display_name", "burst_interval_ms", "burst_max_count"
                 ) if getattr(validated, key) != getattr(settings, key)}
                 override = self._persisted_command_overrides.get(name, CommandSettingsOverride())
                 self._persisted_command_overrides[name] = replace(override, **changed)
@@ -162,6 +162,10 @@ class RuntimeState:
             if not loading:
                 raise ValueError("Only Tg supports a built-in Burst interval.")
             settings = replace(settings, burst_interval_ms=0)
+        if name != "tg" and settings.burst_max_count != defaults.burst_max_count:
+            if not loading:
+                raise ValueError("Only Tg supports a built-in Burst maximum repeat count.")
+            settings = replace(settings, burst_max_count=defaults.burst_max_count)
         if not getattr(definition, "identity_editable", True):
             if settings.aliases != defaults.aliases or settings.display_name != defaults.display_name:
                 if not loading:
@@ -221,6 +225,7 @@ class RuntimeState:
         aliases: object = None,
         display_name: object = None,
         burst_interval_ms: int | None = None,
+        burst_max_count: int | None = None,
     ) -> CommandSettings:
         with self._lock:
             current = self.get_command_settings(command_name)
@@ -231,6 +236,7 @@ class RuntimeState:
                 aliases=current.aliases if aliases is None else validate_command_aliases(aliases),
                 display_name=current.display_name if display_name is None else validate_display_name(display_name),
                 burst_interval_ms=current.burst_interval_ms if burst_interval_ms is None else burst_interval_ms,
+                burst_max_count=current.burst_max_count if burst_max_count is None else burst_max_count,
             )
             updated = self._validated_command_settings(command_name, updated)
             self._command_settings[command_name] = updated
@@ -251,6 +257,7 @@ class RuntimeState:
         aliases: object = None,
         display_name: object = None,
         burst_interval_ms: int | None = None,
+        burst_max_count: int | None = None,
     ) -> CommandSettings:
         with self._lock:
             current = self.get_command_settings(command_name)
@@ -261,6 +268,7 @@ class RuntimeState:
                 aliases=current.aliases if aliases is None else validate_command_aliases(aliases),
                 display_name=current.display_name if display_name is None else validate_display_name(display_name),
                 burst_interval_ms=current.burst_interval_ms if burst_interval_ms is None else burst_interval_ms,
+                burst_max_count=current.burst_max_count if burst_max_count is None else burst_max_count,
             )
             updated = self._validated_command_settings(command_name, updated)
             self._save_command_settings(command_name, updated)

@@ -35,6 +35,7 @@ class TwitchConnectionError(RuntimeError):
 OAUTH_REDIRECT_URI = "http://localhost:4343/oauth/callback"
 CHAT_SCOPES = Scopes(["user:read:chat", "user:write:chat", "user:bot", "moderator:read:followers"])
 OAUTH_STATE_TTL_SECONDS = 300.0
+CHAT_MESSAGE_DEDUP_LIMIT = 2048
 
 
 class DesktopOAuthAdapter(AiohttpAdapter):
@@ -211,6 +212,7 @@ class TwitchChatBot(commands.Bot):
         self._token_file = Path(settings.twitch_token_file)
         self._active_socket_id: str | None = None
         self._closing_requested = False
+        self._seen_message_ids: dict[str, None] = {}
         super().__init__(
             client_id=settings.twitch_client_id,
             client_secret=settings.twitch_client_secret.get_secret_value(),
@@ -317,6 +319,16 @@ class TwitchChatBot(commands.Bot):
             self._logger.warning("Could not restrict local Twitch token file permissions")
 
     async def event_message(self, message: ChatMessage) -> None:
+        # EventSub delivery is not an exactly-once command invocation. Reserve
+        # the stable chat ID before any await so concurrent replays cannot send
+        # another batch, even when the command has no cooldown.
+        message_id = getattr(message, "id", None)
+        if isinstance(message_id, str) and message_id:
+            if message_id in self._seen_message_ids:
+                return
+            self._seen_message_ids[message_id] = None
+            if len(self._seen_message_ids) > CHAT_MESSAGE_DEDUP_LIMIT:
+                self._seen_message_ids.pop(next(iter(self._seen_message_ids)))
         try:
             await process_twitch_message(
                 message=message,

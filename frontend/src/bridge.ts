@@ -38,6 +38,7 @@ export interface CommandInfo {
   display_name?: string
   removed?: boolean
   burst_interval_ms?: number
+  burst_max_count?: number
   minimum_permission?: string
   identity_editable?: boolean
   help_text?: string
@@ -69,6 +70,7 @@ export interface CommandSettings {
   aliases?: string[]
   display_name?: string
   burst_interval_ms?: number
+  burst_max_count?: number
   permission: string
   cooldown: {
     per_user_seconds: number
@@ -80,6 +82,7 @@ export interface CommandSettingsMetadata {
   aliases?: string[]
   display_name?: string
   burst_interval_ms?: number
+  burst_max_count?: number
 }
 
 export interface CommandsResponse {

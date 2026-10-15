@@ -12,12 +12,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from app.config.commands import BURST_HARD_MAX_COUNT, TG_DEFAULT_MAX_COUNT
 from app.twitch.permissions import Permission
 from app.settings_recovery import migrate_settings_key, preserve_settings_recovery
 from app.utils.cooldown import CooldownPolicy
 from app.utils.text import normalize_command_name
 
 logger = logging.getLogger(__name__)
+
+
+def validate_burst_max_count(value: object) -> int:
+    if type(value) is not int or not 1 <= value <= BURST_HARD_MAX_COUNT:
+        raise ValueError(f"Burst maximum repeat count must be an integer from 1 to {BURST_HARD_MAX_COUNT}.")
+    return value
 
 
 def validate_burst_interval(value: object) -> int:
@@ -59,6 +66,7 @@ class CommandSettings:
     display_name: str = ""
     removed: bool = False
     burst_interval_ms: int = 0
+    burst_max_count: int = TG_DEFAULT_MAX_COUNT
 
     def __post_init__(self) -> None:
         if type(self.enabled) is not bool:
@@ -74,6 +82,7 @@ class CommandSettings:
         if validate_display_name(self.display_name) != self.display_name:
             raise ValueError("Display name must not have surrounding whitespace.")
         validate_burst_interval(self.burst_interval_ms)
+        validate_burst_max_count(self.burst_max_count)
 
 
 class CommandSettingsDefinition(Protocol):
@@ -94,11 +103,12 @@ class CommandSettingsOverride:
     display_name: str | None = None
     removed: bool | None = None
     burst_interval_ms: int | None = None
+    burst_max_count: int | None = None
 
     @property
     def is_empty(self) -> bool:
         return all(value is None for value in (self.enabled, self.cooldown, self.permission,
-                   self.aliases, self.display_name, self.removed, self.burst_interval_ms))
+                   self.aliases, self.display_name, self.removed, self.burst_interval_ms, self.burst_max_count))
 
     def apply(self, defaults: CommandSettings) -> CommandSettings:
         return CommandSettings(
@@ -109,6 +119,7 @@ class CommandSettingsOverride:
             display_name=defaults.display_name if self.display_name is None else self.display_name,
             removed=defaults.removed if self.removed is None else self.removed,
             burst_interval_ms=defaults.burst_interval_ms if self.burst_interval_ms is None else self.burst_interval_ms,
+            burst_max_count=defaults.burst_max_count if self.burst_max_count is None else self.burst_max_count,
         )
 
     @classmethod
@@ -125,6 +136,7 @@ class CommandSettingsOverride:
             display_name=settings.display_name if settings.display_name != defaults.display_name else None,
             removed=settings.removed if settings.removed != defaults.removed else None,
             burst_interval_ms=settings.burst_interval_ms if settings.burst_interval_ms != defaults.burst_interval_ms else None,
+            burst_max_count=settings.burst_max_count if settings.burst_max_count != defaults.burst_max_count else None,
         )
 
     def to_json(self) -> dict[str, object]:
@@ -140,7 +152,7 @@ class CommandSettingsOverride:
             result["permission"] = self.permission.name
         if self.aliases is not None:
             result["aliases"] = list(self.aliases)
-        for key in ("display_name", "removed", "burst_interval_ms"):
+        for key in ("display_name", "removed", "burst_interval_ms", "burst_max_count"):
             value = getattr(self, key)
             if value is not None:
                 result[key] = value
@@ -258,7 +270,8 @@ def _parse_override(
 
     additional = {}
     for key, validator in (("aliases", validate_command_aliases), ("display_name", validate_display_name),
-                           ("burst_interval_ms", validate_burst_interval)):
+                           ("burst_interval_ms", validate_burst_interval),
+                           ("burst_max_count", validate_burst_max_count)):
         if key in raw_override:
             try:
                 additional[key] = validator(raw_override[key])

@@ -639,6 +639,7 @@ class WebUIBridge:
                     "display_name": settings.display_name,
                     "removed": settings.removed,
                     "burst_interval_ms": settings.burst_interval_ms,
+                    "burst_max_count": settings.burst_max_count,
                     "minimum_permission": definition.minimum_permission.name,
                     "identity_editable": definition.identity_editable,
                     "help_text": definition.help_text or f"!{definition.name}",
@@ -804,6 +805,7 @@ class WebUIBridge:
             "display_name": settings.display_name,
             "removed": settings.removed,
             "burst_interval_ms": settings.burst_interval_ms,
+            "burst_max_count": settings.burst_max_count,
             "cooldown": {
                 "per_user_seconds": settings.cooldown.per_user_seconds,
                 "global_seconds": settings.cooldown.global_seconds,
@@ -949,7 +951,7 @@ class WebUIBridge:
     def _parse_command_options(options: object) -> dict[str, object]:
         if options is None:
             return {}
-        if not isinstance(options, dict) or any(key not in ("aliases", "display_name", "burst_interval_ms") for key in options):
+        if not isinstance(options, dict) or any(key not in ("aliases", "display_name", "burst_interval_ms", "burst_max_count") for key in options):
             raise ValueError("Unknown command editor settings.")
         if any(value is None for value in options.values()):
             raise ValueError("Command editor settings cannot be null.")

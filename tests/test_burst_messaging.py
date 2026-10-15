@@ -181,6 +181,49 @@ async def test_helper_rejects_invalid_counts_before_any_send(count):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("count", [1, 5, 20])
+async def test_helper_supports_raised_limit_with_exactly_one_attempt_per_copy(count):
+    respond = AsyncMock()
+    context = CommandContext(message("!tg", respond), SimpleNamespace(), logging.getLogger(__name__), burst_max_count=20)
+    assert len(await context.reply_burst("Hello", count)) == count
+    assert respond.await_count == count
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("maximum,count", [(5, 6), (20, 21), (21, 5), (0, 1), (True, 1)])
+async def test_helper_cannot_exceed_configured_or_absolute_limit(maximum, count):
+    respond = AsyncMock()
+    context = CommandContext(message("!tg", respond), SimpleNamespace(), logging.getLogger(__name__), burst_max_count=maximum)
+    with pytest.raises(ValueError):
+        await context.reply_burst("Hello", count)
+    respond.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("arguments", ["", "1", "5", "20"])
+async def test_tg_defaults_and_counts_are_exact_with_configured_limit(tmp_path, arguments):
+    from app.runtime_state import RuntimeState
+    dispatcher, _, _, services = setup_dispatcher(tmp_path)
+    state = RuntimeState()
+    state.configure_commands(dispatcher._registry.definitions())
+    state.apply_command_settings("tg", burst_max_count=20)
+    dispatcher._runtime_state = state
+    respond = AsyncMock()
+    await dispatcher.dispatch(message(f"!tg {arguments}", respond, is_moderator=True), services)
+    assert respond.await_count == int(arguments or "1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("arguments", ["0", "-1", "21", "1.5", "many", "1 5", "+5", "1_0"])
+async def test_tg_invalid_arguments_send_usage_without_a_partial_batch(tmp_path, arguments):
+    dispatcher, _, _, services = setup_dispatcher(tmp_path)
+    respond = AsyncMock()
+    await dispatcher.dispatch(message(f"!tg {arguments}", respond, is_moderator=True), services)
+    respond.assert_awaited_once()
+    assert respond.await_args.args[0].startswith("Usage: !tg")
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("roles,allowed", [({}, False), ({"is_subscriber": True}, False),
     ({"is_vip": True}, False), ({"is_moderator": True}, True), ({"is_broadcaster": True}, True)])
 async def test_burst_permission_floor_even_for_an_invalid_runtime_snapshot(tmp_path, roles, allowed):

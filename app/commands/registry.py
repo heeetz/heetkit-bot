@@ -6,7 +6,8 @@ import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from app.command_settings import CommandSettings, validate_burst_interval
+from app.command_settings import CommandSettings, validate_burst_interval, validate_burst_max_count
+from app.config.commands import TG_DEFAULT_MAX_COUNT
 from app.custom_commands import CustomCommand, CustomCommandStore, render_response
 from app.message_triggers import MessageTriggerStore
 from app.runtime_state import RuntimeState
@@ -60,6 +61,7 @@ class CommandContext:
     logger: logging.Logger
     output_limiter: OutputLimiter | None = None
     burst_interval_ms: int = 0
+    burst_max_count: int = TG_DEFAULT_MAX_COUNT
 
     async def reply(self, content: str) -> bool:
         if self.output_limiter is not None and not self.output_limiter.try_acquire():
@@ -102,13 +104,14 @@ class CommandContext:
         count: int,
         interval_ms: int | None = None,
     ) -> list[object]:
-        """Await at most ten transport sends; retain every result or exception.
+        """Await a bounded batch of transport sends; retain every result or exception.
 
         TwitchIO/Twitch still own API rejection and rate limiting. Cancelling the
         batch cancels its children and waits for their cleanup through gather.
         """
-        if type(count) is not int or not 1 <= count <= 10:
-            raise ValueError("Burst repeat count must be an integer from 1 to 10.")
+        maximum = validate_burst_max_count(self.burst_max_count)
+        if type(count) is not int or not 1 <= count <= maximum:
+            raise ValueError(f"Burst repeat count must be an integer from 1 to {maximum}.")
         interval = validate_burst_interval(self.burst_interval_ms if interval_ms is None else interval_ms)
         async def send(index: int) -> object:
             if index and interval:
@@ -387,6 +390,8 @@ class CommandDispatcher:
                         services=services,
                         logger=self._logger,
                         output_limiter=command_output_limiter,
+                        burst_interval_ms=settings.burst_interval_ms,
+                        burst_max_count=settings.burst_max_count,
                     ),
                     arguments,
                 )
@@ -400,6 +405,8 @@ class CommandDispatcher:
                         services=services,
                         logger=self._logger,
                         output_limiter=command_output_limiter,
+                        burst_interval_ms=settings.burst_interval_ms,
+                        burst_max_count=settings.burst_max_count,
                     ),
                     arguments
                 ):
@@ -456,6 +463,7 @@ class CommandDispatcher:
                     logger=self._logger,
                     output_limiter=command_output_limiter,
                     burst_interval_ms=settings.burst_interval_ms,
+                    burst_max_count=settings.burst_max_count,
                 ),
                 arguments,
             )

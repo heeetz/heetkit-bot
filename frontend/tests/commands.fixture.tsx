@@ -5,7 +5,7 @@ import '../src/styles.css'
 
 const defaults = {
   enabled: true, permission: 'USER', cooldown: { per_user_seconds: 0, global_seconds: 15 },
-  removed: false, display_name: '', aliases: [], burst_interval_ms: 0,
+  removed: false, display_name: '', aliases: [], burst_interval_ms: 0, burst_max_count: 10,
 }
 const initialResponses: Record<string, string[]> = {
   fate: ['Tomorrow brings a new opportunity.', 'Take a break, then try again.'],
@@ -34,6 +34,10 @@ if (new URLSearchParams(window.location.search).has('extended')) {
   }
 }
 commands.find((command) => command.name === 'tg')!.default_settings.permission = 'MODERATOR'
+if (new URLSearchParams(window.location.search).has('legacyBurstMax')) {
+  const tg = commands.find((command) => command.name === 'tg')!
+  delete tg.burst_max_count
+}
 let customCommands: CustomCommandInfo[] = [{
   id: 'synthetic-hello', name: 'hello', enabled: true, responses: ['Hello, {sender}!', 'Welcome, {target}!'],
   permission: 'USER', per_user_seconds: 2, global_seconds: 5, aliases: ['hi'], response_mode: 'random',

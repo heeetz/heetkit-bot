@@ -272,9 +272,80 @@ def test_old_builtin_settings_and_version_two_bursts_default_to_zero_without_rew
     assert state.get_command_settings("weather").permission == Permission.VIP
     assert state.get_command_settings("weather").cooldown.global_seconds == 8
     assert state.get_command_settings("tg").burst_interval_ms == 0
+    assert state.get_command_settings("tg").burst_max_count == 10
     assert commands.list()[0].burst_interval_ms == 0
     assert path.read_bytes() == original
     assert (tmp_path / "custom_commands.json").read_bytes() == custom_before
+
+
+@pytest.mark.parametrize("maximum", [1, 5, 20])
+def test_tg_maximum_persists_in_existing_store_and_resets_independently(tmp_path, maximum):
+    _, state, _, fun, bridge, _, _ = setup_commands(tmp_path)
+    fun.save(["My community"], "tg")
+    options = {"burst_max_count": maximum, "burst_interval_ms": 50, "aliases": ["community"]}
+    assert bridge.save_command_settings("tg", True, 8, 10, "BROADCASTER", options) == {"ok": True}
+    saved = state.get_command_settings("tg")
+    assert saved.burst_max_count == maximum
+    assert setup_commands(tmp_path)[1].get_command_settings("tg") == saved
+    assert setup_commands(tmp_path / "other")[1].get_command_settings("tg").burst_max_count == 10
+    entry = next(command for command in bridge.get_commands()["commands"] if command["name"] == "tg")
+    assert entry["burst_max_count"] == maximum
+    assert entry["default_settings"]["burst_max_count"] == 10
+    # Older callers that omit the new option keep the saved maximum.
+    assert bridge.save_command_settings("tg", True, 8, 10, "BROADCASTER") == {"ok": True}
+    assert state.get_command_settings("tg").burst_max_count == maximum
+    assert bridge.reset_command_settings("tg") == {"ok": True}
+    assert state.get_command_settings("tg").burst_max_count == 10
+    assert fun.tg_message == "My community"
+
+
+@pytest.mark.parametrize("maximum", [0, -1, 21, 1.5, True, "5", None])
+def test_invalid_tg_maximum_never_mutates_settings_or_rewrites_loaded_file(tmp_path, maximum):
+    _, state, _, _, bridge, _, _ = setup_commands(tmp_path)
+    assert bridge.save_command_settings("tg", True, 0, 0, "MODERATOR", {"burst_max_count": 5}) == {"ok": True}
+    before = state.get_command_settings("tg")
+    path = tmp_path / "command_settings.json"
+    saved_bytes = path.read_bytes()
+    for action in (bridge.apply_command_settings, bridge.save_command_settings):
+        assert action("tg", True, 0, 0, "MODERATOR", {"burst_max_count": maximum})["ok"] is False
+        assert state.get_command_settings("tg") == before
+        assert path.read_bytes() == saved_bytes
+    path.write_text(json.dumps({"tg": {"burst_max_count": maximum, "burst_interval_ms": 50, "enabled": False}}))
+    invalid_bytes = path.read_bytes()
+    restarted = setup_commands(tmp_path)[1].get_command_settings("tg")
+    assert restarted.burst_max_count == 10
+    assert restarted.burst_interval_ms == 50 and not restarted.enabled
+    assert path.read_bytes() == invalid_bytes
+
+
+def test_tg_maximum_apply_is_session_only_and_save_failure_keeps_previous_limit(tmp_path, monkeypatch):
+    _, state, _, _, bridge, _, _ = setup_commands(tmp_path)
+    assert bridge.apply_command_settings("tg", True, 0, 0, "MODERATOR", {"burst_max_count": 20}) == {"ok": True}
+    assert state.get_command_settings("tg").burst_max_count == 20
+    assert setup_commands(tmp_path)[1].get_command_settings("tg").burst_max_count == 10
+    def fail_save(*args, **kwargs):
+        raise OSError("Synthetic write failure")
+    monkeypatch.setattr("app.runtime_state.save_command_overrides", fail_save)
+    assert bridge.save_command_settings("tg", True, 0, 0, "MODERATOR", {"burst_max_count": 5})["ok"] is False
+    assert state.get_command_settings("tg").burst_max_count == 20
+    assert bridge.save_command_settings("ping", True, 0, 0, "MODERATOR", {"burst_max_count": 20})["ok"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("maximum,count", [(1, 1), (5, 5), (20, 20)])
+async def test_tg_configured_maximum_rejects_whole_batch_before_cooldown(tmp_path, maximum, count):
+    _, state, _, _, _, dispatcher, services = setup_commands(tmp_path)
+    state.apply_command_settings("tg", burst_max_count=maximum, aliases=["community"],
+                                 cooldown=CooldownPolicy(global_seconds=60))
+    respond = AsyncMock()
+    await dispatcher.dispatch(chat(f"!community {maximum + 1}", respond, is_moderator=True), services)
+    # Above the absolute cap gets usage; above a smaller configured limit is silent.
+    assert respond.await_count == (1 if maximum == 20 else 0)
+    respond.reset_mock()
+    await dispatcher.dispatch(chat(f"!tg {count}", respond, is_moderator=True), services)
+    assert respond.await_count == count
+    await dispatcher.dispatch(chat("!community", respond, is_moderator=True), services)
+    assert respond.await_count == count  # Canonical/alias cooldowns still apply.
 
 
 def test_remove_and_restore_failures_preserve_effective_and_saved_state(tmp_path, monkeypatch):

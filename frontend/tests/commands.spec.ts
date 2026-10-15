@@ -299,7 +299,7 @@ test('tg Save command keeps the whole message and other command drafts', async (
   await expect(tgResponses.locator('textarea')).toHaveValue(' Community, https://example.test\nJoin us! ')
   await tgResponses.locator('..').locator('.command-action-footer').getByRole('button', { name: 'Save command', exact: true }).click()
   expect((await calls(page)).slice(1)).toEqual([
-    ['save_command_settings', 'tg', true, 0, 8, 'BROADCASTER', { aliases: [], display_name: '', burst_interval_ms: 200 }],
+    ['save_command_settings', 'tg', true, 0, 8, 'BROADCASTER', { aliases: [], display_name: '', burst_interval_ms: 200, burst_max_count: 10 }],
     ['save_command_responses', 'tg', [' Community, https://example.test\nJoin us! ']],
   ])
   await expect(page.getByRole('status')).toContainText('!tg')
@@ -486,6 +486,40 @@ test('Burst interval controls validate and retain saved values on editing and to
   ])
 })
 
+test('Tg maximum repeat count validates, saves, reloads and resets with a legacy fallback', async ({ page }) => {
+  await page.goto('/tests/commands.fixture.html?legacyBurstMax')
+  const tg = await expandCommand(page, 'tg')
+  const maxCount = tg.getByLabel('Maximum repeat count')
+  const save = tg.locator('.command-action-footer').getByRole('button', { name: 'Save command', exact: true })
+  await expect(maxCount).toHaveValue('10')
+  await expect(tg).toContainText('Default !tg sends 1')
+  await expect(tg).toContainText('!tg 10 sends 10 copies')
+  for (const value of ['', '0', '21', '-1', '1.5']) {
+    await maxCount.fill(value)
+    await expect(maxCount).toHaveAttribute('aria-invalid', 'true')
+    await expect(save).toBeDisabled()
+  }
+  for (const value of ['1', '5', '20']) {
+    await maxCount.fill(value)
+    await expect(maxCount).toHaveAttribute('aria-invalid', 'false')
+    await expect(save).toBeEnabled()
+  }
+  await maxCount.fill('5')
+  await expect(tg).toContainText('!tg 5 sends 5 copies')
+  await save.click()
+  expect((await calls(page))[0]).toEqual(['save_command_settings', 'tg', true, 0, 15, 'MODERATOR', {
+    aliases: [], display_name: '', burst_interval_ms: 0, burst_max_count: 5,
+  }])
+  await expect(maxCount).toHaveValue('5')
+  await tg.getByRole('button', { name: 'Collapse !tg', exact: true }).click()
+  await tg.getByRole('button', { name: 'Edit !tg', exact: true }).click()
+  await expect(tg.getByLabel('Maximum repeat count')).toHaveValue('5')
+  await tg.getByRole('button', { name: 'Reset settings', exact: true }).click()
+  await respondToConfirmation(page, 'Confirm')
+  await expect(tg.getByLabel('Maximum repeat count')).toHaveValue('10')
+  expect((await page.evaluate(() => window.pywebview!.api.get_commands())).commands.find((command) => command.name === 'tg')?.burst_max_count).toBe(10)
+})
+
 test('built-in editors retain implementation identity and protected permission floors', async ({ page }) => {
   await page.goto('/tests/commands.fixture.html?extended')
   const tg = await expandCommand(page, 'tg')
@@ -505,7 +539,7 @@ test('built-in editors retain implementation identity and protected permission f
   await expect(tg.locator('.command-summary-title strong')).toHaveText('!tg')
   await expect(tg.locator('.command-display-name')).toHaveText('Community promo')
   expect((await calls(page))[0]).toEqual(['save_command_settings', 'tg', true, 0, 15, 'MODERATOR', {
-    aliases: ['community', 'discord'], display_name: 'Community promo', burst_interval_ms: 50,
+    aliases: ['community', 'discord'], display_name: 'Community promo', burst_interval_ms: 50, burst_max_count: 10,
   }])
   await tg.getByRole('button', { name: 'Collapse !tg', exact: true }).click()
   await expect(tg.locator('.command-details')).toHaveCount(0)

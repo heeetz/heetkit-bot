@@ -1,6 +1,7 @@
 """Tests for the TwitchIO adapter without a Twitch network connection."""
 
 import logging
+import asyncio
 from types import SimpleNamespace
 from typing import cast
 from urllib.parse import parse_qs, urlsplit
@@ -218,6 +219,57 @@ def build_settings() -> Settings:
         twitch_channel_user_id="200",
         twitch_channel="testchannel",
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("arguments,count", [("", 1), ("1", 1), ("5", 5), ("20", 20)])
+async def test_duplicate_tg_delivery_does_not_start_a_second_burst(tmp_path, arguments, count) -> None:
+    from app.commands.fun import register_fun_commands
+    from app.commands.registry import CommandRegistry
+    from app.fun_settings import FunSettingsStore
+    from app.utils.cooldown import CooldownManager
+
+    settings = build_settings()
+    registry = CommandRegistry()
+    register_fun_commands(registry, FunSettingsStore(tmp_path / "fun.json"))
+    state = RuntimeState()
+    state.configure_commands(registry.definitions())
+    state.apply_command_settings("tg", burst_max_count=20)
+    services = SimpleNamespace(twitch=None, users=RecordingUserRepository(),
+                               filter_manager=AllowingFilterManager(), settings=settings)
+    dispatcher = CommandDispatcher(registry, CooldownManager(), logging.getLogger(__name__), "!", runtime_state=state)
+    bot = TwitchChatBot(settings, settings.primary_account, services, dispatcher, logging.getLogger(__name__))
+    raw = FakeTwitchMessage(f"!tg {arguments}")
+    raw.id = "same-chat-message"
+    try:
+        await asyncio.gather(bot.event_message(raw), bot.event_message(raw))
+        await bot.event_message(raw)  # Replay after the first batch has finished.
+        assert len(raw.responses) == count
+        assert services.users.seen_user_ids == ["viewer-id"]
+        raw.id = "different-chat-message"
+        await bot.event_message(raw)  # Equal text with a new ID is a new invocation.
+        assert len(raw.responses) == 2 * count
+        assert services.users.seen_user_ids == ["viewer-id", "viewer-id"]
+    finally:
+        await bot.close(save_tokens=False)
+
+
+@pytest.mark.asyncio
+async def test_chat_delivery_cache_is_bounded_and_does_not_match_message_text(monkeypatch) -> None:
+    monkeypatch.setattr("app.twitch.client.CHAT_MESSAGE_DEDUP_LIMIT", 2)
+    settings = build_settings()
+    services = SimpleNamespace(twitch=None, users=RecordingUserRepository(), filter_manager=AllowingFilterManager())
+    dispatcher = ReplyingDispatcher()
+    bot = TwitchChatBot(settings, settings.primary_account, services, dispatcher, logging.getLogger(__name__))
+    try:
+        for identifier in ("one", "two", "three", "three"):
+            raw = FakeTwitchMessage()
+            raw.id = identifier
+            await bot.event_message(raw)
+        assert list(bot._seen_message_ids) == ["two", "three"]
+        assert len(dispatcher.messages) == 3
+    finally:
+        await bot.close(save_tokens=False)
 
 
 @pytest.mark.asyncio

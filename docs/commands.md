@@ -35,7 +35,7 @@ users when enabled. Disabled or removed commands also stay out of public help.
 | `!help` | List public command help entries. | User |
 | `!ping` | Reply with `pong`. | Moderator |
 | `!seen <username>` | Show when a known chatter was last seen. | User |
-| `!tg <1-10>` | Send the configured community message one to ten times, with optional Burst spacing. | Moderator |
+| `!tg [1-20]` | Send the configured community message once by default, or repeat up to its configured maximum, with optional Burst spacing. | Moderator |
 | `!uptime` | Show how long the current HeetKit session has been running. | Moderator |
 | `!weather <city>` | Current weather with English, Russian or Ukrainian localization. | User |
 
@@ -110,7 +110,20 @@ the Fate/Tg messages, returns removed commands and discards built-in drafts;
 custom commands are kept.
 These settings belong to the selected profile and survive a restart.
 
-### Burst spacing
+### Burst limits and spacing
+
+`!tg` with no argument makes exactly one send attempt. `!tg 1`, `!tg 5` and `!tg 20`
+make exactly that many attempts when the count is allowed. In **Commands → Tg**,
+set **Maximum repeat count** to a whole number from 1 to 20. Counts above this
+command's saved maximum are rejected without starting a burst; 20 is the absolute
+cap. The maximum defaults to 10, preserving the previous limit for existing profiles.
+Loading older settings does not rewrite them or change their permissions, cooldowns,
+message or spacing. **Reset settings** restores the maximum to 10.
+
+Repeated delivery of the same Twitch chat event is ignored within the session's
+recent-message cache, so it cannot start another burst. Separate chat messages with
+the same text remain separate invocations, subject to the normal command cooldown.
+Custom Burst commands retain their existing 1–10 count and optional argument override.
 
 `!tg` and each custom Burst command have a separate **Burst interval (ms)** setting,
 accepting whole numbers from 0 to 1000. The default is 0. Settings are saved with the
@@ -124,7 +137,7 @@ command and remain isolated between profiles.
 | 1000 ms | Start requests approximately one second apart. |
 
 Spacing controls when a send request begins. A later request does not wait for the
-previous Twitch response. All one to ten sends are managed and awaited together;
+previous Twitch response. All requests in the permitted batch are managed and awaited together;
 cancellation stops pending starts and cleans up active sends. Twitch controls when
 messages appear and may reject or rate limit individual requests. Successful sends
 are retained when another send fails; failures appear in the logs without an

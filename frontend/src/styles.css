@@ -178,7 +178,8 @@ td { color: var(--text); }
 .command-response-editor { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--separator); }
 .command-response-editor .custom-response-heading { margin-top: 0; }
 .command-identity-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 12px; margin-top: 12px; }
-.command-burst-interval { max-width: 320px; margin-top: 16px; }
+.command-burst-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 320px)); align-items: start; gap: 12px; margin-top: 16px; }
+.command-burst-controls .form-field { min-width: 0; }
 .command-behavior-note { margin: 14px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .command-dynamic-note { display: flex; align-items: center; gap: 8px; }
 .command-action-footer .command-remove { flex: 0 0 auto; color: var(--error); }
@@ -503,7 +504,7 @@ td { color: var(--text); }
 }
 
 @container page-content (max-width: 620px) {
-  .command-fields, .command-identity-fields, .custom-command-fields, .custom-burst-controls,
+  .command-fields, .command-identity-fields, .command-burst-controls, .custom-command-fields, .custom-burst-controls,
   .model-fields, .language-fields, .language-policy-status.has-draft, .twitch-field-pair,
   .personality-rename-form, .filter-test-source, .filter-test-result dl { grid-template-columns: 1fr; }
   .filter-rule-row { grid-template-columns: 1fr; align-items: stretch; }
@@ -543,6 +544,7 @@ td { color: var(--text); }
   .command-details { padding: 0 14px 14px; }
   .command-fields { grid-template-columns: 1fr; }
   .command-identity-fields { grid-template-columns: 1fr; }
+  .command-burst-controls { grid-template-columns: 1fr; gap: 12px; }
   .factory-command-row { align-items: flex-start; flex-wrap: wrap; }
   .command-action-group { min-width: 0; }
   .command-action-footer { align-items: flex-start; flex-direction: column; gap: 12px; }
