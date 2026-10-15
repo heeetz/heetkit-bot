@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { selectOption } from './select-helpers'
 
 async function navigate(page: Page, name: string) {
   await page.getByRole('navigation').getByRole('button', { name, exact: true }).click()
@@ -63,7 +64,7 @@ test('Ask toggles preserve unrelated drafts and keep permissions/cooldowns expli
   await page.goto('/tests/fixture.html?askToggle')
   await toggleOn(page, 'Commands')
   const ask = page.locator('#command-details-ask')
-  await ask.getByRole('combobox').selectOption('VIP')
+  await selectOption(ask.getByRole('combobox'), 'VIP')
   await ask.getByLabel('Global cooldown').fill('42')
   await page.getByRole('button', { name: 'Edit !ping', exact: true }).click()
   const ping = page.locator('#command-details-ping')
@@ -72,7 +73,7 @@ test('Ask toggles preserve unrelated drafts and keep permissions/cooldowns expli
 
   await ask.getByRole('checkbox').press('Space')
   await expect(ask.getByRole('checkbox')).toBeChecked()
-  await expect(ask.getByRole('combobox')).toHaveValue('VIP')
+  await expect(ask.getByRole('combobox')).toHaveAttribute('data-value', 'VIP')
   await expect(ask.getByLabel('Global cooldown')).toHaveValue('42')
   await expect(ping.getByLabel('Per-user cooldown')).toHaveValue('19')
   await expect(ping.getByRole('checkbox')).not.toBeChecked()
@@ -92,7 +93,7 @@ test('Ask toggles preserve unrelated drafts and keep permissions/cooldowns expli
   await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).toBeChecked()
   await navigate(page, 'Commands')
   await expect(ask.getByRole('checkbox')).toBeChecked()
-  await expect(ask.getByRole('combobox')).toHaveValue('VIP')
+  await expect(ask.getByRole('combobox')).toHaveAttribute('data-value', 'VIP')
   await expect(ask.getByLabel('Global cooldown')).toHaveValue('42')
 
   // Change it elsewhere while the Commands draft is dirty; Save must use the new enabled value.
@@ -101,7 +102,7 @@ test('Ask toggles preserve unrelated drafts and keep permissions/cooldowns expli
   await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).not.toBeChecked()
   await navigate(page, 'Commands')
   await expect(ask.getByRole('checkbox')).not.toBeChecked()
-  await expect(ask.getByRole('combobox')).toHaveValue('VIP')
+  await expect(ask.getByRole('combobox')).toHaveAttribute('data-value', 'VIP')
   await expect(ping.getByLabel('Per-user cooldown')).toHaveValue('19')
   await expect(ping.getByRole('checkbox')).not.toBeChecked()
   await ask.getByRole('button', { name: 'Save', exact: true }).click()

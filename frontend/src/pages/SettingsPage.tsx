@@ -13,6 +13,7 @@ import {
 import FeedbackToast from '../components/FeedbackToast'
 import Switch from '../components/Switch'
 import Accordion from '../components/Accordion'
+import { Select } from '../components/Select'
 
 interface SettingsPageProps {
   active: boolean
@@ -629,14 +630,18 @@ export default function SettingsPage({ active, status, onReturnToAI }: SettingsP
               <div className="preset-editor twitch-field-pair">
                 <label className="form-field">
                   <span>Saved channel</span>
-                  <select value={twitchDraft.selected_preset_id ?? ''} onChange={(event) => selectTwitchPreset(event.target.value)} disabled={Boolean(busy)}>
-                    <option value="">Unsaved target</option>
-                    {twitchDraft.presets.map((preset) => (
-                      <option value={preset.id} key={preset.id}>
-                        {preset.display_name}{preset.id === twitchDraft.active_preset_id ? ' (active)' : ''}
-                      </option>
-                    ))}
-                  </select>
+                  <Select
+                    value={twitchDraft.selected_preset_id ?? ''}
+                    onChange={selectTwitchPreset}
+                    disabled={Boolean(busy)}
+                    options={[
+                      { value: '', label: 'Unsaved target' },
+                      ...twitchDraft.presets.map((preset) => ({
+                        value: preset.id,
+                        label: `${preset.display_name}${preset.id === twitchDraft.active_preset_id ? ' (active)' : ''}`,
+                      })),
+                    ]}
+                  />
                   <small>Only target-channel details are stored. Credentials and OAuth tokens stay shared.</small>
                 </label>
                 <label className="form-field">

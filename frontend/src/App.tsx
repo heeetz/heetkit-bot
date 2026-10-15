@@ -17,6 +17,7 @@ import SettingsPage from './pages/SettingsPage'
 import AboutPage from './pages/AboutPage'
 import FeedbackToast from './components/FeedbackToast'
 import LogEventSummary, { logEventClassNames } from './components/LogEventSummary'
+import { Select } from './components/Select'
 import Switch from './components/Switch'
 import HelpTip from './components/HelpTip'
 import './styles.css'
@@ -309,9 +310,11 @@ function LogsPage() {
       <div className="log-toolbar">
         <label>
           Level
-          <select value={level} onChange={(event) => setLevel(event.target.value as typeof level)}>
-            {logLevels.map((item) => <option key={item}>{item}</option>)}
-          </select>
+          <Select
+            value={level}
+            onChange={(value) => setLevel(value as typeof level)}
+            options={logLevels.map((item) => ({ value: item, label: item }))}
+          />
         </label>
         <label className="search-field">
           Search

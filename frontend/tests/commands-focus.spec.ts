@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { selectOption } from './select-helpers'
 
 async function editorScrolls(page: Page) {
   return page.evaluate(() => Reflect.get(window, 'editorScrolls') as string[])
@@ -91,7 +92,7 @@ for (const width of [1280, 900, 390, 320]) {
       const permission = editor.getByRole('combobox', { name: 'Permission', exact: true })
       await expectEditorInView(page, editor, permission)
       await expect(permission).toHaveCSS('outline-style', 'solid')
-      await permission.selectOption('VIP')
+      await selectOption(permission, 'VIP')
       await editor.getByRole('button', { name: command === 'ask' ? 'Save' : 'Save command', exact: true }).click()
       await expect(page.getByRole('status')).toContainText(`Saved !${command}`)
       await expect(permission).not.toBeFocused()
@@ -122,7 +123,7 @@ test('draft confirmation, typing, controls, save and close do not repeat the edi
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click()
   await expectEditorInView(page, editor, name)
   await expect(name).toHaveValue('hello')
-  await editor.getByLabel('Response type').selectOption('single')
+  await selectOption(editor.getByLabel('Response type'), 'single')
   const message = editor.getByRole('textbox', { name: 'Message', exact: true })
   await message.fill('Saved reply')
   await expect(message).toBeFocused()

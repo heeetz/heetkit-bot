@@ -63,8 +63,11 @@ Settings. State's help explains key validation and memory retention.
      restrictions, or choose **Limited**, select allowed languages and a fallback, then
      **Save language settings**. The initial Limited selection is English, Ukrainian and
      Russian, with English fallback; Auto remains the default.
-   - **Models:** the primary model is shown directly. Custom primary-model selection and
-     the fallback model are advanced controls. Save model changes before testing them.
+   - **Models:** choose **Primary model** on the left and **Fallback model** on the right;
+     they stack on narrow windows. Select **Custom model ID… (advanced)** in either
+     dropdown to enter an ID directly. Save model changes before testing them.
+     Use arrow keys or type a model name to navigate choices, Enter to select, and
+     Escape to close the dropdown without changing the selection.
      **Discover models** lists compatible text-generation models visible through Google.
      It shares an action row with **Open Playground** and **Save models**; opening
      Playground with a draft still requires an explicit choice.

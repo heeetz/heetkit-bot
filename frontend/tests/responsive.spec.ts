@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { selectOption } from './select-helpers'
 
 type ViewportCase = {
   width: number
@@ -52,7 +53,7 @@ async function expectNoHorizontalOverflow(page: Page) {
         messages.push(`${name(element)} scrolls ${element.scrollWidth}/${element.clientWidth}`)
       }
     }
-    for (const element of document.querySelectorAll<HTMLElement>('main input, main select, main textarea, main button, main summary')) {
+    for (const element of document.querySelectorAll<HTMLElement>('main input, main [role="combobox"], main textarea, main button, main summary')) {
       if (!visible(element) || element.closest('.feedback-toast')) continue
       const container = element.closest<HTMLElement>('.card') ?? element.closest<HTMLElement>('.page-content')
       if (!container) continue
@@ -153,7 +154,7 @@ for (const viewport of viewports) {
     const discover = models.getByRole('button', { name: 'Discover models', exact: true })
     const playground = models.getByRole('button', { name: 'Open Playground', exact: true })
     const save = models.getByRole('button', { name: 'Save models', exact: true })
-    await expect(models.getByRole('button')).toHaveText(['Discover models', 'Open Playground', 'Save models'])
+    await expect(models.locator('.model-action-row').getByRole('button')).toHaveText(['Discover models', 'Open Playground', 'Save models'])
     await expectActionBefore(discover, playground)
     await expectActionBefore(playground, save)
     const playgroundBox = (await playground.boundingBox())!
@@ -319,7 +320,7 @@ for (const width of [1440, 1180, 900, 390, 320]) {
       }
     }
     const language = page.locator('#ai-language')
-    await language.getByLabel('Response language mode').selectOption('limited')
+    await selectOption(language.getByLabel('Response language mode'), 'limited')
     await expect(language.locator('.ai-editor-footer')).toContainText('Unsaved draft')
     await language.getByRole('button', { name: 'Help: AI response language' }).focus()
     await expect(page.getByRole('tooltip')).toContainText('Prompt guidance cannot perfectly guarantee')

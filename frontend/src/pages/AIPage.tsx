@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 
 import {
   type AILanguageInfo,
@@ -17,6 +17,7 @@ import AIPlayground from '../components/AIPlayground'
 import BlockedAIUsers from '../components/BlockedAIUsers'
 import Accordion from '../components/Accordion'
 import HelpTip from '../components/HelpTip'
+import { Select } from '../components/Select'
 
 interface AIPageProps {
   active: boolean
@@ -63,6 +64,7 @@ function ModelSelector({
   onChange: (value: string) => void
   help: string
 }) {
+  const id = useId()
   const presetById = new Map(presets.map((preset) => [preset.id, preset]))
   const choices = Array.from(new Set([
     ...presets.map((preset) => preset.id),
@@ -72,36 +74,31 @@ function ModelSelector({
 
   return (
     <div className="model-selector">
-      <label className="form-field">
-        {label}
-        <select
-          aria-label={label}
+      <div className="form-field">
+        <div className="model-field-label">
+          <label htmlFor={id}>{label}</label>
+          <HelpTip label={label}>{help}</HelpTip>
+        </div>
+        <Select
+          id={id}
           value={usesCustomValue ? CUSTOM_MODEL_VALUE : value}
-          onChange={(event) => onChange(
-            event.target.value === CUSTOM_MODEL_VALUE ? '' : event.target.value,
-          )}
-        >
-          {choices.map((model) => (
-            <option key={model} value={model}>
-              {presetById.has(model) ? `${presetById.get(model)!.label} — ${model}` : model}
-            </option>
-          ))}
-          <option value={CUSTOM_MODEL_VALUE}>Custom model ID…</option>
-        </select>
-        <small>{help}</small>
-      </label>
+          onChange={(model) => onChange(model === CUSTOM_MODEL_VALUE ? '' : model)}
+          options={[
+            ...choices.map((model) => ({ value: model, label: presetById.has(model) ? `${presetById.get(model)!.label} — ${model}` : model })),
+            { value: CUSTOM_MODEL_VALUE, label: 'Custom model ID… (advanced)' },
+          ]}
+        />
+      </div>
       {usesCustomValue && (
-        <details className="custom-model-options">
-          <summary>Custom model ID (advanced): {value || 'not set'}</summary>
         <label className="form-field custom-model-field">
           Custom model ID
           <input
+            aria-label={`${label} custom model ID`}
             value={value}
             placeholder="gemini-model-id"
             onChange={(event) => onChange(event.target.value)}
           />
         </label>
-        </details>
       )}
     </div>
   )
@@ -707,14 +704,12 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
             <div className="personality-toolbar">
               <label className="form-field personality-select">
                 Personality
-                <select value={selected} onChange={(event) => {
-                  setSelected(event.target.value)
+                <Select value={selected} onChange={(value) => {
+                  setSelected(value)
                   setRenameOpen(false)
                   setError('')
                   setNotice('')
-                }}>
-                  {data?.personalities.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
-                </select>
+                }} options={data?.personalities.map((item) => ({ value: item.name, label: item.name })) ?? []} />
               </label>
               <div className="row-actions personality-management-actions">
                 <button className="secondary" disabled={Boolean(busy)} onClick={() => {
@@ -879,30 +874,27 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
             <div className="language-fields">
               <label className="form-field">
                 <span>Response language mode</span>
-                <select
+                <Select
                   aria-label="Response language mode"
                   value={languageDraft.mode}
                   disabled={Boolean(busy)}
-                  onChange={(event) => updateLanguageDraft({ mode: event.target.value as AILanguageMode })}
-                >
-                  <option value="auto">Auto</option>
-                  <option value="limited">Limited</option>
-                </select>
+                  onChange={(mode) => updateLanguageDraft({ mode: mode as AILanguageMode })}
+                  options={[{ value: 'auto', label: 'Auto' }, { value: 'limited', label: 'Limited' }]}
+                />
                 <small>Auto follows the user without language restrictions. Limited uses the allowed set below.</small>
               </label>
               <label className="form-field">
                 <span>Fallback language</span>
-                <select
+                <Select
                   aria-label="Fallback language"
                   value={languageDraft.fallback_language}
                   disabled={Boolean(busy) || languageDraft.mode !== 'limited'}
-                  onChange={(event) => updateLanguageDraft({ fallback_language: event.target.value })}
-                >
-                  {languageCatalogue
+                  onChange={(fallback_language) => updateLanguageDraft({ fallback_language })}
+                  options={languageCatalogue
                     .filter((language) => languageDraft.allowed_languages.includes(language.code)
                       || language.code === languageDraft.fallback_language)
-                    .map((language) => <option key={language.code} value={language.code}>{language.label}</option>)}
-                </select>
+                    .map((language) => ({ value: language.code, label: language.label }))}
+                />
                 <small>Used when Limited mode cannot identify an allowed response language.</small>
               </label>
             </div>
@@ -950,6 +942,7 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
         {!providerDraft ? <p className="muted">Loading AI provider settings…</p> : (
           <div className="settings-list">
             <p className="model-policy-status">Saved primary model: <strong>{providerSaved?.selected_model || 'Not selected'}</strong>. {providerDirty ? 'Unsaved model draft; Playground keeps using the saved models.' : 'Changes apply after Save models.'}</p>
+            <div className="model-fields">
               <ModelSelector
                 label="Primary model"
                 value={providerDraft.selected_model}
@@ -958,8 +951,6 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
                 onChange={(selected_model) => updateProviderDraft({ selected_model })}
                 help="Used for AI requests."
               />
-            <details className="model-advanced">
-              <summary>Advanced model options</summary>
               <ModelSelector
                 label="Fallback model"
                 value={providerDraft.fallback_model}
@@ -968,7 +959,7 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
                 onChange={(fallback_model) => updateProviderDraft({ fallback_model })}
                 help="Used only after the primary model returns 404. Key, network, quota and billing failures do not trigger fallback."
               />
-            </details>
+            </div>
             <div className="model-action-row">
               <div className="model-action-group">
                 <button className="secondary" disabled={Boolean(busy) || !providerDraft.credential?.configured} onClick={() => void discoverModels()}>{busy === 'provider:discover' ? 'Discovering…' : 'Discover models'}</button>

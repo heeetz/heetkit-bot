@@ -11,6 +11,7 @@ import {
 } from '../bridge'
 import FeedbackToast from '../components/FeedbackToast'
 import Confirmation from '../components/Confirmation'
+import { Select } from '../components/Select'
 import Switch from '../components/Switch'
 import AccordionHeader from '../components/AccordionHeader'
 import HelpTip from '../components/HelpTip'
@@ -234,7 +235,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     const sidebar = editor?.closest('.app-shell')?.querySelector('.sidebar')
     editor?.closest('main')?.style.setProperty('--sidebar-height', `${sidebar?.getBoundingClientRect().height ?? 0}px`)
     editor?.scrollIntoView({ block: 'start', inline: 'nearest' })
-    editor?.querySelector<HTMLElement>('input:not([type="checkbox"]):not(:disabled), select:not(:disabled), textarea:not(:disabled)')?.focus({ preventScroll: true })
+    editor?.querySelector<HTMLElement>('input:not([type="checkbox"]):not(:disabled), [role="combobox"]:not(:disabled), textarea:not(:disabled)')?.focus({ preventScroll: true })
   }, [active, focusTarget])
 
   useEffect(() => {
@@ -741,9 +742,12 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
             </Switch>
             <label>
               Permission
-              <select disabled={busy} value={draft.permission} onChange={(event) => updateDraft(command.name, { permission: event.target.value })}>
-                {commandPermissions(data, command).map((permission) => <option key={permission} value={permission}>{permission.toLowerCase()}</option>)}
-              </select>
+              <Select
+                disabled={Boolean(busy)}
+                value={draft.permission}
+                onChange={(value) => updateDraft(command.name, { permission: value })}
+                options={commandPermissions(data, command).map((permission) => ({ value: permission, label: permission.toLowerCase() }))}
+              />
             </label>
             <label>
               Per-user cooldown
@@ -864,11 +868,15 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
             </div>
           </div>
           <label className="form-field custom-response-mode">Response type
-            <select value={customDraft.responseMode} onChange={(event) => changeCustomMode(event.target.value as CustomResponseMode)}>
-              <option value="single">Single</option>
-              <option value="random">Random</option>
-              <option value="burst">Burst</option>
-            </select>
+            <Select
+              value={customDraft.responseMode}
+              onChange={(value) => changeCustomMode(value as CustomResponseMode)}
+              options={[
+                { value: 'single', label: 'Single' },
+                { value: 'random', label: 'Random' },
+                { value: 'burst', label: 'Burst' },
+              ]}
+            />
           </label>
           <p className="custom-mode-example">
             {customDraft.responseMode === 'random'
@@ -896,9 +904,13 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           <div className="custom-response-heading"><h3>Access</h3></div>
           <div className="custom-command-fields">
             <label className="form-field">Permission
-              <select value={customDraft.permission} onChange={(event) => updateCustomDraft({ permission: event.target.value })}>
-                {customData.permissions.filter((permission) => customDraft.responseMode !== 'burst' || burstPermissions.includes(permission)).map((permission) => <option key={permission} value={permission}>{permission.toLowerCase()}</option>)}
-              </select>
+              <Select
+                value={customDraft.permission}
+                onChange={(value) => updateCustomDraft({ permission: value })}
+                options={customData.permissions
+                  .filter((permission) => customDraft.responseMode !== 'burst' || burstPermissions.includes(permission))
+                  .map((permission) => ({ value: permission, label: permission.toLowerCase() }))}
+              />
             </label>
             <Switch checked={customDraft.enabled} ariaLabel="Enable custom command" onCheckedChange={(enabled) => updateCustomDraft({ enabled })}>
               <span>{customDraft.enabled ? 'Enabled' : 'Disabled'}</span>

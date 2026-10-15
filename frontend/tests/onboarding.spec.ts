@@ -266,7 +266,7 @@ for (const running of [false, true]) {
     await twitchSection.getByLabel('Saved channel name', { exact: true }).fill('Other channel')
     await twitchSection.getByRole('button', { name: 'Save channel', exact: true }).click()
     await expect(page.getByRole('status')).toContainText(running ? 'Save & reconnect' : 'Save & apply')
-    await expect(twitchSection.getByRole('combobox', { name: /^Saved channel/ })).toHaveValue('synthetic-1')
+    await expect(twitchSection.getByRole('combobox', { name: /^Saved channel/ })).toHaveAttribute('data-value', 'synthetic-1')
     await expect(twitchSection.getByLabel('Bot account login')).toHaveValue('testbot')
     await expect(twitchSection.getByLabel('Twitch application client ID')).toHaveValue('synthetic-client')
     await expect(twitchSection.locator('.twitch-status-grid > div').filter({ hasText: 'Active target' })).toContainText('testchannel')
