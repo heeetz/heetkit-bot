@@ -28,7 +28,7 @@ export function Select({ value, onChange, options, disabled = false, id, classNa
   const search = useRef({ text: '', time: 0 })
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState<string | null>(null)
-  const [position, setPosition] = useState<{ left: number; top: number; width: number; maxHeight: number } | null>(null)
+  const [position, setPosition] = useState<{ left: number; top: number; minWidth: number; maxWidth: number; maxHeight: number } | null>(null)
   const selected = options.find((option) => option.value === value)
   const activeIndex = options.findIndex((option) => option.value === active && !option.disabled)
 
@@ -78,14 +78,18 @@ export function Select({ value, onChange, options, disabled = false, id, classNa
       }
       const padding = 8
       const gap = 6
-      const width = Math.min(rect.width, document.documentElement.clientWidth - padding * 2)
+      const availableWidth = document.documentElement.clientWidth - padding * 2
+      const minWidth = Math.min(Math.max(rect.width, 200), availableWidth)
+      const maxWidth = Math.min(Math.max(rect.width, 360), availableWidth)
+      const width = Math.max(minWidth, Math.min(menu.getBoundingClientRect().width, maxWidth))
       const below = Math.max(0, window.innerHeight - rect.bottom - gap - padding)
       const above = Math.max(0, rect.top - gap - padding)
       const height = Math.min(280, menu.scrollHeight)
       const down = below >= height || below >= above
       const maxHeight = Math.min(280, down ? below : above)
       const next = {
-        width,
+        minWidth,
+        maxWidth,
         maxHeight,
         left: Math.max(padding, Math.min(rect.left, document.documentElement.clientWidth - width - padding)),
         top: down ? rect.bottom + gap : rect.top - gap - Math.min(height, maxHeight),

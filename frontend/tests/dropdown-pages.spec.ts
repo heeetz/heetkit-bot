@@ -54,3 +54,36 @@ for (const width of [1280, 390]) {
     ])
   })
 }
+
+for (const width of [1280, 320]) {
+  test(`personality toolbar and menu stay readable after short-name selection at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/tests/fixture.html?configured&aiAvailable')
+    await page.evaluate(() => {
+      const getPersonalities = window.pywebview!.api.get_personalities
+      window.pywebview!.api.get_personalities = async () => {
+        const response = await getPersonalities()
+        return { ...response, active_personality: 'A', personalities: ['A', 'go', 'rapper', 'A longer personality name'].map((name) => ({ ...response.personalities[0], name })) }
+      }
+    })
+    await page.getByRole('button', { name: 'AI', exact: true }).click()
+    const personality = page.locator('#ai-personalities')
+    await personality.locator('.accordion-caret').click()
+    const control = personality.getByRole('combobox', { name: 'Personality', exact: true })
+    const initialWidth = (await control.boundingBox())!.width
+    expect(initialWidth).toBeGreaterThanOrEqual(240)
+    for (const value of ['go', 'A longer personality name', 'A']) {
+      await selectOption(control, value)
+      expect((await control.boundingBox())!.width).toBe(initialWidth)
+    }
+    await control.click()
+    const menu = page.getByRole('listbox')
+    await expect(menu).toBeVisible()
+    const bounds = (await menu.boundingBox())!
+    expect(bounds.width).toBeGreaterThanOrEqual(initialWidth)
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width - 8)
+    expect((await page.getByRole('option', { name: 'rapper', exact: true }).locator('span:first-child').boundingBox())!.height).toBe(20)
+    await page.screenshot({ path: `node_modules/.tmp/personality-width-${width}.png` })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+  })
+}

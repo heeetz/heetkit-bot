@@ -126,3 +126,39 @@ test('a menu closes when its trigger scrolls fully behind a clipping ancestor', 
   await panel.evaluate((element) => { element.scrollTop = 100 })
   await expect(page.getByRole('listbox')).toHaveCount(0)
 })
+
+test('compact fields open a readable menu with a shared minimum width', async ({ page }) => {
+  const compact = page.getByRole('combobox', { name: 'Compact selection' })
+  await compact.click()
+  const menu = page.getByRole('listbox')
+  expect((await compact.boundingBox())!.width).toBe(90)
+  expect((await menu.boundingBox())!.width).toBe(200)
+  await expect(page.getByRole('option', { name: 'Bee', exact: true })).toBeVisible()
+})
+
+for (const width of [1280, 390, 320]) {
+  test(`short and long personality selections keep stable bounded widths at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    const control = page.getByRole('combobox', { name: 'Short-name personality' })
+    const initial = (await control.boundingBox())!.width
+    const menu = page.getByRole('listbox')
+    let menuWidth = 0
+    for (const value of ['alpha', 'delta', 'charlie']) {
+      await selectOption(control, value)
+      expect((await control.boundingBox())!.width).toBe(initial)
+      await control.click()
+      const bounds = (await menu.boundingBox())!
+      expect(bounds.width).toBeGreaterThanOrEqual(initial)
+      expect(bounds.width).toBeLessThanOrEqual(Math.min(360, width - 16))
+      if (menuWidth) expect(bounds.width).toBe(menuWidth)
+      menuWidth = bounds.width
+      expect(bounds.x).toBeGreaterThanOrEqual(8)
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width - 8)
+      const shortLabel = page.getByRole('option', { name: 'Charlie', exact: true }).locator('span:first-child')
+      expect((await shortLabel.boundingBox())!.height).toBe(20)
+      await control.press('Escape')
+    }
+    await control.click()
+    await page.screenshot({ path: `node_modules/.tmp/select-width-${width}.png` })
+  })
+}

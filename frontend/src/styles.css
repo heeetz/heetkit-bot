@@ -318,7 +318,7 @@ td { color: var(--text); }
 .form-field { display: grid; min-width: 0; gap: 7px; color: var(--muted); font-size: 13px; font-weight: 700; letter-spacing: normal; text-transform: none; overflow-wrap: anywhere; }
 .form-field .select-trigger, .form-field textarea, .form-field input { min-width: 0; width: 100%; border: 1px solid var(--input-border); border-radius: 8px; padding: 10px 12px; color: var(--text); background: var(--page); outline: none; }
 .form-field .select-trigger:focus, .form-field textarea:focus, .form-field input:focus { border-color: var(--primary); }
-.personality-select { max-width: 300px; margin-bottom: 16px; }
+.personality-select { width: min(300px, 100%); margin-bottom: 16px; }
 .form-field textarea { min-height: 330px; resize: vertical; font: 13px/1.55 "Cascadia Code", "SFMono-Regular", Consolas, monospace; text-transform: none; }
 .form-field .command-response-textarea, .form-field .custom-response-textarea { min-height: 132px; }
 .editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 14px; }
@@ -655,7 +655,7 @@ details > summary:hover { background: var(--hover); }
 .select-trigger:focus { outline: 2px solid var(--text); outline-offset: 2px; }
 .select-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .select-caret { flex: 0 0 auto; color: var(--muted); }
-.select-menu { position: fixed; z-index: 1000; min-width: 0; padding: 4px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--panel); color: var(--text); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--input-border) var(--panel); }
+.select-menu { position: fixed; z-index: 1000; width: max-content; max-width: calc(100vw - 16px); padding: 4px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--panel); color: var(--text); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--input-border) var(--panel); }
 .select-option { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding: 8px; border-radius: 4px; font-size: 14px; line-height: 20px; overflow-wrap: anywhere; cursor: pointer; }
 .select-option > span:first-child { min-width: 0; }
 .select-option[data-active="true"] { background: var(--hover); outline: 1px solid var(--input-border); outline-offset: -1px; }

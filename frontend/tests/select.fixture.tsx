@@ -27,6 +27,14 @@ function Fixture() {
     <button onClick={() => setHidden((previous) => !previous)}>Toggle hidden</button>
     <label className="form-field">Disabled selection<Select value="alpha" onChange={setValue} options={options} disabled /></label>
     <label className="form-field">Empty selection<Select value="" onChange={setValue} options={[]} /></label>
+    <div className="personality-toolbar">
+      <label className="form-field personality-select">Short-name personality
+        <Select value={value} onChange={setValue} options={options} />
+      </label>
+    </div>
+    <label className="form-field" style={{ width: 90 }}>Compact selection
+      <Select value="a" onChange={() => {}} options={[{ value: 'a', label: 'A' }, { value: 'b', label: 'Bee' }]} />
+    </label>
   </main>
 }
 
