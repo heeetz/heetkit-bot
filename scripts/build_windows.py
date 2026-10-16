@@ -135,6 +135,10 @@ def main() -> None:
                 archive.write(path, Path("HeetKit") / path.relative_to(bundle))
     checksum = hashlib.sha256(output.read_bytes()).hexdigest()
     output.with_suffix(".zip.sha256").write_text(f"{checksum}  {output.name}\n", encoding="ascii")
+    # Actions can test and build the installer with this exact pinned environment.
+    if github_output := os.environ.get("GITHUB_OUTPUT"):
+        with open(github_output, "a", encoding="utf-8") as handle:
+            handle.write(f"python={builder}\n")
     print(f"Version: {VERSION}\nBundle: {bundle}\nPortable ZIP: {output}\nSHA-256: {checksum}")
 
 

@@ -21,8 +21,84 @@ permissions:
   contents: read
 
 jobs:
+  checks:
+    name: Regular development checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: windows-2022
+    timeout-minutes: 20
+    # Only regular pushes share a cancellation group. Candidate/tag jobs have none.
+    concurrency:
+      group: ${{ github.workflow }}-checks-${{ github.ref }}
+      cancel-in-progress: true
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Windows x64 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14.7'
+          architecture: x64
+          cache: pip
+          cache-dependency-path: packaging/windows/requirements.txt
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.20.0'
+          architecture: x64
+          package-manager-cache: false
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install pinned Python runtime and test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r packaging/windows/requirements.txt pytest==8.4.2 pytest-asyncio==0.26.0
+          if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed.' }
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'Python dependency check failed.' }
+          python -c "from importlib.metadata import version; from packaging.version import Version; assert Version(version('urllib3')) >= Version('2.8.0'), 'urllib3 must be >= 2.8.0'"
+          if ($LASTEXITCODE -ne 0) { throw 'urllib3 security version check failed.' }
+
+      - name: Run Python tests
+        run: python -m pytest -q
+
+      - name: Install frontend dependencies and check the production build
+        working-directory: frontend
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw 'Frontend dependency installation failed.' }
+          npm run build
+          if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed.' }
+
+      - name: Ensure the frontend test browser is available
+        working-directory: frontend
+        run: |
+          $edgeRoots = @($env:LOCALAPPDATA, $env:ProgramFiles, ${env:ProgramFiles(x86)})
+          if ($env:HOMEDRIVE) { $edgeRoots += "$env:HOMEDRIVE\Program Files", "$env:HOMEDRIVE\Program Files (x86)" }
+          $edgePaths = $edgeRoots |
+            Where-Object { $_ } | ForEach-Object { Join-Path $_ 'Microsoft/Edge/Application/msedge.exe' }
+          $installedEdge = $edgePaths | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+          if ($installedEdge) {
+            Write-Host "Using installed Microsoft Edge: $installedEdge"
+          } else {
+            npx --no-install playwright install msedge
+            if ($LASTEXITCODE -ne 0) { throw 'Microsoft Edge installation failed.' }
+          }
+
+      - name: Run frontend tests
+        working-directory: frontend
+        run: npm test -- --reporter=line --workers=2
+
   windows-build:
     name: Test and package Windows x64
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref_type == 'tag')
     runs-on: windows-2022
     timeout-minutes: 45
     outputs:
@@ -73,19 +149,30 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
 
-      - name: Install pinned Python runtime and test dependencies
+      - name: Build, inspect and archive the standalone application
+        id: build
+        # Owns the isolated pinned venv, npm ci/build, licenses, PyInstaller,
+        # integrity checks, portable ZIP and ZIP SHA-256 sidecar.
+        run: python scripts/build_windows.py
+
+      - name: Install test tools in the builder environment
+        env:
+          BUILDER_PYTHON: ${{ steps.build.outputs.python }}
+        # Add test tools only after license collection/freezing; never ship them.
         run: |
-          python -m pip install --disable-pip-version-check -r packaging/windows/requirements.txt pytest==8.4.2 pytest-asyncio==0.26.0
-          if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed.' }
-          python -m pip check
+          & $env:BUILDER_PYTHON -m pip install --disable-pip-version-check pytest==8.4.2 pytest-asyncio==0.26.0
+          if ($LASTEXITCODE -ne 0) { throw 'Python test dependency installation failed.' }
+          & $env:BUILDER_PYTHON -m pip check
           if ($LASTEXITCODE -ne 0) { throw 'Python dependency check failed.' }
           # The shared requirements pin the version; enforce the patched urllib3 minimum.
-          python -c "from importlib.metadata import version; from packaging.version import Version; resolved = version('urllib3'); print(f'urllib3 {resolved}'); assert Version(resolved) >= Version('2.8.0'), 'urllib3 must be >= 2.8.0'"
+          & $env:BUILDER_PYTHON -c "from importlib.metadata import version; from packaging.version import Version; resolved = version('urllib3'); print(f'urllib3 {resolved}'); assert Version(resolved) >= Version('2.8.0'), 'urllib3 must be >= 2.8.0'"
           if ($LASTEXITCODE -ne 0) { throw 'urllib3 security version check failed.' }
 
       - name: Run packaging, prerequisite and profile isolation tests
+        env:
+          BUILDER_PYTHON: ${{ steps.build.outputs.python }}
         run: >-
-          python -m pytest -q
+          & $env:BUILDER_PYTHON -m pytest -q
           tests/test_windows_packaging.py
           tests/test_windows_installer.py
           tests/test_windows_runtime.py
@@ -114,11 +201,6 @@ jobs:
           # HeetKit.iss also rejects a compiler that is not exactly 6.7.3.
           "compiler=$compiler" >> $env:GITHUB_OUTPUT
 
-      - name: Build, inspect and archive the standalone application
-        # Owns its isolated pinned venv, npm ci/build, licenses, PyInstaller,
-        # inspect_windows_bundle.py, portable ZIP and ZIP SHA-256 sidecar.
-        run: python scripts/build_windows.py
-
       - name: Ensure the frontend test browser is available
         working-directory: frontend
         # Match Playwright's Windows msedge lookup; reuse the runner's browser.
@@ -137,13 +219,14 @@ jobs:
 
       - name: Run frontend tests using the builder-installed dependencies
         working-directory: frontend
-        run: npm test -- --reporter=line
+        run: npm test -- --reporter=line --workers=2
 
       - name: Build installer from the verified portable ZIP
         env:
           INNO_COMPILER: ${{ steps.inno.outputs.compiler }}
+          BUILDER_PYTHON: ${{ steps.build.outputs.python }}
         # Reuses bundle inspection and writes the installer SHA-256/traceability.
-        run: python scripts/build_installer.py --inno-compiler "$env:INNO_COMPILER"
+        run: '& $env:BUILDER_PYTHON scripts/build_installer.py --inno-compiler "$env:INNO_COMPILER"'
 
       - name: Verify all expected outputs before upload
         env:

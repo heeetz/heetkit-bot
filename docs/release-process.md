@@ -5,10 +5,11 @@ download and the portable ZIP is an alternative. Public downloads belong on
 [GitHub Releases](https://github.com/heeetz/heetkit-bot/releases).
 
 The [Windows build workflow](https://github.com/heeetz/heetkit-bot/actions/workflows/windows-build.yml)
-creates Actions artifacts on `main` pushes and manual runs; documentation-only pushes
-remain ignored. A manually pushed matching version tag runs the same pipeline and,
-after success, publishes its five verified files as a GitHub Release. A successful
-build alone does not establish public-release readiness.
+runs development checks on `main` pushes; documentation-only pushes remain ignored.
+Manual runs create Windows candidate artifacts. A manually pushed matching version
+tag runs the complete test/package pipeline and, after success, publishes its five
+verified files as a GitHub Release. A successful build alone does not establish
+public-release readiness.
 
 ## Check for updates
 
@@ -98,15 +99,37 @@ databases, backups and private defaults must never become build inputs or releas
 
 ## GitHub Actions builds
 
-Open **Actions → Windows build → Run workflow** to start a manual build, or inspect the
-run for a `main` push. CI uses `windows-2022`, the pinned Python/Node toolchains and a
-SHA-256-verified official Inno Setup download. It requires no personal secrets or profile
-data. Only pip/npm dependency downloads are cached, keyed to
+CI uses `windows-2022` and the pinned Python/Node toolchains. It requires no personal
+secrets or profile data. The workflow has two paths:
+
+- **Regular development checks** run on `main` pushes: the Python test suite,
+  frontend typecheck/production build and complete Edge browser suite. They create
+  no frozen bundle, portable ZIP or installer. A newer regular push cancels superseded
+  checks for the same branch. The existing documentation-only push filter is unchanged.
+- **Test and package Windows x64** runs through **Actions → Windows build → Run workflow**
+  (select the desired branch or tag), or on `v*` tag pushes. It runs the existing
+  standalone builder, packaging/prerequisite/profile-isolation/publication tests,
+  complete Edge suite and installer builder. The official Inno Setup download remains
+  SHA-256 verified. These jobs and release publication have no cancellation group;
+  newer pushes or manual builds cannot automatically cancel them.
+
+Only pip/npm dependency downloads are cached, keyed to
 `packaging/windows/requirements.txt` and `frontend/package-lock.json` respectively.
-Every run still installs Python dependencies into clean environments and runs `npm ci`;
+Each path installs Python runtime dependencies once into a clean environment and runs
+`npm ci` once;
 virtual environments, `node_modules`, build trees, release artifacts and profiles are
-never cached. Frontend tests reuse installed Microsoft Edge at Playwright's standard
-Windows locations, installing it only when missing; the browser channel remains `msedge`.
+never cached. Candidate/tag tests and installer creation reuse the standalone builder's
+isolated pinned Python environment. Test-only tools are installed after license
+collection and freezing, so they are not shipped. Frontend tests reuse the dependencies
+already installed for the production build. They use installed Microsoft Edge at
+Playwright's standard Windows locations, installing it only when missing; the browser
+channel remains `msedge`.
+CI passes `--workers=2`, using file-level parallelism; tests within each file remain
+sequential, with isolated browser contexts and synthetic bridge state. No sharding,
+matrix or retries are added. Local `npm test` keeps its one-worker default; use
+`npm test -- --workers=1` to compare CI behavior serially. See
+[Playwright parallelism](https://playwright.dev/docs/test-parallel) and
+[GitHub job concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).
 
 Artifact transfer uses the Node-24-native
 [upload-artifact v6](https://github.com/actions/upload-artifact/releases/tag/v6.0.0) and
@@ -114,10 +137,9 @@ Artifact transfer uses the Node-24-native
 actions. These retain the existing archive/download behavior and validation; the newer
 download v8 changes digest-failure defaults and is outside this optimization.
 
-CI runs focused Python packaging/prerequisite/profile-isolation tests, the existing
-standalone builder, frontend tests in Edge and the installer builder. After a successful
-run, download **HeetKit-<version>-windows-x64** from **Artifacts** within its 14-day
-retention period. Extract the Actions download to obtain the five files above.
+After a successful candidate or tag build, download **HeetKit-<version>-windows-x64**
+from **Artifacts** within its 14-day retention period. Extract the Actions download
+to obtain the five files above.
 Only those files are uploaded; the source archive tool is not part of this workflow.
 
 ## Publish a versioned release
@@ -126,8 +148,9 @@ Only those files are uploaded; the source archive tool is not part of this workf
 2. Write user-facing notes in `docs/releases/v<version>.md`, starting with
    `# HeetKit v<version>`. These versioned files are the canonical release-notes
    source; describe actual changes since the previous stable release.
-3. Commit and push the release-ready state to `main`. Wait for the Windows build
-   and artifact checks, and resolve the publication gates below before tagging.
+3. Commit and push the release-ready state to `main`. Wait for development checks,
+   then manually run the Windows build for that commit's branch before tagging.
+   Verify the candidate artifacts and resolve the publication gates below.
 4. Create the matching tag, for example `git tag v0.1.3` for version `0.1.3`.
 5. Push that tag: `git push origin v0.1.3`.
 6. GitHub Actions tests and builds that tagged commit. If all checks pass, it downloads

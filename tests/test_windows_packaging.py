@@ -60,6 +60,46 @@ def test_build_rejects_native_arm64_before_creating_output(monkeypatch):
         builder.main()
 
 
+@pytest.mark.parametrize("inspection_fails", [False, True])
+def test_actions_reuses_builder_python_only_after_verified_packaging(tmp_path, monkeypatch, inspection_fails):
+    import subprocess
+
+    source = tmp_path / "source"
+    source.mkdir()
+    github_output = tmp_path / "github-output"
+    github_output.write_text("existing=value\n", encoding="utf-8")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
+    monkeypatch.setenv("SystemRoot", str(tmp_path / "Windows"))
+    monkeypatch.setattr(builder, "ROOT", source)
+    monkeypatch.setattr(builder.sys, "platform", "win32")
+    monkeypatch.setattr(builder.sys, "version_info", (3, 14, 7))
+    monkeypatch.setattr(builder.sysconfig, "get_platform", lambda: "win-amd64")
+    monkeypatch.setattr(builder.shutil, "which", lambda _: "npm.cmd")
+    monkeypatch.setattr(builder, "stage_resources", lambda _: None)
+    monkeypatch.setattr(builder, "stage_native_runtime", lambda *_: None)
+
+    def fake_run(*command, **kwargs):
+        if "PyInstaller" in command:
+            bundle = Path(command[command.index("--distpath") + 1]) / "HeetKit"
+            bundle.mkdir(parents=True)
+            (bundle / "HeetKit.exe").write_bytes(b"synthetic verified bundle")
+        if inspection_fails and any(str(arg).endswith("inspect_windows_bundle.py") for arg in command):
+            raise subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr(builder, "run", fake_run)
+    if inspection_fails:
+        with pytest.raises(subprocess.CalledProcessError):
+            builder.main()
+        assert github_output.read_text(encoding="utf-8") == "existing=value\n"
+        assert not (source / "dist").exists()
+    else:
+        builder.main()
+        work, = (source / "build/windows").iterdir()
+        assert github_output.read_text(encoding="utf-8") == f"existing=value\npython={work / 'venv/Scripts/python.exe'}\n"
+        archive, = (source / "dist").glob("*.zip")
+        assert archive.with_suffix(".zip.sha256").is_file()
+
+
 redistribution_spec = importlib.util.spec_from_file_location(
     "windows_redistribution", ROOT / "scripts/windows_redistribution.py"
 )
