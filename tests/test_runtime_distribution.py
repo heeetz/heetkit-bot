@@ -93,7 +93,10 @@ def test_runtime_resources_are_declared_and_source_defaults_are_package_local() 
     assert project["tool"]["setuptools"]["dynamic"]["version"] == {"attr": "app.version.VERSION"}
     assert VERSION
     assert project["project"]["description"] == "HeetKit — Desktop control center for Twitch chat"
-    assert project["project"]["scripts"] == {"heetkit": "app.main:main"}
+    assert project["project"]["scripts"] == {
+        "heetkit": "app.main:main",
+        "heetkit-headless": "app.headless:main",
+    }
     setuptools = project["tool"]["setuptools"]
     package_data = setuptools["package-data"]["app.resources"]
 

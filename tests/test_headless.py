@@ -39,6 +39,23 @@ def settings():
     return value
 
 
+@pytest.fixture
+def in_memory_application(monkeypatch):
+    """Keep supervisor timing independent of filesystem/SQLite initialization."""
+    from app.runtime_state import RuntimeState
+
+    async def noop():
+        pass
+
+    application = SimpleNamespace(
+        settings=settings(), dispatcher=object(),
+        services=SimpleNamespace(runtime_state=RuntimeState()),
+        startup=noop, shutdown=noop,
+    )
+    monkeypatch.setattr(headless, "build_application", lambda _: application)
+    return application
+
+
 @pytest.mark.asyncio
 async def test_real_core_restarts_with_saved_profile_and_sqlite(monkeypatch):
     value = settings()
@@ -73,7 +90,7 @@ async def test_real_core_restarts_with_saved_profile_and_sqlite(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["auth_required", "failed", "exception", "ended", "timeout"])
-async def test_headless_fails_actionably_without_exposing_payloads(monkeypatch, caplog, failure):
+async def test_headless_fails_actionably_without_exposing_payloads(monkeypatch, caplog, failure, in_memory_application):
     async def session(**kwargs):
         if failure == "exception":
             raise RuntimeError("private-request-token-chat-sentinel")
@@ -84,8 +101,9 @@ async def test_headless_fails_actionably_without_exposing_payloads(monkeypatch, 
         await kwargs["stop_event"].wait()
 
     monkeypatch.setattr("app.bot_runtime.run_twitch_bot", session)
+    startup_timeout = 0.05 if failure == "timeout" else 5
     with caplog.at_level(logging.INFO):
-        result = await headless.run_headless(settings(), AppSettings(), asyncio.Event(), startup_timeout=0.2, shutdown_timeout=1)
+        result = await headless.run_headless(in_memory_application.settings, AppSettings(), asyncio.Event(), startup_timeout=startup_timeout, shutdown_timeout=1)
     assert result == 1
     assert "private-request-token-chat-sentinel" not in caplog.text
     assert "Headless bot stopped" in caplog.text
@@ -107,15 +125,15 @@ async def test_authorization_revoked_after_readiness_exits(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_connected_service_outlives_startup_deadline(monkeypatch):
+async def test_connected_service_outlives_startup_deadline(monkeypatch, in_memory_application):
     stop = asyncio.Event()
     async def session(**kwargs):
         kwargs["services"].runtime_state.set_twitch_connection_state("connected")
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(1.2)
         stop.set()
         await kwargs["stop_event"].wait()
     monkeypatch.setattr("app.bot_runtime.run_twitch_bot", session)
-    assert await headless.run_headless(settings(), AppSettings(), stop, startup_timeout=0.2, shutdown_timeout=1) == 0
+    assert await headless.run_headless(in_memory_application.settings, AppSettings(), stop, startup_timeout=1, shutdown_timeout=1) == 0
 
 
 @pytest.mark.asyncio

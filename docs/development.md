@@ -88,6 +88,10 @@ test suites or builds.
 
 Run focused Python tests for the changed subsystem:
 
+Keep headless supervisor timing checks independent of filesystem/SQLite startup by
+using an in-memory application. Real profile/database lifecycle coverage remains in
+separate integration checks with time for initialization on shared CI runners.
+
 ```powershell
 python -m pytest -q tests/test_affected_subsystem.py
 git diff --check
