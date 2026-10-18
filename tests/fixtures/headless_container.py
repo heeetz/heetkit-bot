@@ -31,7 +31,8 @@ def seed():
     paths.app_settings.write_text(json.dumps({"version": 1, "twitch": {
         "client_id": "synthetic-client", "bot_user_id": "100", "bot_username": "syntheticbot",
         "channel_user_id": "200", "channel": "syntheticchannel"}, "ai": {
-        "memory_enabled": False, "selected_model": "gemini-synthetic"}}))
+        "memory_enabled": False, "selected_model": "gemini-synthetic",
+        "fallback_model": "gemini-synthetic-fallback"}}))
     paths.personality_settings.write_text(json.dumps({"active_personality": "neutral", "overrides": {"neutral": "Synthetic saved personality."}, "profile_instructions": ""}))
     (paths.filters / "blocked_words.txt").write_text("syntheticblocked\n")
     paths.tokens.write_text(json.dumps({"100": {"user_id": "100", "token": "synthetic-access", "refresh": "synthetic-refresh-0"}}))
@@ -68,7 +69,8 @@ async def session(**kwargs):
     assert kwargs["headless"]
     assert settings.twitch_client_id == "synthetic-client"
     assert settings.twitch_channel == "syntheticchannel"
-    assert settings.gemini_model == "gemini-synthetic"
+    assert settings.gemini_model == "gemini-synthetic", "Saved model pair was not applied"
+    assert settings.gemini_fallback_model == "gemini-synthetic-fallback"
     assert settings.twitch_client_secret.get_secret_value() == "synthetic-client-secret"
     assert "TWITCH_CLIENT_SECRET" not in os.environ
     assert not services.runtime_state.ai_memory_enabled
