@@ -40,6 +40,7 @@ def preserve_settings_recovery(
     *,
     version: int | tuple[int, ...] | None = None,
     allow_legacy: bool = False,
+    encoding: str = "utf-8",
 ) -> None:
     """Preflight replacement; refuse unreadable/future files and copy lossy inputs.
 
@@ -58,7 +59,7 @@ def preserve_settings_recovery(
     except OSError as error:
         raise ValueError(repair) from error
     try:
-        original = json.loads(original_bytes.decode("utf-8"), object_pairs_hook=_unique_object)
+        original = json.loads(original_bytes.decode(encoding), object_pairs_hook=_unique_object)
     except (UnicodeError, ValueError) as error:
         raise ValueError(repair) from error
     if not isinstance(original, dict):

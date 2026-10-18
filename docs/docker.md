@@ -1,8 +1,10 @@
 # Linux Docker runtime
 
 HeetKit's container runs the shared [headless backend](development.md#headless-runtime)
-for one previously authorized Twitch bot. It has no window, dashboard, HTTP API,
-OAuth callback listener or published ports. Use a Linux amd64 Docker Engine with
+for one previously authorized Twitch bot. By default it has no window, dashboard,
+HTTP listener, OAuth callback listener or published ports. An explicit
+[private management API overlay](management-api.md#docker-opt-in) is available.
+Use a Linux amd64 Docker Engine with
 Docker Compose v2, or Docker Desktop configured for Linux containers.
 
 The canonical `Dockerfile` pins the official CPython 3.14.7 Debian slim image by

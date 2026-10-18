@@ -246,8 +246,11 @@ dispatch, cleanup deadlines, profile locking, SQLite restart persistence and OAu
 cache rotation/write failures with desktop imports rejected. Linux container checks
 also exercise native signals and persistent volume recreation with synthetic remote
 boundaries; see [Docker validation](docker.md#troubleshooting-and-validation).
-Neither establishes live Twitch refresh/reconnect or Gemini behavior. No remote API,
-cloud deployment or desktop UI change is included.
+Neither establishes live Twitch refresh/reconnect or Gemini behavior. The optional
+[private management API](management-api.md) shares application operations with the
+desktop, persists live settings and supports bot stop/start without exiting the
+process. It is disabled unless `--management-api` and a private administrator token
+are configured. Cloud deployment and a browser panel remain separate work.
 
 ## Headless readiness audit
 

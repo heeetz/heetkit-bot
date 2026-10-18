@@ -54,6 +54,14 @@ def test_utf8_with_bom_loads_like_utf8_without_bom(tmp_path, bom):
     assert path.read_bytes() == bom + payload.encode("utf-8")
 
 
+def test_valid_bom_file_can_be_edited_atomically(tmp_path):
+    path = tmp_path / "message_triggers.json"
+    path.write_text(json.dumps({"version": 1, "triggers": [trigger()]}), encoding="utf-8-sig")
+    store = MessageTriggerStore(path)
+    store.save([trigger(text="edited")])
+    assert MessageTriggerStore(path).list()[0].text == "edited"
+
+
 @pytest.mark.parametrize(
     "contents",
     (
@@ -106,6 +114,86 @@ def test_validation_skips_bad_entries_and_bounds_matching(tmp_path):
     assert MessageTriggerStore(path).list() == ()
     path.write_text('{"version": 99, "triggers": []}', encoding="utf-8")
     assert MessageTriggerStore(path).list() == ()
+
+
+@pytest.mark.parametrize(
+    "payload, message",
+    (
+        ([trigger(id="one")] * 101, "at most 100"),
+        ([trigger(), trigger(id="vas")], "Duplicate trigger ID"),
+        ([trigger(future=True)], "Unknown trigger field"),
+        (trigger(), "must be a list"),
+    ),
+)
+def test_save_rejects_invalid_collections_without_replacing_existing_file(tmp_path, payload, message):
+    path = tmp_path / "message_triggers.json"
+    store = MessageTriggerStore(path)
+    store.save([trigger()])
+    original = path.read_bytes()
+    before = store.list()
+
+    with pytest.raises(ValueError, match=message):
+        store.save(payload)
+
+    assert path.read_bytes() == original
+    assert store.list() == before
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_save_persists_and_publishes_only_after_atomic_replace(tmp_path, monkeypatch):
+    path = tmp_path / "message_triggers.json"
+    store = MessageTriggerStore(path)
+    store.save([trigger()])
+    original = path.read_bytes()
+    before = store.list()
+
+    def fail_replace(*args, **kwargs):
+        raise OSError("Synthetic replacement failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr("app.message_triggers.os.replace", fail_replace)
+        with pytest.raises(OSError, match="replacement failure"):
+            store.save([trigger(id="other", text="hello")])
+
+    assert path.read_bytes() == original
+    assert store.list() == before
+    assert not list(tmp_path.glob("*.tmp"))
+
+    store.save([trigger(id="other", text="hello")])
+    assert MessageTriggerStore(path).list()[0].id == "other"
+
+
+def test_save_preserves_lossy_source_in_recovery_file(tmp_path):
+    path = tmp_path / "message_triggers.json"
+    original = (
+        b'{"version":1,"triggers":[{"id":"vas","enabled":true,'
+        b'"match_mode":"contains","text":"vas","case_sensitive":false,'
+        b'"probability":1,"cooldown_seconds":30,"responses":["first"],'
+        b'"future":true}],"future":{"retain":1}}'
+    )
+    path.write_bytes(original)
+    store = MessageTriggerStore(path)
+
+    store.save([trigger(text="vas", responses=["first"])])
+
+    recovery = list(tmp_path.glob("*.recovery"))
+    assert len(recovery) == 1
+    assert recovery[0].read_bytes() == original
+    assert MessageTriggerStore(path).list()[0].responses == ("first",)
+
+
+def test_save_refuses_to_replace_unreadable_source(tmp_path):
+    path = tmp_path / "message_triggers.json"
+    original = b'{"version":1,"triggers":[}'
+    path.write_bytes(original)
+    store = MessageTriggerStore(path)
+
+    with pytest.raises(ValueError, match="Cannot save"):
+        store.save([trigger()])
+
+    assert path.read_bytes() == original
+    assert store.list() == ()
+    assert not list(tmp_path.glob("*.tmp"))
 
 
 @pytest.mark.asyncio

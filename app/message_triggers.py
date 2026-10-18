@@ -5,14 +5,30 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from threading import RLock
 
 from app.custom_commands import MAX_RESPONSE_LENGTH
+from app.settings_recovery import preserve_settings_recovery
 
 
 logger = logging.getLogger(__name__)
 SCHEMA_VERSION = 1
+_TRIGGER_FIELDS = frozenset(
+    {
+        "id",
+        "enabled",
+        "match_mode",
+        "text",
+        "case_sensitive",
+        "probability",
+        "cooldown_seconds",
+        "responses",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,9 +104,11 @@ def parse_message_trigger(raw: object) -> MessageTrigger:
 
 
 class MessageTriggerStore:
-    """Load a bounded, immutable set of reactions once at application composition."""
+    """Keep immutable trigger snapshots behind one lock; publish after atomic save."""
 
     def __init__(self, path: Path) -> None:
+        self._path = path
+        self._lock = RLock()
         self._triggers: tuple[MessageTrigger, ...] = ()
         try:
             # ``utf-8-sig`` accepts both ordinary UTF-8 and the BOM emitted by
@@ -146,4 +164,96 @@ class MessageTriggerStore:
         self._triggers = tuple(loaded)
 
     def list(self) -> tuple[MessageTrigger, ...]:
-        return self._triggers
+        with self._lock:
+            return self._triggers
+
+    def save(self, payload: object) -> tuple[MessageTrigger, ...]:
+        """Validate and atomically persist a complete trigger collection."""
+        if not isinstance(payload, list):
+            raise ValueError("Message triggers must be a list.")
+        if len(payload) > 100:
+            raise ValueError("Provide at most 100 message triggers.")
+
+        with self._lock:
+            parsed: list[MessageTrigger] = []
+            used: set[str] = set()
+            for raw in payload:
+                if not isinstance(raw, dict):
+                    raise ValueError("Trigger must be an object.")
+                unknown = set(raw) - _TRIGGER_FIELDS
+                if unknown:
+                    raise ValueError(f"Unknown trigger field: {next(iter(unknown))!r}")
+                trigger = parse_message_trigger(raw)
+                if trigger.id in used:
+                    raise ValueError("Duplicate trigger ID")
+                parsed.append(trigger)
+                used.add(trigger.id)
+
+            updated = tuple(parsed)
+            self._write(updated)
+            self._triggers = updated
+            return updated
+
+    def _write(self, triggers: tuple[MessageTrigger, ...]) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=self._path.parent,
+                prefix=f".{self._path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as output:
+                temporary_path = Path(output.name)
+                json.dump(
+                    {
+                        "version": SCHEMA_VERSION,
+                        "triggers": [
+                            {
+                                "id": trigger.id,
+                                "enabled": trigger.enabled,
+                                "match_mode": trigger.match_mode,
+                                "text": trigger.text,
+                                "case_sensitive": trigger.case_sensitive,
+                                "probability": trigger.probability,
+                                "cooldown_seconds": trigger.cooldown_seconds,
+                                "responses": list(trigger.responses),
+                            }
+                            for trigger in triggers
+                        ],
+                    },
+                    output,
+                    indent=2,
+                    ensure_ascii=False,
+                )
+                output.write("\n")
+                output.flush()
+                os.fsync(output.fileno())
+            preserve_settings_recovery(
+                self._path,
+                {
+                    "version": SCHEMA_VERSION,
+                    "triggers": [
+                        {
+                            "id": trigger.id,
+                            "enabled": trigger.enabled,
+                            "match_mode": trigger.match_mode,
+                            "text": trigger.text,
+                            "case_sensitive": trigger.case_sensitive,
+                            "probability": trigger.probability,
+                            "cooldown_seconds": trigger.cooldown_seconds,
+                            "responses": list(trigger.responses),
+                        }
+                        for trigger in self._triggers
+                    ],
+                },
+                version=SCHEMA_VERSION,
+                encoding="utf-8-sig",
+            )
+            os.replace(temporary_path, self._path)
+            temporary_path = None
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)

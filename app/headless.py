@@ -21,6 +21,7 @@ from app.container import build_application
 from app.desktop_instance import DesktopAlreadyRunningError, desktop_instance_guard
 from app.headless_health import HealthFile
 from app.runtime_paths import DATA_DIR_ENV, RuntimePaths, prepare_runtime_data
+from app.utils.logging import RecentLogHandler, RecentLogBuffer, PrivacyLogFilter
 
 
 logger = logging.getLogger("app.headless")
@@ -106,6 +107,7 @@ async def run_headless(
     startup_timeout: float = 60.0,
     shutdown_timeout: float = 20.0,
     health: HealthFile | None = None,
+    management_config=None,
 ) -> int:
     """Supervise the existing runtime; TwitchIO continues to own network retries."""
     application = build_application(settings)
@@ -114,16 +116,42 @@ async def run_headless(
     state = application.services.runtime_state
     health = health or HealthFile(None)
     ready = asyncio.Event()
+    management = None
+    recent_handler = None
 
     async def serve() -> None:
+        nonlocal management, recent_handler
         deadline = asyncio.get_running_loop().time() + startup_timeout
         # The outer wait also bounds database/application startup.
         await runtime.startup()
+        if management_config is not None:
+            from app.management_api import ManagementAPI
+            buffer = RecentLogBuffer()
+            recent_handler = RecentLogHandler(buffer)
+            recent_handler.addFilter(PrivacyLogFilter())
+            recent_handler.addFilter(HeadlessLogFilter())
+            logging.getLogger().addHandler(recent_handler)
+            management = ManagementAPI(runtime, management_config, buffer)
+            await management.start()
         await runtime.start_bot()
         waiter = asyncio.create_task(runtime.wait_until_stopped())
+        generation = 0
         connected = False
         try:
             while True:
+                if management is not None:
+                    if management.generation != generation:
+                        waiter.cancel()
+                        await asyncio.gather(waiter, return_exceptions=True)
+                        waiter = asyncio.create_task(runtime.wait_until_stopped())
+                        generation = management.generation
+                        connected = False
+                        deadline = asyncio.get_running_loop().time() + startup_timeout
+                    if not management.desired_running:
+                        ready.set()
+                        health.update("stopped")
+                        await asyncio.sleep(0.1)
+                        continue
                 health.update(state.twitch_connection_state)
                 if state.twitch_connection_state == "auth_required":
                     raise HeadlessError(AUTHORIZATION_HELP)
@@ -170,11 +198,23 @@ async def run_headless(
         stop_waiter.cancel()
         ready_waiter.cancel()
         await asyncio.gather(stop_waiter, ready_waiter, return_exceptions=True)
-        runtime.request_stop()
         # Stop the supervisor without canceling the Twitch session it observes.
         if not await _cancel_task(worker):
             logger.error("Startup did not respond to cancellation.")
             result = 1
+        if management is not None:
+            api_cleanup = asyncio.create_task(management.close())
+            done, _ = await asyncio.wait({api_cleanup}, timeout=5.0)
+            if api_cleanup not in done:
+                logger.error("Management shutdown timed out; canceling remaining requests.")
+                await _cancel_task(api_cleanup)
+                result = 1
+            elif api_cleanup.cancelled() or api_cleanup.exception() is not None:
+                logger.error("Management cleanup failed; continuing application shutdown.")
+                result = 1
+        if recent_handler is not None:
+            logging.getLogger().removeHandler(recent_handler)
+        runtime.request_stop()
         cleanup = asyncio.create_task(runtime.shutdown())
         done, _ = await asyncio.wait({cleanup}, timeout=shutdown_timeout)
         if cleanup not in done:
@@ -201,6 +241,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--health-file", type=Path, help="Private ephemeral heartbeat file for container health checks.")
     parser.add_argument("--startup-timeout", type=_timeout, default=60.0, help="Startup deadline in seconds (default 60).")
     parser.add_argument("--shutdown-timeout", type=_timeout, default=20.0, help="Graceful shutdown deadline in seconds (default 20, plus bounded cancellation grace).")
+    parser.add_argument("--management-api", action="store_true", help="Enable the private single-administrator API; requires a private management token.")
+    parser.add_argument("--management-host", default="127.0.0.1", help="Management bind IP (default loopback).")
+    parser.add_argument("--management-port", type=int, default=8765, help="Management port (default 8765).")
+    parser.add_argument("--management-allowed-host", help="Exact trusted IP:port Host, required for an all-interface bind.")
     arguments = parser.parse_args(argv)
     if arguments.data_dir is not None:
         os.environ[DATA_DIR_ENV] = str(arguments.data_dir.expanduser().resolve())
@@ -213,6 +257,15 @@ def main(argv: list[str] | None = None) -> int:
     previous_umask = os.umask(0o077) if os.name == "posix" else None
     health = HealthFile(arguments.health_file)
     try:
+        management_options = {}
+        if arguments.management_api:
+            from app.management_api import ManagementConfig, load_management_token
+            try:
+                config = ManagementConfig(load_management_token(), arguments.management_host,
+                    arguments.management_port, arguments.management_allowed_host)
+            except ValueError:
+                raise HeadlessError("Invalid management configuration. Supply a private 32-byte random token via HEETKIT_MANAGEMENT_TOKEN[_FILE], a loopback/private bind IP, valid port and exact allowed Host when binding all interfaces.") from None
+            management_options["management_config"] = config
         health.update("starting")
         asyncio.set_event_loop(loop)
         def async_failure(_loop, _context) -> None:
@@ -240,7 +293,7 @@ def main(argv: list[str] | None = None) -> int:
         settings.validate_twitch_configuration()
         if not paths.tokens.is_file():
             raise HeadlessError(AUTHORIZATION_HELP)
-        result = loop.run_until_complete(run_headless(settings, profile, stop, startup_timeout=arguments.startup_timeout, shutdown_timeout=arguments.shutdown_timeout, health=health))
+        result = loop.run_until_complete(run_headless(settings, profile, stop, startup_timeout=arguments.startup_timeout, shutdown_timeout=arguments.shutdown_timeout, health=health, **management_options))
         return 1 if async_failed else result
     except DesktopAlreadyRunningError:
         logger.error("Another HeetKit process owns this profile. Stop it before starting headless.")
