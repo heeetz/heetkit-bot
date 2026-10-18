@@ -26,6 +26,8 @@ def seed():
     for package in ("keyring", "webview", "pystray", "PIL", "PyInstaller"):
         assert importlib.util.find_spec(package) is None, package
     assert not Path("/opt/heetkit/app/resources/frontend").exists()
+    for name in ("data", "resources/private.json", "resources/icon.png", "resources/icon.ico", "resources/icon.icns", "resources/tray.png"):
+        assert not Path("/opt/heetkit/app", name).exists(), "Excluded image content: " + name
     assert not any(Path("/opt/heetkit", name).exists() for name in (".git", "data", "frontend", "tests", "build", ".env"))
     prepare_runtime_data(str(paths.tokens), "sqlite+aiosqlite:///" + str(paths.database))
     paths.app_settings.write_text(json.dumps({"version": 1, "twitch": {

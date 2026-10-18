@@ -166,6 +166,9 @@ automatic update or cloud deployment is configured.
 
 `python3 scripts/check_linux_container.py` builds the canonical Compose image and
 uses a randomly named disposable project/volume with synthetic settings and secrets.
+It stages tracked build inputs in a temporary context with synthetic excluded profile,
+secret and frontend decoys, checking that none appear in the image; it never reads
+the checkout's ignored profile or secrets.
 It disables container networking and replaces only the Twitch remote boundary.
 It checks non-root execution, absence of GUI dependencies, real OS signals,
 stop/start, container recreation, saved configuration/personality/filter loading,

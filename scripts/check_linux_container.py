@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import time
@@ -18,6 +19,25 @@ def main() -> None:
     project = "heetkit-b3-" + uuid4().hex[:12]
     with tempfile.TemporaryDirectory(prefix="heetkit-b3-") as temporary:
         private = Path(temporary)
+        context = private / "context"
+        context.mkdir()
+        tracked = subprocess.run(["git", "ls-files", "-z", "--", "app", "Dockerfile", ".dockerignore", "LICENSE", "NOTICE", "packaging/linux/requirements.txt"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+        for name in filter(None, tracked.split("\0")):
+            source = ROOT / name
+            if source.is_symlink() or not source.resolve().is_relative_to(ROOT):
+                raise ValueError("Unsafe tracked container build input")
+            target = context / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+        # Poison only this temporary context, never the user's ignored profile,
+        # credentials or built frontend. Directory exceptions must not admit these.
+        for name in (".env", ".git/config", "data/heetkit.db", "auth/twitchio_tokens.json",
+                     "app/data/twitchio_tokens.json", "app/resources/private.json",
+                     "app/resources/frontend/index.html", "frontend/dist/index.html",
+                     "tests/private.json", "packaging/windows/private.txt"):
+            decoy = context / name
+            decoy.parent.mkdir(parents=True, exist_ok=True)
+            decoy.write_text("synthetic-excluded-build-context-sentinel")
         # These are public synthetic sentinels, never a real profile or credential.
         for name, value in (("twitch_client_secret", "synthetic-client-secret"), ("gemini_api_key", "")):
             target = private / name
@@ -27,6 +47,7 @@ def main() -> None:
             target.chmod(0o444)
         override = private / "probe.json"
         override.write_text(json.dumps({"services": {"bot": {
+            "build": {"context": str(context)},
             "restart": "no", "network_mode": "none",
             "entrypoint": ["python", "/validation/headless_container.py", "run"], "command": [],
             "volumes": [{"type": "bind", "source": str(ROOT / "tests/fixtures"), "target": "/validation", "read_only": True}],
