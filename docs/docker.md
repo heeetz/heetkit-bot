@@ -10,7 +10,10 @@ digest. `packaging/linux/requirements.txt` pins the complete backend wheel closu
 with SHA-256 hashes. The build accepts wheels only, installs no GUI/build packages,
 and copies allowlisted application sources and neutral defaults. No frontend build,
 Windows toolchain, private profile, dotenv file or development directory enters the image.
-Other CPU architectures are not validated by this lock.
+Other CPU architectures are not validated by this lock. Linux uses `multidict==6.9.1`
+as a narrow exception to the older Windows pins, fixing the upstream
+[items-view reference leak](https://github.com/aio-libs/multidict/security/advisories/GHSA-54p9-h82j-f925).
+The existing Windows redistribution inventory is unchanged by this container task.
 
 ## Prepare private storage and authorization
 
@@ -173,6 +176,7 @@ authorization, refresh and reconnect still require separately authorized account
 
 To refresh dependency pins, resolve the base `pyproject.toml` requirements for CPython
 3.14 Linux amd64 with wheels only, constraining compatible shared versions to
-`packaging/windows/requirements.txt`. Record every resolved wheel's SHA-256 in the
+`packaging/windows/requirements.txt`, retaining the documented `multidict>=6.9.1`
+security override. Record every resolved wheel's SHA-256 in the
 Linux lock, update the official base-image digest deliberately, and rerun the focused
 container validation. Do not install the Windows packaging requirements into Linux.

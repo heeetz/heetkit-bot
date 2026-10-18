@@ -101,4 +101,9 @@ def test_backend_dependencies_exclude_desktop_and_linux_lock_preserves_shared_pi
         name, version = requirement.split("==")
         assert len(digest) == 64 and all(character in "0123456789abcdef" for character in digest)
         assert name.lower().replace("_", "-") not in {"keyring", "pywebview", "pystray", "pyinstaller", "pillow", "bottle"}
-        assert windows[name.lower().replace("_", "-")] == version
+        if name.lower() == "multidict":
+            # Linux must not inherit the older Windows redistribution baseline's
+            # GHSA-54p9-h82j-f925 affected version (6.7.0 through 6.9.0).
+            assert tuple(map(int, version.split("."))) >= (6, 9, 1)
+        else:
+            assert windows[name.lower().replace("_", "-")] == version
