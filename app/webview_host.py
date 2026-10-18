@@ -35,6 +35,7 @@ from app.config.ai_language import (
     RESPONSE_LANGUAGES, build_response_language_instruction,
 )
 from app.config.personalities import AI_PERSONALITY_PROMPTS, build_protected_shared_instructions
+from app.config.profile_settings import apply_ai_app_settings, apply_twitch_app_settings
 from app.config.settings import Settings, TwitchConfigurationError, load_settings_with_credentials
 from app.container import Application, build_application
 from app.credentials import CredentialError, CredentialManager, CredentialName, CredentialStore
@@ -1964,26 +1965,6 @@ def expose_frontend_operations(window: Any, bridge: WebUIBridge) -> None:
         return call
 
     window.expose(*(guarded(name) for name in FRONTEND_OPERATIONS))
-
-
-def apply_twitch_app_settings(settings: Settings, app_settings: AppSettings) -> Settings:
-    twitch = app_settings.twitch
-    overrides = {
-        f"twitch_{name}": value
-        for name in ("client_id", "bot_username", "bot_user_id", "channel", "channel_user_id")
-        if (value := getattr(twitch, name)) is not None
-    }
-    return settings.model_copy(update=overrides)
-
-
-def apply_ai_app_settings(settings: Settings, app_settings: AppSettings) -> Settings:
-    ai = app_settings.ai
-    overrides = {"ai_response_language": ai.response_language}
-    if ai.selected_model is not None and ai.fallback_model is not None:
-        overrides.update(gemini_model=ai.selected_model, gemini_fallback_model=ai.fallback_model)
-    if ai.cooldown_bypass_user_id is not None:
-        overrides["ai_cooldown_bypass_user_id"] = ai.cooldown_bypass_user_id
-    return settings.model_copy(update=overrides) if overrides else settings
 
 
 def resolve_auto_start(app_settings: AppSettings, override: bool | None) -> bool:

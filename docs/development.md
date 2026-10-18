@@ -15,9 +15,9 @@ This guide covers source development; Windows distribution builds are covered in
 
 Windows tray and start-minimized controls are Windows-only. macOS/Linux source launches
 keep the window visible and close normally; native distributables are not provided yet.
-The current entry point requires a desktop; headless and container operation are not
-implemented. See the [headless readiness audit](#headless-readiness-audit) for the
-existing backend boundaries and remaining work.
+The desktop entry point requires a desktop. A separate [headless runtime](#headless-runtime)
+can run the same backend in the foreground with previously authorized Twitch accounts.
+Linux container packaging and native Linux validation remain separate work.
 
 ## Source setup
 
@@ -73,6 +73,9 @@ loop owns one composed `Application` (`app/container.py`) and one `BotRuntime`
 (`app/bot_runtime.py`). The application wires repositories, Twitch/Gemini/weather services,
 filters and the command dispatcher; `BotRuntime` starts and stops Twitch sessions.
 One desktop controller owns the window, tray and application shutdown.
+`python -m app.headless` instead owns the same application/runtime on its foreground
+asyncio loop. Both entry points share saved Twitch/AI settings application; the
+headless runner adds authorization supervision and signal-driven cleanup.
 
 The registry defines built-in commands; `RuntimeState` holds their effective settings
 and current AI/session state. Profile stores own saved overrides. React calls only
@@ -161,12 +164,85 @@ Starting Twitch needs complete identity/channel values and a client secret suppl
 through Settings/keyring or the environment. Gemini is optional. Explicit profiles use
 their own OAuth/database paths rather than the legacy file/database overrides.
 
+## Headless runtime
+
+Run one previously authorized bot in the foreground without opening a window, tray,
+frontend assets or OAuth callback listener:
+
+```powershell
+python -m app.headless --data-dir "C:\private\heetkit-profile"
+```
+
+After reinstalling the project, `heetkit-headless` is equivalent. Python and the
+current project dependencies are required; Node, a frontend build, WebView2 and a
+running desktop/keyring service are unnecessary for this entry point. Backend-only
+dependency packaging and Linux containers are not included yet.
+
+Before first use:
+
+1. Configure and authorize the matching Twitch bot/application through the desktop
+   with the selected profile. Grant the channel access described in
+   [Twitch setup](twitch-setup.md#give-the-bot-channel-access-then-connect).
+2. Stop the desktop. Keep the entire profile in private, writable storage, including
+   `auth/twitchio_tokens.json`, `config/`, filters and `data/heetkit.db`. Do not commit
+   it, put it in an image, or transfer it through public/shared storage. Back up or
+   copy SQLite state only while stopped or through SQLite's backup mechanism.
+3. Inject `TWITCH_CLIENT_SECRET` and, for AI, `GEMINI_API_KEY` privately through the
+   process/service environment. Headless never reads the OS keyring or dotenv files;
+   desktop keyring secrets are not part of a copied profile. Do not put secrets in
+   command-line arguments, ordinary settings, shell history or logs.
+
+`--data-dir` wins over `HEETKIT_DATA_DIR`, the legacy `TWITCH_BOT_DATA_DIR`, and the
+platform default. The existing profile guard is acquired before migration or store
+loading and held through cleanup; a desktop or headless process already using that
+profile causes exit code 1. This is a local profile lock, not an account-wide or
+cross-host lease. Operate only one active instance per Twitch account.
+
+Saved Twitch identity/target and AI model/language/cooldown settings override process
+defaults, as on desktop. Headless also applies saved AI-memory enablement, commands,
+personalities, filters and SQLite/privacy state; desktop window/auto-start preferences
+do not control it. Without saved Twitch identity, supply `TWITCH_CLIENT_ID`,
+`TWITCH_BOT_USER_ID`, `TWITCH_BOT_USERNAME`, `TWITCH_CHANNEL_USER_ID` and `TWITCH_CHANNEL`.
+Token and SQLite locations always belong to the selected profile; headless ignores
+`TWITCH_TOKEN_FILE` and `DATABASE_URL`. No access/refresh-token environment importer exists.
+
+TwitchIO retains token validation, refresh and socket retry ownership. The runner
+requires verified bot authorization and a successful initial chat subscription;
+missing/rejected authorization, revocation, terminal subscription/listener failures,
+unexpected session termination and token write failures stop unattended operation
+with exit code 1. Check the private storage, network and account/application settings;
+reauthorize through the desktop when requested, then stop it before restarting.
+Token saves retain TwitchIO's JSON format, serialize writes, fsync a private temporary
+file and atomically replace the cache. Startup rotation is saved after loading; partial
+failure retains untouched original records alongside any successfully rotated tokens;
+shutdown flushes after refresh work stops and before tokens are cleared. Malformed or
+wholly rejected loading preserves original authorization records. Failed replacement preserves the prior
+file and reports failure; a failed rotation still needs operator attention.
+
+Use owner-only directory permissions/Windows ACLs, including existing profile files.
+New headless POSIX files use umask `077`; token staging files are created with `0600`
+before secret bytes are written. Windows inherits the private directory's ACLs.
+
+SIGINT/SIGTERM request graceful cleanup of Twitch, AI/HTTP and SQLite resources,
+including after partial startup. Startup defaults to 60 seconds and graceful shutdown
+to 20 seconds; `--startup-timeout` and `--shutdown-timeout` accept 0–300 seconds
+(exclusive of zero). A missed shutdown deadline cancels work, attempts application
+cleanup, and returns failure, with up to three additional seconds of cancellation
+grace. Diagnostics go to stderr and show lifecycle/failure guidance; headless suppresses
+chat text, account identities, provider responses and tracebacks. It does not write log files.
+
+Focused synthetic Windows checks cover startup, readiness/failure, signal-handler
+dispatch, cleanup deadlines, profile locking, SQLite restart persistence and OAuth
+cache rotation/write failures with desktop imports rejected. They do not establish
+live Twitch refresh/reconnect, native OS signal delivery, Linux behavior or container
+operation. No remote API, Docker image, deployment or desktop UI change is included.
+
 ## Headless readiness audit
 
-Audited 2026-10-17 against application revision `29786ce` and installed TwitchIO
-3.3.2. **The backend is reusable, but unattended headless operation is not ready.**
-This report proposes the minimum follow-up; it does not introduce a headless mode,
-container, remote service or deployment.
+Historical baseline audited 2026-10-17 against application revision `29786ce` and
+installed TwitchIO 3.3.2. The findings below describe that revision before headless
+implementation. The [headless runtime](#headless-runtime) section documents the
+subsequent implementation and its validation limits; container/deployment work remains separate.
 
 ### Reusable core and confirmed gaps
 

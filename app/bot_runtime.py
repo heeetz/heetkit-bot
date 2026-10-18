@@ -13,9 +13,10 @@ from app.twitch.client import run_twitch_bot
 class BotRuntime:
     """Start and stop one composed application without duplicating its state."""
 
-    def __init__(self, application: Application, logger: logging.Logger) -> None:
+    def __init__(self, application: Application, logger: logging.Logger, *, headless: bool = False) -> None:
         self.application = application
         self._logger = logger
+        self._headless = headless
         self._lifecycle_lock = asyncio.Lock()
         self._stop_event: asyncio.Event | None = None
         self._bot_task: asyncio.Task[None] | None = None
@@ -62,12 +63,14 @@ class BotRuntime:
 
     async def _run_bot_session(self, stop_event: asyncio.Event) -> None:
         try:
+            options = {"headless": True} if self._headless else {}
             await run_twitch_bot(
                 settings=self.application.settings,
                 services=self.application.services,
                 dispatcher=self.application.dispatcher,
                 logger=self._logger,
                 stop_event=stop_event,
+                **options,
             )
         finally:
             self.application.services.runtime_state.set_bot_running(False)
@@ -86,20 +89,26 @@ class BotRuntime:
             task = self._bot_task
             if task is None or task.done():
                 if task is not None:
-                    with suppress(Exception):
+                    if self._headless and not task.cancelled():
                         task.result()
+                    else:
+                        with suppress(Exception):
+                            task.result()
                 self.application.services.runtime_state.set_bot_running(False)
                 return False
             self.request_stop()
 
-        with suppress(Exception):
-            await task
+        if self._headless:
+            await asyncio.shield(task)
+        else:
+            with suppress(Exception):
+                await asyncio.shield(task)
         return True
 
     async def wait_until_stopped(self) -> None:
         task = self._bot_task
         if task is not None:
-            await task
+            await asyncio.shield(task)
 
     async def reconnect_twitch(
         self,
@@ -130,9 +139,13 @@ class BotRuntime:
     async def shutdown(self) -> None:
         if self._shutdown:
             return
-        if self._started:
-            await self.stop_bot()
-        if self._startup_attempted:
-            await self.application.shutdown()
-        self._started = False
-        self._shutdown = True
+        try:
+            if self._started:
+                await self.stop_bot()
+        finally:
+            try:
+                if self._startup_attempted:
+                    await self.application.shutdown()
+            finally:
+                self._started = False
+                self._shutdown = True

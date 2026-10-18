@@ -33,6 +33,7 @@ dev = [
 
 [project.scripts]
 heetkit = "app.main:main"
+heetkit-headless = "app.headless:main"
 
 [project.urls]
 Repository = "https://github.com/heeetz/twitch-bot"

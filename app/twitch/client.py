@@ -2,8 +2,11 @@
 
 import asyncio
 import logging
+import json
 import os
 import secrets
+import tempfile
+from contextlib import contextmanager
 from collections.abc import Callable
 from pathlib import Path
 from time import monotonic
@@ -36,6 +39,28 @@ OAUTH_REDIRECT_URI = "http://localhost:4343/oauth/callback"
 CHAT_SCOPES = Scopes(["user:read:chat", "user:write:chat", "user:bot", "moderator:read:followers"])
 OAUTH_STATE_TTL_SECONDS = 300.0
 CHAT_MESSAGE_DEDUP_LIMIT = 2048
+
+
+@contextmanager
+def headless_twitch_diagnostics(on_failure: Callable[[], None]):
+    """Observe library failures without rendering requests, tokens or payloads."""
+    class FailureHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            if record.levelno >= logging.ERROR:
+                on_failure()
+
+    library_logger = logging.getLogger("twitchio")
+    old_level, old_propagate = library_logger.level, library_logger.propagate
+    handler = FailureHandler(level=logging.ERROR)
+    library_logger.addHandler(handler)
+    library_logger.setLevel(logging.ERROR)
+    library_logger.propagate = False
+    try:
+        yield
+    finally:
+        library_logger.removeHandler(handler)
+        library_logger.setLevel(old_level)
+        library_logger.propagate = old_propagate
 
 
 class DesktopOAuthAdapter(AiohttpAdapter):
@@ -213,6 +238,13 @@ class TwitchChatBot(commands.Bot):
         self._active_socket_id: str | None = None
         self._closing_requested = False
         self._seen_message_ids: dict[str, None] = {}
+        self._token_save_lock = asyncio.Lock()
+        self._tokens_loaded = False
+        self._loading_tokens = False
+        self._cached_tokens: dict[str, dict] = {}
+        self._close_lock = asyncio.Lock()
+        self._closing_task: asyncio.Task | None = None
+        self._close_save_failed = False
         super().__init__(
             client_id=settings.twitch_client_id,
             client_secret=settings.twitch_client_secret.get_secret_value(),
@@ -237,8 +269,27 @@ class TwitchChatBot(commands.Bot):
         return self.adapter.begin_authorization()
 
     async def close(self, *args, **kwargs) -> None:
-        self._closing_requested = True
-        await super().close(*args, **kwargs)
+        async with self._close_lock:
+            if self._closing_requested:
+                return
+            self._closing_requested = True
+            self._closing_task = asyncio.current_task()
+            # TwitchIO stops refresh work, saves, then clears managed tokens. Only
+            # this close task may save now; queued refresh listeners must not later
+            # replace the persisted cache with the cleared in-memory dictionary.
+            try:
+                await super().close(*args, **{**kwargs, "save_tokens": self._tokens_loaded})
+            finally:
+                self._closing_task = None
+            if self._close_save_failed:
+                raise TwitchConnectionError("Could not persist Twitch authorization during shutdown.")
+
+    async def event_error(self, payload: object) -> None:
+        self._set_connection_state("failed")
+        self._logger.error(
+            "Twitch asynchronous operation failed; session must be restarted",
+            extra={"event_kind": "twitch.failed"},
+        )
 
     async def setup_hook(self) -> None:
         if self.bot_id not in self.tokens:
@@ -284,6 +335,8 @@ class TwitchChatBot(commands.Bot):
     async def event_oauth_authorized(self, payload: UserTokenPayload) -> None:
         token = await self.add_token(payload["access_token"], payload["refresh_token"])
         if token.user_id == self.bot_id:
+            self._tokens_loaded = True
+            self._cached_tokens = {}
             await self.save_tokens()
             self._logger.info("Configured bot account OAuth authorization completed")
             await self._subscribe_to_chat()
@@ -308,15 +361,82 @@ class TwitchChatBot(commands.Bot):
             self._logger.info("Configured bot account token refreshed")
 
     async def load_tokens(self, path: str | None = None, /) -> None:
-        await super().load_tokens(str(self._token_file))
+        try:
+            with self._token_file.open(encoding="utf-8") as stream:
+                cached = json.load(stream)
+        except FileNotFoundError:
+            return
+        # Validate the whole cache before refreshing anything. A malformed later
+        # record must not strand an earlier, already rotated refresh token.
+        if not isinstance(cached, dict) or any(
+            not isinstance(record, dict) or any(
+                not isinstance(record.get(field), str) or not record[field]
+                for field in ("token", "refresh")
+            ) for record in cached.values()
+        ):
+            raise TwitchConnectionError("Twitch authorization cache is malformed; restore a private backup or reauthorize.")
+        self._cached_tokens = cached
+        self._tokens_loaded = True
+        self._loading_tokens = True
+        try:
+            for record in cached.values():
+                try:
+                    # TwitchIO retains validation/refresh ownership. Persist only
+                    # its managed result, never construct or refresh tokens here.
+                    await self.add_token(record["token"], record["refresh"])
+                except InvalidTokenException:
+                    continue
+            if self.bot_id in self.tokens:
+                self._cached_tokens = {}
+        finally:
+            self._loading_tokens = False
+            # On partial failure retain untouched original records alongside any
+            # validated/rotated tokens; never lose a rotation from this attempt.
+            if self.tokens:
+                await self.save_tokens()
 
     async def save_tokens(self, path: str | None = None, /) -> None:
-        self._token_file.parent.mkdir(parents=True, exist_ok=True)
-        await super().save_tokens(str(self._token_file))
+        if self._loading_tokens or not self._tokens_loaded or (
+            self._closing_requested and asyncio.current_task() is not self._closing_task
+        ):
+            return
+        async with self._token_save_lock:
+            try:
+                await self._save_tokens_atomically()
+            except TwitchConnectionError:
+                if not self._closing_requested:
+                    raise
+                # Let TwitchIO finish resource cleanup and unblock start before
+                # close reports the failure to the application.
+                self._close_save_failed = True
+
+    async def _save_tokens_atomically(self) -> None:
+        temporary: Path | None = None
         try:
-            os.chmod(self._token_file, 0o600)
-        except OSError:
-            self._logger.warning("Could not restrict local Twitch token file permissions")
+            self._token_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            # mkstemp is exclusive and creates 0600 before any secret bytes exist.
+            descriptor, name = tempfile.mkstemp(dir=self._token_file.parent, suffix=".tmp")
+            temporary = Path(name)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                json.dump(self._cached_tokens | self.tokens, stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, self._token_file)
+        except Exception as error:
+            self._set_connection_state("failed")
+            self._logger.error(
+                "Could not persist Twitch authorization; check private profile storage and reauthorize if needed error_type=%s",
+                type(error).__name__,
+                extra={"event_kind": "twitch.failed"},
+            )
+            raise TwitchConnectionError("Could not persist Twitch authorization.") from None
+        finally:
+            if temporary is not None:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    self._logger.error("Could not remove private token staging file", extra={"event_kind": "twitch.failed"})
 
     async def event_message(self, message: ChatMessage) -> None:
         # EventSub delivery is not an exactly-once command invocation. Reserve
@@ -401,6 +521,8 @@ async def run_twitch_bot(
     dispatcher: CommandDispatcher,
     logger: logging.Logger,
     stop_event: asyncio.Event | None = None,
+    *,
+    headless: bool = False,
 ) -> None:
     settings.validate_twitch_configuration()
     account = settings.primary_account
@@ -412,6 +534,7 @@ async def run_twitch_bot(
         logger=logger,
     )
     stop_task: asyncio.Task[None] | None = None
+    monitor_task: asyncio.Task[None] | None = None
 
     def terminal_failure(state: TwitchConnectionState, message: str) -> None:
         runtime_state = getattr(services, "runtime_state", None)
@@ -431,10 +554,25 @@ async def run_twitch_bot(
         await stop_event.wait()
         await bot.close(save_tokens=False)
 
+    async def monitor_authorization() -> None:
+        while True:
+            await asyncio.sleep(0.2)
+            runtime_state = services.runtime_state
+            if runtime_state.twitch_connection_state in ("connected", "reconnecting") and account.user_id not in bot.tokens:
+                terminal_failure("auth_required", "Twitch authorization expired or was revoked; reauthorize using the desktop")
+
+    def background_failure() -> None:
+        terminal_failure("failed", "Twitch background connection operation failed; check authorization/network and restart")
+
     try:
         if stop_event is not None:
             stop_task = asyncio.create_task(close_when_requested())
-        await bot.start(with_adapter=True, load_tokens=True, save_tokens=True)
+        if headless:
+            monitor_task = asyncio.create_task(monitor_authorization())
+            with headless_twitch_diagnostics(background_failure):
+                await bot.start(with_adapter=False, load_tokens=True, save_tokens=True)
+        else:
+            await bot.start(with_adapter=True, load_tokens=True, save_tokens=True)
     except asyncio.CancelledError:
         logger.info(
             "Twitch client shutdown requested",
@@ -466,6 +604,12 @@ async def run_twitch_bot(
         logger.error("Twitch client failure error_type=%s", type(error).__name__)
         raise TwitchConnectionError("Twitch client startup failed.") from None
     finally:
+        if monitor_task is not None:
+            monitor_task.cancel()
+            try:
+                await monitor_task
+            except asyncio.CancelledError:
+                pass
         if stop_task is not None:
             stop_task.cancel()
             try:
@@ -476,3 +620,5 @@ async def run_twitch_bot(
             await bot.close(save_tokens=False)
         except Exception as error:
             logger.error("Twitch client shutdown failed error_type=%s", type(error).__name__)
+            if headless:
+                raise TwitchConnectionError("Twitch client shutdown failed; verify private token storage.") from None
