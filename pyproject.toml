@@ -18,15 +18,18 @@ dependencies = [
     "sqlalchemy>=2.0,<3.0",
     "twitchio>=3.0,<4.0",
     "google-genai==1.75.0",
-    "keyring>=25.0,<26.0",
-    "pywebview>=6.0,<7.0",
-    "pystray>=0.19,<1.0",
     "platformdirs>=4.0,<5.0",
     "regex==2026.9.29",
 ]
 
 [project.optional-dependencies]
+desktop = [
+    "keyring>=25.0,<26.0",
+    "pywebview>=6.0,<7.0",
+    "pystray>=0.19,<1.0",
+]
 dev = [
+    "heetkit[desktop]",
     "pytest>=8.0,<9.0",
     "pytest-asyncio>=0.23,<1.0",
 ]

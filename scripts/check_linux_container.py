@@ -1,0 +1,103 @@
+"""Build and validate the canonical Compose image using disposable synthetic state."""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import time
+from uuid import uuid4
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def main() -> None:
+    project = "heetkit-b3-" + uuid4().hex[:12]
+    with tempfile.TemporaryDirectory(prefix="heetkit-b3-") as temporary:
+        private = Path(temporary)
+        # These are public synthetic sentinels, never a real profile or credential.
+        for name, value in (("twitch_client_secret", "synthetic-client-secret"), ("gemini_api_key", "")):
+            target = private / name
+            target.write_text(value)
+            # Native Compose bind-mount secrets preserve host permissions. The
+            # temp parent is private; container UID 10001 must read the files.
+            target.chmod(0o444)
+        override = private / "probe.json"
+        override.write_text(json.dumps({"services": {"bot": {
+            "restart": "no", "network_mode": "none",
+            "entrypoint": ["python", "/validation/headless_container.py", "run"], "command": [],
+            "volumes": [{"type": "bind", "source": str(ROOT / "tests/fixtures"), "target": "/validation", "read_only": True}],
+        }}}))
+        environment = os.environ | {"HEETKIT_SECRETS_DIR": str(private)}
+        compose = ["docker", "compose", "--project-name", project, "-f", str(ROOT / "compose.yaml"), "-f", str(override)]
+
+        def run(*arguments: str, capture: bool = False, timeout: int = 60) -> str:
+            result = subprocess.run(arguments, cwd=ROOT, env=environment, text=True, capture_output=capture, timeout=timeout, check=True)
+            return result.stdout.strip() if capture else ""
+
+        def container_id() -> str:
+            return run(*compose, "ps", "--all", "--quiet", "bot", capture=True)
+
+        def state() -> dict:
+            return json.loads(run("docker", "inspect", container_id(), capture=True))[0]["State"]
+
+        def wait_healthy() -> None:
+            deadline = time.monotonic() + 40
+            while time.monotonic() < deadline:
+                status = state()
+                if status.get("Health", {}).get("Status") == "healthy":
+                    return
+                if not status["Running"]:
+                    raise RuntimeError("Synthetic container exited before readiness")
+                time.sleep(0.5)
+            raise TimeoutError("Synthetic container did not become healthy")
+
+        def stopped_cleanly() -> None:
+            status = state()
+            assert not status["Running"] and status["ExitCode"] == 0, status
+
+        try:
+            run(*compose, "config", "--quiet")
+            run(*compose, "build", timeout=600)
+            run(*compose, "run", "--rm", "--no-deps", "--entrypoint", "python", "bot", "/validation/headless_container.py", "seed")
+            run(*compose, "up", "--detach", "--no-build")
+            wait_healthy()
+            first = container_id()
+            duplicate = subprocess.run([*compose, "exec", "-T", "bot", "python", "-m", "app.headless"], cwd=ROOT, env=environment, capture_output=True, text=True, timeout=30)
+            assert duplicate.returncode == 1
+            assert "Another HeetKit process owns this profile" in duplicate.stderr
+            run("docker", "kill", "--signal=SIGINT", first)
+            run("docker", "wait", first)
+            stopped_cleanly()
+            run(*compose, "start", "bot")
+            wait_healthy()
+            assert container_id() == first
+            run(*compose, "stop", "bot")  # Real SIGTERM and Compose's stop deadline.
+            stopped_cleanly()
+            run(*compose, "up", "--detach", "--no-build", "--force-recreate", "bot")
+            wait_healthy()
+            assert container_id() != first
+            run(*compose, "stop", "bot")
+            stopped_cleanly()
+            run(*compose, "run", "--rm", "--no-deps", "--entrypoint", "python", "bot", "/validation/headless_container.py", "verify")
+            run(*compose, "run", "--rm", "--no-deps", "--entrypoint", "python", "bot", "-m", "pip", "check")
+            # Exercise the unmodified production CLI against an empty separate
+            # profile: safe failure must not hang or print the mounted secret.
+            failure = subprocess.run([*compose, "run", "--rm", "--no-deps", "--entrypoint", "python", "bot", "-m", "app.headless", "--data-dir", "/tmp/unconfigured"], cwd=ROOT, env=environment, capture_output=True, text=True, timeout=30)
+            assert failure.returncode == 1
+            assert "Missing: TWITCH_CLIENT_ID" in failure.stderr
+            assert "synthetic-client-secret" not in failure.stderr
+            print("Canonical Linux Compose container checks passed; no external network or live authorization used.")
+        except BaseException:
+            subprocess.run([*compose, "logs", "--no-color"], cwd=ROOT, env=environment, timeout=30, check=False)
+            raise
+        finally:
+            # Only this randomly named disposable validation project is removed.
+            run(*compose, "down", "--volumes", "--remove-orphans")
+
+
+if __name__ == "__main__":
+    main()

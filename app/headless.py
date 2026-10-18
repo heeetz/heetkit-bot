@@ -8,6 +8,7 @@ import logging
 import math
 import os
 import signal
+import stat
 import sys
 from contextlib import ExitStack
 from pathlib import Path
@@ -18,6 +19,7 @@ from app.config.profile_settings import apply_ai_app_settings, apply_twitch_app_
 from app.config.settings import Settings, TwitchConfigurationError
 from app.container import build_application
 from app.desktop_instance import DesktopAlreadyRunningError, desktop_instance_guard
+from app.headless_health import HealthFile
 from app.runtime_paths import DATA_DIR_ENV, RuntimePaths, prepare_runtime_data
 
 
@@ -31,6 +33,33 @@ AUTHORIZATION_HELP = (
 
 class HeadlessError(RuntimeError):
     """A fixed, safe operator diagnostic, with no provider payload attached."""
+
+
+def secret_file_settings() -> dict[str, str]:
+    """Read only supported secret files, bounded and without environment publication."""
+    values = {}
+    for name in ("TWITCH_CLIENT_SECRET", "GEMINI_API_KEY"):
+        filename = os.environ.get(name + "_FILE")
+        if not filename:
+            continue
+        if os.environ.get(name, "").strip():
+            raise HeadlessError(f"Set only {name} or {name}_FILE, then restart.")
+        try:
+            descriptor = os.open(filename, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+            with os.fdopen(descriptor, "rb") as source:
+                if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                    raise ValueError
+                content = source.read(16385)
+            if len(content) > 16384:
+                raise ValueError
+            secret = content.decode("utf-8").strip()
+            if any(character in secret for character in ("\x00", "\r", "\n")):
+                raise ValueError
+        except (OSError, ValueError):
+            raise HeadlessError(f"Cannot read {name}_FILE. Use a readable regular UTF-8 secret file of at most 16 KiB.") from None
+        if secret:
+            values[name.lower()] = secret
+    return values
 
 
 class HeadlessLogFilter(logging.Filter):
@@ -76,12 +105,14 @@ async def run_headless(
     *,
     startup_timeout: float = 60.0,
     shutdown_timeout: float = 20.0,
+    health: HealthFile | None = None,
 ) -> int:
     """Supervise the existing runtime; TwitchIO continues to own network retries."""
     application = build_application(settings)
     application.services.runtime_state.set_ai_memory_enabled(profile.ai.memory_enabled)
     runtime = BotRuntime(application, logging.getLogger("app.headless.twitch"), headless=True)
     state = application.services.runtime_state
+    health = health or HealthFile(None)
     ready = asyncio.Event()
 
     async def serve() -> None:
@@ -93,6 +124,7 @@ async def run_headless(
         connected = False
         try:
             while True:
+                health.update(state.twitch_connection_state)
                 if state.twitch_connection_state == "auth_required":
                     raise HeadlessError(AUTHORIZATION_HELP)
                 if state.twitch_connection_state == "failed":
@@ -166,6 +198,7 @@ def _timeout(value: str) -> float:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run one preauthorized HeetKit bot without desktop components.")
     parser.add_argument("--data-dir", type=Path, help="Private profile directory (or HEETKIT_DATA_DIR).")
+    parser.add_argument("--health-file", type=Path, help="Private ephemeral heartbeat file for container health checks.")
     parser.add_argument("--startup-timeout", type=_timeout, default=60.0, help="Startup deadline in seconds (default 60).")
     parser.add_argument("--shutdown-timeout", type=_timeout, default=20.0, help="Graceful shutdown deadline in seconds (default 20, plus bounded cancellation grace).")
     arguments = parser.parse_args(argv)
@@ -178,7 +211,9 @@ def main(argv: list[str] | None = None) -> int:
     guards = ExitStack()
     async_failed = False
     previous_umask = os.umask(0o077) if os.name == "posix" else None
+    health = HealthFile(arguments.health_file)
     try:
+        health.update("starting")
         asyncio.set_event_loop(loop)
         def async_failure(_loop, _context) -> None:
             nonlocal async_failed
@@ -195,9 +230,9 @@ def main(argv: list[str] | None = None) -> int:
             guards.enter_context(desktop_instance_guard(paths.app_settings, legacy_identity=True))
         if paths.is_default_profile and not paths.brand_migration_marker.exists() and paths.former_default_root.is_dir():
             guards.enter_context(desktop_instance_guard(paths.former_default_root / "config" / "app_settings.json", legacy_identity=True))
-        # Headless credentials are intentionally environment-only: never discover
+        # Headless credentials use private environment/file inputs: never discover
         # or prompt an OS keyring, and never accept secrets on the command line.
-        settings = Settings(twitch_token_file=str(paths.tokens), database_url="sqlite+aiosqlite:///" + str(paths.database))
+        settings = Settings(twitch_token_file=str(paths.tokens), database_url="sqlite+aiosqlite:///" + str(paths.database), **secret_file_settings())
         token_file, database_url = prepare_runtime_data(settings.twitch_token_file, settings.database_url)
         settings = settings.model_copy(update={"twitch_token_file": token_file, "database_url": database_url})
         profile = AppSettingsStore(paths.app_settings).snapshot()
@@ -205,7 +240,7 @@ def main(argv: list[str] | None = None) -> int:
         settings.validate_twitch_configuration()
         if not paths.tokens.is_file():
             raise HeadlessError(AUTHORIZATION_HELP)
-        result = loop.run_until_complete(run_headless(settings, profile, stop, startup_timeout=arguments.startup_timeout, shutdown_timeout=arguments.shutdown_timeout))
+        result = loop.run_until_complete(run_headless(settings, profile, stop, startup_timeout=arguments.startup_timeout, shutdown_timeout=arguments.shutdown_timeout, health=health))
         return 1 if async_failed else result
     except DesktopAlreadyRunningError:
         logger.error("Another HeetKit process owns this profile. Stop it before starting headless.")
@@ -220,6 +255,10 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("Headless startup failed (%s). Check settings and private profile permissions.", type(error).__name__)
         return 1
     finally:
+        try:
+            health.clear()
+        except OSError:
+            logger.error("Could not remove the private health file.")
         for signum, previous in previous_signals.items():
             signal.signal(signum, previous)
         # asyncio.run waits indefinitely for cancellation-resistant tasks. This

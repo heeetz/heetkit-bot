@@ -22,8 +22,9 @@ from app.runtime_paths import RuntimePaths, prepare_runtime_data
 def isolated_profile(tmp_path, monkeypatch):
     for name in Settings.model_fields:
         monkeypatch.delenv(name.upper(), raising=False)
+    monkeypatch.delenv("TWITCH_CLIENT_SECRET_FILE", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY_FILE", raising=False)
     monkeypatch.setenv("HEETKIT_DATA_DIR", str(tmp_path / "profile"))
-    monkeypatch.setattr("app.credentials.keyring.get_password", lambda *args: pytest.fail("Keyring accessed"))
     async def forbidden(*args, **kwargs):
         pytest.fail("Network requests are forbidden in synthetic lifecycle tests")
     monkeypatch.setattr("aiohttp.ClientSession._request", forbidden)
@@ -250,7 +251,7 @@ def test_headless_entry_imports_no_desktop_and_fails_safely_when_unconfigured(tm
 import importlib.abc, sys
 class RejectDesktop(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname.split('.')[0] in {'webview', 'pystray', 'clr', 'tkinter', 'win32api'} or fullname in {'app.webview_host', 'app.system_tray', 'app.windows_runtime'}:
+        if fullname.split('.')[0] in {'keyring', 'webview', 'pystray', 'clr', 'tkinter', 'win32api'} or fullname in {'app.credentials', 'app.webview_host', 'app.system_tray', 'app.windows_runtime'}:
             raise AssertionError('Desktop import: ' + fullname)
 sys.meta_path.insert(0, RejectDesktop())
 import asyncio

@@ -17,7 +17,7 @@ Windows tray and start-minimized controls are Windows-only. macOS/Linux source l
 keep the window visible and close normally; native distributables are not provided yet.
 The desktop entry point requires a desktop. A separate [headless runtime](#headless-runtime)
 can run the same backend in the foreground with previously authorized Twitch accounts.
-Linux container packaging and native Linux validation remain separate work.
+See [Linux Docker usage](docker.md) for the backend-only container and native checks.
 
 ## Source setup
 
@@ -37,6 +37,8 @@ python -m app.main
 
 `run.bat` uses `.venv\Scripts\python.exe`; the installed `heetkit` entry point is also
 equivalent to `python -m app.main`. Rerun the editable install after dependency changes.
+The base package installs backend dependencies only; use `.[desktop]` for a desktop
+installation or `.[dev]` for the existing full development setup (which includes desktop).
 On macOS/Linux, create and activate a virtual environment with your platform's commands,
 install the project and frontend, then use the same Python entry point.
 
@@ -179,8 +181,10 @@ python -m app.headless --data-dir "C:\private\heetkit-profile"
 
 After reinstalling the project, `heetkit-headless` is equivalent. Python and the
 current project dependencies are required; Node, a frontend build, WebView2 and a
-running desktop/keyring service are unnecessary for this entry point. Backend-only
-dependency packaging and Linux containers are not included yet.
+running desktop/keyring service are unnecessary for this entry point. A base `pip
+install .` installs only backend requirements; `.[desktop]` adds the native GUI and
+keyring packages. [Linux Docker usage](docker.md) covers the pinned container,
+persistent volume, mounted secret files, diagnostics and recovery.
 
 Before first use:
 
@@ -192,7 +196,9 @@ Before first use:
    it, put it in an image, or transfer it through public/shared storage. Back up or
    copy SQLite state only while stopped or through SQLite's backup mechanism.
 3. Inject `TWITCH_CLIENT_SECRET` and, for AI, `GEMINI_API_KEY` privately through the
-   process/service environment. Headless never reads the OS keyring or dotenv files;
+   process/service environment, or supply their `_FILE` paths as described in
+   [Docker secret provisioning](docker.md#prepare-private-storage-and-authorization).
+   Headless never reads the OS keyring or dotenv files;
    desktop keyring secrets are not part of a copied profile. Do not put secrets in
    command-line arguments, ordinary settings, shell history or logs.
 
@@ -237,16 +243,19 @@ chat text, account identities, provider responses and tracebacks. It does not wr
 
 Focused synthetic Windows checks cover startup, readiness/failure, signal-handler
 dispatch, cleanup deadlines, profile locking, SQLite restart persistence and OAuth
-cache rotation/write failures with desktop imports rejected. They do not establish
-live Twitch refresh/reconnect, native OS signal delivery, Linux behavior or container
-operation. No remote API, Docker image, deployment or desktop UI change is included.
+cache rotation/write failures with desktop imports rejected. Linux container checks
+also exercise native signals and persistent volume recreation with synthetic remote
+boundaries; see [Docker validation](docker.md#troubleshooting-and-validation).
+Neither establishes live Twitch refresh/reconnect or Gemini behavior. No remote API,
+cloud deployment or desktop UI change is included.
 
 ## Headless readiness audit
 
 Historical baseline audited 2026-10-17 against application revision `29786ce` and
 installed TwitchIO 3.3.2. The findings below describe that revision before headless
 implementation. The [headless runtime](#headless-runtime) section documents the
-subsequent implementation and its validation limits; container/deployment work remains separate.
+subsequent implementation and its validation limits; [Docker packaging](docker.md)
+is implemented separately, while cloud deployment remains deferred.
 
 ### Reusable core and confirmed gaps
 
@@ -282,13 +291,14 @@ resolution with source builds disabled, not a Linux install or execution test.
 | `keyring` | Currently imported by settings/credentials even when environment secrets are used. Keep it initially; Linux metadata selects SecretStorage/jeepney instead of Windows credential bindings. A running/unlocked keyring is a separate operational requirement. |
 | `pywebview`, `pystray` and GUI-only dependencies | Unneeded for headless operation, but currently unconditional project requirements. Separate desktop installation requirements while preserving desktop setup/build behavior. This removes the renderer/tray stack, including `bottle`, `proxy_tools`, Pillow and Linux `python-xlib`; Windows pythonnet/CLR is also unnecessary. |
 
-The unchanged full desktop dependency set failed the wheel-only check because
+The full desktop dependency set at that revision failed the wheel-only check because
 `proxy-tools==0.1.0` has no wheel. This is a desktop dependency/source-build issue,
 not evidence that the Python backend is incompatible with Linux. Do not install the
 entire `packaging/windows/requirements.txt` on Linux: it also includes Windows build
-tools and platform-specific packages. No Linux lock or supported image exists yet.
-Native Linux installation, signals, file locking and recovery remain unverified here;
-this Windows environment has neither an installed WSL distribution nor Docker.
+tools and platform-specific packages. The subsequent B3 implementation moves keyring,
+pywebview and pystray into the desktop extra and imports credential management only
+on desktop settings paths. The base backend needs no keyring package. The canonical
+Linux lock/image and native synthetic checks are documented in [Docker usage](docker.md).
 
 ### Twitch lifecycle and authorization
 

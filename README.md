@@ -73,6 +73,7 @@ For HeetKit's current Twitch connection model, the bot account should have moder
 - [Commands and customization](docs/commands.md)
 - [Data, profiles and privacy](docs/data-and-privacy.md)
 - [Development and building from source](docs/development.md)
+- [Linux Docker usage](docs/docker.md)
 - [Release process](docs/release-process.md)
 
 For bugs and feature requests, use

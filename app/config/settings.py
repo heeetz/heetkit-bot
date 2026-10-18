@@ -4,7 +4,9 @@ Normal startup never reads dotenv files. Desktop settings overlay non-secret
 defaults in the host; credentials come from the profile's OS keyring first.
 """
 
-from typing import Literal
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -14,8 +16,10 @@ from app.config.ai_models import (
     validate_gemini_model_id,
 )
 from app.config.ai_language import ResponseLanguageSettings, validate_response_language
-from app.credentials import CredentialManager, CredentialName, CredentialStore
 from app.runtime_paths import RuntimePaths
+
+if TYPE_CHECKING:
+    from app.credentials import CredentialManager, CredentialStore
 
 
 class TwitchConfigurationError(ValueError):
@@ -133,6 +137,8 @@ def _read_environment_secret(value: SecretStr | None) -> str | None:
 def load_settings_with_credentials(
     credential_store: CredentialStore | None = None,
 ) -> tuple[Settings, CredentialManager]:
+    from app.credentials import CredentialManager, CredentialName
+
     paths = RuntimePaths.default()
     environment = EnvironmentCredentialSettings()
     manager = CredentialManager(

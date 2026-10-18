@@ -1,0 +1,30 @@
+name: Linux container
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'pyproject.toml'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'compose.yaml'
+      - 'packaging/linux/**'
+      - 'scripts/check_linux_container.py'
+      - 'tests/fixtures/headless_container.py'
+      - '.github/workflows/linux-container.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Build and validate disposable Linux container
+        run: python3 scripts/check_linux_container.py

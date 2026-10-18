@@ -1,0 +1,25 @@
+# Allowlist: private profiles, secrets, Git, frontend and build outputs never enter context.
+**
+!Dockerfile
+!packaging/
+!packaging/linux/
+!packaging/linux/requirements.txt
+!app/
+!app/commands/
+!app/config/
+!app/database/
+!app/services/
+!app/twitch/
+!app/utils/
+!app/**/*.py
+!app/resources/
+!app/resources/default_triggers.json
+!app/resources/gemini_models.json
+!app/resources/personalities.json
+!app/resources/filters/
+!app/resources/filters/blocked_words.txt
+!app/resources/filters/blocked_phrases.txt
+!app/resources/filters/blocked_patterns.txt
+!LICENSE
+!NOTICE
+app/**/__pycache__/
