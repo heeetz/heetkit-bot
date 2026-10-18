@@ -31,7 +31,11 @@ def seed():
     assert any((frontend / "assets").glob("*.css"))
     for asset in frontend.rglob("*"):
         if asset.is_file():
-            assert b"synthetic-excluded-build-context-sentinel" not in asset.read_bytes()
+            relative = asset.relative_to(frontend)
+            assert relative.as_posix() in ("index.html", "icon.png") or (
+                relative.parent == Path("assets") and relative.suffix in (".js", ".css")
+            ), "Unexpected frontend output: " + str(relative)
+            assert b"synthetic-excluded-build-context-sentinel" not in asset.read_bytes(), str(relative)
     for name in ("data", "resources/private.json", "resources/icon.png", "resources/icon.ico", "resources/icon.icns", "resources/tray.png"):
         assert not Path("/opt/heetkit/app", name).exists(), "Excluded image content: " + name
     assert not any(Path("/opt/heetkit", name).exists() for name in (".git", "data", "frontend", "tests", "build", ".env"))

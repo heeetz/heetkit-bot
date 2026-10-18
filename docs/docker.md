@@ -14,6 +14,8 @@ and copies allowlisted application sources and neutral defaults. A separate dige
 official Node 24 build stage runs the existing locked React build. Only its production
 page, icon and compiled assets enter the Python runtime; Node, frontend source/tests,
 Windows tools, private profiles, dotenv files and development directories are excluded.
+Reopened build-input directories explicitly exclude their children before allowing
+specific source files; the native probe also rejects unexpected production assets.
 Other CPU architectures are not validated by this lock. Linux uses `multidict==6.9.1`
 as a narrow exception to the older Windows pins, fixing the upstream
 [items-view reference leak](https://github.com/aio-libs/multidict/security/advisories/GHSA-54p9-h82j-f925).
