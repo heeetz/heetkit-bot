@@ -250,7 +250,9 @@ Neither establishes live Twitch refresh/reconnect or Gemini behavior. The option
 [private management API](management-api.md) shares application operations with the
 desktop, persists live settings and supports bot stop/start without exiting the
 process. It is disabled unless `--management-api` and a private administrator token
-are configured. Cloud deployment and a browser panel remain separate work.
+are configured. Its [browser panel](management-api.md#browser-panel) uses the same
+React build through a separate HTTP transport and an in-memory administrator session;
+source use requires building `frontend/` first. Cloud deployment remains separate work.
 
 ## Headless readiness audit
 

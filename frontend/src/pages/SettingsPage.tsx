@@ -6,6 +6,8 @@ import {
   type CredentialInfo,
   type CredentialName,
   type TwitchConnectionSettings,
+  getBrowserSetup,
+  isBrowserMode,
   twitchAuthorizationLabel,
   twitchConnectionLabel,
   waitForBridge,
@@ -21,7 +23,41 @@ interface SettingsPageProps {
   onReturnToAI?: () => void
 }
 
-export default function SettingsPage({ active, status, onReturnToAI }: SettingsPageProps) {
+export default function SettingsPage(props: SettingsPageProps) {
+  return isBrowserMode() ? <ServerSettings active={props.active} /> : <DesktopSettings {...props} />
+}
+
+function ServerSettings({ active }: { active: boolean }) {
+  const [setup, setSetup] = useState<Awaited<ReturnType<typeof getBrowserSetup>> | null>(null)
+  const [error, setError] = useState('')
+  const [retry, setRetry] = useState(0)
+  useEffect(() => {
+    if (!active) return
+    let mounted = true
+    void getBrowserSetup().then((result) => {
+      if (!result.ok) throw new Error('Server setup status is unavailable.')
+      if (mounted) { setSetup(result); setError('') }
+    }).catch((reason: unknown) => {
+      if (mounted) setError(reason instanceof Error ? reason.message : 'Could not load server setup.')
+    })
+    return () => { mounted = false }
+  }, [active, retry])
+  return <section className="settings-layout">
+    <article className="card" id="twitch-settings">
+      <h2>Server configuration</h2>
+      <p>Configure Twitch identity, channel, authorization and secrets on the server. Restart the server after changing identity or credentials; reconnect after a channel change.</p>
+      <p>Browser management can save commands, filters, personalities and AI settings. Desktop window settings and local folder actions are available in the desktop application.</p>
+      {error && <><p className="inline-error" role="alert">{error}</p><button className="secondary" onClick={() => setRetry((current) => current + 1)}>Retry setup status</button></>}
+      {setup && <dl className="about-details">
+        <div><dt>Bot account</dt><dd>{setup.twitch.bot_username || 'Not configured'}</dd></div>
+        <div><dt>Channel</dt><dd>{setup.twitch.target_channel || 'Not configured'}</dd></div>
+        {setup.credentials.map((credential) => <div key={credential.name}><dt>{credential.label}</dt><dd>{credential.configured ? `Configured (${credential.source})` : 'Not configured'}</dd></div>)}
+      </dl>}
+    </article>
+  </section>
+}
+
+function DesktopSettings({ active, status, onReturnToAI }: SettingsPageProps) {
   const [saved, setSaved] = useState<AppSettings | null>(null)
   const [draft, setDraft] = useState<AppSettings | null>(null)
   const [loading, setLoading] = useState(true)

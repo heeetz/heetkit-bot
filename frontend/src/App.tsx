@@ -6,6 +6,9 @@ import {
   type CredentialInfo,
   type LogEntry,
   type TwitchConnectionSettings,
+  getBrowserSetup,
+  getBrowserSnapshot,
+  isBrowserMode,
   twitchAuthorizationLabel,
   twitchConnectionLabel,
   waitForBridge,
@@ -20,6 +23,7 @@ import LogEventSummary, { logEventClassNames } from './components/LogEventSummar
 import { Select } from './components/Select'
 import Switch from './components/Switch'
 import HelpTip from './components/HelpTip'
+import BrowserSession from './components/BrowserSession'
 import './styles.css'
 
 const sections = ['Dashboard', 'Commands', 'Filters', 'AI', 'Logs', 'Settings', 'About'] as const
@@ -89,7 +93,12 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
     const loadSetup = async () => {
       try {
         const api = await waitForBridge()
-        const [twitchResponse, credentialResponse, aiResponse] = await Promise.all([
+        const serverSetup = isBrowserMode() ? await getBrowserSetup() : null
+        const [twitchResponse, credentialResponse, aiResponse] = serverSetup ? [
+          { ok: serverSetup.ok, settings: serverSetup.twitch },
+          { ok: serverSetup.ok, credentials: serverSetup.credentials },
+          { ok: serverSetup.ok, settings: serverSetup.aiProvider },
+        ] : await Promise.all([
           api.get_twitch_settings(),
           api.get_credentials(),
           api.get_ai_provider_settings(),
@@ -136,7 +145,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
   const connectionHint = !status || !setup || needsTwitchSetup || pendingRestart
     ? ''
     : connectionState === 'auth_required'
-      ? status.running
+      ? isBrowserMode() ? 'Authorize the configured bot account on the server, then restart the bot.' : status.running
         ? 'Sign in as the configured bot account.'
         : 'Start Bot again to authorize Twitch.'
       : connectionState === 'connecting'
@@ -171,7 +180,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
         <article className="card dashboard-notice setup-card">
           <div>
             <h2>{setupError ? 'Setup status needs attention' : needsTwitchSetup ? 'Finish Twitch setup' : pendingRestart ? 'Restart to apply Twitch setup' : 'Channel change pending'}</h2>
-            <p>{setupError || (needsTwitchSetup
+            <p>{setupError || (isBrowserMode() ? 'Configure Twitch identity, authorization and credentials on the server, then restart it to apply changes.' : needsTwitchSetup
               ? 'Save the client ID, bot account, channel and client secret in Settings, then restart the application.'
               : pendingRestart
                 ? 'Restart the application to apply the saved client ID, bot identity or secret.'
@@ -191,7 +200,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
             {needsTwitchSetup ? 'Not configured' : status ? twitchConnectionLabel(status.twitch_connection_state) : 'Loading…'}
           </h3>
           {connectionHint && <p>{connectionHint}</p>}
-          {connectionState === 'auth_required' && (
+          {connectionState === 'auth_required' && !isBrowserMode() && (
             <button className="primary" disabled={Boolean(busy) || !status?.running || pendingRestart || needsTwitchSetup} onClick={onAuthorizeTwitch}>
               {busy === 'twitch:authorize' ? 'Opening…' : 'Authorize Twitch'}
             </button>
@@ -255,11 +264,17 @@ function LogsPage() {
     let active = true
     let timer = 0
     const refresh = async () => {
+      if (isBrowserMode() && document.hidden) {
+        timer = window.setTimeout(() => void refresh(), 5000)
+        return
+      }
       try {
         const api = await waitForBridge()
+        if (!active) return
         const response = await api.get_recent_logs(cursor.current, 200)
+        if (active && response.next_after_id !== undefined) cursor.current = response.next_after_id
         if (active && response.entries.length > 0) {
-          cursor.current = response.entries.at(-1)?.id ?? cursor.current
+          cursor.current = Math.max(cursor.current, response.entries.at(-1)?.id ?? 0)
           setEntries((current) => [...current, ...response.entries].slice(-500))
         }
         if (active) {
@@ -271,7 +286,7 @@ function LogsPage() {
         }
       } finally {
         if (active) {
-          timer = window.setTimeout(() => void refresh(), 1000)
+          timer = window.setTimeout(() => void refresh(), isBrowserMode() ? 5000 : 1000)
         }
       }
     }
@@ -304,7 +319,7 @@ function LogsPage() {
   return (
     <section className="card logs-card">
       <div className="section-heading">
-        <div><p className="label">LIVE APPLICATION LOGS</p><h2>Recent activity</h2></div>
+        <div><p className="label">{isBrowserMode() ? 'SERVER LIFECYCLE LOGS' : 'LIVE APPLICATION LOGS'}</p><h2>Recent activity</h2></div>
         <span className="read-only-badge">{entries.length} / 500</span>
       </div>
       <div className="log-toolbar">
@@ -361,7 +376,7 @@ function LogsPage() {
   )
 }
 
-export default function App() {
+function ManagementApp() {
   const [section, setSection] = useState<Section>('Dashboard')
   const [navigationTarget, setNavigationTarget] = useState<{ id?: string } | null>(null)
   const main = useRef<HTMLElement | null>(null)
@@ -427,8 +442,13 @@ export default function App() {
     let active = true
     let timer = 0
     const refresh = async (api: Awaited<ReturnType<typeof waitForBridge>>) => {
+      if (isBrowserMode() && document.hidden) {
+        timer = window.setTimeout(() => void refresh(api), 5000)
+        return
+      }
       try {
-        const [nextStatus, nextAIStatus] = await Promise.all([
+        const snapshot = isBrowserMode() ? await getBrowserSnapshot() : null
+        const [nextStatus, nextAIStatus] = snapshot ? [snapshot.status, snapshot.ai_status] : await Promise.all([
           api.get_app_status(),
           api.get_ai_status(),
         ])
@@ -443,7 +463,7 @@ export default function App() {
         }
       } finally {
         if (active) {
-          timer = window.setTimeout(() => void refresh(api), 1500)
+          timer = window.setTimeout(() => void refresh(api), isBrowserMode() ? 5000 : 1500)
         }
       }
     }
@@ -533,13 +553,13 @@ export default function App() {
                 type="button"
                 className={section === item ? 'active' : ''}
                 aria-current={section === item ? 'page' : undefined}
-                aria-expanded={subsections[item] ? section === item : undefined}
-                aria-controls={subsections[item] ? `nav-${item}` : undefined}
+                aria-expanded={subsections[item] && !(isBrowserMode() && item === 'Settings') ? section === item : undefined}
+                aria-controls={subsections[item] && !(isBrowserMode() && item === 'Settings') ? `nav-${item}` : undefined}
                 onClick={() => navigate(item)}
               >{item}</button>
-              {subsections[item] && (
+              {subsections[item] && !(isBrowserMode() && item === 'Settings') && (
                 <ul className="sidebar-subnav" id={`nav-${item}`} hidden={section !== item}>
-                  {subsections[item].map((child) => (
+                  {subsections[item].filter((child) => !isBrowserMode() || child.targetId !== 'ai-playground').map((child) => (
                     <li key={child.targetId}>
                       <button
                         type="button"
@@ -572,7 +592,7 @@ export default function App() {
           )}
           <div hidden={section !== 'Commands'}><CommandsPage active={section === 'Commands'} revealCommand={navigationTarget?.id === 'command-editor-ask' ? 'ask' : undefined} onAIEnabledChanged={synchronizeAIEnabled} /></div>
           <div hidden={section !== 'Filters'}><FiltersPage active={section === 'Filters'} /></div>
-          <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} onOpenSettings={() => navigate('Settings', 'credential-settings')} onOpenPlayground={() => navigate('AI', 'ai-playground')} onOpenAsk={() => navigate('Commands', 'command-editor-ask')} onAIEnabledChanged={synchronizeAIEnabled} /></div>
+          <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} onOpenSettings={() => navigate('Settings', isBrowserMode() ? 'twitch-settings' : 'credential-settings')} onOpenPlayground={() => navigate('AI', 'ai-playground')} onOpenAsk={() => navigate('Commands', 'command-editor-ask')} onAIEnabledChanged={synchronizeAIEnabled} /></div>
           {section === 'Logs' && <LogsPage />}
           <div hidden={section !== 'Settings'}><SettingsPage active={section === 'Settings'} status={status} onReturnToAI={() => navigate('AI', 'ai-playground')} /></div>
           {section === 'About' && <AboutPage />}
@@ -580,4 +600,8 @@ export default function App() {
       </main>
     </div>
   )
+}
+
+export default function App() {
+  return isBrowserMode() ? <BrowserSession><ManagementApp /></BrowserSession> : <ManagementApp />
 }

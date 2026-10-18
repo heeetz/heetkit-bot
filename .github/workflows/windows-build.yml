@@ -219,6 +219,8 @@ jobs:
 
       - name: Run frontend tests using the builder-installed dependencies
         working-directory: frontend
+        env:
+          HEETKIT_TEST_PYTHON: ${{ steps.build.outputs.python }}
         run: npm test -- --reporter=line --workers=2
 
       - name: Build installer from the verified portable ZIP

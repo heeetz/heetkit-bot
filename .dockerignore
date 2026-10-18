@@ -1,4 +1,4 @@
-# Allowlist: private profiles, secrets, Git, frontend and build outputs never enter context.
+# Allowlist: private profiles, secrets, Git and generated output never enter context.
 **
 !Dockerfile
 !packaging/
@@ -40,3 +40,25 @@ app/resources/filters/**
 !app/resources/filters/blocked_patterns.txt
 !LICENSE
 !NOTICE
+!frontend/
+frontend/**
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/index.html
+!frontend/tsconfig.json
+!frontend/tsconfig.app.json
+!frontend/tsconfig.node.json
+!frontend/tsconfig.tests.json
+!frontend/vite.config.ts
+!frontend/playwright.config.ts
+!frontend/src/
+!frontend/src/**/
+!frontend/src/**/*.ts
+!frontend/src/**/*.tsx
+!frontend/src/**/*.css
+!frontend/public/
+!frontend/public/icon.png
+!frontend/tests/
+!frontend/tests/*.ts
+!frontend/tests/*.tsx
+!frontend/tests/*.html

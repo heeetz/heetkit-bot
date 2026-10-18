@@ -337,6 +337,7 @@ export interface LogEntry {
 
 export interface LogsResponse {
   entries: LogEntry[]
+  next_after_id?: number
 }
 
 export interface AIPlaygroundResult {
@@ -350,7 +351,7 @@ export interface AIPlaygroundResult {
   error?: string
 }
 
-interface PythonApi {
+export interface PythonApi {
   get_app_status(): Promise<AppStatus>
   get_about_info(): Promise<AboutInfo>
   check_for_updates(): Promise<UpdateCheckResponse>
@@ -443,6 +444,7 @@ function readyBridge(): PythonApi | null {
 }
 
 export async function waitForBridge(): Promise<PythonApi> {
+  if (isBrowserMode()) return browserApi
   const ready = readyBridge()
   if (ready) {
     return ready
@@ -478,4 +480,30 @@ export async function waitForBridge(): Promise<PythonApi> {
     pendingBridge = null
     throw error
   }
+}
+
+// The server marks its own document. A delayed desktop bridge must never select HTTP.
+export function isBrowserMode(): boolean {
+  return document.querySelector('meta[name="heetkit-transport"]')?.getAttribute('content') === 'http'
+}
+
+export interface ManagementSnapshot {
+  status: AppStatus
+  ai_status: AIStatus
+}
+
+export interface ManagementSetup extends ActionResult {
+  twitch: TwitchConnectionSettings
+  credentials: CredentialInfo[]
+  aiProvider: AIProviderSettings
+}
+
+import { browserApi, browserRequest } from './httpTransport'
+
+export function getBrowserSnapshot(): Promise<ManagementSnapshot> {
+  return browserRequest('GET', '/v1/snapshot')
+}
+
+export function getBrowserSetup(): Promise<ManagementSetup> {
+  return browserRequest('GET', '/v1/setup')
 }

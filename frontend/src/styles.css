@@ -107,6 +107,15 @@ h1 { margin-bottom: 0; font-size: 28px; }
 .empty-state { max-width: 680px; }
 .empty-state p:last-child, .card > p:last-child { color: var(--muted); }
 .success-text { color: var(--success); }
+.browser-login { display: grid; align-content: center; justify-items: center; padding: 24px; }
+.browser-login > .card { width: min(100%, 520px); overflow-wrap: anywhere; }
+.browser-login h1 { margin-bottom: 12px; }
+.browser-login form { display: grid; gap: 12px; }
+.browser-login form input { width: 100%; min-width: 0; }
+.browser-management { display: flex; flex-direction: column; height: 100%; }
+.browser-session-bar { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--separator); background: var(--panel); }
+.browser-management > .app-shell { flex: 1; min-height: 0; height: auto; }
+.browser-management .sidebar, .browser-management main { height: 100%; }
 .metric { font-variant-numeric: tabular-nums; font-size: 24px; }
 .muted, .command-meta { color: var(--muted); }
 .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: 20px; }
@@ -601,6 +610,12 @@ td { color: var(--text); }
 @media (max-width: 480px) {
   .ai-user-block-form { grid-template-columns: minmax(0, 1fr); justify-content: stretch; }
   .ai-user-block-form button { justify-self: start; }
+}
+
+@media (max-width: 760px) {
+  .browser-management { height: auto; min-height: 100%; }
+  .browser-management .sidebar, .browser-management main { height: auto; }
+  .browser-management > .app-shell { min-height: 0; }
 }
 
 /* Shared row headers: the full-row button sits beneath its independent help. */

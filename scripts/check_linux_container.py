@@ -21,7 +21,7 @@ def main() -> None:
         private = Path(temporary)
         context = private / "context"
         context.mkdir()
-        tracked = subprocess.run(["git", "ls-files", "-z", "--", "app", "Dockerfile", ".dockerignore", "LICENSE", "NOTICE", "packaging/linux/requirements.txt"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+        tracked = subprocess.run(["git", "ls-files", "-z", "--", "app", "frontend", "Dockerfile", ".dockerignore", "LICENSE", "NOTICE", "packaging/linux/requirements.txt"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
         for name in filter(None, tracked.split("\0")):
             source = ROOT / name
             if source.is_symlink() or not source.resolve().is_relative_to(ROOT):
@@ -33,7 +33,8 @@ def main() -> None:
         # credentials or built frontend. Directory exceptions must not admit these.
         for name in (".env", ".git/config", "data/heetkit.db", "auth/twitchio_tokens.json",
                      "app/data/twitchio_tokens.json", "app/resources/private.json",
-                     "app/resources/frontend/index.html", "frontend/dist/index.html",
+                     "app/resources/frontend/index.html", "frontend/dist/index.html", "frontend/src/private.json",
+                     "frontend/.env", "frontend/node_modules/private.json", "frontend/public/private.json",
                      "tests/private.json", "packaging/windows/private.txt"):
             decoy = context / name
             decoy.parent.mkdir(parents=True, exist_ok=True)

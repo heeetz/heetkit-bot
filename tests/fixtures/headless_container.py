@@ -25,7 +25,13 @@ def seed():
     assert paths.root == Path("/var/lib/heetkit")
     for package in ("keyring", "webview", "pystray", "PIL", "PyInstaller"):
         assert importlib.util.find_spec(package) is None, package
-    assert not Path("/opt/heetkit/app/resources/frontend").exists()
+    frontend = Path("/opt/heetkit/app/resources/frontend")
+    assert (frontend / "index.html").is_file()
+    assert any((frontend / "assets").glob("*.js"))
+    assert any((frontend / "assets").glob("*.css"))
+    for asset in frontend.rglob("*"):
+        if asset.is_file():
+            assert b"synthetic-excluded-build-context-sentinel" not in asset.read_bytes()
     for name in ("data", "resources/private.json", "resources/icon.png", "resources/icon.ico", "resources/icon.icns", "resources/tray.png"):
         assert not Path("/opt/heetkit/app", name).exists(), "Excluded image content: " + name
     assert not any(Path("/opt/heetkit", name).exists() for name in (".git", "data", "frontend", "tests", "build", ".env"))

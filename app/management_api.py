@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import hmac
 import inspect
 import ipaddress
@@ -10,17 +11,19 @@ import json
 import logging
 import os
 import re
+import secrets
 import stat
 import time
 from collections import deque
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
 from aiohttp import web
 
 from app.app_settings import AppSettingsStore
 from app.bot_runtime import BotRuntime
 from app.management import ApplicationManagement
-from app.runtime_paths import RuntimePaths
+from app.runtime_paths import PACKAGED_FRONTEND, SOURCE_ROOT, RuntimePaths
 from app.utils.logging import RecentLogBuffer
 
 
@@ -28,6 +31,9 @@ MAX_BODY = 65536
 REQUEST_SECONDS = 25
 CONNECTION_SECONDS = 35
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{43,128}\Z")
+SESSION_SECONDS = 3600
+MAX_SESSIONS = 8
+MAX_ASSET = 4 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -99,11 +105,14 @@ READS = {
     "/v1/blocked-users": "get_blocked_ai_users",
 }
 WRITES = {
+    "/v1/commands/apply": "apply_command_settings",
+    "/v1/commands/reset-all": "reset_all_builtin_commands",
     "/v1/commands/save": "save_command_settings",
     "/v1/commands/reset": "reset_command_settings",
     "/v1/commands/remove": "remove_builtin_command",
     "/v1/commands/restore": "restore_builtin_command",
     "/v1/commands/responses/save": "save_command_responses",
+    "/v1/commands/responses/apply": "apply_command_responses",
     "/v1/commands/responses/reset": "reset_command_responses",
     "/v1/custom-commands/save": "save_custom_command",
     "/v1/custom-commands/delete": "delete_custom_command",
@@ -116,8 +125,10 @@ WRITES = {
     "/v1/personalities/delete": "delete_personality",
     "/v1/personalities/activate": "set_active_personality",
     "/v1/personalities/save": "save_personality",
+    "/v1/personalities/apply": "apply_personality",
     "/v1/personalities/reset": "reset_personality",
     "/v1/ai/instructions/save": "save_profile_instructions",
+    "/v1/ai/instructions/apply": "apply_profile_instructions",
     "/v1/ai/instructions/reset": "reset_profile_instructions",
     "/v1/blocked-users/block": "_block_ai_user",
     "/v1/blocked-users/unblock": "unblock_ai_user",
@@ -153,6 +164,11 @@ class ManagementAPI:
         self.desired_running = True
         self.generation = 0
         self.log_buffer = log_buffer
+        # Store only digests of short-lived browser bearer tokens. No cookies,
+        # persistent session state or automatic renewal of administrator authority.
+        self.sessions: dict[bytes, float] = {}
+        self.frontend = (SOURCE_ROOT / "frontend" / "dist" if SOURCE_ROOT is not None
+                         and not PACKAGED_FRONTEND.is_file() else PACKAGED_FRONTEND.parent)
 
     async def start(self) -> None:
         # No raw URL/header/error/access records enter the diagnostic buffer.
@@ -172,6 +188,7 @@ class ManagementAPI:
             raise
 
     async def close(self) -> None:
+        self.sessions.clear()
         if self.runner is not None:
             await self.runner.cleanup()
             self.runner = None
@@ -188,6 +205,42 @@ class ManagementAPI:
         response.force_close()
         return response
 
+    def asset(self, path: str) -> web.Response:
+        """Serve only Vite's public entry/icon and compiled JS/CSS, never profiles."""
+        if path in ("/", "/index.html"):
+            relative, content_type = "index.html", "text/html"
+        elif path == "/icon.png":
+            relative, content_type = "icon.png", "image/png"
+        elif re.fullmatch(r"/assets/[A-Za-z0-9_-]+\.(js|css)", path):
+            relative = path[1:]
+            content_type = "text/javascript" if path.endswith(".js") else "text/css"
+        else:
+            return self.response(404, {"ok": False, "error": "Unknown management resource."})
+        target = self.frontend / relative
+        try:
+            # The asset root is fixed by installation/source discovery, not a
+            # request parameter. Refuse symlink components and bounded reads only.
+            if any(part.is_symlink() for part in (self.frontend, target.parent, target)):
+                raise OSError
+            with target.open("rb") as source:
+                if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                    raise OSError
+                body = source.read(MAX_ASSET + 1)
+            if len(body) > MAX_ASSET:
+                raise OSError
+            if relative == "index.html":
+                body = body.replace(b"<head>", b'<head><meta name="heetkit-transport" content="http">', 1)
+        except OSError:
+            return self.response(503, {"ok": False, "error": "Browser panel assets unavailable; build the frontend before starting management."})
+        response = web.Response(body=body, content_type=content_type, headers={
+            "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+            "Referrer-Policy": "no-referrer", "Cross-Origin-Resource-Policy": "same-origin",
+            "X-Frame-Options": "DENY",
+        })
+        response.force_close()
+        return response
+
     async def handle(self, request: web.BaseRequest) -> web.Response:
         def reject(status, message):
             return self.response(status, {"ok": False, "error": message})
@@ -200,19 +253,38 @@ class ManagementAPI:
         if (len(request.headers.getall("Host", [])) != 1 or
                 request.headers.get("Host") not in self.config.authorities):
             return reject(403, "Untrusted Host.")
-        if ("Origin" in request.headers or "Cookie" in request.headers or
-                request.headers.get("Sec-Fetch-Site", "none") != "none"):
-            return reject(403, "Browser-origin requests are not supported.")
-        authorization = request.headers.getall("Authorization", [])
-        expected = "Bearer " + self.config.token
-        if len(authorization) != 1 or not hmac.compare_digest(authorization[0].encode("utf-8"), expected.encode("ascii")):
-            return reject(401, "Authentication required.")
+        origins = request.headers.getall("Origin", [])
+        host = request.headers["Host"]
+        # HTTPS may terminate at a private proxy preserving the exact Host. Never
+        # infer trust from Forwarded/X-Forwarded-* headers or enable CORS.
+        allowed_origins = {"https://" + host}
+        if host in {f"127.0.0.1:{self.config.port}", f"localhost:{self.config.port}", f"[::1]:{self.config.port}"}:
+            allowed_origins.add("http://" + host)
+        if (len(origins) > 1 or (origins and origins[0] not in allowed_origins)
+                or "Cookie" in request.headers
+                or request.headers.get("Sec-Fetch-Site", "none") not in ("none", "same-origin")):
+            return reject(403, "Untrusted browser origin or cookies.")
         if request.query_string or request.raw_path != request.path:
-            return reject(400, "Use an exact API path without query parameters.")
-        if "Content-Encoding" in request.headers or "Transfer-Encoding" in request.headers:
-            return reject(400, "Encoded or streamed bodies are not supported.")
+            return reject(400, "Use an exact path without query parameters.")
         if request.method not in ("GET", "POST"):
             return reject(405, "Method not supported.")
+        if not request.path.startswith("/v1/"):
+            if request.method != "GET" or request.content_length not in (None, 0):
+                return reject(405, "Assets require GET without a body.")
+            return self.asset(request.path)
+        authorization = request.headers.getall("Authorization", [])
+        expected = "Bearer " + self.config.token
+        self.sessions = {key: expiry for key, expiry in self.sessions.items() if expiry > now}
+        supplied = authorization[0] if len(authorization) == 1 else ""
+        admin = hmac.compare_digest(supplied.encode("utf-8"), expected.encode("ascii"))
+        digest = hashlib.sha256(supplied.removeprefix("Bearer ").encode("utf-8")).digest()
+        session = supplied.startswith("Bearer ") and digest in self.sessions
+        if not (admin or session):
+            return reject(401, "Authentication required.")
+        if request.path == "/v1/session" and (admin != (request.method == "POST")):
+            return reject(401, "Authentication required.")
+        if "Content-Encoding" in request.headers or "Transfer-Encoding" in request.headers:
+            return reject(400, "Encoded or streamed bodies are not supported.")
         self.active += 1
         try:
             async with asyncio.timeout(REQUEST_SECONDS):
@@ -234,7 +306,26 @@ class ManagementAPI:
                 # The lock spans awaited lifecycle/block operations as well as
                 # synchronous store transactions. All mutations run on the core loop.
                 async with self.lock:
-                    result = await self.dispatch(request.method, request.path, payload)
+                    # A queued request must not outlive logout/session expiry.
+                    if session and self.sessions.get(digest, 0) <= time.monotonic():
+                        return reject(401, "Session expired; sign in again.")
+                    if request.path == "/v1/session":
+                        if payload:
+                            raise ValueError
+                        result = {"ok": True}
+                        if request.method == "POST":
+                            token = secrets.token_urlsafe(32)
+                            if len(self.sessions) >= MAX_SESSIONS:
+                                del self.sessions[next(iter(self.sessions))]
+                            self.sessions[hashlib.sha256(token.encode("ascii")).digest()] = now + SESSION_SECONDS
+                            result.update(token=token, expires_in=SESSION_SECONDS)
+                    elif request.method == "POST" and request.path == "/v1/session/logout":
+                        if payload:
+                            raise ValueError
+                        self.sessions.pop(digest, None)
+                        result = {"ok": True}
+                    else:
+                        result = await self.dispatch(request.method, request.path, payload)
                 status = 200 if result.get("ok", True) else 400
                 return self.response(status, result)
         except TimeoutError:
@@ -264,7 +355,19 @@ class ManagementAPI:
             # text (some legacy validators interpolate supplied values).
             if result.get("ok") is False:
                 return {"ok": False, "error": "Operation rejected; check input, profile storage and current state."}
+            if method == "GET" and path == "/v1/ai/models":
+                result["settings"]["credential"] = self.credential_statuses()[1]
             return result
+        if method == "GET" and path == "/v1/snapshot":
+            return {"status": self.service.get_app_status(), "ai_status": self.service.get_ai_status()}
+        if method == "GET" and path == "/v1/about":
+            return self.service.get_about_info()
+        if method == "GET" and path == "/v1/setup":
+            return self.setup_status()
+        if method == "POST" and path == "/v1/ai/models/discover":
+            if payload:
+                raise ValueError
+            return {"ok": True, "models": await self.runtime.application.services.ai.discover_models()}
         if method == "GET" and path == "/v1/diagnostics":
             return {"ok": True, "process_uptime_seconds": int(time.monotonic() - self.started),
                     "desired_running": self.desired_running,
@@ -282,11 +385,11 @@ class ManagementAPI:
             self.desired_running = start
             self.generation += int(changed)
             return {"ok": True, "changed": changed}
-        if method == "POST" and path in ("/v1/filters/save", "/v1/filters/test"):
-            if path.endswith("/save"):
+        if method == "POST" and path in ("/v1/filters/save", "/v1/filters/apply", "/v1/filters/test"):
+            if not path.endswith("/test"):
                 if set(payload) != {"payload"}:
                     raise ValueError
-                await self.service._change_filters(payload["payload"], save=True)
+                await self.service._change_filters(payload["payload"], save=path.endswith("/save"))
                 return {"ok": True}
             operation = self.service._test_filters
             inspect.signature(operation).bind(**payload)
@@ -307,12 +410,40 @@ class ManagementAPI:
             # Only lifecycle codes and safe fixed messages; raw logger text/context
             # can contain chat/provider payloads and is deliberately not returned.
             entries = self.log_buffer.recent(after_id=after, limit=limit) if self.log_buffer else []
-            return {"ok": True, "entries": [{"id": entry["id"], "timestamp": entry["timestamp"],
-                "level": entry["level"], "message": "Twitch lifecycle: " + entry["event_kind"]}
+            return {"ok": True, "next_after_id": entries[-1]["id"] if entries else after,
+                "entries": [{"id": entry["id"], "timestamp": entry["timestamp"],
+                "level": entry["level"], "source": "headless", "context": {},
+                "event_kind": entry["event_kind"], "message": "Twitch lifecycle: " + entry["event_kind"]}
                 for entry in entries if entry.get("event_kind") in {
                     "twitch.subscribe", "twitch.connected", "twitch.recovered", "twitch.disconnected",
                     "twitch.auth_required", "twitch.failed", "twitch.shutdown"}]}
         raise LookupError
+
+    def credential_statuses(self) -> list[dict]:
+        """Headless reports secret presence only, without invoking OS keyrings."""
+        settings = self.runtime.application.settings
+        return [{"name": name, "label": label, "configured": bool(value),
+            "source": "environment" if value else "missing", "secure_storage_available": False}
+            for name, label, value in (
+                ("twitch_client_secret", "Twitch client secret", settings.twitch_client_secret),
+                ("gemini_api_key", "Gemini API key", settings.gemini_api_key))]
+
+    def setup_status(self) -> dict:
+        """Project effective configuration status, never credentials or paths."""
+        settings = self.runtime.application.settings
+        credentials = self.credential_statuses()
+        provider = self.service.get_ai_provider_settings()["settings"]
+        provider["credential"] = credentials[1]
+        state = self.service.get_app_status()
+        return {"ok": True, "credentials": credentials, "aiProvider": provider,
+            "twitch": {"client_id": settings.twitch_client_id, "bot_username": settings.twitch_bot_username,
+                "bot_user_id": settings.twitch_bot_user_id, "target_channel": settings.twitch_channel,
+                "target_channel_user_id": settings.twitch_channel_user_id,
+                "active_channel": settings.twitch_channel, "active_channel_user_id": settings.twitch_channel_user_id,
+                "requires_restart": False, "requires_reconnect": False, "running": state["running"],
+                "connected": state["twitch_connected"], "oauth_token_available": Path(settings.twitch_token_file).is_file(),
+                "presets": [], "selected_preset_id": None, "active_preset_id": None,
+                "oauth_callback_url": "", "has_local_override": False}}
 
 
 class _BoundedServer(web.Server):

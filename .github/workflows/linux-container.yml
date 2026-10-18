@@ -5,6 +5,12 @@ on:
     branches: [main]
     paths:
       - 'app/**'
+      - 'frontend/src/**'
+      - 'frontend/public/icon.png'
+      - 'frontend/package*.json'
+      - 'frontend/tsconfig*.json'
+      - 'frontend/index.html'
+      - 'frontend/vite.config.ts'
       - 'pyproject.toml'
       - 'Dockerfile'
       - '.dockerignore'

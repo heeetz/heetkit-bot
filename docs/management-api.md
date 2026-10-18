@@ -2,9 +2,8 @@
 
 The headless runtime has an optional HTTP API for one administrator managing one
 bot. It reuses the desktop's application operations, command namespace, validation,
-configuration stores and active runtime. It serves JSON only. The browser panel
-and browser login/session support are separate work; this API accepts native
-clients and rejects browser-origin requests.
+configuration stores and active runtime. The same listener serves the existing
+React interface for browsers and an explicit JSON API for native clients.
 
 ## Enable private access
 
@@ -52,6 +51,44 @@ publish it to the internet. HTTP carries the bearer token in each request: use a
 SSH tunnel or a protected private network when accessing another machine. This
 feature does not provision TLS, tunnels, proxies, cloud resources or firewall rules.
 
+## Browser panel
+
+Open [the local panel](http://127.0.0.1:8765/) after enabling management. Source
+installs need `npm ci` and `npm run build` in `frontend/` first; installed packages
+use their staged frontend. The Docker image builds the same React source itself.
+A missing build returns a safe 503 message without affecting native API access.
+The desktop continues to use its normal pywebview bridge and build process.
+
+Enter the management token in the password field. It is exchanged for a random
+session token held only in this tab's memory. Neither token is stored in browser
+storage, cookies or URLs. Sessions expire after one hour without automatic renewal;
+reload requires signing in again. Sign out clears the interface and drafts immediately
+and revokes the session on the server when reachable. At most eight sessions exist;
+another login replaces the oldest when full. Restart invalidates every session;
+rotating the administrator token still requires restart. A disconnected sign-out
+clears local access, but its unreachable server session lasts until expiry/restart.
+
+Use loopback HTTP (including an SSH tunnel) or HTTPS. Plain HTTP to a private LAN
+address cannot sign in. Browser requests must use the exact same origin as the page;
+there is no CORS access or remote-server address field. An existing private HTTPS
+proxy must preserve the exact configured Host including port. The corresponding
+`https://IP:port` origin is accepted; forwarded headers do not establish trust.
+DNS hostname authorities remain unsupported. Do not expose this service publicly.
+
+Commands, response pools, custom commands, filters/tester, personalities, instructions,
+AI enablement/memory/language/models, blocked users, Dashboard and safe lifecycle logs
+reuse the existing pages and server operations. Apply retains the existing session-only
+meaning; Save persists and applies. Bot stop/start keeps the panel available.
+Settings shows server configuration status and guidance: provision Twitch identity,
+authorization, secrets and privacy settings on the server, then restart as required.
+Native folders/tray actions, credential editors, desktop update checks and the local
+AI Playground are unavailable in browser mode. Ordinary project links remain available.
+
+Browser status/AI share one snapshot every five seconds; logs refresh every five
+seconds only while open. Hidden tabs pause polling. Requests do not overlap within
+each polling loop. Errors identify unavailable servers or expired sessions; a 401
+clears access and returns to sign-in. Mutations are never automatically retried.
+
 ## Docker opt-in
 
 The default Compose file still publishes no ports. After provisioning the normal
@@ -75,12 +112,17 @@ HTTP access. No live profile migration is performed by enabling the API.
 
 ## Requests and operations
 
-Every route requires `Authorization: Bearer <private token>`. Requests must use the
+Every JSON route requires `Authorization: Bearer <private token or session token>`.
+Requests must use the
 exact path without query parameters, JSON objects for POST, and an explicit
 Content-Length. JSON duplicate keys, non-finite values, compressed/chunked bodies,
 unknown operation arguments and invalid domain settings are rejected. GET has no
-body. Origin, Cookie and browser fetch-site requests are rejected, including
-preflight requests; no CORS policy or session cookie is issued.
+body. Cookies, cross-origin/same-site browser requests and preflights are rejected;
+an exact trusted same-origin browser request is allowed. No CORS policy or cookie
+is issued. Public static assets carry no configuration or credentials, refuse
+cross-site loading, and use a restrictive content security policy. Only the entry
+page, icon and named compiled JS/CSS assets can be served; profiles, source maps
+and arbitrary paths are excluded. Assets are limited to 4 MiB each.
 
 This native Python example reads the private token into memory and does not print
 it. It also avoids environment-configured HTTP proxies:
@@ -112,33 +154,43 @@ POST writes persist and apply immediately unless stated otherwise.
 
 | Method and path | JSON arguments / result |
 |---|---|
+| POST `session` | `{}` with administrator bearer only; returns `token`, `expires_in` (3600 seconds) |
+| GET `session` / POST `session/logout` | Check current session / revoke it with `{}` |
+| GET `snapshot` | Combined `status` and `ai_status` for browser polling |
+| GET `setup`, `about` | Effective non-secret setup status / shared application metadata |
 | GET `status` | Running, Twitch connection state, session uptime, account and channel |
 | POST `bot/start`, `bot/stop` | `{}`; returns whether the session changed |
 | GET `commands` | Built-ins, effective/default settings, aliases, permissions, cooldowns and response pools |
 | POST `commands/save` | `command_name`, `enabled`, `per_user_seconds`, `global_seconds`, `permission`; optional `options` with `aliases`, `display_name`, `burst_interval_ms`, `burst_max_count` |
 | POST `commands/reset`, `commands/remove`, `commands/restore` | `command_name`; factory administrative permission floors remain enforced |
+| POST `commands/apply` / `commands/reset-all` | Same arguments as Save but session-only / `{}` to restore all factory settings/responses, never custom commands |
 | POST `commands/responses/save` | `name` (`fate` or `tg`), `responses` (list of text) |
 | POST `commands/responses/reset` | `name` |
+| POST `commands/responses/apply` | Same as responses Save, session-only |
 | GET `custom-commands` | Commands, allowed template variables and permissions |
 | POST `custom-commands/save` | `command` object in the existing command format: `name`, `enabled`, `responses`, `permission`, `per_user_seconds`, `global_seconds`, `aliases`; an existing `id` edits that command; existing optional response-mode/burst fields are supported |
 | POST `custom-commands/delete` | `identifier` (saved command ID) |
 | GET `ai` | AI availability, enablement, memory, model and active personality |
 | POST `ai/enabled`, `ai/memory` | Boolean `enabled` |
 | GET / POST `ai/models` | GET: selected/fallback model and presets, no secret values. POST: `selected_model`, `fallback_model` (distinct valid model IDs) |
+| POST `ai/models/discover` | `{}`; existing bounded provider model discovery |
 | GET / POST `ai/language` | POST: `mode` (`auto` or `limited`), `allowed_languages` (codes), `fallback_language` |
 | GET `personalities` | Prompts, saved state, active personality and protected instructions |
 | POST `personalities/create` | `name`, `prompt` |
 | POST `personalities/rename` | `personality`, `name` |
 | POST `personalities/delete`, `personalities/activate`, `personalities/reset` | `personality` |
 | POST `personalities/save` | `personality`, `prompt` |
+| POST `personalities/apply` | `personality`, `prompt`; session-only |
 | POST `ai/instructions/save` / `ai/instructions/reset` | `prompt` / `{}` |
+| POST `ai/instructions/apply` | `prompt`; session-only |
 | GET `filters` | Active/saved word, phrase and pattern rules |
 | POST `filters/save` | `payload` object containing `words`, `phrases`, `patterns` lists |
+| POST `filters/apply` | Same as filters Save, session-only |
 | POST `filters/test` | `text`, `source` (`active` or `draft`), `payload` (`null` for active; filter object for draft) |
 | GET `blocked-users` | AI-blocked usernames and whether a verified ID is recorded |
 | POST `blocked-users/block`, `blocked-users/unblock` | `username` |
 | GET / POST `triggers` | GET: ordinary-message reactions. POST: complete `triggers` list, at most 100 unique IDs |
-| POST `logs/recent` | Optional integer `after_id` (default 0), `limit` (1–200, default 100); safe lifecycle entries only |
+| POST `logs/recent` | Optional integer `after_id` (default 0), `limit` (1–200, default 100); safe lifecycle entries plus `next_after_id` advancing across excluded private entries |
 | GET `diagnostics` | Process uptime, desired session state and settings/restart boundaries |
 
 Each trigger has `id` (1–40 ASCII letters/digits/underscore/hyphen), boolean
@@ -183,14 +235,16 @@ lifetime. Responses close their connection. API cleanup gets up to five seconds
 plus cancellation grace before the existing bounded core shutdown proceeds.
 
 Errors use safe fixed text: 400 rejected input/operation, 401 authentication required,
-403 untrusted Host/browser origin, 404 unknown resource, 405 unsupported method,
+403 untrusted Host/browser origin/cookies, 404 unknown resource, 405 unsupported method,
 413 body limit, 415 content type, 429 request limit, 500 operation/storage failure,
-504 deadline. After a timeout or disconnect, inspect current state before retrying:
+503 missing/oversized frontend asset, 504 deadline. After a timeout or disconnect, inspect current state before retrying:
 an operation may already have committed. The token authenticates the administrator;
 it does not defend an exposed service against network denial of service.
 
 Focused integration tests use disposable profiles, real loopback HTTP, SQLite and
 synthetic Twitch boundaries. They cover authentication/browser protections, private
 response shapes, validation, permissions, persisted/live changes, concurrent writes,
-limits, lifecycle stop/start and cleanup. They do not establish live Twitch/Gemini,
-an internet-facing deployment, or browser-panel acceptance.
+limits, lifecycle stop/start and cleanup. They do not establish live Twitch/Gemini
+or an internet-facing deployment. Focused browser checks cover transport/session
+behavior, desktop regressions, mobile layout and built-interface access to a synthetic
+server; they do not establish live account or native packaged-desktop acceptance.

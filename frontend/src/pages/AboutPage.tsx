@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { type AboutInfo, type UpdateCheckResponse, waitForBridge } from '../bridge'
+import { type AboutInfo, type UpdateCheckResponse, isBrowserMode, waitForBridge } from '../bridge'
 import HelpTip from '../components/HelpTip'
 
 type ExternalDestination = 'repository' | 'license' | 'third_party_notices' | 'author_twitch' | 'releases'
@@ -121,7 +121,7 @@ function AboutPage() {
         <p className="about-disclaimer">Not affiliated with or endorsed by Twitch.</p>
       </article>
 
-      <article className="card update-card">
+      {!isBrowserMode() && <article className="card update-card">
         <div className="section-heading update-heading">
           <div className="update-title">
             <h2>Check for updates</h2>
@@ -161,7 +161,7 @@ function AboutPage() {
           </div>
         )}
         {updateError && <p className="inline-error update-error" role="alert">{updateError}</p>}
-      </article>
+      </article>}
 
       <article className="card about-links-card">
         <div className="section-heading">

@@ -20,6 +20,20 @@ from app.filter_settings import (get_filter_settings, validate_filter_input,
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
 from app.utils.logging import RecentLogBuffer, get_logger
+from app.services.updates import RELEASE_PAGE_URL
+from app.version import VERSION
+
+
+APPLICATION_NAME = "HeetKit"
+APPLICATION_SUBTITLE = "Desktop control center for Twitch chat"
+EXTERNAL_LINKS = {
+    "repository": "https://github.com/heeetz/twitch-bot",
+    "license": "https://github.com/heeetz/twitch-bot/blob/main/LICENSE",
+    "third_party_notices": "https://github.com/heeetz/twitch-bot/blob/main/THIRD_PARTY_NOTICES.md",
+    "author_twitch": "https://www.twitch.tv/heet_ok",
+    "twitch_developer_console": "https://dev.twitch.tv/console/apps",
+    "releases": RELEASE_PAGE_URL,
+}
 
 
 class ApplicationManagement:
@@ -113,6 +127,15 @@ class ApplicationManagement:
             "uptime_seconds": uptime,
             "channel": application.settings.twitch_channel,
             "account": application.settings.twitch_bot_username,
+        }
+
+    def get_about_info(self) -> dict[str, str]:
+        return {
+            "application_name": APPLICATION_NAME, "application_subtitle": APPLICATION_SUBTITLE,
+            "version": VERSION, "author": "heeetz", "author_twitch": "@heet_ok",
+            "repository_url": EXTERNAL_LINKS["repository"], "discord_contact": "de.tected",
+            "license_name": "Apache-2.0", "license_url": EXTERNAL_LINKS["license"],
+            "third_party_notices_url": EXTERNAL_LINKS["third_party_notices"],
         }
 
     def get_commands(self) -> dict[str, object]:

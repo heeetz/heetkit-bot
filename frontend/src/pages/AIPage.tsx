@@ -9,6 +9,7 @@ import {
   type GeminiModelPreset,
   type PersonalityInfo,
   type PersonalitiesResponse,
+  isBrowserMode,
   waitForBridge,
 } from '../bridge'
 import FeedbackToast from '../components/FeedbackToast'
@@ -609,7 +610,7 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
   }
 
   const playgroundButton = (source: NonNullable<typeof playgroundSource>, needsChoice: boolean) => (
-    <button className="secondary" disabled={loading || Boolean(busy)} onClick={() => needsChoice ? setPlaygroundSource(source) : openPlayground()}>Open Playground</button>
+    !isBrowserMode() && <button className="secondary" disabled={loading || Boolean(busy)} onClick={() => needsChoice ? setPlaygroundSource(source) : openPlayground()}>Open Playground</button>
   )
 
   const playgroundChoice = (source: NonNullable<typeof playgroundSource>) => (
@@ -665,7 +666,7 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
           <div className="ai-state-heading ai-gemini-heading">
             <h2>Gemini</h2>
             <div className="ai-state-actions">
-              <HelpTip label="Gemini">Gemini is optional. Manage the API key in Settings and use Test credential to validate access. A valid key does not prove model availability or quota; test generation separately in Playground.</HelpTip>
+              <HelpTip label="Gemini">{isBrowserMode() ? 'Gemini is optional. Configure its secret on the server; the browser never reads or changes provider secrets.' : 'Gemini is optional. Manage the API key in Settings and use Test credential to validate access. A valid key does not prove model availability or quota; test generation separately in Playground.'}</HelpTip>
               <button className="secondary" disabled={loading} aria-label={providerSaved?.credential?.configured ? 'Manage Gemini key' : 'Add Gemini key'} onClick={onOpenSettings}>Manage</button>
             </div>
           </div>
@@ -678,7 +679,7 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
           <strong>{data ? data.active_personality || 'Not selected' : 'Loading…'}</strong>
         </article>
       </div>
-      <AIPlayground active={active} personality={data?.active_personality ?? ''} hasDrafts={hasDrafts} />
+      {isBrowserMode() ? <article className="card"><p>AI Playground is available in the desktop application. Saved AI settings here apply to requests made by the running bot.</p></article> : <AIPlayground active={active} personality={data?.active_personality ?? ''} hasDrafts={hasDrafts} />}
       <Accordion
         id="ai-personalities"
         title="Personality-specific prompt"

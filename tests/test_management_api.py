@@ -1,6 +1,7 @@
 """Private HTTP integration against synthetic profiles and the real shared core."""
 
 import asyncio
+import hashlib
 import json
 import logging
 import socket
@@ -309,3 +310,144 @@ def test_private_bind_token_files_and_secret_safe_configuration(tmp_path, monkey
         with pytest.raises(ValueError):
             ManagementConfig(TOKEN, host=host)
     assert ManagementConfig(TOKEN, host="0.0.0.0", allowed_host="127.0.0.1:8765").authorities == {"127.0.0.1:8765"}
+
+
+@pytest.mark.asyncio
+async def test_browser_session_origin_expiry_revocation_and_capacity(api):
+    server, call = api
+    origin = f"http://127.0.0.1:{server.config.port}"
+    headers = {"Origin": origin, "Sec-Fetch-Site": "same-origin"}
+    for change in ({"Origin": "null"}, {"Origin": "https://evil.test"},
+                   {"Sec-Fetch-Site": "same-site"}, {"Cookie": "admin=value"},
+                   {"Origin": origin + "/"}, {"Authorization": ""}):
+        status, body, _ = await call("POST", "/v1/session", json={}, headers=headers | change)
+        assert status in (401, 403)
+        assert "token" not in body and not server.sessions
+    status, body, response_headers = await call("POST", "/v1/session", json={}, headers=headers)
+    assert status == 200 and body["expires_in"] == 3600
+    token = body["token"]
+    assert token != TOKEN and token not in repr(server.sessions)
+    assert response_headers["Cache-Control"] == "no-store" and "Set-Cookie" not in response_headers
+    browser = headers | {"Authorization": "Bearer " + token}
+    assert (await call("GET", "/v1/session", headers=browser))[0] == 200
+    assert (await call("GET", "/v1/snapshot", headers=browser))[0] == 200
+    assert (await call("POST", "/v1/session", json={}, headers=browser))[0] == 401
+    assert (await call("POST", "/v1/session/logout", json={}, headers=browser))[0] == 200
+    assert (await call("GET", "/v1/status", headers=browser))[0] == 401
+    for _ in range(9):
+        _, body, _ = await call("POST", "/v1/session", json={}, headers=headers)
+    assert len(server.sessions) == 8
+    token = body["token"]
+    digest = hashlib.sha256(token.encode()).digest()
+    server.sessions[digest] = 0
+    assert (await call("GET", "/v1/status", headers=browser | {"Authorization": "Bearer " + token}))[0] == 401
+    assert len(server.sessions) == 7
+    # Private plaintext browser origins are refused; an exact HTTPS origin works.
+    server.config = ManagementConfig(TOKEN, port=server.config.port, allowed_host="192.168.0.5:8765")
+    for scheme, expected in (("http", 403), ("https", 200)):
+        assert (await call("POST", "/v1/session", json={}, headers={
+            "Host": "192.168.0.5:8765", "Origin": scheme + "://192.168.0.5:8765",
+            "Sec-Fetch-Site": "same-origin"}))[0] == expected
+
+
+@pytest.mark.asyncio
+async def test_session_queued_before_logout_cannot_mutate(api):
+    server, call = api
+    _, body, _ = await call("POST", "/v1/session", json={})
+    token = body["token"]
+    await server.lock.acquire()
+    pending = asyncio.create_task(call("POST", "/v1/ai/memory", json={"enabled": False},
+        headers={"Authorization": "Bearer " + token}))
+    try:
+        for _ in range(100):
+            if server.active:
+                break
+            await asyncio.sleep(0.01)
+        assert server.active == 1
+        server.sessions.clear()
+    finally:
+        server.lock.release()
+    assert (await pending)[0] == 401
+    assert server.runtime.application.services.runtime_state.ai_memory_enabled
+
+
+@pytest.mark.asyncio
+async def test_built_frontend_delivery_is_allowlisted_and_isolated(api, tmp_path):
+    server, call = api
+    server.frontend = tmp_path / "ui"
+    (server.frontend / "assets").mkdir(parents=True)
+    (server.frontend / "index.html").write_text('<html><head></head><body><script src="./assets/index-test.js"></script></body></html>')
+    (server.frontend / "assets/index-test.js").write_text('console.log("synthetic");')
+    (server.frontend / "assets/index-test.css").write_text('body{color:white}')
+    (server.frontend / "assets/private.json").write_text('private-sentinel')
+    (server.frontend / "private.txt").write_text('private-sentinel')
+    (server.frontend / "assets/index-test.js.map").write_text('private-sentinel')
+    url = f"http://127.0.0.1:{server.config.port}"
+    async with aiohttp.ClientSession(trust_env=False) as client:
+        for path, kind in (("/", "text/html"), ("/index.html", "text/html"),
+                           ("/assets/index-test.js", "text/javascript"), ("/assets/index-test.css", "text/css")):
+            async with client.get(url + path) as response:
+                text = await response.text()
+                assert response.status == 200 and response.content_type == kind
+                assert response.headers["Cache-Control"] == "no-store"
+                assert response.headers["Cross-Origin-Resource-Policy"] == "same-origin"
+                csp = response.headers["Content-Security-Policy"]
+                assert "script-src 'self';" in csp and "frame-ancestors 'none'" in csp
+                assert "private-sentinel" not in text
+                if kind == "text/html":
+                    assert '<meta name="heetkit-transport" content="http">' in text
+        for path in ("/private.txt", "/assets/private.json", "/assets/index-test.js.map",
+                     "/auth/tokens.json", "/.env", "/assets/%2e%2e/private.txt"):
+            async with client.get(url + path) as response:
+                assert response.status in (400, 404)
+                assert "private-sentinel" not in await response.text()
+        async with client.get(url + "/", headers={"Sec-Fetch-Site": "cross-site"}) as response:
+            assert response.status == 403
+        async with client.get(url + "/?token=private-sentinel") as response:
+            assert response.status == 400
+    (server.frontend / "assets/index-test.js").write_bytes(b"x" * (4 * 1024 * 1024 + 1))
+    async with aiohttp.ClientSession() as client:
+        async with client.get(url + "/assets/index-test.js") as response:
+            assert response.status == 503
+    assert (await call("GET", "/v1/status", headers={"Authorization": ""}))[0] == 401
+
+
+@pytest.mark.asyncio
+async def test_browser_presentation_routes_apply_save_and_log_cursor(api, monkeypatch):
+    server, call = api
+    for path in ("/v1/snapshot", "/v1/setup", "/v1/about"):
+        status, body, _ = await call("GET", path)
+        assert status == 200
+        assert "private-client-sentinel" not in json.dumps(body) and TOKEN not in json.dumps(body)
+        assert str(RuntimePaths.default().root) not in json.dumps(body)
+    _, setup, _ = await call("GET", "/v1/setup")
+    assert setup["credentials"][0]["configured"] and setup["twitch"]["client_id"] == "synthetic-client"
+    from pydantic import SecretStr
+    server.runtime.application.settings.gemini_api_key = SecretStr("private-provider-sentinel")
+    _, provider, _ = await call("GET", "/v1/ai/models")
+    assert provider["settings"]["credential"]["configured"]
+    assert "private-provider-sentinel" not in json.dumps(provider)
+    command = {"command_name": "ping", "enabled": False, "per_user_seconds": 7,
+               "global_seconds": 3, "permission": "MODERATOR"}
+    assert (await call("POST", "/v1/commands/apply", json=command))[0] == 200
+    ping = next(item for item in server.service.get_commands()["commands"] if item["name"] == "ping")
+    assert not ping["enabled"] and not ping["saved"]
+    for path, data in (("/v1/commands/responses/apply", {"name": "fate", "responses": ["Synthetic response"]}),
+                       ("/v1/filters/apply", {"payload": {"words": ["blocked"], "phrases": [], "patterns": []}}),
+                       ("/v1/ai/instructions/apply", {"prompt": "Synthetic instructions"}),
+                       ("/v1/personalities/apply", {"personality": "neutral", "prompt": "Synthetic prompt"}),
+                       ("/v1/commands/reset-all", {})):
+        assert (await call("POST", path, json=data))[0] == 200
+    async def discover():
+        return ["gemini-synthetic"]
+    monkeypatch.setattr(server.runtime.application.services.ai, "discover_models", discover)
+    assert (await call("POST", "/v1/ai/models/discover", json={}))[1]["models"] == ["gemini-synthetic"]
+    record = logging.LogRecord("test", logging.INFO, "", 0, "private-chat-sentinel", (), None)
+    server.log_buffer.append(record, "private-chat-sentinel")
+    _, body, _ = await call("POST", "/v1/logs/recent", json={"limit": 1})
+    assert body["entries"] == [] and body["next_after_id"] > 0
+    record.event_kind = "twitch.connected"
+    server.log_buffer.append(record, "private-chat-sentinel")
+    _, body, _ = await call("POST", "/v1/logs/recent", json={"after_id": body["next_after_id"]})
+    assert body["entries"][0]["source"] == "headless" and body["entries"][0]["context"] == {}
+    assert "private-chat-sentinel" not in json.dumps(body)

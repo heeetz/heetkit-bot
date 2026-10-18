@@ -26,7 +26,7 @@ from pydantic import SecretStr, ValidationError
 
 from app.app_settings import AISettings, AppSettings, AppSettingsStore, TwitchSettings
 from app.bot_runtime import BotRuntime
-from app.management import ApplicationManagement
+from app.management import APPLICATION_NAME, APPLICATION_SUBTITLE, EXTERNAL_LINKS, ApplicationManagement
 from app.command_settings import CommandSettings
 from app.commands.registry import command_unavailable_reason
 from app.custom_commands import VARIABLES
@@ -58,7 +58,7 @@ from app.runtime_paths import (
     RuntimePaths, RuntimeDataError, prepare_runtime_data,
 )
 from app.system_tray import SystemTray
-from app.services.updates import RELEASE_PAGE_URL, UpdateCheckError, check_for_updates
+from app.services.updates import UpdateCheckError, check_for_updates
 from app.services.ai_request_policy import PolicyDecision
 from app.services.gemini_ai_service import GEMINI_REQUEST_TIMEOUT_SECONDS
 from app.windows_runtime import DesktopPrerequisiteError, ensure_windows_runtime
@@ -86,17 +86,6 @@ BRIDGE_UPDATE_CHECK_TIMEOUT_SECONDS = 15.0
 BRIDGE_BOT_START_TIMEOUT_SECONDS = 10.0
 BRIDGE_BOT_STOP_TIMEOUT_SECONDS = 20.0
 BRIDGE_TWITCH_RECONNECT_TIMEOUT_SECONDS = 30.0
-APPLICATION_NAME = "HeetKit"
-APPLICATION_SUBTITLE = "Desktop control center for Twitch chat"
-EXTERNAL_LINKS = {
-    # Repository address remains unchanged until a separately requested remote rename.
-    "repository": "https://github.com/heeetz/twitch-bot",
-    "license": "https://github.com/heeetz/twitch-bot/blob/main/LICENSE",
-    "third_party_notices": "https://github.com/heeetz/twitch-bot/blob/main/THIRD_PARTY_NOTICES.md",
-    "author_twitch": "https://www.twitch.tv/heet_ok",
-    "twitch_developer_console": "https://dev.twitch.tv/console/apps",
-    "releases": RELEASE_PAGE_URL,
-}
 
 # Register functions by exact name; never give pywebview an object to traverse.
 FRONTEND_OPERATIONS = (
@@ -450,20 +439,6 @@ class WebUIBridge(ApplicationManagement):
             return {"ok": False, "error": "Could not save AI user block. Check the profile file and try again."}
         return self.get_blocked_ai_users()
 
-
-    def get_about_info(self) -> dict[str, str]:
-        return {
-            "application_name": APPLICATION_NAME,
-            "application_subtitle": APPLICATION_SUBTITLE,
-            "version": application_version(),
-            "author": "heeetz",
-            "author_twitch": "@heet_ok",
-            "repository_url": EXTERNAL_LINKS["repository"],
-            "discord_contact": "de.tected",
-            "license_name": "Apache-2.0",
-            "license_url": EXTERNAL_LINKS["license"],
-            "third_party_notices_url": EXTERNAL_LINKS["third_party_notices"],
-        }
 
     def get_profile_info(self) -> dict[str, str]:
         return {"path": str(self._profile_root)}

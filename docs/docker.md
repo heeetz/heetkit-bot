@@ -3,15 +3,17 @@
 HeetKit's container runs the shared [headless backend](development.md#headless-runtime)
 for one previously authorized Twitch bot. By default it has no window, dashboard,
 HTTP listener, OAuth callback listener or published ports. An explicit
-[private management API overlay](management-api.md#docker-opt-in) is available.
+[private management API and browser panel overlay](management-api.md#docker-opt-in) is available.
 Use a Linux amd64 Docker Engine with
 Docker Compose v2, or Docker Desktop configured for Linux containers.
 
 The canonical `Dockerfile` pins the official CPython 3.14.7 Debian slim image by
 digest. `packaging/linux/requirements.txt` pins the complete backend wheel closure
 with SHA-256 hashes. The build accepts wheels only, installs no GUI/build packages,
-and copies allowlisted application sources and neutral defaults. No frontend build,
-Windows toolchain, private profile, dotenv file or development directory enters the image.
+and copies allowlisted application sources and neutral defaults. A separate digest-pinned
+official Node 24 build stage runs the existing locked React build. Only its production
+page, icon and compiled assets enter the Python runtime; Node, frontend source/tests,
+Windows tools, private profiles, dotenv files and development directories are excluded.
 Other CPU architectures are not validated by this lock. Linux uses `multidict==6.9.1`
 as a narrow exception to the older Windows pins, fixing the upstream
 [items-view reference leak](https://github.com/aio-libs/multidict/security/advisories/GHSA-54p9-h82j-f925).
@@ -169,7 +171,7 @@ automatic update or cloud deployment is configured.
 `python3 scripts/check_linux_container.py` builds the canonical Compose image and
 uses a randomly named disposable project/volume with synthetic settings and secrets.
 It stages tracked build inputs in a temporary context with synthetic excluded profile,
-secret and frontend decoys, checking that none appear in the image; it never reads
+secret and generated-frontend decoys, checking that none appear in the image; it never reads
 the checkout's ignored profile or secrets.
 It disables container networking and replaces only the Twitch remote boundary.
 It checks non-root execution, absence of GUI dependencies, real OS signals,
