@@ -72,7 +72,6 @@ async def test_authentication_origin_host_and_private_surface(api):
         ({"Authorization": "Bearer wrong"}, 401),
         ({"Origin": "http://evil.test"}, 403),
         ({"Origin": "null"}, 403),
-        ({"Cookie": "session=anything"}, 403),
         ({"Sec-Fetch-Site": "cross-site"}, 403),
         ({"Host": "evil.test"}, 403),
     ]:
@@ -91,6 +90,62 @@ async def test_authentication_origin_host_and_private_surface(api):
         _, body, _ = await call("GET", path)
         assert "private-client-sentinel" not in json.dumps(body)
         assert TOKEN not in json.dumps(body)
+
+
+@pytest.mark.asyncio
+async def test_unrelated_cookies_are_ignored_without_granting_authority(api):
+    server, call = api
+    origin = f"http://127.0.0.1:{server.config.port}"
+    cookie = "unrelated=private-cookie-sentinel; admin=" + TOKEN
+    browser = {"Cookie": cookie, "Origin": origin, "Sec-Fetch-Site": "same-origin"}
+    for method, path in (("GET", "/v1/status"), ("POST", "/v1/session"),
+                         ("POST", "/v1/ai/memory")):
+        status, body, headers = await call(method, path, headers=browser | {"Authorization": ""},
+            **({"json": {}} if method == "POST" else {}))
+        assert status == 401 and "private-cookie-sentinel" not in json.dumps(body)
+        assert "Set-Cookie" not in headers and not server.sessions
+    status, body, headers = await call("POST", "/v1/session", json={}, headers=browser)
+    assert status == 200 and "Set-Cookie" not in headers
+    browser["Authorization"] = "Bearer " + body["token"]
+    assert (await call("GET", "/v1/status", headers=browser))[0] == 200
+    assert (await call("POST", "/v1/ai/memory", json={"enabled": False}, headers=browser))[0] == 200
+    assert not server.runtime.application.services.runtime_state.ai_memory_enabled
+    for change in ({"Origin": "http://evil.test"}, {"Origin": "null"},
+                   {"Host": "evil.test"}, {"Sec-Fetch-Site": "cross-site"},
+                   {"Sec-Fetch-Site": "same-site"}):
+        assert (await call("POST", "/v1/ai/memory", json={"enabled": True}, headers=browser | change))[0] == 403
+    assert not server.runtime.application.services.runtime_state.ai_memory_enabled
+    assert (await call("POST", "/v1/session/logout", json={}, headers=browser))[0] == 200
+    assert (await call("GET", "/v1/status", headers=browser))[0] == 401
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("authority", ["127.0.0.2:8765", "127.23.45.67:9765", "[::1]:9765"])
+async def test_exact_loopback_origin_uses_published_authority_not_container_port(api, authority):
+    server, call = api
+    server.config = ManagementConfig(TOKEN, host="0.0.0.0", port=server.config.port, allowed_host=authority)
+    headers = {"Host": authority, "Origin": "http://" + authority, "Sec-Fetch-Site": "same-origin",
+               "Cookie": "unrelated=value"}
+    assert (await call("POST", "/v1/session", json={}, headers=headers))[0] == 200
+    for origin in ("http://127.0.0.1:8765", "http://localhost:8765", "http://" + authority + "/",
+                   "http://127.evil.test:8765", "http://127.0.0.2:9999"):
+        assert (await call("POST", "/v1/session", json={}, headers=headers | {"Origin": origin}))[0] == 403
+    assert (await call("POST", "/v1/session", json={}, headers=headers | {"Host": "127.0.0.1:8765"}))[0] == 403
+    for name, value in (("Host", authority), ("Origin", "http://" + authority),
+                        ("Authorization", "Bearer " + TOKEN)):
+        # Raw HTTP preserves duplicates that HTTP clients may normalize away.
+        duplicates = list(headers.items()) + [("Authorization", "Bearer " + TOKEN), (name, value)]
+        fields = "\r\n".join(f"{key}: {item}" for key, item in duplicates)
+        raw = f"POST /v1/session HTTP/1.1\r\n{fields}\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{{}}"
+        reader, writer = await asyncio.open_connection("127.0.0.1", server.config.port)
+        try:
+            writer.write(raw.encode("ascii"))
+            await writer.drain()
+            response = await asyncio.wait_for(reader.read(), 2)
+            assert response.split(b"\r\n", 1)[0].split()[1] in (b"400", b"401", b"403"), name
+        finally:
+            writer.close()
+            await writer.wait_closed()
 
 
 @pytest.mark.asyncio
@@ -318,7 +373,7 @@ async def test_browser_session_origin_expiry_revocation_and_capacity(api):
     origin = f"http://127.0.0.1:{server.config.port}"
     headers = {"Origin": origin, "Sec-Fetch-Site": "same-origin"}
     for change in ({"Origin": "null"}, {"Origin": "https://evil.test"},
-                   {"Sec-Fetch-Site": "same-site"}, {"Cookie": "admin=value"},
+                   {"Sec-Fetch-Site": "same-site"},
                    {"Origin": origin + "/"}, {"Authorization": ""}):
         status, body, _ = await call("POST", "/v1/session", json={}, headers=headers | change)
         assert status in (401, 403)

@@ -258,12 +258,14 @@ class ManagementAPI:
         # HTTPS may terminate at a private proxy preserving the exact Host. Never
         # infer trust from Forwarded/X-Forwarded-* headers or enable CORS.
         allowed_origins = {"https://" + host}
-        if host in {f"127.0.0.1:{self.config.port}", f"localhost:{self.config.port}", f"[::1]:{self.config.port}"}:
+        origin_host = host.rsplit(":", 1)[0].strip("[]")
+        if origin_host == "localhost" or ipaddress.ip_address(origin_host).is_loopback:
             allowed_origins.add("http://" + host)
+        # Unrelated local services can set cookies on this host across ports.
+        # Ignore them: only the explicit bearer below can grant authority.
         if (len(origins) > 1 or (origins and origins[0] not in allowed_origins)
-                or "Cookie" in request.headers
                 or request.headers.get("Sec-Fetch-Site", "none") not in ("none", "same-origin")):
-            return reject(403, "Untrusted browser origin or cookies.")
+            return reject(403, "Untrusted browser origin.")
         if request.query_string or request.raw_path != request.path:
             return reject(400, "Use an exact path without query parameters.")
         if request.method not in ("GET", "POST"):

@@ -45,6 +45,10 @@ requires `--management-allowed-host IP:port`, an exact trusted HTTP Host authori
 Hostnames and wildcard Host allowlists are unsupported. Loopback's default Host
 allowlist accepts its configured IP and `localhost`, with the configured port.
 Forwarded headers are ignored. IPv6 authorities use `[address]:port`.
+For a different local IPv4 loopback, pass `--management-host 127.0.0.2` and open
+`http://127.0.0.2:8765/`. HTTP browser access recognizes IPv4 loopback addresses
+in `127.0.0.0/8`, `localhost` and IPv6 `::1`, but still requires an exact allowed
+Host and matching Origin, including the published port.
 
 Keep this service on loopback or an explicitly trusted private interface. Do not
 publish it to the internet. HTTP carries the bearer token in each request: use an
@@ -67,6 +71,12 @@ and revokes the session on the server when reachable. At most eight sessions exi
 another login replaces the oldest when full. Restart invalidates every session;
 rotating the administrator token still requires restart. A disconnected sign-out
 clears local access, but its unreachable server session lasts until expiry/restart.
+
+Unrelated cookies from other services on the same local host do not prevent loading
+or signing in, including in Firefox. The server ignores cookies on both asset and
+API requests; they never authenticate a request or select a session. The panel's
+API fetches omit cookies, and HeetKit never sets or clears another service's cookies.
+The normal bounded-header limits still apply.
 
 Use loopback HTTP (including an SSH tunnel) or HTTPS. Plain HTTP to a private LAN
 address cannot sign in. Browser requests must use the exact same origin as the page;
@@ -103,9 +113,31 @@ docker compose -f compose.yaml -f compose.management.yaml up -d --build
 ```
 
 The overlay mounts that one additional secret, enables the API inside the
-container and publishes **only host loopback** `127.0.0.1:8765`. The exact required
-Host is `127.0.0.1:8765`. Use that address, including through a tunnel. Container
-root/filesystem/UID, capability, profile-volume and restart protections stay in
+container and defaults to **only host loopback** `127.0.0.1:8765`. Set the optional
+`HEETKIT_MANAGEMENT_LOOPBACK` to another literal IPv4 loopback address to change
+both Docker's published address and the API's exact accepted Host together:
+
+```bash
+export HEETKIT_MANAGEMENT_LOOPBACK=127.0.0.2
+docker compose -f compose.yaml -f compose.management.yaml up -d --build
+```
+
+Open `http://127.0.0.2:8765/` in that example. Keep the variable set for subsequent
+Compose operations. Use only a loopback IP here; never set `0.0.0.0` or a public/LAN
+address. Alternative loopback publication depends on the host OS and Docker Desktop
+networking. Verify the page is reachable on your host. If the alternative binding
+fails, retain the supported default by running `unset HEETKIT_MANAGEMENT_LOOPBACK`
+and recreating with both Compose files, then open `http://127.0.0.1:8765/`.
+PowerShell uses `$env:HEETKIT_MANAGEMENT_LOOPBACK = '127.0.0.2'` to select it and
+`Remove-Item Env:HEETKIT_MANAGEMENT_LOOPBACK` to return to the default.
+
+SSH access uses the same exact browser authority, without trusting forwarded headers.
+For the default on both machines, run
+`ssh -N -L 127.0.0.1:8765:127.0.0.1:8765 user@server` and open
+`http://127.0.0.1:8765/` locally. For an alternative address, use that same address
+for the local tunnel bind, server-side destination and configured allowed Host.
+Keep tunnels bound to loopback; there is no need for a public management listener.
+Container root/filesystem/UID, capability, profile-volume and restart protections stay in
 the base Compose configuration. Use both Compose files for subsequent operations
 on this configuration. Removing the overlay and recreating the container disables
 HTTP access. No live profile migration is performed by enabling the API.
@@ -117,8 +149,9 @@ Requests must use the
 exact path without query parameters, JSON objects for POST, and an explicit
 Content-Length. JSON duplicate keys, non-finite values, compressed/chunked bodies,
 unknown operation arguments and invalid domain settings are rejected. GET has no
-body. Cookies, cross-origin/same-site browser requests and preflights are rejected;
-an exact trusted same-origin browser request is allowed. No CORS policy or cookie
+body. Cross-origin/same-site browser requests and preflights are rejected;
+an exact trusted same-origin browser request is allowed, with unrelated cookies
+ignored. A cookie alone cannot authorize reads, login or mutations. No CORS policy or cookie
 is issued. Public static assets carry no configuration or credentials, refuse
 cross-site loading, and use a restrictive content security policy. Only the entry
 page, icon and named compiled JS/CSS assets can be served; profiles, source maps
@@ -235,7 +268,7 @@ lifetime. Responses close their connection. API cleanup gets up to five seconds
 plus cancellation grace before the existing bounded core shutdown proceeds.
 
 Errors use safe fixed text: 400 rejected input/operation, 401 authentication required,
-403 untrusted Host/browser origin/cookies, 404 unknown resource, 405 unsupported method,
+403 untrusted Host/browser origin, 404 unknown resource, 405 unsupported method,
 413 body limit, 415 content type, 429 request limit, 500 operation/storage failure,
 503 missing/oversized frontend asset, 504 deadline. After a timeout or disconnect, inspect current state before retrying:
 an operation may already have committed. The token authenticates the administrator;
@@ -248,3 +281,9 @@ limits, lifecycle stop/start and cleanup. They do not establish live Twitch/Gemi
 or an internet-facing deployment. Focused browser checks cover transport/session
 behavior, desktop regressions, mobile layout and built-interface access to a synthetic
 server; they do not establish live account or native packaged-desktop acceptance.
+The opt-in Chrome/Firefox matrix in `frontend/` runs with
+`npx playwright test --config playwright.compatibility.config.ts` after building the
+frontend. It requires installed Google Chrome and Playwright's Firefox runtime
+(`npx playwright install firefox`). It exercises both `127.0.0.1` and `127.0.0.2`
+using synthetic profiles and cookies from another local port. It does not validate
+Docker port forwarding; check that separately on the intended Docker host.

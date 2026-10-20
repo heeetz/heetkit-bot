@@ -4,6 +4,9 @@ HeetKit's container runs the shared [headless backend](development.md#headless-r
 for one previously authorized Twitch bot. By default it has no window, dashboard,
 HTTP listener, OAuth callback listener or published ports. An explicit
 [private management API and browser panel overlay](management-api.md#docker-opt-in) is available.
+That overlay defaults to `127.0.0.1:8765`; its documented
+`HEETKIT_MANAGEMENT_LOOPBACK` option changes the published loopback and accepted
+Host together, with `127.0.0.1` as the fallback when alternate loopbacks are unsupported.
 Use a Linux amd64 Docker Engine with
 Docker Compose v2, or Docker Desktop configured for Linux containers.
 

@@ -16,8 +16,11 @@ export const subscribeBrowserSession = (listener: () => void) => {
 }
 
 export function browserConnectionSecure(): boolean {
+  const hostname = location.hostname
+  const ipv4Loopback = /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)
+    && hostname.split('.').every((part) => Number(part) <= 255)
   return location.protocol === 'https:' || (location.protocol === 'http:'
-    && ['localhost', '127.0.0.1', '[::1]', '::1'].includes(location.hostname))
+    && (ipv4Loopback || ['localhost', '[::1]', '::1'].includes(hostname)))
 }
 
 function clearSession(message = '') {

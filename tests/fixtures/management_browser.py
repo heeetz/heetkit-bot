@@ -34,7 +34,7 @@ async def main():
     application.http_client.send = no_network
     runtime = BotRuntime(application, logging.getLogger("browser-test"), headless=True)
     server = ManagementAPI(runtime, ManagementConfig("synthetic_management_token_" + "x" * 32,
-        port=int(sys.argv[2])), RecentLogBuffer())
+        host=sys.argv[3], port=int(sys.argv[2]), allowed_host=f"{sys.argv[3]}:{sys.argv[2]}"), RecentLogBuffer())
     try:
         await runtime.startup()
         await server.start()

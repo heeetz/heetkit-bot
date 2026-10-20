@@ -8,9 +8,9 @@ services:
       - --management-host
       - 0.0.0.0
       - --management-allowed-host
-      - 127.0.0.1:8765
+      - "${HEETKIT_MANAGEMENT_LOOPBACK:-127.0.0.1}:8765"
     ports:
-      - "127.0.0.1:8765:8765"
+      - "${HEETKIT_MANAGEMENT_LOOPBACK:-127.0.0.1}:8765:8765"
     environment:
       HEETKIT_MANAGEMENT_TOKEN_FILE: /run/secrets/management_token
     secrets: [management_token]
