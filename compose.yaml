@@ -3,7 +3,7 @@ services:
   bot:
     image: heetkit-headless:local
     build: .
-    platform: linux/amd64
+    platform: "${HEETKIT_PLATFORM:-linux/amd64}"
     user: "10001:10001"
     init: true
     restart: unless-stopped

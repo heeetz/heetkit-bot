@@ -14,8 +14,10 @@ For a Linux VM, the separate [private HTTPS reference](management-api.md#private
 uses `compose.remote.yaml` with host-side Tailscale Serve and a loopback-only backend.
 It supports remote browser Twitch authorization without Desktop; do not combine
 the remote overlay with the Docker Desktop/local management overlay.
-Use a Linux amd64 Docker Engine with
-Docker Compose v2, or Docker Desktop configured for Linux containers.
+Use a Linux amd64 or arm64 Docker Engine with Docker Compose v2, or Docker
+Desktop configured for Linux containers. Compose keeps **linux/amd64 as the
+default**. On an ARM64 host, explicitly export `HEETKIT_PLATFORM=linux/arm64`
+and retain that setting for every build, start, backup, restore and update.
 
 The canonical `Dockerfile` pins the official CPython 3.14.7 Debian slim image by
 digest. `packaging/linux/requirements.txt` pins the complete backend wheel closure
@@ -26,7 +28,9 @@ page, icon and compiled assets enter the Python runtime; Node, frontend source/t
 Windows tools, private profiles, dotenv files and development directories are excluded.
 Reopened build-input directories explicitly exclude their children before allowing
 specific source files; the native probe also rejects unexpected production assets.
-Other CPU architectures are not validated by this lock. Linux uses `multidict==6.9.1`
+The pinned base digests are multi-platform indexes; the same wheel lock permits
+the matching CPython amd64 and arm64 wheels without changing package versions.
+Other architectures are not covered. Linux uses `multidict==6.9.1`
 as a narrow exception to the older Windows pins, fixing the upstream
 [items-view reference leak](https://github.com/aio-libs/multidict/security/advisories/GHSA-54p9-h82j-f925).
 The existing Windows redistribution inventory is unchanged by this container task.
@@ -184,6 +188,101 @@ rollback, check out the intended revision, then `docker compose build` and
 backup together if a future version changes profile formats. No registry publication,
 automatic update or cloud deployment is configured.
 
+## ARM64 builds and Oracle A1 preparation
+
+Use the same Dockerfile and `compose.yaml` + `compose.remote.yaml` for Oracle's
+Ampere A1. ARM64 is an explicit opt-in, preserving existing AMD64 installations:
+
+```bash
+export HEETKIT_PLATFORM=linux/arm64
+```
+
+Persist this non-secret value in the deployment shell file described under
+[first boot](#compose-review-and-first-boot), including across sudo. A missing
+selection on A1 would request AMD64 and could fail or run under emulation.
+Do not remove the platform setting or silently substitute another architecture.
+
+Build on a separate machine when runtime memory is limited. Select the target
+platform there, run the canonical container check, then build the production image
+with `docker compose build`. Transfer only an approved image archive and checksum,
+using `docker image save --output heetkit-arm64.tar heetkit-headless:local` and
+`docker image load --input heetkit-arm64.tar`; verify the archive checksum and inspect
+the loaded image's architecture and use `dc up -d --no-build` on the destination.
+Keep the same committed source revision, Compose files and image ID with the archive.
+No registry publication or second Dockerfile is required. Node and build tools are
+already absent from the final runtime. This reduces build-time RAM pressure; it does
+not establish a runtime memory minimum. Measure host available memory, swap activity,
+container memory, OOM events and disk usage during authorized native acceptance.
+
+### Exact Oracle instance creation steps
+
+These are **owner steps for a separately approved provisioning window**. Do not
+create even networking resources during packaging/preflight. Oracle A1 is the first
+candidate; [OVHcloud VPS-1](https://www.ovhcloud.com/en-gb/vps/) is the paid AMD64
+fallback, requiring its own current VAT-inclusive quote and purchase approval.
+
+1. The owner signs up/signs in privately, completes identity/card checks if required,
+   enables MFA and records the tenancy's **home region**. Choose a nearby available
+   European region at signup if suitable; UK student status does not require UK hosting.
+   Existing tenancies must use their home region for free compute. Confirm account
+   limits, existing usage and available A1 capacity; trial credit alone is not proof
+   that a resource remains free. Do not upgrade billing or select paid substitutes.
+2. Plan one `heetkit-01`: **VM.Standard.A1.Flex, 1 OCPU, 2 GB RAM**, Ubuntu **24.04
+   LTS aarch64/ARM64** platform image (not Minimal Ubuntu) marked Always Free eligible,
+   **50 GB Balanced boot volume**, no additional data disk. This is an initial sizing candidate, not
+   a measured minimum. Record the image version. Use ordinary on-demand capacity,
+   not preemptible, dedicated, reserved or a pool. Do not choose A2 or an AMD shape.
+3. In Networking create a dedicated VCN `10.42.0.0/16`, regional public subnet
+   `10.42.1.0/24`, Internet Gateway and `0.0.0.0/0` route to that gateway. Use one
+   VNIC with an ephemeral public IPv4 for outbound access/bootstrap; no NAT Gateway,
+   load balancer or bastion. A public management listener is unnecessary with
+   Serve, but Tailscale/Twitch/package downloads still need an internet egress route.
+4. Restrict stateful inbound TCP22 to the owner's current public IPv4 `/32` for
+   bootstrap. Remove any default `0.0.0.0/0` SSH rule from **every attached security
+   list** and check every NSG: OCI allows the union of their rules, so a restrictive
+   NSG does not cancel a permissive subnet rule. Preserve necessary ICMP path-MTU
+   rules and permit outbound DNS/HTTPS/NTP and Tailscale traffic with stateful replies.
+   Do not add ingress for 80, 443, 8765 or 4343. After tailnet SSH is verified,
+   remove public TCP22 from both OCI rules and the host firewall.
+5. Console **Compute → Instances → Create instance**: choose the intended compartment,
+   name and an available home-region availability domain. Change image to the Ubuntu
+   ARM64 image above; Change shape → Virtual machine → Ampere → `VM.Standard.A1.Flex`;
+   set **1 OCPU / 2 GB**. Select the prepared VCN/subnet and public IPv4. Upload only
+   an OpenSSH **public** key; retain its private key locally. Ubuntu's login is `ubuntu`.
+   Set the boot volume to 50 GB, default encryption and Balanced performance, with
+   no higher paid performance tier or extra volumes. Leave cloud-init free of secrets
+   and deployment scripts. Plan to preserve the boot volume on later termination.
+6. On Review, confirm the free-eligible image/shape, aggregate compute/storage
+   allowances and **$0 ongoing expected total**, including IP/egress and any selected
+   monitoring/backups. Remove optional paid services. If the estimate is nonzero or
+   eligibility is unclear, stop. Only explicit provisioning approval authorizes
+   **Create**. If A1 is out of capacity, try another availability domain in the same
+   home region later; do not change billing/region/shape automatically.
+
+Oracle's [current Always Free limits](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)
+are 1,500 A1 OCPU-hours and 9,000 GB-hours monthly, 200 GB total boot/block storage
+and five volume backups. One 1-OCPU/2-GB VM uses at most 744 OCPU-hours and 1,488
+GB-hours in a 31-day month. Check shared usage before applying these allowances.
+Use an off-account encrypted backup too. Capacity shortages and reclamation of
+idle instances are material risks for a lightweight bot; do not manufacture load.
+Oracle Free Tier has [no SLA](https://www.oracle.com/cloud/free/faq/).
+See the official [instance creation guide](https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/launchinginstance.htm)
+and [security-rule semantics](https://docs.oracle.com/en-us/iaas/Content/Network/Concepts/securityrules.htm).
+The [platform image list](https://docs.oracle.com/en-us/iaas/Content/Compute/References/images.htm)
+specifies the standard Ubuntu image for Arm shapes.
+
+After separate deployment approval, verify `uname -m` is `aarch64`, install Docker
+Engine/Compose for Ubuntu arm64 and host-side Tailscale, and run the canonical
+synthetic check **natively before adding private state**. Use the same
+[fresh browser bootstrap](#compose-review-and-first-boot),
+[one-bot cutover/rollback](#cutover-and-rollback) and
+[stopped-volume backup/restore](#backup-restore-and-updates). Provider-specific
+Azure budgets/health alerts below do not configure Oracle monitoring: arrange OCI
+cost/usage notifications, disk/memory/health checks, backup-failure alerts and an
+independent outage receiver within verified free limits, and test their delivery.
+Provisioning does not authorize profile transfer, provider credentials, Twitch
+redirect changes, OAuth consent or live cutover; those remain separate owner gates.
+
 ## Azure VM deployment plan
 
 This is a provisioning runbook for one private browser-managed instance, not a
@@ -191,6 +290,10 @@ claim of cloud acceptance. Obtain explicit owner approval before creating resour
 using credit, accessing accounts/secrets, importing configuration or connecting Twitch.
 The commands below are for the approved deployment window; preparing this plan does
 not authorize running them. Keep the existing Python core and React presentation.
+This retained Azure cost example is an optional alternative, not the selected
+provider, region or a measured RAM requirement. Oracle A1 is the first candidate;
+OVHcloud VPS-1 is the paid fallback. The Compose/bootstrap and cutover procedures
+also apply to either provider with the explicit architecture selection above.
 
 ### Student offer, availability and sizing
 
@@ -198,15 +301,15 @@ Public information and unauthenticated UK South retail prices were checked on
 **21 October 2026**. Personal eligibility, subscription balance/expiry, free-service
 entitlements, allowed regions, quota and live capacity require an owner portal check.
 No public price listing can establish that a particular student subscription can
-allocate a VM. Check UK South first; if blocked, stop and price an owner-approved
-alternative such as UK West rather than silently changing region or size.
+allocate a VM. UK South below is only a priced example; student residence does not
+establish a required hosting region. Requote eligible regions before choosing Azure.
 
 [Azure for Students](https://azure.microsoft.com/en-gb/free/students/) advertises
 USD100 credit usable within 12 months, annual renewal while eligible, and 750 hours
 each per month of B1s, B2ats v2 and ARM-based B2pts v2 for eligible new customers.
 750 hours covers a 744-hour month, but unused hours do not increase RAM or cover a
 different SKU. The AMD64 choices in that free allowance have **1 GiB**, not 2/4 GiB.
-B2pts v2 is ARM and outside the validated container architecture. Annual student
+B2pts v2 is ARM and needs separate Azure sizing/eligibility checks. Annual student
 renewal must not be assumed to renew first-year free-service benefits.
 
 The [offer terms](https://azure.microsoft.com/en-us/pricing/offers/ms-azr-0170p)
@@ -225,7 +328,7 @@ renewal or conversion to paid billing is a separate owner decision.
 | Standard_B2ats_v2 | 2 / 1 GiB | 0.0106 | 7.74; 0 if eligible free hours apply | Free-tier experiment only; inadequate safety margin for builds/host/services without measurement |
 | Standard_B1s | 1 / 1 GiB | 0.0118 | 8.61; 0 if eligible free hours apply | Legacy Bv1; same memory concern |
 | Standard_B1ms | 1 / 2 GiB | 0.0236 | 17.23 | Lowest-cost candidate here for a temporary trial; tight build/RAM margin and legacy capacity risk |
-| **Standard_B2als_v2** | **2 / 4 GiB** | **0.0425** | **31.03** | **Recommended for a new persistent instance** |
+| Standard_B2als_v2 | 2 / 4 GiB | 0.0425 | 31.03 | Retained 4 GiB cost example; not a measured minimum |
 | Standard_B2ls_v2 | 2 / 4 GiB | 0.0472 | 34.46 | Intel x86-64 fallback if explicitly approved and allocatable |
 | Standard_B2s | 2 / 4 GiB | 0.0472 | 34.46 | Legacy Bv1; no saving over the current 4 GiB options |
 
@@ -242,13 +345,14 @@ with [retirement scheduled for 15 November 2028](https://learn.microsoft.com/en-
 That makes B1ms a cost-saving compromise, not the preferred new deployment.
 [Basv2](https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/general-purpose/basv2-series)
 uses AMD x86-64 and CPU credits; B2als v2 has a 30% normalized baseline. Sustained
-builds can exhaust credits and slow down. These memory recommendations are engineering
-estimates, not measured HeetKit cloud benchmarks. A 2 GiB trial needs a small private
-swap file, serial builds and close memory monitoring; swap does not replace RAM.
+builds can exhaust credits and slow down. These memory concerns are engineering
+estimates, not measured HeetKit cloud benchmarks. Building off-host avoids frontend
+build pressure; measure native runtime RAM before rejecting a smaller VM. A small
+private swap file can help with temporary pressure but does not replace RAM.
 
 ### Exact proposed configuration and costs
 
-Use **one Standard_B2als_v2, UK South, Ubuntu Server 24.04 LTS AMD64 Gen2**,
+This example uses **one Standard_B2als_v2, UK South, Ubuntu Server 24.04 LTS AMD64 Gen2**,
 ordinary pay-as-you-go compute paid from student credit, no Spot or reservation.
 Use [Canonical's free LTS image](https://ubuntu.com/azure/docs/azure-how-to/instances/find-ubuntu-images/)
 `Canonical:ubuntu-24_04-lts:server:latest`; record the resolved image version at
@@ -317,8 +421,8 @@ and Blob also qualify).
 Otherwise that P6 costs **USD12.3499/month**, versus E4's USD2.64. Reconfirm entitlement
 and expiry before choosing it; stop or switch disk tier before free coverage ends.
 A free 1 GiB B2ats v2 plus paid E4/IPv4/backups would be about USD6.70/month while
-eligible, but its unmeasured low memory margin does not meet this reliability
-recommendation. Do not silently trade RAM for a claimed free year.
+eligible; its runtime memory margin needs measurement with the image built off-host.
+Do not describe it as a proven reliable free year without that acceptance.
 
 ### Provisioning and network restrictions
 
@@ -416,6 +520,7 @@ acceptance checks, not facts established by this source review.
 
    ```bash
    export HEETKIT_SECRETS_DIR="$HOME/.config/heetkit-secrets"
+   export HEETKIT_PLATFORM=linux/amd64 # use linux/arm64 for Oracle A1
    export HEETKIT_MANAGEMENT_ORIGIN=https://heetkit-01.example-tailnet.ts.net
    export HEETKIT_TWITCH_REDIRECT_URI="$HEETKIT_MANAGEMENT_ORIGIN/oauth/callback"
    ```
@@ -423,7 +528,7 @@ acceptance checks, not facts established by this source review.
    Use this same command prefix throughout, from the pinned checkout:
 
    ```bash
-   dc() { sudo --preserve-env=HEETKIT_SECRETS_DIR,HEETKIT_MANAGEMENT_ORIGIN,HEETKIT_TWITCH_REDIRECT_URI docker compose --project-name heetkit -f compose.yaml -f compose.remote.yaml "$@"; }
+   dc() { sudo --preserve-env=HEETKIT_PLATFORM,HEETKIT_SECRETS_DIR,HEETKIT_MANAGEMENT_ORIGIN,HEETKIT_TWITCH_REDIRECT_URI docker compose --project-name heetkit -f compose.yaml -f compose.remote.yaml "$@"; }
    dc config --quiet
    dc build
    dc up -d
@@ -492,7 +597,7 @@ stop chat. Stopping only one of several Docker test presets is insufficient.
    CPU-credit balance or prolonged unhealthy state; confirm memory/disk headroom.
 4. For rollback, first save cloud Disabled (if reachable), `dc stop bot`, and verify
    the container is stopped. Disable any external auto-start jobs. If unreachable,
-   the owner must stop/deallocate the VM in Azure and verify its state **before**
+   the owner must stop the VM through its provider console and verify its state **before**
    starting a local copy. Network uncertainty is not evidence of a stopped bot.
 5. Reopen exactly one preserved local profile only after cloud shutdown is verified.
    Reauthorize locally if provider authorization has changed; do not copy rotated
@@ -511,7 +616,7 @@ stop chat. Stopping only one of several Docker test presets is insufficient.
   do not revive a deliberately stopped instance. Restart promptly after the archive
   is complete, then encrypt/checksum/upload. Report backup failures without retaining
   unencrypted temporary archives. Do not copy live SQLite/token files.
-- **Storage:** plan one UK South StorageV2 Hot LRS private container with no anonymous
+- **Azure backup storage example:** plan one UK South StorageV2 Hot LRS private container with no anonymous
   blob access, HTTPS only, minimum TLS1.2 and no shared-key auth. Grant the VM's
   system-assigned identity Blob Data Contributor only at that backup container scope;
   use the subnet's Storage service endpoint and selected-network restriction, not
@@ -520,7 +625,7 @@ stop chat. Stopping only one of several Docker test presets is insufficient.
   its permissions are additional provisioning requiring owner approval. Retain seven
   daily plus four weekly archives within the 10 GB estimate; measure sizes and alert
   on growth. Include retained versions/soft-deleted bytes in that limit. Keep a
-  weekly encrypted copy outside this Azure account so expired credit cannot block
+  weekly encrypted copy outside the hosting account so expiry or suspension cannot block
   recovery. The owner chooses destination, encryption key and retention policy.
 - **Restore rehearsal:** decrypt/checksum the archive privately; stop production for
   a full rehearsal or create a distinct empty restore project/volume without starting
@@ -639,13 +744,20 @@ It checks non-root execution, absence of GUI dependencies, real OS signals,
 stop/start, container recreation in all operation modes, synthetic stream transitions
 and monitoring failures, saved configuration/personality/filter loading,
 SQLite persistence/integrity and the real atomic token-cache loading/rotation/flush
-paths. It removes only its own test project/volume. The read-only Linux GitHub Actions
+paths. It checks the built image and runtime architecture and reports native versus
+emulated execution relative to the Docker Engine. Set `HEETKIT_PLATFORM=linux/arm64`
+to check ARM64; the default check remains AMD64. An emulated pass is build/runtime
+evidence, not native ARM64 or cloud acceptance. A native check on the chosen VM is
+still required. It removes only its own test project/volume and uniquely tagged image,
+and uses an empty env file rather than reading a checkout `.env`. The Linux GitHub Actions
 workflow runs that same script; it publishes no image or release. Live Twitch/Gemini
 authorization, refresh and reconnect still require separately authorized account tests.
 
 To refresh dependency pins, resolve the base `pyproject.toml` requirements for CPython
-3.14 Linux amd64 with wheels only, constraining compatible shared versions to
+3.14 Linux amd64 **and** arm64 with wheels only, constraining compatible shared versions to
 `packaging/windows/requirements.txt`, retaining the documented `multidict>=6.9.1`
 security override. Record every resolved wheel's SHA-256 in the
-Linux lock, update the official base-image digest deliberately, and rerun the focused
-container validation. Do not install the Windows packaging requirements into Linux.
+Linux lock, retaining both architectures' hashes for native packages. Pure-Python
+wheels can share a hash. Verify hashes against the published PyPI files, update
+official multi-platform base-image digests deliberately, and rerun the focused
+container validation for each platform. Do not install the Windows packaging requirements into Linux.

@@ -6,7 +6,7 @@ RUN npm ci --ignore-scripts --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
 
-# Linux amd64 CPython 3.14.7; update digest and lock together after focused validation.
+# Linux amd64/arm64 CPython 3.14.7; multi-platform digest and wheel hashes stay pinned.
 FROM python:3.14.7-slim-bookworm@sha256:82bc3c539b8813ada9d68c63b40158fa002f7f33de9bf3312a3dfdc0620dff56
 
 ENV PYTHONUNBUFFERED=1 \

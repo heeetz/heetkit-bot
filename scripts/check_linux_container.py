@@ -16,7 +16,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main() -> None:
+    target_platform = os.environ.get("HEETKIT_PLATFORM") or "linux/amd64"
+    if target_platform not in {"linux/amd64", "linux/arm64"}:
+        raise ValueError("HEETKIT_PLATFORM must be linux/amd64 or linux/arm64")
     project = "heetkit-b3-" + uuid4().hex[:12]
+    image = "heetkit-headless:" + project
+    built = False
     with tempfile.TemporaryDirectory(prefix="heetkit-b3-") as temporary:
         private = Path(temporary)
         context = private / "context"
@@ -48,13 +53,17 @@ def main() -> None:
             target.chmod(0o444)
         override = private / "probe.json"
         override.write_text(json.dumps({"services": {"bot": {
+            "image": image,
             "build": {"context": str(context)},
             "restart": "no", "network_mode": "none",
             "entrypoint": ["python", "/validation/headless_container.py", "run"], "command": [],
             "volumes": [{"type": "bind", "source": str(ROOT / "tests/fixtures"), "target": "/validation", "read_only": True}],
         }}}))
+        empty_env = private / "empty.env"
+        empty_env.write_text("")
         environment = os.environ | {"HEETKIT_SECRETS_DIR": str(private)}
-        compose = ["docker", "compose", "--project-name", project, "-f", str(ROOT / "compose.yaml"), "-f", str(override)]
+        compose = ["docker", "compose", "--env-file", str(empty_env), "--project-name", project,
+                   "-f", str(ROOT / "compose.yaml"), "-f", str(override)]
 
         def run(*arguments: str, capture: bool = False, timeout: int = 60) -> str:
             result = subprocess.run(arguments, cwd=ROOT, env=environment, text=True, capture_output=capture, timeout=timeout, check=True)
@@ -96,7 +105,15 @@ def main() -> None:
 
         try:
             run(*compose, "config", "--quiet")
+            engine = run("docker", "version", "--format", "{{.Server.Arch}}", capture=True)
+            execution = "native" if engine == target_platform.split("/")[1] else "emulated"
+            print(f"Validating {target_platform} on {engine} Docker Engine ({execution} execution).", flush=True)
             run(*compose, "build", timeout=600)
+            built = True
+            assert run("docker", "image", "inspect", image, "--format", "{{.Architecture}}", capture=True) == target_platform.split("/")[1]
+            machine = run(*compose, "run", "--rm", "--no-deps", "--entrypoint", "python", "bot",
+                "-c", "import platform; print(platform.machine())", capture=True)
+            assert machine in ({"x86_64", "amd64"} if target_platform == "linux/amd64" else {"aarch64", "arm64"}), machine
             run(*compose, "run", "--rm", "--no-deps", "--entrypoint", "python", "bot", "/validation/headless_container.py", "seed")
             run(*compose, "up", "--detach", "--no-build")
             wait_healthy()
@@ -160,13 +177,15 @@ def main() -> None:
             assert failure.returncode == 1
             assert "Missing: TWITCH_CLIENT_ID" in failure.stderr
             assert "synthetic-client-secret" not in failure.stderr
-            print("Canonical Linux Compose container checks passed; no external network or live authorization used.")
+            print(f"Canonical Linux Compose checks passed for {target_platform} ({execution} execution); no live authorization or application network used.")
         except BaseException:
             subprocess.run([*compose, "logs", "--no-color"], cwd=ROOT, env=environment, timeout=30, check=False)
             raise
         finally:
             # Only this randomly named disposable validation project is removed.
             run(*compose, "down", "--volumes", "--remove-orphans")
+            if built:
+                run("docker", "image", "rm", image)
 
 
 if __name__ == "__main__":

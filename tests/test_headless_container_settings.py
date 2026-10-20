@@ -99,9 +99,11 @@ def test_backend_dependencies_exclude_desktop_and_linux_lock_preserves_shared_pi
     for line in (root / "packaging/linux/requirements.txt").read_text().splitlines():
         if not line or line.startswith("#"):
             continue
-        requirement, digest = line.split(" --hash=sha256:")
+        requirement, *digests = line.split(" --hash=sha256:")
         name, version = requirement.split("==")
-        assert len(digest) == 64 and all(character in "0123456789abcdef" for character in digest)
+        assert digests and len(digests) == len(set(digests))
+        assert all(len(digest) == 64 and all(character in "0123456789abcdef" for character in digest)
+                   for digest in digests)
         assert name.lower().replace("_", "-") not in {"keyring", "pywebview", "pystray", "pyinstaller", "pillow", "bottle"}
         if name.lower() == "multidict":
             # Linux must not inherit the older Windows redistribution baseline's
