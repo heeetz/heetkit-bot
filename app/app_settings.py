@@ -19,6 +19,7 @@ from app.config.ai_language import ResponseLanguageSettings, validate_response_l
 
 logger = logging.getLogger(__name__)
 APP_SETTINGS_VERSION = 1
+OPERATION_MODES = frozenset({"always_on", "stream_only", "manual", "disabled"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +32,8 @@ class WindowSettings:
 @dataclass(frozen=True, slots=True)
 class StartupSettings:
     auto_start_bot: bool = False
+    # Headless only. Desktop continues to use auto_start_bot.
+    operation_mode: str = "always_on"
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +235,7 @@ def _read_twitch_presets(section: dict[str, object]) -> tuple[TwitchConnectionPr
 
 def load_app_settings(path: Path) -> AppSettings:
     defaults = AppSettings()
+    unsafe_defaults = replace(defaults, startup=StartupSettings(operation_mode="disabled"))
     if not path.exists():
         return defaults
     try:
@@ -242,10 +246,10 @@ def load_app_settings(path: Path) -> AppSettings:
             path,
             type(error).__name__,
         )
-        return defaults
+        return unsafe_defaults
     if not isinstance(payload, dict):
         logger.warning("Application settings file must contain a JSON object; using defaults")
-        return defaults
+        return unsafe_defaults
 
     if "version" not in payload:
         window_payload = payload
@@ -256,11 +260,16 @@ def load_app_settings(path: Path) -> AppSettings:
             "Unsupported application settings version=%r; using defaults",
             payload["version"],
         )
-        return defaults
+        return unsafe_defaults
     else:
         window_payload = _read_section(payload, "window")
         startup_payload = _read_section(payload, "startup")
         ai_payload = _read_section(payload, "ai")
+    operation_mode = startup_payload.get("operation_mode", "always_on")
+    if (("startup" in payload and not isinstance(payload["startup"], dict))
+            or not isinstance(operation_mode, str) or operation_mode not in OPERATION_MODES):
+        logger.warning("Invalid headless operation mode; keeping Twitch disabled")
+        operation_mode = "disabled"
     twitch_payload = (
         {} if "version" not in payload else _read_section(payload, "twitch")
     )
@@ -368,6 +377,7 @@ def load_app_settings(path: Path) -> AppSettings:
             ),
         ),
         startup=StartupSettings(
+            operation_mode=operation_mode,
             auto_start_bot=_read_boolean(
                 startup_payload,
                 "startup",
@@ -434,6 +444,15 @@ class AppSettingsStore:
         with self._lock:
             return self._settings
 
+    def update_operation_mode(self, mode: object) -> AppSettings:
+        if not isinstance(mode, str) or mode not in OPERATION_MODES:
+            raise ValueError("Unknown operation mode.")
+        with self._lock:
+            updated = replace(self._settings, startup=replace(self._settings.startup, operation_mode=mode))
+            save_app_settings(self._path, updated, recovered_settings=self._settings)
+            self._settings = updated
+        return updated
+
     def update_window(
         self,
         *,
@@ -483,7 +502,7 @@ class AppSettingsStore:
                     minimize_to_tray=minimize_to_tray,
                     close_to_tray=close_to_tray,
                 ),
-                startup=StartupSettings(auto_start_bot=auto_start_bot),
+                startup=replace(self._settings.startup, auto_start_bot=auto_start_bot),
                 ai=self._settings.ai,
                 twitch=self._settings.twitch,
             )

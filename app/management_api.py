@@ -22,6 +22,7 @@ from aiohttp import web
 
 from app.app_settings import AppSettingsStore
 from app.bot_runtime import BotRuntime
+from app.operation_policy import OperationPolicy
 from app.configuration_transfer import MAX_TRANSFER_BODY
 from app.management import ApplicationManagement
 from app.runtime_paths import PACKAGED_FRONTEND, SOURCE_ROOT, RuntimePaths
@@ -154,19 +155,20 @@ def _invalid_constant(_value):
 
 class ManagementAPI:
     def __init__(self, runtime: BotRuntime, config: ManagementConfig,
-                 log_buffer: RecentLogBuffer | None = None) -> None:
+                 log_buffer: RecentLogBuffer | None = None, *, policy: OperationPolicy | None = None,
+                 app_settings: AppSettingsStore | None = None) -> None:
         self.runtime = runtime
         self.config = config
-        self.service = ApplicationManagement(runtime.application,
-            AppSettingsStore(RuntimePaths.default().app_settings), log_buffer)
+        store = app_settings or AppSettingsStore(RuntimePaths.default().app_settings)
+        self.service = ApplicationManagement(runtime.application, store, log_buffer)
+        self.policy = policy or OperationPolicy(runtime, store)
+        self._owns_policy = policy is None
         self.lock = asyncio.Lock()
         self.runner: web.ServerRunner | None = None
         self.site: web.TCPSite | None = None
         self.active = 0
         self.requests: deque[float] = deque()
         self.started = time.monotonic()
-        self.desired_running = True
-        self.generation = 0
         self.log_buffer = log_buffer
         # Store only digests of short-lived browser bearer tokens. No cookies,
         # persistent session state or automatic renewal of administrator authority.
@@ -187,15 +189,24 @@ class ManagementAPI:
         self.site = web.TCPSite(self.runner, self.config.host, self.config.port, backlog=16)
         try:
             await self.site.start()
+            if self._owns_policy:
+                await self.policy.start()
         except BaseException:
             await self.close()
             raise
 
     async def close(self) -> None:
         self.sessions.clear()
-        if self.runner is not None:
-            await self.runner.cleanup()
-            self.runner = None
+        try:
+            if self.runner is not None:
+                await self.runner.cleanup()
+                self.runner = None
+        finally:
+            if self._owns_policy:
+                await self.policy.close()
+
+    def app_status(self) -> dict:
+        return self.service.get_app_status() | {"operation": self.policy.snapshot()}
 
     @staticmethod
     def response(status: int, payload: dict) -> web.Response:
@@ -365,9 +376,11 @@ class ManagementAPI:
                 return {"ok": False, "error": "Operation rejected; check input, profile storage and current state."}
             if method == "GET" and path == "/v1/ai/models":
                 result["settings"]["credential"] = self.credential_statuses()[1]
+            if method == "GET" and path == "/v1/status":
+                result["operation"] = self.policy.snapshot()
             return result
         if method == "GET" and path == "/v1/snapshot":
-            return {"status": self.service.get_app_status(), "ai_status": self.service.get_ai_status()}
+            return {"status": self.app_status(), "ai_status": self.service.get_ai_status()}
         if method == "GET" and path == "/v1/about":
             return self.service.get_about_info()
         if method == "GET" and path == "/v1/setup":
@@ -378,21 +391,20 @@ class ManagementAPI:
             return {"ok": True, "models": await self.runtime.application.services.ai.discover_models()}
         if method == "GET" and path == "/v1/diagnostics":
             return {"ok": True, "process_uptime_seconds": int(time.monotonic() - self.started),
-                    "desired_running": self.desired_running,
+                    "desired_running": self.policy.desired_running, "operation": self.policy.snapshot(),
                     "settings_effect": {"commands_filters_ai_personalities_triggers": "immediate",
                         "twitch_target": "reconnect (configure while stopped outside API)",
                         "identity_credentials_privacy_api_bind": "process_restart (configure outside API)"}}
         if method == "POST" and path in ("/v1/bot/start", "/v1/bot/stop"):
             if payload:
                 raise ValueError
-            start = path.endswith("/start")
-            if not start:
-                # Publish intent before the session observer can see completion.
-                self.desired_running = False
-            changed = await (self.runtime.start_bot() if start else self.runtime.stop_bot())
-            self.desired_running = start
-            self.generation += int(changed)
-            return {"ok": True, "changed": changed}
+            changed = self.policy.connect() if path.endswith("/start") else self.policy.disconnect()
+            return {"ok": True, "changed": changed, "operation": self.policy.snapshot()}
+        if method == "POST" and path == "/v1/bot/mode":
+            if set(payload) != {"mode"}:
+                raise ValueError
+            changed = self.policy.set_mode(payload["mode"])
+            return {"ok": True, "changed": changed, "operation": self.policy.snapshot()}
         if method == "POST" and path in ("/v1/filters/save", "/v1/filters/apply", "/v1/filters/test"):
             if not path.endswith("/test"):
                 if set(payload) != {"payload"}:
@@ -424,7 +436,8 @@ class ManagementAPI:
                 "event_kind": entry["event_kind"], "message": "Twitch lifecycle: " + entry["event_kind"]}
                 for entry in entries if entry.get("event_kind") in {
                     "twitch.subscribe", "twitch.connected", "twitch.recovered", "twitch.disconnected",
-                    "twitch.auth_required", "twitch.failed", "twitch.shutdown"}]}
+                    "twitch.auth_required", "twitch.failed", "twitch.shutdown",
+                    "operation.mode", "operation.stream", "operation.poll", "operation.failed"}]}
         raise LookupError
 
     def credential_statuses(self) -> list[dict]:

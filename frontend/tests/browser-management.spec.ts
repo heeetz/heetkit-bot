@@ -4,8 +4,22 @@ import type { CommandInfo, CustomCommandInfo, FilterInput } from '../src/bridge'
 const adminToken = 'a'.repeat(43)
 const sessionToken = 's'.repeat(43)
 type Call = { method: string; path: string; body: Record<string, unknown> | null; authorization: string | undefined }
+type OperationOverrides = Partial<{
+  mode: 'always_on' | 'stream_only' | 'manual' | 'disabled'
+  desired_running: boolean
+  pending: boolean
+  stream_status: 'live' | 'offline' | 'unknown'
+  last_known_stream_status: 'live' | 'offline' | null
+  last_checked_at: string | null
+  error: null | 'connection_failed'
+}>
+type StatusOverrides = Partial<{
+  running: boolean
+  twitch_connected: boolean
+  twitch_connection_state: 'stopped' | 'connecting' | 'connected' | 'reconnecting' | 'auth_required' | 'failed'
+}>
 
-async function server(page: Page) {
+async function server(page: Page, operationOverrides: OperationOverrides = {}, statusOverrides: StatusOverrides = {}) {
   const calls: Call[] = []
   let expired = false
   let fail = ''
@@ -21,7 +35,13 @@ async function server(page: Page) {
     default_settings: { enabled: true, permission: 'EVERYONE', cooldown: { per_user_seconds: 1, global_seconds: 0 } },
     saved: true, has_saved_override: false,
   }
-  const status = { running: true, twitch_connected: true, twitch_connection_state: 'connected', uptime_seconds: 10, channel: 'synthetic_channel', account: 'synthetic_bot' }
+  let operation = {
+    mode: 'always_on' as const, desired_running: true, pending: false,
+    stream_status: 'live' as const, last_known_stream_status: 'live' as const,
+    last_checked_at: '2026-10-20T12:00:00Z', error: null as null | 'connection_failed',
+    ...operationOverrides,
+  }
+  const status = { running: true, twitch_connected: true, twitch_connection_state: 'connected' as const, uptime_seconds: 10, channel: 'synthetic_channel', account: 'synthetic_bot', ...statusOverrides, operation }
   const ai = () => ({ enabled, available: true, memory_enabled: false, active_personality: 'neutral', available_personalities: ['neutral'], model: 'test-model' })
   const aiProvider = { provider: 'Gemini', selected_model: 'test-model', fallback_model: 'test-fallback', presets: [], credential: null }
   const twitch = { client_id: 'synthetic-client', bot_username: 'synthetic_bot', bot_user_id: '100', target_channel: 'synthetic_channel', target_channel_user_id: '200', active_channel: 'synthetic_channel', requires_restart: false, requires_reconnect: false, oauth_token_available: true }
@@ -40,7 +60,15 @@ async function server(page: Page) {
     if (path === '/v1/session/logout') return route.fulfill({ json: { ok: true } })
     let result: object = { ok: true }
     if (path === '/v1/snapshot') result = { status, ai_status: ai() }
-    if (path === '/v1/status') result = status
+    if (path === '/v1/status') result = { ...status, operation }
+    if (path === '/v1/bot/mode') {
+      operation = { ...operation, mode: body!.mode as 'always_on' | 'stream_only' | 'manual' | 'disabled', pending: false }
+      status.operation = operation
+    }
+    if (path === '/v1/bot/stop') {
+      operation = { ...operation, mode: 'manual', desired_running: false, pending: false }
+      Object.assign(status, { operation, running: false, twitch_connected: false, twitch_connection_state: 'stopped' as const })
+    }
     if (path === '/v1/setup') result = { ok: true, twitch, credentials, aiProvider }
     if (path === '/v1/ai') result = ai()
     if (path === '/v1/ai/enabled') enabled = body!.enabled as boolean
@@ -61,7 +89,7 @@ async function server(page: Page) {
     if (path === '/v1/about') result = { application_name: 'HeetKit', application_subtitle: 'Twitch bot controls', version: '1.3.0', author: 'heeetz', license_name: 'Apache-2.0' }
     await route.fulfill({ json: result })
   })
-  return { calls, expire: (value = true) => { expired = value }, fail: (path: string) => { fail = path } }
+  return { calls, expire: (value = true) => { expired = value }, fail: (path: string) => { fail = path }, setOperation: (values: OperationOverrides) => { operation = { ...operation, ...values }; status.operation = operation } }
 }
 
 async function login(page: Page) {
@@ -137,6 +165,52 @@ test('browser route payloads use explicit server fields and request failures sta
   expect(await invoke(page, 'get_app_status')).toEqual({ error: 'Could not reach the server. Check the connection and retry.' })
   api.fail('')
   expect(await invoke(page, 'get_app_status')).toMatchObject({ running: true })
+})
+
+test('browser dashboard exposes operation policy, broadcaster uncertainty and pending lifecycle state', async ({ page }) => {
+  const api = await server(page, {
+    stream_status: 'unknown', last_known_stream_status: 'offline', pending: true,
+  })
+  await page.goto('/tests/browser.fixture.html')
+  await login(page)
+
+  const operation = page.locator('.dashboard-operation-card')
+  await expect(operation.getByRole('heading', { name: 'Always On', exact: true })).toBeVisible()
+  await expect(operation).toContainText('Broadcaster statusUnknown')
+  await expect(operation).toContainText('Last known statusOffline')
+  await expect(operation).toContainText('Broadcaster live status is currently unknown. It is only used for Stream Only')
+  await expect(page.getByRole('button', { name: 'Reconciling…', exact: true })).toBeDisabled()
+
+  const mode = page.getByRole('combobox', { name: 'Operation mode', exact: true })
+  await expect(mode).toBeEnabled()
+  await mode.click()
+  await page.getByRole('option', { name: 'Manual', exact: true }).click()
+  await expect.poll(() => api.calls.find((call) => call.path === '/v1/bot/mode')?.body).toEqual({ mode: 'manual' })
+  await expect(operation.getByRole('heading', { name: 'Manual', exact: true })).toBeVisible()
+  await expect(operation).toContainText('Manual mode lets you connect or disconnect')
+})
+
+test('offline automatic operation always disconnects and persists Manual before stopping', async ({ page }) => {
+  const api = await server(page, {
+    mode: 'stream_only', desired_running: false, stream_status: 'offline', last_known_stream_status: 'offline',
+  }, { running: false, twitch_connected: false, twitch_connection_state: 'stopped' })
+  await page.goto('/tests/browser.fixture.html')
+  await login(page)
+  await expect(page.getByRole('button', { name: 'Switch to Manual & disconnect', exact: true })).toBeEnabled()
+  await page.getByRole('button', { name: 'Switch to Manual & disconnect', exact: true }).click()
+  await expect.poll(() => api.calls.find((call) => call.path === '/v1/bot/stop')).toMatchObject({ method: 'POST', body: {} })
+  await expect(page.locator('.dashboard-operation-card').getByRole('heading', { name: 'Manual', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeVisible()
+})
+
+test('disabled browser operation mode removes connect control and explains how to enable it', async ({ page }) => {
+  await server(page, { mode: 'disabled', desired_running: false, stream_status: 'offline', last_known_stream_status: 'offline' })
+  await page.goto('/tests/browser.fixture.html')
+  await login(page)
+  const operation = page.locator('.dashboard-operation-card')
+  await expect(operation.getByRole('heading', { name: 'Disabled', exact: true })).toBeVisible()
+  await expect(operation).toContainText('Connecting is disabled. Choose Always On, Stream Only or Manual to enable it.')
+  await expect(page.getByRole('button', { name: /Connect|Start Bot|Disconnect|Switch to Manual & disconnect/, exact: false })).toHaveCount(0)
 })
 
 for (const width of [1280, 390]) {
@@ -249,5 +323,6 @@ test('desktop startup waits for delayed pywebviewready without selecting browser
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Running', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Sign in to server' })).toHaveCount(0)
+  await expect(page.getByRole('combobox', { name: 'Operation mode', exact: true })).toHaveCount(0)
   expect(requests).toEqual([])
 })

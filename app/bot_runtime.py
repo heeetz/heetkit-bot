@@ -24,6 +24,11 @@ class BotRuntime:
         self._started = False
         self._stop_requested = False
         self._shutdown = False
+        self.generation = 0
+
+    @property
+    def bot_active(self) -> bool:
+        return self._bot_task is not None and not self._bot_task.done()
 
     async def startup(self) -> None:
         if self._started:
@@ -40,6 +45,8 @@ class BotRuntime:
             return self._start_bot_locked()
 
     def _start_bot_locked(self) -> bool:
+        if self._shutdown:
+            raise RuntimeError("Application has already shut down.")
         if not self._started:
             raise RuntimeError("Application startup has not completed.")
         if self._bot_task is not None and not self._bot_task.done():
@@ -59,6 +66,7 @@ class BotRuntime:
             self._run_bot_session(self._stop_event),
             name="heetkit-twitch-session",
         )
+        self.generation += 1
         return True
 
     async def _run_bot_session(self, stop_event: asyncio.Event) -> None:
@@ -97,12 +105,13 @@ class BotRuntime:
                 self.application.services.runtime_state.set_bot_running(False)
                 return False
             self.request_stop()
-
-        if self._headless:
-            await asyncio.shield(task)
-        else:
-            with suppress(Exception):
+            # Retain ownership through close/token flush. A concurrent start must
+            # never report success against a session already being stopped.
+            if self._headless:
                 await asyncio.shield(task)
+            else:
+                with suppress(Exception):
+                    await asyncio.shield(task)
         return True
 
     async def wait_until_stopped(self) -> None:
@@ -139,6 +148,7 @@ class BotRuntime:
     async def shutdown(self) -> None:
         if self._shutdown:
             return
+        self._shutdown = True
         try:
             if self._started:
                 await self.stop_bot()

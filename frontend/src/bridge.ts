@@ -5,6 +5,20 @@ export interface AppStatus {
   uptime_seconds: number
   channel: string
   account: string
+  operation?: BrowserOperation
+}
+
+export type BrowserOperationMode = 'always_on' | 'stream_only' | 'manual' | 'disabled'
+export type BrowserStreamStatus = 'live' | 'offline' | 'unknown'
+
+export interface BrowserOperation {
+  mode: BrowserOperationMode
+  desired_running: boolean
+  pending: boolean
+  stream_status: BrowserStreamStatus
+  last_known_stream_status: 'live' | 'offline' | null
+  last_checked_at: string | null
+  error: null | 'connection_failed'
 }
 
 export type TwitchConnectionState =
@@ -529,6 +543,10 @@ export interface ManagementSetup extends ActionResult {
 }
 
 import { browserApi, browserRequest } from './httpTransport'
+
+export function setBrowserOperationMode(mode: BrowserOperationMode): Promise<ActionResult> {
+  return browserRequest('POST', '/v1/bot/mode', { mode })
+}
 
 export function getBrowserSnapshot(): Promise<ManagementSnapshot> {
   return browserRequest('GET', '/v1/snapshot')

@@ -75,6 +75,8 @@ def test_health_requires_fresh_connected_heartbeat_and_clears_on_stop(tmp_path, 
     assert not healthy(path)
     heartbeat.update("reconnecting")
     assert not healthy(path)
+    heartbeat.update("idle")
+    assert healthy(path)  # Intentional Manual/Disabled/offline Stream Only.
     heartbeat.clear()
     assert not path.exists()
 

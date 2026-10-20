@@ -307,8 +307,8 @@ immediately; in-flight replies may finish using earlier values. None of the supp
 transfer settings requires reconnection or restart.
 
 Provider/API keys, OAuth tokens, management credentials, SQLite history and storage
-opt-outs, machine paths, Twitch identity/channel/presets, desktop startup/window
-preferences and operator cooldown-bypass policy are excluded and preserved on the
+opt-outs, machine paths, Twitch identity/channel/presets, headless operation mode,
+desktop startup/window preferences and operator cooldown-bypass policy are excluded and preserved on the
 destination. Set up authorization and secrets separately. Text you enter in prompts,
 commands or filters can still be private, and AI blocks include usernames/account
 IDs: review and protect the ZIP before sharing it. This is portable configuration,

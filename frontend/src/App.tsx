@@ -3,12 +3,14 @@ import {
   type AIProviderSettings,
   type AIStatus,
   type AppStatus,
+  type BrowserOperationMode,
   type CredentialInfo,
   type LogEntry,
   type TwitchConnectionSettings,
   getBrowserSetup,
   getBrowserSnapshot,
   isBrowserMode,
+  setBrowserOperationMode,
   twitchAuthorizationLabel,
   twitchConnectionLabel,
   waitForBridge,
@@ -77,12 +79,43 @@ function formatUptime(totalSeconds: number): string {
     .join(':')
 }
 
-function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuthorizeTwitch, onNavigate, busy }: {
+const browserOperationModes: { value: BrowserOperationMode; label: string }[] = [
+  { value: 'always_on', label: 'Always On' },
+  { value: 'stream_only', label: 'Stream Only' },
+  { value: 'manual', label: 'Manual' },
+  { value: 'disabled', label: 'Disabled' },
+]
+
+function browserOperationModeLabel(mode: BrowserOperationMode): string {
+  return browserOperationModes.find((option) => option.value === mode)?.label ?? mode
+}
+
+function streamStatusLabel(status: 'live' | 'offline' | 'unknown'): string {
+  return status === 'live' ? 'Live' : status === 'offline' ? 'Offline' : 'Unknown'
+}
+
+function browserOperationDescription(mode: BrowserOperationMode): string {
+  switch (mode) {
+    case 'always_on': return 'The bot connects on startup and stays active regardless of broadcaster live status.'
+    case 'stream_only': return 'The bot connects when the broadcaster is live and disconnects when the stream ends. An unknown status does not force a disconnect.'
+    case 'manual': return 'The bot stays stopped across restarts until you explicitly connect it from this dashboard.'
+    case 'disabled': return 'The bot stays disconnected across restarts. Choose another mode before connecting it.'
+  }
+}
+
+function formatCheckedAt(value: string | null): string {
+  if (!value) return 'Not checked yet'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? 'Unavailable' : date.toLocaleString()
+}
+
+function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuthorizeTwitch, onChangeBrowserMode, onNavigate, busy }: {
   status: AppStatus | null
   aiStatus: AIStatus | null
   onChangeBotState: (shouldRun: boolean) => void
   onChangeAIState: (kind: 'enabled' | 'memory', enabled: boolean) => void
   onAuthorizeTwitch: () => void
+  onChangeBrowserMode: (mode: BrowserOperationMode) => void
   onNavigate: (section: Extract<Section, 'AI' | 'Settings' | 'Logs'>, targetId?: string) => void
   busy: string
 }) {
@@ -143,21 +176,29 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
   const pendingRestart = Boolean(setup?.twitch.requires_restart)
   const pendingReconnect = Boolean(setup?.twitch.requires_reconnect && !pendingRestart && !needsTwitchSetup)
   const connectionState = status?.twitch_connection_state
+  const operation = isBrowserMode() ? status?.operation : undefined
+  const automaticOperation = operation?.mode === 'always_on' || operation?.mode === 'stream_only'
+  const browserManaged = Boolean(operation)
+  const lifecycleBusy = Boolean(busy) || Boolean(operation?.pending)
   const connectionHint = !status || !setup || needsTwitchSetup || pendingRestart
     ? ''
     : connectionState === 'auth_required'
-      ? isBrowserMode() ? 'Authorize the configured bot account on the server, then restart the bot.' : status.running
-        ? 'Sign in as the configured bot account.'
-        : 'Start Bot again to authorize Twitch.'
+      ? isBrowserMode()
+        ? operation?.mode === 'disabled' ? 'Bot operation is disabled. Choose another mode after authorizing the configured bot account.' : 'Authorize the configured bot account on the server, then use the selected operation mode to connect.'
+        : status.running ? 'Sign in as the configured bot account.' : 'Start Bot again to authorize Twitch.'
       : connectionState === 'connecting'
         ? 'Waiting for Twitch…'
         : connectionState === 'reconnecting'
-          ? 'Connection lost. Reconnecting automatically.'
+          ? isBrowserMode() ? 'Connection lost. Automatic recovery is in progress.' : 'Connection lost. Reconnecting automatically.'
           : connectionState === 'failed'
-            ? status.running ? 'Check Logs, then stop and start the bot.' : 'Check Logs, then Start Bot again.'
+            ? isBrowserMode()
+              ? operation?.mode === 'disabled' ? 'Bot operation is disabled. Choose another mode to connect.' : operation?.mode === 'manual' ? 'Check Logs, then Connect again.' : 'Automatic operation is paused after a connection failure. Check Logs, then choose Manual and Connect to retry.'
+              : status.running ? 'Check Logs, then stop and start the bot.' : 'Check Logs, then Start Bot again.'
             : connectionState === 'connected'
               ? ''
-              : 'Start Bot to connect.'
+              : isBrowserMode()
+                ? operation?.mode === 'disabled' ? 'Bot operation is disabled. Choose another mode to connect.' : operation?.mode === 'manual' ? 'Connect when you are ready.' : 'Waiting for the selected automatic operation policy.'
+                : 'Start Bot to connect.'
 
   return (
     <section className="dashboard-layout">
@@ -169,13 +210,15 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
             <h2>{statusLabel}</h2>
           </div>
         </div>
-        <button
-          className={status?.running ? 'secondary' : 'primary'}
-          disabled={!status || Boolean(busy) || (!status.running && (pendingRestart || needsTwitchSetup))}
-          onClick={() => onChangeBotState(!status?.running)}
-        >
-          {busy === 'bot' ? 'Working…' : status?.running ? 'Stop Bot' : 'Start Bot'}
-        </button>
+        {operation?.mode !== 'disabled' && (
+          <button
+            className={status?.running ? 'secondary' : 'primary'}
+            disabled={!status || lifecycleBusy || (!status.running && !automaticOperation && (pendingRestart || needsTwitchSetup))}
+            onClick={() => onChangeBotState(automaticOperation ? false : !status?.running)}
+          >
+            {busy === 'bot' ? 'Working…' : operation?.pending ? 'Reconciling…' : automaticOperation ? 'Switch to Manual & disconnect' : browserManaged ? status?.running ? 'Disconnect' : 'Connect' : status?.running ? 'Stop Bot' : 'Start Bot'}
+          </button>
+        )}
       </article>
       {(needsTwitchSetup || pendingRestart || pendingReconnect || setupError) && (
         <article className="card dashboard-notice setup-card">
@@ -192,6 +235,36 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
           <button className="secondary" onClick={() => onNavigate('Settings', 'twitch-settings')}>
             {needsTwitchSetup ? 'Configure Twitch' : 'Review Twitch setup'}
           </button>
+        </article>
+      )}
+      {operation && (
+        <article className="card dashboard-operation-card">
+          <div className="dashboard-card-heading">
+            <div>
+              <div className="dashboard-label">Operation mode<HelpTip label="Operation mode">The selected policy is persisted on the server and reconciled asynchronously. Twitch connection below reports the actual session separately.</HelpTip></div>
+              <h2>{browserOperationModeLabel(operation.mode)}</h2>
+            </div>
+            <Select
+              id="operation-mode"
+              value={operation.mode}
+              aria-label="Operation mode"
+              options={browserOperationModes}
+              disabled={busy === 'operation-mode'}
+              onChange={(mode) => onChangeBrowserMode(mode as BrowserOperationMode)}
+            />
+          </div>
+          <p>{browserOperationDescription(operation.mode)}</p>
+          {operation.mode === 'stream_only' && <p>Stream changes require consecutive successful checks before the connection changes.</p>}
+          <div className="twitch-status-grid dashboard-operation-status">
+            <div><span>Broadcaster status</span><strong className={operation.stream_status === 'live' ? 'status-good' : ''}>{streamStatusLabel(operation.stream_status)}</strong></div>
+            <div><span>Last known status</span><strong>{operation.last_known_stream_status ? streamStatusLabel(operation.last_known_stream_status) : 'None'}</strong></div>
+            <div><span>Last checked</span><strong>{formatCheckedAt(operation.last_checked_at)}</strong></div>
+          </div>
+          {operation.stream_status === 'unknown' && <p className="dashboard-operation-unknown">{operation.mode === 'stream_only' ? 'Broadcaster status is currently unknown; Stream Only will keep the last safe state until a reliable check succeeds.' : 'Broadcaster live status is currently unknown. It is only used for Stream Only; other modes do not depend on it.'}</p>}
+          {operation.error === 'connection_failed' && <p className="inline-error">The latest connection attempt failed. Check Logs for details. Choose Manual and Connect to retry.</p>}
+          {operation.pending && <p role="status">Applying the latest operation mode…</p>}
+          {operation.mode === 'manual' && <p className="dashboard-operation-actions">Manual mode lets you connect or disconnect with the button above.</p>}
+          {operation.mode === 'disabled' && <p className="dashboard-operation-actions">Connecting is disabled. Choose Always On, Stream Only or Manual to enable it.</p>}
         </article>
       )}
       <div className="dashboard-grid">
@@ -504,6 +577,24 @@ function ManagementApp() {
     }
   }
 
+  const changeBrowserMode = async (mode: BrowserOperationMode) => {
+    if (!isBrowserMode()) return
+    setError('')
+    setActionBusy('operation-mode')
+    try {
+      const result = await setBrowserOperationMode(mode)
+      if (!result.ok) {
+        throw new Error(result.error ?? 'The operation mode could not be changed.')
+      }
+      const api = await waitForBridge()
+      setStatus(await api.get_app_status())
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Backend request failed.')
+    } finally {
+      setActionBusy('')
+    }
+  }
+
   const changeAIState = async (kind: 'enabled' | 'memory', enabled: boolean) => {
     setError('')
     setActionBusy(`ai:${kind}`)
@@ -588,6 +679,7 @@ function ManagementApp() {
               onChangeBotState={(shouldRun) => void changeBotState(shouldRun)}
               onChangeAIState={(kind, enabled) => void changeAIState(kind, enabled)}
               onAuthorizeTwitch={() => void authorizeTwitch()}
+              onChangeBrowserMode={(mode) => void changeBrowserMode(mode)}
               onNavigate={navigate}
             />
           )}

@@ -15,6 +15,9 @@ sys.path.insert(0, "/opt/heetkit")
 from app import bot_runtime, headless
 from app.runtime_paths import RuntimePaths, prepare_runtime_data
 from app.twitch.client import TwitchChatBot
+from app.app_settings import AppSettingsStore
+from app.operation_policy import OperationPolicy
+from app.services.twitch import TwitchAPIService
 
 
 paths = RuntimePaths.default()
@@ -123,12 +126,52 @@ def verify():
     print(f"Linux uid={os.getuid()}: signals, restart/recreation, SQLite, profile loading and token rotation passed ({starts} sessions).")
 
 
+def policy_probe(arguments):
+    """Fixed commands over disposable synthetic probe state, never production UI."""
+    if arguments[0] == "set-mode":
+        AppSettingsStore(paths.app_settings).update_operation_mode(arguments[1])
+    elif arguments[0] == "set-live":
+        assert arguments[1] in {"true", "false", "unknown"}
+        (paths.data / "probe-live").write_text(arguments[1])
+    elif arguments[0] == "stats":
+        def counter(name):
+            path = paths.data / name
+            return int(path.read_text()) if path.exists() else 0
+        print(json.dumps({"mode": AppSettingsStore(paths.app_settings).snapshot().startup.operation_mode,
+            "starts": counter("probe-starts"), "stops": counter("probe-stops")}))
+    else:
+        raise AssertionError("Unknown probe command")
+
+
+async def synthetic_live(service, settings):
+    path = paths.data / "probe-live"
+    value = path.read_text() if path.exists() else "false"
+    if value == "unknown":
+        raise OSError("Synthetic monitoring interruption")
+    return value == "true"
+
+
+def synthetic_policy(runtime, store):
+    return OperationPolicy(runtime, store, poll_interval=0.1, max_backoff=0.4, request_timeout=1)
+
+
 if __name__ == "__main__":
     os.umask(0o077)
     if sys.argv[1] == "seed":
         seed()
     elif sys.argv[1] == "verify":
         verify()
+    elif sys.argv[1] == "policy":
+        policy_probe(sys.argv[2:])
     else:
+        # Block network before application/monitor startup, even while chat is off.
+        import aiohttp
+        import httpx
+        async def forbidden(*args, **kwargs):
+            raise AssertionError("Network access in synthetic container validation")
+        aiohttp.ClientSession._request = forbidden
+        httpx.AsyncClient.send = forbidden
+        TwitchAPIService.get_broadcaster_live = synthetic_live
+        headless.OperationPolicy = synthetic_policy
         bot_runtime.run_twitch_bot = session
         raise SystemExit(headless.main(["--health-file", "/tmp/heetkit-health.json"]))

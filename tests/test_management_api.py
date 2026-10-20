@@ -51,6 +51,7 @@ def settings():
 @pytest.fixture
 async def api(unused_tcp_port):
     app = build_application(settings())
+    AppSettingsStore(RuntimePaths.default().app_settings).update_operation_mode("manual")
     runtime = BotRuntime(app, logging.getLogger("test"), headless=True)
     await runtime.startup()
     server = ManagementAPI(runtime, ManagementConfig(TOKEN, port=unused_tcp_port), RecentLogBuffer())
@@ -158,6 +159,38 @@ async def test_strict_bounded_json_and_no_partial_mutation(api):
         assert status == 400
         assert "private-sentinel" not in json.dumps(body)
     assert (await call("POST", "/v1/ai/enabled", data="{}"))[0] == 415
+
+
+async def test_operation_mode_auth_validation_persistence_and_disabled_start(api, monkeypatch):
+    server, call = api
+    for headers, expected in (({"Authorization": ""}, 401), ({"Origin": "http://evil.test"}, 403)):
+        assert (await call("POST", "/v1/bot/mode", json={"mode": "always_on"}, headers=headers))[0] == expected
+    assert server.policy.mode == "manual"
+    for payload in ({}, {"mode": "future"}, {"mode": []}, {"mode": True},
+                    {"mode": "manual", "path": "private-sentinel"}):
+        status, result, _ = await call("POST", "/v1/bot/mode", json=payload)
+        assert status == 400 and "private-sentinel" not in json.dumps(result)
+    assert server.policy.mode == "manual"
+    assert (await call("POST", "/v1/bot/mode", json={"mode": "disabled"}))[0] == 200
+    assert (await call("POST", "/v1/bot/start", json={}))[0] == 400
+    assert not server.runtime.bot_active
+    for path in ("/v1/status", "/v1/snapshot", "/v1/diagnostics"):
+        status, result, _ = await call("GET", path)
+        operation = result["status"]["operation"] if path.endswith("snapshot") else result["operation"]
+        assert status == 200 and operation["mode"] == "disabled"
+        assert operation["stream_status"] == "unknown"
+        assert "private-client-sentinel" not in json.dumps(operation)
+    assert (await call("POST", "/v1/ai/memory", json={"enabled": False}))[0] == 200
+    store = AppSettingsStore(RuntimePaths.default().app_settings)
+    assert store.snapshot().startup.operation_mode == "disabled"
+    assert not store.snapshot().ai.memory_enabled
+    original = store._path.read_bytes()
+    def fail(*args, **kwargs):
+        raise OSError("private-path-sentinel")
+    monkeypatch.setattr("app.app_settings.os.replace", fail)
+    status, result, _ = await call("POST", "/v1/bot/mode", json={"mode": "always_on"})
+    assert status == 500 and "private-path-sentinel" not in json.dumps(result)
+    assert server.policy.mode == "disabled" and store._path.read_bytes() == original
 
 
 @pytest.mark.asyncio
@@ -375,6 +408,76 @@ async def test_headless_api_stop_start_keeps_supervisor_and_state(monkeypatch, u
         assert await asyncio.wait_for(worker, 5) == 0
     with socket.socket() as probe:
         assert probe.connect_ex(("127.0.0.1", unused_tcp_port)) != 0
+
+
+@pytest.mark.parametrize("mode", ["always_on", "stream_only", "manual", "disabled"])
+async def test_process_restarts_honor_modes_with_management_available(monkeypatch, unused_tcp_port, mode):
+    value = settings()
+    store = AppSettingsStore(RuntimePaths.default().app_settings)
+    store.update_operation_mode(mode)
+    sessions = []
+    async def session(**kwargs):
+        sessions.append(True)
+        kwargs["services"].runtime_state.set_twitch_connection_state("connected")
+        await kwargs["stop_event"].wait()
+    async def offline(*args):
+        return False
+    monkeypatch.setattr("app.bot_runtime.run_twitch_bot", session)
+    monkeypatch.setattr("app.services.twitch.TwitchAPIService.get_broadcaster_live", offline)
+    for _ in range(2):
+        stop = asyncio.Event()
+        worker = asyncio.create_task(headless.run_headless(value, store.snapshot(), stop,
+            startup_timeout=5, shutdown_timeout=2, management_config=ManagementConfig(TOKEN, port=unused_tcp_port)))
+        try:
+            async with aiohttp.ClientSession(headers={"Authorization": "Bearer " + TOKEN}) as client:
+                for _ in range(200):
+                    try:
+                        async with client.get(f"http://127.0.0.1:{unused_tcp_port}/v1/status") as response:
+                            body = await response.json()
+                        if not body["operation"]["pending"]:
+                            break
+                    except aiohttp.ClientConnectionError:
+                        pass
+                    await asyncio.sleep(0.01)
+                assert body["operation"]["mode"] == mode
+                assert body["running"] == (mode == "always_on")
+                if mode == "manual":
+                    async with client.post(f"http://127.0.0.1:{unused_tcp_port}/v1/bot/start", json={}) as response:
+                        assert response.status == 200
+                    await asyncio.sleep(0.1)
+                assert not worker.done()
+        finally:
+            stop.set()
+            assert await asyncio.wait_for(worker, 5) == 0
+    assert len(sessions) == (2 if mode in {"manual", "always_on"} else 0)
+
+
+async def test_terminal_twitch_failure_leaves_browser_management_alive(monkeypatch, unused_tcp_port):
+    value = settings()
+    stop = asyncio.Event()
+    failed = asyncio.Event()
+    async def session(**kwargs):
+        kwargs["services"].runtime_state.set_twitch_connection_state("auth_required")
+        failed.set()
+        await kwargs["stop_event"].wait()
+    monkeypatch.setattr("app.bot_runtime.run_twitch_bot", session)
+    worker = asyncio.create_task(headless.run_headless(value, AppSettings(), stop,
+        startup_timeout=5, shutdown_timeout=2, management_config=ManagementConfig(TOKEN, port=unused_tcp_port)))
+    try:
+        await asyncio.wait_for(failed.wait(), 5)
+        await asyncio.sleep(0.2)
+        async with aiohttp.ClientSession(headers={"Authorization": "Bearer " + TOKEN}) as client:
+            async with client.get(f"http://127.0.0.1:{unused_tcp_port}/v1/status") as response:
+                body = await response.json()
+                assert response.status == 200
+            assert body["operation"]["error"] == "connection_failed"
+            assert not body["operation"]["desired_running"]
+            assert not worker.done()
+            async with client.post(f"http://127.0.0.1:{unused_tcp_port}/v1/bot/mode", json={"mode": "disabled"}) as response:
+                assert response.status == 200
+    finally:
+        stop.set()
+        assert await asyncio.wait_for(worker, 5) == 0
 
 
 def test_private_bind_token_files_and_secret_safe_configuration(tmp_path, monkeypatch):

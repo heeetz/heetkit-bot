@@ -87,6 +87,34 @@ async def test_runtime_starts_and_stops_one_bot_session(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_concurrent_start_waits_for_close_before_creating_another_session(monkeypatch):
+    application = FakeApplication()
+    closing, release = asyncio.Event(), asyncio.Event()
+    sessions = []
+    async def session(**kwargs):
+        sessions.append(kwargs["stop_event"])
+        await kwargs["stop_event"].wait()
+        closing.set()
+        await release.wait()
+    monkeypatch.setattr("app.bot_runtime.run_twitch_bot", session)
+    runtime = BotRuntime(cast(Application, application), logging.getLogger("tests.runtime"), headless=True)
+    await runtime.startup()
+    await runtime.start_bot()
+    stopping = asyncio.create_task(runtime.stop_bot())
+    await closing.wait()
+    starting = asyncio.create_task(runtime.start_bot())
+    await asyncio.sleep(0)
+    assert not starting.done() and len(sessions) == 1
+    release.set()
+    assert await stopping and await starting
+    await asyncio.sleep(0)
+    assert len(sessions) == 2
+    await runtime.shutdown()
+    with pytest.raises(RuntimeError, match="shut down"):
+        await runtime.start_bot()
+
+
+@pytest.mark.asyncio
 async def test_runtime_reconnects_running_session_with_new_channel(monkeypatch) -> None:
     application = FakeApplication()
     session_count = 0

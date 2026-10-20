@@ -49,7 +49,7 @@ def healthy(path: Path = DEFAULT_HEALTH_FILE) -> bool:
         pid, updated = payload["pid"], payload["updated"]
         if type(pid) is not int or pid <= 0 or type(updated) not in (int, float):
             return False
-        if payload["state"] != "connected" or not 0 <= time.monotonic() - updated <= 15:
+        if payload["state"] not in {"connected", "idle"} or not 0 <= time.monotonic() - updated <= 15:
             return False
         if os.name == "posix":
             os.kill(pid, 0)

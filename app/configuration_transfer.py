@@ -53,7 +53,7 @@ SECTIONS = ("commands", "responses", "custom_commands", "personalities", "ai", "
 EFFECTS = ["All included settings are saved and apply to subsequent bot processing immediately.",
            "In-flight replies may finish with earlier settings. No reconnect or restart is required."]
 PRESERVED = ["Twitch identity, channel and authorization", "Provider and management credentials",
-             "SQLite history and privacy policy", "Desktop startup/window settings and machine paths"]
+             "SQLite history and privacy policy", "Operation mode, desktop startup/window settings and machine paths"]
 
 
 def _object(pairs):

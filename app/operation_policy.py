@@ -1,0 +1,191 @@
+"""Headless operation intent around the shared BotRuntime, on its owning loop."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import math
+from datetime import datetime, timezone
+
+from app.app_settings import AppSettingsStore, OPERATION_MODES
+from app.bot_runtime import BotRuntime
+
+
+logger = logging.getLogger("app.headless.policy")
+
+
+class OperationPolicy:
+    def __init__(self, runtime: BotRuntime, store: AppSettingsStore, *,
+                 poll_interval: float = 60.0, max_backoff: float = 900.0,
+                 request_timeout: float = 15.0, confirmations: int = 2) -> None:
+        if (any(not math.isfinite(value) or value <= 0
+                for value in (poll_interval, max_backoff, request_timeout))
+                or max_backoff < poll_interval or type(confirmations) is not int or confirmations < 2):
+            raise ValueError("Invalid internal stream monitoring timing.")
+        self.runtime, self.store = runtime, store
+        self.mode = store.snapshot().startup.operation_mode
+        self.desired_running = self.mode == "always_on"
+        self.pending = False
+        self.error: str | None = None
+        self.stream_status = "unknown"
+        self.last_known_stream_status: str | None = None
+        self.last_checked_at: str | None = None
+        self._poll_interval, self._max_backoff = poll_interval, max_backoff
+        self._request_timeout, self._confirmations = request_timeout, confirmations
+        self._revision = 0
+        self._wake, self._monitor_wake = asyncio.Event(), asyncio.Event()
+        self._worker: asyncio.Task | None = None
+        self._monitor: asyncio.Task | None = None
+        self._closed = False
+
+    def snapshot(self) -> dict:
+        return {"mode": self.mode, "desired_running": self.desired_running,
+            "pending": self.pending, "error": self.error,
+            "stream_status": self.stream_status,
+            "last_known_stream_status": self.last_known_stream_status,
+            "last_checked_at": self.last_checked_at}
+
+    def _schedule(self) -> None:
+        self.pending = True
+        if not self.desired_running and self.runtime.bot_active:
+            # Intent is visible before close yields or supervision sees completion.
+            self.runtime.request_stop()
+        self._wake.set()
+
+    async def start(self) -> None:
+        if self._closed:
+            raise RuntimeError("Operation policy has closed.")
+        if self._worker is not None:
+            return
+        self._worker = asyncio.create_task(self._reconcile(), name="heetkit-operation-policy")
+        self._monitor = asyncio.create_task(self._monitor_stream(), name="heetkit-stream-monitor")
+        self._schedule()
+
+    def set_mode(self, mode: object) -> bool:
+        if self._closed or not isinstance(mode, str) or mode not in OPERATION_MODES:
+            raise ValueError("Unknown or unavailable operation mode.")
+        if mode == self.mode:
+            return False
+        # Save before publishing intent. Failed writes cannot partially change policy.
+        self.store.update_operation_mode(mode)
+        self._revision += 1
+        self.mode = mode
+        self.error = None
+        self.stream_status = "unknown"
+        self.desired_running = (mode == "always_on" or
+            (mode == "stream_only" and self.desired_running and self.runtime.bot_active))
+        self._monitor_wake.set()
+        self._schedule()
+        logger.info("Operation mode changed: %s", mode, extra={"event_kind": "operation.mode"})
+        return True
+
+    def connect(self) -> bool:
+        if self._closed or self.mode != "manual":
+            raise ValueError("Choose Manual before connecting explicitly.")
+        changed = not self.desired_running or self.error is not None
+        self.error = None
+        self.desired_running = True
+        self._schedule()
+        return changed
+
+    def disconnect(self) -> bool:
+        if self._closed:
+            raise ValueError("Operation policy has closed.")
+        if self.mode in {"always_on", "stream_only"}:
+            return self.set_mode("manual")
+        changed = self.desired_running
+        self.desired_running = False
+        self._schedule()
+        return changed
+
+    def connection_failed(self) -> None:
+        if self.error is None:
+            self.error = "connection_failed"
+            # Keep the saved policy and management alive, but do not race TwitchIO
+            # with another retry loop or repeat a terminal auth/storage failure.
+            self.desired_running = False
+            self._schedule()
+            logger.error("Twitch connection needs administrator attention.",
+                extra={"event_kind": "operation.failed"})
+
+    async def _reconcile(self) -> None:
+        while True:
+            await self._wake.wait()
+            self._wake.clear()
+            try:
+                if self.desired_running and self.error is None:
+                    await self.runtime.start_bot()
+                else:
+                    await self.runtime.stop_bot()
+            except Exception:
+                self.connection_failed()
+            finally:
+                self.pending = self._wake.is_set()
+
+    async def _monitor_stream(self) -> None:
+        candidate: bool | None = None
+        count = failures = 0
+        revision = self._revision
+        while True:
+            self._monitor_wake.clear()
+            if self.mode != "stream_only":
+                await self._monitor_wake.wait()
+                continue
+            if revision != self._revision:
+                candidate, count, failures = None, 0, 0
+                revision = self._revision
+            try:
+                async with asyncio.timeout(self._request_timeout):
+                    live = await self.runtime.application.services.twitch.get_broadcaster_live(
+                        self.runtime.application.settings)
+                if type(live) is not bool:
+                    raise ValueError("Unknown live status")
+            except Exception:
+                live = None
+                # Failed login/expired app tokens are retried through TwitchIO on
+                # the next bounded poll; never touch the bot's user-token cache.
+                try:
+                    await self.runtime.application.services.twitch.close_stream_monitor()
+                except Exception:
+                    logger.warning("Stream API cleanup failed.", extra={"event_kind": "operation.poll"})
+            if revision != self._revision or self.mode != "stream_only":
+                continue  # Discard a response from a superseded policy.
+            self.last_checked_at = datetime.now(timezone.utc).isoformat()
+            previous = self.stream_status
+            self.stream_status = "unknown" if live is None else "live" if live else "offline"
+            if live is None:
+                candidate, count = None, 0
+                failures = min(failures + 1, 10)
+            else:
+                failures = 0
+                self.last_known_stream_status = self.stream_status
+                count = count + 1 if candidate is live else 1
+                candidate = live
+                if count >= self._confirmations and self.error is None and self.desired_running != live:
+                    self.desired_running = live
+                    self._schedule()
+                    logger.info("Confirmed stream transition: %s", self.stream_status,
+                        extra={"event_kind": "operation.stream"})
+            if previous != self.stream_status or live is None:
+                logger.info("Stream check: %s", self.stream_status,
+                    extra={"event_kind": "operation.poll"})
+            delay = min(self._max_backoff, self._poll_interval * 2 ** failures)
+            try:
+                await asyncio.wait_for(self._monitor_wake.wait(), timeout=delay)
+            except TimeoutError:
+                pass
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self.desired_running = False
+        self.runtime.request_stop()
+        tasks = [task for task in (self._monitor, self._worker) if task is not None]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        twitch = getattr(self.runtime.application.services, "twitch", None)
+        if twitch is not None:
+            await twitch.close_stream_monitor()
+        self.pending = False

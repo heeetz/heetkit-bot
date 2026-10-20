@@ -20,6 +20,7 @@ from app.config.settings import Settings, TwitchConfigurationError
 from app.container import build_application
 from app.desktop_instance import DesktopAlreadyRunningError, desktop_instance_guard
 from app.headless_health import HealthFile
+from app.operation_policy import OperationPolicy
 from app.runtime_paths import DATA_DIR_ENV, RuntimePaths, prepare_runtime_data
 from app.utils.logging import RecentLogHandler, RecentLogBuffer, PrivacyLogFilter
 
@@ -71,6 +72,7 @@ class HeadlessLogFilter(logging.Filter):
         if kind in {
             "twitch.subscribe", "twitch.connected", "twitch.recovered", "twitch.disconnected",
             "twitch.auth_required", "twitch.failed", "twitch.shutdown",
+            "operation.mode", "operation.stream", "operation.poll", "operation.failed",
         }:
             # Render only application-owned lifecycle codes, never event payloads,
             # identities, chat text, URLs, exception text or traceback locals.
@@ -118,6 +120,8 @@ async def run_headless(
     ready = asyncio.Event()
     management = None
     recent_handler = None
+    store = AppSettingsStore(RuntimePaths.default().app_settings)
+    policy = OperationPolicy(runtime, store)
 
     async def serve() -> None:
         nonlocal management, recent_handler
@@ -131,48 +135,63 @@ async def run_headless(
             recent_handler.addFilter(PrivacyLogFilter())
             recent_handler.addFilter(HeadlessLogFilter())
             logging.getLogger().addHandler(recent_handler)
-            management = ManagementAPI(runtime, management_config, buffer)
+            management = ManagementAPI(runtime, management_config, buffer, policy=policy, app_settings=store)
             await management.start()
-        await runtime.start_bot()
-        waiter = asyncio.create_task(runtime.wait_until_stopped())
+            ready.set()  # Browser management is independent of Twitch readiness.
+        await policy.start()
+        waiter = None
         generation = 0
         connected = False
         try:
             while True:
-                if management is not None:
-                    if management.generation != generation:
+                if runtime.generation != generation:
+                    if waiter is not None:
                         waiter.cancel()
                         await asyncio.gather(waiter, return_exceptions=True)
-                        waiter = asyncio.create_task(runtime.wait_until_stopped())
-                        generation = management.generation
-                        connected = False
-                        deadline = asyncio.get_running_loop().time() + startup_timeout
-                    if not management.desired_running:
-                        ready.set()
-                        health.update("stopped")
-                        await asyncio.sleep(0.1)
-                        continue
+                    waiter = asyncio.create_task(runtime.wait_until_stopped())
+                    generation = runtime.generation
+                    connected = False
+                    deadline = asyncio.get_running_loop().time() + startup_timeout
+                if not policy.desired_running:
+                    if policy.error and management is None:
+                        raise HeadlessError("Twitch session failed. Check configuration, authorization and private storage.")
+                    ready.set()
+                    health.update("failed" if policy.error else "idle")
+                    await asyncio.sleep(0.1)
+                    continue
+                if policy.pending:
+                    health.update("starting")
+                    await asyncio.sleep(0.1)
+                    continue
                 health.update(state.twitch_connection_state)
+                failure = None
                 if state.twitch_connection_state == "auth_required":
-                    raise HeadlessError(AUTHORIZATION_HELP)
-                if state.twitch_connection_state == "failed":
-                    raise HeadlessError("Twitch session failed. Check authorization, network and writable private profile storage, then restart.")
-                if waiter.done():
-                    await waiter
-                    raise HeadlessError("Twitch session ended unexpectedly. Check configuration and restart.")
+                    failure = AUTHORIZATION_HELP
+                elif state.twitch_connection_state == "failed":
+                    failure = "Twitch session failed. Check authorization, network and writable private profile storage, then restart."
+                elif waiter is not None and waiter.done():
+                    failure = "Twitch session ended unexpectedly. Check configuration and restart."
+                    # Retrieve but never expose potentially private exceptions.
+                    await asyncio.gather(waiter, return_exceptions=True)
                 if state.twitch_connection_state == "connected" and not connected:
                     connected = True
                     ready.set()
                     logger.info("Headless bot connected; waiting for SIGINT or SIGTERM.")
                 if not connected and asyncio.get_running_loop().time() >= deadline:
-                    raise HeadlessError("Twitch startup timed out. Check authorization, configuration and network, then restart.")
+                    failure = "Twitch startup timed out. Check authorization, configuration and network, then restart."
+                if failure is not None:
+                    if management is None:
+                        raise HeadlessError(failure)
+                    logger.error("%s", failure)
+                    policy.connection_failed()
                 await asyncio.sleep(0.1)
         finally:
             # Do not propagate cancellation through this observer into the session;
             # runtime.shutdown first gets a chance to flush tokens gracefully.
-            if not waiter.done():
-                waiter.cancel()
-            await asyncio.gather(waiter, return_exceptions=True)
+            if waiter is not None:
+                if not waiter.done():
+                    waiter.cancel()
+                await asyncio.gather(waiter, return_exceptions=True)
 
     worker = asyncio.create_task(serve(), name="heetkit-headless-supervisor")
     stop_waiter = asyncio.create_task(stop.wait())
@@ -214,8 +233,13 @@ async def run_headless(
                 result = 1
         if recent_handler is not None:
             logging.getLogger().removeHandler(recent_handler)
+        async def shutdown():
+            try:
+                await policy.close()
+            finally:
+                await runtime.shutdown()
         runtime.request_stop()
-        cleanup = asyncio.create_task(runtime.shutdown())
+        cleanup = asyncio.create_task(shutdown())
         done, _ = await asyncio.wait({cleanup}, timeout=shutdown_timeout)
         if cleanup not in done:
             logger.error("Graceful shutdown timed out; canceling remaining work.")
@@ -290,9 +314,12 @@ def main(argv: list[str] | None = None) -> int:
         settings = settings.model_copy(update={"twitch_token_file": token_file, "database_url": database_url})
         profile = AppSettingsStore(paths.app_settings).snapshot()
         settings = apply_ai_app_settings(apply_twitch_app_settings(settings, profile), profile)
-        settings.validate_twitch_configuration()
-        if not paths.tokens.is_file():
-            raise HeadlessError(AUTHORIZATION_HELP)
+        # Management must remain usable with Twitch stopped/unconfigured. Without
+        # it, retain fail-fast diagnostics for the backwards-compatible default.
+        if not arguments.management_api and profile.startup.operation_mode == "always_on":
+            settings.validate_twitch_configuration()
+            if not paths.tokens.is_file():
+                raise HeadlessError(AUTHORIZATION_HELP)
         result = loop.run_until_complete(run_headless(settings, profile, stop, startup_timeout=arguments.startup_timeout, shutdown_timeout=arguments.shutdown_timeout, health=health, **management_options))
         return 1 if async_failed else result
     except DesktopAlreadyRunningError:

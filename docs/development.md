@@ -89,8 +89,12 @@ It is a local lock, not a cross-host Twitch-account lease.
 
 Stopping the bot disconnects its Twitch session while leaving the Application,
 database and desktop tools or enabled management API available. Exiting the process
-closes those resources. Headless currently starts the bot on process launch regardless
-of desktop auto-start preferences; a management stop is not a persistent operation mode.
+closes those resources. Headless uses the persistent
+[operation policy](management-api.md#operation-modes), independently of desktop auto-start.
+[`OperationPolicy`](../app/operation_policy.py) reconciles the latest intent through
+`BotRuntime`; the lifecycle lock covers session close/token flush before another start.
+Stream monitoring uses the existing Twitch service and TwitchIO's HTTP-only app-token
+client, without chat subscriptions, a callback listener or user-token-cache access.
 
 ### Management operations and transports
 
@@ -154,7 +158,7 @@ callback. Headless uses preauthorized profile state with that listener disabled.
 Its supervisor observes authorization loss, terminal failures and unexpected session
 completion; it does not add a competing reconnect loop. A cache file, live process or
 socket welcome alone does not prove chat delivery. [Docker health](docker.md#run-and-inspect)
-reports recent supervised connection state; live refresh/reconnect and cloud recovery
+reports recent supervision of connection or intentional idle state; live refresh/reconnect and cloud recovery
 need their own acceptance evidence.
 
 ### Validation by impact
@@ -317,11 +321,17 @@ do not control it. Without saved Twitch identity, supply `TWITCH_CLIENT_ID`,
 Token and SQLite locations always belong to the selected profile; headless ignores
 `TWITCH_TOKEN_FILE` and `DATABASE_URL`. No access/refresh-token environment importer exists.
 
-TwitchIO retains token validation, refresh and socket retry ownership. The runner
+TwitchIO retains token validation, refresh and socket retry ownership. Connecting
 requires verified bot authorization and a successful initial chat subscription;
 missing/rejected authorization, revocation, terminal subscription/listener failures,
-unexpected session termination and token write failures stop unattended operation
-with exit code 1. Check the private storage, network and account/application settings;
+unexpected session termination and token write failures stop unattended connectivity.
+With management enabled the panel stays available, displays a connection error and
+pauses automatic connection attempts; choose Manual and Connect after repairing the
+cause, or switch to another automatic mode. Without management, terminal failures
+retain exit code 1. Manual/Disabled and waiting Stream Only start without a chat
+session. Missing mode settings retain the prior Always On default; invalid modes or
+unreadable/unsupported settings keep headless Twitch disabled until repaired.
+Check the private storage, network and account/application settings;
 reauthorize through the desktop when requested, then stop it before restarting.
 Token saves retain TwitchIO's JSON format, serialize writes, fsync a private temporary
 file and atomically replace the cache. Startup rotation is saved after loading; partial

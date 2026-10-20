@@ -103,7 +103,7 @@ def test_malformed_app_settings_file_does_not_block_startup(
     settings_path = tmp_path / "app_settings.json"
     settings_path.write_text(file_content, encoding="utf-8")
 
-    assert load_app_settings(settings_path) == AppSettings()
+    assert load_app_settings(settings_path) == AppSettings(startup=StartupSettings(operation_mode="disabled"))
 
 
 def test_unknown_app_settings_version_uses_defaults(tmp_path) -> None:
@@ -113,7 +113,7 @@ def test_unknown_app_settings_version_uses_defaults(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    assert load_app_settings(settings_path) == AppSettings()
+    assert load_app_settings(settings_path) == AppSettings(startup=StartupSettings(operation_mode="disabled"))
 
 
 def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
@@ -141,7 +141,7 @@ def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
             "minimize_to_tray": True,
             "close_to_tray": False,
         },
-        "startup": {"auto_start_bot": True},
+        "startup": {"auto_start_bot": True, "operation_mode": "always_on"},
         "ai": {
             "cooldown_bypass_user_id": None,
             "fallback_model": None,

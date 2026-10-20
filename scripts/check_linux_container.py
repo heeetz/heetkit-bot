@@ -81,6 +81,19 @@ def main() -> None:
             status = state()
             assert not status["Running"] and status["ExitCode"] == 0, status
 
+        def policy(*arguments: str) -> str:
+            return run(*compose, "run", "--rm", "--no-deps", "--entrypoint", "python", "bot",
+                "/validation/headless_container.py", "policy", *arguments, capture=True)
+
+        def wait_sessions(starts: int, stops: int) -> None:
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline:
+                counters = json.loads(policy("stats"))
+                if counters["starts"] == starts and counters["stops"] == stops:
+                    return
+                time.sleep(0.2)
+            raise TimeoutError(f"Synthetic policy sessions did not settle: {counters}")
+
         try:
             run(*compose, "config", "--quiet")
             run(*compose, "build", timeout=600)
@@ -105,6 +118,41 @@ def main() -> None:
             run(*compose, "stop", "bot")
             stopped_cleanly()
             run(*compose, "run", "--rm", "--no-deps", "--entrypoint", "python", "bot", "/validation/headless_container.py", "verify")
+            # The same saved profile survives actual container restarts/recreation
+            # in every operation mode. The only remote boundary remains synthetic.
+            for mode in ("manual", "disabled", "stream_only"):
+                policy("set-mode", mode)
+                policy("set-live", "false")
+                for recreate in (False, True):
+                    if recreate:
+                        run(*compose, "up", "--detach", "--no-build", "--force-recreate", "bot")
+                    else:
+                        run(*compose, "start", "bot")
+                    wait_healthy()
+                    assert json.loads(policy("stats")) == {"mode": mode, "starts": 3, "stops": 3}
+                    run(*compose, "stop", "bot")
+                    stopped_cleanly()
+            policy("set-mode", "always_on")
+            run(*compose, "start", "bot")
+            wait_healthy()
+            wait_sessions(4, 3)
+            run(*compose, "stop", "bot")
+            stopped_cleanly()
+            policy("set-mode", "stream_only")
+            run(*compose, "start", "bot")
+            wait_healthy()
+            policy("set-live", "true")
+            wait_sessions(5, 4)
+            policy("set-live", "unknown")
+            time.sleep(1)
+            wait_sessions(5, 4)  # Failure must not disconnect or cycle sessions.
+            policy("set-live", "false")
+            wait_sessions(5, 5)
+            policy("set-live", "true")
+            wait_sessions(6, 5)
+            run(*compose, "stop", "bot")
+            stopped_cleanly()
+            wait_sessions(6, 6)
             run(*compose, "run", "--rm", "--no-deps", "--entrypoint", "python", "bot", "-m", "pip", "check")
             # Exercise the unmodified production CLI against an empty separate
             # profile: safe failure must not hang or print the mounted secret.

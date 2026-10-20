@@ -196,11 +196,12 @@ POST writes persist and apply immediately unless stated otherwise.
 | GET `session` / POST `session/logout` | Check current session / revoke it with `{}` |
 | GET `snapshot` | Combined `status` and `ai_status` for browser polling |
 | GET `setup`, `about` | Effective non-secret setup status / shared application metadata |
-| GET `status` | Running, Twitch connection state, session uptime, account and channel |
+| GET `status` | Running, Twitch connection state, session uptime, account/channel and `operation` policy/monitor status |
 | POST `configuration/export` | `{}`; returns `filename` and ZIP `archive_base64` |
 | POST `configuration/preview` | `archive_base64`; validates ZIP and returns a ten-minute `preview_token`, source `application_version`, `format_version`, replacement `sections` with counts/details, `effects` and `preserved` settings |
 | POST `configuration/import` | The same `archive_base64`, `preview_token` and `confirmed: true`; saves/applies only after revalidation against the preview and unchanged destination |
-| POST `bot/start`, `bot/stop` | `{}`; returns whether the session changed |
+| POST `bot/start`, `bot/stop` | `{}`; policy-aware connect/disconnect intent, `changed` and current `operation`; completion is asynchronous |
+| POST `bot/mode` | `mode`: `always_on`, `stream_only`, `manual` or `disabled`; persist and reconcile without process restart |
 | GET `commands` | Built-ins, effective/default settings, aliases, permissions, cooldowns and response pools |
 | POST `commands/save` | `command_name`, `enabled`, `per_user_seconds`, `global_seconds`, `permission`; optional `options` with `aliases`, `display_name`, `burst_interval_ms`, `burst_max_count` |
 | POST `commands/reset`, `commands/remove`, `commands/restore` | `command_name`; factory administrative permission floors remain enforced |
@@ -242,6 +243,55 @@ at most 450 UTF-8 bytes each). Reactions stay literal text; templates, expressio
 and AI are not executed. Existing command templates use their fixed variable
 allowlist and cannot run code. Filters retain their shared regex execution budget.
 
+## Operation modes
+
+The browser Dashboard selects a headless policy independently of the actual Twitch
+connection state. The policy is stored as `startup.operation_mode` in the existing
+profile `config/app_settings.json`; the profile volume must be retained across
+container/host restarts. Desktop continues to use its own auto-start preference.
+Portable configuration import/export preserves the destination operation policy.
+
+| Mode | Startup and controls |
+| --- | --- |
+| Always On | Connect on process start and retain TwitchIO's existing connection recovery. This is the default for profiles without a mode setting. |
+| Stream Only | Start monitoring while chat is disconnected; connect on confirmed live status and disconnect on confirmed offline status. Monitoring runs without a browser. |
+| Manual | Start stopped after every process restart. Connect/Disconnect explicitly controls this process's session. |
+| Disabled | Stay disconnected across restarts. Start is rejected until the mode changes. |
+
+Disconnect in an automatic mode first saves Manual, then stops the session, so a
+later stream change or process restart cannot undo an intentional stop. The button
+states this mode change explicitly. `bot/start` is accepted only in Manual.
+Entering Manual or Disabled stops the current session; entering Always On requests
+connection. Entering Stream Only retains a currently desired active session while
+confirming the broadcaster state. Pending close/token flush finishes before a new
+session can start; subsequent mode changes replace pending intent. The `operation`
+projection includes `mode`, `desired_running`, `pending`, `error`, `stream_status`,
+`last_known_stream_status` and UTC `last_checked_at`. Inspect it after mutations;
+an accepted request does not prove Twitch readiness.
+
+Stream Only checks Twitch's supported [Get Streams API](https://dev.twitch.tv/docs/api/reference/#get-streams)
+for the configured broadcaster ID using TwitchIO's app authentication and the
+existing client ID/secret. No new user scopes, second bot, EventSub session or
+OAuth token-file writer is introduced. Two consecutive successful matching samples,
+normally 60 seconds apart, confirm either transition. An unknown result resets
+confirmation, retains the desired connection and last known live/offline status,
+and backs off checks from 120 seconds to at most 900 seconds. Each check has a
+15-second deadline; TwitchIO retains its rate-limit handling. Timing and confirmation
+thresholds are internal constructor settings for controlled testing/operation.
+Checks run only in Stream Only; other modes report Unknown with the previous
+observation if available. Safe lifecycle codes expose polls, confirmed transitions,
+mode changes and connection failures without credentials or provider payloads.
+
+Monitoring errors never prove a stream ended. Once confirmed offline, closing may
+allow an already-running command/provider request to finish under the existing
+session cleanup rules. Terminal chat authorization/storage failures pause automatic
+connectivity and show `connection_failed`; management stays available for repair.
+Choose Manual and Connect after repair, or change to another automatic mode.
+Invalid mode values and corrupt/unsupported settings fail closed for headless
+connectivity; repair the profile file before saving if recovery preflight refuses it.
+Live broadcaster transition/refresh/reconnection acceptance remains a separately
+approved check before cloud deployment.
+
 ## Persistence, limits and failures
 
 Management requests serialize on the core asyncio loop, including awaited
@@ -256,9 +306,10 @@ Commands, responses, AI enablement/memory/models/language, personality selection
 and prompts, filters, blocks and triggers apply to subsequent processing immediately.
 Already-running command/provider requests may finish with their earlier snapshot.
 Stopping the bot leaves the API, database and profile lock alive; starting it uses
-the same core/state. A deliberately stopped bot is unhealthy under the existing
-connection health check; Compose does not restart a container merely for being
-unhealthy. Unexpected terminal Twitch failures still exit headless with an error.
+the same core/state. Intentional idle modes have a healthy supervised heartbeat;
+connecting/reconnecting and terminal connection errors are unhealthy. Compose does
+not restart a container merely for being unhealthy. Terminal Twitch failures keep
+enabled management available with a fixed error; without management they exit headless.
 
 Twitch identity/client credentials, provider secrets, privacy/storage policy and API
 bind/token changes require process restart and are configured outside this API.

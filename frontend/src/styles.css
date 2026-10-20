@@ -80,6 +80,14 @@ h1 { margin-bottom: 0; font-size: 28px; }
 .dashboard-card > button { margin-top: 8px; }
 .dashboard-card .metric { font-size: 20px; }
 .dashboard-ai-card { min-width: 0; }
+.dashboard-operation-card { min-width: 0; }
+.dashboard-operation-card h2 { margin: 0; font-size: 20px; }
+.dashboard-operation-card > p { max-width: 860px; margin: 10px 0 0; color: var(--muted); line-height: 1.5; }
+.dashboard-operation-card .dashboard-card-heading { align-items: center; }
+.dashboard-operation-card .select-trigger { min-width: 190px; }
+.dashboard-operation-status { margin-top: 16px; }
+.dashboard-operation-status strong { font-size: 14px; }
+.dashboard-operation-unknown, .dashboard-operation-actions { color: var(--muted); }
 .dashboard-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .dashboard-card-heading .dashboard-label { margin-bottom: 0; color: var(--text); font-size: 18px; }
 .dashboard-ai-summary { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 4px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }

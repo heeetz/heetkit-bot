@@ -5,6 +5,8 @@ from collections.abc import Callable
 from datetime import datetime
 from time import monotonic
 from typing import Any
+from twitchio import Client
+from app.config.settings import Settings
 from app.ai_user_blocks import verified_user_id
 
 logger = logging.getLogger(__name__)
@@ -28,6 +30,32 @@ class TwitchAPIService:
         self._clock = clock
         self._cached_category: str | None = None
         self._category_cached_at: float | None = None
+        self._monitor_client: Client | None = None
+
+    async def get_broadcaster_live(self, settings: Settings) -> bool:
+        """Get Streams using TwitchIO's app authentication, even without chat.
+
+        No user-token cache, EventSub session, OAuth listener or extra scopes.
+        The caller bounds requests and handles unknown status/backoff.
+        """
+        settings.validate_twitch_configuration()
+        if self._monitor_client is None:
+            client = Client(client_id=settings.twitch_client_id,
+                client_secret=settings.twitch_client_secret.get_secret_value())
+            self._monitor_client = client
+            try:
+                await client.login(load_tokens=False, save_tokens=False)
+            except BaseException:
+                await self.close_stream_monitor()
+                raise
+        streams = self._monitor_client.fetch_streams(
+            user_ids=[settings.twitch_channel_user_id], first=1, max_results=1)
+        return await anext(streams, None) is not None
+
+    async def close_stream_monitor(self) -> None:
+        client, self._monitor_client = self._monitor_client, None
+        if client is not None:
+            await client.close(save_tokens=False)
 
     def bind(self, client: Any, channel_user_id: str, token_user_id: str) -> None:
         self._client = client

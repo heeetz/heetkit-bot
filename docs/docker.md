@@ -111,8 +111,15 @@ cancellation grace, and Compose allows 30 seconds before force-killing. If overr
 `--shutdown-timeout`, increase `stop_grace_period` accordingly. Keep `--health-file
 /tmp/heetkit-health.json` in any command override.
 
+The saved [operation mode](management-api.md#operation-modes) controls connectivity
+after container/host restart, independently of Compose's process restart policy.
+Always On connects automatically; Stream Only monitors without a browser; Manual
+and Disabled remain stopped. Disconnecting an automatic mode saves Manual first.
+The management panel and mounted profile remain available while chat is stopped.
+
 The Docker health check reads a local, atomic, ephemeral heartbeat. Healthy means
-the supervisor recently observed the `connected` state; startup, reconnecting,
+the supervisor recently observed `connected` or intentional `idle` policy state
+(Manual, Disabled or waiting Stream Only); startup, reconnecting,
 stale/hung supervision and terminal failures are unhealthy. It does not make a
 provider request, open a port or prove that a particular chat message was delivered.
 Docker reports health separately from process restart: an unhealthy status alone
@@ -180,7 +187,8 @@ secret and generated-frontend decoys, checking that none appear in the image; it
 the checkout's ignored profile or secrets.
 It disables container networking and replaces only the Twitch remote boundary.
 It checks non-root execution, absence of GUI dependencies, real OS signals,
-stop/start, container recreation, saved configuration/personality/filter loading,
+stop/start, container recreation in all operation modes, synthetic stream transitions
+and monitoring failures, saved configuration/personality/filter loading,
 SQLite persistence/integrity and the real atomic token-cache loading/rotation/flush
 paths. It removes only its own test project/volume. The read-only Linux GitHub Actions
 workflow runs that same script; it publishes no image or release. Live Twitch/Gemini

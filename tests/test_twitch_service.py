@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.services.twitch import TwitchAPIService
+from app.config.settings import Settings
 
 
 class FakeTwitchClient:
@@ -81,3 +82,52 @@ async def test_category_api_failure_returns_none_and_is_cached() -> None:
     now = 150.0
     assert await service.get_current_category() is None
     assert client.fetch_count == 1
+
+
+@pytest.mark.parametrize("live", [False, True])
+async def test_stream_monitor_uses_sdk_app_login_without_bot_tokens_or_callback(monkeypatch, live):
+    calls = []
+    class SDKClient:
+        def __init__(self, **kwargs):
+            calls.append(("client", kwargs))
+        async def login(self, **kwargs):
+            calls.append(("login", kwargs))
+        def fetch_streams(self, **kwargs):
+            calls.append(("streams", kwargs))
+            async def values():
+                if live:
+                    yield SimpleNamespace()
+            return values()
+        async def close(self, **kwargs):
+            calls.append(("close", kwargs))
+    monkeypatch.setattr("app.services.twitch.Client", SDKClient)
+    service = TwitchAPIService()
+    settings = Settings(_env_file=None, twitch_client_id="client", twitch_client_secret="private-sentinel",
+        twitch_bot_user_id="100", twitch_bot_username="testbot", twitch_channel="channel", twitch_channel_user_id="200")
+    assert await service.get_broadcaster_live(settings) is live
+    assert await service.get_broadcaster_live(settings) is live
+    await service.close_stream_monitor()
+    await service.close_stream_monitor()
+    assert [name for name, _ in calls] == ["client", "login", "streams", "streams", "close"]
+    assert calls[1][1] == {"load_tokens": False, "save_tokens": False}
+    assert calls[2][1] == {"user_ids": ["200"], "first": 1, "max_results": 1}
+    assert calls[-1][1] == {"save_tokens": False}
+
+
+async def test_failed_monitor_login_closes_client_and_allows_later_poll(monkeypatch):
+    closed = []
+    class SDKClient:
+        def __init__(self, **kwargs):
+            pass
+        async def login(self, **kwargs):
+            raise RuntimeError("private-provider-token")
+        async def close(self, **kwargs):
+            closed.append(kwargs)
+    monkeypatch.setattr("app.services.twitch.Client", SDKClient)
+    service = TwitchAPIService()
+    settings = Settings(_env_file=None, twitch_client_id="client", twitch_client_secret="synthetic",
+        twitch_bot_user_id="100", twitch_bot_username="testbot", twitch_channel="channel", twitch_channel_user_id="200")
+    for _ in range(2):
+        with pytest.raises(RuntimeError):
+            await service.get_broadcaster_live(settings)
+    assert len(closed) == 2 and service._monitor_client is None

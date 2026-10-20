@@ -108,6 +108,7 @@ async def test_desktop_export_server_preview_import_round_trip_and_restart(profi
     assert "twitch" not in payload and "window" not in payload
     target = profiles("server")
     target.settings.update_desktop(start_minimized=True, minimize_to_tray=True, close_to_tray=True, auto_start_bot=True)
+    target.settings.update_operation_mode("disabled")
     target.settings.update_twitch(channel="keepchannel", channel_user_id="888")
     target.app.settings.gemini_api_key = "destination-secret"
     extra = json.loads(target.settings._path.read_text())
@@ -129,6 +130,7 @@ async def test_desktop_export_server_preview_import_round_trip_and_restart(profi
     assert target.snapshot() == source.snapshot()
     assert target.settings.snapshot().twitch.channel == "keepchannel"
     assert target.settings.snapshot().startup.auto_start_bot
+    assert target.settings.snapshot().startup.operation_mode == "disabled"
     assert target.settings.snapshot().window.start_minimized
     assert json.loads(target.settings._path.read_text())["future_unrelated"] == {"keep": True}
     assert target.app.settings.gemini_api_key == "destination-secret"
