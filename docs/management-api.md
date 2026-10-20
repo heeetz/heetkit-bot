@@ -86,6 +86,37 @@ Keep other HeetKit instances on that callback port stopped. For automatic comple
 use the default loopback binding or configure private remote HTTPS below. Never
 publish port 4343 or a public listener to repair a Server callback.
 
+### Twitch authorization diagnostics
+
+If Twitch returns a code and Settings reports a failed attempt, inspect the private
+Server stderr/container logs. Each failure identifies the operation, exception class
+and an HTTP status (or `none` when unavailable), for example:
+
+```text
+Server Twitch OAuth failed operation=user_lookup exception=HTTPException http_status=403
+```
+
+| Operation | Meaning |
+| --- | --- |
+| `callback_response`, `client_create` | Denial/invalid code, or temporary client construction |
+| `code_exchange` | Server exchanged the authorization code with Twitch |
+| `token_registration` | TwitchIO registered, validated or refreshed the user token |
+| `account_verification` | Application, bot ID/login and required scopes were checked |
+| `user_lookup`, `target_verification` | Authenticated Twitch user lookup, then bot/channel identity matching |
+| `session_validation` | Initiating session and attempt were checked again before saving |
+| `token_persistence` | Atomic private token-cache write |
+| `client_cleanup` | Temporary HTTP client/token-validation task cleanup |
+| `runtime_reconciliation` | Runtime connection status was reconciled after cleanup |
+
+An accepted callback is distinct from a successful exchange, lookup or save. Use
+the failing operation to investigate; a later-stage failure does not by itself mean
+the registered redirect or credentials are wrong. Cleanup failures are recorded
+separately when another operation already failed. The normal browser log feed
+remains a limited lifecycle projection; these diagnostics are in private Server logs.
+No exception text, traceback, response body, code, token, secret or callback query
+is logged. Failed attempts consume their state; start a new Connect Twitch attempt
+after addressing the identified failure rather than replaying a callback URL.
+
 ## Private remote HTTPS
 
 The preferred Linux server reference uses host-side **Tailscale Serve**, providing

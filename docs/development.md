@@ -160,6 +160,13 @@ Server's default localhost callback shares the management port; the explicitly
 configured private HTTPS callback uses the same fixed routes and expiring
 session-bound attempt. Desktop retains port 4343. Network/TLS setup remains external. See
 [remote management](management-api.md#private-remote-https).
+ServerSetup's temporary HTTP client selects the verified managed bot token for API
+lookups without starting chat, subscriptions or the Desktop adapter. Setup commits
+the existing atomic token cache once; temporary-client cleanup never retries that
+write. Its integration tests in `tests/test_server_setup.py` run real TwitchIO OAuth,
+token validation/refresh, user models, persistence and cleanup against local mocked
+HTTP endpoints. [Safe operation diagnostics](management-api.md#twitch-authorization-diagnostics)
+separate failures without rendering provider errors or OAuth values.
 Its supervisor observes authorization loss, terminal failures and unexpected session
 completion; it does not add a competing reconnect loop. A cache file, live process or
 socket welcome alone does not prove chat delivery. [Docker health](docker.md#run-and-inspect)

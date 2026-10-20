@@ -10,7 +10,10 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 import aiohttp
 import pytest
+from aiohttp import web
+from yarl import URL
 from twitchio.authentication.payloads import UserTokenPayload, ValidateTokenPayload
+from twitchio.http import HTTPClient
 
 from app.app_settings import AppSettingsStore
 from app.bot_runtime import BotRuntime
@@ -28,6 +31,7 @@ from app.twitch.client import CHAT_SCOPES, OAUTH_REDIRECT_URI, TwitchChatBot
 TOKEN = "synthetic_management_token_" + "x" * 32
 TWITCH = {"client_id": "test-client", "bot_username": "testbot", "bot_user_id": "100",
           "channel": "testchannel", "channel_user_id": "200"}
+TWITCH_HTTP_REQUEST = HTTPClient.request
 
 
 @pytest.fixture(autouse=True)
@@ -692,3 +696,277 @@ async def test_alternate_loopback_retains_authenticated_paste_completion(api, tw
             assert response.status == 403
     assert not twitch_provider[1] and server.setup.pending is not None
     assert (await call("/v1/twitch/authorization/complete", {"callback_url": callback}))[0] == 200
+
+
+@pytest.fixture
+async def twitch_http(api, monkeypatch, unused_tcp_port_factory):
+    """Real TwitchIO HTTP/OAuth/token/model code; only the wire is redirected.
+
+    The mock refuses missing/wrong Authorization just as Helix does. No token
+    registration, user lookup, save or cleanup method is replaced.
+    """
+    port = unused_tcp_port_factory()
+    provider = SimpleNamespace(calls=[], validation={"client_id": TWITCH["client_id"],
+        "user_id": "100", "login": "testbot", "scopes": list(CHAT_SCOPES.selected),
+        "expires_in": 14400}, failure=None, refresh=False, target="testchannel", clients=[], writes=[],
+        pause=None, entered=asyncio.Event(), lookup_expired=False)
+    server, _ = api
+    original_bot = server.setup._bot
+    def create_bot():
+        bot = original_bot()
+        provider.clients.append(bot)
+        return bot
+    monkeypatch.setattr(server.setup, "_bot", create_bot)
+    original_replace = os.replace
+    def replace(source, target):
+        if str(target) == str(RuntimePaths.default().tokens):
+            provider.writes.append(True)
+            if provider.failure == "token_persistence":
+                raise OSError("private-provider-body-sentinel")
+        return original_replace(source, target)
+    monkeypatch.setattr("app.twitch.client.os.replace", replace)
+    async def token(request):
+        grant = request.query["grant_type"]
+        stage = "code_exchange" if grant == "authorization_code" else "token_refresh"
+        provider.calls.append(stage)
+        assert request.query["client_id"] == TWITCH["client_id"]
+        assert request.query["client_secret"] == "synthetic-secret"
+        if stage == "code_exchange":
+            assert request.query["code"] == "private-code-sentinel"
+            assert request.query["redirect_uri"] == server.setup.redirect_uri
+        else:
+            assert grant == "refresh_token" and request.query["refresh_token"] == "private-refresh-sentinel"
+        if provider.failure == stage:
+            return web.json_response({"message": "private-provider-body-sentinel"}, status=400)
+        prefix = "rotated-" if stage == "token_refresh" else ""
+        return web.json_response({"access_token": prefix + "private-access-sentinel",
+            "refresh_token": prefix + "private-refresh-sentinel", "expires_in": 14400,
+            "scope": list(CHAT_SCOPES.selected), "token_type": "bearer"})
+    async def validate(request):
+        provider.calls.append("token_validate")
+        assert request.headers["Authorization"] in ("OAuth private-access-sentinel", "OAuth rotated-private-access-sentinel")
+        if provider.failure == "token_validate":
+            return web.json_response({"message": "private-provider-body-sentinel"}, status=403)
+        payload = provider.validation.copy()
+        if provider.refresh and request.headers["Authorization"] == "OAuth private-access-sentinel":
+            payload["expires_in"] = 60
+        return web.json_response(payload)
+    async def users(request):
+        provider.calls.append("user_lookup")
+        expected = "Bearer " + ("rotated-" if provider.refresh else "") + "private-access-sentinel"
+        if request.headers.get("Authorization") != expected:
+            provider.calls.append("user_lookup_unauthorized")
+            return web.json_response({"message": "OAuth token is missing"}, status=401)
+        if provider.lookup_expired and not provider.refresh:
+            provider.refresh = True
+            return web.json_response({"message": "Invalid OAuth token"}, status=401)
+        if provider.failure == "user_lookup":
+            return web.json_response({"message": "private-provider-body-sentinel"}, status=403)
+        if provider.pause is not None:
+            provider.entered.set()
+            await provider.pause.wait()
+        return web.json_response({"data": [{"id": uid, "login": login, "display_name": login,
+            "type": "", "broadcaster_type": "", "description": "", "profile_image_url": "https://example.test/avatar.png",
+            "offline_image_url": "", "created_at": "2026-01-01T00:00:00Z"}
+            for uid, login in (("100", "testbot"), ("200", provider.target))
+            if uid in request.query.getall("id", [])]})
+    application = web.Application()
+    application.router.add_post("/oauth2/token", token)
+    application.router.add_get("/oauth2/validate", validate)
+    application.router.add_get("/helix/users", users)
+    runner = web.AppRunner(application, access_log=None)
+    await runner.setup()
+    await web.TCPSite(runner, "127.0.0.1", port).start()
+    original = aiohttp.ClientSession._request
+    async def request(session, method, address, **kwargs):
+        url = URL(address)
+        if url.host in ("id.twitch.tv", "api.twitch.tv"):
+            url = url.with_scheme("http").with_host("127.0.0.1").with_port(port)
+        else:
+            assert url.host in ("127.0.0.1", "localhost"), "External HTTP is forbidden"
+        return await original(session, method, url, **kwargs)
+    async def test_secret(*args, **kwargs):
+        return SimpleNamespace(status_code=200)
+    monkeypatch.setattr(HTTPClient, "request", TWITCH_HTTP_REQUEST)
+    monkeypatch.setattr(aiohttp.ClientSession, "_request", request)
+    monkeypatch.setattr("httpx.AsyncClient.post", test_secret)
+    try:
+        yield provider
+    finally:
+        await runner.cleanup()
+
+
+def assert_setup_clients_closed(provider):
+    for bot in provider.clients:
+        assert bot._has_closed and not bot.tokens
+        assert bot.http._app_token is None
+        assert bot.http._validate_task is None and not bot.http._session_set
+        assert not bot.http._ManagedHTTPClient__isolated._session_set
+
+
+@pytest.mark.parametrize("refresh", ["none", "registration", "lookup"])
+@pytest.mark.parametrize("completion", ["paste", "callback"])
+async def test_real_twitchio_oauth_completion(callback_server, twitch_http, refresh, completion, caplog):
+    server, call, callback = callback_server
+    twitch_http.refresh = refresh == "registration"
+    twitch_http.lookup_expired = refresh == "lookup"
+    await configure(call)
+    query = await callback_begin(call)
+    if completion == "paste":
+        status, result = await call("/v1/twitch/authorization/complete",
+            {"callback_url": server.setup.redirect_uri + "?" + query})
+        assert status == 200, (result, twitch_http.calls)
+    else:
+        status, result, headers = await callback(query)
+        assert status == 303 and headers["Location"] == "/oauth/result"
+    expected = ["code_exchange", "token_validate"]
+    if refresh == "registration":
+        expected += ["token_refresh", "token_validate"]
+    expected += ["user_lookup"]
+    if refresh == "lookup":
+        expected += ["token_refresh", "user_lookup"]
+    assert twitch_http.calls == expected
+    saved = json.loads(RuntimePaths.default().tokens.read_text())
+    prefix = "rotated-" if refresh != "none" else ""
+    assert saved["100"]["token"] == prefix + "private-access-sentinel"
+    assert saved["100"]["refresh"] == prefix + "private-refresh-sentinel"
+    assert len(twitch_http.writes) == 1
+    assert server.setup.authorization_status == "verified"
+    assert not server.policy._setup_suspended and server.setup.pending is None
+    assert server.runtime.application.services.runtime_state.twitch_connection_state == "stopped"
+    assert_setup_clients_closed(twitch_http)
+    assert "Server Twitch OAuth failed" not in caplog.text
+    # Normal cache loading still uses real token validation and atomic writes.
+    reloaded = server.setup._bot()
+    try:
+        await reloaded.load_tokens()
+        assert reloaded.tokens["100"]["refresh"] == saved["100"]["refresh"]
+    finally:
+        await reloaded.close(save_tokens=False)
+    assert_setup_clients_closed(twitch_http)
+
+
+@pytest.mark.parametrize("failure,operation,exception,status", [
+    ("code_exchange", "code_exchange", "HTTPException", 400),
+    ("token_validate", "token_registration", "InvalidTokenException", 403),
+    ("token_refresh", "token_registration", "InvalidTokenException", 400),
+    ("application", "account_verification", "TwitchConnectionError", "none"),
+    ("account", "account_verification", "TwitchConnectionError", "none"),
+    ("login", "account_verification", "TwitchConnectionError", "none"),
+    ("scopes", "account_verification", "TwitchConnectionError", "none"),
+    ("target", "target_verification", "CredentialError", "none"),
+    ("user_lookup", "user_lookup", "HTTPException", 403),
+    ("token_persistence", "token_persistence", "TwitchConnectionError", "none"),
+])
+async def test_real_twitchio_failures_are_safe_single_use_and_close_clients(api, twitch_http,
+        caplog, failure, operation, exception, status):
+    server, call = api
+    await configure(call)
+    callback = await begin(call)
+    twitch_http.failure = failure
+    if failure == "token_refresh":
+        twitch_http.refresh = True
+    elif failure in ("application", "account", "login", "scopes"):
+        twitch_http.validation.update({"application": {"client_id": "wrong"}, "account": {"user_id": "999"},
+            "login": {"login": "wrong"}, "scopes": {"scopes": []}}[failure])
+    elif failure == "target":
+        twitch_http.target = "wrong"
+    status_code, result = await call("/v1/twitch/authorization/complete", {"callback_url": callback})
+    assert status_code == 400
+    assert f"operation={operation} exception={exception} http_status={status}" in caplog.text
+    assert server.setup.authorization_status == "validation_failed" and server.setup.outcome[1] == "failed"
+    assert not server.policy._setup_suspended and server.setup.pending is None
+    assert not RuntimePaths.default().tokens.exists() and not list(RuntimePaths.default().auth.glob("*.tmp"))
+    assert len(twitch_http.writes) == (1 if failure == "token_persistence" else 0)
+    assert_setup_clients_closed(twitch_http)
+    previous_calls = twitch_http.calls.copy()
+    assert (await call("/v1/twitch/authorization/complete", {"callback_url": callback}))[0] == 400
+    assert twitch_http.calls == previous_calls
+    for value in ("private-code-sentinel", "private-access-sentinel", "private-refresh-sentinel",
+            "private-provider-body-sentinel", "synthetic-secret", parse_qs(urlsplit(callback).query)["state"][0]):
+        assert value not in caplog.text + json.dumps(result)
+
+
+async def test_real_twitchio_cancellation_closes_clients_without_persisting(api, twitch_http, caplog):
+    server, call = api
+    await configure(call)
+    callback = await begin(call)
+    twitch_http.pause = asyncio.Event()
+    owner = __import__("hashlib").sha256(TOKEN.encode()).digest()
+    task = asyncio.create_task(server.setup.complete(owner, callback))
+    try:
+        await asyncio.wait_for(twitch_http.entered.wait(), 2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    finally:
+        twitch_http.pause.set()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    assert "operation=user_lookup exception=CancelledError http_status=none" in caplog.text
+    assert not server.policy._setup_suspended and server.setup.pending is None
+    assert not RuntimePaths.default().tokens.exists() and not twitch_http.writes
+    assert_setup_clients_closed(twitch_http)
+
+
+@pytest.mark.parametrize("lookup_fails", [False, True])
+async def test_real_twitchio_cleanup_failure_does_not_mask_primary_failure(api, twitch_http,
+        caplog, monkeypatch, lookup_fails):
+    from twitchio.authentication.tokens import ManagedHTTPClient
+    server, call = api
+    await configure(call)
+    callback = await begin(call)
+    if lookup_fails:
+        twitch_http.failure = "user_lookup"
+    cleanup = ManagedHTTPClient.cleanup
+    def fail_after_cleanup(client):
+        cleanup(client)
+        raise RuntimeError("private-provider-body-sentinel")
+    monkeypatch.setattr(ManagedHTTPClient, "cleanup", fail_after_cleanup)
+    status, result = await call("/v1/twitch/authorization/complete", {"callback_url": callback})
+    assert status == 400
+    assert "operation=client_cleanup exception=RuntimeError http_status=none" in caplog.text
+    if lookup_fails:
+        assert "operation=user_lookup exception=HTTPException http_status=403" in caplog.text
+        assert "user_lookup" in result["error"]
+    else:
+        assert "client_cleanup" in result["error"]
+    assert RuntimePaths.default().tokens.exists() is not lookup_fails
+    assert server.setup.outcome[1] == "failed" and not server.policy._setup_suspended
+    assert_setup_clients_closed(twitch_http)
+    assert "private-provider-body-sentinel" not in caplog.text + json.dumps(result)
+
+
+async def test_real_twitchio_runtime_reconciliation_failure_is_not_reported_completed(api,
+        twitch_http, caplog, monkeypatch):
+    server, call = api
+    await configure(call)
+    callback = await begin(call)
+    def fail(*args):
+        raise RuntimeError("private-provider-body-sentinel")
+    monkeypatch.setattr(server.runtime.application.services.runtime_state, "set_twitch_connection_state", fail)
+    status, _ = await call("/v1/twitch/authorization/complete", {"callback_url": callback})
+    assert status == 400 and server.setup.outcome[1] == "failed"
+    assert server.setup.authorization_status == "validation_failed"
+    assert "operation=runtime_reconciliation exception=RuntimeError http_status=none" in caplog.text
+    assert RuntimePaths.default().tokens.exists()  # Preserve valid committed authorization.
+    assert not server.policy._setup_suspended
+    assert_setup_clients_closed(twitch_http)
+    assert "private-provider-body-sentinel" not in caplog.text
+
+
+@pytest.mark.parametrize("status,expected", [(400, "400"), (True, "none"), (999, "none"),
+    ("private-provider-body-sentinel", "none")])
+def test_oauth_diagnostics_survive_headless_filter_without_rendering_exception(caplog, status, expected):
+    from twitchio.exceptions import HTTPException
+    from app.headless import HeadlessLogFilter
+    from app.server_setup import _oauth_failure
+    error = HTTPException("private-provider-body-sentinel", status=status,
+        extra={"message": "private-access-sentinel"})
+    _oauth_failure("code_exchange", error)
+    record = next(record for record in caplog.records if record.name == "app.headless")
+    assert HeadlessLogFilter().filter(record)
+    assert record.getMessage() == f"Server Twitch OAuth failed operation=code_exchange exception=HTTPException http_status={expected}"
+    assert record.exc_info is None
+    assert "private-provider-body-sentinel" not in caplog.text and "private-access-sentinel" not in caplog.text

@@ -9,6 +9,7 @@ from time import monotonic
 from urllib.parse import parse_qs, urlsplit
 
 from pydantic import SecretStr
+from twitchio.exceptions import HTTPException
 
 from app.app_settings import validate_twitch_identity, validate_twitch_settings
 from app.credentials import CredentialError, CredentialName
@@ -18,6 +19,16 @@ from app.twitch.client import (
     CHAT_SCOPES, OAUTH_STATE_TTL_SECONDS, TwitchChatBot,
     headless_twitch_diagnostics, validate_bot_authorization,
 )
+
+
+def _oauth_failure(operation, error):
+    # The headless logger is admitted by the private log filter. Never render an
+    # exception, traceback, route, response body or OAuth value here.
+    status = error.status if isinstance(error, HTTPException) else None
+    status = status if type(status) is int and 100 <= status <= 599 else "none"
+    logging.getLogger("app.headless").error(
+        "Server Twitch OAuth failed operation=%s exception=%s http_status=%s",
+        operation, type(error).__name__, status)
 
 
 def credential_manager(settings) -> ServerCredentialManager:
@@ -224,43 +235,78 @@ class ServerSetup:
         self.pending = None
         self._clear_timer()
         self.outcome = (owner, "failed")
+        operation = "callback_response"
         try:
             if "error" in query:
                 raise CredentialError("Twitch authorization was denied. Select Connect Twitch to try again.")
             code = query.get("code", [""])[0]
             if not code or len(code) > 4096 or not code.isascii() or any(ord(c) < 33 for c in code):
                 raise CredentialError("The callback has no valid authorization code. Try Connect Twitch again.")
+            operation = "client_create"
             bot = self._bot()
+            persisted = False
             try:
                 with headless_twitch_diagnostics(lambda: None):
+                    operation = "code_exchange"
                     response = await bot.http.user_access_token(code, redirect_uri=self.redirect_uri)
+                    operation = "token_registration"
                     validated = await bot.add_token(response.access_token, response.refresh_token)
+                    operation = "account_verification"
                     validate_bot_authorization(validated, self.settings)
+                    # TwitchIO 3.3.2's selector returns early when both the route
+                    # header and _app_token are None, ignoring token_for. This
+                    # HTTP-only setup client has no login/default token. Use its
+                    # verified managed user token as the default, as TwitchIO's
+                    # single-user DCF client does; token_for still selects the
+                    # managed record, including any refresh rotation.
+                    bot.http._app_token = bot.tokens[validated.user_id]["token"]
+                    operation = "user_lookup"
                     users = await bot.fetch_users(ids=list({self.settings.twitch_bot_user_id,
                         self.settings.twitch_channel_user_id}), token_for=self.settings.twitch_bot_user_id)
+                    operation = "target_verification"
                     identities = {str(user.id): user.name.lower() for user in users}
                     if (identities.get(self.settings.twitch_channel_user_id) != self.settings.twitch_channel
                             or identities.get(self.settings.twitch_bot_user_id) != self.settings.twitch_bot_username):
                         raise CredentialError("Twitch account or channel does not match its configured ID. Correct Settings and authorize again.")
                     # Reuse the existing atomic cache writer and TwitchIO's managed
                     # tokens (including any refresh on add), never an alternative cache.
+                    operation = "session_validation"
                     if monotonic() >= pending[2] or not self.owner_active(owner):
                         raise CredentialError("The initiating session or authorization attempt expired. Sign in and try again.")
                     bot._tokens_loaded = True
+                    operation = "token_persistence"
                     await bot.save_tokens()
+                    persisted = True
             finally:
-                await bot.close(save_tokens=False)
-            self.authorization_status, self.authorized_account = "verified", self.settings.twitch_bot_username
-            self.outcome = (owner, "completed")
+                # Setup commits explicitly above. Shared Desktop close normally
+                # flushes loaded tokens; do not retry a failed setup write or
+                # perform a second commit during this temporary client's close.
+                bot._tokens_loaded = False
+                if persisted:
+                    operation = "client_cleanup"
+                try:
+                    with headless_twitch_diagnostics(lambda: None):
+                        await bot.close(save_tokens=False)
+                except (Exception, asyncio.CancelledError) as error:
+                    if persisted:
+                        raise
+                    _oauth_failure("client_cleanup", error)
+                finally:
+                    bot.http._app_token = None
             # A stopped session retains auth_required/failed for diagnostics.
             # Successful reauthorization supersedes that old session's error.
+            operation = "runtime_reconciliation"
             self.runtime.application.services.runtime_state.set_twitch_connection_state("stopped")
-        except CredentialError:
+            self.authorization_status, self.authorized_account = "verified", self.settings.twitch_bot_username
+            self.outcome = (owner, "completed")
+        except (CredentialError, asyncio.CancelledError) as error:
             self.authorization_status = "validation_failed"
+            _oauth_failure(operation, error)
             raise
-        except Exception:
+        except Exception as error:
             self.authorization_status = "validation_failed"
-            raise CredentialError("Twitch authorization could not be verified. Check the registered redirect, application secret, expected account and network; then try Connect Twitch again.") from None
+            _oauth_failure(operation, error)
+            raise CredentialError(f"Twitch authorization failed during {operation}. See the private Server logs for the safe diagnostic, then select Connect Twitch again.") from None
         finally:
             self.policy.resume_after_setup()
         return {"ok": True}

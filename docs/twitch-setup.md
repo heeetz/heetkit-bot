@@ -51,8 +51,10 @@ session cannot replace it until cancellation or expiry; sign-out/session evictio
 invalidates it. Denial or failed exchange consumes it and requires a new attempt.
 For an inaccessible callback check the exact registered redirect, published/tunneled
 management port and host listener; for remote HTTPS also check the tailnet connection
-and proxy. For a completed but failed attempt check expected
-account, required permissions, application secret and provider reachability.
+and proxy. For an accepted callback followed by a failed attempt, use the
+[safe operation diagnostic](management-api.md#twitch-authorization-diagnostics)
+in private Server logs to distinguish exchange, token validation, lookup, storage
+and cleanup failures. A later-stage failure does not establish a configuration error.
 Neither tab closure nor management-network loss stops an already authorized bot.
 Existing authorized-profile transfer is an optional advanced path: keep credentials,
 OAuth state and private history separate from portable configuration ZIPs, stop the
