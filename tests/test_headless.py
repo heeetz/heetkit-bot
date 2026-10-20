@@ -269,12 +269,14 @@ async def exercise():
         await kwargs['stop_event'].wait()
     app.bot_runtime.run_twitch_bot = synthetic
     settings = Settings(twitch_client_id='synthetic', twitch_client_secret='synthetic', twitch_bot_user_id='100', twitch_bot_username='testbot', twitch_channel_user_id='200', twitch_channel='testchannel')
-    assert await run_headless(settings, AppSettings(), stop, startup_timeout=2, shutdown_timeout=2) == 0
+    # This import-boundary smoke check includes cold real-core/SQLite startup on CI.
+    # Tight supervisor deadlines are covered separately with in-memory applications.
+    assert await run_headless(settings, AppSettings(), stop, startup_timeout=10, shutdown_timeout=5) == 0
 asyncio.run(exercise())
 '''
     env = {key: value for key, value in os.environ.items() if key.lower() not in Settings.model_fields}
     env["PYTHON_KEYRING_BACKEND"] = "nonexistent.keyring.Backend"
-    process = subprocess.run([sys.executable, "-c", code, "--data-dir", str(tmp_path / "isolated")], env=env, capture_output=True, text=True, timeout=15)
+    process = subprocess.run([sys.executable, "-c", code, "--data-dir", str(tmp_path / "isolated")], env=env, capture_output=True, text=True, timeout=30)
     assert process.returncode == 0, process.stderr
     assert "Missing: TWITCH_CLIENT_ID" in process.stderr
     assert "Desktop import" not in process.stderr
