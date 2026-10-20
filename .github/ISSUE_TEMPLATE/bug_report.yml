@@ -4,7 +4,7 @@ title: "[Bug]: "
 body:
   - type: markdown
     attributes:
-      value: "For vulnerabilities, use [private reporting](https://github.com/heeetz/twitch-bot/blob/main/SECURITY.md). Do not include credentials, profiles, databases, or private chat data."
+      value: "For vulnerabilities, use [private reporting](https://github.com/heeetz/heetkit-bot/blob/main/SECURITY.md). Do not include credentials, profiles, databases, or private chat data."
   - type: input
     id: version
     attributes:

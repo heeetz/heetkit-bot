@@ -1,15 +1,18 @@
 # Commands and customization
 
 Configure built-in commands, create custom replies, and manage filters from HeetKit's
-desktop control panel. Examples below use the default `!` prefix.
+desktop or authenticated browser control panel. Examples below use the default `!` prefix.
 
-Select **Commands**, **Filters**, **AI** or **Settings** in the sidebar to open that
-page and reveal its subsection shortcuts. A shortcut scrolls to the corresponding
-card and keeps the list open; selecting another page replaces the shortcuts.
-Shortcuts follow the page's block order, including **Filter Tester** and the AI page's
-**State**, **Playground**, **Conversation memory**, **AI access** and **Built-in
-restrictions** sections.
-Dashboard, Logs and About remain direct page links.
+Select **Commands**, **Filters**, **AI** or, on Desktop, **Settings** in the sidebar
+to reveal subsection shortcuts. A shortcut opens the relevant section and scrolls to
+it; selecting another page replaces the shortcuts. Commands follow **Your commands →
+Built-in commands → Removed commands → Administrative commands → Advanced: reset all
+built-ins**. AI follows **State → Playground → Personalities → Profile instructions →
+Response language → Models → AI access → Built-in restrictions**. Conversation memory
+is a panel in **State**, not a separate shortcut. Browser mode omits Playground and
+Settings subsection shortcuts; see [browser capabilities](management-api.md#browser-panel).
+Filters includes **Filter Tester** followed by its rule categories. Dashboard, Logs
+and About remain direct page links.
 
 Expandable headers use a chevron on the right. Select the header, or focus it and
 press Enter or Space, to open or close it. Question-mark buttons beside labels give

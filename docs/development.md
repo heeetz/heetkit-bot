@@ -66,29 +66,103 @@ are ignored and recreated from source.
 
 ## Development boundaries and checks
 
-Python owns behavior, validation, providers, persistence and lifecycle. React presents
-backend state through the typed `WebUIBridge`. Keep credentials and mutable profile
-data outside the application bundle, and use synthetic fixtures in tests.
+Python owns behavior, validation, providers, persistence and lifecycle. One React
+application presents backend state and holds temporary editor drafts. Use synthetic
+profiles and provider boundaries in tests; keep credentials and mutable data outside
+the application bundle.
 
-`app/main.py` enters the pywebview host in `app/webview_host.py`. Its background asyncio
-loop owns one composed `Application` (`app/container.py`) and one `BotRuntime`
-(`app/bot_runtime.py`). The application wires repositories, Twitch/Gemini/weather services,
-filters and the command dispatcher; `BotRuntime` starts and stops Twitch sessions.
-One desktop controller owns the window, tray and application shutdown.
-`python -m app.headless` instead owns the same application/runtime on its foreground
-asyncio loop. Both entry points share saved Twitch/AI settings application; the
-headless runner adds authorization supervision and signal-driven cleanup.
+### Shared core and lifecycle
 
-The registry defines built-in commands; `RuntimeState` holds their effective settings
-and current AI/session state. Profile stores own saved overrides. React calls only
-allowlisted bridge operations and holds temporary editor drafts. Stopping the bot
-disconnects Twitch while keeping the desktop and local tools available; exiting closes
-the backend and its provider, HTTP and database resources.
+[`build_application()`](../app/container.py) composes one `Application`: repositories,
+shared HTTP/provider clients, filters, command registry/dispatcher and `RuntimeState`.
+Application startup initializes the database, retention task and filters; shutdown
+closes Gemini, the shared HTTP client and database. [`BotRuntime`](../app/bot_runtime.py)
+serializes Twitch session transitions and stops the session before application cleanup.
 
-Documentation-only changes need content/link review and `git diff --check`, without
-test suites or builds.
+[`app.main`](../app/main.py) enters the [pywebview host](../app/webview_host.py), whose
+`AsyncioBackendHost` owns the core on a background asyncio thread. `DesktopController`
+owns the window, Windows tray and bounded exit. [`app.headless`](../app/headless.py)
+owns the same core on a foreground loop, adding readiness/failure supervision,
+SIGINT/SIGTERM and bounded cleanup, including after partial startup. Both hold the
+same per-profile instance guard before loading/migration through final cleanup.
+It is a local lock, not a cross-host Twitch-account lease.
 
-Run focused Python tests for the changed subsystem:
+Stopping the bot disconnects its Twitch session while leaving the Application,
+database and desktop tools or enabled management API available. Exiting the process
+closes those resources. Headless currently starts the bot on process launch regardless
+of desktop auto-start preferences; a management stop is not a persistent operation mode.
+
+### Management operations and transports
+
+[`ApplicationManagement`](../app/management.py) owns shared domain operations for
+commands, AI, personalities, filters and blocks, reusing existing validation, stores
+and runtime state. [`WebUIBridge`](../app/webview_host.py) inherits those operations
+and adds desktop/native/credential adapters and bounded submission to the backend loop.
+pywebview exposes only explicit, origin-guarded functions; it never exposes the full
+application object.
+
+[`ManagementAPI`](../app/management_api.py) maps fixed authenticated HTTP routes to
+that shared layer and `BotRuntime`, serializing operations on the core loop across
+awaits. It also serves allowlisted production React assets. The typed
+[`bridge.ts`](../frontend/src/bridge.ts) surface uses pywebview on Desktop; only the
+server's explicit document marker selects [`httpTransport.ts`](../frontend/src/httpTransport.ts).
+A delayed desktop bridge does not select HTTP automatically. Browser access uses
+same-origin requests and short-lived in-memory bearer sessions; native actions,
+credential editing, update checks and Playground remain desktop-only. Authentication,
+cookie handling, route limits and browser capabilities belong to the
+[management API guide](management-api.md).
+
+### Saved configuration and effective state
+
+[`RuntimeState`](../app/runtime_state.py) holds locked effective command, AI, personality
+and session state; the registry owns built-in definitions and profile stores own saved
+overrides. Apply may affect only the current session; Save persists and applies.
+Immediate toggles such as Ask enablement persist before publication. UI drafts are
+not runtime state. In-flight work may finish using an earlier captured snapshot.
+
+Both entry points use [`profile_settings.py`](../app/config/profile_settings.py) for
+saved Twitch/AI overlays and apply saved memory enablement before runtime startup.
+Non-secret saved values override process defaults. Desktop credentials use the OS
+keyring before intentional environment fallbacks. Headless uses environment or bounded
+`_FILE` inputs without keyring discovery; file contents are not exported to the
+environment. OAuth access/refresh tokens belong to the private profile cache, not
+ordinary settings or the keyring. SQLite holds users, AI history and durable privacy
+opt-out IDs. Recovery originals, migration markers and mutable config remain private
+profile data. See [profiles, retention and deletion](data-and-privacy.md) and
+[Docker storage, secrets and recovery](docker.md) for operational procedures.
+
+### Twitch connection ownership
+
+[`TwitchChatBot`](../app/twitch/client.py) adapts TwitchIO authorization, chat
+subscriptions/events and connection-state reporting. TwitchIO owns token validation/
+refresh, EventSub reconnect/backoff and resubscription. Application code serializes
+atomic private token-cache writes, retains rotations and untouched records after
+partial loading, and flushes before shutdown clears the managed cache.
+
+Desktop authorization uses explicit, expiring single-use OAuth state and the local
+callback. Headless uses preauthorized profile state with that listener disabled.
+Its supervisor observes authorization loss, terminal failures and unexpected session
+completion; it does not add a competing reconnect loop. A cache file, live process or
+socket welcome alone does not prove chat delivery. [Docker health](docker.md#run-and-inspect)
+reports recent supervised connection state; live refresh/reconnect and cloud recovery
+need their own acceptance evidence.
+
+### Validation by impact
+
+For ordinary prose changes, review content, internal links/anchors and `git diff --check`;
+application suites and frontend builds are unnecessary. Machine-consumed documentation
+needs its focused input validation: parse issue-form YAML and preserve its field structure,
+or run publication-input checks when changing versioned release notes or their contract.
+
+For behavior changes, run focused Python checks for the affected subsystem. Shared
+core/API/transport changes may also need the relevant lifecycle, integration and browser
+contract checks: [`test_bot_runtime.py`](../tests/test_bot_runtime.py),
+[`test_headless.py`](../tests/test_headless.py), [`test_management_api.py`](../tests/test_management_api.py),
+[`test_webview_host.py`](../tests/test_webview_host.py) and the applicable
+[`browser-management`](../frontend/tests/browser-management.spec.ts) /
+[`browser-server`](../frontend/tests/browser-server.spec.ts) tests. Select by the changed
+boundary; do not run all suites for every edit. The [API guide](management-api.md#persistence-limits-and-failures)
+owns the opt-in Chrome/Firefox access matrix and its separate Docker-forwarding limit.
 
 Keep headless supervisor timing checks independent of filesystem/SQLite startup by
 using an in-memory application. Real profile/database lifecycle coverage remains in
@@ -99,12 +173,29 @@ python -m pytest -q tests/test_affected_subsystem.py
 git diff --check
 ```
 
-The full Python suite is `python -m pytest -q`. For frontend changes, run `npm test`,
-`npm run typecheck` and `npm run build` in `frontend/`. Browser tests use synthetic
-setup and mocked external actions. On Windows they use installed Microsoft Edge;
+The full Python suite is `python -m pytest -q` when warranted. For frontend code,
+type or asset changes, run the corresponding focused browser tests with
+`npm test -- tests/affected.spec.ts`, plus `npm run typecheck` and `npm run build`
+in `frontend/`. Browser tests use synthetic setup and mocked external actions.
+On Windows they use installed Microsoft Edge;
 on other development platforms install Chromium with `npx playwright install chromium`.
 Native window, tray and OAuth behavior may need platform-specific manual validation.
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for pull requests.
+
+### Documentation ownership
+
+Update the guide owning the changed contract and link to it from other guides.
+Read only the sections relevant to the affected subsystem; keep README focused on
+the product, downloads and a minimal starting flow.
+
+| Change | Guide |
+| --- | --- |
+| Core lifecycle, ownership and architectural boundaries | This development guide |
+| HTTP behavior, authentication and browser management | [Management API](management-api.md) |
+| Docker storage, secrets, health, backup and recovery | [Docker](docker.md) |
+| Privacy, retention and deletion | [Data and privacy](data-and-privacy.md) |
+| Commands, AI and initial Twitch setup | [Commands](commands.md), [AI setup](ai-setup.md), [Twitch setup](twitch-setup.md) |
+| Packaging, release inputs and publication | [Release process](release-process.md) |
 
 ### Desktop layout checks
 
@@ -256,149 +347,18 @@ source use requires building `frontend/` first. Cloud deployment remains separat
 
 ## Headless readiness audit
 
-Historical baseline audited 2026-10-17 against application revision `29786ce` and
-installed TwitchIO 3.3.2. The findings below describe that revision before headless
-implementation. The [headless runtime](#headless-runtime) section documents the
-subsequent implementation and its validation limits; [Docker packaging](docker.md)
-is implemented separately, while cloud deployment remains deferred.
+The 2026-10-17 audit of revision `29786ce` described the pre-headless desktop baseline.
+Its runner, saved-settings, token-persistence and dependency gaps were subsequently
+addressed by the shared headless runtime, Docker packaging and private management API.
+Use the current [architecture boundaries](#development-boundaries-and-checks),
+[headless runtime](#headless-runtime), [Docker](docker.md) and
+[management API](management-api.md) guides for current behavior.
 
-### Reusable core and confirmed gaps
-
-[`Application`](../app/container.py) composes the existing services, repositories,
-filters, commands and runtime state. Startup initializes SQLite, retention and filters;
-shutdown closes Gemini, the shared HTTP client and database. [`BotRuntime`](../app/bot_runtime.py)
-serializes session transitions and stops Twitch before application cleanup. Neither
-requires a window, tray or Windows API. A synthetic check exercised the real application
-startup/session/shutdown with desktop imports rejected and no provider calls.
-
-| Surface | Confirmed current behavior | Necessary follow-up |
-| --- | --- | --- |
-| Entry point | `app.main` and `heetkit` enter `webview_host.main`; even `--check` checks frontend assets. Normal launch creates a window. Windows prerequisites and tray calls are confined to desktop paths. | Add a separate foreground runner using the same `Application` and `BotRuntime`, without importing the host or starting its daemon thread. |
-| Saved settings | The desktop host alone overlays saved Twitch identity/target, AI models/language/cooldown exception, and AI-memory enablement. Calling `build_application(load_settings())` omits those overlays. | Share the existing profile-settings application logic and apply it before composition; retain memory enablement and all existing stores. Start the service explicitly, independently of the desktop auto-start/window preferences. |
-| Authorization | Missing or rejected cached user tokens leave `auth_required` while `Client.start()` keeps waiting. Revocation changes state without ending the session. | Give unattended startup a bounded readiness wait and explicit failure/exit behavior; treat authorization-required and terminal failures as actionable, including after startup. |
-| Termination | No application SIGTERM/SIGINT handlers exist. `BotRuntime.shutdown()` awaits the session without a deadline; cancellation or failure during stop can prevent application cleanup. Desktop shutdown deadlines belong to `AsyncioBackendHost`. | Handle both signals in the runner, bound stopping/cancellation, and guarantee application cleanup after partial startup or failed stop. Report failure with a nonzero exit status. |
-| Runtime failures | TwitchIO owns socket recovery; no application supervisor observes asynchronous listener/refresh failure. All `twitchio` loggers are silenced above CRITICAL. | Surface safe listener/token-persistence and terminal connection errors through application logging/state. Do not add a competing socket retry loop or repeatedly restart missing authorization. |
-| State ownership | The desktop acquires a per-profile Windows named mutex or POSIX nonblocking `flock` before migration/loading; direct core use does not. There is no account-wide or cross-host lease. | Reuse the same guard for the entire headless lifecycle. Require one active owner of the account/profile; separate profiles, machines or container-local locks cannot enforce this across hosts. |
-
-### Linux dependencies
-
-The project requires Python >=3.12. For a concrete compatibility check, the current
-backend dependencies, including keyring, resolved to **48 wheel-backed packages for
-CPython 3.14, Linux x86-64, glibc 2.28**. Resolution used `pyproject.toml`, omitted only
-`pywebview`/`pystray`, and constrained shared versions to the current Windows pins.
-Linux-specific additions were SecretStorage 3.5.0 and jeepney 0.9.0. This was metadata
-resolution with source builds disabled, not a Linux install or execution test.
-
-| Dependency group | Headless relevance |
-| --- | --- |
-| TwitchIO/aiohttp, httpx, aiosqlite/SQLAlchemy, Pydantic/settings, platformdirs | Backend requirements; no GUI backend is needed. TwitchIO's existing aiohttp adapter does not require the optional Starlette extra. |
-| `google-genai==1.75.0`, `regex==2026.9.29` | Retain existing behavior/pins. Upstream provides a [platform-independent GenAI wheel](https://pypi.org/project/google-genai/1.75.0/#files) and [Linux regex wheels](https://pypi.org/project/regex/2026.9.29/#files), including CPython 3.14 x86-64. |
-| `keyring` | Currently imported by settings/credentials even when environment secrets are used. Keep it initially; Linux metadata selects SecretStorage/jeepney instead of Windows credential bindings. A running/unlocked keyring is a separate operational requirement. |
-| `pywebview`, `pystray` and GUI-only dependencies | Unneeded for headless operation, but currently unconditional project requirements. Separate desktop installation requirements while preserving desktop setup/build behavior. This removes the renderer/tray stack, including `bottle`, `proxy_tools`, Pillow and Linux `python-xlib`; Windows pythonnet/CLR is also unnecessary. |
-
-The full desktop dependency set at that revision failed the wheel-only check because
-`proxy-tools==0.1.0` has no wheel. This is a desktop dependency/source-build issue,
-not evidence that the Python backend is incompatible with Linux. Do not install the
-entire `packaging/windows/requirements.txt` on Linux: it also includes Windows build
-tools and platform-specific packages. The subsequent B3 implementation moves keyring,
-pywebview and pystray into the desktop extra and imports credential management only
-on desktop settings paths. The base backend needs no keyring package. The canonical
-Linux lock/image and native synthetic checks are documented in [Docker usage](docker.md).
-
-### Twitch lifecycle and authorization
-
-[`app/twitch/client.py`](../app/twitch/client.py) validates configuration before creating
-the client. TwitchIO obtains an app token using the client ID/secret, loads and
-validates/refreshes cached user authorization, then `setup_hook` subscribes to chat
-when the configured bot token exists. Valid existing authorization therefore needs no
-browser action on restart. A refresh token and the matching Twitch application/identity
-are required; a cache file's existence alone establishes nothing.
-
-TwitchIO 3.3.2 skips individual cached tokens that raise `InvalidTokenException`.
-The application then reports `auth_required`, just as with an empty cache; the synthetic
-rejected-token check confirmed this. The current interactive route requires an explicit
-desktop action to create random, single-use OAuth state with a five-minute expiry.
-The adapter binds `localhost:4343`, with callback
-`http://localhost:4343/oauth/callback`; unsolicited callbacks are rejected. In a remote
-browser, localhost refers to that browser's machine. The minimum unattended mode should
-use authorization provisioned beforehand with the source instance stopped, disable the
-unneeded callback listener, and fail clearly when reauthorization is needed. Do not
-publish the desktop bridge or callback to solve initial provisioning.
-
-TwitchIO handles EventSub reconnect URLs, retry/backoff, keepalive loss and resubscription.
-Application events update connecting/connected/reconnecting/auth-required/failed state;
-recent chat-ID deduplication is in memory and is not shared across instances. A socket
-welcome is marked connected before reconnect resubscription finishes, and library
-resubscription errors need not end `Client.start()`. Readiness/health must account for
-those failures rather than equating a live process or welcome event with chat delivery.
-See the [TwitchIO lifecycle reference](https://twitchio.dev/en/stable/references/client.html#twitchio.Client.start)
-and the existing [account/channel authorization requirements](twitch-setup.md#give-the-bot-channel-access-then-connect).
-
-OAuth callbacks and bot-token refresh events save tokens. In the inspected library,
-save truncates/writes JSON directly; the application chmods it to `0600` afterward.
-It is not an atomic replace, and newly created files initially follow the process umask.
-Every explicit application close passes `save_tokens=False`, so passing
-`save_tokens=True` to start does not provide a final flush on those paths. The headless
-follow-up must serialize restrictive, atomic token saves, account for refresh during
-loading/shutdown, and report write failures. Preserve TwitchIO's managed token format
-and refresh logic. Background refresh can remove an invalid token without an application
-failure notification; inherited listener error logging is currently suppressed too.
-
-### Configuration, secrets and persistent state
-
-Select the profile before loading anything: `--data-dir` overrides `HEETKIT_DATA_DIR`,
-then the legacy `TWITCH_BOT_DATA_DIR`, then platformdirs' default (normally
-`$XDG_DATA_HOME/HeetKit` or `~/.local/share/HeetKit` on Linux). Process settings override
-code defaults; saved non-secret profile overrides then win. Keyring values override
-`TWITCH_CLIENT_SECRET`/`GEMINI_API_KEY` environment fallbacks. No dotenv file is loaded.
-Explicit profiles force their own SQLite/token paths; legacy `DATABASE_URL` and
-`TWITCH_TOKEN_FILE` must not be mistaken for portable credential injection. There is
-no access/refresh-token environment loader.
-
-Keyring read failures deriving from `KeyringError` are logged safely and permit
-environment fallback; keyring writes fail explicitly. Linux Secret Service needs a
-D-Bus session and unlocked daemon even without X11, as described in the
-[keyring headless guide](https://keyring.readthedocs.io/en/stable/#using-keyring-on-headless-linux-systems).
-An environment-only service can select `PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring`
-to avoid interactive keyring discovery, then supply secrets privately through the
-process environment. The null backend is not credential storage. Mounted secret-file
-loading is not implemented. Retain current precedence; do not introduce plaintext
-settings secrets, command-line secret arguments or privileged keyring containers.
-
-| Persistent state under the selected profile | Contents / boundary |
-| --- | --- |
-| `data/heetkit.db` | Users/activity, AI exchanges and durable privacy opt-out IDs. Retention runs at startup/hourly independently of a Twitch session or memory toggle. Preserve the complete database; use SQLite backup or copy only while stopped, accounting for any journal/WAL sidecars. |
-| `auth/twitchio_tokens.json` | Plaintext secret access/refresh tokens managed by TwitchIO; writable private storage is required for rotation. |
-| `config/app_settings.json` | Saved Twitch identity/target/presets, AI models/language/memory/cooldown policy and desktop preferences. |
-| `config/command_settings.json`, `custom_commands.json`, `fun_settings.json`, `message_triggers.json` | Built-in overrides/aliases, custom commands, response pools and ordinary-message reactions. |
-| `config/personality_settings.json`, `ai_user_blocks.json`, `filters/*.txt` | Personalities/selection/profile instructions, blocked AI accounts and filter rules. |
-| Recovery files and root migration markers | Preserve `config/*.recovery`, `.legacy-migration-v1` and `.heetkit-migration-v1`; they retain originals and prevent unintended reimports. |
-| OS keyring, outside the profile | Gemini key and Twitch client secret. The default service is `heetkit`; alternate roots use a path-derived namespace. Copying the profile does not transfer these secrets; changing an alternate root changes its namespace. |
-
-Persist the complete profile as private application state, separately from injected
-provider secrets. `cache/` is created but the audited providers keep their caches in
-memory. Logs use stderr and a 500-entry in-memory buffer, with no application log file;
-captured service logs can contain chat content and need operator-owned access/retention.
-Session state, cooldowns, output limits, recent-message IDs and unsaved edits do not
-survive restart. See [data handling and recovery](data-and-privacy.md).
-
-### Minimum follow-up and validation boundary
-
-The smallest viable implementation is one foreground asyncio runner, shared startup
-settings application, the existing per-profile guard, a backend-only install option,
-preauthorized token loading with the callback disabled, explicit readiness/failure
-handling, durable token saves, and bounded signal-driven cleanup. Reuse the existing
-bot, commands, services, database and profile formats; no second bot or remote API is needed.
-Keep desktop runtime behavior intact and add focused startup/failure/signal/persistence
-checks before claiming headless support. An account must have a single active operator-
-controlled instance; hosting/volume/restart enforcement belongs to later deployment work.
-
-Evidence includes focused lifecycle, Twitch/OAuth, settings/credentials, profile
-migration/isolation, logging and entry-point tests, plus the desktop-import and rejected-
-cache probes above. Tests used disposable synthetic profiles and no live credentials.
-No frontend build, Windows packaging, live Twitch/Gemini call, Linux execution,
-container or cloud deployment was performed. Those limits do not prevent completing
-this audit, but they prevent claiming an operational headless service.
+Remaining limits: profile guards do not coordinate hosts or copied profiles; synthetic
+Linux/container checks do not establish live-provider refresh/reconnect or cloud
+operation. Alternate-loopback Docker Desktop forwarding needs host-specific acceptance.
+Cloud deployment, access controls, backups/recovery and operation across host/network
+failures remain unverified; local Docker validation does not establish them.
 
 ## Sharing source
 

@@ -1,6 +1,7 @@
 # Data, profiles and privacy
 
-HeetKit keeps settings and chat data locally, outside its installation folder.
+HeetKit keeps settings and chat data on the operator's computer or server, outside
+its installation folder.
 Twitch and optional Gemini features communicate with their respective providers.
 
 ## Privacy notice for viewers
@@ -22,11 +23,13 @@ their last recorded activity**. These are maximum application retention windows,
 not permission to retain data that is no longer needed.
 
 Expiry uses UTC elapsed time. Expired records are excluded from lookups immediately;
-physical database cleanup runs at application startup and hourly while the desktop
-is open, including when the bot is stopped or memory is off. Removal can therefore
-lag expiry by one cleanup interval; while HeetKit is closed it waits until the next
-launch. Cleanup failures appear in Logs. Backups and older profile copies require
-separate operator handling. Deletion is logical removal, not a promise of forensic
+physical database cleanup runs at application startup and hourly while the application
+process runs, including Desktop in the tray and Headless/Server. It continues when the
+Twitch bot is stopped or memory is off. Removal can lag expiry by one cleanup interval;
+when the process is stopped, overdue cleanup waits until its next startup. Desktop
+cleanup failures appear in Logs. Headless/browser diagnostics are filtered to lifecycle
+events and do not expose retention-cleanup failures. Backups and older profile copies
+require separate operator handling. Deletion is logical removal, not a promise of forensic
 erasure from disks, journals or provider systems.
 
 AI prompts, instructions and optional context go to Google; bot replies go to the
@@ -56,8 +59,11 @@ The default profile location is:
 | macOS source launch | `~/Library/Application Support/HeetKit` |
 | Linux source launch | `${XDG_DATA_HOME:-~/.local/share}/HeetKit` |
 
-In **Settings → Data & diagnostics**, use **Open profile folder** or **Copy path** to
-find the active profile. It contains private data; do not attach it to public issues.
+On **Desktop**, use **Settings → Data & diagnostics → Open profile folder** or
+**Copy path** to find the active profile. Headless uses its selected `--data-dir` or
+environment profile; Docker uses the [mounted profile volume](docker.md#run-and-inspect).
+Browser management does not open server folders. Profiles contain private data;
+do not attach them to public issues.
 
 Profiles keep separate settings, commands, personalities, profile instructions,
 filters, activity databases and Twitch authorization. An alternate profile can be
@@ -70,15 +76,17 @@ selected at launch:
 For source launches, use `python -m app.main` with the same options. `--stopped` prevents
 automatic connection. `--data-dir` takes priority over `HEETKIT_DATA_DIR`; the legacy
 `TWITCH_BOT_DATA_DIR` override is used only when the HeetKit variable is absent.
-Each alternate profile needs its own setup. Credentials are associated with its resolved
-location, so moving it requires entering them again. Only one desktop instance can open
-the same profile at a time. Separate profiles share the OAuth callback port and can use
-the same Twitch account; avoid simultaneous authorization flows or duplicate bot connections.
+Each alternate profile needs its own setup. Desktop keyring credentials are associated
+with its resolved location, so moving it requires entering them again. The local guard
+allows only one Desktop or Headless process per profile. Desktop authorization flows
+share the OAuth callback port; Headless disables that listener. Copies or separate hosts
+are not protected by the local guard; avoid duplicate connections for one Twitch account.
 
 The portable build keeps its profile in app-data too; copying the application folder
 does not transfer settings or credentials. Upgrades, same-version reinstalls and
-uninstall retain the profile and OS-stored credentials. Quit using **tray Exit** before
-upgrading, uninstalling or making a backup.
+uninstall retain the profile and OS-stored credentials. On Desktop, quit using **tray
+Exit** before upgrading, uninstalling or making a backup. For Server, stop the running
+process/service or container; see [Docker backup and recovery](docker.md#backup-restore-and-updates).
 
 Older default `TwitchBot` profiles are imported once into HeetKit, with existing HeetKit
 files taking priority. The old profile is retained. Alternate profiles do not import
@@ -91,7 +99,7 @@ Within the profile, `config/` holds JSON settings, commands, personalities, AI b
 and reactions, plus editable filter text in `config/filters/`. Activity and AI memory
 use `data/heetkit.db`; Twitch authorization uses `auth/twitchio_tokens.json`.
 
-- Gemini keys and Twitch client secrets entered in Settings use the OS keyring
+- On Desktop, Gemini keys and Twitch client secrets entered in Settings use the OS keyring
   (Windows Credential Manager on Windows). They are separate from profile backups.
 - Twitch access and refresh tokens are stored in the profile's `auth/` directory.
 - The local database contains Twitch user IDs, usernames, first/last-seen timestamps,
@@ -101,8 +109,10 @@ use `data/heetkit.db`; Twitch authorization uses `auth/twitchio_tokens.json`.
   Twitch account IDs in this profile's `config/ai_user_blocks.json`.
 - Settings, personality prompts, profile instructions, custom replies, filters and
   recovery copies can contain private community information.
-- The Logs page can contain chat and diagnostic details. Recent logs stay in memory;
-  source launches also write console diagnostics. HeetKit does not create application
+- Desktop Logs can contain chat and diagnostic details. Recent logs stay in memory;
+  desktop source launches also write console diagnostics. Headless stderr and browser
+  logs expose filtered lifecycle diagnostics; captured service/container logs need their
+  own access and retention policy. HeetKit does not create application
   log files. Clear affects only the displayed entries, leaving the backend buffer and
   stored activity intact.
 - Cooldowns temporarily use account IDs in memory, and stream-category lookup has a
@@ -118,9 +128,11 @@ use `data/heetkit.db`; Twitch authorization uses `auth/twitchio_tokens.json`.
   settings/recovery copies are operator-managed configuration, with no automatic
   90/180-day expiry. Review them separately when handling a privacy request.
 
-Advanced deployments can provide process environment credentials; stored keyring
-values take priority. HeetKit does not load `.env` files. See
-[development configuration](development.md#advanced-process-configuration).
+Desktop can use intentional process environment credential fallbacks; stored keyring
+values take priority. Headless uses private environment or `_FILE` inputs without
+reading the keyring. HeetKit does not load `.env` files. See
+[development configuration](development.md#advanced-process-configuration) and
+[server secret provisioning](docker.md#prepare-private-storage-and-authorization).
 
 ## AI processing and memory
 
@@ -141,8 +153,8 @@ followage and account-lookup requests, and outgoing messages. Incoming chat is
 received through Twitch EventSub. Permissions, VIP/moderator/subscriber flags and
 followage results are used transiently rather than saved as viewer profiles.
 
-The **AI Playground** makes real Gemini requests with the same instructions and output
-checks, but sends no viewer memory or stream category and writes no chat activity or AI
+The Desktop-only **AI Playground** makes real Gemini requests with the same instructions
+and output checks, but sends no viewer memory or stream category and writes no chat activity or AI
 memory. Prompts and results are not saved as test cases. **Filter Tester** runs locally
 without contacting Twitch or Google. See [AI setup](ai-setup.md#test-locally-with-ai-playground)
 and [filter testing](commands.md#test-filters-locally).
@@ -150,7 +162,8 @@ and [filter testing](commands.md#test-filters-locally).
 The `!weather` command sends the supplied place query to Open-Meteo's geocoding
 service, then sends the returned coordinates to its forecast service.
 
-**About → Updates → Check for updates** contacts GitHub's public release API only when clicked.
+On Desktop, **About → Updates → Check for updates** contacts GitHub's public release
+API only when clicked.
 It sends a standard request for HeetKit's latest stable release, without GitHub
 authentication, chat content, profile paths or provider credentials. The version
 comparison happens locally, check results are not saved to the profile, and saved
@@ -177,12 +190,19 @@ is insufficient: names can change or be reused. Collect only the verification
 information needed, keep any request record private, and assess applicable response
 deadlines and exceptions using the [ICO individual-rights guidance](https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/individual-rights/).
 
-1. Identify every profile used for this viewer. Open the active profile path in
-   **Settings → Data & diagnostics**. Quit HeetKit fully with **tray Exit** and
-   close any other process using that database; this also clears session logs,
-   drafts and pending requests. Review separately captured console output.
+1. Identify every profile used for this viewer. On **Desktop**, find the active path
+   in **Settings → Data & diagnostics** and quit fully with **tray Exit** (or exit
+   the application on platforms without a tray). On **Headless/Server**, locate the
+   selected private profile or mounted volume and stop its process/service/container,
+   preventing automatic restart during maintenance. Follow the [Docker storage and
+   recovery procedure](docker.md#backup-restore-and-updates) for volume access.
+   Close every process using the database; stopping only the Twitch bot leaves SQLite
+   and retention active. Process exit clears backend session logs/pending requests;
+   close the desktop/browser interface to clear its drafts and displayed logs too.
+   Review separately captured console/container output.
 2. Use `scripts/privacy_request.py` from the matching source version with Python
-   3.12 or later. It needs only Python's standard library. For example, after
+   3.12 or later against that stopped profile's actual SQLite file. It needs only
+   Python's standard library. Desktop example, after
    replacing the path and synthetic ID below with the verified target:
 
    ```powershell
@@ -196,8 +216,10 @@ deadlines and exceptions using the [ICO individual-rights guidance](https://ico.
    withdrawal; it does not restore deleted history. Repeating an action is safe.
    The tool requires an existing, initialized privacy-enabled database and refuses
    an invalid/non-numeric ID or missing path. Launch the updated application once
-   to initialize the added table, then quit before applying a request. Advanced
-   `DATABASE_URL` deployments must supply their actual SQLite file.
+   to initialize the added table, then stop the process before applying a request.
+   Server/Docker paths refer to the selected profile's `data/heetkit.db`; do not use
+   the Desktop example path. Preserve mounted-file ownership/permissions. Advanced
+   desktop `DATABASE_URL` deployments must supply their actual SQLite file.
 3. Verify privately in a SQLite client, using parameterized queries for that ID:
    `SELECT COUNT(*) FROM users WHERE twitch_user_id = ?` and
    `SELECT COUNT(*) FROM ai_memory_entries WHERE twitch_user_id = ?` must both be
@@ -267,9 +289,13 @@ engineering assessment; instance-specific legal clearance remains open.
 
 ## Backups and settings recovery
 
-Exit HeetKit fully before copying the profile. Protect backups like the original;
-OS keyring credentials are not included in a folder copy. Keep a backup before manual
-edits, moving profiles or restoring old settings.
+Stop every process using the profile before copying it. Desktop uses **tray Exit**
+or application exit; Server uses service/container shutdown. A management **Stop bot**
+does not close the database. Protect backups like the original; Desktop keyring
+credentials and Server injected secrets are outside the profile copy. Keep a backup
+before manual edits, moving profiles or restoring old settings. Use the
+[Docker guide](docker.md#backup-restore-and-updates) for volume backup/restore,
+ownership, secret backup and rollback procedures.
 
 Unreadable, malformed or unsupported settings files are left intact; UI saves, resets
 and deletes refuse to replace them. To repair one, stop the app, back up the named file,
