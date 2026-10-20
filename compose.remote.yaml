@@ -1,0 +1,23 @@
+# Linux host-side HTTPS proxy only; do not combine with compose.management.yaml.
+# Required origin/callback are public configuration, never secrets.
+services:
+  bot:
+    network_mode: host
+    command:
+      - --health-file
+      - /tmp/heetkit-health.json
+      - --management-api
+      - --management-host
+      - 127.0.0.1
+      - --management-trusted-origin
+      - "${HEETKIT_MANAGEMENT_ORIGIN:?Set the exact external HTTPS origin}"
+      - --management-trusted-proxy
+      - 127.0.0.1
+      - --twitch-redirect-uri
+      - "${HEETKIT_TWITCH_REDIRECT_URI:?Set the exact HTTPS origin followed by /oauth/callback}"
+    environment:
+      HEETKIT_MANAGEMENT_TOKEN_FILE: /run/secrets/management_token
+    secrets: [management_token]
+secrets:
+  management_token:
+    file: ${HEETKIT_SECRETS_DIR:?Set HEETKIT_SECRETS_DIR to a private absolute directory}/management_token

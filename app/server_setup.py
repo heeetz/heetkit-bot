@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 import secrets
 from time import monotonic
 from urllib.parse import parse_qs, urlsplit
@@ -26,10 +27,15 @@ def credential_manager(settings) -> ServerCredentialManager:
 
 
 class ServerSetup:
-    def __init__(self, runtime, policy, store, credentials=None) -> None:
+    def __init__(self, runtime, policy, store, credentials=None, *, redirect_uri=OAUTH_REDIRECT_URI,
+                 owner_active=lambda owner: True) -> None:
         self.runtime, self.policy, self.store = runtime, policy, store
         self.credentials = credentials or credential_manager(runtime.application.settings)
         self.pending = None
+        self.redirect_uri = redirect_uri
+        self.owner_active = owner_active
+        self.outcome = None
+        self._expiry_timer = None
         self.authorization_status = "not_verified" if self.token_path.is_file() else "missing"
         self.authorized_account = None
         runtime.start_guard = self.require_ready
@@ -54,6 +60,7 @@ class ServerSetup:
         # settings write leaves reauthorization required, never an old token paired
         # with a new application/account after a crash or restart.
         self.token_path.unlink(missing_ok=True)
+        self._clear_timer()
         self.pending = None
         self.authorization_status, self.authorized_account = "missing", None
 
@@ -78,6 +85,7 @@ class ServerSetup:
             if identity_changed:
                 self._invalidate_authorization()
             else:
+                self._clear_timer()
                 self.pending = None  # Target changes also cancel an in-flight attempt.
                 self.authorization_status = "not_verified"
             self.store.update_twitch(client_id=client_id, bot_username=bot_username,
@@ -125,14 +133,34 @@ class ServerSetup:
         return {"ok": True}
 
     def _expire(self):
-        if self.pending is not None and monotonic() >= self.pending[2]:
+        if self.pending is not None and (monotonic() >= self.pending[2] or not self.owner_active(self.pending[0])):
+            self.outcome = (self.pending[0], "expired")
             self.pending = None
+            self._clear_timer()
             self.policy.resume_after_setup()
+
+    def _clear_timer(self):
+        if self._expiry_timer is not None:
+            self._expiry_timer.cancel()
+            self._expiry_timer = None
+
+    def close(self):
+        self._clear_timer()
+        self.pending = None
+        self.outcome = None
+
+    def attempt_status(self, owner):
+        self._expire()
+        if self.pending is not None and self.pending[0] == owner:
+            return "pending"
+        return self.outcome[1] if self.outcome is not None and self.outcome[0] == owner else "idle"
 
     def cancel(self, owner):
         self._expire()
         if self.pending is not None and self.pending[0] == owner:
             self.pending = None
+            self.outcome = (owner, "cancelled")
+            self._clear_timer()
             self.policy.resume_after_setup()
         return {"ok": True}
 
@@ -147,7 +175,9 @@ class ServerSetup:
             raise CredentialError("Another administrator is authorizing Twitch. Wait for completion or the five-minute expiry.")
         self.settings.validate_twitch_configuration()
         await self.policy.suspend_for_setup()
+        self._clear_timer()
         self.pending = None
+        self.outcome = None
         try:
             # Surface an invalid application secret before sending the user to
             # Twitch. This uses the existing bounded provider credential test.
@@ -157,14 +187,25 @@ class ServerSetup:
             try:
                 state = secrets.token_urlsafe(32)
                 url = bot.http.get_authorization_url(scopes=CHAT_SCOPES, state=state,
-                    redirect_uri=OAUTH_REDIRECT_URI, force_verify=True)["url"]
+                    redirect_uri=self.redirect_uri, force_verify=True)["url"]
             finally:
                 await bot.close(save_tokens=False)
             self.pending = (owner, state, monotonic() + OAUTH_STATE_TTL_SECONDS)
+            self._expiry_timer = asyncio.get_running_loop().call_later(OAUTH_STATE_TTL_SECONDS, self._expire)
         except BaseException:
             self.policy.resume_after_setup()
             raise
         return {"ok": True, "url": url, "expires_in": int(OAUTH_STATE_TTL_SECONDS)}
+
+    async def callback(self, query_string):
+        """Only the fixed remote route may complete without a bearer. State and
+        the still-authorized initiating owner grant this one transaction only."""
+        if self.redirect_uri == OAUTH_REDIRECT_URI:
+            raise CredentialError("Remote callback is not configured.")
+        self._expire()
+        if self.pending is None:
+            raise CredentialError("No pending Twitch authorization.")
+        return await self.complete(self.pending[0], self.redirect_uri + "?" + query_string)
 
     async def complete(self, owner, callback_url):
         self._expire()
@@ -175,7 +216,7 @@ class ServerSetup:
             raise CredentialError("Paste the complete localhost callback URL from Twitch.")
         url = urlsplit(callback_url)
         query = parse_qs(url.query, keep_blank_values=True, max_num_fields=10)
-        if (url.scheme != "http" or url.netloc != "localhost:4343" or url.path != "/oauth/callback"
+        if (callback_url.split("?", 1)[0] != self.redirect_uri
                 or url.fragment or any(len(values) != 1 for values in query.values())
                 or set(query) - {"code", "state", "scope", "error", "error_description"}
                 or not query.get("state") or not query["state"][0].isascii()
@@ -183,6 +224,8 @@ class ServerSetup:
             raise CredentialError("Callback address or state does not match. Use the URL from this authorization attempt.")
         # Consume before any provider await, including denial and failed exchange.
         self.pending = None
+        self._clear_timer()
+        self.outcome = (owner, "failed")
         try:
             if "error" in query:
                 raise CredentialError("Twitch authorization was denied. Select Connect Twitch to try again.")
@@ -192,7 +235,7 @@ class ServerSetup:
             bot = self._bot()
             try:
                 with headless_twitch_diagnostics(lambda: None):
-                    response = await bot.http.user_access_token(code, redirect_uri=OAUTH_REDIRECT_URI)
+                    response = await bot.http.user_access_token(code, redirect_uri=self.redirect_uri)
                     validated = await bot.add_token(response.access_token, response.refresh_token)
                     validate_bot_authorization(validated, self.settings)
                     users = await bot.fetch_users(ids=list({self.settings.twitch_bot_user_id,
@@ -203,11 +246,14 @@ class ServerSetup:
                         raise CredentialError("Twitch account or channel does not match its configured ID. Correct Settings and authorize again.")
                     # Reuse the existing atomic cache writer and TwitchIO's managed
                     # tokens (including any refresh on add), never an alternative cache.
+                    if monotonic() >= pending[2] or not self.owner_active(owner):
+                        raise CredentialError("The initiating session or authorization attempt expired. Sign in and try again.")
                     bot._tokens_loaded = True
                     await bot.save_tokens()
             finally:
                 await bot.close(save_tokens=False)
             self.authorization_status, self.authorized_account = "verified", self.settings.twitch_bot_username
+            self.outcome = (owner, "completed")
             # A stopped session retains auth_required/failed for diagnostics.
             # Successful reauthorization supersedes that old session's error.
             self.runtime.application.services.runtime_state.set_twitch_connection_state("stopped")

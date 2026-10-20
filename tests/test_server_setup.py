@@ -404,3 +404,192 @@ def test_private_file_modes_and_symlinks_are_rejected(tmp_path):
     with pytest.raises(CredentialError):
         store.replace(CredentialName.GEMINI_API_KEY, "synthetic")
     assert target.read_text() == "unchanged"
+
+
+REMOTE_ORIGIN = "https://server.example-tailnet.ts.net"
+REMOTE_CALLBACK = REMOTE_ORIGIN + "/oauth/callback"
+
+
+@pytest.fixture
+async def remote(api):
+    server, call = api
+    server.config = ManagementConfig(TOKEN, port=server.config.port, trusted_origin=REMOTE_ORIGIN,
+        trusted_proxies=("127.0.0.1",), twitch_redirect_uri=REMOTE_CALLBACK)
+    server.setup.redirect_uri = REMOTE_CALLBACK
+    proxy_headers = {"Host": "server.example-tailnet.ts.net", "Origin": REMOTE_ORIGIN,
+        "X-Forwarded-Proto": "https", "X-Forwarded-Host": "server.example-tailnet.ts.net"}
+    async def invoke(path, payload=None, *, headers=None):
+        return await call(path, payload, headers=proxy_headers | (headers or {}))
+    async def callback(query, *, method="GET", extra_headers=None):
+        headers = proxy_headers | {"Sec-Fetch-Site": "cross-site"}
+        headers.pop("Origin")  # Twitch's top-level GET redirect has no Origin.
+        async with aiohttp.ClientSession(trust_env=False) as client:
+            async with client.request(method, f"http://127.0.0.1:{server.config.port}/oauth/callback?" + query,
+                    headers=headers | (extra_headers or {}), allow_redirects=False) as response:
+                return response.status, await response.text(), response.headers
+    yield server, invoke, callback
+
+
+async def remote_begin(call, headers=None):
+    status, result = await call("/v1/twitch/authorization/begin", {}, headers=headers)
+    assert status == 200, result
+    query = parse_qs(urlsplit(result["url"]).query)
+    assert query["redirect_uri"] == [REMOTE_CALLBACK]
+    return urlencode({"code": "private-code-sentinel", "state": query["state"][0]})
+
+
+async def test_remote_callback_without_bearer_persists_and_scrubs_parameters(remote, twitch_provider, caplog):
+    server, call, callback = remote
+    await configure(call)
+    await call("/v1/bot/mode", {"mode": "disabled"})
+    first = {"Authorization": "Bearer " + (await call("/v1/session", {}))[1]["token"]}
+    second = {"Authorization": "Bearer " + (await call("/v1/session", {}))[1]["token"]}
+    query = await remote_begin(call, first)
+    assert (await call("/v1/twitch/authorization/begin", {}, headers=second))[0] == 400
+    assert (await call("/v1/setup", headers=second))[1]["twitch"]["authorization_attempt"] == "idle"
+    status, body, headers = await callback(query)
+    assert status == 303 and headers["Location"] == "/oauth/result"
+    assert headers["Cache-Control"] == "no-store" and headers["Referrer-Policy"] == "no-referrer"
+    assert "Set-Cookie" not in headers and "Access-Control-Allow-Origin" not in headers
+    # Browsers retain cross-site Fetch Metadata through a redirect chain. The
+    # clean result is public inert text, never a session or callback projection.
+    async with aiohttp.ClientSession(trust_env=False) as browser:
+        async with browser.get(f"http://127.0.0.1:{server.config.port}/oauth/result", headers={
+                "Host": "server.example-tailnet.ts.net", "X-Forwarded-Proto": "https",
+                "Sec-Fetch-Site": "cross-site"}) as result_page:
+            assert result_page.status == 200
+            assert "return to the signed-in Settings tab" in await result_page.text()
+    assert twitch_provider[1] == [("private-code-sentinel", REMOTE_CALLBACK)]
+    assert RuntimePaths.default().tokens.is_file()
+    assert not server.runtime.bot_active
+    result = (await call("/v1/setup", headers=first))[1]["twitch"]
+    assert result["authorization_attempt"] == "completed" and result["authorized_account"] == "testbot"
+    assert result["management_url"] == REMOTE_ORIGIN and result["oauth_callback_url"] == REMOTE_CALLBACK
+    assert result["authorization_mode"] == "redirect"
+    # Replay and concurrent duplicate navigation cannot perform a second exchange.
+    await asyncio.gather(callback(query), callback(query))
+    assert len(twitch_provider[1]) == 1
+    for sentinel in ("private-code-sentinel", "private-access-sentinel", "private-refresh-sentinel", TOKEN,
+                     parse_qs(query)["state"][0]):
+        assert sentinel not in body + str(headers) + caplog.text + json.dumps(result)
+
+
+@pytest.mark.parametrize("change", [
+    "state=wrong&code=private-code-sentinel", "code=private-code-sentinel", "state=wrong&state=twice",
+    "state=%FF&code=private-code-sentinel", "state=wrong&unexpected=secret",
+])
+async def test_unsolicited_remote_callback_never_consumes_valid_attempt(remote, twitch_provider, change):
+    server, call, callback = remote
+    await configure(call)
+    query = await remote_begin(call)
+    assert (await callback(change))[0] == 303
+    assert not twitch_provider[1] and server.setup.pending is not None
+    await callback(query)
+    assert len(twitch_provider[1]) == 1
+
+
+@pytest.mark.parametrize("reason", ["cancel", "logout", "expiry", "session_expiry", "session_eviction", "superseded", "identity"])
+async def test_remote_callback_cannot_outlive_administrator_attempt(remote, twitch_provider, monkeypatch, reason):
+    server, call, callback = remote
+    await configure(call)
+    session = (await call("/v1/session", {}))[1]["token"]
+    headers = {"Authorization": "Bearer " + session}
+    query = await remote_begin(call, headers)
+    if reason == "cancel":
+        await call("/v1/twitch/authorization/cancel", {}, headers=headers)
+    elif reason == "logout":
+        await call("/v1/session/logout", {}, headers=headers)
+    elif reason == "expiry":
+        deadline = server.setup.pending[2]
+        monkeypatch.setattr("app.server_setup.monotonic", lambda: deadline + 1)
+    elif reason == "session_expiry":
+        server.sessions[next(iter(server.sessions))] = 0
+    elif reason == "session_eviction":
+        for _ in range(8):
+            await call("/v1/session", {})
+    elif reason == "superseded":
+        await remote_begin(call, headers)
+    else:
+        await call("/v1/twitch/settings", TWITCH | {"bot_username": "otherbot"})
+    await callback(query)
+    assert not twitch_provider[1] and not RuntimePaths.default().tokens.exists()
+
+
+@pytest.mark.parametrize("failure", ["denied", "provider", "account", "app", "scopes", "target", "late_session"])
+async def test_remote_denial_provider_failure_and_identity_substitution_never_persist(remote, twitch_provider, monkeypatch, caplog, failure):
+    server, call, callback = remote
+    await configure(call)
+    session = (await call("/v1/session", {}))[1]["token"]
+    headers = {"Authorization": "Bearer " + session}
+    query = await remote_begin(call, headers)
+    if failure == "denied":
+        query = query.replace("code=private-code-sentinel", "error=access_denied&error_description=private-code-sentinel")
+    elif failure == "provider":
+        async def fail(*args, **kwargs):
+            raise RuntimeError("private-code-sentinel private-access-sentinel private-refresh-sentinel")
+        monkeypatch.setattr("twitchio.authentication.oauth.OAuth.user_access_token", fail)
+    elif failure in ("account", "app", "scopes"):
+        twitch_provider[0].update({"account": {"user_id": "999"}, "app": {"client_id": "wrong"},
+                                  "scopes": {"scopes": []}}[failure])
+    elif failure == "target":
+        async def users(*args, **kwargs):
+            return [SimpleNamespace(id="100", name="testbot"), SimpleNamespace(id="200", name="other")]
+        monkeypatch.setattr(TwitchChatBot, "fetch_users", users)
+    else:
+        original = TwitchChatBot.fetch_users
+        async def expire(*args, **kwargs):
+            server.sessions.clear()
+            return await original(*args, **kwargs)
+        monkeypatch.setattr(TwitchChatBot, "fetch_users", expire)
+    status, body, response_headers = await callback(query)
+    assert status == 303 and not RuntimePaths.default().tokens.exists()
+    assert server.setup.attempt_status(__import__("hashlib").sha256(session.encode()).digest()) == "failed"
+    assert not server.setup.pending and not server.policy._setup_suspended
+    for value in ("private-code-sentinel", "private-access-sentinel", "private-refresh-sentinel"):
+        assert value not in caplog.text + body + str(response_headers)
+
+
+async def test_remote_callback_is_only_cross_site_exception_and_is_get_only(remote, twitch_provider):
+    _, call, callback = remote
+    await configure(call)
+    query = await remote_begin(call)
+    assert (await callback(query, method="POST"))[0] == 400
+    assert (await callback(query, extra_headers={"Origin": "https://evil.test"}))[0] == 403
+    assert (await call("/v1/twitch/authorization/begin", {}, headers={"Sec-Fetch-Site": "cross-site"}))[0] == 403
+    assert not twitch_provider[1]
+    await callback(query)
+    assert len(twitch_provider[1]) == 1
+
+
+async def test_authorization_expires_without_browser_polling(api, twitch_provider, monkeypatch):
+    server, call = api
+    await configure(call)
+    monkeypatch.setattr("app.server_setup.OAUTH_STATE_TTL_SECONDS", 0.05)
+    await begin(call)
+    await asyncio.sleep(0.1)
+    assert server.setup.pending is None and not server.policy._setup_suspended
+    assert server.setup.outcome[1] == "expired" and not twitch_provider[1]
+
+
+async def test_concurrent_remote_callbacks_consume_state_before_exchange(remote, twitch_provider, monkeypatch):
+    _, call, callback = remote
+    await configure(call)
+    query = await remote_begin(call)
+    entered, release = asyncio.Event(), asyncio.Event()
+    from twitchio.authentication.oauth import OAuth
+    original = OAuth.user_access_token
+    async def exchange(*args, **kwargs):
+        entered.set()
+        await release.wait()
+        return await original(*args, **kwargs)
+    monkeypatch.setattr(OAuth, "user_access_token", exchange)
+    first = asyncio.create_task(callback(query))
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        duplicate = asyncio.create_task(callback(query))
+        release.set()
+        assert all(result[0] == 303 for result in await asyncio.gather(first, duplicate))
+        assert len(twitch_provider[1]) == 1
+    finally:
+        release.set()
+        await first

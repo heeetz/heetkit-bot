@@ -270,6 +270,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--management-host", default="127.0.0.1", help="Management bind IP (default loopback).")
     parser.add_argument("--management-port", type=int, default=8765, help="Management port (default 8765).")
     parser.add_argument("--management-allowed-host", help="Exact trusted IP:port Host, required for an all-interface bind.")
+    parser.add_argument("--management-trusted-origin", help="Exact external HTTPS DNS origin for explicitly trusted proxy access.")
+    parser.add_argument("--management-trusted-proxy", action="append", default=[], help="Exact proxy socket IP; repeat for each trusted proxy. No CIDRs.")
+    parser.add_argument("--twitch-redirect-uri", help="External Twitch callback: trusted HTTPS origin followed by /oauth/callback.")
     arguments = parser.parse_args(argv)
     if arguments.data_dir is not None:
         os.environ[DATA_DIR_ENV] = str(arguments.data_dir.expanduser().resolve())
@@ -287,9 +290,10 @@ def main(argv: list[str] | None = None) -> int:
             from app.management_api import ManagementConfig, load_management_token
             try:
                 config = ManagementConfig(load_management_token(), arguments.management_host,
-                    arguments.management_port, arguments.management_allowed_host)
+                    arguments.management_port, arguments.management_allowed_host,
+                    arguments.management_trusted_origin, tuple(arguments.management_trusted_proxy), arguments.twitch_redirect_uri)
             except ValueError:
-                raise HeadlessError("Invalid management configuration. Supply a private 32-byte random token via HEETKIT_MANAGEMENT_TOKEN[_FILE], a loopback/private bind IP, valid port and exact allowed Host when binding all interfaces.") from None
+                raise HeadlessError("Invalid management configuration. Check the private token, bind IP/port, exact allowed Host or trusted HTTPS origin and proxy IPs. A remote Twitch redirect must equal the trusted origin followed by /oauth/callback.") from None
             management_options["management_config"] = config
         health.update("starting")
         asyncio.set_event_loop(loop)

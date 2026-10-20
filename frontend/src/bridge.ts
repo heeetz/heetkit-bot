@@ -275,6 +275,9 @@ export interface TwitchConnectionSettings {
   connected: boolean
   oauth_token_available: boolean
   oauth_callback_url: string
+  management_url?: string
+  authorization_mode?: 'paste' | 'redirect'
+  authorization_attempt?: 'idle' | 'pending' | 'completed' | 'failed' | 'expired' | 'cancelled'
   has_local_override: boolean
   authorization_status?: 'missing' | 'not_verified' | 'verified' | 'validation_failed'
   authorized_account?: string | null

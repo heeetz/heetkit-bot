@@ -1586,7 +1586,14 @@ def test_frontend_allowlist_matches_the_typed_operations() -> None:
 
     source = (Path(__file__).parents[1] / "frontend/src/bridge.ts").read_text(encoding="utf-8")
     interface = source.split("interface PythonApi {", 1)[1].split("\n}", 1)[0]
-    assert set(FRONTEND_OPERATIONS) == set(re.findall(r"^  (\w+)\(", interface, re.MULTILINE))
+    typed_operations = set(re.findall(r"^  (\w+)\(", interface, re.MULTILINE))
+    # Browser management has four HTTP-only operations that are intentionally
+    # absent from the pywebview desktop bridge.
+    browser_only_operations = {
+        "update_server_twitch_settings", "begin_twitch_authorization",
+        "complete_twitch_authorization", "cancel_twitch_authorization",
+    }
+    assert set(FRONTEND_OPERATIONS) == typed_operations - browser_only_operations
     assert len(FRONTEND_OPERATIONS) == len(set(FRONTEND_OPERATIONS))
 
 

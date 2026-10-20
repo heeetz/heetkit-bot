@@ -17,6 +17,7 @@ import time
 from collections import deque
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from aiohttp import web
 
@@ -47,6 +48,9 @@ class ManagementConfig:
     host: str = "127.0.0.1"
     port: int = 8765
     allowed_host: str | None = None
+    trusted_origin: str | None = None
+    trusted_proxies: tuple[str, ...] = ()
+    twitch_redirect_uri: str | None = None
 
     def __post_init__(self) -> None:
         address = ipaddress.ip_address(self.host)
@@ -62,15 +66,65 @@ class ManagementConfig:
             if match is None or not 1 <= int(match[2]) <= 65535:
                 raise ValueError("Management allowed host must be an exact IP:port authority.")
             ipaddress.ip_address(match[1].strip("[]"))
-        if address.is_unspecified and self.allowed_host is None:
+        if self.trusted_origin is not None:
+            # Canonical ASCII DNS origin, with an optional non-default port. No
+            # credentials, paths, wildcard/suffix matching or URL normalization.
+            origin = self.trusted_origin
+            match = re.fullmatch(r"https://([a-z0-9.-]+)(?::([0-9]{1,5}))?", origin)
+            if match is None or len(match[1]) > 253 or "." not in match[1]:
+                raise ValueError("Trusted origin must be an exact lowercase HTTPS DNS origin without a path.")
+            if any(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) is None
+                   for label in match[1].split(".")) or match[1].replace(".", "").isdigit():
+                raise ValueError("Trusted origin must contain a valid DNS hostname.")
+            if match[2] is not None and (not 1 <= int(match[2]) <= 65535
+                    or match[2] != str(int(match[2])) or int(match[2]) == 443):
+                raise ValueError("Trusted origin port must be canonical; omit the default HTTPS port.")
+            if self.allowed_host is not None or not self.trusted_proxies:
+                raise ValueError("HTTPS proxy mode requires trusted proxy IPs and replaces allowed-host.")
+        elif self.trusted_proxies or self.twitch_redirect_uri is not None:
+            raise ValueError("Trusted proxies and a remote callback require an explicit trusted HTTPS origin.")
+        for proxy in self.trusted_proxies:
+            peer = ipaddress.ip_address(proxy)
+            if peer.is_unspecified or peer.is_multicast or str(peer) != proxy:
+                raise ValueError("Trusted proxies must be exact canonical IPs, never networks or wildcard addresses.")
+        if self.twitch_redirect_uri is not None and self.twitch_redirect_uri != self.trusted_origin + "/oauth/callback":
+            raise ValueError("Twitch redirect must be the trusted HTTPS origin followed by /oauth/callback.")
+        if address.is_unspecified and self.allowed_host is None and self.trusted_origin is None:
             raise ValueError("An all-interface bind requires an explicit management allowed host.")
 
     @property
     def authorities(self) -> set[str]:
+        if self.trusted_origin:
+            return {urlsplit(self.trusted_origin).netloc}
         if self.allowed_host:
             return {self.allowed_host}
         authority = f"[{self.host}]:{self.port}" if ":" in self.host else f"{self.host}:{self.port}"
         return {authority, f"localhost:{self.port}"} if ipaddress.ip_address(self.host).is_loopback else {authority}
+
+    def accepts_proxy(self, request: web.BaseRequest) -> bool:
+        forwarded = {name.lower() for name in request.headers
+                     if name.lower() == "forwarded" or name.lower().startswith("x-forwarded-")}
+        if not self.trusted_origin:
+            return not forwarded
+        # Peer identity comes from the socket, never a forwarding header. Proxies
+        # must overwrite these headers and preserve the original exact Host.
+        if request.remote not in self.trusted_proxies or forwarded - {
+                "x-forwarded-proto", "x-forwarded-host", "x-forwarded-for"}:
+            return False
+        if request.headers.getall("X-Forwarded-Proto", []) != ["https"]:
+            return False
+        hosts = request.headers.getall("X-Forwarded-Host", [])
+        if hosts and hosts != [urlsplit(self.trusted_origin).netloc]:
+            return False
+        clients = request.headers.getall("X-Forwarded-For", [])
+        if clients:
+            try:
+                if len(clients) != 1:
+                    return False
+                ipaddress.ip_address(clients[0])
+            except ValueError:
+                return False
+        return True
 
 
 def load_management_token() -> str:
@@ -165,7 +219,9 @@ class ManagementAPI:
         store = app_settings or AppSettingsStore(RuntimePaths.default().app_settings)
         self.service = ApplicationManagement(runtime.application, store, log_buffer)
         self.policy = policy or OperationPolicy(runtime, store)
-        self.setup = ServerSetup(runtime, self.policy, store, credentials)
+        self.setup = ServerSetup(runtime, self.policy, store, credentials,
+            redirect_uri=config.twitch_redirect_uri or "http://localhost:4343/oauth/callback",
+            owner_active=self.owner_active)
         self._owns_policy = policy is None
         self.lock = asyncio.Lock()
         self.runner: web.ServerRunner | None = None
@@ -200,7 +256,7 @@ class ManagementAPI:
             raise
 
     async def close(self) -> None:
-        self.setup.pending = None
+        self.setup.close()
         self.sessions.clear()
         try:
             if self.runner is not None:
@@ -212,6 +268,32 @@ class ManagementAPI:
 
     def app_status(self) -> dict:
         return self.service.get_app_status() | {"operation": self.policy.snapshot()}
+
+    def owner_active(self, owner: bytes) -> bool:
+        administrator = hashlib.sha256(self.config.token.encode("ascii")).digest()
+        return hmac.compare_digest(owner, administrator) or self.sessions.get(owner, 0) > time.monotonic()
+
+    async def oauth_callback(self, request: web.BaseRequest) -> web.Response:
+        # Never render or reflect query parameters. A fixed clean redirect drops
+        # codes/state from the final address and referrer; proxies must omit logs.
+        if (request.method != "GET" or request.content_length not in (None, 0)
+                or "Transfer-Encoding" in request.headers or "Content-Encoding" in request.headers
+                or request.raw_path.split("?", 1)[0] != "/oauth/callback"):
+            return self.response(400, {"ok": False, "error": "Invalid OAuth callback."})
+        self.active += 1
+        try:
+            async with asyncio.timeout(REQUEST_SECONDS):
+                async with self.lock:
+                    await self.setup.callback(request.rel_url.raw_query_string)
+        except Exception:
+            # Details are visible only as fixed status in the initiating tab.
+            # A cancelled/timed-out exchange must never be retried automatically.
+            pass
+        finally:
+            self.active -= 1
+        response = self.response(303, {"ok": True})
+        response.headers["Location"] = "/oauth/result"
+        return response
 
     @staticmethod
     def response(status: int, payload: dict) -> web.Response:
@@ -273,19 +355,26 @@ class ManagementAPI:
         if (len(request.headers.getall("Host", [])) != 1 or
                 request.headers.get("Host") not in self.config.authorities):
             return reject(403, "Untrusted Host.")
+        if not self.config.accepts_proxy(request):
+            return reject(403, "Untrusted proxy headers or peer; check the configured HTTPS proxy boundary.")
         origins = request.headers.getall("Origin", [])
         host = request.headers["Host"]
-        # HTTPS may terminate at a private proxy preserving the exact Host. Never
-        # infer trust from Forwarded/X-Forwarded-* headers or enable CORS.
-        allowed_origins = {"https://" + host}
-        origin_host = host.rsplit(":", 1)[0].strip("[]")
-        if origin_host == "localhost" or ipaddress.ip_address(origin_host).is_loopback:
-            allowed_origins.add("http://" + host)
+        allowed_origins = {self.config.trusted_origin or "https://" + host}
+        if not self.config.trusted_origin:
+            origin_host = host.rsplit(":", 1)[0].strip("[]")
+            if origin_host == "localhost" or ipaddress.ip_address(origin_host).is_loopback:
+                allowed_origins.add("http://" + host)
+        callback = request.path == "/oauth/callback" and self.config.twitch_redirect_uri is not None
+        # Fetch Metadata can remain cross-site through Twitch's entire redirect
+        # chain. Its final fixed, inert result page must allow that navigation too.
+        oauth_navigation = callback or (request.path == "/oauth/result" and self.config.twitch_redirect_uri is not None)
         # Unrelated local services can set cookies on this host across ports.
         # Ignore them: only the explicit bearer below can grant authority.
         if (len(origins) > 1 or (origins and origins[0] not in allowed_origins)
-                or request.headers.get("Sec-Fetch-Site", "none") not in ("none", "same-origin")):
+                or (not oauth_navigation and request.headers.get("Sec-Fetch-Site", "none") not in ("none", "same-origin"))):
             return reject(403, "Untrusted browser origin.")
+        if callback:
+            return await self.oauth_callback(request)
         if request.query_string or request.raw_path != request.path:
             return reject(400, "Use an exact path without query parameters.")
         if request.method not in ("GET", "POST"):
@@ -293,6 +382,11 @@ class ManagementAPI:
         if not request.path.startswith("/v1/"):
             if request.method != "GET" or request.content_length not in (None, 0):
                 return reject(405, "Assets require GET without a body.")
+            if request.path == "/oauth/result" and self.config.twitch_redirect_uri:
+                response = self.response(200, {})
+                response.text = "Twitch authorization attempt finished. Close this tab and return to the signed-in Settings tab for the result. If it is still waiting, check callback reachability, registered redirect and proxy settings, then try again."
+                response.content_type = "text/plain"
+                return response
             return self.asset(request.path)
         authorization = request.headers.getall("Authorization", [])
         expected = "Bearer " + self.config.token
@@ -340,6 +434,7 @@ class ManagementAPI:
                         if request.method == "POST":
                             token = secrets.token_urlsafe(32)
                             if len(self.sessions) >= MAX_SESSIONS:
+                                self.setup.cancel(next(iter(self.sessions)))
                                 del self.sessions[next(iter(self.sessions))]
                             self.sessions[hashlib.sha256(token.encode("ascii")).digest()] = now + SESSION_SECONDS
                             result.update(token=token, expires_in=SESSION_SECONDS)
@@ -414,7 +509,7 @@ class ManagementAPI:
         if method == "GET" and path == "/v1/about":
             return self.service.get_about_info()
         if method == "GET" and path == "/v1/setup":
-            return self.setup_status()
+            return self.setup_status(owner)
         if method == "POST" and path == "/v1/ai/models/discover":
             if payload:
                 raise ValueError
@@ -478,7 +573,7 @@ class ManagementAPI:
         """Presence/source only; never read values back to the browser."""
         return self.setup.credentials.server_statuses()
 
-    def setup_status(self) -> dict:
+    def setup_status(self, owner: bytes = b"") -> dict:
         """Project effective configuration status, never credentials or paths."""
         settings = self.runtime.application.settings
         credentials = self.credential_statuses()
@@ -502,7 +597,10 @@ class ManagementAPI:
                 "requires_restart": False, "requires_reconnect": False, "running": state["running"],
                 "connected": state["twitch_connected"], "oauth_token_available": Path(settings.twitch_token_file).is_file(),
                 "presets": [], "selected_preset_id": None, "active_preset_id": None,
-                "oauth_callback_url": "http://localhost:4343/oauth/callback", "has_local_override": False,
+                "oauth_callback_url": self.setup.redirect_uri, "has_local_override": False,
+                "management_url": self.config.trusted_origin or "http://" + sorted(self.config.authorities)[0],
+                "authorization_mode": "redirect" if self.config.twitch_redirect_uri else "paste",
+                "authorization_attempt": self.setup.attempt_status(owner),
                 "authorization_status": authorization,
                 "authorized_account": settings.twitch_bot_username if connected else self.setup.authorized_account,
                 "setup_complete": authorization == "verified"}}

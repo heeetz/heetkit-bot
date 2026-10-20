@@ -5,9 +5,12 @@ import hashlib
 import json
 import logging
 import socket
+import ssl
+from datetime import datetime, timedelta, timezone
 
 import aiohttp
 import pytest
+from aiohttp import web
 
 from app import headless
 from app.app_settings import AppSettings, AppSettingsStore
@@ -21,6 +24,7 @@ from app.utils.logging import RecentLogBuffer
 
 
 TOKEN = "synthetic_management_token_" + "x" * 32
+REMOTE_ORIGIN = "https://server.example-tailnet.ts.net"
 
 
 @pytest.fixture(autouse=True)
@@ -643,3 +647,138 @@ async def test_browser_presentation_routes_apply_save_and_log_cursor(api, monkey
     _, body, _ = await call("POST", "/v1/logs/recent", json={"after_id": body["next_after_id"]})
     assert body["entries"][0]["source"] == "headless" and body["entries"][0]["context"] == {}
     assert "private-chat-sentinel" not in json.dumps(body)
+
+
+@pytest.mark.parametrize("origin", [
+    "http://server.example.com", "https://*.example.com", "https://example.com/",
+    "https://example.com/path", "https://user@example.com", "https://example.com?x=1",
+    "https://example.com#fragment", "https://Example.com", "https://example.com.",
+    "https://example..com", "https://-example.com", "https://example-.com",
+    "https://localhost", "https://127.0.0.1", "https://example.com:443",
+    "https://example.com:00444", "https://example.com:0", "https://example.com:65536",
+    "https://\u00e9xample.com", "https://example.com\\evil.test", "https://example.com\n",
+])
+def test_remote_origin_is_strict_canonical_configuration(origin):
+    with pytest.raises(ValueError):
+        ManagementConfig(TOKEN, trusted_origin=origin, trusted_proxies=("127.0.0.1",))
+
+
+def test_remote_proxy_configuration_has_no_implicit_trust():
+    for kwargs in ({"trusted_origin": REMOTE_ORIGIN}, {"trusted_proxies": ("127.0.0.1",)},
+                   {"twitch_redirect_uri": REMOTE_ORIGIN + "/oauth/callback"},
+                   {"trusted_origin": REMOTE_ORIGIN, "trusted_proxies": ("0.0.0.0",)},
+                   {"trusted_origin": REMOTE_ORIGIN, "trusted_proxies": ("127.0.0.0/8",)},
+                   {"trusted_origin": REMOTE_ORIGIN, "trusted_proxies": ("localhost",)}):
+        with pytest.raises(ValueError):
+            ManagementConfig(TOKEN, **kwargs)
+    common = {"trusted_origin": REMOTE_ORIGIN, "trusted_proxies": ("127.0.0.1",)}
+    for redirect in ("http://server.example-tailnet.ts.net/oauth/callback", "https://evil.test/oauth/callback",
+                     REMOTE_ORIGIN + "/wrong", REMOTE_ORIGIN + "/oauth/callback?x=1"):
+        with pytest.raises(ValueError):
+            ManagementConfig(TOKEN, **common, twitch_redirect_uri=redirect)
+    with pytest.raises(ValueError):
+        ManagementConfig(TOKEN, **common, allowed_host="127.0.0.1:8765")
+    assert ManagementConfig(TOKEN, **common).authorities == {"server.example-tailnet.ts.net"}
+    assert ManagementConfig(TOKEN, trusted_origin=REMOTE_ORIGIN + ":8443",
+        trusted_proxies=("::1",)).authorities == {"server.example-tailnet.ts.net:8443"}
+
+
+async def test_forwarding_is_rejected_outside_explicit_proxy_mode(api):
+    _, call = api
+    for header, value in (("Forwarded", "proto=https"), ("X-Forwarded-Host", "evil.test"),
+                          ("X-Forwarded-For", "127.0.0.1"), ("X-Forwarded-Proto", "https")):
+        assert (await call("GET", "/v1/status", headers={header: value}))[0] == 403
+
+
+async def test_remote_host_origin_and_socket_peer_cannot_be_substituted(api):
+    server, call = api
+    server.config = ManagementConfig(TOKEN, port=server.config.port,
+        trusted_origin=REMOTE_ORIGIN, trusted_proxies=("127.0.0.1",))
+    headers = {"Host": "server.example-tailnet.ts.net", "Origin": REMOTE_ORIGIN,
+               "X-Forwarded-Proto": "https", "X-Forwarded-Host": "server.example-tailnet.ts.net",
+               "X-Forwarded-For": "100.100.100.100", "Sec-Fetch-Site": "same-origin"}
+    assert (await call("POST", "/v1/session", json={}, headers=headers))[0] == 200
+    for changes in ({"Host": "evil.test"}, {"Host": "server.example-tailnet.ts.net:443"},
+                    {"Host": "server.example-tailnet.ts.net.evil.test"},
+                    {"Origin": "http://server.example-tailnet.ts.net"}, {"Origin": REMOTE_ORIGIN + "/"},
+                    {"Origin": "null"}, {"Origin": "https://evil.test"},
+                    {"X-Forwarded-Proto": "http"}, {"X-Forwarded-Proto": "https,http"},
+                    {"X-Forwarded-Host": "evil.test"}, {"X-Forwarded-For": "1.2.3.4, 127.0.0.1"},
+                    {"Forwarded": "proto=https"}, {"X-Forwarded-Port": "443"},
+                    {"Sec-Fetch-Site": "cross-site"}):
+        assert (await call("POST", "/v1/session", json={}, headers=headers | changes))[0] == 403
+    for name in ("Origin", "X-Forwarded-Proto", "X-Forwarded-Host", "X-Forwarded-For"):
+        duplicate = list(headers.items()) + [(name, headers[name])]
+        assert (await call("GET", "/v1/status", headers=duplicate))[0] == 403, name
+    # aiohttp's client normalizes Host; use the wire to test duplicate authorities.
+    reader, writer = await asyncio.open_connection("127.0.0.1", server.config.port)
+    writer.write(b"GET /v1/status HTTP/1.1\r\nHost: server.example-tailnet.ts.net\r\nHost: evil.test\r\n\r\n")
+    await writer.drain()
+    assert b" 400 " in await reader.readline()  # Rejected by aiohttp's HTTP parser.
+    writer.close()
+    await writer.wait_closed()
+    server.config = ManagementConfig(TOKEN, port=server.config.port,
+        trusted_origin=REMOTE_ORIGIN, trusted_proxies=("127.0.0.2",))
+    assert (await call("POST", "/v1/session", json={}, headers=headers))[0] == 403
+
+
+async def test_https_termination_with_isolated_real_proxy(api, tmp_path, unused_tcp_port_factory):
+    # One local test certificate and HTTPS proxy, no DNS, Tailscale or live accounts.
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+    import ipaddress
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "isolated-test")])
+    now = datetime.now(timezone.utc)
+    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+        .serial_number(x509.random_serial_number()).not_valid_before(now - timedelta(minutes=1))
+        .not_valid_after(now + timedelta(days=1))
+        .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]), False)
+        .sign(key, hashes.SHA256()))
+    cert_path, key_path = tmp_path / "proxy.pem", tmp_path / "proxy-key.pem"
+    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    key_path.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption()))
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(cert_path, key_path)
+    trust = ssl.create_default_context(cafile=str(cert_path))
+    server, _ = api
+    server.config = ManagementConfig(TOKEN, port=server.config.port,
+        trusted_origin=REMOTE_ORIGIN, trusted_proxies=("127.0.0.1",))
+    async with aiohttp.ClientSession(trust_env=False) as upstream:
+        async def proxy(request):
+            # Same boundary as Tailscale Serve: overwrite forwarding information,
+            # preserve Host/Origin, and never turn network identity into API auth.
+            headers = {k: v for k, v in request.headers.items()
+                       if not k.lower().startswith("x-forwarded-") and k.lower() != "forwarded"}
+            headers.update({"X-Forwarded-Proto": "https", "X-Forwarded-Host": request.headers["Host"],
+                            "X-Forwarded-For": request.remote})
+            async with upstream.request(request.method, f"http://127.0.0.1:{server.config.port}" + request.raw_path,
+                    data=await request.read(), headers=headers, allow_redirects=False) as response:
+                return web.Response(body=await response.read(), status=response.status,
+                    headers={k: v for k, v in response.headers.items() if k.lower() not in ("content-length", "connection")})
+        application = web.Application()
+        application.router.add_route("*", "/{path:.*}", proxy)
+        runner = web.AppRunner(application, access_log=None)
+        await runner.setup()
+        proxy_port = unused_tcp_port_factory()
+        await web.TCPSite(runner, "127.0.0.1", proxy_port, ssl_context=tls).start()
+        try:
+            async with aiohttp.ClientSession(trust_env=False) as browser:
+                url = f"https://127.0.0.1:{proxy_port}"
+                headers = {"Host": "server.example-tailnet.ts.net", "Origin": REMOTE_ORIGIN,
+                           "Authorization": "Bearer " + TOKEN, "X-Forwarded-Host": "evil.test"}
+                async with browser.post(url + "/v1/session", json={}, headers=headers, ssl=trust) as response:
+                    assert response.status == 200
+                    session = (await response.json())["token"]
+                    assert "Set-Cookie" not in response.headers
+                headers["Authorization"] = "Bearer " + session
+                async with browser.get(url + "/v1/status", headers=headers, ssl=trust) as response:
+                    assert response.status == 200
+                headers.pop("Authorization")
+                async with browser.get(url + "/v1/status", headers=headers, ssl=trust) as response:
+                    assert response.status == 401
+        finally:
+            await runner.cleanup()

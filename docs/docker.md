@@ -7,6 +7,10 @@ HTTP listener, OAuth callback listener or published ports. An explicit
 That overlay defaults to `127.0.0.1:8765`; its documented
 `HEETKIT_MANAGEMENT_LOOPBACK` option changes the published loopback and accepted
 Host together, with `127.0.0.1` as the fallback when alternate loopbacks are unsupported.
+For a Linux VM, the separate [private HTTPS reference](management-api.md#private-remote-https)
+uses `compose.remote.yaml` with host-side Tailscale Serve and a loopback-only backend.
+It supports remote browser Twitch authorization without Desktop; do not combine
+the remote overlay with the Docker Desktop/local management overlay.
 Use a Linux amd64 Docker Engine with
 Docker Compose v2, or Docker Desktop configured for Linux containers.
 

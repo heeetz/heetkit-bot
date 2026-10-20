@@ -41,11 +41,11 @@ replacing the private file and restarting the process; existing values remain in
 memory until restart. No token content is exported to the environment from a file.
 
 `--management-host` accepts a literal loopback or private bind IP;
-`--management-port` sets port 1–65535. An explicit all-interface bind additionally
-requires `--management-allowed-host IP:port`, an exact trusted HTTP Host authority.
-Hostnames and wildcard Host allowlists are unsupported. Loopback's default Host
-allowlist accepts its configured IP and `localhost`, with the configured port.
-Forwarded headers are ignored. IPv6 authorities use `[address]:port`.
+`--management-port` sets port 1–65535. Outside HTTPS proxy mode, an explicit
+all-interface bind additionally requires `--management-allowed-host IP:port`, an
+exact trusted HTTP Host authority. Loopback's default Host allowlist accepts its
+configured IP and `localhost`, with the configured port. Forwarding headers are
+rejected outside explicitly configured proxy mode. IPv6 authorities use `[address]:port`.
 For a different local IPv4 loopback, pass `--management-host 127.0.0.2` and open
 `http://127.0.0.2:8765/`. HTTP browser access recognizes IPv4 loopback addresses
 in `127.0.0.0/8`, `localhost` and IPv6 `::1`, but still requires an exact allowed
@@ -55,6 +55,97 @@ Keep this service on loopback or an explicitly trusted private interface. Do not
 publish it to the internet. HTTP carries the bearer token in each request: use an
 SSH tunnel or a protected private network when accessing another machine. This
 feature does not provision TLS, tunnels, proxies, cloud resources or firewall rules.
+
+## Private remote HTTPS
+
+The preferred Linux server reference uses host-side **Tailscale Serve**, providing
+HTTPS to authorized devices on the tailnet. Use Serve, not public Funnel. Install
+and authenticate Tailscale on the host and browsing devices, enable tailnet HTTPS,
+and restrict access to the intended administrator through tailnet policy. See the
+[Serve command](https://tailscale.com/docs/reference/tailscale-cli/serve).
+HeetKit still requires its management token; Tailscale identity grants no API authority.
+
+First create the private secret directory, two provider secret files (empty is
+valid for browser setup), and random management token as described in
+[Docker preparation](docker.md#prepare-private-storage-and-authorization) and above.
+Keep the parent directory mode 700 and the three mounted files readable by UID
+10001 (mode 444 under that parent). No profile import is needed for a fresh server.
+From a Linux checkout with Docker Engine/Compose and Tailscale already installed:
+
+```bash
+export HEETKIT_SECRETS_DIR="$HOME/.config/heetkit-secrets"
+export HEETKIT_MANAGEMENT_ORIGIN=https://server.example-tailnet.ts.net
+export HEETKIT_TWITCH_REDIRECT_URI="$HEETKIT_MANAGEMENT_ORIGIN/oauth/callback"
+docker compose -f compose.yaml -f compose.remote.yaml up -d --build
+sudo tailscale serve --bg http://127.0.0.1:8765
+tailscale serve status
+```
+
+Replace the example hostname with the exact HTTPS name reported by your host's
+Tailscale configuration. Open that HTTPS origin from an authorized tailnet device
+(including a phone), sign in with the privately retrieved management token, and
+follow [Server setup](twitch-setup.md#server-browser-setup). Keep these non-secret
+variables set for subsequent Compose operations. This overlay uses **Linux host
+networking** so the application binds only host `127.0.0.1:8765` and sees Serve's
+actual socket peer as `127.0.0.1`. It adds no published ports, DNS, certificates or
+cloud resources. Do not combine it with `compose.management.yaml`; that separate
+bridge-network overlay remains the Docker Desktop/local/SSH option. Base profile,
+UID, read-only filesystem, secrets and restart protections remain in use. Verify
+the listener with `ss -ltn` on the host. Reserve this port for this one instance.
+
+For source/service installations the equivalent options are:
+
+```bash
+python -m app.headless --data-dir /absolute/private/profile --management-api \
+  --management-host 127.0.0.1 \
+  --management-trusted-origin https://server.example-tailnet.ts.net \
+  --management-trusted-proxy 127.0.0.1 \
+  --twitch-redirect-uri https://server.example-tailnet.ts.net/oauth/callback
+```
+
+The origin is an exact lowercase ASCII DNS HTTPS origin with no trailing slash,
+path, credentials, query or fragment. Wildcards, DNS suffixes and IP origins are
+refused. Omit default port 443; an explicit other port is part of both Host and
+Origin. Proxy mode replaces `--management-allowed-host` and accepts only that
+external Host and Origin. `--management-trusted-proxy` accepts repeatable exact
+socket IPs, never networks; there is no default trust. The listener requires that
+peer and exactly one `X-Forwarded-Proto: https`. Preserve the original Host and
+Origin; overwrite `X-Forwarded-Host` with that same external authority if supplied,
+and overwrite `X-Forwarded-For` with one client IP if supplied. Multiple values,
+chains, mismatches, `Forwarded` and other `X-Forwarded-*` fields are rejected.
+These values never select a redirect or grant authentication. Tailscale Serve
+[preserves Host and replaces these headers](https://github.com/tailscale/tailscale/blob/main/ipn/ipnlocal/serve.go).
+Local processes sharing the trusted proxy's socket IP are inside this boundary;
+use a controlled host and prevent direct access to the backend from other networks.
+
+Another HTTPS reverse proxy, including an intentionally public one, is optional
+and must meet the same header/peer contract, enforce its own TLS/access policy,
+and keep the backend private. Never enable public access merely to make Twitch's
+redirect reachable: the **browser**, connected to Tailscale, follows that redirect.
+Configure proxy access/error logging to omit callback query strings and sensitive
+headers; do not log full request URLs. HeetKit disables HTTP access logs and
+returns no-referrer/no-store responses. It cannot erase provider/browser/proxy
+history: a code reaches the browser in the initial redirect before the fixed clean
+redirect to `/oauth/result`. Do not share or bookmark callback URLs.
+
+Incorrect Host/Origin, missing HTTPS forwarding or an unexpected peer returns a
+fixed 403 diagnostic. If the callback is inaccessible, check tailnet connectivity,
+Serve status, the host loopback listener and the exact registered redirect. If
+Twitch rejects the redirect, register precisely the URL displayed in Settings,
+including scheme, hostname, optional port and `/oauth/callback`. The application
+can validate configuration syntax, but cannot verify your Twitch registration or
+external reachability without a real browser/provider test.
+
+For SSH fallback use the local management overlay and the tunnel below. Its
+default localhost callback requires the authenticated paste procedure; an SSH
+tunnel for port 8765 does not forward desktop callback port 4343 or turn localhost
+into the configured remote HTTPS name. To retain automatic HTTPS callbacks the
+browser must still reach the exact registered HTTPS origin through a correctly
+configured trusted proxy. Choose one access configuration and restart to change it.
+Closing the management browser or leaving Tailscale does not disconnect chat.
+An unfinished OAuth attempt expires after five minutes even without browser polling.
+Actual VM provisioning, monitoring, live migration and account acceptance are
+separate operator-controlled deployment work.
 
 ## Browser panel
 
@@ -153,6 +244,11 @@ HTTP access. No live profile migration is performed by enabling the API.
 ## Requests and operations
 
 Every JSON route requires `Authorization: Bearer <private token or session token>`.
+The optional GET `/oauth/callback` is the sole exception: it accepts only a pending,
+single-use state belonging to a still-authorized initiating session, exchanges the
+code on the server and redirects to the fixed `/oauth/result` page. It grants no
+management session. Cross-site navigation is allowed for that callback and its
+fixed inert result page; management/assets retain the same-origin checks below.
 Requests must use the
 exact path without query parameters, JSON objects for POST, and an explicit
 Content-Length. JSON duplicate keys, non-finite values, compressed/chunked bodies,
@@ -198,12 +294,12 @@ POST writes persist and apply immediately unless stated otherwise.
 | POST `session` | `{}` with administrator bearer only; returns `token`, `expires_in` (3600 seconds) |
 | GET `session` / POST `session/logout` | Check current session / revoke it with `{}` |
 | GET `snapshot` | Combined `status` and `ai_status` for browser polling |
-| GET `setup`, `about` | Effective non-secret setup status / shared application metadata |
+| GET `setup`, `about` | Effective non-secret setup status (including fixed management/callback URLs, `authorization_mode` and this session's `authorization_attempt`) / shared application metadata |
 | POST `twitch/settings` | `client_id`, `bot_username`, `bot_user_id`, `channel`, `channel_user_id`; save/apply after stopping the old session |
 | POST `credentials/replace` | `name` (`twitch_client_secret` or `gemini_api_key`), `value`; browser-managed credentials only |
 | POST `credentials/remove`, `credentials/test` | `name`; remove the browser value / check the effective value against its provider |
 | POST `twitch/authorization/begin` | `{}`; checks application credentials, stops the old session and returns Twitch's `url`, `expires_in` (300 seconds) |
-| POST `twitch/authorization/complete` | `callback_url`; authenticated completion of the fixed localhost redirect, returning no tokens |
+| POST `twitch/authorization/complete` | `callback_url`; authenticated paste completion for this session and the fixed configured redirect, returning no tokens; HTTPS mode normally completes through GET `/oauth/callback` |
 | POST `twitch/authorization/cancel` | `{}`; cancels this session's pending attempt |
 | GET `status` | Running, Twitch connection state, session uptime, account/channel and `operation` policy/monitor status |
 | POST `configuration/export` | `{}`; returns `filename` and ZIP `archive_base64` |

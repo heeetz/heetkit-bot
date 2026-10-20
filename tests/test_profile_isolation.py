@@ -5,6 +5,7 @@ import shutil
 import sys
 from types import SimpleNamespace
 import pytest
+import keyring
 
 from app.app_settings import AppSettingsStore
 from app.commands.fun import FATES, load_fun_settings
@@ -40,7 +41,7 @@ def test_clean_cli_launch_reaches_desktop_with_disconnected_backend(tmp_path, mo
     monkeypatch.chdir(tmp_path)
     # Neither checkout deployment nor legacy default keyring may leak into this profile.
     (tmp_path / '.env').write_text('TWITCH_BOT_USERNAME=owner\nTWITCH_CLIENT_SECRET=owner-secret\n')
-    monkeypatch.setattr('app.credentials.keyring.get_password',
+    monkeypatch.setattr(keyring, 'get_password',
                         lambda service, name: 'owner-secret' if service == 'twitch-bot' else None)
     monkeypatch.setattr(sys, 'argv', ['heetkit', '--data-dir', str(root)])
     monkeypatch.setattr(webview_host, 'resolve_frontend_url', lambda dev_url: 'frontend/index.html')

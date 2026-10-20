@@ -10,18 +10,25 @@ A fresh Server does not need Desktop or a copied profile. Enable the authenticat
 Server configuration**. Setup works in every operation mode, including Disabled.
 
 1. Register a Confidential Twitch application using the account/registration guidance
-   below. Register exactly `http://localhost:4343/oauth/callback` as its redirect.
+   below. Register the **exact callback URL shown in Settings**. Local/SSH setup
+   defaults to `http://localhost:4343/oauth/callback`; a server configured for
+   [private remote HTTPS](management-api.md#private-remote-https) uses its explicitly
+   configured `https://your-server-hostname/oauth/callback` instead. Twitch's
+   [Authorization Code Grant](https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/#authorization-code-grant-flow)
+   requires the registered redirect and exchange redirect to match.
 2. Save the Client ID, expected bot login/numeric ID and target login/numeric ID.
    Add the client secret under Server credentials. Nonempty external secrets are
    read-only here; rotate them on the host and restart. Make the bot a moderator in
    the target channel as described below.
 3. Select **Connect Twitch** (use **Open Twitch authorization** if the browser blocks
    the new tab). Check the application and expected bot account on
-   Twitch before approving. Twitch redirects to localhost on your browsing computer;
-   this server flow deliberately has no listener there. Close Desktop first. Copy
-   the full URL from the resulting callback/error page and paste it into **Callback
-   URL** in the original Settings tab, then complete authorization within five minutes.
-   Keep that tab signed in. Never share the URL: it contains a one-use code.
+   Twitch before approving, keeping the original Settings tab signed in. With a
+   configured HTTPS callback, remain connected to the tailnet: Twitch returns to
+   the server and Settings reports completion automatically. The result tab contains
+   no credentials and can be closed. For local/SSH paste setup, Twitch redirects to
+   localhost on your browsing computer with no server listener there. Close Desktop
+   first, copy the full URL from the resulting error page into **Callback URL** in
+   Settings, and complete within five minutes. Never share that one-use code URL.
 4. Check **Authorized account** and **Target channel**. HeetKit verifies application,
    bot identity, target identity and the existing required chat/follower scopes before
    saving authorization. Then use Dashboard: Manual needs Connect, Always On resumes
@@ -35,6 +42,16 @@ to retain the bot authorization; HeetKit stops the old session and verifies the 
 channel before reconnecting. Server changes do not require a process restart.
 Browser-managed credentials persist in the private server volume, not OS keyring or
 portable ZIPs. See [storage and recovery](docker.md#backup-restore-and-updates).
+Only the initiating session can inspect its pending/completed attempt. Another
+session cannot replace it until cancellation or expiry; sign-out/session eviction
+invalidates it. Denial or failed exchange consumes it and requires a new attempt.
+For an inaccessible callback check the exact registered redirect, tailnet connection,
+HTTPS proxy and host listener; for a completed but failed attempt check expected
+account, required permissions, application secret and provider reachability.
+Neither tab closure nor management-network loss stops an already authorized bot.
+Existing authorized-profile transfer is an optional advanced path: keep credentials,
+OAuth state and private history separate from portable configuration ZIPs, stop the
+source instance, and use the approved [whole-profile procedure](docker.md#prepare-private-storage-and-authorization).
 The Desktop procedure below retains its existing restart and callback behavior.
 
 ## Choose the accounts and register an application
