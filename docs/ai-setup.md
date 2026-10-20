@@ -4,6 +4,14 @@ Gemini is **optional**. Normal Twitch commands, including weather, followage and
 commands, work without it. For AI replies through `!ask`, add an API key: a private
 credential that lets HeetKit send requests to Google's Gemini service.
 
+On Server, use **Settings → Server configuration → Server credentials** to save,
+replace, test or remove the Gemini key. Stored values are never returned to the
+browser. Changes apply to subsequent requests without changing model preferences
+or interrupting in-flight requests. A nonempty externally provisioned environment
+or secret-file key is read-only here and requires host-side rotation/restart.
+Browser-managed values persist in the private volume; see
+[credential storage](management-api.md#requests-and-operations). The Desktop steps follow.
+
 ## Get a key and add it to HeetKit
 
 1. Open [Google AI Studio](https://aistudio.google.com/) and sign in with your Google account.

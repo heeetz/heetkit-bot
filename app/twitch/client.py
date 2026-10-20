@@ -41,6 +41,15 @@ OAUTH_STATE_TTL_SECONDS = 300.0
 CHAT_MESSAGE_DEDUP_LIMIT = 2048
 
 
+def validate_bot_authorization(token, settings: Settings) -> None:
+    """Verify server authorization before subscription or cache activation."""
+    if (token.client_id != settings.twitch_client_id
+            or token.user_id != settings.twitch_bot_user_id
+            or (token.login or "").lower() != settings.twitch_bot_username.lower()
+            or not set(CHAT_SCOPES.selected).issubset(token.scopes)):
+        raise TwitchConnectionError("Twitch authorization does not match the configured application, bot account or required scopes. Authorize again from Settings.")
+
+
 @contextmanager
 def headless_twitch_diagnostics(on_failure: Callable[[], None]):
     """Observe library failures without rendering requests, tokens or payloads."""
@@ -245,6 +254,8 @@ class TwitchChatBot(commands.Bot):
         self._close_lock = asyncio.Lock()
         self._closing_task: asyncio.Task | None = None
         self._close_save_failed = False
+        self.require_verified_identity = False
+        self._settings = settings
         super().__init__(
             client_id=settings.twitch_client_id,
             client_secret=settings.twitch_client_secret.get_secret_value(),
@@ -293,6 +304,8 @@ class TwitchChatBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         if self.bot_id not in self.tokens:
+            if self.require_verified_identity:
+                self._set_connection_state("auth_required")
             self._logger.info("Waiting for Twitch bot OAuth authorization")
             return
         await self._subscribe_to_chat()
@@ -383,7 +396,18 @@ class TwitchChatBot(commands.Bot):
                 try:
                     # TwitchIO retains validation/refresh ownership. Persist only
                     # its managed result, never construct or refresh tokens here.
-                    await self.add_token(record["token"], record["refresh"])
+                    validated = await self.add_token(record["token"], record["refresh"])
+                    if self.require_verified_identity:
+                        try:
+                            validate_bot_authorization(validated, self._settings)
+                        except TwitchConnectionError:
+                            if validated.user_id:
+                                await self.remove_token(validated.user_id)
+                            continue
+                        users = await self.fetch_users(ids=[self._account.channel_user_id], token_for=self.bot_id)
+                        if not any(str(user.id) == self._account.channel_user_id and
+                                   user.name.lower() == self._account.channel.lower() for user in users):
+                            raise TwitchConnectionError("Configured Twitch channel does not match its account ID. Correct Settings before reconnecting.")
                 except InvalidTokenException:
                     continue
             if self.bot_id in self.tokens:
@@ -533,6 +557,7 @@ async def run_twitch_bot(
         dispatcher=dispatcher,
         logger=logger,
     )
+    bot.require_verified_identity = headless
     stop_task: asyncio.Task[None] | None = None
     monitor_task: asyncio.Task[None] | None = None
 

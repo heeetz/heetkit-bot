@@ -27,6 +27,9 @@ from app.configuration_transfer import MAX_TRANSFER_BODY
 from app.management import ApplicationManagement
 from app.runtime_paths import PACKAGED_FRONTEND, SOURCE_ROOT, RuntimePaths
 from app.utils.logging import RecentLogBuffer
+from app.credentials import CredentialError
+from app.config.settings import TwitchConfigurationError
+from app.server_setup import ServerSetup
 
 
 MAX_BODY = 65536
@@ -156,12 +159,13 @@ def _invalid_constant(_value):
 class ManagementAPI:
     def __init__(self, runtime: BotRuntime, config: ManagementConfig,
                  log_buffer: RecentLogBuffer | None = None, *, policy: OperationPolicy | None = None,
-                 app_settings: AppSettingsStore | None = None) -> None:
+                 app_settings: AppSettingsStore | None = None, credentials=None) -> None:
         self.runtime = runtime
         self.config = config
         store = app_settings or AppSettingsStore(RuntimePaths.default().app_settings)
         self.service = ApplicationManagement(runtime.application, store, log_buffer)
         self.policy = policy or OperationPolicy(runtime, store)
+        self.setup = ServerSetup(runtime, self.policy, store, credentials)
         self._owns_policy = policy is None
         self.lock = asyncio.Lock()
         self.runner: web.ServerRunner | None = None
@@ -196,6 +200,7 @@ class ManagementAPI:
             raise
 
     async def close(self) -> None:
+        self.setup.pending = None
         self.sessions.clear()
         try:
             if self.runner is not None:
@@ -342,15 +347,18 @@ class ManagementAPI:
                         if payload:
                             raise ValueError
                         self.sessions.pop(digest, None)
+                        self.setup.cancel(digest)
                         result = {"ok": True}
                     else:
-                        result = await self.dispatch(request.method, request.path, payload)
+                        result = await self.dispatch(request.method, request.path, payload, owner=digest)
                 status = 200 if result.get("ok", True) else 400
                 return self.response(status, result)
         except TimeoutError:
             return reject(504, "Management operation timed out; inspect current state before retrying.")
         except LookupError:
             return reject(404, "Unknown management resource.")
+        except (CredentialError, TwitchConfigurationError) as error:
+            return reject(400, str(error))
         except (ValueError, TypeError, RecursionError, UnicodeError, asyncio.IncompleteReadError):
             return reject(400, "Invalid management input.")
         except Exception:
@@ -360,7 +368,29 @@ class ManagementAPI:
         finally:
             self.active -= 1
 
-    async def dispatch(self, method: str, path: str, payload: dict) -> dict:
+    async def dispatch(self, method: str, path: str, payload: dict, *, owner: bytes = b"") -> dict:
+        if method == "POST" and path.startswith(("/v1/credentials/", "/v1/twitch/")):
+            operations = {
+                "/v1/twitch/settings": self.setup.save_twitch,
+                "/v1/credentials/replace": self.setup.change_credential,
+                "/v1/credentials/remove": lambda name: self.setup.change_credential(name, remove=True),
+                "/v1/credentials/test": self.setup.test_credential,
+                "/v1/twitch/authorization/begin": lambda: self.setup.begin(owner),
+                "/v1/twitch/authorization/complete": lambda callback_url: self.setup.complete(owner, callback_url),
+                "/v1/twitch/authorization/cancel": lambda: self.setup.cancel(owner),
+            }
+            operation = operations.get(path)
+            if operation is None:
+                raise LookupError
+            # Fixed fields, including replace's required value: no caller may
+            # smuggle the internal remove flag through a different endpoint.
+            fields = {"/v1/twitch/settings": {"client_id", "bot_username", "bot_user_id", "channel", "channel_user_id"},
+                "/v1/credentials/replace": {"name", "value"}, "/v1/credentials/remove": {"name"},
+                "/v1/credentials/test": {"name"}, "/v1/twitch/authorization/complete": {"callback_url"}}
+            if set(payload) != fields.get(path, set()):
+                raise ValueError
+            result = operation(**payload)
+            return await result if inspect.isawaitable(result) else result
         operations = READS if method == "GET" else WRITES
         if path in operations:
             operation = getattr(self.service, operations[path])
@@ -393,11 +423,15 @@ class ManagementAPI:
             return {"ok": True, "process_uptime_seconds": int(time.monotonic() - self.started),
                     "desired_running": self.policy.desired_running, "operation": self.policy.snapshot(),
                     "settings_effect": {"commands_filters_ai_personalities_triggers": "immediate",
-                        "twitch_target": "reconnect (configure while stopped outside API)",
-                        "identity_credentials_privacy_api_bind": "process_restart (configure outside API)"}}
+                        "twitch_target": "save and reconnect",
+                        "twitch_identity_secret": "save, authorize and reconnect",
+                        "gemini_key": "immediate",
+                        "privacy_api_bind": "process_restart (configure outside API)"}}
         if method == "POST" and path in ("/v1/bot/start", "/v1/bot/stop"):
             if payload:
                 raise ValueError
+            if path.endswith("/start"):
+                self.setup.require_ready()
             changed = self.policy.connect() if path.endswith("/start") else self.policy.disconnect()
             return {"ok": True, "changed": changed, "operation": self.policy.snapshot()}
         if method == "POST" and path == "/v1/bot/mode":
@@ -441,13 +475,8 @@ class ManagementAPI:
         raise LookupError
 
     def credential_statuses(self) -> list[dict]:
-        """Headless reports secret presence only, without invoking OS keyrings."""
-        settings = self.runtime.application.settings
-        return [{"name": name, "label": label, "configured": bool(value),
-            "source": "environment" if value else "missing", "secure_storage_available": False}
-            for name, label, value in (
-                ("twitch_client_secret", "Twitch client secret", settings.twitch_client_secret),
-                ("gemini_api_key", "Gemini API key", settings.gemini_api_key))]
+        """Presence/source only; never read values back to the browser."""
+        return self.setup.credentials.server_statuses()
 
     def setup_status(self) -> dict:
         """Project effective configuration status, never credentials or paths."""
@@ -456,6 +485,15 @@ class ManagementAPI:
         provider = self.service.get_ai_provider_settings()["settings"]
         provider["credential"] = credentials[1]
         state = self.service.get_app_status()
+        self.setup._expire()
+        connected = state["twitch_connected"]
+        authorization = "verified" if connected else self.setup.authorization_status
+        if state["twitch_connection_state"] == "auth_required":
+            self.setup.authorization_status = "validation_failed"
+            self.setup.authorized_account = None
+            authorization = "validation_failed"
+        elif self.policy.error and not connected:
+            authorization = "not_verified"
         return {"ok": True, "credentials": credentials, "aiProvider": provider,
             "twitch": {"client_id": settings.twitch_client_id, "bot_username": settings.twitch_bot_username,
                 "bot_user_id": settings.twitch_bot_user_id, "target_channel": settings.twitch_channel,
@@ -464,7 +502,10 @@ class ManagementAPI:
                 "requires_restart": False, "requires_reconnect": False, "running": state["running"],
                 "connected": state["twitch_connected"], "oauth_token_available": Path(settings.twitch_token_file).is_file(),
                 "presets": [], "selected_preset_id": None, "active_preset_id": None,
-                "oauth_callback_url": "", "has_local_override": False}}
+                "oauth_callback_url": "http://localhost:4343/oauth/callback", "has_local_override": False,
+                "authorization_status": authorization,
+                "authorized_account": settings.twitch_bot_username if connected else self.setup.authorized_account,
+                "setup_complete": authorization == "verified"}}
 
 
 class _BoundedServer(web.Server):

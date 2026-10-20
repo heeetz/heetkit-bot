@@ -7,14 +7,15 @@ React interface for browsers and an explicit JSON API for native clients.
 
 ## Enable private access
 
-Provision the [headless profile and Twitch authorization](development.md#headless-runtime)
-first. The API is disabled by default. Enable it with `--management-api`; the
+The API can start with a fresh, unconfigured profile. It is disabled by default.
+Enable it with `--management-api`; the
 default bind is `127.0.0.1:8765`. Supply `HEETKIT_MANAGEMENT_TOKEN_FILE` pointing to
 a private ASCII file, or `HEETKIT_MANAGEMENT_TOKEN` through a private service
 environment. Providing both fails. Files must be regular, at most 1 KiB, and contain
 43–128 URL-safe characters with an optional trailing newline. Generate the value
 from at least 32 random bytes. There is no default token, token in a URL/CLI option,
-public registration, cookie authentication or OAuth credential-management endpoint.
+public registration or cookie authentication. Setup requires authentication from
+the first request, including on a fresh installation.
 
 For example, on Linux, create a new file outside the checkout without printing
 its contents or placing the secret in shell history:
@@ -89,9 +90,10 @@ Commands, response pools, custom commands, filters/tester, personalities, instru
 AI enablement/memory/language/models, blocked users, Dashboard and safe lifecycle logs
 reuse the existing pages and server operations. Apply retains the existing session-only
 meaning; Save persists and applies. Bot stop/start keeps the panel available.
-Settings shows server configuration status and guidance: provision Twitch identity,
-authorization, secrets and privacy settings on the server, then restart as required.
-Native folders/tray actions, credential editors, desktop update checks and the local
+Settings supports [first-run Twitch setup](twitch-setup.md#server-browser-setup),
+channel changes and credential creation, replacement, testing and removal. It shows
+presence/source and last validation status, never stored values. Gemini is optional.
+Native folders/tray actions, desktop update checks and the local
 AI Playground are unavailable in browser mode. Ordinary project links remain available.
 
 Settings also supports [portable configuration export/import](data-and-privacy.md#portable-configuration-transfer)
@@ -106,8 +108,9 @@ clears access and returns to sign-in. Mutations are never automatically retried.
 
 ## Docker opt-in
 
-The default Compose file still publishes no ports. After provisioning the normal
-Twitch/Gemini secret files, create `management_token` in `HEETKIT_SECRETS_DIR` as
+The default Compose file still publishes no ports. Create the normal Twitch/Gemini
+secret files (leave both empty for browser-managed setup), then create
+`management_token` in `HEETKIT_SECRETS_DIR` as
 above. Follow [Docker secret file permissions](docker.md#prepare-private-storage-and-authorization):
 the private parent stays mode 700; make the mounted token file readable by UID
 10001 (mode 444 under that private parent is sufficient for native Compose).
@@ -196,6 +199,12 @@ POST writes persist and apply immediately unless stated otherwise.
 | GET `session` / POST `session/logout` | Check current session / revoke it with `{}` |
 | GET `snapshot` | Combined `status` and `ai_status` for browser polling |
 | GET `setup`, `about` | Effective non-secret setup status / shared application metadata |
+| POST `twitch/settings` | `client_id`, `bot_username`, `bot_user_id`, `channel`, `channel_user_id`; save/apply after stopping the old session |
+| POST `credentials/replace` | `name` (`twitch_client_secret` or `gemini_api_key`), `value`; browser-managed credentials only |
+| POST `credentials/remove`, `credentials/test` | `name`; remove the browser value / check the effective value against its provider |
+| POST `twitch/authorization/begin` | `{}`; checks application credentials, stops the old session and returns Twitch's `url`, `expires_in` (300 seconds) |
+| POST `twitch/authorization/complete` | `callback_url`; authenticated completion of the fixed localhost redirect, returning no tokens |
+| POST `twitch/authorization/cancel` | `{}`; cancels this session's pending attempt |
 | GET `status` | Running, Twitch connection state, session uptime, account/channel and `operation` policy/monitor status |
 | POST `configuration/export` | `{}`; returns `filename` and ZIP `archive_base64` |
 | POST `configuration/preview` | `archive_base64`; validates ZIP and returns a ten-minute `preview_token`, source `application_version`, `format_version`, replacement `sections` with counts/details, `effects` and `preserved` settings |
@@ -311,13 +320,36 @@ connecting/reconnecting and terminal connection errors are unhealthy. Compose do
 not restart a container merely for being unhealthy. Terminal Twitch failures keep
 enabled management available with a fixed error; without management they exit headless.
 
-Twitch identity/client credentials, provider secrets, privacy/storage policy and API
-bind/token changes require process restart and are configured outside this API.
-Target-channel changes require reconnection and are also configured outside this
-initial API while stopped. No OAuth/access/refresh token, keyring content, local
+Twitch edits wait for session close/token flushing. Application/account/secret changes
+discard the old local OAuth cache before persistence and require Connect Twitch again;
+a failed save may therefore require reauthorization. Channel changes retain bot tokens
+but verify the target login/ID again before subscribing. Always On resumes when setup
+is valid, Stream Only waits for confirmed live status, Manual needs Connect, and
+Disabled stays stopped. No duplicate session or process restart is needed. Gemini
+changes apply to subsequent requests; in-flight requests can finish with the old key.
+External secret and API bind/token or privacy/storage policy changes still require
+host-side configuration and process restart. No OAuth/access/refresh token, keyring content, local
 folder operation or raw provider exception is returned. Logs expose only fixed
 lifecycle messages, timestamps, levels and IDs; private chat and raw log text are
 excluded. All responses disable caching.
+
+Server credentials live in private `auth/server_credentials.json`, separate from
+portable configuration. Nonempty environment/`_FILE` inputs take priority and reject
+browser replace/remove; clearing them and restarting reveals any previously saved
+browser value. Rotate through the same external source, or remove the old browser
+value before switching provisioning methods. Empty secret files permit browser setup.
+Saved non-secret Twitch settings retain their existing precedence over environment
+defaults. Validation results are process-local and reset after edits/restart.
+
+Authorization attempts are single-use, expire after five minutes, and are bound to
+the initiating bearer session. Another session cannot finish or replace an active
+attempt. Logout cancels its attempt; restarting loses all pending state. Configuration
+changes cancel pending attempts. A failed exchange or denied authorization requires
+a new attempt. The code exchange, application/account/scope validation and writable
+token cache use TwitchIO; the management token and provider secrets never enter the
+authorization URL. There is no unauthenticated OAuth callback route. Treat the pasted
+callback URL as sensitive, close its browser tab afterwards, and remove it from
+browser history when practical. Remote HTTPS callback automation is not supported.
 
 Limits are 64 KiB per JSON request, except configuration preview/import allow
 1,399,128 bytes for a base64-encoded ZIP of at most 1 MiB and its fixed arguments.

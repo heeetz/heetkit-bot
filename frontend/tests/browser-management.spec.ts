@@ -28,6 +28,8 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
   let prompt = 'Neutral prompt'
   let customCommands: CustomCommandInfo[] = []
   let enabled = true
+  let oauthBeginResult: object = { ok: true, url: 'https://id.twitch.tv/oauth2/authorize?client_id=synthetic', expires_in: 300 }
+  let oauthCompleteResult: object = { ok: true }
   const command: CommandInfo = {
     name: 'ping', aliases: [], enabled: true, available: true, unavailable_reason: null,
     response_pool: { responses: ['Pong'], defaults: ['Pong'], saved: true, has_saved_override: false, response_mode: 'single', max_responses: 1 },
@@ -44,8 +46,8 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
   const status = { running: true, twitch_connected: true, twitch_connection_state: 'connected' as const, uptime_seconds: 10, channel: 'synthetic_channel', account: 'synthetic_bot', ...statusOverrides, operation }
   const ai = () => ({ enabled, available: true, memory_enabled: false, active_personality: 'neutral', available_personalities: ['neutral'], model: 'test-model' })
   const aiProvider = { provider: 'Gemini', selected_model: 'test-model', fallback_model: 'test-fallback', presets: [], credential: null }
-  const twitch = { client_id: 'synthetic-client', bot_username: 'synthetic_bot', bot_user_id: '100', target_channel: 'synthetic_channel', target_channel_user_id: '200', active_channel: 'synthetic_channel', requires_restart: false, requires_reconnect: false, oauth_token_available: true }
-  const credentials = [{ name: 'twitch_client_secret', label: 'Twitch client secret', configured: true, source: 'environment', secure_storage_available: false }]
+  const twitch = { client_id: 'synthetic-client', bot_username: 'synthetic_bot', bot_user_id: '100', target_channel: 'synthetic_channel', target_channel_user_id: '200', active_channel: 'synthetic_channel', requires_restart: false, requires_reconnect: false, oauth_token_available: true, oauth_callback_url: 'http://localhost:4343/oauth/callback', authorization_status: 'verified', authorized_account: 'synthetic_bot', setup_complete: true }
+  const credentials = [{ name: 'twitch_client_secret', label: 'Twitch client secret', configured: true, source: 'environment', managed: false, validation_status: 'not_tested', secure_storage_available: false }, { name: 'gemini_api_key', label: 'Gemini API key', configured: false, source: 'missing', managed: true, validation_status: 'not_tested', secure_storage_available: false }]
   await page.route('**/v1/**', async (route) => {
     const request = route.request()
     const path = new URL(request.url()).pathname
@@ -70,6 +72,11 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
       Object.assign(status, { operation, running: false, twitch_connected: false, twitch_connection_state: 'stopped' as const })
     }
     if (path === '/v1/setup') result = { ok: true, twitch, credentials, aiProvider }
+    if (path === '/v1/twitch/settings') result = { ok: true, requires_reconnect: true }
+    if (path === '/v1/twitch/authorization/begin') result = oauthBeginResult
+    if (path === '/v1/twitch/authorization/complete') result = oauthCompleteResult
+    if (path === '/v1/twitch/authorization/cancel') result = { ok: true }
+    if (path === '/v1/credentials/replace' || path === '/v1/credentials/remove' || path === '/v1/credentials/test') result = { ok: true }
     if (path === '/v1/ai') result = ai()
     if (path === '/v1/ai/enabled') enabled = body!.enabled as boolean
     if (path === '/v1/ai/models') result = { ok: true, settings: aiProvider }
@@ -89,7 +96,7 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     if (path === '/v1/about') result = { application_name: 'HeetKit', application_subtitle: 'Twitch bot controls', version: '1.3.0', author: 'heeetz', license_name: 'Apache-2.0' }
     await route.fulfill({ json: result })
   })
-  return { calls, expire: (value = true) => { expired = value }, fail: (path: string) => { fail = path }, setOperation: (values: OperationOverrides) => { operation = { ...operation, ...values }; status.operation = operation } }
+  return { calls, expire: (value = true) => { expired = value }, fail: (path: string) => { fail = path }, setOperation: (values: OperationOverrides) => { operation = { ...operation, ...values }; status.operation = operation }, setOAuthBegin: (result: object) => { oauthBeginResult = result }, setOAuthComplete: (result: object) => { oauthCompleteResult = result } }
 }
 
 async function login(page: Page) {
@@ -247,12 +254,70 @@ for (const width of [1280, 390]) {
     await page.getByRole('button', { name: 'Add Gemini key', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Server configuration' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Configuration transfer' })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Open profile folder|Replace|Save &/ })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Save Twitch settings', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Remove', exact: true }).first()).toBeDisabled()
+    await expect(page.getByRole('button', { name: /Open profile folder/ })).toHaveCount(0)
     await page.getByRole('button', { name: 'About', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Check for updates', exact: true })).toHaveCount(0)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
   })
 }
+
+test('server settings edit Twitch identity, manage credentials and complete or cancel OAuth without retaining sensitive drafts', async ({ page }) => {
+  const api = await server(page)
+  // Delayed provider checks can outlive browser popup activation. Keep an
+  // explicit validated link available even when window.open is blocked.
+  await page.addInitScript(() => { window.open = () => null })
+  await page.goto('/tests/browser.fixture.html')
+  await login(page)
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Server configuration', exact: true })).toBeVisible()
+
+  await page.getByLabel('Client ID').fill('new-client')
+  await page.getByLabel('Bot username').fill('new-bot')
+  await page.getByLabel('Bot user ID').fill('101')
+  await page.getByLabel('Target channel').fill('new-channel')
+  await page.getByLabel('Channel user ID').fill('201')
+  await page.getByRole('button', { name: 'Save Twitch settings', exact: true }).click()
+  await expect.poll(() => api.calls.find((call) => call.path === '/v1/twitch/settings')?.body).toEqual({
+    client_id: 'new-client', bot_username: 'new-bot', bot_user_id: '101', channel: 'new-channel', channel_user_id: '201',
+  })
+  await expect(page.getByRole('status')).toContainText('current session was stopped')
+
+  const credentials = page.getByRole('heading', { name: 'Server credentials' }).locator('..')
+  await expect(credentials.getByRole('button', { name: 'Remove', exact: true }).first()).toBeDisabled()
+  const gemini = page.locator('.credential-row').filter({ hasText: 'Gemini API key' })
+  await gemini.getByLabel('New value').fill('synthetic-gemini-secret')
+  await gemini.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(gemini.getByLabel('New value')).toHaveValue('')
+  expect(api.calls.find((call) => call.path === '/v1/credentials/replace')?.body).toEqual({ name: 'gemini_api_key', value: 'synthetic-gemini-secret' })
+
+  await page.getByRole('button', { name: 'Connect Twitch', exact: true }).click()
+  await expect.poll(() => api.calls.find((call) => call.path === '/v1/twitch/authorization/begin')?.body).toEqual({})
+  await expect(page.getByRole('link', { name: 'Open Twitch authorization' })).toHaveAttribute('href', 'https://id.twitch.tv/oauth2/authorize?client_id=synthetic')
+  await expect(page.getByRole('link', { name: 'Open Twitch authorization' })).toHaveAttribute('rel', 'noopener noreferrer')
+  await page.getByLabel('Callback URL').fill('http://localhost:4343/oauth/callback?code=synthetic&state=synthetic')
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect.poll(() => api.calls.find((call) => call.path === '/v1/twitch/authorization/cancel')?.body).toEqual({})
+  await expect(page.getByLabel('Callback URL')).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Connect Twitch', exact: true }).click()
+  await page.getByLabel('Callback URL').fill('http://localhost:4343/oauth/callback?error=access_denied&state=synthetic')
+  api.setOAuthComplete({ ok: false, error: 'Twitch authorization was denied. Try again.' })
+  await page.getByRole('button', { name: 'Complete authorization', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Twitch authorization was denied')
+  await expect(page.getByLabel('Callback URL')).toHaveValue('')
+
+  await gemini.getByLabel('New value').fill('sensitive-draft')
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  const refreshedGemini = page.locator('.credential-row').filter({ hasText: 'Gemini API key' })
+  await expect(refreshedGemini.getByLabel('New value')).toHaveValue('')
+
+  api.setOAuthBegin({ ok: true, url: 'http://evil.example/oauth2/authorize', expires_in: 300 })
+  await page.getByRole('button', { name: 'Connect Twitch', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('untrusted Twitch authorization URL')
+})
 
 test('401 expiration removes editors and their drafts; failed logout still removes local access', async ({ page }) => {
   const api = await server(page)

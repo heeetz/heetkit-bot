@@ -37,6 +37,7 @@ class OperationPolicy:
         self._worker: asyncio.Task | None = None
         self._monitor: asyncio.Task | None = None
         self._closed = False
+        self._setup_suspended = False
 
     def snapshot(self) -> dict:
         return {"mode": self.mode, "desired_running": self.desired_running,
@@ -108,12 +109,36 @@ class OperationPolicy:
             logger.error("Twitch connection needs administrator attention.",
                 extra={"event_kind": "operation.failed"})
 
+    async def suspend_for_setup(self) -> None:
+        """Quiesce sessions and discard in-flight polls without changing saved mode."""
+        self._setup_suspended = True
+        self._revision += 1
+        self.desired_running = False
+        self._monitor_wake.set()
+        self._schedule()
+        # A terminal session may already have reported its failure. Discard that
+        # completed task so administrators can repair credentials/re-authorize;
+        # errors from an active close/token flush still abort this operation.
+        await self.runtime.stop_bot(recover_failed=True)
+        twitch = getattr(self.runtime.application.services, "twitch", None)
+        if twitch is not None:
+            await twitch.close_stream_monitor()
+
+    def resume_after_setup(self) -> None:
+        self._setup_suspended = False
+        self._revision += 1
+        self.error = None
+        self.stream_status = "unknown"
+        self.desired_running = self.mode == "always_on"
+        self._monitor_wake.set()
+        self._schedule()
+
     async def _reconcile(self) -> None:
         while True:
             await self._wake.wait()
             self._wake.clear()
             try:
-                if self.desired_running and self.error is None:
+                if self.desired_running and self.error is None and not self._setup_suspended:
                     await self.runtime.start_bot()
                 else:
                     await self.runtime.stop_bot()
@@ -128,7 +153,7 @@ class OperationPolicy:
         revision = self._revision
         while True:
             self._monitor_wake.clear()
-            if self.mode != "stream_only":
+            if self.mode != "stream_only" or self._setup_suspended:
                 await self._monitor_wake.wait()
                 continue
             if revision != self._revision:

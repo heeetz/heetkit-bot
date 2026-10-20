@@ -293,6 +293,13 @@ persistent volume, mounted secret files, diagnostics and recovery.
 
 Before first use:
 
+For a fresh installation with management enabled, follow
+[Server browser setup](twitch-setup.md#server-browser-setup) instead of copying a
+Desktop profile. Headless loads browser-managed secrets from private
+`auth/server_credentials.json`; nonempty environment/`_FILE` inputs win and are
+read-only through the API. The shared credential validation module lazily loads
+keyring only for Desktop. Without management, use the preauthorized path below:
+
 1. Configure and authorize the matching Twitch bot/application through the desktop
    with the selected profile. Grant the channel access described in
    [Twitch setup](twitch-setup.md#give-the-bot-channel-access-then-connect).
@@ -332,7 +339,10 @@ retain exit code 1. Manual/Disabled and waiting Stream Only start without a chat
 session. Missing mode settings retain the prior Always On default; invalid modes or
 unreadable/unsupported settings keep headless Twitch disabled until repaired.
 Check the private storage, network and account/application settings;
-reauthorize through the desktop when requested, then stop it before restarting.
+reauthorize through authenticated Server Settings, or use the desktop and stop it
+before restarting headless. Server authorization validates the registered client,
+expected bot login/ID, target identity and required scopes; cached headless tokens
+are checked against those identities/scopes again before subscribing.
 Token saves retain TwitchIO's JSON format, serialize writes, fsync a private temporary
 file and atomically replace the cache. Startup rotation is saved after loading; partial
 failure retains untouched original records alongside any successfully rotated tokens;

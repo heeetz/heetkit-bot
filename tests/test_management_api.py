@@ -45,6 +45,7 @@ def settings():
         twitch_channel="syntheticchannel", twitch_channel_user_id="200",
         twitch_token_file=str(paths.tokens), database_url="sqlite+aiosqlite:///" + str(paths.database))
     prepare_runtime_data(value.twitch_token_file, value.database_url)
+    paths.tokens.write_text(json.dumps({"100": {"token": "synthetic-access", "refresh": "synthetic-refresh"}}), encoding="utf-8")
     return value
 
 
@@ -614,8 +615,7 @@ async def test_browser_presentation_routes_apply_save_and_log_cursor(api, monkey
         assert str(RuntimePaths.default().root) not in json.dumps(body)
     _, setup, _ = await call("GET", "/v1/setup")
     assert setup["credentials"][0]["configured"] and setup["twitch"]["client_id"] == "synthetic-client"
-    from pydantic import SecretStr
-    server.runtime.application.settings.gemini_api_key = SecretStr("private-provider-sentinel")
+    assert (await call("POST", "/v1/credentials/replace", json={"name": "gemini_api_key", "value": "private-provider-sentinel"}))[0] == 200
     _, provider, _ = await call("GET", "/v1/ai/models")
     assert provider["settings"]["credential"]["configured"]
     assert "private-provider-sentinel" not in json.dumps(provider)

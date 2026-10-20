@@ -3,6 +3,40 @@
 Connect HeetKit to one Twitch channel using a bot account and a Twitch Developer
 application: a registration that lets HeetKit connect to Twitch. No coding is needed.
 
+## Server browser setup
+
+A fresh Server does not need Desktop or a copied profile. Enable the authenticated
+[management panel](management-api.md#docker-opt-in), sign in and open **Settings →
+Server configuration**. Setup works in every operation mode, including Disabled.
+
+1. Register a Confidential Twitch application using the account/registration guidance
+   below. Register exactly `http://localhost:4343/oauth/callback` as its redirect.
+2. Save the Client ID, expected bot login/numeric ID and target login/numeric ID.
+   Add the client secret under Server credentials. Nonempty external secrets are
+   read-only here; rotate them on the host and restart. Make the bot a moderator in
+   the target channel as described below.
+3. Select **Connect Twitch** (use **Open Twitch authorization** if the browser blocks
+   the new tab). Check the application and expected bot account on
+   Twitch before approving. Twitch redirects to localhost on your browsing computer;
+   this server flow deliberately has no listener there. Close Desktop first. Copy
+   the full URL from the resulting callback/error page and paste it into **Callback
+   URL** in the original Settings tab, then complete authorization within five minutes.
+   Keep that tab signed in. Never share the URL: it contains a one-use code.
+4. Check **Authorized account** and **Target channel**. HeetKit verifies application,
+   bot identity, target identity and the existing required chat/follower scopes before
+   saving authorization. Then use Dashboard: Manual needs Connect, Always On resumes
+   automatically, Stream Only follows confirmed live status, and Disabled stays stopped.
+   Add/test an optional Gemini key in the same Settings section.
+
+Use Connect Twitch again after revocation, application/secret/account replacement
+or a failed/expired attempt; Cancel abandons an attempt. Identity/secret changes
+stop the old session and discard its local authorization. Change only the target
+to retain the bot authorization; HeetKit stops the old session and verifies the new
+channel before reconnecting. Server changes do not require a process restart.
+Browser-managed credentials persist in the private server volume, not OS keyring or
+portable ZIPs. See [storage and recovery](docker.md#backup-restore-and-updates).
+The Desktop procedure below retains its existing restart and callback behavior.
+
 ## Choose the accounts and register an application
 
 1. **Choose the bot account.** Use a dedicated bot account or another account you control.

@@ -251,7 +251,7 @@ def test_headless_entry_imports_no_desktop_and_fails_safely_when_unconfigured(tm
 import importlib.abc, sys
 class RejectDesktop(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname.split('.')[0] in {'keyring', 'webview', 'pystray', 'clr', 'tkinter', 'win32api'} or fullname in {'app.credentials', 'app.webview_host', 'app.system_tray', 'app.windows_runtime'}:
+        if fullname.split('.')[0] in {'keyring', 'webview', 'pystray', 'clr', 'tkinter', 'win32api'} or fullname in {'app.webview_host', 'app.system_tray', 'app.windows_runtime'}:
             raise AssertionError('Desktop import: ' + fullname)
 sys.meta_path.insert(0, RejectDesktop())
 import asyncio

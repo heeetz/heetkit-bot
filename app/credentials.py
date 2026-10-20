@@ -11,9 +11,7 @@ from enum import StrEnum
 from typing import Protocol
 
 import httpx
-import keyring
 from app.runtime_paths import RuntimePaths
-from keyring.errors import KeyringError, PasswordDeleteError
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +62,13 @@ class CredentialStatus:
 class CredentialStore:
     """Small wrapper around the operating system credential backend."""
 
-    def __init__(self, backend: KeyringBackend = keyring, *, migrate_legacy: bool = True) -> None:
-        self._backend = backend
+    def __init__(self, backend: KeyringBackend | None = None, *, migrate_legacy: bool = True) -> None:
+        # Headless reuses validation without requiring the optional desktop backend.
+        import keyring
+        from keyring.errors import KeyringError, PasswordDeleteError
+        self._keyring_error = KeyringError
+        self._delete_error = PasswordDeleteError
+        self._backend = backend if backend is not None else keyring
         paths = RuntimePaths.default()
         self._service_name = CREDENTIAL_SERVICE_NAME
         self._legacy_service_name = LEGACY_CREDENTIAL_SERVICE_NAME
@@ -87,7 +90,7 @@ class CredentialStore:
                 if value:
                     self._backend.set_password(self._service_name, name.value, value)
                     self._backend.set_password(self._service_name, marker, "complete")
-        except KeyringError as error:
+        except self._keyring_error as error:
             raise CredentialError("Secure credential storage is unavailable.") from error
         return value or None
 
@@ -95,7 +98,7 @@ class CredentialStore:
         try:
             self._backend.set_password(self._service_name, name.value, value)
             self._backend.set_password(self._service_name, _MIGRATION_ENTRY_PREFIX + name.value, "complete")
-        except KeyringError as error:
+        except self._keyring_error as error:
             raise CredentialError("Could not store the credential securely.") from error
 
     def remove(self, name: CredentialName) -> bool:
@@ -106,9 +109,9 @@ class CredentialStore:
             # credentials on this or a later process launch.
             self._backend.set_password(self._service_name, _MIGRATION_ENTRY_PREFIX + name.value, "complete")
             self._backend.delete_password(self._service_name, name.value)
-        except PasswordDeleteError:
+        except self._delete_error:
             return False
-        except KeyringError as error:
+        except self._keyring_error as error:
             raise CredentialError("Could not remove the stored credential.") from error
         return True
 

@@ -186,7 +186,16 @@ export const browserApi: PythonApi = {
   get_app_settings: unsupported, get_profile_info: unsupported, open_profile_folder: unsupported,
   update_app_settings: unsupported, get_twitch_settings: unsupported, update_twitch_settings: unsupported,
   save_twitch_preset: unsupported, delete_twitch_preset: unsupported, reconnect_twitch: unsupported,
-  get_credentials: unsupported, replace_credential: unsupported, remove_credential: unsupported, test_credential: unsupported,
+  get_credentials: unsupported,
+  replace_credential: (name, value) => write('/v1/credentials/replace', { name, value }),
+  remove_credential: (name) => write('/v1/credentials/remove', { name }),
+  test_credential: (name) => write('/v1/credentials/test', { name }),
+  update_server_twitch_settings: (client_id, bot_username, bot_user_id, channel, channel_user_id) => write('/v1/twitch/settings', {
+    client_id, bot_username, bot_user_id, channel, channel_user_id,
+  }),
+  begin_twitch_authorization: () => write('/v1/twitch/authorization/begin'),
+  complete_twitch_authorization: (callback_url) => write('/v1/twitch/authorization/complete', { callback_url }),
+  cancel_twitch_authorization: () => write('/v1/twitch/authorization/cancel'),
   open_external_link: async (destination) => {
     const links: Partial<Record<typeof destination, string>> = {
       repository: 'https://github.com/heeetz/twitch-bot',

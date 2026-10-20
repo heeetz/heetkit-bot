@@ -102,6 +102,11 @@ use `data/heetkit.db`; Twitch authorization uses `auth/twitchio_tokens.json`.
 - On Desktop, Gemini keys and Twitch client secrets entered in Settings use the OS keyring
   (Windows Credential Manager on Windows). They are separate from profile backups.
 - Twitch access and refresh tokens are stored in the profile's `auth/` directory.
+- Server browser-managed client secrets and Gemini keys are stored in
+  `auth/server_credentials.json` within the persistent profile. Atomic replacement
+  uses private staging files (0600) and an owner-only auth directory (0700) on Linux;
+  Windows relies on the private directory's inherited ACLs. This provides access
+  control, not encryption at rest. Protect the host, volume and backups separately.
 - The local database contains Twitch user IDs, usernames, first/last-seen timestamps,
   successful AI exchanges when memory is enabled, and minimal storage opt-out IDs.
   `users`, `ai_memory_entries` and `privacy_opt_outs` are separate tables.
@@ -129,8 +134,9 @@ use `data/heetkit.db`; Twitch authorization uses `auth/twitchio_tokens.json`.
   90/180-day expiry. Review them separately when handling a privacy request.
 
 Desktop can use intentional process environment credential fallbacks; stored keyring
-values take priority. Headless uses private environment or `_FILE` inputs without
-reading the keyring. HeetKit does not load `.env` files. See
+values take priority. Headless uses nonempty private environment or `_FILE` inputs
+ahead of browser-managed credentials, without reading the keyring. External values
+cannot be overwritten through the browser. HeetKit does not load `.env` files. See
 [development configuration](development.md#advanced-process-configuration) and
 [server secret provisioning](docker.md#prepare-private-storage-and-authorization).
 
@@ -339,7 +345,8 @@ copies according to your retention/deletion policy; they are not automatically r
 Stop every process using the profile before copying it. Desktop uses **tray Exit**
 or application exit; Server uses service/container shutdown. A management **Stop bot**
 does not close the database. Protect backups like the original; Desktop keyring
-credentials and Server injected secrets are outside the profile copy. Keep a backup
+credentials and Server injected secrets are outside the profile copy; Server
+browser-managed credentials and OAuth tokens are inside it. Keep a backup
 before manual edits, moving profiles or restoring old settings. Use the
 [Docker guide](docker.md#backup-restore-and-updates) for volume backup/restore,
 ownership, secret backup and rollback procedures.

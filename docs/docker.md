@@ -1,7 +1,7 @@
 # Linux Docker runtime
 
 HeetKit's container runs the shared [headless backend](development.md#headless-runtime)
-for one previously authorized Twitch bot. By default it has no window, dashboard,
+for one Twitch bot. By default it has no window, dashboard,
 HTTP listener, OAuth callback listener or published ports. An explicit
 [private management API and browser panel overlay](management-api.md#docker-opt-in) is available.
 That overlay defaults to `127.0.0.1:8765`; its documented
@@ -25,6 +25,16 @@ as a narrow exception to the older Windows pins, fixing the upstream
 The existing Windows redistribution inventory is unchanged by this container task.
 
 ## Prepare private storage and authorization
+
+For a **fresh browser-managed installation**, skip the Desktop/profile-copy steps
+below. Create the two secret files in step 3 but leave them empty, keep their stated
+permissions, generate a management token, and start with the
+[management overlay](management-api.md#docker-opt-in). Sign in and follow
+[Server browser setup](twitch-setup.md#server-browser-setup). The management token
+and private persistent volume are the only required host-side bootstrap state.
+The panel remains available while Twitch is unconfigured or Disabled. No Desktop
+installation or profile-file editing is required. The rest of this section describes
+the optional existing-profile/external-secret path; do not run two copied accounts.
 
 Run the following examples from the repository root in a Linux Bash shell. They
 operate on the default Compose project `heetkit`; keep that project name stable.
@@ -76,10 +86,10 @@ tar -C "$HEETKIT_SOURCE_PROFILE" -czf - . |
 
 Use this import only for the intended empty profile volume. The container extracts
 as UID/GID 10001, so Windows/source ownership does not need privileged `chown` at
-runtime. Never extract an untrusted archive. A fresh unconfigured profile exits
-with actionable missing-configuration/authorization guidance; headless cannot
-perform the initial browser authorization. No live profile migration happens during
-the automated checks.
+runtime. Never extract an untrusted archive. Without management, an unconfigured
+Always On profile exits with missing-configuration/authorization guidance. With
+management enabled, configure and authorize through Settings instead. No live
+profile migration happens during the automated checks.
 
 ## Run and inspect
 
@@ -142,7 +152,8 @@ docker compose start bot
 ```
 
 Store the archive and secret files privately, preferably encrypted and separately
-from the checkout. The volume archive contains OAuth tokens and private user data;
+from the checkout. The volume archive contains OAuth tokens, browser-managed
+`auth/server_credentials.json` and private user data;
 the two mounted secret files are outside it and need their own secure backup.
 
 Restore to a new empty volume with the target service stopped. For a recovery
@@ -156,8 +167,9 @@ docker compose --project-name heetkit-restore run --rm --no-deps -T \
 ```
 
 Inspect the restored private files before owner-controlled cutover. If authorization
-has since rotated or been revoked, reauthorize through the desktop using the intended
-profile and stop it before restarting headless. Never delete the current volume to
+has since rotated or been revoked, use Connect Twitch in the authenticated panel,
+or reauthorize through the desktop using the intended profile and stop it before
+restarting headless. Never delete the current volume to
 test a restore. For an update, stop, back up, retain the previous local image for
 rollback, check out the intended revision, then `docker compose build` and
 `docker compose up -d --force-recreate`. Roll back source/image and compatible profile
@@ -172,13 +184,23 @@ automatic update or cloud deployment is configured.
   file into logs. Secret files are read on process startup; recreate/restart after
   replacement, including when an editor replaced the host inode.
 - Missing/expired authorization: stop, repair the matching desktop authorization and
-  private profile, stop the desktop, then restart. An existing JSON cache alone does
-  not establish valid authorization.
+  private profile, stop the desktop, then restart; or use Connect Twitch in Server
+  Settings. An existing JSON cache alone does not establish valid authorization.
 - Permission/SQLite/lock failure: check volume ownership, free space and that another
   process does not own the profile. Use local storage with reliable SQLite locking;
   network filesystems are not validated.
 - Unhealthy/reconnecting: inspect lifecycle logs, DNS, outbound network and account
   access. A running process is not sufficient evidence of a usable connection.
+
+Browser-managed secret rotation needs no process restart. External nonempty inputs
+always win and cannot be changed by the browser; restart after host-side rotation.
+After removing external inputs, a retained browser value becomes effective again.
+Remove obsolete browser values before switching provisioning methods. Clearing a
+browser credential atomically removes it from the current document but does not
+revoke it with the provider or securely erase filesystem blocks, volume snapshots,
+backups or browser history. Rotate/revoke at Twitch/Google when compromise is
+suspected and handle retained copies separately. Use host/disk/backup encryption
+where required; the application does not encrypt this document itself.
 
 `python3 scripts/check_linux_container.py` builds the canonical Compose image and
 uses a randomly named disposable project/volume with synthetic settings and secrets.

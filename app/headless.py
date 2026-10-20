@@ -27,9 +27,9 @@ from app.utils.logging import RecentLogHandler, RecentLogBuffer, PrivacyLogFilte
 
 logger = logging.getLogger("app.headless")
 AUTHORIZATION_HELP = (
-    "Twitch authorization is missing, expired or revoked. Stop this process, authorize "
-    "the matching bot/application in the desktop using this profile, then stop the "
-    "desktop before restarting headless. Supply TWITCH_CLIENT_SECRET privately."
+    "Twitch authorization is missing, expired or revoked. Use Connect Twitch in authenticated "
+    "Server Settings, or stop this process and authorize the matching bot/application in "
+    "Desktop using this profile, then stop Desktop before restarting headless."
 )
 
 
@@ -110,6 +110,7 @@ async def run_headless(
     shutdown_timeout: float = 20.0,
     health: HealthFile | None = None,
     management_config=None,
+    credentials=None,
 ) -> int:
     """Supervise the existing runtime; TwitchIO continues to own network retries."""
     application = build_application(settings)
@@ -135,7 +136,7 @@ async def run_headless(
             recent_handler.addFilter(PrivacyLogFilter())
             recent_handler.addFilter(HeadlessLogFilter())
             logging.getLogger().addHandler(recent_handler)
-            management = ManagementAPI(runtime, management_config, buffer, policy=policy, app_settings=store)
+            management = ManagementAPI(runtime, management_config, buffer, policy=policy, app_settings=store, credentials=credentials)
             await management.start()
             ready.set()  # Browser management is independent of Twitch readiness.
         await policy.start()
@@ -312,6 +313,11 @@ def main(argv: list[str] | None = None) -> int:
         settings = Settings(twitch_token_file=str(paths.tokens), database_url="sqlite+aiosqlite:///" + str(paths.database), **secret_file_settings())
         token_file, database_url = prepare_runtime_data(settings.twitch_token_file, settings.database_url)
         settings = settings.model_copy(update={"twitch_token_file": token_file, "database_url": database_url})
+        from app.server_setup import credential_manager
+        credentials = credential_manager(settings)
+        from pydantic import SecretStr
+        for name, value in credentials.settings_overrides().items():
+            setattr(settings, name, SecretStr(value) if value else None)
         profile = AppSettingsStore(paths.app_settings).snapshot()
         settings = apply_ai_app_settings(apply_twitch_app_settings(settings, profile), profile)
         # Management must remain usable with Twitch stopped/unconfigured. Without
@@ -320,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
             settings.validate_twitch_configuration()
             if not paths.tokens.is_file():
                 raise HeadlessError(AUTHORIZATION_HELP)
-        result = loop.run_until_complete(run_headless(settings, profile, stop, startup_timeout=arguments.startup_timeout, shutdown_timeout=arguments.shutdown_timeout, health=health, **management_options))
+        result = loop.run_until_complete(run_headless(settings, profile, stop, startup_timeout=arguments.startup_timeout, shutdown_timeout=arguments.shutdown_timeout, health=health, credentials=credentials, **management_options))
         return 1 if async_failed else result
     except DesktopAlreadyRunningError:
         logger.error("Another HeetKit process owns this profile. Stop it before starting headless.")

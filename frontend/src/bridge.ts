@@ -276,6 +276,9 @@ export interface TwitchConnectionSettings {
   oauth_token_available: boolean
   oauth_callback_url: string
   has_local_override: boolean
+  authorization_status?: 'missing' | 'not_verified' | 'verified' | 'validation_failed'
+  authorized_account?: string | null
+  setup_complete?: boolean
 }
 
 export interface TwitchConnectionPreset {
@@ -295,7 +298,9 @@ export interface CredentialInfo {
   name: CredentialName
   label: string
   configured: boolean
-  source: 'credential_store' | 'environment' | 'missing'
+  source: 'credential_store' | 'server_file' | 'environment' | 'missing'
+  managed?: boolean
+  validation_status?: 'not_tested' | 'valid' | 'validation_failed'
   secure_storage_available: boolean
 }
 
@@ -455,6 +460,10 @@ export interface PythonApi {
   replace_credential(name: CredentialName, value: string): Promise<ActionResult>
   remove_credential(name: CredentialName): Promise<ActionResult>
   test_credential(name: CredentialName): Promise<ActionResult>
+  update_server_twitch_settings(clientId: string, botUsername: string, botUserId: string, channel: string, channelUserId: string): Promise<ActionResult>
+  begin_twitch_authorization(): Promise<TwitchAuthorizationBeginResponse>
+  complete_twitch_authorization(callbackUrl: string): Promise<ActionResult>
+  cancel_twitch_authorization(): Promise<ActionResult>
   start_bot(): Promise<ActionResult>
   stop_bot(): Promise<ActionResult>
   open_external_link(destination: 'repository' | 'license' | 'third_party_notices' | 'author_twitch' | 'twitch_developer_console' | 'twitch_authorization' | 'releases'): Promise<ActionResult>
@@ -470,6 +479,11 @@ export interface ActionResult {
 
 export interface TwitchPresetActionResult extends ActionResult {
   preset_id?: string
+}
+
+export interface TwitchAuthorizationBeginResponse extends ActionResult {
+  url?: string
+  expires_in?: number
 }
 
 declare global {

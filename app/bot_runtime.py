@@ -25,6 +25,7 @@ class BotRuntime:
         self._stop_requested = False
         self._shutdown = False
         self.generation = 0
+        self.start_guard = None
 
     @property
     def bot_active(self) -> bool:
@@ -59,6 +60,8 @@ class BotRuntime:
             return False
 
         self.application.settings.validate_twitch_configuration()
+        if self.start_guard is not None:
+            self.start_guard()
         self._stop_requested = False
         self._stop_event = asyncio.Event()
         self.application.services.runtime_state.set_bot_running(True)
@@ -91,18 +94,20 @@ class BotRuntime:
         if self._stop_event is not None:
             self._stop_event.set()
 
-    async def stop_bot(self) -> bool:
+    async def stop_bot(self, *, recover_failed: bool = False) -> bool:
         """Stop the Twitch session, suppressing an already reported session failure."""
         async with self._lifecycle_lock:
             task = self._bot_task
             if task is None or task.done():
                 if task is not None:
-                    if self._headless and not task.cancelled():
+                    if self._headless and not task.cancelled() and not recover_failed:
                         task.result()
                     else:
                         with suppress(Exception):
                             task.result()
                 self.application.services.runtime_state.set_bot_running(False)
+                if recover_failed:
+                    self._bot_task = None
                 return False
             self.request_stop()
             # Retain ownership through close/token flush. A concurrent start must

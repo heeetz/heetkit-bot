@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 import {
   type AppSettings,
@@ -30,33 +30,165 @@ export default function SettingsPage(props: SettingsPageProps) {
 
 function ServerSettings({ active }: { active: boolean }) {
   const [setup, setSetup] = useState<Awaited<ReturnType<typeof getBrowserSetup>> | null>(null)
+  const [twitchDraft, setTwitchDraft] = useState({ clientId: '', botUsername: '', botUserId: '', channel: '', channelUserId: '' })
+  const [credentialDrafts, setCredentialDrafts] = useState<Record<CredentialName, string>>({ gemini_api_key: '', twitch_client_secret: '' })
+  const [callbackUrl, setCallbackUrl] = useState('')
+  const [authorizationExpires, setAuthorizationExpires] = useState<number | null>(null)
+  const [authorizationUrl, setAuthorizationUrl] = useState('')
+  const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [retry, setRetry] = useState(0)
+  const mountedRef = useRef(false)
+  const refresh = async () => {
+    const result = await getBrowserSetup()
+    if (!result.ok) throw new Error(result.error ?? 'Server setup status is unavailable.')
+    if (mountedRef.current) {
+      setSetup(result)
+      setTwitchDraft({
+        clientId: result.twitch.client_id,
+        botUsername: result.twitch.bot_username,
+        botUserId: result.twitch.bot_user_id,
+        channel: result.twitch.target_channel,
+        channelUserId: result.twitch.target_channel_user_id,
+      })
+      setError('')
+    }
+  }
+  useEffect(() => {
+    mountedRef.current = active
+    if (!active) {
+      setCredentialDrafts({ gemini_api_key: '', twitch_client_secret: '' })
+      setCallbackUrl('')
+      setAuthorizationExpires(null)
+      setAuthorizationUrl('')
+      return
+    }
+    let mounted = true
+    void refresh().catch((reason: unknown) => {
+      if (mounted && mountedRef.current) setError(reason instanceof Error ? reason.message : 'Could not load server setup.')
+    })
+    return () => { mounted = false; mountedRef.current = false }
+  }, [active, retry])
   useEffect(() => {
     if (!active) return
-    let mounted = true
-    void getBrowserSetup().then((result) => {
-      if (!result.ok) throw new Error('Server setup status is unavailable.')
-      if (mounted) { setSetup(result); setError('') }
-    }).catch((reason: unknown) => {
-      if (mounted) setError(reason instanceof Error ? reason.message : 'Could not load server setup.')
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById('twitch-settings')?.dispatchEvent(new CustomEvent('accordion:open', { bubbles: true }))
     })
-    return () => { mounted = false }
-  }, [active, retry])
-  return <section className="settings-layout">
-    <article className="card" id="twitch-settings">
-      <h2>Server configuration</h2>
-      <p>Configure Twitch identity, channel, authorization and secrets on the server. Restart the server after changing identity or credentials; reconnect after a channel change.</p>
-      <p>Browser management can save commands, filters, personalities and AI settings. Desktop window settings and local folder actions are available in the desktop application.</p>
-      {error && <><p className="inline-error" role="alert">{error}</p><button className="secondary" onClick={() => setRetry((current) => current + 1)}>Retry setup status</button></>}
-      {setup && <dl className="about-details">
-        <div><dt>Bot account</dt><dd>{setup.twitch.bot_username || 'Not configured'}</dd></div>
-        <div><dt>Channel</dt><dd>{setup.twitch.target_channel || 'Not configured'}</dd></div>
-        {setup.credentials.map((credential) => <div key={credential.name}><dt>{credential.label}</dt><dd>{credential.configured ? `Configured (${credential.source})` : 'Not configured'}</dd></div>)}
-      </dl>}
+    return () => window.cancelAnimationFrame(frame)
+  }, [active])
+
+  const updateDraft = (field: keyof typeof twitchDraft, value: string) => {
+    setTwitchDraft((current) => ({ ...current, [field]: value }))
+    setError('')
+    setNotice('')
+  }
+  const run = async (label: string, action: () => Promise<void>) => {
+    setBusy(label)
+    setError('')
+    setNotice('')
+    try { await action() } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'The server rejected the request.')
+    } finally { setBusy('') }
+  }
+  const saveTwitch = () => run('twitch:save', async () => {
+    const channel = twitchDraft.channel.trim().replace(/^#/, '')
+    const values = { ...twitchDraft, channel }
+    if (!values.clientId.trim() || !values.botUsername.trim() || !values.botUserId.trim() || !channel || !values.channelUserId.trim()) {
+      throw new Error('Enter the Twitch Client ID, bot identity and target channel before saving.')
+    }
+    const result = await (await waitForBridge()).update_server_twitch_settings(
+      values.clientId.trim(), values.botUsername.trim(), values.botUserId.trim(), channel, values.channelUserId.trim(),
+    )
+    if (!result.ok) throw new Error(result.error ?? 'Twitch settings could not be saved.')
+    await refresh()
+    setNotice('Twitch settings saved. The current session was stopped while settings applied; the saved operation mode controls whether it resumes. Use Dashboard to choose a mode or connect separately.')
+  })
+  const runCredentialAction = (name: CredentialName, action: 'replace' | 'remove' | 'test') => run(`${name}:${action}`, async () => {
+    const value = credentialDrafts[name]
+    setCredentialDrafts((current) => ({ ...current, [name]: '' }))
+    const credential = setup?.credentials.find((item) => item.name === name)
+    if (!credential) throw new Error('Credential status is unavailable. Refresh and retry.')
+    if ((action === 'replace' || action === 'remove') && !credential.managed) {
+      throw new Error('This credential is managed externally and cannot be changed here.')
+    }
+    if (action === 'replace' && !value.trim()) throw new Error('Enter a credential value before saving.')
+    const api = await waitForBridge()
+    const result = action === 'replace'
+      ? await api.replace_credential(name, value)
+      : action === 'remove' ? await api.remove_credential(name) : await api.test_credential(name)
+    if (!result.ok) throw new Error(result.error ?? 'Credential operation failed.')
+    await refresh()
+    setNotice(action === 'test' ? `${credential.label} validation passed.` : `${credential.label} ${action === 'remove' ? 'removed.' : 'saved.'}`)
+  })
+  const beginAuthorization = () => run('oauth:begin', async () => {
+    setAuthorizationUrl('')
+    setCallbackUrl('')
+    const result = await (await waitForBridge()).begin_twitch_authorization()
+    if (!result.ok || !result.url) throw new Error(result.error ?? 'Twitch authorization could not be started.')
+    let url: URL
+    try { url = new URL(result.url) } catch { throw new Error('The server returned an invalid Twitch authorization URL.') }
+    if (url.origin !== 'https://id.twitch.tv' || url.username || url.password || url.pathname !== '/oauth2/authorize') {
+      throw new Error('The server returned an untrusted Twitch authorization URL.')
+    }
+    if (!mountedRef.current) return
+    setAuthorizationUrl(url.toString())
+    window.open(url.toString(), '_blank', 'noopener,noreferrer')
+    setAuthorizationExpires(result.expires_in ?? 300)
+    setNotice('Twitch authorization is ready. If no tab opened, use Open Twitch authorization below. After the local callback error page appears, copy its full URL here within 5 minutes.')
+  })
+  const completeAuthorization = () => {
+    const value = callbackUrl.trim()
+    setCallbackUrl('')
+    setAuthorizationUrl('')
+    return run('oauth:complete', async () => {
+    if (!value) throw new Error('Paste the complete callback URL before continuing.')
+    const result = await (await waitForBridge()).complete_twitch_authorization(value)
+    if (!result.ok) throw new Error(result.error ?? 'Twitch authorization could not be completed.')
+    setAuthorizationExpires(null)
+    await refresh()
+    setNotice('Twitch authorization completed. The selected operation mode controls whether the bot resumes; use Dashboard to inspect status or connect manually.')
+    })
+  }
+  const cancelAuthorization = () => {
+    setCallbackUrl('')
+    setAuthorizationUrl('')
+    return run('oauth:cancel', async () => {
+    const result = await (await waitForBridge()).cancel_twitch_authorization()
+    if (!result.ok) throw new Error(result.error ?? 'Twitch authorization could not be cancelled.')
+    setAuthorizationExpires(null)
+    setNotice('Twitch authorization cancelled.')
+    })
+  }
+  const renderCredential = (credential: CredentialInfo) => {
+    const replacing = busy === `${credential.name}:replace`
+    const removing = busy === `${credential.name}:remove`
+    const testing = busy === `${credential.name}:test`
+    const source = credential.source === 'server_file' ? 'Server secret file' : credential.source === 'environment' ? 'Process environment' : credential.source === 'missing' ? 'Not configured' : 'Managed credential'
+    return <article className="credential-row" key={credential.name}>
+      <div className="credential-heading"><div><strong>{credential.label}</strong><small>{source}{!credential.managed && credential.configured ? ' (external)' : ''} · {credential.validation_status === 'valid' ? 'Valid' : credential.validation_status === 'validation_failed' ? 'Validation failed' : 'Not tested'}</small></div><span className={`state-pill ${credential.configured ? 'enabled' : ''}`}>{credential.configured ? 'Configured' : 'Missing'}</span></div>
+      {credential.validation_status === 'validation_failed' && <p className="credential-warning">The last validation failed. Check the value and provider configuration.</p>}
+      <label className="form-field">{credential.configured ? 'Replacement value' : 'New value'}<input type="password" autoComplete="off" maxLength={8192} disabled={Boolean(busy) || !credential.managed} value={credentialDrafts[credential.name]} onChange={(event) => setCredentialDrafts((current) => ({ ...current, [credential.name]: event.target.value }))} /></label>
+      <div className="credential-actions"><button className="primary" disabled={Boolean(busy) || !credential.managed || !credentialDrafts[credential.name].trim()} onClick={() => void runCredentialAction(credential.name, 'replace')}>{replacing ? 'Saving…' : credential.configured ? 'Replace' : 'Save'}</button><button className="secondary" disabled={Boolean(busy) || !credential.configured} onClick={() => void runCredentialAction(credential.name, 'test')}>{testing ? 'Testing…' : 'Test'}</button><button className="danger" disabled={Boolean(busy) || !credential.managed || !credential.configured} onClick={() => void runCredentialAction(credential.name, 'remove')}>{removing ? 'Removing…' : 'Remove'}</button></div>
     </article>
+  }
+  return <div className="settings-layout">
+    <FeedbackToast error={error} notice={notice} onDismiss={() => { setError(''); setNotice('') }} />
+    <Accordion id="twitch-settings" title="Server configuration" description="Configure Twitch identity, authorization and server credentials. Session control remains in Dashboard." className="settings-page">
+      {!setup ? <><p className="muted">Loading server setup…</p>{error && <button className="secondary" onClick={() => setRetry((current) => current + 1)}>Retry setup status</button>}</> : <div className="settings-list twitch-settings-list">
+        <section className="twitch-settings-group"><h3>Twitch application and bot</h3><p className="settings-hint">First run: 1. Save the identity and target channel. 2. Add the Twitch Client Secret below. 3. Connect Twitch and confirm the intended app and bot account. 4. Optionally add a Gemini API key. Register the exact redirect URL below in the Twitch Developer Console.</p><div className="twitch-field-pair">
+          <label className="form-field">Client ID<input value={twitchDraft.clientId} maxLength={128} onChange={(event) => updateDraft('clientId', event.target.value)} /></label>
+          <label className="form-field">Bot username<input value={twitchDraft.botUsername} maxLength={25} onChange={(event) => updateDraft('botUsername', event.target.value)} /></label>
+          <label className="form-field">Bot user ID<input inputMode="numeric" value={twitchDraft.botUserId} maxLength={20} onChange={(event) => updateDraft('botUserId', event.target.value)} /></label>
+          <label className="form-field">Target channel<input value={twitchDraft.channel} maxLength={25} onChange={(event) => updateDraft('channel', event.target.value)} /></label>
+          <label className="form-field">Channel user ID<input inputMode="numeric" value={twitchDraft.channelUserId} maxLength={20} onChange={(event) => updateDraft('channelUserId', event.target.value)} /></label>
+        </div><div className="oauth-callback"><span>Exact OAuth callback to register:</span><code>{setup.twitch.oauth_callback_url || 'http://localhost:4343/oauth/callback'}</code></div><button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch()}>{busy === 'twitch:save' ? 'Saving…' : 'Save Twitch settings'}</button></section>
+        <section className="twitch-settings-group"><h3>Authorization and status</h3><div className="twitch-status-grid"><div><span>Setup</span><strong>{setup.twitch.setup_complete ? 'Complete' : 'Needs setup'}</strong></div><div><span>Authorization</span><strong>{setup.twitch.authorization_status === 'verified' ? 'Verified' : setup.twitch.authorization_status === 'not_verified' ? 'Not verified' : setup.twitch.authorization_status === 'validation_failed' ? 'Validation failed' : 'Missing'}</strong></div><div><span>Authorized account</span><strong>{setup.twitch.authorized_account || 'Not authorized'}</strong></div><div><span>Target channel</span><strong>{setup.twitch.target_channel || 'Not configured'}</strong></div></div><p className="settings-hint">Authorization works while the bot is stopped or Disabled. Saving identity settings stops the current session; the selected operation mode controls what happens next.</p><button className="primary" disabled={Boolean(busy) || !setup.twitch.client_id} onClick={() => void beginAuthorization()}>{busy === 'oauth:begin' ? 'Opening…' : 'Connect Twitch'}</button>{authorizationExpires !== null && <>{authorizationUrl && <a className="secondary" href={authorizationUrl} target="_blank" rel="noopener noreferrer">Open Twitch authorization</a>}<p className="settings-hint">This attempt expires in about {Math.ceil(authorizationExpires / 60)} minutes and a new attempt replaces it. Twitch will redirect to the local callback without a listener; copy the URL from that error page.</p><label className="form-field">Callback URL<input type="password" autoComplete="off" maxLength={16384} value={callbackUrl} onChange={(event) => setCallbackUrl(event.target.value)} placeholder="Paste the complete redirected URL" /></label><div className="credential-actions"><button className="primary" disabled={Boolean(busy) || !callbackUrl.trim()} onClick={() => void completeAuthorization()}>{busy === 'oauth:complete' ? 'Checking…' : 'Complete authorization'}</button><button className="secondary" disabled={Boolean(busy)} onClick={() => void cancelAuthorization()}>{busy === 'oauth:cancel' ? 'Cancelling…' : 'Cancel'}</button></div></>}</section>
+        <section className="twitch-settings-group"><h3>Server credentials</h3><p className="settings-hint">Gemini is optional. Values are sent only for the requested action, never returned by setup status, and are cleared from this page after every attempt. External environment and secret-file credentials cannot be replaced or removed here.</p><div className="credential-list">{setup.credentials.map(renderCredential)}</div></section>
+      </div>}
+    </Accordion>
     <ConfigurationTransfer />
-  </section>
+  </div>
 }
 
 function DesktopSettings({ active, status, onReturnToAI }: SettingsPageProps) {
