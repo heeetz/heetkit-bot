@@ -15,7 +15,7 @@ from app.credentials import CredentialError, CredentialName
 from app.runtime_paths import RuntimePaths
 from app.server_credentials import ServerCredentialManager, ServerCredentialStore
 from app.twitch.client import (
-    CHAT_SCOPES, OAUTH_REDIRECT_URI, OAUTH_STATE_TTL_SECONDS, TwitchChatBot,
+    CHAT_SCOPES, OAUTH_STATE_TTL_SECONDS, TwitchChatBot,
     headless_twitch_diagnostics, validate_bot_authorization,
 )
 
@@ -27,7 +27,7 @@ def credential_manager(settings) -> ServerCredentialManager:
 
 
 class ServerSetup:
-    def __init__(self, runtime, policy, store, credentials=None, *, redirect_uri=OAUTH_REDIRECT_URI,
+    def __init__(self, runtime, policy, store, credentials=None, *, redirect_uri,
                  owner_active=lambda owner: True) -> None:
         self.runtime, self.policy, self.store = runtime, policy, store
         self.credentials = credentials or credential_manager(runtime.application.settings)
@@ -198,10 +198,8 @@ class ServerSetup:
         return {"ok": True, "url": url, "expires_in": int(OAUTH_STATE_TTL_SECONDS)}
 
     async def callback(self, query_string):
-        """Only the fixed remote route may complete without a bearer. State and
+        """Only the fixed management route may complete without a bearer. State and
         the still-authorized initiating owner grant this one transaction only."""
-        if self.redirect_uri == OAUTH_REDIRECT_URI:
-            raise CredentialError("Remote callback is not configured.")
         self._expire()
         if self.pending is None:
             raise CredentialError("No pending Twitch authorization.")
@@ -213,7 +211,7 @@ class ServerSetup:
         if pending is None or pending[0] != owner:
             raise CredentialError("No authorization attempt for this session. Select Connect Twitch again.")
         if not isinstance(callback_url, str) or not 1 <= len(callback_url) <= 16384:
-            raise CredentialError("Paste the complete localhost callback URL from Twitch.")
+            raise CredentialError("Use the complete callback URL from Twitch.")
         url = urlsplit(callback_url)
         query = parse_qs(url.query, keep_blank_values=True, max_num_fields=10)
         if (callback_url.split("?", 1)[0] != self.redirect_uri

@@ -683,6 +683,27 @@ def test_remote_proxy_configuration_has_no_implicit_trust():
         trusted_proxies=("::1",)).authorities == {"server.example-tailnet.ts.net:8443"}
 
 
+@pytest.mark.parametrize("options,redirect,enabled", [
+    ({}, "http://localhost:8765/oauth/callback", True),
+    ({"port": 9765}, "http://localhost:9765/oauth/callback", True),
+    ({"host": "::1"}, "http://localhost:8765/oauth/callback", True),
+    ({"host": "0.0.0.0", "allowed_host": "127.0.0.1:9765"}, "http://localhost:9765/oauth/callback", True),
+    ({"host": "127.0.0.2"}, "http://localhost:8765/oauth/callback", False),
+    ({"host": "0.0.0.0", "allowed_host": "127.0.0.2:9765"}, "http://localhost:9765/oauth/callback", False),
+    ({"host": "192.168.1.2"}, "http://localhost:8765/oauth/callback", False),
+    ({"trusted_origin": REMOTE_ORIGIN, "trusted_proxies": ("127.0.0.1",)}, "http://localhost:8765/oauth/callback", False),
+    ({"trusted_origin": REMOTE_ORIGIN, "trusted_proxies": ("127.0.0.1",),
+      "twitch_redirect_uri": REMOTE_ORIGIN + "/oauth/callback"}, REMOTE_ORIGIN + "/oauth/callback", True),
+])
+def test_server_callback_configuration_uses_management_port(options, redirect, enabled):
+    config = ManagementConfig(TOKEN, **options)
+    assert config.oauth_redirect_uri == redirect
+    assert config.oauth_callback_enabled is enabled
+    # Callback aliases never expand the management/API Host allowlist.
+    if config.allowed_host:
+        assert config.authorities == {config.allowed_host}
+
+
 async def test_forwarding_is_rejected_outside_explicit_proxy_mode(api):
     _, call = api
     for header, value in (("Forwarded", "proto=https"), ("X-Forwarded-Host", "evil.test"),

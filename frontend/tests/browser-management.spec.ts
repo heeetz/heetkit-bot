@@ -46,7 +46,7 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
   const status = { running: true, twitch_connected: true, twitch_connection_state: 'connected' as const, uptime_seconds: 10, channel: 'synthetic_channel', account: 'synthetic_bot', ...statusOverrides, operation }
   const ai = () => ({ enabled, available: true, memory_enabled: false, active_personality: 'neutral', available_personalities: ['neutral'], model: 'test-model' })
   const aiProvider = { provider: 'Gemini', selected_model: 'test-model', fallback_model: 'test-fallback', presets: [], credential: null }
-  const twitch: Record<string, unknown> = { client_id: 'synthetic-client', bot_username: 'synthetic_bot', bot_user_id: '100', target_channel: 'synthetic_channel', target_channel_user_id: '200', active_channel: 'synthetic_channel', requires_restart: false, requires_reconnect: false, oauth_token_available: true, oauth_callback_url: 'http://localhost:4343/oauth/callback', authorization_status: 'verified', authorized_account: 'synthetic_bot', setup_complete: true }
+  const twitch: Record<string, unknown> = { client_id: 'synthetic-client', bot_username: 'synthetic_bot', bot_user_id: '100', target_channel: 'synthetic_channel', target_channel_user_id: '200', active_channel: 'synthetic_channel', requires_restart: false, requires_reconnect: false, oauth_token_available: true, oauth_callback_url: 'http://localhost:8765/oauth/callback', authorization_status: 'verified', authorized_account: 'synthetic_bot', setup_complete: true }
   const credentials = [{ name: 'twitch_client_secret', label: 'Twitch client secret', configured: true, source: 'environment', managed: false, validation_status: 'not_tested', secure_storage_available: false }, { name: 'gemini_api_key', label: 'Gemini API key', configured: false, source: 'missing', managed: true, validation_status: 'not_tested', secure_storage_available: false }]
   await page.route('**/v1/**', async (route) => {
     const request = route.request()
@@ -296,13 +296,13 @@ test('server settings edit Twitch identity, manage credentials and complete or c
   await expect.poll(() => api.calls.find((call) => call.path === '/v1/twitch/authorization/begin')?.body).toEqual({})
   await expect(page.getByRole('link', { name: 'Open Twitch authorization' })).toHaveAttribute('href', 'https://id.twitch.tv/oauth2/authorize?client_id=synthetic')
   await expect(page.getByRole('link', { name: 'Open Twitch authorization' })).toHaveAttribute('rel', 'noopener noreferrer')
-  await page.getByLabel('Callback URL').fill('http://localhost:4343/oauth/callback?code=synthetic&state=synthetic')
+  await page.getByLabel('Callback URL').fill('http://localhost:8765/oauth/callback?code=synthetic&state=synthetic')
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect.poll(() => api.calls.find((call) => call.path === '/v1/twitch/authorization/cancel')?.body).toEqual({})
   await expect(page.getByLabel('Callback URL')).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Connect Twitch', exact: true }).click()
-  await page.getByLabel('Callback URL').fill('http://localhost:4343/oauth/callback?error=access_denied&state=synthetic')
+  await page.getByLabel('Callback URL').fill('http://localhost:8765/oauth/callback?error=access_denied&state=synthetic')
   api.setOAuthComplete({ ok: false, error: 'Twitch authorization was denied. Try again.' })
   await page.getByRole('button', { name: 'Complete authorization', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('Twitch authorization was denied')
@@ -393,31 +393,33 @@ test('desktop startup waits for delayed pywebviewready without selecting browser
 })
 
 
-test('remote HTTPS setup displays fixed URLs and polls only the signed-in attempt', async ({ page }) => {
-  const api = await server(page)
-  api.setTwitch({ management_url: 'https://server.example-tailnet.ts.net',
-    oauth_callback_url: 'https://server.example-tailnet.ts.net/oauth/callback',
-    authorization_mode: 'redirect', authorization_attempt: 'pending' })
-  await page.goto('/tests/browser.fixture.html')
-  await login(page)
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await expect(page.locator('code').filter({ hasText: 'https://server.example-tailnet.ts.net/oauth/callback' })).toBeVisible()
-  await page.getByRole('button', { name: 'Connect Twitch', exact: true }).click()
-  await expect(page.getByRole('status')).toContainText('Return to this signed-in tab')
-  await expect(page.getByLabel('Callback URL')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Complete authorization', exact: true })).toHaveCount(0)
-  api.setTwitch({ authorization_attempt: 'completed' })
-  await expect(page.getByRole('status')).toContainText('Twitch authorization completed')
-  await expect(page.getByRole('link', { name: 'Open Twitch authorization' })).toHaveCount(0)
-  expect(api.calls.some((call) => call.path === '/v1/twitch/authorization/complete')).toBe(false)
-  expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0])
+for (const origin of ['http://localhost:8765', 'https://server.example-tailnet.ts.net']) {
+  test(`callback setup at ${origin} displays fixed URLs and polls only the signed-in attempt`, async ({ page }) => {
+    const api = await server(page)
+    api.setTwitch({ management_url: origin,
+      oauth_callback_url: `${origin}/oauth/callback`,
+      authorization_mode: 'redirect', authorization_attempt: 'pending' })
+    await page.goto('/tests/browser.fixture.html')
+    await login(page)
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await expect(page.locator('code').filter({ hasText: `${origin}/oauth/callback` })).toBeVisible()
+    await page.getByRole('button', { name: 'Connect Twitch', exact: true }).click()
+    await expect(page.getByRole('status')).toContainText('Return to this signed-in tab')
+    await expect(page.getByLabel('Callback URL')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Complete authorization', exact: true })).toHaveCount(0)
+    api.setTwitch({ authorization_attempt: 'completed' })
+    await expect(page.getByRole('status')).toContainText('Twitch authorization completed')
+    await expect(page.getByRole('link', { name: 'Open Twitch authorization' })).toHaveCount(0)
+    expect(api.calls.some((call) => call.path === '/v1/twitch/authorization/complete')).toBe(false)
+    expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0])
 
-  api.setTwitch({ authorization_attempt: 'pending' })
-  await page.getByRole('button', { name: 'Connect Twitch', exact: true }).click()
-  api.setTwitch({ authorization_attempt: 'failed' })
-  await expect(page.getByRole('alert')).toContainText('registered redirect, expected bot account')
-  api.setTwitch({ authorization_attempt: 'pending' })
-  await page.getByRole('button', { name: 'Connect Twitch', exact: true }).click()
-  api.setTwitch({ authorization_attempt: 'expired' })
-  await expect(page.getByRole('alert')).toContainText('Authorization expired')
-})
+    api.setTwitch({ authorization_attempt: 'pending' })
+    await page.getByRole('button', { name: 'Connect Twitch', exact: true }).click()
+    api.setTwitch({ authorization_attempt: 'failed' })
+    await expect(page.getByRole('alert')).toContainText('registered redirect, expected bot account')
+    api.setTwitch({ authorization_attempt: 'pending' })
+    await page.getByRole('button', { name: 'Connect Twitch', exact: true }).click()
+    api.setTwitch({ authorization_attempt: 'expired' })
+    await expect(page.getByRole('alert')).toContainText('Authorization expired')
+  })
+}

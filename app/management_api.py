@@ -101,6 +101,22 @@ class ManagementConfig:
         authority = f"[{self.host}]:{self.port}" if ":" in self.host else f"{self.host}:{self.port}"
         return {authority, f"localhost:{self.port}"} if ipaddress.ip_address(self.host).is_loopback else {authority}
 
+    @property
+    def oauth_redirect_uri(self) -> str:
+        # Twitch supports HTTP localhost redirects. Use the published management
+        # port, never Desktop's listener or a request/forwarding header.
+        port = self.allowed_host.rsplit(":", 1)[1] if self.allowed_host else self.port
+        return self.twitch_redirect_uri or f"http://localhost:{port}/oauth/callback"
+
+    @property
+    def oauth_callback_enabled(self) -> bool:
+        if self.trusted_origin:
+            return self.twitch_redirect_uri is not None
+        address = self.allowed_host.rsplit(":", 1)[0].strip("[]") if self.allowed_host else self.host
+        # Other loopbacks/private addresses cannot be reached via localhost.
+        # Keep authenticated paste completion for those installations.
+        return address in ("127.0.0.1", "::1")
+
     def accepts_proxy(self, request: web.BaseRequest) -> bool:
         forwarded = {name.lower() for name in request.headers
                      if name.lower() == "forwarded" or name.lower().startswith("x-forwarded-")}
@@ -220,7 +236,7 @@ class ManagementAPI:
         self.service = ApplicationManagement(runtime.application, store, log_buffer)
         self.policy = policy or OperationPolicy(runtime, store)
         self.setup = ServerSetup(runtime, self.policy, store, credentials,
-            redirect_uri=config.twitch_redirect_uri or "http://localhost:4343/oauth/callback",
+            redirect_uri=config.oauth_redirect_uri,
             owner_active=self.owner_active)
         self._owns_policy = policy is None
         self.lock = asyncio.Lock()
@@ -352,8 +368,11 @@ class ManagementAPI:
         if len(self.requests) >= 120 or self.active >= 16:
             return reject(429, "Management request limit reached.")
         self.requests.append(now)
+        oauth_navigation = (self.config.oauth_callback_enabled
+            and request.path in ("/oauth/callback", "/oauth/result")
+            and request.headers.get("Host") == urlsplit(self.config.oauth_redirect_uri).netloc)
         if (len(request.headers.getall("Host", [])) != 1 or
-                request.headers.get("Host") not in self.config.authorities):
+                (request.headers.get("Host") not in self.config.authorities and not oauth_navigation)):
             return reject(403, "Untrusted Host.")
         if not self.config.accepts_proxy(request):
             return reject(403, "Untrusted proxy headers or peer; check the configured HTTPS proxy boundary.")
@@ -364,10 +383,9 @@ class ManagementAPI:
             origin_host = host.rsplit(":", 1)[0].strip("[]")
             if origin_host == "localhost" or ipaddress.ip_address(origin_host).is_loopback:
                 allowed_origins.add("http://" + host)
-        callback = request.path == "/oauth/callback" and self.config.twitch_redirect_uri is not None
+        callback = oauth_navigation and request.path == "/oauth/callback"
         # Fetch Metadata can remain cross-site through Twitch's entire redirect
         # chain. Its final fixed, inert result page must allow that navigation too.
-        oauth_navigation = callback or (request.path == "/oauth/result" and self.config.twitch_redirect_uri is not None)
         # Unrelated local services can set cookies on this host across ports.
         # Ignore them: only the explicit bearer below can grant authority.
         if (len(origins) > 1 or (origins and origins[0] not in allowed_origins)
@@ -382,7 +400,7 @@ class ManagementAPI:
         if not request.path.startswith("/v1/"):
             if request.method != "GET" or request.content_length not in (None, 0):
                 return reject(405, "Assets require GET without a body.")
-            if request.path == "/oauth/result" and self.config.twitch_redirect_uri:
+            if request.path == "/oauth/result" and oauth_navigation:
                 response = self.response(200, {})
                 response.text = "Twitch authorization attempt finished. Close this tab and return to the signed-in Settings tab for the result. If it is still waiting, check callback reachability, registered redirect and proxy settings, then try again."
                 response.content_type = "text/plain"
@@ -599,7 +617,7 @@ class ManagementAPI:
                 "presets": [], "selected_preset_id": None, "active_preset_id": None,
                 "oauth_callback_url": self.setup.redirect_uri, "has_local_override": False,
                 "management_url": self.config.trusted_origin or "http://" + sorted(self.config.authorities)[0],
-                "authorization_mode": "redirect" if self.config.twitch_redirect_uri else "paste",
+                "authorization_mode": "redirect" if self.config.oauth_callback_enabled else "paste",
                 "authorization_attempt": self.setup.attempt_status(owner),
                 "authorization_status": authorization,
                 "authorized_account": settings.twitch_bot_username if connected else self.setup.authorized_account,

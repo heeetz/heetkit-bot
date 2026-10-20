@@ -167,7 +167,7 @@ function ServerSettings({ active }: { active: boolean }) {
     window.open(url.toString(), '_blank', 'noopener,noreferrer')
     setAuthorizationExpires(result.expires_in ?? 300)
     setNotice(setup?.twitch.authorization_mode === 'redirect'
-      ? 'Approve the configured bot account on Twitch within five minutes. Return to this signed-in tab to see the result. If Twitch cannot reach the callback, check Tailscale access, the exact registered redirect and proxy configuration.'
+      ? 'Approve the configured bot account on Twitch within five minutes. Return to this signed-in tab to see the result. If the callback is unreachable, check the displayed address and port; for remote HTTPS also check Tailscale and proxy access.'
       : 'Twitch authorization is ready. If no tab opened, use Open Twitch authorization below. After the local callback error page appears, copy its full URL here within 5 minutes.')
   })
   const completeAuthorization = () => {
@@ -215,7 +215,7 @@ function ServerSettings({ active }: { active: boolean }) {
           <label className="form-field">Bot user ID<input inputMode="numeric" value={twitchDraft.botUserId} maxLength={20} onChange={(event) => updateDraft('botUserId', event.target.value)} /></label>
           <label className="form-field">Target channel<input value={twitchDraft.channel} maxLength={25} onChange={(event) => updateDraft('channel', event.target.value)} /></label>
           <label className="form-field">Channel user ID<input inputMode="numeric" value={twitchDraft.channelUserId} maxLength={20} onChange={(event) => updateDraft('channelUserId', event.target.value)} /></label>
-        </div>{setup.twitch.management_url && <div className="oauth-callback"><span>Configured management URL:</span><code>{setup.twitch.management_url}</code></div>}<div className="oauth-callback"><span>Exact OAuth callback to register:</span><code>{setup.twitch.oauth_callback_url || 'http://localhost:4343/oauth/callback'}</code></div><button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch()}>{busy === 'twitch:save' ? 'Saving…' : 'Save Twitch settings'}</button></section>
+        </div>{setup.twitch.management_url && <div className="oauth-callback"><span>Configured management URL:</span><code>{setup.twitch.management_url}</code></div>}<div className="oauth-callback"><span>Exact OAuth callback to register:</span><code>{setup.twitch.oauth_callback_url || 'Unavailable'}</code></div><button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch()}>{busy === 'twitch:save' ? 'Saving…' : 'Save Twitch settings'}</button></section>
         <section className="twitch-settings-group">
           <h3>Authorization and status</h3>
           <div className="twitch-status-grid">
@@ -228,7 +228,7 @@ function ServerSettings({ active }: { active: boolean }) {
           <button className="primary" disabled={Boolean(busy) || !setup.twitch.client_id} onClick={() => void beginAuthorization()}>{busy === 'oauth:begin' ? 'Opening…' : 'Connect Twitch'}</button>
           {authorizationExpires !== null && <>
             {authorizationUrl && <a className="secondary" href={authorizationUrl} target="_blank" rel="noopener noreferrer">Open Twitch authorization</a>}
-            <p className="settings-hint">This attempt expires in about {Math.ceil(authorizationExpires / 60)} minutes and a new attempt replaces it. {setup.twitch.authorization_mode === 'redirect' ? 'Twitch returns to the configured HTTPS callback. Keep this signed-in tab open for the result. The bot continues independently after setup.' : 'Twitch will redirect to the local callback without a listener; copy the URL from that error page.'}</p>
+            <p className="settings-hint">This attempt expires in about {Math.ceil(authorizationExpires / 60)} minutes and a new attempt replaces it. {setup.twitch.authorization_mode === 'redirect' ? 'Twitch returns to the configured callback. Keep this signed-in tab open for the result. The bot continues independently after setup.' : 'Twitch will redirect to the local callback without a listener; copy the URL from that error page.'}</p>
             {setup.twitch.authorization_mode !== 'redirect' && <label className="form-field">Callback URL<input type="password" autoComplete="off" maxLength={16384} value={callbackUrl} onChange={(event) => setCallbackUrl(event.target.value)} placeholder="Paste the complete redirected URL" /></label>}
             <div className="credential-actions">
               {setup.twitch.authorization_mode !== 'redirect' && <button className="primary" disabled={Boolean(busy) || !callbackUrl.trim()} onClick={() => void completeAuthorization()}>{busy === 'oauth:complete' ? 'Checking…' : 'Complete authorization'}</button>}

@@ -56,6 +56,36 @@ publish it to the internet. HTTP carries the bearer token in each request: use a
 SSH tunnel or a protected private network when accessing another machine. This
 feature does not provision TLS, tunnels, proxies, cloud resources or firewall rules.
 
+## Local Twitch callback
+
+Local Server authorization returns to `http://localhost:8765/oauth/callback` by
+default, on the existing management listener. Register that **exact URL** in the
+Twitch Developer Console and start a new Connect Twitch attempt after changing it.
+Use the callback displayed in Settings when the management/published port differs.
+Twitch's [Authorization Code Grant](https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/#authorization-code-grant-flow)
+supports localhost HTTP callbacks; the registered URL, authorization request and
+server-side code exchange must match, including port and path. Keep Desktop's
+`http://localhost:4343/oauth/callback` registration if you also use Desktop.
+Server no longer sends authorization to that Desktop listener.
+
+With the default Docker management overlay, Twitch redirects the browser to the
+already published loopback port; no second listener or port publication is needed.
+Keep the initiating Settings tab signed in. The callback validates its pending state,
+exchanges the code and persists verified authorization on the server, then redirects
+to an inert `/oauth/result` page. Settings reports success/failure automatically.
+Only these two routes accept the exact `localhost:published-port` callback authority
+when the management Host is an explicit `127.0.0.1:published-port`; this does not
+add localhost to the API's Host allowlist. Existing Host/Origin/proxy checks remain.
+
+Automatic localhost callbacks apply to `127.0.0.1` or `::1` access, including an SSH
+tunnel on the displayed port. An alternate loopback such as `127.0.0.2` does not
+necessarily receive localhost traffic. Those configurations retain authenticated
+paste completion using the displayed localhost callback **on the management port**:
+copy the full error-page URL into the initiating Settings tab within five minutes.
+Keep other HeetKit instances on that callback port stopped. For automatic completion,
+use the default loopback binding or configure private remote HTTPS below. Never
+publish port 4343 or a public listener to repair a Server callback.
+
 ## Private remote HTTPS
 
 The preferred Linux server reference uses host-side **Tailscale Serve**, providing
@@ -137,9 +167,10 @@ can validate configuration syntax, but cannot verify your Twitch registration or
 external reachability without a real browser/provider test.
 
 For SSH fallback use the local management overlay and the tunnel below. Its
-default localhost callback requires the authenticated paste procedure; an SSH
-tunnel for port 8765 does not forward desktop callback port 4343 or turn localhost
-into the configured remote HTTPS name. To retain automatic HTTPS callbacks the
+default localhost callback uses the same forwarded management port and completes
+automatically; alternate loopbacks retain the paste procedure described above.
+The tunnel does not turn localhost into the configured remote HTTPS name.
+To retain automatic HTTPS callbacks the
 browser must still reach the exact registered HTTPS origin through a correctly
 configured trusted proxy. Choose one access configuration and restart to change it.
 Closing the management browser or leaving Tailscale does not disconnect chat.
@@ -299,7 +330,7 @@ POST writes persist and apply immediately unless stated otherwise.
 | POST `credentials/replace` | `name` (`twitch_client_secret` or `gemini_api_key`), `value`; browser-managed credentials only |
 | POST `credentials/remove`, `credentials/test` | `name`; remove the browser value / check the effective value against its provider |
 | POST `twitch/authorization/begin` | `{}`; checks application credentials, stops the old session and returns Twitch's `url`, `expires_in` (300 seconds) |
-| POST `twitch/authorization/complete` | `callback_url`; authenticated paste completion for this session and the fixed configured redirect, returning no tokens; HTTPS mode normally completes through GET `/oauth/callback` |
+| POST `twitch/authorization/complete` | `callback_url`; authenticated paste completion for this session and the fixed configured redirect, returning no tokens; default local and configured HTTPS modes complete through GET `/oauth/callback` |
 | POST `twitch/authorization/cancel` | `{}`; cancels this session's pending attempt |
 | GET `status` | Running, Twitch connection state, session uptime, account/channel and `operation` policy/monitor status |
 | POST `configuration/export` | `{}`; returns `filename` and ZIP `archive_base64` |

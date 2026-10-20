@@ -7,6 +7,9 @@ HTTP listener, OAuth callback listener or published ports. An explicit
 That overlay defaults to `127.0.0.1:8765`; its documented
 `HEETKIT_MANAGEMENT_LOOPBACK` option changes the published loopback and accepted
 Host together, with `127.0.0.1` as the fallback when alternate loopbacks are unsupported.
+The default local [Twitch callback](management-api.md#local-twitch-callback) uses
+`http://localhost:8765/oauth/callback` on that same published management port;
+register it exactly in Twitch. Do not publish Desktop's callback port 4343.
 For a Linux VM, the separate [private HTTPS reference](management-api.md#private-remote-https)
 uses `compose.remote.yaml` with host-side Tailscale Serve and a loopback-only backend.
 It supports remote browser Twitch authorization without Desktop; do not combine

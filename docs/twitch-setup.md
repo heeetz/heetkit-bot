@@ -11,7 +11,9 @@ Server configuration**. Setup works in every operation mode, including Disabled.
 
 1. Register a Confidential Twitch application using the account/registration guidance
    below. Register the **exact callback URL shown in Settings**. Local/SSH setup
-   defaults to `http://localhost:4343/oauth/callback`; a server configured for
+   defaults to `http://localhost:8765/oauth/callback` on the management port;
+   use Settings' displayed port if changed. Keep Desktop's separate 4343 callback
+   registered if you also use Desktop. A server configured for
    [private remote HTTPS](management-api.md#private-remote-https) uses its explicitly
    configured `https://your-server-hostname/oauth/callback` instead. Twitch's
    [Authorization Code Grant](https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/#authorization-code-grant-flow)
@@ -23,11 +25,13 @@ Server configuration**. Setup works in every operation mode, including Disabled.
 3. Select **Connect Twitch** (use **Open Twitch authorization** if the browser blocks
    the new tab). Check the application and expected bot account on
    Twitch before approving, keeping the original Settings tab signed in. With a
-   configured HTTPS callback, remain connected to the tailnet: Twitch returns to
+   default local callback, Twitch returns through the same management port.
+   With a configured HTTPS callback, remain connected to the tailnet. Twitch returns to
    the server and Settings reports completion automatically. The result tab contains
-   no credentials and can be closed. For local/SSH paste setup, Twitch redirects to
-   localhost on your browsing computer with no server listener there. Close Desktop
-   first, copy the full URL from the resulting error page into **Callback URL** in
+   no credentials and can be closed. Alternate loopback/private access uses the
+   [paste fallback](management-api.md#local-twitch-callback): localhost on your browsing
+   computer may not reach the server. Stop other instances using that callback port,
+   copy the full URL from the resulting error page into **Callback URL** in
    Settings, and complete within five minutes. Never share that one-use code URL.
 4. Check **Authorized account** and **Target channel**. HeetKit verifies application,
    bot identity, target identity and the existing required chat/follower scopes before
@@ -45,8 +49,9 @@ portable ZIPs. See [storage and recovery](docker.md#backup-restore-and-updates).
 Only the initiating session can inspect its pending/completed attempt. Another
 session cannot replace it until cancellation or expiry; sign-out/session eviction
 invalidates it. Denial or failed exchange consumes it and requires a new attempt.
-For an inaccessible callback check the exact registered redirect, tailnet connection,
-HTTPS proxy and host listener; for a completed but failed attempt check expected
+For an inaccessible callback check the exact registered redirect, published/tunneled
+management port and host listener; for remote HTTPS also check the tailnet connection
+and proxy. For a completed but failed attempt check expected
 account, required permissions, application secret and provider reachability.
 Neither tab closure nor management-network loss stops an already authorized bot.
 Existing authorized-profile transfer is an optional advanced path: keep credentials,
