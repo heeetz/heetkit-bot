@@ -56,6 +56,7 @@ const destinations = [
   ] },
   { section: 'Settings', children: [
     ['Twitch connection', 'twitch-settings'], ['Gemini API key', 'credential-settings'],
+    ['Configuration transfer', 'configuration-transfer'],
     ['Desktop behavior', 'desktop-settings'], ['Data & diagnostics', 'profile-location-settings'],
   ] },
 ]
