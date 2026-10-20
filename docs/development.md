@@ -131,6 +131,16 @@ opt-out IDs. Recovery originals, migration markers and mutable config remain pri
 profile data. See [profiles, retention and deletion](data-and-privacy.md) and
 [Docker storage, secrets and recovery](docker.md) for operational procedures.
 
+[`ConfigurationTransfer`](../app/configuration_transfer.py) coordinates the existing
+stores for portable ZIP export/preview/import on the owning core loop. It holds the
+command namespace and store locks, validates the complete replacement namespace,
+backs up/stages fixed profile files, then publishes to those same live store objects.
+It does not create another bot or configuration authority. Both transports expose
+the same fixed operations; the [portable transfer guide](data-and-privacy.md#portable-configuration-transfer)
+owns supported fields, exclusions, limits and recovery. Focused coverage lives in
+[`test_configuration_transfer.py`](../tests/test_configuration_transfer.py), the
+management API integration tests and frontend configuration-transfer tests.
+
 ### Twitch connection ownership
 
 [`TwitchChatBot`](../app/twitch/client.py) adapts TwitchIO authorization, chat

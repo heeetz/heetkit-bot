@@ -89,6 +89,7 @@ BRIDGE_TWITCH_RECONNECT_TIMEOUT_SECONDS = 30.0
 
 # Register functions by exact name; never give pywebview an object to traverse.
 FRONTEND_OPERATIONS = (
+    "export_configuration", "preview_configuration_import", "apply_configuration_import",
     "get_app_status", "get_about_info", "check_for_updates", "get_commands", "get_custom_commands",
     "get_filters", "get_ai_status", "get_personalities", "get_recent_logs",
     "start_ai_playground", "get_ai_playground_result", "cancel_ai_playground",
@@ -354,6 +355,7 @@ class WebUIBridge(ApplicationManagement):
         self._credential_manager = credential_manager
         self._twitch_secret_requires_restart = False
         self._profile_root = RuntimePaths.default().root.resolve()
+        self._window: Any | None = None
         # Owned exclusively by the backend loop; one ephemeral local request.
         self._playground_request_id: str | None = None
         self._playground_task: asyncio.Task[dict[str, object]] | None = None
@@ -394,6 +396,55 @@ class WebUIBridge(ApplicationManagement):
                 cancellation_requested,
             )
             raise BridgeOperationTimedOut(operation) from error
+
+    def _configuration_bridge_action(self, action: str, *arguments) -> dict[str, object]:
+        try:
+            return self._wait_for_backend(
+                self._configuration_action(action, *arguments),
+                operation="configuration transfer", timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
+            )
+        except (OSError, RuntimeError, BridgeOperationTimedOut):
+            return {"ok": False, "error": "Configuration transfer failed. Inspect current settings and private backups before retrying."}
+
+    def export_configuration(self) -> dict[str, object]:
+        # pywebview deliberately disables browser downloads. Use a native Save
+        # dialog for this explicit action instead of enabling arbitrary downloads.
+        import base64
+        import webview
+        from app.configuration_transfer import ConfigurationTransfer
+
+        result = self._configuration_bridge_action("export")
+        if not result.get("ok"):
+            return result
+        if self._window is None:
+            return {"ok": False, "error": "The desktop Save dialog is unavailable."}
+        temporary = None
+        try:
+            selected = self._window.create_file_dialog(
+                webview.FileDialog.SAVE, save_filename=result["filename"],
+                file_types=("Configuration ZIP (*.zip)",),
+            )
+            if not selected:
+                return {"ok": True, "cancelled": True}
+            path = Path(selected[0])
+            if not path.is_absolute() or path.suffix.lower() != ".zip":
+                return {"ok": False, "error": "Select a filename ending in .zip in the Save dialog."}
+            temporary = ConfigurationTransfer.stage(path, base64.b64decode(result["archive_base64"], validate=True))
+            os.replace(temporary, path)
+            return {"ok": True, "saved": True}
+        except Exception:
+            return {"ok": False, "error": "Could not save the configuration ZIP. Check the selected destination and try again."}
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+    def preview_configuration_import(self, archive_base64: object) -> dict[str, object]:
+        return self._configuration_bridge_action("preview", archive_base64)
+
+    def apply_configuration_import(
+        self, archive_base64: object, preview_token: object, confirmed: object,
+    ) -> dict[str, object]:
+        return self._configuration_bridge_action("apply", archive_base64, preview_token, confirmed)
 
     def _observe_late_backend_result(
         self,
@@ -1492,6 +1543,7 @@ def run_desktop_host(
         )
         if window is None:
             raise RuntimeError("Could not create the desktop window.")
+        bridge._window = window
         expose_frontend_operations(window, bridge)
         if sys.platform == "win32":
             window.events.shown += configure_windows_taskbar

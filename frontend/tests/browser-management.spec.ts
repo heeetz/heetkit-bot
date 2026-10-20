@@ -116,6 +116,14 @@ test('browser route payloads use explicit server fields and request failures sta
   expect(api.calls.at(-1)?.body).toEqual({ personality: 'old', name: 'new' })
   await invoke(page, 'update_ai_provider_settings', ['primary', 'fallback'])
   expect(api.calls.at(-1)?.body).toEqual({ selected_model: 'primary', fallback_model: 'fallback' })
+  await invoke(page, 'export_configuration')
+  expect(api.calls.at(-1)).toMatchObject({ path: '/v1/configuration/export', body: {} })
+  await invoke(page, 'preview_configuration_import', ['cG9ydGFibGU='])
+  expect(api.calls.at(-1)).toMatchObject({ path: '/v1/configuration/preview', body: { archive_base64: 'cG9ydGFibGU=' } })
+  await invoke(page, 'apply_configuration_import', ['cG9ydGFibGU=', 'preview-token', true])
+  expect(api.calls.at(-1)).toMatchObject({ path: '/v1/configuration/import', body: {
+    archive_base64: 'cG9ydGFibGU=', preview_token: 'preview-token', confirmed: true,
+  } })
   await page.evaluate(() => {
     Object.assign(window, { openedLinks: [] })
     window.open = (...args) => { Reflect.get(window, 'openedLinks').push(args); return null }
@@ -164,6 +172,7 @@ for (const width of [1280, 390]) {
     await expect.poll(() => api.calls.find((call) => call.path === '/v1/ai/instructions/save')?.body).toEqual({ prompt: 'Saved browser instructions' })
     await page.getByRole('button', { name: 'Add Gemini key', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Server configuration' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Configuration transfer' })).toBeVisible()
     await expect(page.getByRole('button', { name: /Open profile folder|Replace|Save &/ })).toHaveCount(0)
     await page.getByRole('button', { name: 'About', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Check for updates', exact: true })).toHaveCount(0)

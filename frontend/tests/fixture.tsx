@@ -90,7 +90,8 @@ let playgroundId = 0
 let playgroundCancelled = false
 let playgroundStartedAt = 0
 const updateCalls: unknown[][] = []
-Object.assign(window, { opened, aiCalls, updateCalls, playgroundCalls, playgroundSettings })
+const configurationTransferCalls: unknown[][] = []
+Object.assign(window, { opened, aiCalls, updateCalls, playgroundCalls, playgroundSettings, configurationTransferCalls })
 const toggleCommands: CommandInfo[] = ['ask', 'ping'].map((name) => ({
   name, enabled: name === 'ask' ? aiStatus.enabled : true,
   permission: 'USER', cooldown: { per_user_seconds: 3, global_seconds: 15 },
@@ -200,6 +201,41 @@ window.pywebview = { api: {
   open_profile_folder: async () => {
     opened.push('profile_folder')
     return query.has('folderOpenError') ? { ok: false, error: 'Could not open the profile folder in the system file manager.' } : { ok: true }
+  },
+  export_configuration: async () => {
+    configurationTransferCalls.push(['export'])
+    if (query.has('configurationExportDelay')) await new Promise((resolve) => window.setTimeout(resolve, 350))
+    if (query.has('configurationExportError')) return { ok: false, error: 'Synthetic export failure.' }
+    if (query.has('configurationExportSaved')) return { ok: true, saved: true }
+    if (query.has('configurationExportCancelled')) return { ok: true, cancelled: true }
+    return {
+      ok: true,
+      filename: query.has('configurationUnsafeFilename') ? '../unsafe.zip' : 'heetkit-config-1.2.3.zip',
+      archive_base64: window.btoa('synthetic portable configuration'),
+    }
+  },
+  preview_configuration_import: async (archiveBase64: string) => {
+    configurationTransferCalls.push(['preview', archiveBase64])
+    if (query.has('configurationPreviewDelay')) await new Promise((resolve) => window.setTimeout(resolve, 350))
+    if (query.has('configurationPreviewError')) return { ok: false, error: 'Synthetic preview failure.' }
+    return {
+      ok: true,
+      preview_token: 'synthetic-preview-token',
+      application_version: '1.2.3',
+      format_version: 1,
+      sections: [
+        { name: 'Custom commands', incoming_count: 3, current_count: 1, details: ['hello', 'quote', '<script>plain text</script>'] },
+        { name: 'Personalities', incoming_count: 2, current_count: 4, details: ['neutral', 'chaotic'] },
+      ],
+      effects: ['Active command and AI settings will be applied immediately.'],
+      preserved: ['Twitch identity, authorization, secrets and private databases.'],
+    }
+  },
+  apply_configuration_import: async (archiveBase64: string, previewToken: string, confirmed: boolean) => {
+    configurationTransferCalls.push(['apply', archiveBase64, previewToken, confirmed])
+    if (query.has('configurationImportError')) return { ok: false, error: 'Synthetic import failure.' }
+    sessionStorage.setItem('configurationImportApplied', String(Number(sessionStorage.getItem('configurationImportApplied') ?? '0') + 1))
+    return { ok: true, effects: ['Applied active settings.'] }
   },
   get_twitch_settings: async () => query.has('setupError')
     ? { ok: false, error: 'Synthetic Twitch setup load failure.' }

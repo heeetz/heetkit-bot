@@ -51,6 +51,31 @@ class ApplicationManagement:
         self._log_buffer = log_buffer
         self._logger = get_logger("app.management")
 
+    async def _configuration_action(self, action: str, *arguments) -> dict[str, object]:
+        from app.configuration_transfer import ConfigurationTransfer
+
+        if self._app_settings is None:
+            return {"ok": False, "error": "Profile settings are unavailable."}
+        if not hasattr(self, "_configuration_transfer"):
+            self._configuration_transfer = ConfigurationTransfer(self._backend.application, self._app_settings)
+        try:
+            return getattr(self._configuration_transfer, action)(*arguments)
+        except (ValueError, TypeError, UnicodeError, RecursionError, OverflowError):
+            return {"ok": False, "error": "Configuration rejected. Check ZIP format, limits and values; preview again if settings changed or ten minutes elapsed."}
+        except OSError:
+            return {"ok": False, "error": "Configuration storage failed. Inspect the private profile and config/import-backups before retrying; restore affected files while stopped if rollback could not finish."}
+
+    async def export_configuration(self) -> dict[str, object]:
+        return await self._configuration_action("export")
+
+    async def preview_configuration_import(self, archive_base64: object) -> dict[str, object]:
+        return await self._configuration_action("preview", archive_base64)
+
+    async def apply_configuration_import(
+        self, archive_base64: object, preview_token: object, confirmed: object,
+    ) -> dict[str, object]:
+        return await self._configuration_action("apply", archive_base64, preview_token, confirmed)
+
     async def _save_ai_memory_enabled(self, enabled: bool) -> None:
         """Persist and apply AI memory as one backend-loop transaction."""
         if self._app_settings is not None:

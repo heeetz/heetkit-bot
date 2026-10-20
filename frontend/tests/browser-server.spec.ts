@@ -63,6 +63,31 @@ for (const host of ['127.0.0.1', '127.0.0.2']) {
       await page.getByRole('button', { name: 'Filters', exact: true }).click()
       await page.locator('#filters-words .accordion-trigger').click()
       await expect(page.locator('#filters-words textarea')).toHaveValue('real browser saved rule')
+
+      await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      const transfer = page.getByRole('region', { name: 'Configuration transfer' })
+      const downloadPromise = page.waitForEvent('download')
+      await transfer.getByRole('button', { name: 'Export configuration', exact: true }).click()
+      const download = await downloadPromise
+      const downloadPath = await download.path()
+      expect(downloadPath).not.toBeNull()
+      const exportedArchive = await readFile(downloadPath!)
+      expect(exportedArchive.byteLength).toBeGreaterThan(0)
+      await transfer.locator('input[type="file"]').setInputFiles({
+        name: download.suggestedFilename(), mimeType: 'application/zip', buffer: exportedArchive,
+      })
+      await expect(transfer.getByRole('heading', { name: 'Import preview' })).toBeVisible()
+      await expect(transfer).toContainText('filters')
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
+        transfer.getByRole('button', { name: 'Confirm import and reload', exact: true }).click(),
+      ])
+      await expect(page.getByRole('heading', { name: 'Sign in to server' })).toBeVisible()
+      await page.getByLabel('Administrator token').fill('synthetic_management_token_' + 'x'.repeat(32))
+      await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+      await page.getByRole('button', { name: 'Filters', exact: true }).click()
+      await page.locator('#filters-words .accordion-trigger').click()
+      await expect(page.locator('#filters-words textarea')).toHaveValue('real browser saved rule')
       expect(errors).toEqual([])
       await page.getByRole('button', { name: 'Sign out', exact: true }).click()
       await expect(page.getByRole('heading', { name: 'Sign in to server' })).toBeVisible()

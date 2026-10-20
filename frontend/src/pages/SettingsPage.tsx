@@ -15,6 +15,7 @@ import {
 import FeedbackToast from '../components/FeedbackToast'
 import Switch from '../components/Switch'
 import Accordion from '../components/Accordion'
+import ConfigurationTransfer from '../components/ConfigurationTransfer'
 import { Select } from '../components/Select'
 
 interface SettingsPageProps {
@@ -54,6 +55,7 @@ function ServerSettings({ active }: { active: boolean }) {
         {setup.credentials.map((credential) => <div key={credential.name}><dt>{credential.label}</dt><dd>{credential.configured ? `Configured (${credential.source})` : 'Not configured'}</dd></div>)}
       </dl>}
     </article>
+    <ConfigurationTransfer />
   </section>
 }
 
@@ -744,6 +746,8 @@ function DesktopSettings({ active, status, onReturnToAI }: SettingsPageProps) {
             onReturnToAI && <button className="secondary" onClick={onReturnToAI}>Return to AI Playground</button>)
         )}
       </Accordion>
+
+      <ConfigurationTransfer />
 
       <section className="card settings-page" id="desktop-settings">
         <div className="section-heading">

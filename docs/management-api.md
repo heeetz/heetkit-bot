@@ -94,6 +94,11 @@ authorization, secrets and privacy settings on the server, then restart as requi
 Native folders/tray actions, credential editors, desktop update checks and the local
 AI Playground are unavailable in browser mode. Ordinary project links remain available.
 
+Settings also supports [portable configuration export/import](data-and-privacy.md#portable-configuration-transfer)
+using the same ZIP as Desktop, with upload, preview and explicit confirmation.
+Imported configuration applies live; secrets, authorization, history and deployment
+settings remain local to the destination.
+
 Browser status/AI share one snapshot every five seconds; logs refresh every five
 seconds only while open. Hidden tabs pause polling. Requests do not overlap within
 each polling loop. Errors identify unavailable servers or expired sessions; a 401
@@ -192,6 +197,9 @@ POST writes persist and apply immediately unless stated otherwise.
 | GET `snapshot` | Combined `status` and `ai_status` for browser polling |
 | GET `setup`, `about` | Effective non-secret setup status / shared application metadata |
 | GET `status` | Running, Twitch connection state, session uptime, account and channel |
+| POST `configuration/export` | `{}`; returns `filename` and ZIP `archive_base64` |
+| POST `configuration/preview` | `archive_base64`; validates ZIP and returns a ten-minute `preview_token`, source `application_version`, `format_version`, replacement `sections` with counts/details, `effects` and `preserved` settings |
+| POST `configuration/import` | The same `archive_base64`, `preview_token` and `confirmed: true`; saves/applies only after revalidation against the preview and unchanged destination |
 | POST `bot/start`, `bot/stop` | `{}`; returns whether the session changed |
 | GET `commands` | Built-ins, effective/default settings, aliases, permissions, cooldowns and response pools |
 | POST `commands/save` | `command_name`, `enabled`, `per_user_seconds`, `global_seconds`, `permission`; optional `options` with `aliases`, `display_name`, `burst_interval_ms`, `burst_max_count` |
@@ -260,7 +268,18 @@ folder operation or raw provider exception is returned. Logs expose only fixed
 lifecycle messages, timestamps, levels and IDs; private chat and raw log text are
 excluded. All responses disable caching.
 
-Limits are 64 KiB per JSON request, 2 MiB per response, 16 active requests,
+Limits are 64 KiB per JSON request, except configuration preview/import allow
+1,399,128 bytes for a base64-encoded ZIP of at most 1 MiB and its fixed arguments.
+Configuration export retains the 2 MiB response limit. Format version 1 requires
+exactly `manifest.json` and `configuration.json`, with a validated byte size/SHA-256
+manifest record, source application version and supported configuration schema;
+the hash detects corruption, not source authenticity. Schema/collection validation
+uses the destination's existing registry and validators, so incompatible versions
+are rejected rather than partially imported. Previews are one-use, expire after ten
+minutes, and at most eight are retained per process. Uploads and previews are held
+in memory, with no arbitrary extraction or caller-selected server paths.
+
+Other limits are 2 MiB per response, 16 active requests,
 120 requests per minute per instance (including failed authentication), 32 open
 connections, bounded HTTP header fields/count, five seconds to read a body,
 25 seconds per operation including queue time, and a 35-second absolute connection

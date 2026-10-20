@@ -158,6 +158,40 @@ async def test_strict_bounded_json_and_no_partial_mutation(api):
         assert status == 400
         assert "private-sentinel" not in json.dumps(body)
     assert (await call("POST", "/v1/ai/enabled", data="{}"))[0] == 415
+
+
+@pytest.mark.asyncio
+async def test_configuration_transfer_authenticated_preview_confirm_and_live_apply(api):
+    from app.configuration_transfer import pack_configuration, unpack_configuration
+
+    server, call = api
+    for path in ("export", "preview", "import"):
+        for headers, expected in (({"Authorization": ""}, 401), ({"Origin": "http://evil.test"}, 403)):
+            assert (await call("POST", "/v1/configuration/" + path, json={}, headers=headers))[0] == expected
+    status, exported, headers = await call("POST", "/v1/configuration/export", json={})
+    assert status == 200 and headers["Cache-Control"] == "no-store"
+    payload, _, _ = unpack_configuration(exported["archive_base64"])
+    payload["ai"]["memory_enabled"] = False
+    # Exercise the transfer-specific body allowance with an ordinary stored ZIP
+    # larger than the API's normal 64 KiB JSON limit.
+    payload["personalities"]["profile_instructions"] = "Portable instructions. " * 2100
+    encoded = pack_configuration(payload)
+    assert len(encoded) > 65536
+    status, preview, _ = await call("POST", "/v1/configuration/preview", json={"archive_base64": encoded})
+    assert status == 200 and preview["sections"] and preview["preserved"]
+    assert server.runtime.application.services.runtime_state.ai_memory_enabled
+    arguments = {"archive_base64": encoded, "preview_token": preview["preview_token"], "confirmed": False}
+    assert (await call("POST", "/v1/configuration/import", json=arguments))[0] == 400
+    arguments["confirmed"] = True
+    assert (await call("POST", "/v1/configuration/import", json=arguments))[0] == 200
+    assert not server.runtime.application.services.runtime_state.ai_memory_enabled
+    assert server.runtime.application.services.runtime_state.profile_instructions.startswith("Portable instructions.")
+    assert (await call("POST", "/v1/configuration/import", json=arguments))[0] == 400
+    assert (await call("POST", "/v1/configuration/preview", json={"archive_base64": "private-sentinel"}))[0] == 400
+    # Normal mutations retain their original body limit; no arbitrary filenames,
+    # local paths, additional fields or download URLs enter the transport.
+    assert (await call("POST", "/v1/ai/memory", json={"padding": "x" * 66000}))[0] == 413
+    assert (await call("POST", "/v1/configuration/export", json={"path": "auth/tokens.json"}))[0] == 400
     assert (await call("POST", "/v1/ai/enabled", data=b"x" * 65537,
         headers={"Content-Type": "application/json"}))[0] == 413
     assert (await call("POST", "/v1/ai/enabled", json={}, headers={"Content-Encoding": "gzip"}))[0] == 400

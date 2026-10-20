@@ -22,6 +22,7 @@ from aiohttp import web
 
 from app.app_settings import AppSettingsStore
 from app.bot_runtime import BotRuntime
+from app.configuration_transfer import MAX_TRANSFER_BODY
 from app.management import ApplicationManagement
 from app.runtime_paths import PACKAGED_FRONTEND, SOURCE_ROOT, RuntimePaths
 from app.utils.logging import RecentLogBuffer
@@ -105,6 +106,9 @@ READS = {
     "/v1/blocked-users": "get_blocked_ai_users",
 }
 WRITES = {
+    "/v1/configuration/export": "export_configuration",
+    "/v1/configuration/preview": "preview_configuration_import",
+    "/v1/configuration/import": "apply_configuration_import",
     "/v1/commands/apply": "apply_command_settings",
     "/v1/commands/reset-all": "reset_all_builtin_commands",
     "/v1/commands/save": "save_command_settings",
@@ -295,8 +299,10 @@ class ManagementAPI:
                     if request.content_type != "application/json":
                         return reject(415, "Use application/json.")
                     length = request.content_length
-                    if length is None or length < 2 or length > MAX_BODY:
-                        return reject(413, "JSON body must be 2-65536 bytes.")
+                    maximum = MAX_TRANSFER_BODY if request.path in (
+                        "/v1/configuration/preview", "/v1/configuration/import") else MAX_BODY
+                    if length is None or length < 2 or length > maximum:
+                        return reject(413, "JSON body exceeds this operation's size limit.")
                     async with asyncio.timeout(5):
                         raw = await request.content.readexactly(length)
                     payload = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object,

@@ -287,6 +287,53 @@ engineering assessment; instance-specific legal clearance remains open.
   the current truncated chat output and stored history have not been cleared
   against those restrictions. These unresolved checks can preclude public AI use.
 
+## Portable configuration transfer
+
+Use **Settings → Configuration transfer → Export Configuration** on Desktop or
+Server to save the same versioned ZIP (Desktop opens a native Save dialog; the
+browser downloads it). It contains the currently applied
+built-in command settings and response pools, custom commands, personality prompts
+and selection, profile instructions, AI memory/model/language preferences, filters,
+AI account blocks and message triggers. Applied session-only edits are included;
+unfinished editor drafts are not. Import saves these values on the destination.
+
+Select the ZIP in Settings on the other instance, review the included names/counts,
+replacement scope and preserved settings, then explicitly confirm the import.
+Each included collection replaces its destination collection, including deletions.
+The preview expires after ten minutes and must be repeated if the ZIP, active
+configuration or affected files change. A successful import refreshes the interface
+to discard old editor drafts. Subsequent bot processing uses the imported settings
+immediately; in-flight replies may finish using earlier values. None of the supported
+transfer settings requires reconnection or restart.
+
+Provider/API keys, OAuth tokens, management credentials, SQLite history and storage
+opt-outs, machine paths, Twitch identity/channel/presets, desktop startup/window
+preferences and operator cooldown-bypass policy are excluded and preserved on the
+destination. Set up authorization and secrets separately. Text you enter in prompts,
+commands or filters can still be private, and AI blocks include usernames/account
+IDs: review and protect the ZIP before sharing it. This is portable configuration,
+not a full private profile backup or an account migration.
+
+The ZIP is limited to 1 MiB and contains only `manifest.json` and
+`configuration.json` (at most 768 KiB). Unsupported schemas, unexpected files,
+duplicate names/keys, invalid values, linked entries, traversal paths, excessive
+compression and oversized content are rejected before changing configuration.
+Contents are read in memory; archive paths are never extracted into the profile.
+
+Import retains exact copies of affected configuration under
+`config/import-backups/configuration-<unique-id>/`, with a generated manifest recording
+relative destination paths and which files were previously absent. Existing recovery
+preflight still refuses malformed/unreadable/future-version local files. All replacement
+files are staged before writes, and live state publishes after successful replacement.
+On an ordinary write/publication failure, import attempts to restore original files
+and active settings, including prior session-only changes. A process/power failure
+between file replacements or a storage failure during rollback can require manual
+recovery: stop the application, preserve current files, and restore the affected files
+listed in the backup manifest (remove only those recorded as previously absent), then
+restart. Multi-file replacement is not a filesystem-wide crash-atomic transaction.
+Keep these private backups until satisfied with the import, then delete unwanted
+copies according to your retention/deletion policy; they are not automatically removed.
+
 ## Backups and settings recovery
 
 Stop every process using the profile before copying it. Desktop uses **tray Exit**

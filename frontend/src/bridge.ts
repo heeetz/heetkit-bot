@@ -217,6 +217,33 @@ export interface ProfileInfo {
   path: string
 }
 
+export interface ConfigurationExportResponse extends ActionResult {
+  filename?: string
+  archive_base64?: string
+  saved?: boolean
+  cancelled?: boolean
+}
+
+export interface ConfigurationImportSection {
+  name: string
+  incoming_count: number
+  current_count: number
+  details?: string[]
+}
+
+export interface ConfigurationImportPreviewResponse extends ActionResult {
+  preview_token?: string
+  application_version?: string
+  format_version?: number
+  sections?: ConfigurationImportSection[]
+  effects?: string[]
+  preserved?: string[]
+}
+
+export interface ConfigurationImportResponse extends ActionResult {
+  effects?: string[]
+}
+
 export interface TwitchConnectionSettings {
   target_channel: string
   target_channel_user_id: string
@@ -396,6 +423,9 @@ export interface PythonApi {
   get_app_settings(): Promise<AppSettingsResponse>
   get_profile_info(): Promise<ProfileInfo>
   open_profile_folder(): Promise<ActionResult>
+  export_configuration(): Promise<ConfigurationExportResponse>
+  preview_configuration_import(archiveBase64: string): Promise<ConfigurationImportPreviewResponse>
+  apply_configuration_import(archiveBase64: string, previewToken: string, confirmed: boolean): Promise<ConfigurationImportResponse>
   update_app_settings(startMinimized: boolean, minimizeToTray: boolean, closeToTray: boolean, autoStartBot: boolean): Promise<ActionResult>
   get_twitch_settings(): Promise<TwitchSettingsResponse>
   update_twitch_settings(targetChannel: string, targetChannelUserId: string, selectedPresetId?: string | null, clientId?: string, botUsername?: string, botUserId?: string): Promise<ActionResult>

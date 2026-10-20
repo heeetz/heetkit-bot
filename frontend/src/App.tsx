@@ -56,6 +56,7 @@ const subsections: Partial<Record<Section, { label: string; targetId: string }[]
   Settings: [
     { label: 'Twitch connection', targetId: 'twitch-settings' },
     { label: 'Gemini API key', targetId: 'credential-settings' },
+    { label: 'Configuration transfer', targetId: 'configuration-transfer' },
     { label: 'Desktop behavior', targetId: 'desktop-settings' },
     { label: 'Data & diagnostics', targetId: 'profile-location-settings' },
   ],
