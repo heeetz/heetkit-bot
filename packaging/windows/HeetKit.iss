@@ -5,6 +5,9 @@
 #ifndef AppVersion
   #error AppVersion is required
 #endif
+#ifndef AppNumericVersion
+  #error AppNumericVersion is required
+#endif
 #ifndef BundleDir
   #error BundleDir is required
 #endif
@@ -16,7 +19,9 @@ AppVersion={#AppVersion}
 AppPublisher=heeetz
 AppPublisherURL=https://github.com/heeetz/twitch-bot
 AppSupportURL=https://github.com/heeetz/twitch-bot/issues
-VersionInfoVersion={#AppVersion}
+VersionInfoVersion={#AppNumericVersion}
+VersionInfoTextVersion={#AppVersion}
+VersionInfoProductTextVersion={#AppVersion}
 VersionInfoDescription=HeetKit Setup
 VersionInfoCompany=heeetz
 VersionInfoCopyright=Copyright (C) 2026 heeetz
@@ -197,7 +202,7 @@ begin
   Result := ValidateDirectory;
   if Result <> '' then exit;
   if GetPackedVersion(ExpandConstant('{app}\HeetKit.exe'), Installed) and
-     StrToVersion('{#AppVersion}', Candidate) and
+     StrToVersion('{#AppNumericVersion}', Candidate) and
      (ComparePackedVersion(Installed, Candidate) > 0) then
     Result := 'A newer HeetKit version is already installed. Downgrades are not supported. Your profile has not been changed.';
 end;

@@ -40,13 +40,47 @@ def portable(tmp_path, *, version="0.1.3", change=None, extra=None, link=False):
     return archive
 
 
-def test_exact_manifest_payload_roundtrip(tmp_path):
-    archive = portable(tmp_path)
+@pytest.mark.parametrize("version", ["0.1.3", "1.4.0-beta.1"])
+def test_exact_manifest_payload_roundtrip(tmp_path, version):
+    archive = portable(tmp_path, version=version)
     stage = tmp_path / "stage"
-    result = builder.stage_portable(archive, stage, "0.1.3")
-    assert result["version"] == "0.1.3"
+    result = builder.stage_portable(archive, stage, version)
+    assert result["version"] == version
     assert (stage / "HeetKit.exe").read_bytes() == b"synthetic executable"
     assert {p.name for p in stage.iterdir()} == {"HeetKit.exe", "HeetKit.exe.config", "BUILD-MANIFEST.json"}
+
+
+def test_beta_installer_compilation_uses_ordered_numeric_metadata(tmp_path, monkeypatch):
+    from app.version import windows_version
+
+    version = "1.4.0-beta.1"
+    archive = portable(tmp_path, version=version)
+    monkeypatch.setattr(builder, "ROOT", tmp_path)
+    monkeypatch.setattr(builder, "stage_portable", lambda *_: None)
+    notice = tmp_path / "third_party_licenses/inno-setup/LICENSE.txt"
+    notice.parent.mkdir(parents=True)
+    notice.write_text("synthetic license", encoding="utf-8")
+    commands = []
+
+    def run(command, **kwargs):
+        commands.append(command)
+        if "/Qp" in command:
+            output = tmp_path / f"dist/HeetKit-{version}-windows-x64-setup.exe"
+            output.parent.mkdir()
+            output.write_bytes(b"synthetic installer")
+        else:
+            bundle = Path(command[-1])
+            (bundle / "_internal").mkdir(parents=True)
+            for name in ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"):
+                (bundle / "_internal" / name).write_text("synthetic notice", encoding="utf-8")
+            (bundle / "BUILD-MANIFEST.json").write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(builder.subprocess, "run", run)
+    builder.build(archive, Path("ISCC.exe"), version)
+    assert f"/DAppVersion={version}" in commands[-1]
+    assert "/DAppNumericVersion=" + ".".join(map(str, windows_version(version))) in commands[-1]
+    trace = json.loads((tmp_path / f"dist/HeetKit-{version}-windows-x64-setup.exe.build.json").read_text())
+    assert trace["version"] == version
 
 
 def test_checksum_mismatch_stops_before_extraction(tmp_path):

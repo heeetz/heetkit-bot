@@ -74,6 +74,9 @@ def stage_portable(archive_path: Path, stage: Path, version: str) -> dict:
 
 
 def build(archive: Path, compiler: Path, version: str) -> None:
+    from app.version import windows_version
+
+    numeric_version = ".".join(str(part) for part in windows_version(version))
     output = ROOT / "dist" / f"HeetKit-{version}-windows-x64-setup.exe"
     if output.exists():
         raise ValueError(f"Installer already exists; move it aside before rebuilding: {output}")
@@ -91,7 +94,7 @@ def build(archive: Path, compiler: Path, version: str) -> None:
     notice_page = work / "LICENSE-NOTICES.txt"
     notice_page.write_text("\n\n".join(notices), encoding="utf-8-sig")
     subprocess.run([
-        str(compiler), "/Qp", f"/DAppVersion={version}", f"/DBundleDir={bundle}",
+        str(compiler), "/Qp", f"/DAppVersion={version}", f"/DAppNumericVersion={numeric_version}", f"/DBundleDir={bundle}",
         f"/DNoticePage={notice_page}", f"/DOutputDir={output.parent}",
         str(ROOT / "packaging/windows/HeetKit.iss"),
     ], check=True)

@@ -7,6 +7,8 @@ import re
 
 import httpx
 
+from app.version import windows_version
+
 
 RELEASE_PAGE_URL = "https://github.com/heeetz/heetkit-bot/releases/latest"
 LATEST_RELEASE_API_URL = "https://api.github.com/repos/heeetz/heetkit-bot/releases/latest"
@@ -50,9 +52,13 @@ def _release_info(payload: object, current_version: str) -> dict[str, object]:
     if published.tzinfo is None:
         raise UpdateCheckError(_INVALID_RESPONSE)
     latest_version = ".".join(str(part) for part in latest_parts)
+    try:
+        current_parts = windows_version(current_version)
+    except ValueError as error:
+        raise UpdateCheckError(_INVALID_RESPONSE) from error
     return {
         "latest_version": latest_version,
-        "update_available": latest_parts > _version_parts(current_version),
+        "update_available": (*latest_parts, 65535) > current_parts,
         "release_name": _summary(payload.get("name"), 120) or f"HeetKit {latest_version}",
         "release_notes": _summary(payload.get("body"), 600),
         "published_at": published_at,

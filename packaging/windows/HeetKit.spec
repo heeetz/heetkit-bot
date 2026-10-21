@@ -3,6 +3,7 @@ import os
 import shutil
 from pathlib import Path
 
+from app.version import is_prerelease, windows_version
 from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.win32.versioninfo import (
     FixedFileInfo, StringFileInfo, StringStruct, StringTable, VarFileInfo, VarStruct, VSVersionInfo,
@@ -11,14 +12,14 @@ from PyInstaller.utils.win32.versioninfo import (
 root = Path(SPECPATH).parents[1]
 stage = Path(os.environ["HEETKIT_BUILD_STAGE"])
 version = os.environ["HEETKIT_BUILD_VERSION"]
-version_tuple = tuple(int(part) for part in version.split(".")) + (0,)
+version_tuple = windows_version(version)
 data = [(str(path), str(path.parent.relative_to(stage))) for path in stage.rglob("*")
         if path.is_file() and "native-runtime" not in path.relative_to(stage).parts]
 runtime_binaries = [(str(path), ".") for path in (stage / "native-runtime").glob("*.dll")]
 data += collect_data_files("pythonnet", includes=["runtime/Python.Runtime.runtimeconfig.json", "runtime/Python.Runtime.deps.json"])
 
 metadata = VSVersionInfo(
-    ffi=FixedFileInfo(filevers=version_tuple, prodvers=version_tuple, mask=0x3f, flags=0, OS=0x40004, fileType=1, subtype=0, date=(0, 0)),
+    ffi=FixedFileInfo(filevers=version_tuple, prodvers=version_tuple, mask=0x3f, flags=2 if is_prerelease(version) else 0, OS=0x40004, fileType=1, subtype=0, date=(0, 0)),
     kids=[StringFileInfo([StringTable("040904B0", [StringStruct(key, value) for key, value in {
         "CompanyName": "heeetz", "FileDescription": "HeetKit — Desktop control center for Twitch chat",
         "FileVersion": version, "ProductName": "HeetKit", "ProductVersion": version,

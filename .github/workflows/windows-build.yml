@@ -134,17 +134,13 @@ jobs:
       - name: Read canonical application version and validate release tag
         id: version
         run: |
-          $version = python -c "from app.version import VERSION; print(VERSION)"
-          if ($LASTEXITCODE -ne 0) { throw 'Cannot read the canonical application version.' }
-          $prerelease = 'false'
+          $metadata = @(python -c "from app.version import VERSION, is_prerelease; print(VERSION); print(str(is_prerelease()).lower())")
+          if ($LASTEXITCODE -ne 0 -or $metadata.Count -ne 2) { throw 'Cannot validate the canonical application version.' }
+          $version, $prerelease = $metadata
           if ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF_TYPE -eq 'tag') {
             if ($env:GITHUB_REF_NAME -cne "v$version") {
               throw "Release tag '$env:GITHUB_REF_NAME' must match canonical version 'v$version'."
             }
-            if ($version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
-              throw 'Release versions must use major.minor.patch numeric format.'
-            }
-            $prerelease = ($version.Split('.')[0] -eq '0').ToString().ToLowerInvariant()
           }
           "version=$version" >> $env:GITHUB_OUTPUT
           "prerelease=$prerelease" >> $env:GITHUB_OUTPUT

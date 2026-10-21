@@ -23,6 +23,9 @@ def release(**overrides) -> dict:
     ("1.0.0", "v1.0.1", True), ("1.9.0", "v1.10.0", True),
     ("9.0.0", "v10.0.0", True), ("1.0.9", "1.0.10", True),
     ("2.0.0", "v1.99.99", False),
+    ("1.4.0-beta.1", "v1.3.0", False),
+    ("1.4.0-beta.1", "v1.4.0", True),
+    ("1.4.0-beta.1", "v1.4.1", True),
 ])
 async def test_numeric_stable_version_comparison_and_public_request(current, latest, newer) -> None:
     requests = []

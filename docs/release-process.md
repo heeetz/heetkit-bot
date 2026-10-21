@@ -15,9 +15,10 @@ public-release readiness.
 
 In **About → Updates**, choose **Check for updates** to compare the running version
 with the latest stable public release. The card shows the current and latest versions,
-the release title/date and a short preview of its notes. Only a greater numeric
+the release title/date and a short preview of its notes. Only a greater stable
 `major.minor.patch` version is offered as an update; an equal or older stable release
-does not prompt a downgrade. Drafts and prereleases are excluded.
+does not prompt a downgrade. A running beta can discover its final stable version.
+Drafts and prereleases are excluded from update results.
 
 The check uses GitHub's public API without signing in. If offline, temporarily limited
 by GitHub, or unable to read a valid release response, the card reports the problem
@@ -36,7 +37,17 @@ retained; see the upgrade and retention guidance below.
 `app/version.py` is the canonical application version source. Runtime/About, Python
 metadata, executable metadata and artifact names consume it. Do not maintain a separate
 release version. Tagged builds fail before publication if the tag differs from
-`v<version>` or the version does not use numeric `major.minor.patch` format.
+`v<version>` or the version is invalid. Versions use `major.minor.patch`, optionally
+followed by `-alpha.N`, `-beta.N` or `-rc.N`, for example `1.4.0-beta.1`.
+Core components must fit Windows' 16-bit fields (0–65535); prerelease numbers are
+1–9999, without leading zeros. Build metadata and other suffixes are not supported.
+
+The full version remains visible in About, installer UI, tags, manifests and artifact
+names. `app/version.py` derives numeric Windows metadata for executable resources
+and installer downgrade checks: alpha revisions are 1–9999, beta 10001–19999,
+rc 20001–29999 and stable 65535. This orders later betas and the final stable release
+after earlier candidates of the same core version. Earlier stable builds used revision
+zero; their lower core versions still upgrade normally.
 
 The Windows builder requires Windows x64 CPython **3.14.7** and a Vite-compatible Node
 version (**20.19+**; CI uses **24.20.0**). Python/runtime/build dependencies are pinned in
@@ -158,8 +169,10 @@ Only those files are uploaded; the source archive tool is not part of this workf
    traceability, and publishes them with the matching curated notes from that exact
    tagged checkout. Missing or mismatched notes stop publication. It does not rebuild.
 
-Versions below `1.0.0`, such as `v0.1.3`, publish as pre-releases; normal versions
-`v1.0.0` and later publish as stable releases. Only the publication job receives
+Versions below `1.0.0`, such as `v0.1.3`, and all explicit alpha/beta/rc versions
+publish as pre-releases with `--prerelease --latest=false`. They do not replace the
+latest stable release. Unsuffixed versions `v1.0.0` and later publish as stable releases.
+Only the publication job receives
 `contents: write` through `GITHUB_TOKEN`; the build remains read-only. A `main` push
 or manual build never publishes a release, even if the manual run selects a tag.
 Failed builds, artifact checks or tag/version validation prevent publication.
