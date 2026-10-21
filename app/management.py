@@ -166,6 +166,7 @@ class ApplicationManagement:
     def get_commands(self) -> dict[str, object]:
         application = self._backend.application
         runtime_state = application.services.runtime_state
+        server = getattr(runtime_state, "server_runtime", False)
         commands = []
         for definition in application.registry.definitions():
             settings = runtime_state.get_command_settings(definition.name)
@@ -184,7 +185,7 @@ class ApplicationManagement:
                     "identity_editable": definition.identity_editable,
                     "help_text": definition.help_text or f"!{definition.name}",
                     "enabled": settings.enabled,
-                    **({"stream_availability": settings.stream_availability} if runtime_state.server_runtime else {}),
+                    **({"stream_availability": settings.stream_availability} if server else {}),
                     "available": unavailable_reason is None,
                     "unavailable_reason": unavailable_reason,
                     "response_pool": fun_settings.snapshot(definition.name)
@@ -195,7 +196,7 @@ class ApplicationManagement:
                         "global_seconds": settings.cooldown.global_seconds,
                     },
                     "hidden": definition.hidden,
-                    "default_settings": self._serialize_command_settings(defaults, include_stream=runtime_state.server_runtime),
+                    "default_settings": self._serialize_command_settings(defaults, include_stream=server),
                     "saved": runtime_state.command_settings_are_saved(definition.name),
                     "has_saved_override": runtime_state.has_saved_command_override(
                         definition.name
