@@ -215,11 +215,11 @@ async def test_trigger_dispatch_skips_commands_and_bot_and_reuses_cooldown_and_o
     monkeypatch.setattr("app.commands.registry.random.random", lambda: 0)
     monkeypatch.setattr("app.commands.registry.random.choice", lambda choices: choices[0])
 
-    def message(content, user="viewer-id"):
-        return IncomingChatMessage("channel", content, ChatAuthor(user, user), respond)
+    def message(content, user="viewer-id", outgoing=False):
+        return IncomingChatMessage("channel", content, ChatAuthor(user, user), respond, outgoing)
 
     assert not await dispatcher.dispatch(message("!unknown вась"), services)
-    assert not await dispatcher.dispatch(message("вась", "bot-id"), services)
+    assert not await dispatcher.dispatch(message("вась", "bot-id", outgoing=True), services)
     assert await dispatcher.dispatch(message("ВАСЬ"), services)
     assert responses == ["first"]
     now[0] = 6

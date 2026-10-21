@@ -1,8 +1,10 @@
 # HeetKit
 
-### AI personalities and interactive Twitch chat from your desktop
+### AI personalities and interactive Twitch chat on Desktop or Server
 
-HeetKit is a configurable desktop Twitch bot focused on entertainment and interactive chat.
+HeetKit is a configurable Twitch bot focused on entertainment and interactive chat.
+Use **Windows Desktop** for a local window and tray controls, or **HeetKit Server**
+on Linux/Docker with private browser management.
 
 Its main feature is a customizable Gemini-powered AI responder: create personalities, add profile-wide instructions, choose models, optionally keep conversation memory, and shape how the bot talks in your chat.
 
@@ -29,6 +31,9 @@ HeetKit also includes custom commands, useful chat utilities, permissions, coold
 - **Configurable chat and AI filters** with a local tester for active rules and unsaved drafts
 - **Desktop control panel** with live logs and tray controls
 - **Local profiles** with separate settings and data
+- **HeetKit Server** with native AMD64/ARM64 containers, private browser setup,
+  saved channels and persistent operation modes
+- **Configuration transfer** between Desktop and Server, excluding secrets and history
 
 Gemini is optional. Normal Twitch commands work without an AI API key.
 
@@ -46,6 +51,9 @@ You can also browse all available builds on the
 **[Releases page](https://github.com/heeetz/heetkit-bot/releases)**.
 
 Windows 10/11 x64 is the primary supported platform.
+HeetKit Server runs from source through the [Linux Docker guide](docs/docker.md);
+manage it privately through Tailscale or an SSH tunnel.
+See the [v1.4.1 changes](docs/releases/v1.4.1.md).
 
 ---
 
@@ -74,6 +82,7 @@ For HeetKit's current Twitch connection model, the bot account should have moder
 - [Data, profiles and privacy](docs/data-and-privacy.md)
 - [Development and building from source](docs/development.md)
 - [Linux Docker usage](docs/docker.md)
+- [Private Server management](docs/management-api.md)
 - [Release process](docs/release-process.md)
 
 For bugs and feature requests, use

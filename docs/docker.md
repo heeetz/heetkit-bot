@@ -116,6 +116,8 @@ The named volume `heetkit_profile` mounts at `/var/lib/heetkit`; all profile fil
 OAuth rotations and SQLite state stay there across stop/start, image rebuilds and
 `docker compose up -d --force-recreate`. `docker compose down` keeps the volume;
 **`down --volumes` deletes it**. Avoid changing the project/volume name by accident.
+Saved Server channel presets live in this same profile. Preset Save/Update and
+selection do not switch the active channel; use the explicit Switch action in Settings.
 Bind mounts are also possible with an override, but must already be writable by
 UID/GID 10001 and private on the host. Do not share the profile among replicas.
 

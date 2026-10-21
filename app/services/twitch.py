@@ -8,6 +8,7 @@ from typing import Any
 from twitchio import Client
 from app.config.settings import Settings
 from app.ai_user_blocks import verified_user_id
+from app.twitch.message_correlation import ChatMessageCorrelation
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,8 @@ class TwitchAPIService:
         self._cached_category: str | None = None
         self._category_cached_at: float | None = None
         self._monitor_client: Client | None = None
+        # Application-owned: preserve echo/replay protection across session binds.
+        self.chat_messages = ChatMessageCorrelation()
 
     async def get_broadcaster_live(self, settings: Settings) -> bool:
         """Get Streams using TwitchIO's app authentication, even without chat.

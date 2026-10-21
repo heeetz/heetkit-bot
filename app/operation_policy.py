@@ -158,12 +158,12 @@ class OperationPolicy:
         if twitch is not None:
             await twitch.close_stream_monitor()
 
-    def resume_after_setup(self) -> None:
+    def resume_after_setup(self, *, manual_running=False) -> None:
         self._setup_suspended = False
         self._revision += 1
         self.error = None
         self.stream_status = "unknown"
-        self.desired_running = self.mode == "always_on"
+        self.desired_running = self.mode == "always_on" or (self.mode == "manual" and manual_running)
         self._monitor_wake.set()
         self._schedule()
 

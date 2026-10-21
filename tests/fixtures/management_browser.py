@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from app.bot_runtime import BotRuntime
 from app.app_settings import AppSettingsStore
 from app.config.settings import Settings
+from app.config.profile_settings import apply_twitch_app_settings
 from app.container import build_application
 from app.management_api import ManagementAPI, ManagementConfig
 from app.runtime_paths import RuntimePaths, prepare_runtime_data
@@ -34,7 +35,7 @@ async def main():
     store = AppSettingsStore(paths.app_settings)
     if not paths.app_settings.exists():
         store.update_operation_mode("manual")
-    application = build_application(value)
+    application = build_application(apply_twitch_app_settings(value, store.snapshot()))
     async def no_network(*args, **kwargs):
         raise AssertionError("External network is forbidden in browser tests")
     application.http_client.send = no_network

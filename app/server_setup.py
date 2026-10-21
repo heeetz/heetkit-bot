@@ -75,7 +75,33 @@ class ServerSetup:
         self.pending = None
         self.authorization_status, self.authorized_account = "missing", None
 
-    async def save_twitch(self, *, client_id, bot_username, bot_user_id, channel, channel_user_id):
+    def save_preset(self, *, preset_id, display_name, channel, channel_user_id):
+        try:
+            validate_twitch_identity("preset", channel.strip().removeprefix("#"), channel_user_id)
+            _, preset = self.store.save_twitch_preset(preset_id=preset_id, display_name=display_name,
+                channel=channel, channel_user_id=channel_user_id, update_target=False)
+        except (ValueError, AttributeError) as error:
+            raise CredentialError(str(error) if isinstance(error, ValueError) else "Invalid target channel.") from None
+        return {"ok": True, "preset_id": preset.id}
+
+    def delete_preset(self, *, preset_id):
+        try:
+            self.store.delete_twitch_preset(preset_id)
+        except ValueError as error:
+            raise CredentialError(str(error)) from None
+        return {"ok": True}
+
+    async def switch_preset(self, *, preset_id):
+        preset = next((item for item in self.store.snapshot().twitch.presets if item.id == preset_id), None)
+        if preset is None:
+            raise CredentialError("Unknown saved channel.")
+        return await self.save_twitch(client_id=self.settings.twitch_client_id,
+            bot_username=self.settings.twitch_bot_username, bot_user_id=self.settings.twitch_bot_user_id,
+            channel=preset.channel, channel_user_id=preset.channel_user_id, resume_manual=True,
+            selected_preset_id=preset.id)
+
+    async def save_twitch(self, *, client_id, bot_username, bot_user_id, channel, channel_user_id,
+                          resume_manual=False, selected_preset_id=None):
         try:
             client_id, bot_username, bot_user_id = validate_twitch_identity(client_id, bot_username, bot_user_id)
             target = validate_twitch_settings(channel, channel_user_id)
@@ -91,6 +117,7 @@ class ServerSetup:
             return {"ok": True, "changed": False}
         identity_changed = any(getattr(self.settings, name) != values[name]
             for name in ("twitch_client_id", "twitch_bot_username", "twitch_bot_user_id"))
+        manual_running = bool(resume_manual and not identity_changed and self.policy.desired_running)
         await self.policy.suspend_for_setup()
         try:
             if identity_changed:
@@ -100,12 +127,13 @@ class ServerSetup:
                 self.pending = None  # Target changes also cancel an in-flight attempt.
                 self.authorization_status = "not_verified"
             self.store.update_twitch(client_id=client_id, bot_username=bot_username,
-                bot_user_id=bot_user_id, channel=target.channel, channel_user_id=target.channel_user_id)
+                bot_user_id=bot_user_id, channel=target.channel, channel_user_id=target.channel_user_id,
+                selected_preset_id=selected_preset_id)
             for name, value in values.items():
                 setattr(self.settings, name, value)
             self.credentials.validation[CredentialName.TWITCH_CLIENT_SECRET] = "not_tested"
         finally:
-            self.policy.resume_after_setup()
+            self.policy.resume_after_setup(manual_running=manual_running)
         return {"ok": True, "changed": True, "requires_reconnect": True}
 
     async def change_credential(self, name, value=None, *, remove=False):

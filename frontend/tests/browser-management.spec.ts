@@ -245,6 +245,26 @@ for (const width of [1280, 900, 390, 320]) {
     await page.getByRole('button', { name: 'Commands', exact: true }).click()
     const command = page.locator('.command-card').first()
     await command.getByRole('button', { name: 'Edit !ping', exact: true }).click()
+    const enabled = command.locator('.command-enabled-toggle')
+    const settings = command.locator('.command-fields > label')
+    await expect(settings).toHaveCount(4)
+    await expect(settings).toHaveText([/Permission/, /Stream availability/, /Per-user cooldown/, /Global cooldown/])
+    const enabledBounds = (await enabled.boundingBox())!
+    const settingsBounds = await Promise.all(Array.from({ length: 4 }, (_, index) => settings.nth(index).boundingBox()))
+    expect(enabledBounds.y + enabledBounds.height).toBeLessThanOrEqual(settingsBounds[0]!.y)
+    if (width > 760) {
+      expect(settingsBounds[0]!.y).toBeCloseTo(settingsBounds[1]!.y, 0)
+      expect(settingsBounds[2]!.y).toBeCloseTo(settingsBounds[3]!.y, 0)
+      expect(settingsBounds[2]!.y).toBeGreaterThan(settingsBounds[0]!.y)
+      expect(settingsBounds[0]!.x).toBeCloseTo(settingsBounds[2]!.x, 0)
+      expect(settingsBounds[1]!.x).toBeCloseTo(settingsBounds[3]!.x, 0)
+      for (const bounds of settingsBounds.slice(1)) expect(bounds!.width).toBeCloseTo(settingsBounds[0]!.width, 0)
+    } else {
+      for (let index = 1; index < settingsBounds.length; index++) {
+        expect(settingsBounds[index]!.y).toBeGreaterThan(settingsBounds[index - 1]!.y)
+        expect(settingsBounds[index]!.width).toBeCloseTo(settingsBounds[0]!.width, 0)
+      }
+    }
     const availability = command.getByLabel('Stream availability', { exact: true })
     await expect(availability).toHaveAttribute('data-value', 'live_only')
     await availability.focus()
@@ -333,6 +353,7 @@ test('server settings edit Twitch identity, manage credentials and complete or c
   await page.getByLabel('Bot account user ID').fill('101')
   await page.getByLabel('Target channel login').fill('new-channel')
   await page.getByLabel('Target channel user ID').fill('201')
+  page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: 'Save Twitch settings', exact: true }).click()
   await expect.poll(() => api.calls.find((call) => call.path === '/v1/twitch/settings')?.body).toEqual({
     client_id: 'new-client', bot_username: 'new-bot', bot_user_id: '101', channel: 'new-channel', channel_user_id: '201',

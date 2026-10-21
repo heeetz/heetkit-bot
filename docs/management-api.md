@@ -243,9 +243,13 @@ Commands, response pools, custom commands, filters/tester, personalities, instru
 AI enablement/memory/language/models, blocked users, Dashboard and safe lifecycle logs
 reuse the existing pages and server operations. Apply retains the existing session-only
 meaning; Save persists and applies. Bot stop/start keeps the panel available.
-Settings supports [first-run Twitch setup](twitch-setup.md#server-browser-setup),
-channel changes and credential creation, replacement, testing and removal. It shows
+Settings supports [first-run Twitch setup and saved channel presets](twitch-setup.md#server-browser-setup),
+explicit channel switching and credential creation, replacement, testing and removal. It shows
 presence/source and last validation status, never stored values. Gemini is optional.
+Saving, renaming, selecting or deleting a preset does not change the bot target or
+connection. Switch applies a stored target through controlled session shutdown,
+preserving credentials, authorization and mode. An already-running Manual session
+resumes; a stopped one stays stopped. Automatic modes reconcile the new target.
 Native folders/tray actions, desktop update checks and the local
 AI Playground are unavailable in browser mode. Ordinary project links remain available.
 
@@ -353,6 +357,9 @@ POST writes persist and apply immediately unless stated otherwise.
 
 | Method and path | JSON arguments / result |
 |---|---|
+| POST `twitch/presets/save` | `preset_id` (`null` creates), `display_name`, `channel`, `channel_user_id`; stores a unique named target without applying it |
+| POST `twitch/presets/delete` | `preset_id`; deletes the preset without changing target or connectivity |
+| POST `twitch/presets/switch` | `preset_id`; explicitly applies the stored target through controlled shutdown and mode reconciliation, retaining bot credentials and OAuth |
 | POST `session` | `{}` with administrator bearer only; returns `token`, `expires_in` (3600 seconds) |
 | GET `session` / POST `session/logout` | Check current session / revoke it with `{}` |
 | GET `snapshot` | Combined `status` and `ai_status` for browser polling |

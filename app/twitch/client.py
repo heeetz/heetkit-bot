@@ -27,6 +27,7 @@ from app.runtime_state import TwitchConnectionState
 from app.services.facade import ApplicationServices
 from app.services.ai_request_policy import PolicyDecision
 from app.twitch.events import ChatAuthor, IncomingChatMessage
+from app.twitch.message_correlation import ChatMessageCorrelation
 from app.utils.text import parse_command
 from app.utils.logging import privacy_log_scope
 
@@ -38,7 +39,6 @@ class TwitchConnectionError(RuntimeError):
 OAUTH_REDIRECT_URI = "http://localhost:4343/oauth/callback"
 CHAT_SCOPES = Scopes(["user:read:chat", "user:write:chat", "user:bot", "moderator:read:followers"])
 OAUTH_STATE_TTL_SECONDS = 300.0
-CHAT_MESSAGE_DEDUP_LIMIT = 2048
 
 
 def validate_bot_authorization(token, settings: Settings) -> None:
@@ -115,7 +115,7 @@ class DesktopOAuthAdapter(AiohttpAdapter):
         await super().close(*args, **kwargs)
 
 
-def to_incoming_chat_message(message: ChatMessage) -> IncomingChatMessage:
+def to_incoming_chat_message(message: ChatMessage, respond=None) -> IncomingChatMessage:
     """Map a TwitchIO chat event to the transport-neutral command DTO."""
 
     return IncomingChatMessage(
@@ -129,7 +129,7 @@ def to_incoming_chat_message(message: ChatMessage) -> IncomingChatMessage:
             is_moderator=bool(message.chatter.moderator),
             is_broadcaster=bool(message.chatter.broadcaster),
         ),
-        respond=message.respond,
+        respond=respond or message.respond,
     )
 
 
@@ -138,18 +138,22 @@ async def process_twitch_message(
     services: ApplicationServices,
     dispatcher: CommandDispatcher,
     logger: logging.Logger,
+    correlation: ChatMessageCorrelation | None = None,
 ) -> None:
     """Persist the chatter and route a mapped Twitch event to the dispatcher."""
 
     try:
-        incoming = to_incoming_chat_message(message)
+        account = getattr(getattr(services, "settings", None), "twitch_bot_user_id", None)
+        channel = str(getattr(message.broadcaster, "id", message.broadcaster.name))
+        if correlation is not None and str(message.chatter.id) == account:
+            if await correlation.is_outgoing(account, channel,
+                    (getattr(message, "id", None), getattr(message, "source_id", None))):
+                return
+        async def respond(content):
+            return await correlation.send(account, channel, message.respond, content)
+        incoming = to_incoming_chat_message(message, respond if correlation is not None else None)
     except (AttributeError, TypeError):
         logger.exception("Could not map incoming Twitch chat message")
-        return
-
-    # Our event_message override replaces TwitchIO's default self-message guard.
-    # EventSub also delivers bot output, including replies starting with !ask.
-    if incoming.author.twitch_user_id == getattr(getattr(services, "settings", None), "twitch_bot_user_id", None):
         return
 
     opted_out = False
@@ -251,7 +255,7 @@ class TwitchChatBot(commands.Bot):
         self._token_file = Path(settings.twitch_token_file)
         self._active_socket_id: str | None = None
         self._closing_requested = False
-        self._seen_message_ids: dict[str, None] = {}
+        self._chat_messages = getattr(services.twitch, "chat_messages", None) or ChatMessageCorrelation()
         self._token_save_lock = asyncio.Lock()
         self._tokens_loaded = False
         self._loading_tokens = False
@@ -472,18 +476,16 @@ class TwitchChatBot(commands.Bot):
         # the stable chat ID before any await so concurrent replays cannot send
         # another batch, even when the command has no cooldown.
         message_id = getattr(message, "id", None)
-        if isinstance(message_id, str) and message_id:
-            if message_id in self._seen_message_ids:
-                return
-            self._seen_message_ids[message_id] = None
-            if len(self._seen_message_ids) > CHAT_MESSAGE_DEDUP_LIMIT:
-                self._seen_message_ids.pop(next(iter(self._seen_message_ids)))
+        channel = str(getattr(message.broadcaster, "id", message.broadcaster.name))
+        if not self._chat_messages.reserve(self.bot_id, channel, message_id):
+            return
         try:
             await process_twitch_message(
                 message=message,
                 services=self._services,
                 dispatcher=self._dispatcher,
                 logger=self._logger,
+                correlation=self._chat_messages,
             )
         except Exception:
             self._logger.exception("Unexpected Twitch message processing failure")

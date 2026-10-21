@@ -179,8 +179,9 @@ class FakeTwitchMessage:
         self.text = content
         self.responses: list[str] = []
 
-    async def respond(self, content: str) -> None:
+    async def respond(self, content: str) -> object:
         self.responses.append(content)
+        return SimpleNamespace(id=f"{getattr(self, 'id', 'request')}-response-{len(self.responses)}", sent=True)
 
 
 class RecordingUserRepository:
@@ -223,7 +224,8 @@ def build_settings() -> Settings:
 
 
 @pytest.mark.asyncio
-async def test_commands_response_echo_cannot_invoke_ask_or_consume_viewer_cooldown() -> None:
+@pytest.mark.parametrize("same_account", [False, True])
+async def test_commands_response_echo_cannot_invoke_ask_or_consume_viewer_cooldown(same_account) -> None:
     from app.commands.ai import register_ai_commands
     from app.commands.info import register_info_commands
     from app.commands.registry import CommandRegistry
@@ -248,36 +250,42 @@ async def test_commands_response_echo_cannot_invoke_ask_or_consume_viewer_cooldo
     bot = TwitchChatBot(settings, settings.primary_account, services, dispatcher, logging.getLogger(__name__))
     request = FakeTwitchMessage("!commands")
     request.id = "viewer-commands"
+    if same_account:
+        request.chatter.id = settings.twitch_bot_user_id
+        request.chatter.name = settings.twitch_bot_username
+        request.chatter.broadcaster = True
     try:
         await bot.event_message(request)
         assert len(request.responses) == 1
         assert "!ask <question>" in request.responses[0]
         # Twitch EventSub delivers the sent message as a new event from the bot
         # account (which can also be the broadcaster), with a distinct chat ID.
-        for index, content in enumerate((request.responses[0], "!ask <question> !commands !fate !followage !ping !seen <username> !tg [1-20] !uptime !weather <city>")):
+        for index, content in enumerate((request.responses[0],)):
             echo = FakeTwitchMessage(content)
-            echo.id = f"bot-response-{index}"
+            echo.id = "viewer-commands-response-1"
             echo.chatter.id = settings.twitch_bot_user_id
             echo.chatter.name = settings.twitch_bot_username
             echo.chatter.broadcaster = True
             await bot.event_message(echo)
             assert echo.responses == []
         generate.assert_not_awaited()
-        assert services.users.seen_user_ids == ["viewer-id"]
+        assert services.users.seen_user_ids == [request.chatter.id]
 
         question = FakeTwitchMessage("!ASK What is a telescope?")
         question.id = "viewer-question"
+        if same_account:
+            question.chatter = request.chatter
         await bot.event_message(question)
         generate.assert_awaited_once()
         assert generate.call_args.kwargs["prompt"] == "What is a telescope?"
-        assert question.responses == ["@viewer Viewer reply"]
+        assert question.responses == [f"@{question.chatter.name} Viewer reply"]
     finally:
         await bot.close(save_tokens=False)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("content", ["!ask question", "!ping", "!custom", "ordinary reaction"])
-async def test_bot_account_messages_are_ignored_before_filters_persistence_and_dispatch(content):
+async def test_manual_bot_account_messages_reach_filters_persistence_and_dispatch(content):
     settings = build_settings()
     raw = FakeTwitchMessage(content)
     raw.chatter.id = settings.twitch_bot_user_id
@@ -287,10 +295,10 @@ async def test_bot_account_messages_are_ignored_before_filters_persistence_and_d
     dispatcher = ReplyingDispatcher()
     services = SimpleNamespace(settings=settings, users=users, filter_manager=filters)
     await process_twitch_message(raw, services, dispatcher, logging.getLogger(__name__))
-    assert users.seen_user_ids == []
-    assert filters.messages == []
-    assert dispatcher.messages == []
-    assert raw.responses == []
+    assert users.seen_user_ids == [settings.twitch_bot_user_id]
+    assert filters.messages == [content]
+    assert len(dispatcher.messages) == 1
+    assert raw.responses == ["pong"]
 
 
 @pytest.mark.asyncio
@@ -328,17 +336,17 @@ async def test_duplicate_tg_delivery_does_not_start_a_second_burst(tmp_path, arg
 
 @pytest.mark.asyncio
 async def test_chat_delivery_cache_is_bounded_and_does_not_match_message_text(monkeypatch) -> None:
-    monkeypatch.setattr("app.twitch.client.CHAT_MESSAGE_DEDUP_LIMIT", 2)
     settings = build_settings()
     services = SimpleNamespace(twitch=None, users=RecordingUserRepository(), filter_manager=AllowingFilterManager())
     dispatcher = ReplyingDispatcher()
     bot = TwitchChatBot(settings, settings.primary_account, services, dispatcher, logging.getLogger(__name__))
+    bot._chat_messages.limit = 2
     try:
         for identifier in ("one", "two", "three", "three"):
             raw = FakeTwitchMessage()
             raw.id = identifier
             await bot.event_message(raw)
-        assert list(bot._seen_message_ids) == ["two", "three"]
+        assert [key[-1] for key in bot._chat_messages.seen] == ["two", "three"]
         assert len(dispatcher.messages) == 3
     finally:
         await bot.close(save_tokens=False)

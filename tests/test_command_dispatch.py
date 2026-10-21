@@ -119,14 +119,18 @@ async def test_erase_without_a_target_leaves_memory_untouched(content, caplog) -
 
 
 @pytest.mark.asyncio
-async def test_ping_dispatches_and_sends_a_response() -> None:
+@pytest.mark.parametrize("same_account", [False, True])
+async def test_ping_dispatches_and_sends_a_response(same_account) -> None:
     registry = CommandRegistry()
     register_fun_commands(registry)
     transport = FakeChatTransport("!ping", is_moderator=True)
+    if same_account:
+        transport.message = replace(transport.message,
+            author=replace(transport.message.author, twitch_user_id="bot-id", is_broadcaster=True))
 
     handled = await build_dispatcher(registry).dispatch(
         transport.message,
-        cast(ApplicationServices, object()),
+        cast(ApplicationServices, SimpleNamespace(settings=SimpleNamespace(twitch_bot_user_id="bot-id"))),
     )
 
     assert handled is True
@@ -205,7 +209,7 @@ async def test_application_help_reuses_persisted_custom_store_after_restart() ->
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("content", ["!ask prompt", "!query prompt", "!ping", "!custom", "ordinary reaction"])
-async def test_neutral_dispatch_rejects_bot_identity_before_command_or_trigger_work(content) -> None:
+async def test_neutral_dispatch_rejects_correlated_output_before_command_or_trigger_work(content) -> None:
     registry = CommandRegistry()
     called = AsyncMock()
     registry.command("ask", aliases=("query",))(called)
@@ -215,7 +219,8 @@ async def test_neutral_dispatch_rejects_bot_identity_before_command_or_trigger_w
     trigger_store = SimpleNamespace(list=AsyncMock())
     dispatcher = CommandDispatcher(registry, CooldownManager(), logging.getLogger(__name__), "!", message_triggers=trigger_store)
     transport = FakeChatTransport(content, is_moderator=True)
-    transport.message = replace(transport.message, author=replace(transport.message.author, twitch_user_id="bot-id"))
+    transport.message = replace(transport.message, is_outgoing=True,
+        author=replace(transport.message.author, twitch_user_id="bot-id"))
     assert not await dispatcher.dispatch(transport.message, SimpleNamespace(settings=settings))
     called.assert_not_awaited()
     trigger_store.list.assert_not_called()

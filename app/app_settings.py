@@ -598,6 +598,7 @@ class AppSettingsStore:
         channel: object,
         channel_user_id: object,
         preset_id: object = None,
+        update_target: bool = True,
     ) -> tuple[AppSettings, TwitchConnectionPreset]:
         parsed_name = _validate_preset_name(display_name)
         parsed_channel, parsed_channel_user_id = _validate_twitch_target(
@@ -635,10 +636,10 @@ class AppSettingsStore:
                 ai=self._settings.ai,
                 twitch=replace(
                     self._settings.twitch,
-                    channel=parsed_channel,
-                    channel_user_id=parsed_channel_user_id,
+                    channel=parsed_channel if update_target else self._settings.twitch.channel,
+                    channel_user_id=parsed_channel_user_id if update_target else self._settings.twitch.channel_user_id,
                     presets=presets,
-                    selected_preset_id=parsed_id,
+                    selected_preset_id=parsed_id if update_target else None,
                 ),
             )
             save_app_settings(self._path, updated, recovered_settings=self._settings)

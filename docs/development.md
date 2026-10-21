@@ -174,6 +174,15 @@ socket welcome alone does not prove chat delivery. [Docker health](docker.md#run
 reports recent supervision of connection or intentional idle state; live refresh/reconnect and cloud recovery
 need their own acceptance evidence.
 
+All chat responses pass through the Twitch adapter's ID correlation wrapper.
+TwitchIO `respond()` returns `SentMessage.id`/`sent`; EventSub provides `id` and shared
+chat `source_id`. Application-owned bounded ten-minute caches survive session rebinding.
+Same-account ingress waits for already-pending sends before checking IDs; unrelated
+accounts do not wait. Uncertain sends fail closed for that sending account and channel
+for the cache lifetime, without matching text. Neutral dispatch/reactions use the
+explicit outgoing flag rather than account identity. Permissions and privacy checks
+still apply to manually authored messages.
+
 ### Validation by impact
 
 For ordinary prose changes, review content, internal links/anchors and `git diff --check`;

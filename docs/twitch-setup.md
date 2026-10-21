@@ -48,6 +48,18 @@ to retain the bot authorization; HeetKit stops the old session and verifies the 
 channel before reconnecting. Server changes do not require a process restart.
 Browser-managed credentials persist in the private server volume, not OS keyring or
 portable ZIPs. See [storage and recovery](docker.md#backup-restore-and-updates).
+
+In **Settings → Server configuration → Target channel**, enter a channel login,
+numeric ID and **Saved channel name**, then choose **Save new channel**. Select an
+existing saved channel to edit its details or rename it with **Update saved channel**.
+Names must be unique. **Delete saved channel** removes only the preset.
+Selection, Save and Update leave the active target unchanged. **Switch to saved channel**
+explicitly applies the stored target after confirmation; update or discard unsaved
+preset edits first. Save or discard application/account edits separately.
+The bot account, Client ID, Client Secret and valid OAuth authorization remain shared.
+An active session closes before switching. Manual reconnects only if already running;
+stopped Manual and Disabled stay stopped, while automatic modes follow their saved
+policy. Presets persist in the Server profile across container recreation.
 Only the initiating session can inspect its pending/completed attempt. Another
 session cannot replace it until cancellation or expiry; sign-out/session eviction
 invalidates it. Denial or failed exchange consumes it and requires a new attempt.
@@ -65,8 +77,10 @@ The Desktop procedure below retains its existing restart and callback behavior.
 
 ## Choose the accounts and register an application
 
-1. **Choose the bot account.** Use a dedicated bot account or another account you control.
+1. **Choose the bot account.** Use a dedicated bot account or the broadcaster's own account.
    Replies appear under its name. The target channel is where you want it to respond.
+   Manual commands from a shared bot/broadcaster account work normally; HeetKit's
+   own outgoing messages are excluded using their Twitch message IDs.
 2. **Open the [Twitch Developer Console](https://dev.twitch.tv/console/apps).** Sign in
    with the developer account that will own the application. Twitch currently requires
    email verification and two-factor authentication (2FA), a second sign-in check alongside

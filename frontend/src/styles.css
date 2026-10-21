@@ -184,7 +184,8 @@ td { color: var(--text); }
 .command-summary-meta > span { overflow-wrap: anywhere; }
 .unavailable-pill { color: #f0c66b; background: #443716; }
 .command-details { padding: 0 16px 16px; border-top: 1px solid var(--separator); }
-.command-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 12px; padding-top: 16px; }
+.command-enabled-toggle { padding-top: 16px; }
+.command-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 12px; padding-top: 12px; }
 .command-fields label { display: grid; gap: 7px; color: var(--muted); font-size: 13px; font-weight: 700; letter-spacing: normal; text-transform: none; }
 .command-fields .select-trigger, .command-fields input[type="number"] { width: 100%; border: 1px solid var(--separator); border-radius: 8px; padding: 9px 10px; color: var(--text); background: var(--page); outline: none; }
 .command-fields .select-trigger:focus, .command-fields input:focus { border-color: var(--primary); }
@@ -539,7 +540,7 @@ td { color: var(--text); }
 }
 
 @container page-content (max-width: 620px) {
-  .command-fields, .command-identity-fields, .command-burst-controls, .custom-command-fields, .custom-burst-controls,
+  .command-identity-fields, .command-burst-controls, .custom-command-fields, .custom-burst-controls,
   .model-fields, .language-fields, .language-policy-status.has-draft, .twitch-field-pair,
   .personality-rename-form, .filter-test-source, .filter-test-result dl { grid-template-columns: 1fr; }
   .filter-rule-row { grid-template-columns: 1fr; align-items: stretch; }

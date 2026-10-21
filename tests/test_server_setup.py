@@ -71,6 +71,79 @@ async def configure(call):
     assert (await call("/v1/credentials/replace", {"name": "twitch_client_secret", "value": "synthetic-secret"}))[0] == 200
 
 
+async def test_saved_channels_crud_does_not_apply_and_persists_after_reload(api):
+    server, call = api
+    await configure(call)
+    before = server.runtime.application.settings.model_dump()
+    payload = {"preset_id": None, "display_name": "Other channel", "channel": "other", "channel_user_id": "300"}
+    status, result = await call("/v1/twitch/presets/save", payload)
+    assert status == 200
+    preset_id = result["preset_id"]
+    assert server.runtime.application.settings.model_dump() == before
+    stored = AppSettingsStore(RuntimePaths.default().app_settings).snapshot()
+    assert stored.twitch.channel == "testchannel" and stored.startup.operation_mode == "manual"
+    assert stored.twitch.presets[0].display_name == "Other channel"
+    assert (await call("/v1/setup"))[1]["twitch"]["presets"][0]["id"] == preset_id
+    assert (await call("/v1/twitch/presets/save", payload | {"display_name": "OTHER CHANNEL"}))[0] == 400
+    for invalid in ({"channel": "bad login"}, {"channel": "x" * 26}, {"channel_user_id": "٣٠٠"}, {"display_name": ""}):
+        assert (await call("/v1/twitch/presets/save", payload | invalid))[0] == 400
+    assert (await call("/v1/twitch/presets/save", payload | {"preset_id": preset_id, "display_name": "Renamed"}))[0] == 200
+    assert AppSettingsStore(RuntimePaths.default().app_settings).snapshot().twitch.presets[0].display_name == "Renamed"
+    assert (await call("/v1/twitch/presets/delete", {"preset_id": preset_id}))[0] == 200
+    assert not AppSettingsStore(RuntimePaths.default().app_settings).snapshot().twitch.presets
+    assert server.runtime.application.settings.model_dump() == before
+    assert (await call("/v1/twitch/presets/switch", {"preset_id": preset_id}))[0] == 400
+
+
+@pytest.mark.parametrize("mode,running,resumes", [("manual", False, False), ("manual", True, True),
+    ("always_on", True, True), ("stream_only", True, False), ("disabled", False, False)])
+async def test_preset_switch_preserves_oauth_credentials_and_mode(api, monkeypatch, mode, running, resumes):
+    from unittest.mock import AsyncMock
+    server, call = api
+    await configure(call)
+    paths = RuntimePaths.default()
+    paths.tokens.write_text('{"100":{"token":"synthetic-access","refresh":"synthetic-refresh"}}')
+    credentials, tokens = (paths.auth / "server_credentials.json").read_bytes(), paths.tokens.read_bytes()
+    payload = {"preset_id": None, "display_name": "Other", "channel": "other", "channel_user_id": "300"}
+    preset_id = (await call("/v1/twitch/presets/save", payload))[1]["preset_id"]
+    server.policy.store.update_operation_mode(mode)
+    server.policy.mode, server.policy.desired_running = mode, running
+    stopped = AsyncMock()
+    monkeypatch.setattr(server.runtime, "stop_bot", stopped)
+    monkeypatch.setattr(server.runtime, "start_bot", AsyncMock())
+    status, result = await call("/v1/twitch/presets/switch", {"preset_id": preset_id})
+    assert status == 200 and result["requires_reconnect"]
+    stopped.assert_awaited()
+    assert server.policy.mode == mode and server.policy.desired_running == resumes
+    assert paths.tokens.read_bytes() == tokens
+    assert (paths.auth / "server_credentials.json").read_bytes() == credentials
+    settings = server.runtime.application.settings
+    assert (settings.twitch_client_id, settings.twitch_bot_username, settings.twitch_bot_user_id) == ("test-client", "testbot", "100")
+    assert (settings.twitch_channel, settings.twitch_channel_user_id) == ("other", "300")
+    saved = AppSettingsStore(paths.app_settings).snapshot()
+    assert saved.startup.operation_mode == mode and saved.twitch.channel == "other"
+    setup = (await call("/v1/setup"))[1]["twitch"]
+    assert setup["active_preset_id"] == preset_id and setup["oauth_token_available"]
+    # Deleting the currently active preset must not disconnect or alter its target.
+    stopped.reset_mock()
+    assert (await call("/v1/twitch/presets/delete", {"preset_id": preset_id}))[0] == 200
+    stopped.assert_not_awaited()
+    assert settings.twitch_channel == "other" and paths.tokens.read_bytes() == tokens
+
+
+async def test_failed_preset_write_keeps_active_target_and_authorization(api, monkeypatch):
+    server, call = api
+    await configure(call)
+    before = server.setup.store.snapshot()
+    def fail(*args, **kwargs):
+        raise OSError("synthetic private path")
+    monkeypatch.setattr("app.app_settings.save_app_settings", fail)
+    assert (await call("/v1/twitch/presets/save", {"preset_id": None, "display_name": "Other",
+        "channel": "other", "channel_user_id": "300"}))[0] == 500
+    assert server.setup.store.snapshot() == before
+    assert server.runtime.application.settings.twitch_channel == "testchannel"
+
+
 @pytest.fixture
 def twitch_provider(monkeypatch):
     outcome = {"client_id": "test-client", "user_id": "100", "login": "testbot",
@@ -130,6 +203,9 @@ async def test_fresh_authenticated_setup_stays_available_in_every_mode(api):
 
 @pytest.mark.parametrize("path,payload", [
     ("/v1/twitch/settings", TWITCH),
+    ("/v1/twitch/presets/save", {"preset_id": None, "display_name": "Channel", "channel": "other", "channel_user_id": "300"}),
+    ("/v1/twitch/presets/delete", {"preset_id": "missing"}),
+    ("/v1/twitch/presets/switch", {"preset_id": "missing"}),
     ("/v1/credentials/replace", {"name": "gemini_api_key", "value": "private-sentinel"}),
     ("/v1/credentials/remove", {"name": "gemini_api_key"}),
     ("/v1/credentials/test", {"name": "gemini_api_key"}),

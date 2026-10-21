@@ -470,6 +470,7 @@ export interface PythonApi {
   remove_credential(name: CredentialName): Promise<ActionResult>
   test_credential(name: CredentialName): Promise<ActionResult>
   update_server_twitch_settings(clientId: string, botUsername: string, botUserId: string, channel: string, channelUserId: string): Promise<ActionResult>
+  switch_server_twitch_preset(presetId: string): Promise<ActionResult>
   begin_twitch_authorization(): Promise<TwitchAuthorizationBeginResponse>
   complete_twitch_authorization(callbackUrl: string): Promise<ActionResult>
   cancel_twitch_authorization(): Promise<ActionResult>

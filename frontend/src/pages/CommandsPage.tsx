@@ -752,17 +752,17 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           }}
         />
         {expanded && <div className="command-details" id={detailsId}>
+          <Switch
+            className="toggle-field command-enabled-toggle"
+            checked={draft.enabled}
+            disabled={busy}
+            ariaLabel={`Enable ${data.command_prefix}${command.name}`}
+            onCheckedChange={(enabled) => command.name === 'ask'
+              ? void changeAIEnabled(enabled) : updateDraft(command.name, { enabled })}
+          >
+            <span>{draft.enabled ? 'Enabled' : 'Disabled'}</span>
+          </Switch>
           <div className="command-fields">
-            <Switch
-              className="toggle-field"
-              checked={draft.enabled}
-              disabled={busy}
-              ariaLabel={`Enable ${data.command_prefix}${command.name}`}
-              onCheckedChange={(enabled) => command.name === 'ask'
-                ? void changeAIEnabled(enabled) : updateDraft(command.name, { enabled })}
-            >
-              <span>{draft.enabled ? 'Enabled' : 'Disabled'}</span>
-            </Switch>
             <label>
               Permission
               <Select

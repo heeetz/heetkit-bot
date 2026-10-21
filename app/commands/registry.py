@@ -310,7 +310,7 @@ class CommandDispatcher:
         return True
 
     async def _dispatch_trigger(self, message: IncomingChatMessage, services: ApplicationServices) -> bool:
-        if self._message_triggers is None or message.author.twitch_user_id == services.settings.twitch_bot_user_id:
+        if self._message_triggers is None or message.is_outgoing:
             return False
         for trigger in self._message_triggers.list():
             if not trigger.enabled or not trigger.matches(message.content):
@@ -363,7 +363,7 @@ class CommandDispatcher:
     async def dispatch(self, message: IncomingChatMessage, services: ApplicationServices) -> bool:
         try:
             # Keep the transport-neutral boundary safe as well as Twitch ingress.
-            if message.author.twitch_user_id == getattr(getattr(services, "settings", None), "twitch_bot_user_id", None):
+            if message.is_outgoing:
                 return False
             if self.is_ai_request_blocked(message, services):
                 return True

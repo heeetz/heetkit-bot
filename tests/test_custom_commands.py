@@ -15,6 +15,19 @@ from app.utils.cooldown import CooldownManager
 from app.utils.output_limiter import OutputLimiter
 
 
+@pytest.mark.asyncio
+async def test_manual_broadcaster_using_bot_account_executes_custom_alias(tmp_path):
+    store = CustomCommandStore(tmp_path / "commands.json", set())
+    store.save(payload(responses=["Hello {sender}"]))
+    replies = []
+    async def respond(content):
+        replies.append(content)
+    message = IncomingChatMessage("channel", "!hello", ChatAuthor("100", "broadcaster", is_broadcaster=True), respond)
+    dispatcher = CommandDispatcher(CommandRegistry(), CooldownManager(), logging.getLogger(__name__), "!", custom_commands=store)
+    assert await dispatcher.dispatch(message, SimpleNamespace(settings=SimpleNamespace(twitch_bot_user_id="100")))
+    assert replies == ["Hello broadcaster"]
+
+
 def payload(**changes):
     command = {
         "name": "Greet", "enabled": True, "responses": ["Hi {sender}, {target}: {args} {arg2} {random_user}"],

@@ -39,19 +39,28 @@ function ServerSettings({ active }: { active: boolean }) {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [retry, setRetry] = useState(0)
+  const [selectedPresetId, setSelectedPresetId] = useState('')
+  const [presetName, setPresetName] = useState('')
+  const draftDirty = useRef(false)
   const mountedRef = useRef(false)
-  const refresh = async () => {
+  const refresh = async (resetDraft = true) => {
     const result = await getBrowserSetup()
     if (!result.ok) throw new Error(result.error ?? 'Server setup status is unavailable.')
     if (mountedRef.current) {
       setSetup(result)
-      setTwitchDraft({
+      if (resetDraft) setTwitchDraft({
         clientId: result.twitch.client_id,
         botUsername: result.twitch.bot_username,
         botUserId: result.twitch.bot_user_id,
         channel: result.twitch.target_channel,
         channelUserId: result.twitch.target_channel_user_id,
       })
+      if (resetDraft) {
+        draftDirty.current = false
+        const preset = result.twitch.presets?.find((item) => item.id === result.twitch.active_preset_id)
+        setSelectedPresetId(preset?.id ?? '')
+        setPresetName(preset?.display_name ?? '')
+      }
       setError('')
     }
   }
@@ -65,7 +74,7 @@ function ServerSettings({ active }: { active: boolean }) {
       return
     }
     let mounted = true
-    void refresh().catch((reason: unknown) => {
+    void refresh(!draftDirty.current).catch((reason: unknown) => {
       if (mounted && mountedRef.current) setError(reason instanceof Error ? reason.message : 'Could not load server setup.')
     })
     return () => { mounted = false; mountedRef.current = false }
@@ -110,6 +119,7 @@ function ServerSettings({ active }: { active: boolean }) {
   }, [active, authorizationExpires, setup?.twitch.authorization_mode])
 
   const updateDraft = (field: keyof typeof twitchDraft, value: string) => {
+    draftDirty.current = true
     setTwitchDraft((current) => ({ ...current, [field]: value }))
     setError('')
     setNotice('')
@@ -123,6 +133,7 @@ function ServerSettings({ active }: { active: boolean }) {
     } finally { setBusy('') }
   }
   const saveTwitch = () => run('twitch:save', async () => {
+    if (targetChanged && !window.confirm('Apply the draft target channel? The current session will stop; the saved operation mode controls whether it resumes.')) return
     const channel = twitchDraft.channel.trim().replace(/^#/, '')
     const values = { ...twitchDraft, channel }
     if (!values.clientId.trim() || !values.botUsername.trim() || !values.botUserId.trim() || !channel || !values.channelUserId.trim()) {
@@ -135,6 +146,48 @@ function ServerSettings({ active }: { active: boolean }) {
     await refresh()
     setNotice('Twitch settings saved. The current session was stopped while settings applied; the saved operation mode controls whether it resumes. Use Dashboard to choose a mode or connect separately.')
   })
+  const selectedPreset = setup?.twitch.presets?.find((item) => item.id === selectedPresetId)
+  const targetChanged = Boolean(setup && (twitchDraft.channel !== setup.twitch.target_channel || twitchDraft.channelUserId !== setup.twitch.target_channel_user_id))
+  const identityChanged = Boolean(setup && (twitchDraft.clientId !== setup.twitch.client_id || twitchDraft.botUsername !== setup.twitch.bot_username || twitchDraft.botUserId !== setup.twitch.bot_user_id))
+  const presetEdited = Boolean(selectedPreset && (presetName !== selectedPreset.display_name || twitchDraft.channel !== selectedPreset.target_channel || twitchDraft.channelUserId !== selectedPreset.target_channel_user_id))
+  const selectPreset = (id: string) => {
+    if ((presetEdited || (!selectedPreset && (targetChanged || presetName.trim()))) && !window.confirm('Discard unsaved target channel and saved-channel edits?')) return
+    const preset = setup?.twitch.presets?.find((item) => item.id === id)
+    setSelectedPresetId(id)
+    draftDirty.current = true
+    setPresetName(preset?.display_name ?? '')
+    if (preset) setTwitchDraft((current) => ({ ...current, channel: preset.target_channel, channelUserId: preset.target_channel_user_id }))
+    setError('')
+    setNotice('Selection only. Save or Update stores the preset; Switch to saved channel applies it to the bot.')
+  }
+  const savePreset = (update: boolean) => run('preset:save', async () => {
+    const result = await (await waitForBridge()).save_twitch_preset(update ? selectedPresetId : null, presetName.trim(), twitchDraft.channel.trim(), twitchDraft.channelUserId.trim())
+    if (!result.ok) throw new Error(result.error ?? 'Saved channel could not be saved.')
+    await refresh(false)
+    setSelectedPresetId(result.preset_id ?? '')
+    setNotice('Saved channel stored. The bot target and connection have not changed. Use Switch to saved channel to apply it.')
+  })
+  const deletePreset = () => {
+    if (!selectedPreset || !window.confirm('Delete this saved channel? The active channel and connection will stay unchanged.')) return
+    void run('preset:delete', async () => {
+      const result = await (await waitForBridge()).delete_twitch_preset(selectedPresetId)
+      if (!result.ok) throw new Error(result.error ?? 'Saved channel could not be deleted.')
+      await refresh(false)
+      setSelectedPresetId('')
+      setPresetName('')
+      setNotice('Saved channel deleted. The bot target and connection have not changed.')
+    })
+  }
+  const switchPreset = () => {
+    if (!selectedPreset || identityChanged || presetEdited) return
+    if (!window.confirm(`Switch the bot to ${selectedPreset.target_channel}? An active session will disconnect. Manual reconnects only if already running; automatic modes follow their saved policy; Disabled stays stopped.`)) return
+    void run('preset:switch', async () => {
+      const result = await (await waitForBridge()).switch_server_twitch_preset(selectedPresetId)
+      if (!result.ok) throw new Error(result.error ?? 'Channel switch failed. Inspect Dashboard before retrying.')
+      await refresh()
+      setNotice('Saved channel applied. Bot identity, credentials, OAuth and operation mode were retained. Inspect Dashboard for connection status.')
+    })
+  }
   const runCredentialAction = (name: CredentialName, action: 'replace' | 'remove' | 'test') => run(`${name}:${action}`, async () => {
     const value = credentialDrafts[name]
     setCredentialDrafts((current) => ({ ...current, [name]: '' }))
@@ -149,7 +202,7 @@ function ServerSettings({ active }: { active: boolean }) {
       ? await api.replace_credential(name, value)
       : action === 'remove' ? await api.remove_credential(name) : await api.test_credential(name)
     if (!result.ok) throw new Error(result.error ?? 'Credential operation failed.')
-    await refresh()
+    await refresh(false)
     setNotice(action === 'test' ? `${credential.label} validation passed.` : `${credential.label} ${action === 'remove' ? 'removed.' : 'saved.'}`)
   })
   const beginAuthorization = () => run('oauth:begin', async () => {
@@ -217,7 +270,7 @@ function ServerSettings({ active }: { active: boolean }) {
           <p className="settings-hint">Save the application identity, bot account and target channel, then add the Client Secret. Register the exact callback URL below in the Twitch Developer Console before connecting.</p>
           <div className="server-twitch-application">
             <div className="server-twitch-application-row">
-              <label className="form-field">Client ID<input value={twitchDraft.clientId} maxLength={128} onChange={(event) => updateDraft('clientId', event.target.value)} /></label>
+              <label className="form-field">Client ID<input disabled={Boolean(busy)} value={twitchDraft.clientId} maxLength={128} onChange={(event) => updateDraft('clientId', event.target.value)} /></label>
             </div>
             <div className="server-twitch-application-row server-twitch-secret-row">
               <div className="credential-list">{twitchCredential ? renderCredential(twitchCredential) : <div className="empty-state-inline"><strong>Twitch client secret status is unavailable</strong><p>Refresh setup status before managing the credential.</p></div>}</div>
@@ -229,16 +282,30 @@ function ServerSettings({ active }: { active: boolean }) {
         <section className="twitch-settings-group" aria-labelledby="server-twitch-bot-heading">
           <h3 id="server-twitch-bot-heading">Bot account</h3>
           <div className="twitch-field-pair">
-            <label className="form-field">Bot account login<input value={twitchDraft.botUsername} maxLength={25} onChange={(event) => updateDraft('botUsername', event.target.value)} /></label>
-            <label className="form-field">Bot account user ID<input inputMode="numeric" value={twitchDraft.botUserId} maxLength={20} onChange={(event) => updateDraft('botUserId', event.target.value)} /></label>
+            <label className="form-field">Bot account login<input disabled={Boolean(busy)} value={twitchDraft.botUsername} maxLength={25} onChange={(event) => updateDraft('botUsername', event.target.value)} /></label>
+            <label className="form-field">Bot account user ID<input disabled={Boolean(busy)} inputMode="numeric" value={twitchDraft.botUserId} maxLength={20} onChange={(event) => updateDraft('botUserId', event.target.value)} /></label>
           </div>
         </section>
         <section className="twitch-settings-group" aria-labelledby="server-twitch-target-heading">
           <h3 id="server-twitch-target-heading">Target channel</h3>
           <div className="twitch-field-pair">
-            <label className="form-field">Target channel login<input value={twitchDraft.channel} maxLength={25} onChange={(event) => updateDraft('channel', event.target.value)} /></label>
-            <label className="form-field">Target channel user ID<input inputMode="numeric" value={twitchDraft.channelUserId} maxLength={20} onChange={(event) => updateDraft('channelUserId', event.target.value)} /></label>
+            <label className="form-field">Target channel login<input disabled={Boolean(busy)} value={twitchDraft.channel} maxLength={25} onChange={(event) => updateDraft('channel', event.target.value)} /></label>
+            <label className="form-field">Target channel user ID<input disabled={Boolean(busy)} inputMode="numeric" value={twitchDraft.channelUserId} maxLength={20} onChange={(event) => updateDraft('channelUserId', event.target.value)} /></label>
           </div>
+          <div className="preset-editor twitch-field-pair">
+            <label className="form-field"><span>Saved channel</span><Select aria-label="Saved channel" value={selectedPresetId} disabled={Boolean(busy)} onChange={selectPreset} options={[{ value: '', label: 'New saved channel' }, ...(setup.twitch.presets ?? []).map((preset) => ({ value: preset.id, label: `${preset.display_name}${preset.id === setup.twitch.active_preset_id ? ' (active)' : ''}` }))]} /></label>
+            <label className="form-field">Saved channel name<input value={presetName} maxLength={80} disabled={Boolean(busy)} onChange={(event) => { draftDirty.current = true; setPresetName(event.target.value) }} /></label>
+          </div>
+          <p className="settings-hint">Active target: {setup.twitch.target_channel || 'Not configured'}. Selecting or storing a preset leaves the bot unchanged. Presets store only a name, channel login and channel ID; bot credentials and OAuth stay shared.</p>
+          <div className="settings-actions">
+            <button className="secondary" disabled={Boolean(busy) || !presetName.trim()} onClick={() => void savePreset(false)}>Save new channel</button>
+            <button className="secondary" disabled={Boolean(busy) || !selectedPreset || !presetName.trim()} onClick={() => void savePreset(true)}>Update saved channel</button>
+            <button className="danger" disabled={Boolean(busy) || !selectedPreset} onClick={deletePreset}>Delete saved channel</button>
+            <button className="primary" disabled={Boolean(busy) || !selectedPreset || identityChanged || presetEdited || !targetChanged} onClick={switchPreset}>Switch to saved channel</button>
+          </div>
+          {identityChanged && <p className="settings-hint">Save or discard the application/account edits before switching a saved channel.</p>}
+          {presetEdited && <p className="settings-hint">Update the selected preset before switching, or discard the edits and select the saved channel again.</p>}
+          {(targetChanged || identityChanged || presetEdited) && <button className="secondary" disabled={Boolean(busy)} onClick={() => { if (window.confirm('Discard unsaved Twitch and saved-channel edits?')) void run('twitch:discard', () => refresh()) }}>Discard Twitch edits</button>}
           <div className="settings-actions"><button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch()}>{busy === 'twitch:save' ? 'Saving…' : 'Save Twitch settings'}</button></div>
         </section>
         <section className="twitch-settings-group">

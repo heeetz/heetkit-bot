@@ -485,6 +485,9 @@ class ManagementAPI:
         if method == "POST" and path.startswith(("/v1/credentials/", "/v1/twitch/")):
             operations = {
                 "/v1/twitch/settings": self.setup.save_twitch,
+                "/v1/twitch/presets/save": self.setup.save_preset,
+                "/v1/twitch/presets/delete": self.setup.delete_preset,
+                "/v1/twitch/presets/switch": self.setup.switch_preset,
                 "/v1/credentials/replace": self.setup.change_credential,
                 "/v1/credentials/remove": lambda name: self.setup.change_credential(name, remove=True),
                 "/v1/credentials/test": self.setup.test_credential,
@@ -498,6 +501,8 @@ class ManagementAPI:
             # Fixed fields, including replace's required value: no caller may
             # smuggle the internal remove flag through a different endpoint.
             fields = {"/v1/twitch/settings": {"client_id", "bot_username", "bot_user_id", "channel", "channel_user_id"},
+                "/v1/twitch/presets/save": {"preset_id", "display_name", "channel", "channel_user_id"},
+                "/v1/twitch/presets/delete": {"preset_id"}, "/v1/twitch/presets/switch": {"preset_id"},
                 "/v1/credentials/replace": {"name", "value"}, "/v1/credentials/remove": {"name"},
                 "/v1/credentials/test": {"name"}, "/v1/twitch/authorization/complete": {"callback_url"}}
             if set(payload) != fields.get(path, set()):
@@ -609,6 +614,9 @@ class ManagementAPI:
             authorization = "validation_failed"
         elif self.policy.error and not connected:
             authorization = "not_verified"
+        presets = self.setup.store.snapshot().twitch.presets
+        active = next((preset.id for preset in presets if preset.channel == settings.twitch_channel
+            and preset.channel_user_id == settings.twitch_channel_user_id), None)
         return {"ok": True, "credentials": credentials, "aiProvider": provider,
             "twitch": {"client_id": settings.twitch_client_id, "bot_username": settings.twitch_bot_username,
                 "bot_user_id": settings.twitch_bot_user_id, "target_channel": settings.twitch_channel,
@@ -616,7 +624,9 @@ class ManagementAPI:
                 "active_channel": settings.twitch_channel, "active_channel_user_id": settings.twitch_channel_user_id,
                 "requires_restart": False, "requires_reconnect": False, "running": state["running"],
                 "connected": state["twitch_connected"], "oauth_token_available": Path(settings.twitch_token_file).is_file(),
-                "presets": [], "selected_preset_id": None, "active_preset_id": None,
+                "presets": [{"id": preset.id, "display_name": preset.display_name,
+                    "target_channel": preset.channel, "target_channel_user_id": preset.channel_user_id}
+                    for preset in presets], "selected_preset_id": active, "active_preset_id": active,
                 "oauth_callback_url": self.setup.redirect_uri, "has_local_override": False,
                 "management_url": self.config.trusted_origin or "http://" + sorted(self.config.authorities)[0],
                 "authorization_mode": "redirect" if self.config.oauth_callback_enabled else "paste",

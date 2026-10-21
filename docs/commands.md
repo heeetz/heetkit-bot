@@ -53,12 +53,21 @@ confirmed live/offline state. Unknown or stale status does not filter the help l
 The list keeps each command's existing invocation permissions and omits hidden,
 disabled and removed commands. Long lists use numbered pages within the Twitch
 message limit; follow the displayed next-page command, for example `!commands 2`.
-Bot-account messages are ignored rather than dispatched as new requests.
+You can use the broadcaster's account as the bot account and type commands manually.
+HeetKit correlates its own outgoing messages by Twitch message ID, so a command list
+starting with `!ask` cannot launch another AI request. Identical manually typed text
+has a different message ID and follows the normal permissions, filters and cooldowns.
+If a response's HTTP result is lost or lacks an ID, delivery is uncertain. HeetKit
+logs this and pauses input from that sending account for up to ten minutes to avoid
+loops; other accounts continue normally. Explicitly rejected sends do not cause this pause.
 
 ## Permissions, cooldowns and responses
 
 The Server browser command editor includes **Stream availability** for built-in
 and custom commands, including newly created commands:
+
+Expanded built-ins place Enabled above the paired Permission/Stream availability
+and per-user/global cooldown fields. Narrow screens stack these fields.
 
 | Setting | Execution while connected |
 | --- | --- |
