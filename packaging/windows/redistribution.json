@@ -10,7 +10,8 @@
   "review_notes": [
     "Exact hashes bind versions, including extensions without PE version resources. New binaries need upstream review, not automatic acceptance of new build hashes.",
     "The 96 compatibility assemblies match both the Windows-specific pythonnet wheel and Microsoft.NET.Build.Extensions/net461/lib in the official SDK. Keep the upstream net461 compatibility set for the existing .NET 4.6.2 minimum; per-file removal necessity is not established.",
-    "This evidence validates notice delivery, not legal redistribution clearance. Published v1.1.0 assets are unchanged."
+    "This evidence validates notice delivery, not legal redistribution clearance. Published v1.1.0 assets are unchanged.",
+    "Security baseline: aiohttp 3.14.4, certifi 2026.10.19, multidict 6.9.1, Pillow 13.0.0 and required yarl 1.25.1. Current native/notice hashes come from SHA-256-verified official PyPI Windows x64 CPython 3.14 wheels; historical native sources retain the previous exact distributions. Pillow 13 no longer makes ImageMath reachable from the application/plugin closure; its unreferenced _imagingmath extension is absent from PYZ/native output and excluded from the current inventory only."
   ],
   "distributions": {
     "pystray": {
@@ -22,8 +23,8 @@
       "sha256": "9d07275f53894ab4d5e2e0e996227193e7187dec276d9b624dccbce029216b46"
     },
     "certifi": {
-      "url": "https://files.pythonhosted.org/packages/0b/a7/71ac2cff56fec219ed242bb11b8efb69fcc4bec75db06fb7bfe35de520e6/certifi-2026.7.22-py3-none-any.whl",
-      "sha256": "62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775"
+      "url": "https://files.pythonhosted.org/packages/c4/51/29046e48f693c54e5b7412216d447a1d8362c9653148d98c02cdf65fa733/certifi-2026.10.19-py3-none-any.whl",
+      "sha256": "42d35340cc5b9ba78e818ddbff0c5b1c2b779de448a340fd1b989f5fa8670e1b"
     },
     "pythonnet": {
       "url": "https://files.pythonhosted.org/packages/ac/4b/52414f442624d2589f5374a48c08d5ae94f24bea67fc13a20a752884e5b7/pythonnet-3.1.0-cp310.cp311.cp312.cp313.cp314-none-any.whl",
@@ -46,8 +47,8 @@
       "sha256": "fa10ef4112775900e7a0661068635eb67b2ab824fbde764de6e0e21982a93db0"
     },
     "pillow": {
-      "url": "https://files.pythonhosted.org/packages/f1/e0/492879f69d94f91f60fc8cd05ba03650e9520afebb2fb7aa12777d7c7f38/pillow-12.3.0-cp314-cp314-win_amd64.whl",
-      "sha256": "fdafc9cce40277e0f7a0feabce0ee50dd2fa1800f3b38015e51296b5e814048d"
+      "url": "https://files.pythonhosted.org/packages/50/e2/7ad17747517e4c813dca78257d6bb593466f8231baf1384bc98d92745edb/pillow-13.0.0-cp314-cp314-win_amd64.whl",
+      "sha256": "f7cbb7a64e7ec664775195e4f81923bc8a93d9451b963f844e59118f63147a7a"
     },
     "pythonnet-windows": {
       "url": "https://files.pythonhosted.org/packages/db/67/031124fdcb937c266a3265118525bbf6dc13b8c79786d6a7290aecb6e7bb/pythonnet-3.1.0-cp310.cp311.cp312.cp313.cp314-none-win32.win_amd64.whl",
@@ -79,8 +80,8 @@
       "sha256": "cea18bcdb33096a94e441a8fdf2db138e356b020a1b5f27d6ddfea1bcec48eb2"
     },
     "aiohttp": {
-      "url": "https://files.pythonhosted.org/packages/f5/8b/c7baa1ba1eda4db6989baefe5de6d99834921b84ebd7918624febcb9f290/aiohttp-3.14.3-cp314-cp314-win_amd64.whl",
-      "sha256": "8b3b60de05f3dcb6f6a00f818bb2ec781cee4de0645f59ccaf99b1d1823b6100"
+      "url": "https://files.pythonhosted.org/packages/c0/74/e040e6f65f4da305777f1adb3023d47401693489e4a337c983b52d2a0a6b/aiohttp-3.14.4-cp314-cp314-win_amd64.whl",
+      "sha256": "019587c7b3a44917dd61bcb312fd5c034f341dc9851b83e7b41b65e08b68ca0f"
     },
     "charset-normalizer": {
       "url": "https://files.pythonhosted.org/packages/7a/7c/4938c329b6a9d446f6a59aa2092ff7118f274209b5ed0e26893d1d30a63c/charset_normalizer-3.5.1-cp314-cp314-win_amd64.whl",
@@ -95,8 +96,8 @@
       "sha256": "7dffc5c859fe6059974df1e37d7923d654a83e2ae18fdd616994270e001115e1"
     },
     "multidict": {
-      "url": "https://files.pythonhosted.org/packages/e0/bf/52f25716bbe93745595800f36fb17b73711f14da59ed0bb2eba141bc9f0f/multidict-6.7.1-cp314-cp314-win_amd64.whl",
-      "sha256": "5e01429a929600e7dab7b166062d9bb54a5eed752384c7384c968c2afab8f50f"
+      "url": "https://files.pythonhosted.org/packages/33/81/014bb2128aedc8157d2848f0ec8a0209c6b822fb88deea012834e1c4a4e8/multidict-6.9.1-cp314-cp314-win_amd64.whl",
+      "sha256": "acddcac38adc8342ba48aba98896faa7928854bebb62542362138655b5367ee3"
     },
     "propcache": {
       "url": "https://files.pythonhosted.org/packages/61/d2/45c9defbaa1ea297035d9d4cce9e8f80daafbf19319c6007f157c6256ea9/propcache-0.5.2-cp314-cp314-win_amd64.whl",
@@ -111,13 +112,33 @@
       "sha256": "a593db51b3bae75db17a5738ad5f992244b3a03863f83c28117ee482c6a3f76d"
     },
     "yarl": {
+      "url": "https://files.pythonhosted.org/packages/f5/01/349c0386caedbbe488d519f252df54efac8a1459282d466c474bdd84a620/yarl-1.25.1-cp314-cp314-win_amd64.whl",
+      "sha256": "acfa7e22aa6c6e7a5996a41d275bfa01efa7ea56ab890590280e9063e2cf5c1b"
+    },
+    "aiohttp-3.14.3": {
+      "url": "https://files.pythonhosted.org/packages/f5/8b/c7baa1ba1eda4db6989baefe5de6d99834921b84ebd7918624febcb9f290/aiohttp-3.14.3-cp314-cp314-win_amd64.whl",
+      "sha256": "8b3b60de05f3dcb6f6a00f818bb2ec781cee4de0645f59ccaf99b1d1823b6100"
+    },
+    "certifi-2026.7.22": {
+      "url": "https://files.pythonhosted.org/packages/0b/a7/71ac2cff56fec219ed242bb11b8efb69fcc4bec75db06fb7bfe35de520e6/certifi-2026.7.22-py3-none-any.whl",
+      "sha256": "62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775"
+    },
+    "multidict-6.7.1": {
+      "url": "https://files.pythonhosted.org/packages/e0/bf/52f25716bbe93745595800f36fb17b73711f14da59ed0bb2eba141bc9f0f/multidict-6.7.1-cp314-cp314-win_amd64.whl",
+      "sha256": "5e01429a929600e7dab7b166062d9bb54a5eed752384c7384c968c2afab8f50f"
+    },
+    "pillow-12.3.0": {
+      "url": "https://files.pythonhosted.org/packages/f1/e0/492879f69d94f91f60fc8cd05ba03650e9520afebb2fb7aa12777d7c7f38/pillow-12.3.0-cp314-cp314-win_amd64.whl",
+      "sha256": "fdafc9cce40277e0f7a0feabce0ee50dd2fa1800f3b38015e51296b5e814048d"
+    },
+    "yarl-1.24.5": {
       "url": "https://files.pythonhosted.org/packages/cf/52/6daa2ee9d95e5c98b8128f8df91eb692eb423ab274b8cf08db52152fad26/yarl-1.24.5-cp314-cp314-win_amd64.whl",
       "sha256": "5ba4f78df2bcc19f764a4b26a8a4f5049c110090ad5825993aacb052bf8003ad"
     }
   },
   "native_files": {
     "_internal/PIL/_avif.cp314-win_amd64.pyd": {
-      "sha256": "d8bd3032b72992a8166144a4063bae4a55c0f178d237454f17102301731e912a",
+      "sha256": "5a11e1e5a381572355e3ecbcf65ff5a9f4a9876f65c7264a530a3b4d08fbe9e6",
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
@@ -127,7 +148,7 @@
       ]
     },
     "_internal/PIL/_imaging.cp314-win_amd64.pyd": {
-      "sha256": "d823c0e3b54035d08703bb427c553c956c2607b79395f2952e17a5447c5f1105",
+      "sha256": "9ca27b1a45178437d9b57e0d3024ed535226f5150ff16fd2363d90171856f0d8",
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
@@ -137,7 +158,7 @@
       ]
     },
     "_internal/PIL/_imagingcms.cp314-win_amd64.pyd": {
-      "sha256": "dff90929dbeb9d51eebf09f4454d0beb65775f7644145a63d66fa8ca9f5a96fd",
+      "sha256": "358c2378268f96e283c590e45a4c8864df0f5400814f1b84e555336a15484ee3",
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
@@ -146,18 +167,8 @@
         }
       ]
     },
-    "_internal/PIL/_imagingmath.cp314-win_amd64.pyd": {
-      "sha256": "a7b3d6e462d338744694bc332f9f6f9c5717d532b7a74ad2762b3289521d0d9e",
-      "version": "Exact wheel version identified by distribution source",
-      "sources": [
-        {
-          "distribution": "pillow",
-          "member": "PIL/_imagingmath.cp314-win_amd64.pyd"
-        }
-      ]
-    },
     "_internal/PIL/_imagingtk.cp314-win_amd64.pyd": {
-      "sha256": "79208042672ff0b9e3669d5078ad35413470861e783feeaf1430458c41036593",
+      "sha256": "b4e95439db8008cdede934b11ae8984b48ebf658140cb243d48fe5751dd7b96e",
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
@@ -167,7 +178,7 @@
       ]
     },
     "_internal/PIL/_webp.cp314-win_amd64.pyd": {
-      "sha256": "f4d851381d1bd937753ba78e951c96a85f3a6c5ac402beec23fc13fdb6d45198",
+      "sha256": "0a52c832b08413721f0bb09b7bdd496ef7b10e5e22a27e64a756f7daa184b425",
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
@@ -453,7 +464,7 @@
       ]
     },
     "_internal/aiohttp/_http_parser.cp314-win_amd64.pyd": {
-      "sha256": "44e90b54298a360c85678e0a4e45713bcf72305c1dc05dcb06aa0a6200eef7dd",
+      "sha256": "96427bf7d4da5a319c5239abed985aa6255aeb4ac81416a6abecc9e2b3421366",
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
@@ -463,7 +474,7 @@
       ]
     },
     "_internal/aiohttp/_http_writer.cp314-win_amd64.pyd": {
-      "sha256": "471d44a62f269545f4608aef5c84a5d75fbd7a99fef2fed680fa5bccf389432d",
+      "sha256": "6f71dfff5885ee9c006e6dbd5922d154c6840104d612a8cdf98c6bfa39a6a1f0",
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
@@ -473,7 +484,7 @@
       ]
     },
     "_internal/aiohttp/_websocket/mask.cp314-win_amd64.pyd": {
-      "sha256": "5f5c3de90b92c76af16b3773cb95f39d27acf2631adfa1da4e7dbf66e6be9d8a",
+      "sha256": "2fdc16f4ad408db1b2672bb0b398f48c23b5adfc1b8c4f2256ad4e1d148f598c",
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
@@ -483,7 +494,7 @@
       ]
     },
     "_internal/aiohttp/_websocket/reader_c.cp314-win_amd64.pyd": {
-      "sha256": "ace655e0e595d5f29f5347e85ed294402ea624cb57ed73a879db78c3b68b792f",
+      "sha256": "59e268cf8916a0edf8f01b1938f23b07338a88a4f0241a3c0b234c7b3fa4b013",
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
@@ -1015,7 +1026,7 @@
       ]
     },
     "_internal/multidict/_multidict.cp314-win_amd64.pyd": {
-      "sha256": "258d185776cf6b35c244cd134cdda9405f74de222c927d0bdbb9fd6d926ae5ce",
+      "sha256": "0d3c5eb151a543acdd30d82a9cf0ea411a09dd97c369c154d4874f0aa97df76e",
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
@@ -2983,7 +2994,7 @@
       ]
     },
     "_internal/yarl/_quoting_c.cp314-win_amd64.pyd": {
-      "sha256": "0c774c400a79d179f4c1e9d718563364fdf6259c5140ed16abda1dbe40228f63",
+      "sha256": "3912a5ed94d6928ea73abf3308dcd40fe67223a037846d10d3a773203d807beb",
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
@@ -2999,7 +3010,7 @@
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
-          "distribution": "pillow",
+          "distribution": "pillow-12.3.0",
           "member": "PIL/_avif.cp314-win_amd64.pyd"
         }
       ]
@@ -3009,7 +3020,7 @@
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
-          "distribution": "pillow",
+          "distribution": "pillow-12.3.0",
           "member": "PIL/_imaging.cp314-win_amd64.pyd"
         }
       ]
@@ -3019,7 +3030,7 @@
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
-          "distribution": "pillow",
+          "distribution": "pillow-12.3.0",
           "member": "PIL/_imagingcms.cp314-win_amd64.pyd"
         }
       ]
@@ -3029,7 +3040,7 @@
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
-          "distribution": "pillow",
+          "distribution": "pillow-12.3.0",
           "member": "PIL/_imagingmath.cp314-win_amd64.pyd"
         }
       ]
@@ -3039,7 +3050,7 @@
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
-          "distribution": "pillow",
+          "distribution": "pillow-12.3.0",
           "member": "PIL/_imagingtk.cp314-win_amd64.pyd"
         }
       ]
@@ -3049,7 +3060,7 @@
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
-          "distribution": "pillow",
+          "distribution": "pillow-12.3.0",
           "member": "PIL/_webp.cp314-win_amd64.pyd"
         }
       ]
@@ -3335,7 +3346,7 @@
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
-          "distribution": "aiohttp",
+          "distribution": "aiohttp-3.14.3",
           "member": "aiohttp/_http_parser.cp314-win_amd64.pyd"
         }
       ]
@@ -3345,7 +3356,7 @@
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
-          "distribution": "aiohttp",
+          "distribution": "aiohttp-3.14.3",
           "member": "aiohttp/_http_writer.cp314-win_amd64.pyd"
         }
       ]
@@ -3355,7 +3366,7 @@
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
-          "distribution": "aiohttp",
+          "distribution": "aiohttp-3.14.3",
           "member": "aiohttp/_websocket/mask.cp314-win_amd64.pyd"
         }
       ]
@@ -3365,7 +3376,7 @@
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
-          "distribution": "aiohttp",
+          "distribution": "aiohttp-3.14.3",
           "member": "aiohttp/_websocket/reader_c.cp314-win_amd64.pyd"
         }
       ]
@@ -3897,7 +3908,7 @@
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
-          "distribution": "multidict",
+          "distribution": "multidict-6.7.1",
           "member": "multidict/_multidict.cp314-win_amd64.pyd"
         }
       ]
@@ -5856,7 +5867,7 @@
       "version": "Exact wheel version identified by distribution source",
       "sources": [
         {
-          "distribution": "yarl",
+          "distribution": "yarl-1.24.5",
           "member": "yarl/_quoting_c.cp314-win_amd64.pyd"
         }
       ]
@@ -6562,10 +6573,10 @@
       "sha256": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf"
     },
     "_internal/licenses/installed/aiohttp/licenses/LICENSE.txt": {
-      "sha256": "ea195371abbf66a39eef56600955d1137c2c196dc144ffec46b6ea530ce70044"
+      "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
     },
     "_internal/licenses/installed/aiohttp/licenses/vendor/llhttp/LICENSE": {
-      "sha256": "279012e02a10acfd59a3f2d8f13a497332535d871c2b27c89988985b06a3a438"
+      "sha256": "628168d68bb5a8a17e0bbefb3bd74e326e1edc20583d76f52f457c82c921867d"
     },
     "_internal/licenses/installed/aiosignal/licenses/LICENSE": {
       "sha256": "6fd5243e92dd7f98ec69c7ac377728e74905709ff527a5bf98d6d0263c04f5b6"
@@ -6655,7 +6666,7 @@
       "sha256": "09f1c8c9e941af3e584d59641ea9b87d83c0cb0fd007eb5ef391a7e2643c1a46"
     },
     "_internal/licenses/installed/multidict/licenses/LICENSE": {
-      "sha256": "93d11a968e2f0f36373c40811ff6d20e173f58c3cab5884cd6617bbfd795492a"
+      "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23"
     },
     "_internal/licenses/installed/packaging/licenses/LICENSE": {
       "sha256": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48"
@@ -6670,7 +6681,7 @@
       "sha256": "b44409c067c6da52bfb54bb6624fb11a7b52157c3a13ae1400232f8196e86ad3"
     },
     "_internal/licenses/installed/pillow/licenses/LICENSE": {
-      "sha256": "4f7866a74802c6326f81faff59a56546b6aec2b10b91973e0e9308de95e79857"
+      "sha256": "988ffe8ab3480b0f4e9a0ab2702bffd73d9fb6b47198043fb3ba101a62fac236"
     },
     "_internal/licenses/installed/pip/licenses/AUTHORS.txt": {
       "sha256": "4eb1fb1705e2def898e81bcba19c3aac80620d27ba3569d6a6df7b4629d1b5c2"

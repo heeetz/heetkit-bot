@@ -109,10 +109,19 @@ renamed PE/native files and changed binary versions/hashes, and compares the sta
 catalogue with the trusted repository copy. It does **not** grant legal clearance.
 The SDK UCRT inputs are now pinned to those exact published v1.1.0 files, with verified
 download/member hashes and a restricted freezing search path. This prevents ambient
-tool directories supplying different DLLs. No DLLs are removed, package versions upgraded,
-runtime/profile behavior or publication rules changed. Updating the allowlist requires exact upstream review, never merely hashes
+tool directories supplying different DLLs. Updating the allowlist requires exact upstream review, never merely hashes
 from a new build. Historical notice files may remain in staging; the catalogue separately
 identifies the current required texts and their concrete evidence.
+
+The current security baseline uses official PyPI wheels for aiohttp **3.14.4**,
+certifi **2026.10.19**, multidict **6.9.1**, Pillow **13.0.0** and yarl **1.25.1**.
+The catalogue records their verified archive hashes, the eleven shipped native member
+hashes and exact installed notices, including Pillow's complete bundled-library
+license collection and aiohttp's llhttp notice. Historical native sources retain
+their previous distribution URLs/hashes. certifi's source and updated CA bundle remain
+replaceable outside PYZ. These updates do not resolve the legal findings below.
+Pillow's unused `ImageMath` module and `_imagingmath` extension are no longer reached
+by the frozen application's imports; the current native inventory reflects that removal.
 
 The Windows wheel's compatibility build is explicit in Python.NET **3.1.0** source
 (`--net46-support`, `src/compat/Python.Runtime.Compat.csproj`; source archive SHA-256

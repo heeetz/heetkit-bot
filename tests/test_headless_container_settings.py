@@ -6,6 +6,7 @@ from pathlib import Path
 import tomllib
 
 import pytest
+from packaging.requirements import Requirement
 
 from app.headless import HeadlessError, secret_file_settings
 from app.headless_health import HealthFile, healthy
@@ -94,8 +95,14 @@ def test_backend_dependencies_exclude_desktop_and_linux_lock_preserves_shared_pi
     root = Path(__file__).resolve().parents[1]
     project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
     assert not any(item.startswith(("keyring", "pywebview", "pystray")) for item in project["dependencies"])
-    assert {item.split(">=")[0] for item in project["optional-dependencies"]["desktop"]} == {"keyring", "pywebview", "pystray"}
+    assert {item.split(">=")[0] for item in project["optional-dependencies"]["desktop"]} == {"keyring", "pywebview", "pystray", "pillow"}
     windows = dict(line.split("==") for line in (root / "packaging/windows/requirements.txt").read_text().splitlines() if "==" in line)
+    # Source installs and reproducible Windows builds must satisfy the same
+    # runtime requirements, including explicit transitive security constraints.
+    for text in project["dependencies"] + project["optional-dependencies"]["desktop"]:
+        requirement = Requirement(text)
+        name = requirement.name.lower().replace("_", "-")
+        assert windows[name] in requirement.specifier
     for line in (root / "packaging/linux/requirements.txt").read_text().splitlines():
         if not line or line.startswith("#"):
             continue
@@ -106,8 +113,6 @@ def test_backend_dependencies_exclude_desktop_and_linux_lock_preserves_shared_pi
                    for digest in digests)
         assert name.lower().replace("_", "-") not in {"keyring", "pywebview", "pystray", "pyinstaller", "pillow", "bottle"}
         if name.lower() == "multidict":
-            # Linux must not inherit the older Windows redistribution baseline's
-            # GHSA-54p9-h82j-f925 affected version (6.7.0 through 6.9.0).
+            # GHSA-54p9-h82j-f925 affects 6.7.0 through 6.9.0.
             assert tuple(map(int, version.split("."))) >= (6, 9, 1)
-        else:
-            assert windows[name.lower().replace("_", "-")] == version
+        assert windows[name.lower().replace("_", "-")] == version

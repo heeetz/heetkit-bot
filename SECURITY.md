@@ -31,6 +31,20 @@ instructions, and recent conversation context when memory is enabled to Google.
 Search grounding can involve Google Search. Provider Test and model discovery also
 contact Google. See [data and privacy](docs/data-and-privacy.md#ai-processing-and-memory).
 
+## Dependency security baseline
+
+Source installs require aiohttp 3.14.4+, certifi 2026.10.19+, multidict 6.9.1+
+and, for Desktop, Pillow 13.0.0+. Windows and Linux packaging pin the compatible
+closure; Linux retains verified wheel hashes for both amd64 and ARM64. The frontend
+requires Vite 7.3.7+ within version 7 and uses the committed npm integrity lock.
+
+aiohttp handles management HTTP and Twitch/provider traffic; certifi supplies CA
+trust to HTTP clients. Pillow is required by the desktop tray, which opens the shipped
+PNG, and by the source icon generator. Vite is development/build tooling; installed
+applications serve its static output. These usage boundaries do not replace updating
+vulnerable dependencies. Rebuild existing binaries/images to receive corrected packages;
+updating source does not repair previously downloaded releases.
+
 ## Scope
 
 Security reports are welcome for credential/OAuth exposure, arbitrary code execution,

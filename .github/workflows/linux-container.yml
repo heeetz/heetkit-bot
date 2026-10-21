@@ -26,8 +26,19 @@ permissions:
 
 jobs:
   container:
-    runs-on: ubuntu-24.04
+    name: Container (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
+    env:
+      HEETKIT_PLATFORM: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v6
         with:

@@ -750,13 +750,14 @@ to check ARM64; the default check remains AMD64. An emulated pass is build/runti
 evidence, not native ARM64 or cloud acceptance. A native check on the chosen VM is
 still required. It removes only its own test project/volume and uniquely tagged image,
 and uses an empty env file rather than reading a checkout `.env`. The Linux GitHub Actions
-workflow runs that same script; it publishes no image or release. Live Twitch/Gemini
+workflow runs that same script on native AMD64 and ARM64 runners; it publishes no image
+or release. Live Twitch/Gemini
 authorization, refresh and reconnect still require separately authorized account tests.
 
 To refresh dependency pins, resolve the base `pyproject.toml` requirements for CPython
 3.14 Linux amd64 **and** arm64 with wheels only, constraining compatible shared versions to
-`packaging/windows/requirements.txt`, retaining the documented `multidict>=6.9.1`
-security override. Record every resolved wheel's SHA-256 in the
+`packaging/windows/requirements.txt`, retaining the security minimums declared in
+`pyproject.toml`. Record every resolved wheel's SHA-256 in the
 Linux lock, retaining both architectures' hashes for native packages. Pure-Python
 wheels can share a hash. Verify hashes against the published PyPI files, update
 official multi-platform base-image digests deliberately, and rerun the focused
