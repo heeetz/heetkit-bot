@@ -170,6 +170,8 @@ def main() -> None:
             run(*compose, "stop", "bot")
             stopped_cleanly()
             wait_sessions(6, 6)
+            run(*compose, "run", "--rm", "--no-deps", "--entrypoint", "python", "bot",
+                "/validation/headless_container.py", "availability")
             run(*compose, "run", "--rm", "--no-deps", "--entrypoint", "python", "bot", "-m", "pip", "check")
             # Exercise the unmodified production CLI against an empty separate
             # profile: safe failure must not hang or print the mounted secret.

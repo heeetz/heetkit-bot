@@ -17,6 +17,7 @@ class BotRuntime:
         self.application = application
         self._logger = logger
         self._headless = headless
+        self.application.services.runtime_state.server_runtime = headless
         self._lifecycle_lock = asyncio.Lock()
         self._stop_event: asyncio.Event | None = None
         self._bot_task: asyncio.Task[None] | None = None

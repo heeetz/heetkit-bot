@@ -7,6 +7,8 @@ import {
   type CustomCommandInput,
   type CustomCommandsResponse,
   type CustomResponseMode,
+  type StreamAvailability,
+  isBrowserMode,
   waitForBridge,
 } from '../bridge'
 import FeedbackToast from '../components/FeedbackToast'
@@ -26,6 +28,7 @@ interface CommandDraft {
   displayName: string
   burstIntervalMs: string
   burstMaxCount: string
+  streamAvailability: StreamAvailability
 }
 
 type Drafts = Record<string, CommandDraft>
@@ -44,6 +47,7 @@ interface CustomDraft {
   perUserSeconds: string
   globalSeconds: string
   aliases: string
+  streamAvailability: StreamAvailability
 }
 
 interface CommandsPageProps {
@@ -59,6 +63,16 @@ interface CommandConfirmation {
 }
 
 const DEFAULT_TG_BURST_MAX_COUNT = 10
+
+const streamAvailabilityOptions: { value: StreamAvailability; label: string }[] = [
+  { value: 'anytime', label: 'Anytime' },
+  { value: 'live_only', label: 'Live only' },
+  { value: 'offline_only', label: 'Offline only' },
+]
+
+function streamAvailability(value: StreamAvailability | undefined): StreamAvailability {
+  return value ?? 'anytime'
+}
 
 function tgBurstMaxCount(command: CommandInfo): number {
   const count = command.burst_max_count ?? command.default_settings.burst_max_count ?? DEFAULT_TG_BURST_MAX_COUNT
@@ -76,6 +90,7 @@ function draftFromCommand(command: CommandInfo): CommandDraft {
     displayName: command.display_name ?? '',
     burstIntervalMs: String(command.burst_interval_ms ?? 0),
     burstMaxCount: String(tgBurstMaxCount(command)),
+    streamAvailability: streamAvailability(command.stream_availability),
   }
 }
 
@@ -109,6 +124,7 @@ function settingsDraftIsDirty(command: CommandInfo, draft: CommandDraft): boolea
     || draft.displayName !== (command.display_name ?? '')
     || parsedBurstInterval(draft.burstIntervalMs) !== (command.burst_interval_ms ?? 0)
     || (command.name === 'tg' && parsedBurstMaxCount(draft.burstMaxCount) !== tgBurstMaxCount(command))
+    || draft.streamAvailability !== streamAvailability(command.stream_availability)
 }
 
 function responseDraftIsDirty(command: CommandInfo, draft: CommandDraft): boolean {
@@ -138,6 +154,7 @@ function newCustomDraft(permission: string): CustomDraft {
     perUserSeconds: '0',
     globalSeconds: '0',
     aliases: '',
+    streamAvailability: 'anytime',
   }
 }
 
@@ -156,6 +173,7 @@ function customDraftFromCommand(command: CustomCommandInfo): CustomDraft {
     perUserSeconds: String(command.per_user_seconds),
     globalSeconds: String(command.global_seconds),
     aliases: command.aliases.join(', '),
+    streamAvailability: streamAvailability(command.stream_availability),
   }
 }
 
@@ -272,6 +290,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           nextDraft.displayName = previousDraft.displayName
           nextDraft.burstIntervalMs = previousDraft.burstIntervalMs
           nextDraft.burstMaxCount = previousDraft.burstMaxCount
+          nextDraft.streamAvailability = previousDraft.streamAvailability
         }
         if (responseDraftIsDirty(previousCommand, previousDraft)) {
           nextDraft.responsePool = previousDraft.responsePool
@@ -287,6 +306,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         nextDraft.displayName = previousDraft.displayName
         nextDraft.burstIntervalMs = previousDraft.burstIntervalMs
         nextDraft.burstMaxCount = previousDraft.burstMaxCount
+        nextDraft.streamAvailability = previousDraft.streamAvailability
       }
       return [command.name, nextDraft]
     })))
@@ -395,6 +415,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     const metadata = {
       ...(canEditIdentity(command) ? { aliases: parseAliases(draft.aliases), display_name: draft.displayName } : {}),
       ...(command.name === 'tg' ? { burst_interval_ms: burstInterval!, burst_max_count: burstMaxCount! } : {}),
+      ...(isBrowserMode() ? { stream_availability: draft.streamAvailability } : {}),
     }
     const responsePool = command.response_pool
     const saveResponses = action === 'save' && responsePool && draft.responsePool !== null
@@ -558,6 +579,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       global_seconds: globalSeconds,
       aliases: parseAliases(customDraft.aliases),
       response_mode: customDraft.responseMode,
+      ...(isBrowserMode() ? { stream_availability: customDraft.streamAvailability } : {}),
       ...(customDraft.responseMode === 'burst' ? { burst_count: burstCount!, burst_allow_override: customDraft.burstAllowOverride, burst_interval_ms: burstInterval! } : {}),
     }
     setBusyCustom(true)
@@ -595,6 +617,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         global_seconds: command.global_seconds,
         aliases: command.aliases,
         response_mode: command.response_mode,
+        ...(isBrowserMode() ? { stream_availability: streamAvailability(command.stream_availability) } : {}),
         ...(command.response_mode === 'burst' ? { burst_count: command.burst_count ?? 1, burst_allow_override: command.burst_allow_override ?? false, burst_interval_ms: command.burst_interval_ms ?? 0 } : {}),
       })
       if (!result.ok) throw new Error(result.error ?? 'Could not update custom command.')
@@ -749,6 +772,16 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
                 options={commandPermissions(data, command).map((permission) => ({ value: permission, label: permission.toLowerCase() }))}
               />
             </label>
+            {isBrowserMode() && <label>
+              Stream availability
+              <Select
+                value={draft.streamAvailability}
+                aria-label="Stream availability"
+                disabled={Boolean(busy)}
+                onChange={(value) => updateDraft(command.name, { streamAvailability: value as StreamAvailability })}
+                options={streamAvailabilityOptions}
+              />
+            </label>}
             <label>
               Per-user cooldown
               <span className="number-with-unit">
@@ -915,6 +948,15 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
             <Switch checked={customDraft.enabled} ariaLabel="Enable custom command" onCheckedChange={(enabled) => updateCustomDraft({ enabled })}>
               <span>{customDraft.enabled ? 'Enabled' : 'Disabled'}</span>
             </Switch>
+            {isBrowserMode() && <label className="form-field">
+              Stream availability
+              <Select
+                value={customDraft.streamAvailability}
+                aria-label="Stream availability"
+                onChange={(value) => updateCustomDraft({ streamAvailability: value as StreamAvailability })}
+                options={streamAvailabilityOptions}
+              />
+            </label>}
           </div>
           <div className="custom-response-heading"><h3>Cooldowns</h3></div>
           <div className="custom-command-fields">

@@ -303,6 +303,13 @@ and selection, profile instructions, AI memory/model/language preferences, filte
 AI account blocks and message triggers. Applied session-only edits are included;
 unfinished editor drafts are not. Import saves these values on the destination.
 
+Server exports include per-command stream availability. Desktop exports omit this
+Server-only preference. When an older or Desktop ZIP omits availability, import
+preserves the destination's policy for each matching built-in or custom command
+(custom ID first, then canonical name); new commands default to Anytime. An
+explicit policy in a Server ZIP replaces that value, including explicit Anytime.
+Desktop can retain imported policies but never enforces them.
+
 Select the ZIP in Settings on the other instance, review the included names/counts,
 replacement scope and preserved settings, then explicitly confirm the import.
 Each included collection replaces its destination collection, including deletions.

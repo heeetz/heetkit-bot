@@ -445,8 +445,19 @@ confirmation, retains the desired connection and last known live/offline status,
 and backs off checks from 120 seconds to at most 900 seconds. Each check has a
 15-second deadline; TwitchIO retains its rate-limit handling. Timing and confirmation
 thresholds are internal constructor settings for controlled testing/operation.
-Checks run only in Stream Only; other modes report Unknown with the previous
-observation if available. Safe lifecycle codes expose polls, confirmed transitions,
+The same single monitor also runs in Always On and connected Manual when any
+built-in or custom command has a stream restriction. Those observations only gate
+command execution; they never connect or disconnect chat in these modes. Manual
+while stopped, Disabled, and Always On without restrictions need no command polls.
+Command settings edits wake monitoring only when this demand changes, preserving
+poll intervals and backoff. Desktop never starts this monitoring.
+
+For command execution, a successful Get Streams response confirms the current
+state until a failed check, monitoring stops, configuration/mode changes, or the
+observation reaches 135 seconds old (two polling intervals plus the request
+deadline). Unknown/stale status blocks both restricted policies while Anytime
+commands continue. The two-sample Stream Only connection confirmation is unchanged.
+Safe lifecycle codes expose polls, confirmed transitions,
 mode changes and connection failures without credentials or provider payloads.
 
 Monitoring errors never prove a stream ended. Once confirmed offline, closing may

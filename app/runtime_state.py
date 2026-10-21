@@ -1,6 +1,6 @@
 """Thread-safe runtime controls shared by the bot and local control panel."""
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 import logging
 from pathlib import Path
@@ -47,6 +47,10 @@ class RuntimeState:
         self._command_defaults: dict[str, CommandSettings] = {}
         self._command_definitions: dict[str, CommandSettingsDefinition] = {}
         self._custom_commands = None
+        # Only the headless BotRuntime enables this boundary. Desktop retains
+        # stored Server preferences but never enforces them or polls Twitch.
+        self.server_runtime = False
+        self.server_stream_status: Callable[[], str] | None = None
         self._command_settings: dict[str, CommandSettings] = {}
         self._persisted_command_overrides: dict[str, CommandSettingsOverride] = {}
         self._command_settings_path = (
@@ -226,6 +230,7 @@ class RuntimeState:
         display_name: object = None,
         burst_interval_ms: int | None = None,
         burst_max_count: int | None = None,
+        stream_availability: str | None = None,
     ) -> CommandSettings:
         with self._lock:
             current = self.get_command_settings(command_name)
@@ -237,6 +242,7 @@ class RuntimeState:
                 display_name=current.display_name if display_name is None else validate_display_name(display_name),
                 burst_interval_ms=current.burst_interval_ms if burst_interval_ms is None else burst_interval_ms,
                 burst_max_count=current.burst_max_count if burst_max_count is None else burst_max_count,
+                stream_availability=current.stream_availability if stream_availability is None else stream_availability,
             )
             updated = self._validated_command_settings(command_name, updated)
             self._command_settings[command_name] = updated
@@ -258,6 +264,7 @@ class RuntimeState:
         display_name: object = None,
         burst_interval_ms: int | None = None,
         burst_max_count: int | None = None,
+        stream_availability: str | None = None,
     ) -> CommandSettings:
         with self._lock:
             current = self.get_command_settings(command_name)
@@ -269,6 +276,7 @@ class RuntimeState:
                 display_name=current.display_name if display_name is None else validate_display_name(display_name),
                 burst_interval_ms=current.burst_interval_ms if burst_interval_ms is None else burst_interval_ms,
                 burst_max_count=current.burst_max_count if burst_max_count is None else burst_max_count,
+                stream_availability=current.stream_availability if stream_availability is None else stream_availability,
             )
             updated = self._validated_command_settings(command_name, updated)
             self._save_command_settings(command_name, updated)
@@ -329,6 +337,16 @@ class RuntimeState:
 
     def is_command_enabled(self, command_name: str) -> bool:
         return self.command_enabled(command_name)
+
+    def command_stream_status(self) -> str | None:
+        if not self.server_runtime:
+            return None
+        return "unknown" if self.server_stream_status is None else self.server_stream_status()
+
+    def command_stream_available(self, availability: str) -> bool:
+        if not self.server_runtime or availability == "anytime":
+            return True
+        return self.command_stream_status() == {"live_only": "live", "offline_only": "offline"}.get(availability, "unavailable")
 
     def set_command_enabled(self, command_name: str, enabled: bool) -> None:
         with self._lock:

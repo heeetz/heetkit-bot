@@ -98,6 +98,41 @@ async def test_authentication_origin_host_and_private_surface(api):
         assert TOKEN not in json.dumps(body)
 
 
+async def test_server_availability_http_save_reset_and_monitor_demand(api, monkeypatch):
+    server, call = api
+    async def offline(*args):
+        return False
+    monkeypatch.setattr(server.runtime.application.services.twitch, "get_broadcaster_live", offline)
+    payload = {"command_name": "ask", "enabled": True, "per_user_seconds": 0,
+        "global_seconds": 0, "permission": "USER", "options": {"stream_availability": "live_only"}}
+    _, result, _ = await call("POST", "/v1/commands/save", json=payload)
+    assert result["ok"]
+    _, result, _ = await call("GET", "/v1/commands")
+    ask = next(item for item in result["commands"] if item["name"] == "ask")
+    assert ask["stream_availability"] == "live_only" and ask["saved"]
+    assert ask["default_settings"]["stream_availability"] == "anytime"
+    assert not server.policy._monitoring  # Manual is stopped.
+    # Exercise demand notification through the actual fixed HTTP dispatcher,
+    # without starting a real Twitch session or calling a provider.
+    server.policy.desired_running = True
+    _, result, _ = await call("POST", "/v1/commands/save", json=payload)
+    assert result["ok"] and server.policy._monitoring
+    await call("POST", "/v1/commands/reset", json={"command_name": "ask"})
+    assert not server.policy._monitoring
+    _, result, _ = await call("POST", "/v1/commands/save", json={**payload,
+        "options": {"stream_availability": "invalid"}})
+    assert not result["ok"]
+    _, result, _ = await call("POST", "/v1/custom-commands/save", json={"command": {
+        "name": "crosshair", "enabled": True, "responses": ["crosshair"], "permission": "USER",
+        "per_user_seconds": 0, "global_seconds": 0, "aliases": [], "stream_availability": "offline_only"}})
+    assert result["ok"] and server.policy._monitoring
+    _, result, _ = await call("GET", "/v1/custom-commands")
+    custom = result["commands"][0]
+    assert custom["stream_availability"] == "offline_only"
+    await call("POST", "/v1/custom-commands/delete", json={"identifier": custom["id"]})
+    assert not server.policy._monitoring
+
+
 @pytest.mark.asyncio
 async def test_unrelated_cookies_are_ignored_without_granting_authority(api):
     server, call = api

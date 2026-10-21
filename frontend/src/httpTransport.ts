@@ -120,7 +120,8 @@ const unsupported = async (): Promise<never> => { throw new Error('This action i
 const commandPayload = (command_name: string, enabled: boolean, per_user_seconds: number, global_seconds: number, permission: string, options?: CommandSettingsMetadata) => ({
   command_name, enabled, per_user_seconds, global_seconds, permission,
   ...(options ? { options: { aliases: options.aliases, display_name: options.display_name,
-    burst_interval_ms: options.burst_interval_ms, burst_max_count: options.burst_max_count } } : {}),
+    burst_interval_ms: options.burst_interval_ms, burst_max_count: options.burst_max_count,
+    stream_availability: options.stream_availability } } : {}),
 })
 
 // Fixed methods and named payloads only: no HTTP access to arbitrary bridge names.
@@ -156,6 +157,7 @@ export const browserApi: PythonApi = {
     permission: command.permission, per_user_seconds: command.per_user_seconds, global_seconds: command.global_seconds,
     aliases: command.aliases, response_mode: command.response_mode, burst_count: command.burst_count,
     burst_allow_override: command.burst_allow_override, burst_interval_ms: command.burst_interval_ms,
+    stream_availability: command.stream_availability,
   } }),
   delete_custom_command: (identifier) => write('/v1/custom-commands/delete', { identifier }),
   apply_filters: (payload) => write('/v1/filters/apply', { payload: { words: payload.words, phrases: payload.phrases, patterns: payload.patterns } }),

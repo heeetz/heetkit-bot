@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import type { CommandInfo, CustomCommandInfo, FilterInput } from '../src/bridge'
+import { selectOption } from './select-helpers'
 
 const adminToken = 'a'.repeat(43)
 const sessionToken = 's'.repeat(43)
@@ -33,8 +34,8 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
   const command: CommandInfo = {
     name: 'ping', aliases: [], enabled: true, available: true, unavailable_reason: null,
     response_pool: { responses: ['Pong'], defaults: ['Pong'], saved: true, has_saved_override: false, response_mode: 'single', max_responses: 1 },
-    permission: 'EVERYONE', cooldown: { per_user_seconds: 1, global_seconds: 0 }, hidden: false,
-    default_settings: { enabled: true, permission: 'EVERYONE', cooldown: { per_user_seconds: 1, global_seconds: 0 } },
+    permission: 'EVERYONE', stream_availability: 'live_only', cooldown: { per_user_seconds: 1, global_seconds: 0 }, hidden: false,
+    default_settings: { enabled: true, permission: 'EVERYONE', stream_availability: 'anytime', cooldown: { per_user_seconds: 1, global_seconds: 0 } },
     saved: true, has_saved_override: false,
   }
   let operation = {
@@ -91,7 +92,13 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     if (path === '/v1/ai/models') result = { ok: true, settings: aiProvider }
     if (path === '/v1/ai/language') result = { ok: true, settings: { mode: 'auto', allowed_languages: ['en'], fallback_language: 'en' }, languages: [{ code: 'en', label: 'English' }], active_policy: 'Auto' }
     if (path === '/v1/commands') result = { command_prefix: '!', permissions: ['EVERYONE', 'MODERATOR'], commands: [command] }
-    if (path === '/v1/commands/save' || path === '/v1/commands/apply') command.cooldown.per_user_seconds = body!.per_user_seconds as number
+    if (path === '/v1/commands/save' || path === '/v1/commands/apply') {
+      command.cooldown.per_user_seconds = body!.per_user_seconds as number
+      const options = body!.options as { stream_availability?: CommandInfo['stream_availability'] } | undefined
+      if (options?.stream_availability) command.stream_availability = options.stream_availability
+      command.has_saved_override = true
+    }
+    if (path === '/v1/commands/reset') Object.assign(command, structuredClone(command.default_settings), { has_saved_override: false })
     if (path === '/v1/commands/responses/save' || path === '/v1/commands/responses/apply') command.response_pool!.responses = body!.responses as string[]
     if (path === '/v1/custom-commands') result = { command_prefix: '!', permissions: ['EVERYONE', 'MODERATOR'], variables: ['sender'], commands: customCommands }
     if (path === '/v1/custom-commands/save') customCommands = [{ ...(body!.command as CustomCommandInfo), id: 'saved-command' }]
@@ -152,8 +159,8 @@ test('browser route payloads use explicit server fields and request failures sta
   const api = await server(page)
   await page.goto('/tests/browser.fixture.html')
   await login(page)
-  await invoke(page, 'save_command_settings', ['ping', true, 3, 4, 'MODERATOR', { aliases: ['pong'], display_name: 'Ping', unexpected: 'discarded' }])
-  expect(api.calls.at(-1)).toMatchObject({ path: '/v1/commands/save', body: { command_name: 'ping', enabled: true, per_user_seconds: 3, global_seconds: 4, permission: 'MODERATOR', options: { aliases: ['pong'], display_name: 'Ping' } } })
+  await invoke(page, 'save_command_settings', ['ping', true, 3, 4, 'MODERATOR', { aliases: ['pong'], display_name: 'Ping', stream_availability: 'offline_only', unexpected: 'discarded' }])
+  expect(api.calls.at(-1)).toMatchObject({ path: '/v1/commands/save', body: { command_name: 'ping', enabled: true, per_user_seconds: 3, global_seconds: 4, permission: 'MODERATOR', options: { aliases: ['pong'], display_name: 'Ping', stream_availability: 'offline_only' } } })
   await invoke(page, 'save_command_responses', ['ping', ['Changed']])
   expect(api.calls.at(-1)?.body).toEqual({ name: 'ping', responses: ['Changed'] })
   await invoke(page, 'rename_personality', ['old', 'new'])
@@ -229,7 +236,7 @@ test('disabled browser operation mode removes connect control and explains how t
   await expect(page.getByRole('button', { name: /Connect|Start Bot|Disconnect|Switch to Manual & disconnect/, exact: false })).toHaveCount(0)
 })
 
-for (const width of [1280, 390]) {
+for (const width of [1280, 900, 390, 320]) {
   test(`existing browser pages save server drafts and hide native actions at ${width}px`, async ({ page }) => {
     const api = await server(page)
     await page.setViewportSize({ width, height: 900 })
@@ -238,9 +245,48 @@ for (const width of [1280, 390]) {
     await page.getByRole('button', { name: 'Commands', exact: true }).click()
     const command = page.locator('.command-card').first()
     await command.getByRole('button', { name: 'Edit !ping', exact: true }).click()
+    const availability = command.getByLabel('Stream availability', { exact: true })
+    await expect(availability).toHaveAttribute('data-value', 'live_only')
+    await availability.focus()
+    await availability.press('End')
+    await availability.press('Enter')
+    await expect(availability).toBeFocused()
+    await expect(availability).toHaveAttribute('data-value', 'offline_only')
+    const availabilityBounds = await availability.boundingBox()
+    const cooldownBounds = await command.getByLabel('Per-user cooldown').boundingBox()
+    expect(availabilityBounds!.x).toBeGreaterThanOrEqual(0)
+    expect(availabilityBounds!.x + availabilityBounds!.width).toBeLessThanOrEqual(width)
+    expect(Math.abs(availabilityBounds!.width - cooldownBounds!.width)).toBeLessThanOrEqual(2)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
     await command.getByLabel('Per-user cooldown').fill('7')
     await command.getByRole('button', { name: 'Save command', exact: true }).click()
     await expect.poll(() => api.calls.find((call) => call.path === '/v1/commands/save')?.body?.per_user_seconds).toBe(7)
+    expect(api.calls.find((call) => call.path === '/v1/commands/save')?.body).toMatchObject({ options: { stream_availability: 'offline_only' } })
+    await command.getByRole('button', { name: 'Reset settings', exact: true }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click()
+    await expect(availability).toHaveAttribute('data-value', 'anytime')
+    await page.getByRole('button', { name: 'New command', exact: true }).click()
+    const custom = page.locator('.custom-command-editor')
+    await expect(custom.getByLabel('Stream availability', { exact: true })).toHaveAttribute('data-value', 'anytime')
+    await custom.getByLabel('Command name').fill('browser')
+    await custom.getByLabel('Message', { exact: true }).fill('Browser reply')
+    await selectOption(custom.getByLabel('Stream availability', { exact: true }), 'offline_only')
+    await custom.getByRole('button', { name: 'Save command', exact: true }).click()
+    await expect.poll(() => api.calls.find((call) => call.path === '/v1/custom-commands/save')?.body).toMatchObject({ command: { stream_availability: 'offline_only' } })
+    const customRow = page.locator('.custom-command-row').filter({ hasText: '!browser' })
+    await customRow.getByRole('button', { name: 'Edit', exact: true }).click()
+    await expect(custom.getByLabel('Stream availability', { exact: true })).toHaveAttribute('data-value', 'offline_only')
+    await selectOption(custom.getByLabel('Stream availability', { exact: true }), 'live_only')
+    await page.getByRole('button', { name: 'Discard draft', exact: true }).click()
+    await expect(page.getByRole('dialog').getByRole('heading')).toHaveText('Discard unsaved command changes?')
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(custom.getByLabel('Stream availability', { exact: true })).toHaveAttribute('data-value', 'live_only')
+    const customBounds = await custom.getByLabel('Stream availability', { exact: true }).boundingBox()
+    expect(customBounds!.x).toBeGreaterThanOrEqual(0)
+    expect(customBounds!.x + customBounds!.width).toBeLessThanOrEqual(width)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    await custom.getByRole('button', { name: 'Save command', exact: true }).click()
+    await expect.poll(() => api.calls.filter((call) => call.path === '/v1/custom-commands/save').at(-1)?.body).toMatchObject({ command: { stream_availability: 'live_only' } })
     await page.getByRole('button', { name: 'Filters', exact: true }).click()
     const words = page.locator('#filters-words')
     await words.locator('.accordion-trigger').press('Enter')

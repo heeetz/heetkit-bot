@@ -6,6 +6,7 @@ import asyncio
 import logging
 import math
 from datetime import datetime, timezone
+from time import monotonic
 
 from app.app_settings import AppSettingsStore, OPERATION_MODES
 from app.bot_runtime import BotRuntime
@@ -17,7 +18,8 @@ logger = logging.getLogger("app.headless.policy")
 class OperationPolicy:
     def __init__(self, runtime: BotRuntime, store: AppSettingsStore, *,
                  poll_interval: float = 60.0, max_backoff: float = 900.0,
-                 request_timeout: float = 15.0, confirmations: int = 2) -> None:
+                 request_timeout: float = 15.0, confirmations: int = 2,
+                 clock=monotonic) -> None:
         if (any(not math.isfinite(value) or value <= 0
                 for value in (poll_interval, max_backoff, request_timeout))
                 or max_backoff < poll_interval or type(confirmations) is not int or confirmations < 2):
@@ -38,15 +40,46 @@ class OperationPolicy:
         self._monitor: asyncio.Task | None = None
         self._closed = False
         self._setup_suspended = False
+        self._monitoring = False
+        self._clock = clock
+        self._stream_checked_at: float | None = None
+
+    def confirmed_stream_status(self) -> str:
+        # A failed check immediately invalidates confirmation. A stalled loop or
+        # request cannot keep an old observation authoritative indefinitely.
+        if (not self._monitoring or self._closed or self._setup_suspended
+                or self._stream_checked_at is None
+                or self._clock() - self._stream_checked_at >= 2 * self._poll_interval + self._request_timeout):
+            return "unknown"
+        return self.stream_status
+
+    def refresh_command_monitoring(self) -> None:
+        state = self.runtime.application.services.runtime_state
+        required = self.mode == "stream_only"
+        if not required and self.desired_running and state.server_runtime:
+            with state.command_namespace_lock:
+                required = any(state.get_command_settings(name).stream_availability != "anytime"
+                               for name in state.runtime_toggleable_commands)
+                customs = getattr(self.runtime.application, "custom_commands", None)
+                required = required or (customs is not None and any(
+                    command.stream_availability != "anytime" for command in customs.list()))
+        required = bool(required and not self._setup_suspended and not self._closed)
+        if required != self._monitoring:
+            self._monitoring = required
+            self._revision += 1
+            self.stream_status = "unknown"
+            self._stream_checked_at = None
+            self._monitor_wake.set()
 
     def snapshot(self) -> dict:
         return {"mode": self.mode, "desired_running": self.desired_running,
             "pending": self.pending, "error": self.error,
-            "stream_status": self.stream_status,
+            "stream_status": self.confirmed_stream_status(),
             "last_known_stream_status": self.last_known_stream_status,
             "last_checked_at": self.last_checked_at}
 
     def _schedule(self) -> None:
+        self.refresh_command_monitoring()
         self.pending = True
         if not self.desired_running and self.runtime.bot_active:
             # Intent is visible before close yields or supervision sees completion.
@@ -58,6 +91,7 @@ class OperationPolicy:
             raise RuntimeError("Operation policy has closed.")
         if self._worker is not None:
             return
+        self.runtime.application.services.runtime_state.server_stream_status = self.confirmed_stream_status
         self._worker = asyncio.create_task(self._reconcile(), name="heetkit-operation-policy")
         self._monitor = asyncio.create_task(self._monitor_stream(), name="heetkit-stream-monitor")
         self._schedule()
@@ -153,7 +187,7 @@ class OperationPolicy:
         revision = self._revision
         while True:
             self._monitor_wake.clear()
-            if self.mode != "stream_only" or self._setup_suspended:
+            if not self._monitoring:
                 await self._monitor_wake.wait()
                 continue
             if revision != self._revision:
@@ -173,9 +207,10 @@ class OperationPolicy:
                     await self.runtime.application.services.twitch.close_stream_monitor()
                 except Exception:
                     logger.warning("Stream API cleanup failed.", extra={"event_kind": "operation.poll"})
-            if revision != self._revision or self.mode != "stream_only":
+            if revision != self._revision or not self._monitoring:
                 continue  # Discard a response from a superseded policy.
             self.last_checked_at = datetime.now(timezone.utc).isoformat()
+            self._stream_checked_at = self._clock() if live is not None else None
             previous = self.stream_status
             self.stream_status = "unknown" if live is None else "live" if live else "offline"
             if live is None:
@@ -186,7 +221,8 @@ class OperationPolicy:
                 self.last_known_stream_status = self.stream_status
                 count = count + 1 if candidate is live else 1
                 candidate = live
-                if count >= self._confirmations and self.error is None and self.desired_running != live:
+                if (self.mode == "stream_only" and count >= self._confirmations
+                        and self.error is None and self.desired_running != live):
                     self.desired_running = live
                     self._schedule()
                     logger.info("Confirmed stream transition: %s", self.stream_status,

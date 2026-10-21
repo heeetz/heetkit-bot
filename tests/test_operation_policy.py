@@ -12,6 +12,10 @@ from app.bot_runtime import BotRuntime
 from app.config.settings import Settings
 from app.operation_policy import OperationPolicy
 from app.runtime_state import RuntimeState
+from app.commands.registry import CommandDispatcher, CommandRegistry
+from app.custom_commands import CustomCommandStore
+from app.twitch.events import ChatAuthor, IncomingChatMessage
+from app.utils.cooldown import CooldownManager
 
 
 async def eventually(predicate):
@@ -240,3 +244,126 @@ def test_operation_mode_preserved_by_desktop_ai_updates_and_invalid_settings(tmp
     assert AppSettingsStore(path).snapshot().startup.operation_mode == "disabled"
     path.write_text('{"version":1,"startup":null}')
     assert AppSettingsStore(path).snapshot().startup.operation_mode == "disabled"
+
+
+@pytest.mark.parametrize("mode", ["always_on", "manual"])
+@pytest.mark.parametrize("custom", [False, True])
+async def test_restricted_commands_reuse_monitor_without_controlling_connection(rig, mode, custom, tmp_path):
+    policy, runtime, calls, state, _ = rig
+    registry = CommandRegistry()
+
+    @registry.command("restricted")
+    async def restricted(context, arguments):
+        await context.reply("restricted")
+
+    @registry.command("ordinary")
+    async def ordinary(context, arguments):
+        await context.reply("ordinary")
+
+    state.configure_commands(registry.definitions())
+    store = CustomCommandStore(tmp_path / "custom.json", {"restricted", "ordinary"})
+    runtime.application.custom_commands = store
+    if custom:
+        store.save({"name": "custom", "enabled": True, "responses": ["restricted"],
+            "permission": "USER", "per_user_seconds": 0, "global_seconds": 0,
+            "aliases": ["alias"], "stream_availability": "live_only"})
+        invocation = "!alias"
+    else:
+        state.apply_command_settings("restricted", stream_availability="live_only")
+        invocation = "!restricted"
+    policy.set_mode(mode)
+    if mode == "manual":
+        policy.connect()
+    policy.refresh_command_monitoring()
+    await eventually(lambda: calls.starts == 1 and policy.confirmed_stream_status() == "offline")
+    monitor = policy._monitor
+    replies = []
+
+    async def respond(text):
+        replies.append(text)
+
+    dispatcher = CommandDispatcher(registry, CooldownManager(), logging.getLogger(__name__), "!",
+                                   runtime_state=state, custom_commands=store)
+    async def send(content):
+        await dispatcher.dispatch(IncomingChatMessage("channel", content, ChatAuthor("300", "viewer"), respond),
+                                  runtime.application.services)
+
+    await send(invocation)
+    await send("!ordinary")
+    assert replies == ["ordinary"]
+    calls.live = True
+    await eventually(lambda: policy.confirmed_stream_status() == "live")
+    await send(invocation)
+    assert replies[-1] == "restricted"
+    calls.live = OSError("synthetic API failure")
+    await eventually(lambda: policy.confirmed_stream_status() == "unknown")
+    await send(invocation)
+    await send("!ordinary")
+    assert replies == ["ordinary", "restricted", "ordinary"]
+    calls.live = False
+    await eventually(lambda: policy.confirmed_stream_status() == "offline")
+    assert runtime.bot_active and calls.starts == 1 and policy.desired_running
+    assert policy._monitor is monitor and calls.maximum == 1
+    # Repeated ordinary editor writes must not bypass polling/backoff.
+    before = calls.polls
+    for _ in range(20):
+        policy.refresh_command_monitoring()
+    assert calls.polls == before
+    assert not policy._monitor_wake.is_set()
+
+
+@pytest.mark.parametrize("live", [False, True])
+async def test_confirmation_expires_and_failure_never_authorizes_offline(rig, live):
+    policy, _, calls, state, _ = rig
+    now = [0.0]
+    policy._clock = lambda: now[0]
+    calls.live = live
+    policy.set_mode("stream_only")
+    await eventually(lambda: policy.confirmed_stream_status() == ("live" if live else "offline"))
+    assert state.command_stream_available("live_only" if live else "offline_only")
+    now[0] = 2 * policy._poll_interval + policy._request_timeout
+    assert policy.confirmed_stream_status() == "unknown"
+    assert policy.snapshot()["stream_status"] == "unknown"
+    assert not state.command_stream_available("offline_only")
+    assert not state.command_stream_available("live_only")
+    assert state.command_stream_available("anytime")
+    calls.live = OSError("synthetic")
+    await eventually(lambda: policy.stream_status == "unknown")
+    assert not state.command_stream_available("offline_only")
+
+
+async def test_monitor_timeout_is_unknown_and_preserves_anytime_and_connection(rig):
+    policy, runtime, calls, state, _ = rig
+    policy.set_mode("stream_only")
+    calls.live = True
+    await eventually(lambda: calls.starts == 1)
+    calls.gate = asyncio.Event()
+    await eventually(lambda: policy.stream_status == "unknown")
+    assert runtime.bot_active and policy.desired_running
+    assert not state.command_stream_available("live_only")
+    assert not state.command_stream_available("offline_only")
+    assert state.command_stream_available("anytime")
+
+
+async def test_no_api_requests_for_unrestricted_commands_or_stopped_manual(rig):
+    policy, runtime, calls, state, _ = rig
+    policy.set_mode("always_on")
+    await eventually(lambda: runtime.bot_active)
+    await asyncio.sleep(0.03)
+    assert calls.polls == 0
+    registry = CommandRegistry()
+    @registry.command("command")
+    async def command(context, arguments):
+        pass
+    state.configure_commands(registry.definitions())
+    state.apply_command_settings("command", stream_availability="live_only")
+    policy.refresh_command_monitoring()
+    await eventually(lambda: calls.polls > 0)
+    policy.disconnect()
+    await eventually(lambda: not runtime.bot_active)
+    before = calls.polls
+    await asyncio.sleep(0.04)
+    assert calls.polls == before and policy.confirmed_stream_status() == "unknown"
+    policy.set_mode("disabled")
+    await asyncio.sleep(0.03)
+    assert calls.polls == before

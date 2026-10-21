@@ -68,6 +68,7 @@ export interface CommandInfo {
     max_responses: number
   } | null
   permission: string
+  stream_availability?: StreamAvailability
   cooldown: {
     per_user_seconds: number
     global_seconds: number
@@ -86,6 +87,7 @@ export interface CommandSettings {
   burst_interval_ms?: number
   burst_max_count?: number
   permission: string
+  stream_availability?: StreamAvailability
   cooldown: {
     per_user_seconds: number
     global_seconds: number
@@ -97,6 +99,7 @@ export interface CommandSettingsMetadata {
   display_name?: string
   burst_interval_ms?: number
   burst_max_count?: number
+  stream_availability?: StreamAvailability
 }
 
 export interface CommandsResponse {
@@ -116,6 +119,7 @@ export interface CustomCommandInput {
   per_user_seconds: number
   global_seconds: number
   aliases: string[]
+  stream_availability?: StreamAvailability
   response_mode?: CustomResponseMode
   burst_count?: number
   burst_allow_override?: boolean
@@ -126,6 +130,8 @@ export interface CustomCommandInfo extends CustomCommandInput {
   id: string
   response_mode: CustomResponseMode
 }
+
+export type StreamAvailability = 'anytime' | 'live_only' | 'offline_only'
 
 export interface CustomCommandsResponse {
   command_prefix: string

@@ -16,7 +16,7 @@ from threading import RLock
 from uuid import UUID, uuid4
 
 from app.twitch.permissions import Permission
-from app.command_settings import validate_burst_interval
+from app.command_settings import validate_burst_interval, validate_stream_availability
 from app.settings_recovery import preserve_settings_recovery
 from app.utils.cooldown import CooldownPolicy
 from app.utils.text import normalize_command_name
@@ -43,6 +43,7 @@ class CustomCommand:
     burst_count: int = 1
     burst_allow_override: bool = False
     burst_interval_ms: int = 0
+    stream_availability: str = "anytime"
 
     def to_json(self) -> dict[str, object]:
         result: dict[str, object] = {
@@ -60,6 +61,8 @@ class CustomCommand:
             result.update(burst_count=self.burst_count, burst_allow_override=self.burst_allow_override)
             if self.burst_interval_ms:
                 result["burst_interval_ms"] = self.burst_interval_ms
+        if self.stream_availability != "anytime":
+            result["stream_availability"] = self.stream_availability
         return result
 
 
@@ -150,6 +153,7 @@ def parse_custom_command(raw: object, *, command_id: str | None = None, legacy: 
         burst_count=burst_count,
         burst_allow_override=burst_allow_override,
         burst_interval_ms=burst_interval_ms,
+        stream_availability=validate_stream_availability(raw.get("stream_availability", "anytime")),
     )
 
 
@@ -192,6 +196,8 @@ class CustomCommandStore:
             requested_id = raw.get("id")
             if requested_id is not None and requested_id not in self._commands:
                 raise ValueError("Unknown custom command ID.")
+            if requested_id is not None and "stream_availability" not in raw:
+                raw = {**raw, "stream_availability": self._commands[requested_id].stream_availability}
             command = parse_custom_command(raw, command_id=requested_id or str(uuid4()))
             updated = dict(self._commands)
             updated[command.id] = command

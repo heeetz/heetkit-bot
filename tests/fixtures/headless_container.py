@@ -52,6 +52,12 @@ def seed():
     (paths.filters / "blocked_words.txt").write_text("syntheticblocked\n")
     paths.tokens.write_text(json.dumps({"100": {"user_id": "100", "token": "synthetic-access", "refresh": "synthetic-refresh-0"}}))
     paths.tokens.chmod(0o600)
+    paths.command_settings.write_text(json.dumps({"ask": {"stream_availability": "live_only"}}))
+    from app.custom_commands import CustomCommandStore
+    custom = CustomCommandStore(paths.custom_commands, set())
+    for name, availability in (("crosshair", "anytime"), ("offline", "offline_only")):
+        custom.save({"name": name, "enabled": True, "responses": [name], "permission": "USER",
+            "per_user_seconds": 0, "global_seconds": 0, "aliases": [], "stream_availability": availability})
     fifo = Path("/tmp/probe-secret-fifo")
     os.mkfifo(fifo)
     original = os.environ["TWITCH_CLIENT_SECRET_FILE"]
@@ -89,6 +95,9 @@ async def session(**kwargs):
     assert settings.twitch_client_secret.get_secret_value() == "synthetic-client-secret"
     assert "TWITCH_CLIENT_SECRET" not in os.environ
     assert not services.runtime_state.ai_memory_enabled
+    assert services.runtime_state.server_runtime
+    assert services.runtime_state.get_command_settings("ask").stream_availability == "live_only"
+    assert services.custom_commands.get_by_name("offline").stream_availability == "offline_only"
     assert services.runtime_state.get_ai_personality_prompt("neutral") == "Synthetic saved personality."
     assert not services.filter_manager.filter_message("syntheticblocked")
     counter = paths.data / "probe-starts"
@@ -155,6 +164,74 @@ def synthetic_policy(runtime, store):
     return OperationPolicy(runtime, store, poll_interval=0.1, max_backoff=0.4, request_timeout=1)
 
 
+async def availability_probe():
+    """Real Server composition and one monitor, with only remote calls replaced."""
+    from app.config.settings import Settings
+    from app.container import build_application
+    from app.twitch.events import ChatAuthor, IncomingChatMessage
+    from app.utils.output_limiter import OutputLimiter
+    import aiohttp
+    import httpx
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("Network in availability probe")
+    aiohttp.ClientSession._request = forbidden
+    httpx.AsyncClient.send = forbidden
+    TwitchAPIService.get_broadcaster_live = synthetic_live
+    app = build_application(Settings(_env_file=None, twitch_client_id="synthetic-client",
+        twitch_client_secret="synthetic", twitch_bot_username="syntheticbot", twitch_bot_user_id="100",
+        twitch_channel="syntheticchannel", twitch_channel_user_id="200",
+        database_url="sqlite+aiosqlite:///" + str(paths.database)))
+    state = app.services.runtime_state
+
+    async def idle(**kwargs):
+        state.set_twitch_connection_state("connected")
+        await kwargs["stop_event"].wait()
+    bot_runtime.run_twitch_bot = idle
+    runtime = bot_runtime.BotRuntime(app, logging.getLogger("probe"), headless=True)
+    store = AppSettingsStore(paths.app_settings)
+    store.update_operation_mode("always_on")
+    policy = synthetic_policy(runtime, store)
+    app.dispatcher._output_limiter = OutputLimiter(interval=0)
+    replies = []
+
+    async def respond(text):
+        replies.append(text)
+
+    async def wait_status(status):
+        async with asyncio.timeout(5):
+            while policy.confirmed_stream_status() != status or not runtime.bot_active:
+                await asyncio.sleep(0.01)
+
+    async def send(command):
+        await app.dispatcher.dispatch(IncomingChatMessage("syntheticchannel", command,
+            ChatAuthor("300", "viewer"), respond), app.services)
+
+    try:
+        await runtime.startup()
+        (paths.data / "probe-live").write_text("false")
+        await policy.start()
+        await wait_status("offline")
+        await send("!crosshair")
+        await send("!offline")
+        assert replies == ["crosshair", "offline"]
+        (paths.data / "probe-live").write_text("true")
+        await wait_status("live")
+        await send("!offline")
+        await send("!crosshair")
+        assert replies == ["crosshair", "offline", "crosshair"]
+        (paths.data / "probe-live").write_text("unknown")
+        await wait_status("unknown")
+        await send("!offline")
+        await send("!crosshair")
+        assert replies[-2:] == ["crosshair", "crosshair"]
+        assert runtime.generation == 1 and runtime.bot_active
+        print("Server command policies persisted across recreation; Always On, live/offline/failure dispatch and one monitor passed.")
+    finally:
+        await policy.close()
+        await runtime.shutdown()
+
+
 if __name__ == "__main__":
     os.umask(0o077)
     if sys.argv[1] == "seed":
@@ -163,6 +240,8 @@ if __name__ == "__main__":
         verify()
     elif sys.argv[1] == "policy":
         policy_probe(sys.argv[2:])
+    elif sys.argv[1] == "availability":
+        asyncio.run(availability_probe())
     else:
         # Block network before application/monitor startup, even while chat is off.
         import aiohttp

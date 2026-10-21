@@ -213,20 +213,32 @@ class ConfigurationTransfer:
         _fields(payload["commands"], self.state.runtime_toggleable_commands)
         commands = {}
         for name, value in payload["commands"].items():
-            _fields(value, CommandSettings.__dataclass_fields__)
+            fields = set(CommandSettings.__dataclass_fields__) - {"stream_availability"}
+            if isinstance(value, dict) and "stream_availability" in value:
+                fields.add("stream_availability")
+            _fields(value, fields)
             _fields(value["cooldown"], ("per_user_seconds", "global_seconds"))
             cooldown = value["cooldown"]
             # Same finite/nonnegative and administrative bounds as management edits.
             _, policy, permission = ApplicationManagement._parse_command_settings(
                 value["enabled"], cooldown["per_user_seconds"], cooldown["global_seconds"], value["permission"])
-            commands[name] = CommandSettings(**{**value, "cooldown": policy, "permission": permission,
+            commands[name] = CommandSettings(**{"stream_availability": self.state.get_command_settings(name).stream_availability,
+                                                 **value, "cooldown": policy, "permission": permission,
                                                  "aliases": tuple(_list(value["aliases"], 10))})
         customs = {}
         for raw in _list(payload["custom_commands"], 1000):
             if not isinstance(raw, dict) or set(raw) - {"id", "name", "enabled", "responses", "permission",
                     "per_user_seconds", "global_seconds", "aliases", "response_mode", "burst_count",
-                    "burst_allow_override", "burst_interval_ms"}:
+                    "burst_allow_override", "burst_interval_ms", "stream_availability"}:
                 raise ValueError("Unknown custom command fields.")
+            if "stream_availability" not in raw:
+                # Desktop/older exports carry no Server policy. Preserve the
+                # matching destination command, also when its local UUID differs.
+                existing = next((item for item in self.custom.list() if item.id == raw.get("id")), None)
+                if existing is None and isinstance(raw.get("name"), str):
+                    existing = next((item for item in self.custom.list() if item.name == raw["name"]), None)
+                if existing is not None:
+                    raw = {**raw, "stream_availability": existing.stream_availability}
             command = parse_custom_command(raw)
             if command.id in customs:
                 raise ValueError("Duplicate custom command.")
@@ -332,6 +344,12 @@ class ConfigurationTransfer:
     def export(self):
         with self.locked():
             payload = self.snapshot()
+            if self.state.server_runtime:
+                for raw, item in zip(payload["custom_commands"], self.custom.list()):
+                    raw["stream_availability"] = item.stream_availability
+            else:
+                for raw in (*payload["commands"].values(), *payload["custom_commands"]):
+                    raw.pop("stream_availability", None)
             # Normalize tuples through JSON before using the strict wire validators.
             self.validate(_json(_encode(payload)))
             return {"ok": True, "filename": f"HeetKit-configuration-{VERSION}.zip",

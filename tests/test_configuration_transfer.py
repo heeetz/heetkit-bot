@@ -463,3 +463,56 @@ async def test_import_uses_normalized_model_values_from_existing_validator(profi
     assert transfer.app.settings.gemini_fallback_model == fallback
     assert transfer.settings.snapshot().ai.selected_model == selected
     assert transfer.settings.snapshot().ai.fallback_model == fallback
+
+
+@pytest.mark.parametrize("old_format", [False, True])
+async def test_desktop_import_preserves_destination_server_availability(profiles, old_format):
+    source = profiles("desktop")
+    seed(source)
+    target = profiles("server")
+    seed(target)  # Same names, independently created custom UUIDs.
+    target.state.server_runtime = True
+    target.state.apply_command_settings("ask", stream_availability="live_only")
+    existing = target.custom.get_by_name("hello")
+    target.custom.save({**existing.to_json(), "stream_availability": "offline_only"})
+    encoded = source.export()["archive_base64"]
+    payload, _, _ = unpack_configuration(encoded)
+    assert "stream_availability" not in payload["commands"]["ask"]
+    assert "stream_availability" not in payload["custom_commands"][0]
+    if old_format:
+        # Old format-1 archives also lack the optional new field.
+        encoded = pack_configuration(payload)
+    target.apply(encoded, target.preview(encoded)["preview_token"], True)
+    assert target.state.get_command_settings("ask").stream_availability == "live_only"
+    assert target.custom.get_by_name("greeting").stream_availability == "offline_only"
+    replacement = build_application(target.app.settings)
+    try:
+        assert replacement.services.runtime_state.get_command_settings("ask").stream_availability == "live_only"
+        assert replacement.custom_commands.get_by_name("hello").stream_availability == "offline_only"
+        assert not replacement.services.runtime_state.server_runtime
+        assert replacement.services.runtime_state.command_stream_available("live_only")
+    finally:
+        await replacement.shutdown()
+
+
+async def test_server_export_transfers_explicit_anytime_and_restrictions(profiles):
+    source = profiles("server-source")
+    seed(source)
+    source.state.server_runtime = True
+    source.state.apply_command_settings("ask", stream_availability="live_only")
+    target = profiles("server-target")
+    seed(target)
+    target.state.server_runtime = True
+    existing = target.custom.get_by_name("hello")
+    target.custom.save({**existing.to_json(), "stream_availability": "offline_only"})
+    encoded = source.export()["archive_base64"]
+    payload, _, _ = unpack_configuration(encoded)
+    assert payload["commands"]["ask"]["stream_availability"] == "live_only"
+    assert payload["custom_commands"][0]["stream_availability"] == "anytime"
+    target.apply(encoded, target.preview(encoded)["preview_token"], True)
+    assert target.state.get_command_settings("ask").stream_availability == "live_only"
+    assert target.custom.get_by_name("hello").stream_availability == "anytime"
+    # Server ZIPs also load on Desktop without enabling Server enforcement.
+    target.state.server_runtime = False
+    target.apply(encoded, target.preview(encoded)["preview_token"], True)
+    assert target.state.command_stream_available("live_only")

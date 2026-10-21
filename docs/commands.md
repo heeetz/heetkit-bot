@@ -48,12 +48,34 @@ Gemini. `!uptime` measures the bot session, rather than the stream's uptime.
 `!commands` and `!help` list enabled public built-ins and custom commands, including
 their current aliases. Edits, removals and restores appear on the next request;
 saved changes also survive restart. UI display names do not rename chat commands.
+In Server, help also omits commands whose stream availability does not match a
+confirmed live/offline state. Unknown or stale status does not filter the help list.
 The list keeps each command's existing invocation permissions and omits hidden,
 disabled and removed commands. Long lists use numbered pages within the Twitch
 message limit; follow the displayed next-page command, for example `!commands 2`.
 Bot-account messages are ignored rather than dispatched as new requests.
 
 ## Permissions, cooldowns and responses
+
+The Server browser command editor includes **Stream availability** for built-in
+and custom commands, including newly created commands:
+
+| Setting | Execution while connected |
+| --- | --- |
+| Anytime (default) | Works live and offline, including when stream status is unknown. |
+| Live only | Runs only with a recent successful live observation. |
+| Offline only | Runs only with a recent successful offline observation. |
+
+This setting is independent of Enabled, permissions and cooldowns. Aliases use
+their parent command's setting. Unavailable commands silently ignore requests
+without calling their handler, using external APIs or consuming cooldowns.
+Save keeps the policy in the Server profile; Reset settings restores Anytime.
+Windows Desktop has no availability control and ignores these restrictions.
+
+[Operation Mode](management-api.md#operation-modes) controls the Twitch connection.
+For example, Always On with `!ask` set to Live only stays connected offline;
+Anytime commands still work and Ask makes no AI request. Stream Only retains its
+existing connection/disconnection behavior.
 
 Select a built-in command's header on **Commands** to edit its enabled state,
 permission and per-user/global cooldowns. Opening the editor scrolls it into view

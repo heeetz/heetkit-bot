@@ -184,6 +184,7 @@ class ApplicationManagement:
                     "identity_editable": definition.identity_editable,
                     "help_text": definition.help_text or f"!{definition.name}",
                     "enabled": settings.enabled,
+                    **({"stream_availability": settings.stream_availability} if runtime_state.server_runtime else {}),
                     "available": unavailable_reason is None,
                     "unavailable_reason": unavailable_reason,
                     "response_pool": fun_settings.snapshot(definition.name)
@@ -194,7 +195,7 @@ class ApplicationManagement:
                         "global_seconds": settings.cooldown.global_seconds,
                     },
                     "hidden": definition.hidden,
-                    "default_settings": self._serialize_command_settings(defaults),
+                    "default_settings": self._serialize_command_settings(defaults, include_stream=runtime_state.server_runtime),
                     "saved": runtime_state.command_settings_are_saved(definition.name),
                     "has_saved_override": runtime_state.has_saved_command_override(
                         definition.name
@@ -236,12 +237,15 @@ class ApplicationManagement:
 
     def get_custom_commands(self) -> dict[str, object]:
         application = self._backend.application
+        server = getattr(getattr(getattr(application, "services", None), "runtime_state", None), "server_runtime", False)
         return {
             "command_prefix": application.settings.command_prefix,
             "permissions": [permission.name for permission in Permission],
             "variables": list(VARIABLES),
             "commands": [
-                {**command.to_json(), "response_mode": command.response_mode,
+                {**{key: value for key, value in command.to_json().items() if key != "stream_availability"},
+                 **({"stream_availability": command.stream_availability} if server else {}),
+                 "response_mode": command.response_mode,
                  **({"burst_interval_ms": command.burst_interval_ms} if command.response_mode == "burst" else {})}
                 for command in application.custom_commands.list()
             ],
@@ -268,6 +272,8 @@ class ApplicationManagement:
 
     def save_custom_command(self, command: object) -> dict[str, object]:
         try:
+            if isinstance(command, dict) and "stream_availability" in command and not self._backend.application.services.runtime_state.server_runtime:
+                raise ValueError("Stream availability is only editable in Server.")
             saved = self._backend.application.custom_commands.save(command)
         except ValueError as error:
             return {"ok": False, "error": str(error)}
@@ -289,9 +295,10 @@ class ApplicationManagement:
         return {"ok": True}
 
     @staticmethod
-    def _serialize_command_settings(settings: CommandSettings) -> dict[str, object]:
+    def _serialize_command_settings(settings: CommandSettings, *, include_stream: bool = False) -> dict[str, object]:
         return {
             "enabled": settings.enabled,
+            **({"stream_availability": settings.stream_availability} if include_stream else {}),
             "permission": settings.permission.name,
             "aliases": list(settings.aliases),
             "display_name": settings.display_name,
@@ -439,11 +446,13 @@ class ApplicationManagement:
         )
         return {"ok": True}
 
-    @staticmethod
-    def _parse_command_options(options: object) -> dict[str, object]:
+    def _parse_command_options(self, options: object) -> dict[str, object]:
         if options is None:
             return {}
-        if not isinstance(options, dict) or any(key not in ("aliases", "display_name", "burst_interval_ms", "burst_max_count") for key in options):
+        allowed = ("aliases", "display_name", "burst_interval_ms", "burst_max_count")
+        if self._backend.application.services.runtime_state.server_runtime:
+            allowed += ("stream_availability",)
+        if not isinstance(options, dict) or any(key not in allowed for key in options):
             raise ValueError("Unknown command editor settings.")
         if any(value is None for value in options.values()):
             raise ValueError("Command editor settings cannot be null.")

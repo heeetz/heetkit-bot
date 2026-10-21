@@ -216,9 +216,15 @@ class CommandRegistry:
         # Apply changes. No cached public list can outlive an edit or restore.
         entries: dict[str, str] = {}
         with runtime_state.command_namespace_lock if runtime_state is not None else nullcontext():
+            stream_status = None if runtime_state is None else runtime_state.command_stream_status()
+            def visible(availability: str) -> bool:
+                return stream_status not in ("live", "offline") or availability in (
+                    "anytime", "live_only" if stream_status == "live" else "offline_only")
             for definition in self.definitions():
                 settings = definition.default_settings if runtime_state is None else runtime_state.get_command_settings(definition.name)
                 if definition.hidden or not settings.enabled or settings.removed:
+                    continue
+                if not visible(settings.stream_availability):
                     continue
                 usage = "" if definition.help_text is None else definition.help_text.partition(" ")[2]
                 if definition.name == "tg":
@@ -228,6 +234,8 @@ class CommandRegistry:
             if custom_commands is not None:
                 for command in custom_commands.list():
                     if not command.enabled:
+                        continue
+                    if not visible(command.stream_availability):
                         continue
                     usage = " [1-10]" if command.response_mode == "burst" and command.burst_allow_override else ""
                     for name in (command.name, *command.aliases):
@@ -376,7 +384,8 @@ class CommandDispatcher:
                     await self._run_custom_command(custom, context, tail)
                 definition = CommandDefinition(name=custom.name, handler=custom_handler)
                 permission = max(custom.permission, Permission.MODERATOR) if custom.response_mode == "burst" else custom.permission
-                settings = CommandSettings(enabled=custom.enabled, permission=permission, cooldown=custom.cooldown)
+                settings = CommandSettings(enabled=custom.enabled, permission=permission, cooldown=custom.cooldown,
+                                           stream_availability=custom.stream_availability)
             else:
                 settings = (
                     definition.default_settings
@@ -390,6 +399,9 @@ class CommandDispatcher:
             )
 
             if settings.removed or not settings.enabled or command_unavailable_reason(definition, services) is not None:
+                return True
+
+            if self._runtime_state is not None and not self._runtime_state.command_stream_available(settings.stream_availability):
                 return True
 
             if len(arguments) > self._max_arguments_length:

@@ -517,6 +517,8 @@ class ManagementAPI:
             # text (some legacy validators interpolate supplied values).
             if result.get("ok") is False:
                 return {"ok": False, "error": "Operation rejected; check input, profile storage and current state."}
+            if method == "POST":
+                self.policy.refresh_command_monitoring()
             if method == "GET" and path == "/v1/ai/models":
                 result["settings"]["credential"] = self.credential_statuses()[1]
             if method == "GET" and path == "/v1/status":

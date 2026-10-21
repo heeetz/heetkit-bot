@@ -21,6 +21,12 @@ from app.utils.text import normalize_command_name
 logger = logging.getLogger(__name__)
 
 
+def validate_stream_availability(value: object) -> str:
+    if not isinstance(value, str) or value not in ("anytime", "live_only", "offline_only"):
+        raise ValueError("Stream availability must be Anytime, Live only or Offline only.")
+    return value
+
+
 def validate_burst_max_count(value: object) -> int:
     if type(value) is not int or not 1 <= value <= BURST_HARD_MAX_COUNT:
         raise ValueError(f"Burst maximum repeat count must be an integer from 1 to {BURST_HARD_MAX_COUNT}.")
@@ -67,6 +73,7 @@ class CommandSettings:
     removed: bool = False
     burst_interval_ms: int = 0
     burst_max_count: int = TG_DEFAULT_MAX_COUNT
+    stream_availability: str = "anytime"
 
     def __post_init__(self) -> None:
         if type(self.enabled) is not bool:
@@ -83,6 +90,7 @@ class CommandSettings:
             raise ValueError("Display name must not have surrounding whitespace.")
         validate_burst_interval(self.burst_interval_ms)
         validate_burst_max_count(self.burst_max_count)
+        validate_stream_availability(self.stream_availability)
 
 
 class CommandSettingsDefinition(Protocol):
@@ -104,11 +112,13 @@ class CommandSettingsOverride:
     removed: bool | None = None
     burst_interval_ms: int | None = None
     burst_max_count: int | None = None
+    stream_availability: str | None = None
 
     @property
     def is_empty(self) -> bool:
         return all(value is None for value in (self.enabled, self.cooldown, self.permission,
-                   self.aliases, self.display_name, self.removed, self.burst_interval_ms, self.burst_max_count))
+                   self.aliases, self.display_name, self.removed, self.burst_interval_ms, self.burst_max_count,
+                   self.stream_availability))
 
     def apply(self, defaults: CommandSettings) -> CommandSettings:
         return CommandSettings(
@@ -120,6 +130,7 @@ class CommandSettingsOverride:
             removed=defaults.removed if self.removed is None else self.removed,
             burst_interval_ms=defaults.burst_interval_ms if self.burst_interval_ms is None else self.burst_interval_ms,
             burst_max_count=defaults.burst_max_count if self.burst_max_count is None else self.burst_max_count,
+            stream_availability=defaults.stream_availability if self.stream_availability is None else self.stream_availability,
         )
 
     @classmethod
@@ -137,6 +148,7 @@ class CommandSettingsOverride:
             removed=settings.removed if settings.removed != defaults.removed else None,
             burst_interval_ms=settings.burst_interval_ms if settings.burst_interval_ms != defaults.burst_interval_ms else None,
             burst_max_count=settings.burst_max_count if settings.burst_max_count != defaults.burst_max_count else None,
+            stream_availability=settings.stream_availability if settings.stream_availability != defaults.stream_availability else None,
         )
 
     def to_json(self) -> dict[str, object]:
@@ -152,7 +164,7 @@ class CommandSettingsOverride:
             result["permission"] = self.permission.name
         if self.aliases is not None:
             result["aliases"] = list(self.aliases)
-        for key in ("display_name", "removed", "burst_interval_ms", "burst_max_count"):
+        for key in ("display_name", "removed", "burst_interval_ms", "burst_max_count", "stream_availability"):
             value = getattr(self, key)
             if value is not None:
                 result[key] = value
@@ -271,7 +283,8 @@ def _parse_override(
     additional = {}
     for key, validator in (("aliases", validate_command_aliases), ("display_name", validate_display_name),
                            ("burst_interval_ms", validate_burst_interval),
-                           ("burst_max_count", validate_burst_max_count)):
+                           ("burst_max_count", validate_burst_max_count),
+                           ("stream_availability", validate_stream_availability)):
         if key in raw_override:
             try:
                 additional[key] = validator(raw_override[key])

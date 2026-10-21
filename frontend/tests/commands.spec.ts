@@ -29,6 +29,7 @@ test('creator and existing-command editor appear above the list with compact tem
   const editor = page.locator('.custom-command-editor')
   const list = page.locator('.custom-command-list')
   await expect(editor).toBeVisible()
+  await expect(editor.getByLabel('Stream availability', { exact: true })).toHaveCount(0)
   await expect(editor.getByLabel('Response type')).toHaveAttribute('data-value', 'single')
   await expect(editor.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible()
   await expect(editor.getByLabel('Default repeat count')).toHaveCount(0)
@@ -50,6 +51,8 @@ test('creator and existing-command editor appear above the list with compact tem
   await expect(editor.getByLabel('Response type')).toHaveAttribute('data-value', 'random')
   await expect(editor.locator('textarea')).toHaveValue('Hello, {sender}!\nWelcome, {target}!')
   expect((await editor.boundingBox())!.y).toBeLessThan((await list.boundingBox())!.y)
+  await page.locator('.command-card').first().getByRole('button', { name: 'Edit !fate', exact: true }).click()
+  await expect(page.locator('.command-card').first().getByLabel('Stream availability', { exact: true })).toHaveCount(0)
 })
 
 test('built-in fate is exposed and forecast is absent', async ({ page }) => {
