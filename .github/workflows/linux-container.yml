@@ -16,6 +16,7 @@ on:
       - '.dockerignore'
       - 'compose.yaml'
       - 'packaging/linux/**'
+      - 'packaging/python-bootstrap.txt'
       - 'scripts/check_linux_container.py'
       - 'tests/fixtures/headless_container.py'
       - '.github/workflows/linux-container.yml'

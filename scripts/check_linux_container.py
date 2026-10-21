@@ -26,7 +26,7 @@ def main() -> None:
         private = Path(temporary)
         context = private / "context"
         context.mkdir()
-        tracked = subprocess.run(["git", "ls-files", "-z", "--", "app", "frontend", "Dockerfile", ".dockerignore", "LICENSE", "NOTICE", "packaging/linux/requirements.txt"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+        tracked = subprocess.run(["git", "ls-files", "-z", "--", "app", "frontend", "Dockerfile", ".dockerignore", "LICENSE", "NOTICE", "packaging/linux/requirements.txt", "packaging/python-bootstrap.txt"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
         for name in filter(None, tracked.split("\0")):
             source = ROOT / name
             if source.is_symlink() or not source.resolve().is_relative_to(ROOT):

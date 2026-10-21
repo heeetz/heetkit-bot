@@ -78,7 +78,10 @@ def test_actions_reuses_builder_python_only_after_verified_packaging(tmp_path, m
     monkeypatch.setattr(builder, "stage_resources", lambda _: None)
     monkeypatch.setattr(builder, "stage_native_runtime", lambda *_: None)
 
+    commands = []
+
     def fake_run(*command, **kwargs):
+        commands.append(command)
         if "PyInstaller" in command:
             bundle = Path(command[command.index("--distpath") + 1]) / "HeetKit"
             bundle.mkdir(parents=True)
@@ -98,6 +101,10 @@ def test_actions_reuses_builder_python_only_after_verified_packaging(tmp_path, m
         assert github_output.read_text(encoding="utf-8") == f"existing=value\npython={work / 'venv/Scripts/python.exe'}\n"
         archive, = (source / "dist").glob("*.zip")
         assert archive.with_suffix(".zip.sha256").is_file()
+    installs = [command for command in commands if command[1:4] == ("-m", "pip", "install")]
+    assert installs[0][-1] == str(source / "packaging/python-bootstrap.txt")
+    assert "--require-hashes" in installs[0] and "--only-binary=:all:" in installs[0]
+    assert installs[1][-1] == str(source / "packaging/windows/requirements.txt")
 
 
 redistribution_spec = importlib.util.spec_from_file_location(

@@ -14,8 +14,10 @@ ENV PYTHONUNBUFFERED=1 \
     HEETKIT_DATA_DIR=/var/lib/heetkit \
     HOME=/nonexistent
 WORKDIR /opt/heetkit
+COPY packaging/python-bootstrap.txt /opt/heetkit/python-bootstrap.txt
 COPY packaging/linux/requirements.txt /opt/heetkit/requirements.txt
-RUN python -m pip install --no-cache-dir --disable-pip-version-check --only-binary=:all: --require-hashes -r requirements.txt \
+RUN python -m pip install --no-cache-dir --disable-pip-version-check --only-binary=:all: --require-hashes -r python-bootstrap.txt \
+    && python -m pip install --no-cache-dir --disable-pip-version-check --only-binary=:all: --require-hashes -r requirements.txt \
     && python -m pip check \
     && groupadd --gid 10001 heetkit \
     && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin heetkit \

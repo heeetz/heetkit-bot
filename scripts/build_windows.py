@@ -101,6 +101,8 @@ def main() -> None:
     work.mkdir(parents=True)
     builder = work / "venv/Scripts/python.exe"
     run(sys.executable, "-m", "venv", str(work / "venv"))
+    run(str(builder), "-m", "pip", "install", "--disable-pip-version-check", "--only-binary=:all:",
+        "--require-hashes", "-r", str(ROOT / "packaging/python-bootstrap.txt"))
     run(str(builder), "-m", "pip", "install", "--disable-pip-version-check", "-r", str(ROOT / "packaging/windows/requirements.txt"))
     run(npm, "ci", cwd=ROOT / "frontend")
     run(npm, "run", "build", cwd=ROOT / "frontend")

@@ -46,7 +46,9 @@ jobs:
           python-version: '3.14.7'
           architecture: x64
           cache: pip
-          cache-dependency-path: packaging/windows/requirements.txt
+          cache-dependency-path: |
+            packaging/python-bootstrap.txt
+            packaging/windows/requirements.txt
 
       - name: Set up Node
         uses: actions/setup-node@v6
@@ -59,6 +61,8 @@ jobs:
 
       - name: Install pinned Python runtime and test dependencies
         run: |
+          python -m pip install --disable-pip-version-check --only-binary=:all: --require-hashes -r packaging/python-bootstrap.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Python installer bootstrap failed.' }
           python -m pip install --disable-pip-version-check -r packaging/windows/requirements.txt pytest==8.4.2 pytest-asyncio==0.26.0
           if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed.' }
           python -m pip check
@@ -120,7 +124,9 @@ jobs:
           python-version: '3.14.7'
           architecture: x64
           cache: pip
-          cache-dependency-path: packaging/windows/requirements.txt
+          cache-dependency-path: |
+            packaging/python-bootstrap.txt
+            packaging/windows/requirements.txt
 
       - name: Set up Node for the existing frontend builder
         uses: actions/setup-node@v6

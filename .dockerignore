@@ -3,6 +3,7 @@
 !Dockerfile
 !packaging/
 packaging/**
+!packaging/python-bootstrap.txt
 !packaging/linux/
 packaging/linux/**
 !packaging/linux/requirements.txt

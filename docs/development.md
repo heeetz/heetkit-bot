@@ -26,6 +26,7 @@ From the repository root in Windows PowerShell:
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
+python -m pip install --only-binary=:all: --require-hashes -r packaging/python-bootstrap.txt
 python -m pip install -e ".[dev]"
 Push-Location frontend
 npm ci

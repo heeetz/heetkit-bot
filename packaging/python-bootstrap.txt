@@ -1,0 +1,3 @@
+# Shared package installer bootstrap; fixes pip's vendored certifi CA bundle.
+# Verify the official PyPI wheel before any un-hashed runtime dependency downloads.
+pip==26.2.2 --hash=sha256:fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70

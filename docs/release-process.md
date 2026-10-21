@@ -52,6 +52,8 @@ zero; their lower core versions still upgrade normally.
 The Windows builder requires Windows x64 CPython **3.14.7** and a Vite-compatible Node
 version (**20.19+**; CI uses **24.20.0**). Python/runtime/build dependencies are pinned in
 `packaging/windows/requirements.txt`; the frontend uses `npm ci` and its lockfile.
+`packaging/python-bootstrap.txt` pins the SHA-256-verified pip installer used before
+dependency acquisition, including its corrected vendored CA bundle.
 Installer builds enforce [Inno Setup **6.7.3**](https://github.com/jrsoftware/issrc/releases/tag/is-6_7_3).
 See [development setup](development.md#source-setup) for the source environment.
 

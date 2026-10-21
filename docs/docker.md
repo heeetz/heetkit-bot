@@ -760,5 +760,6 @@ To refresh dependency pins, resolve the base `pyproject.toml` requirements for C
 `pyproject.toml`. Record every resolved wheel's SHA-256 in the
 Linux lock, retaining both architectures' hashes for native packages. Pure-Python
 wheels can share a hash. Verify hashes against the published PyPI files, update
+the shared hash-locked `packaging/python-bootstrap.txt` installer when required, update
 official multi-platform base-image digests deliberately, and rerun the focused
 container validation for each platform. Do not install the Windows packaging requirements into Linux.
