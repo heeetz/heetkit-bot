@@ -31,11 +31,11 @@ users when enabled. Disabled or removed commands also stay out of public help.
 | Command | Purpose | Default permission |
 | --- | --- | --- |
 | `!ask <question>` | Gemini reply using the active personality and optional memory. | User |
-| `!commands` | List public command help entries. | Moderator |
+| `!commands [page]` | List public command help entries. | Moderator |
 | `!erase <username>` | Delete stored AI memory for a known user; hidden from help. | Broadcaster |
 | `!followage` | Show how long the invoking user has followed the channel. | User |
 | `!fate` | Return a random configured prediction. | User |
-| `!help` | List public command help entries. | User |
+| `!help [page]` | List public command help entries. | User |
 | `!ping` | Reply with `pong`. | Moderator |
 | `!seen <username>` | Show when a known chatter was last seen. | User |
 | `!tg [1-20]` | Send the configured community message once by default, or repeat up to its configured maximum, with optional Burst spacing. | Moderator |
@@ -44,6 +44,14 @@ users when enabled. Disabled or removed commands also stay out of public help.
 
 `!ask` requires a Gemini key. See [AI setup](ai-setup.md). Other commands work without
 Gemini. `!uptime` measures the bot session, rather than the stream's uptime.
+
+`!commands` and `!help` list enabled public built-ins and custom commands, including
+their current aliases. Edits, removals and restores appear on the next request;
+saved changes also survive restart. UI display names do not rename chat commands.
+The list keeps each command's existing invocation permissions and omits hidden,
+disabled and removed commands. Long lists use numbered pages within the Twitch
+message limit; follow the displayed next-page command, for example `!commands 2`.
+Bot-account messages are ignored rather than dispatched as new requests.
 
 ## Permissions, cooldowns and responses
 

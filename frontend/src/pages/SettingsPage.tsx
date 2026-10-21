@@ -205,17 +205,42 @@ function ServerSettings({ active }: { active: boolean }) {
       <div className="credential-actions"><button className="primary" disabled={Boolean(busy) || !credential.managed || !credentialDrafts[credential.name].trim()} onClick={() => void runCredentialAction(credential.name, 'replace')}>{replacing ? 'Saving…' : credential.configured ? 'Replace' : 'Save'}</button><button className="secondary" disabled={Boolean(busy) || !credential.configured} onClick={() => void runCredentialAction(credential.name, 'test')}>{testing ? 'Testing…' : 'Test'}</button><button className="danger" disabled={Boolean(busy) || !credential.managed || !credential.configured} onClick={() => void runCredentialAction(credential.name, 'remove')}>{removing ? 'Removing…' : 'Remove'}</button></div>
     </article>
   }
+  const twitchCredential = setup?.credentials.find((credential) => credential.name === 'twitch_client_secret')
+  const geminiCredentials = setup?.credentials.filter((credential) => credential.name === 'gemini_api_key') ?? []
+
   return <div className="settings-layout">
     <FeedbackToast error={error} notice={notice} onDismiss={() => { setError(''); setNotice('') }} />
-    <Accordion id="twitch-settings" title="Server configuration" description="Configure Twitch identity, authorization and server credentials. Session control remains in Dashboard." className="settings-page">
+    <Accordion id="twitch-settings" title="Server configuration" description="Configure Twitch identity, authorization and server credentials. Session control remains in Dashboard." className="settings-page server-settings-page">
       {!setup ? <><p className="muted">Loading server setup…</p>{error && <button className="secondary" onClick={() => setRetry((current) => current + 1)}>Retry setup status</button>}</> : <div className="settings-list twitch-settings-list">
-        <section className="twitch-settings-group"><h3>Twitch application and bot</h3><p className="settings-hint">First run: 1. Save the identity and target channel. 2. Add the Twitch Client Secret below. 3. Connect Twitch and confirm the intended app and bot account. 4. Optionally add a Gemini API key. Register the exact redirect URL below in the Twitch Developer Console.</p><div className="twitch-field-pair">
-          <label className="form-field">Client ID<input value={twitchDraft.clientId} maxLength={128} onChange={(event) => updateDraft('clientId', event.target.value)} /></label>
-          <label className="form-field">Bot username<input value={twitchDraft.botUsername} maxLength={25} onChange={(event) => updateDraft('botUsername', event.target.value)} /></label>
-          <label className="form-field">Bot user ID<input inputMode="numeric" value={twitchDraft.botUserId} maxLength={20} onChange={(event) => updateDraft('botUserId', event.target.value)} /></label>
-          <label className="form-field">Target channel<input value={twitchDraft.channel} maxLength={25} onChange={(event) => updateDraft('channel', event.target.value)} /></label>
-          <label className="form-field">Channel user ID<input inputMode="numeric" value={twitchDraft.channelUserId} maxLength={20} onChange={(event) => updateDraft('channelUserId', event.target.value)} /></label>
-        </div>{setup.twitch.management_url && <div className="oauth-callback"><span>Configured management URL:</span><code>{setup.twitch.management_url}</code></div>}<div className="oauth-callback"><span>Exact OAuth callback to register:</span><code>{setup.twitch.oauth_callback_url || 'Unavailable'}</code></div><button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch()}>{busy === 'twitch:save' ? 'Saving…' : 'Save Twitch settings'}</button></section>
+        <section className="twitch-settings-group" aria-labelledby="server-twitch-application-heading">
+          <h3 id="server-twitch-application-heading">Twitch application</h3>
+          <p className="settings-hint">Save the application identity, bot account and target channel, then add the Client Secret. Register the exact callback URL below in the Twitch Developer Console before connecting.</p>
+          <div className="server-twitch-application">
+            <div className="server-twitch-application-row">
+              <label className="form-field">Client ID<input value={twitchDraft.clientId} maxLength={128} onChange={(event) => updateDraft('clientId', event.target.value)} /></label>
+            </div>
+            <div className="server-twitch-application-row server-twitch-secret-row">
+              <div className="credential-list">{twitchCredential ? renderCredential(twitchCredential) : <div className="empty-state-inline"><strong>Twitch client secret status is unavailable</strong><p>Refresh setup status before managing the credential.</p></div>}</div>
+            </div>
+          </div>
+          {setup.twitch.management_url && <div className="oauth-callback"><span>Configured management URL:</span><code>{setup.twitch.management_url}</code></div>}
+          <div className="oauth-callback"><span>Exact OAuth callback to register:</span><code>{setup.twitch.oauth_callback_url || 'Unavailable'}</code></div>
+        </section>
+        <section className="twitch-settings-group" aria-labelledby="server-twitch-bot-heading">
+          <h3 id="server-twitch-bot-heading">Bot account</h3>
+          <div className="twitch-field-pair">
+            <label className="form-field">Bot account login<input value={twitchDraft.botUsername} maxLength={25} onChange={(event) => updateDraft('botUsername', event.target.value)} /></label>
+            <label className="form-field">Bot account user ID<input inputMode="numeric" value={twitchDraft.botUserId} maxLength={20} onChange={(event) => updateDraft('botUserId', event.target.value)} /></label>
+          </div>
+        </section>
+        <section className="twitch-settings-group" aria-labelledby="server-twitch-target-heading">
+          <h3 id="server-twitch-target-heading">Target channel</h3>
+          <div className="twitch-field-pair">
+            <label className="form-field">Target channel login<input value={twitchDraft.channel} maxLength={25} onChange={(event) => updateDraft('channel', event.target.value)} /></label>
+            <label className="form-field">Target channel user ID<input inputMode="numeric" value={twitchDraft.channelUserId} maxLength={20} onChange={(event) => updateDraft('channelUserId', event.target.value)} /></label>
+          </div>
+          <div className="settings-actions"><button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch()}>{busy === 'twitch:save' ? 'Saving…' : 'Save Twitch settings'}</button></div>
+        </section>
         <section className="twitch-settings-group">
           <h3>Authorization and status</h3>
           <div className="twitch-status-grid">
@@ -236,7 +261,7 @@ function ServerSettings({ active }: { active: boolean }) {
             </div>
           </>}
         </section>
-        <section className="twitch-settings-group"><h3>Server credentials</h3><p className="settings-hint">Gemini is optional. Values are sent only for the requested action, never returned by setup status, and are cleared from this page after every attempt. External environment and secret-file credentials cannot be replaced or removed here.</p><div className="credential-list">{setup.credentials.map(renderCredential)}</div></section>
+        <section className="twitch-settings-group"><h3>Server credentials</h3><p className="settings-hint">Gemini is optional. Values are sent only for the requested action, never returned by setup status, and are cleared from this page after every attempt. External environment and secret-file credentials cannot be replaced or removed here.</p><div className="credential-list">{geminiCredentials.map(renderCredential)}</div></section>
       </div>}
     </Accordion>
     <ConfigurationTransfer />

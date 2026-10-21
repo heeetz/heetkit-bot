@@ -85,18 +85,6 @@ def build_application(settings: Settings) -> Application:
         runtime_state=runtime_state,
         filter_manager=filter_manager,
     )
-    services = ApplicationServices(
-        users=user_repository,
-        memory=memory,
-        ai=ai_service,
-        weather=OpenMeteoWeatherService(http_client),
-        filter_manager=filter_manager,
-        ai_request_policy=ai_request_policy,
-        settings=settings,
-        runtime_state=runtime_state,
-        twitch=twitch_api,
-        ai_user_blocks=AIUserBlocklist(paths.config / "ai_user_blocks.json"),
-    )
     registry = CommandRegistry()
     fun_settings = FunSettingsStore(paths.config / "fun_settings.json")
     register_fun_commands(registry, fun_settings)
@@ -111,6 +99,19 @@ def build_application(settings: Settings) -> Application:
         namespace_lock=runtime_state.command_namespace_lock,
     )
     runtime_state.bind_custom_commands(custom_commands)
+    services = ApplicationServices(
+        users=user_repository,
+        memory=memory,
+        ai=ai_service,
+        weather=OpenMeteoWeatherService(http_client),
+        filter_manager=filter_manager,
+        ai_request_policy=ai_request_policy,
+        settings=settings,
+        runtime_state=runtime_state,
+        twitch=twitch_api,
+        ai_user_blocks=AIUserBlocklist(paths.config / "ai_user_blocks.json"),
+        custom_commands=custom_commands,
+    )
     message_triggers = MessageTriggerStore(paths.message_triggers)
     dispatcher = CommandDispatcher(
         registry=registry,

@@ -5,6 +5,7 @@ import asyncio
 import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from contextlib import nullcontext
 
 from app.command_settings import CommandSettings, validate_burst_interval, validate_burst_max_count
 from app.config.commands import TG_DEFAULT_MAX_COUNT
@@ -205,13 +206,33 @@ class CommandRegistry:
             sorted({definition.name for definition in self._commands.values() if not definition.hidden})
         )
 
-    def help_entries(self, runtime_state: RuntimeState | None = None) -> tuple[str, ...]:
-        return tuple(
-            definition.help_text or f"!{definition.name}"
-            for definition in self.definitions()
-            if not definition.hidden
-            and (runtime_state is None or runtime_state.is_command_enabled(definition.name))
-        )
+    def help_entries(
+        self,
+        runtime_state: RuntimeState | None = None,
+        custom_commands: CustomCommandStore | None = None,
+        prefix: str = "!",
+    ) -> tuple[str, ...]:
+        # Capture the same namespace used by dispatch, including runtime-only
+        # Apply changes. No cached public list can outlive an edit or restore.
+        entries: dict[str, str] = {}
+        with runtime_state.command_namespace_lock if runtime_state is not None else nullcontext():
+            for definition in self.definitions():
+                settings = definition.default_settings if runtime_state is None else runtime_state.get_command_settings(definition.name)
+                if definition.hidden or not settings.enabled or settings.removed:
+                    continue
+                usage = "" if definition.help_text is None else definition.help_text.partition(" ")[2]
+                if definition.name == "tg":
+                    usage = f"[1-{settings.burst_max_count}]"
+                for name in (definition.name, *settings.aliases):
+                    entries[name] = f"{prefix}{name}" + (f" {usage}" if usage else "")
+            if custom_commands is not None:
+                for command in custom_commands.list():
+                    if not command.enabled:
+                        continue
+                    usage = " [1-10]" if command.response_mode == "burst" and command.burst_allow_override else ""
+                    for name in (command.name, *command.aliases):
+                        entries[name] = f"{prefix}{name}{usage}"
+        return tuple(entries[name] for name in sorted(entries))
 
 
 def command_unavailable_reason(definition: CommandDefinition, services: ApplicationServices) -> str | None:
@@ -333,6 +354,9 @@ class CommandDispatcher:
 
     async def dispatch(self, message: IncomingChatMessage, services: ApplicationServices) -> bool:
         try:
+            # Keep the transport-neutral boundary safe as well as Twitch ingress.
+            if message.author.twitch_user_id == getattr(getattr(services, "settings", None), "twitch_bot_user_id", None):
+                return True
             if self.is_ai_request_blocked(message, services):
                 return True
             parsed_command = parse_command(message.content, self._command_prefix)

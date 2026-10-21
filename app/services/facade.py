@@ -11,6 +11,7 @@ from app.config.settings import Settings
 from app.runtime_state import RuntimeState
 from app.services.twitch import TwitchAPIService
 from app.ai_user_blocks import AIUserBlocklist
+from app.custom_commands import CustomCommandStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,3 +26,4 @@ class ApplicationServices:
     memory: AIMemoryService | None = None
     twitch: TwitchAPIService | None = None
     ai_user_blocks: AIUserBlocklist | None = None
+    custom_commands: CustomCommandStore | None = None

@@ -20,6 +20,7 @@ from app.services.contracts import AIReply, WeatherReport
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownManager, CooldownPolicy
+from app.utils.output_limiter import OutputLimiter
 from app.webview_host import WebUIBridge
 
 
@@ -46,7 +47,7 @@ def setup_commands(root):
         ai=SimpleNamespace(is_available=True, generate_reply=AsyncMock(return_value=AIReply("An actual answer", True))),
         users=SimpleNamespace(get_by_username=AsyncMock(return_value=SimpleNamespace(twitch_user_id="target-id"))),
         weather=SimpleNamespace(get_current_weather=AsyncMock(return_value=WeatherReport("London", 15, "Clear", 4))),
-        memory=None)
+        memory=None, custom_commands=custom, settings=SimpleNamespace(command_prefix="!"))
     application = SimpleNamespace(registry=registry, services=services, fun_settings=fun, custom_commands=custom,
                                   settings=SimpleNamespace(command_prefix="!"))
     bridge = WebUIBridge(SimpleNamespace(application=application))
@@ -57,6 +58,115 @@ def setup_commands(root):
 
 def chat(content, respond, **roles):
     return IncomingChatMessage("test", content, ChatAuthor("user", "caller", **roles), respond)
+
+
+@pytest.mark.asyncio
+async def test_command_help_tracks_custom_edits_builtin_aliases_removal_and_restart(tmp_path):
+    registry, state, custom, _, bridge, dispatcher, services = setup_commands(tmp_path)
+    for name in ("commands", "help"):
+        state.apply_command_settings(name, cooldown=CooldownPolicy())
+
+    async def listing():
+        response = AsyncMock()
+        await dispatcher.dispatch(chat("!commands", response, is_moderator=True), services)
+        response.assert_awaited_once()
+        services.ai.generate_reply.assert_not_awaited()
+        return response.await_args.args[0]
+
+    initial = await listing()
+    assert "!ask <question>" in initial
+    assert "!erase" not in initial
+    command = custom.save(custom_payload(aliases=["offer"]))
+    added = await listing()
+    assert "!promo" in added and "!offer" in added
+    assert added.count("!promo") == added.count("!offer") == 1
+    command = custom.save({**command.to_json(), "name": "news", "aliases": ["updates"]})
+    renamed = await listing()
+    assert "!news" in renamed and "!updates" in renamed
+    assert "!promo" not in renamed and "!offer" not in renamed
+    command = custom.save({**command.to_json(), "enabled": False})
+    assert "!news" not in await listing()
+    command = custom.save({**command.to_json(), "enabled": True})
+    assert "!updates" in await listing()
+
+    state.apply_command_settings("weather", aliases=["forecast"], display_name="Weather in UI")
+    applied = await listing()
+    assert "!forecast <city>" in applied
+    assert "Weather in UI" not in applied  # UI labels do not rename chat commands.
+    state.apply_command_settings("weather", aliases=["conditions"])
+    assert "!forecast" not in await listing()
+    state.save_command_override("weather")
+    state.apply_command_settings("tg", burst_max_count=7)
+    assert "!tg [1-7]" in await listing()
+    state.apply_command_settings("ping", enabled=False)
+    assert "!ping" not in await listing()
+    state.save_command_override("ping")
+    bridge.remove_builtin_command("weather")
+    removed = await listing()
+    assert "!weather" not in removed and "!conditions" not in removed
+
+    restarted = setup_commands(tmp_path)
+    saved_entries = restarted[0].help_entries(restarted[1], restarted[2])
+    assert "!news" in saved_entries and "!updates" in saved_entries
+    assert not any(entry.startswith(("!weather", "!conditions", "!ping")) for entry in saved_entries)
+    assert bridge.restore_builtin_command("weather") == {"ok": True}
+    restored = await listing()
+    assert "!weather <city>" in restored and "!conditions" not in restored
+    custom.delete(command.id)
+    assert "!news" not in await listing() and "!updates" not in await listing()
+    restarted = setup_commands(tmp_path)
+    assert "!news" not in restarted[0].help_entries(restarted[1], restarted[2])
+
+
+@pytest.mark.asyncio
+async def test_command_help_pages_preserve_utf8_limits_permissions_and_output_limiter(tmp_path):
+    registry, state, custom, _, _, _, services = setup_commands(tmp_path)
+    services.settings.command_prefix = "?"
+    for name in ("commands", "help"):
+        state.apply_command_settings(name, cooldown=CooldownPolicy())
+    for index in range(12):
+        custom.save(custom_payload(name=f"{index}雪" + "😀" * 35, aliases=[f"alias{index}"]))
+    expected = registry.help_entries(state, custom, "?")
+    limiter = OutputLimiter(interval=0)
+    dispatcher = CommandDispatcher(registry, CooldownManager(), logging.getLogger(__name__), "?",
+                                   runtime_state=state, custom_commands=custom, output_limiter=limiter)
+    response = AsyncMock()
+    await dispatcher.dispatch(chat("?commands", response), services)
+    response.assert_not_awaited()  # Listing does not lower moderator permission.
+    observed = []
+    page = 1
+    while True:
+        response.reset_mock()
+        await dispatcher.dispatch(chat(f"?commands {page}", response, is_moderator=True), services)
+        text = response.await_args.args[0]
+        assert len(text.encode("utf-8")) <= 450
+        assert text.startswith(f"Commands ({page}/")
+        body = text.split(": ", 1)[1].split(" | Next:", 1)[0]
+        observed.extend(part.split(" ", 1)[0] for part in body.split("?")[1:])
+        if " | Next:" not in text:
+            break
+        assert text.endswith(f"?commands {page + 1}")
+        page += 1
+        assert page <= len(expected)
+    assert page > 1
+    assert observed == [entry.split(" ", 1)[0][1:] for entry in expected]
+
+    # Public !help uses the same entries; ordinary help requests still acquire
+    # the shared limiter per message rather than bypassing it with a burst.
+    dispatcher._output_limiter = OutputLimiter(interval=5)
+    response.reset_mock()
+    await dispatcher.dispatch(chat("?help", response), services)
+    await dispatcher.dispatch(chat("?help 2", response), services)
+    assert response.await_count == 1
+
+
+@pytest.mark.parametrize("arguments", ["0", "-1", "2", "nope", "1 2", "9" * 500])
+def test_command_help_rejects_invalid_or_out_of_range_pages(arguments):
+    from app.commands.info import command_help_page
+
+    reply = command_help_page(("!ask <question>",), "!commands", arguments)
+    assert reply.startswith(("Usage:", "Choose a page"))
+    assert len(reply.encode("utf-8")) <= 450
 
 
 @pytest.mark.asyncio

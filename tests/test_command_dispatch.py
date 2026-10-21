@@ -10,7 +10,7 @@ import pytest
 
 from app.commands.ai import register_ai_commands
 from app.commands.fun import FATES, register_fun_commands
-from app.commands.info import register_info_commands, register_weather_commands
+from app.commands.info import command_help_page, register_info_commands, register_weather_commands
 from app.commands.registry import CommandDispatcher, CommandRegistry
 from app.config.settings import Settings
 from app.container import build_application
@@ -174,8 +174,52 @@ async def test_help_uses_registered_command_names_and_commands_alias() -> None:
     )
 
     assert handled is True
-    assert transport.replies == [" ".join(registry.help_entries())]
+    assert transport.replies == [command_help_page(registry.help_entries(), "!commands", "")]
     assert "!8ball" not in transport.replies[0]
+
+
+@pytest.mark.asyncio
+async def test_application_help_reuses_persisted_custom_store_after_restart() -> None:
+    settings = Settings(_env_file=None)
+    application = build_application(settings)
+    try:
+        command = application.custom_commands.save({
+            "name": "hello", "enabled": True, "responses": ["Hi!"],
+            "permission": "USER", "per_user_seconds": 0, "global_seconds": 0,
+            "aliases": ["welcome"],
+        })
+        transport = FakeChatTransport("!commands", is_moderator=True)
+        await application.dispatcher.dispatch(transport.message, application.services)
+        assert "!hello" in transport.replies[0] and "!welcome" in transport.replies[0]
+    finally:
+        await application.shutdown()
+    restarted = build_application(settings)
+    try:
+        transport = FakeChatTransport("!commands", is_moderator=True)
+        await restarted.dispatcher.dispatch(transport.message, restarted.services)
+        assert "!hello" in transport.replies[0] and "!welcome" in transport.replies[0]
+        assert restarted.custom_commands.list() == (command,)
+    finally:
+        await restarted.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content", ["!ask prompt", "!query prompt", "!ping", "!custom", "ordinary reaction"])
+async def test_neutral_dispatch_rejects_bot_identity_before_command_or_trigger_work(content) -> None:
+    registry = CommandRegistry()
+    called = AsyncMock()
+    registry.command("ask", aliases=("query",))(called)
+    registry.command("ping")(called)
+    registry.command("custom")(called)
+    settings = SimpleNamespace(twitch_bot_user_id="bot-id")
+    trigger_store = SimpleNamespace(list=AsyncMock())
+    dispatcher = CommandDispatcher(registry, CooldownManager(), logging.getLogger(__name__), "!", message_triggers=trigger_store)
+    transport = FakeChatTransport(content, is_moderator=True)
+    transport.message = replace(transport.message, author=replace(transport.message.author, twitch_user_id="bot-id"))
+    assert await dispatcher.dispatch(transport.message, SimpleNamespace(settings=settings))
+    called.assert_not_awaited()
+    trigger_store.list.assert_not_called()
+    assert transport.replies == []
 
 
 @pytest.mark.asyncio
@@ -899,6 +943,8 @@ async def test_moderator_only_commands_reject_regular_users() -> None:
     registry = CommandRegistry()
     register_fun_commands(registry)
     register_info_commands(registry)
+    state = RuntimeState()
+    state.configure_commands(registry.definitions())
     dispatcher = build_dispatcher(registry)
 
     # Regular viewer tries moderator commands
@@ -906,7 +952,7 @@ async def test_moderator_only_commands_reject_regular_users() -> None:
         transport = FakeChatTransport(cmd, is_moderator=False)
         services = cast(
             ApplicationServices,
-            SimpleNamespace(runtime_state=FixedRuntimeState(100)),
+            SimpleNamespace(runtime_state=state),
         )
         handled = await dispatcher.dispatch(transport.message, services)
         assert handled is True
@@ -917,7 +963,7 @@ async def test_moderator_only_commands_reject_regular_users() -> None:
         transport = FakeChatTransport(cmd, is_moderator=True)
         services = cast(
             ApplicationServices,
-            SimpleNamespace(runtime_state=FixedRuntimeState(100)),
+            SimpleNamespace(runtime_state=state),
         )
         handled = await dispatcher.dispatch(transport.message, services)
         assert handled is True

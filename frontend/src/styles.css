@@ -431,6 +431,12 @@ td { color: var(--text); }
 .twitch-settings-group h3 { margin: 0; color: var(--text); font-size: 18px; }
 .twitch-field-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 12px; }
 .twitch-field-pair > .form-field { grid-row: span 3; grid-template-rows: subgrid; align-items: start; min-width: 0; }
+.server-twitch-application { display: grid; gap: 12px; min-width: 0; }
+.server-twitch-application-row { display: grid; grid-template-columns: minmax(0, 1fr); align-items: end; gap: 12px; min-width: 0; }
+.server-twitch-application-row > .credential-list { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr); }
+.server-twitch-secret-row { align-items: stretch; }
+.server-twitch-secret-row .credential-row { padding: 0; border: 0; background: transparent; }
+.server-settings-page .credential-actions { margin-top: 12px; }
 .twitch-application-setup { display: grid; align-content: start; gap: 10px; min-width: 0; }
 .twitch-application-setup > button { justify-self: start; }
 .oauth-callback { display: grid; gap: 6px; color: var(--muted); font-size: 13px; }

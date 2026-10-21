@@ -72,7 +72,16 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
       Object.assign(status, { operation, running: false, twitch_connected: false, twitch_connection_state: 'stopped' as const })
     }
     if (path === '/v1/setup') result = { ok: true, twitch, credentials, aiProvider }
-    if (path === '/v1/twitch/settings') result = { ok: true, requires_reconnect: true }
+    if (path === '/v1/twitch/settings') {
+      Object.assign(twitch, {
+        client_id: body!.client_id,
+        bot_username: body!.bot_username,
+        bot_user_id: body!.bot_user_id,
+        target_channel: body!.channel,
+        target_channel_user_id: body!.channel_user_id,
+      })
+      result = { ok: true, requires_reconnect: true }
+    }
     if (path === '/v1/twitch/authorization/begin') result = oauthBeginResult
     if (path === '/v1/twitch/authorization/complete') result = oauthCompleteResult
     if (path === '/v1/twitch/authorization/cancel') result = { ok: true }
@@ -274,15 +283,19 @@ test('server settings edit Twitch identity, manage credentials and complete or c
   await expect(page.getByRole('heading', { name: 'Server configuration', exact: true })).toBeVisible()
 
   await page.getByLabel('Client ID').fill('new-client')
-  await page.getByLabel('Bot username').fill('new-bot')
-  await page.getByLabel('Bot user ID').fill('101')
-  await page.getByLabel('Target channel').fill('new-channel')
-  await page.getByLabel('Channel user ID').fill('201')
+  await page.getByLabel('Bot account login').fill('new-bot')
+  await page.getByLabel('Bot account user ID').fill('101')
+  await page.getByLabel('Target channel login').fill('new-channel')
+  await page.getByLabel('Target channel user ID').fill('201')
   await page.getByRole('button', { name: 'Save Twitch settings', exact: true }).click()
   await expect.poll(() => api.calls.find((call) => call.path === '/v1/twitch/settings')?.body).toEqual({
     client_id: 'new-client', bot_username: 'new-bot', bot_user_id: '101', channel: 'new-channel', channel_user_id: '201',
   })
   await expect(page.getByRole('status')).toContainText('current session was stopped')
+
+  const application = page.locator('[aria-labelledby="server-twitch-application-heading"]')
+  await expect(application.getByLabel('Client ID')).toHaveValue('new-client')
+  await expect(application.locator('.server-twitch-secret-row .credential-actions')).toBeVisible()
 
   const credentials = page.getByRole('heading', { name: 'Server credentials' }).locator('..')
   await expect(credentials.getByRole('button', { name: 'Remove', exact: true }).first()).toBeDisabled()
@@ -317,6 +330,106 @@ test('server settings edit Twitch identity, manage credentials and complete or c
   api.setOAuthBegin({ ok: true, url: 'http://evil.example/oauth2/authorize', expires_in: 300 })
   await page.getByRole('button', { name: 'Connect Twitch', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('untrusted Twitch authorization URL')
+})
+
+for (const width of [1280, 900, 390, 320]) {
+  test(`server Twitch settings keep application controls and field pairs aligned at ${width}px`, async ({ page }) => {
+    const api = await server(page)
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/tests/browser.fixture.html')
+    await login(page)
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+
+    const twitch = page.locator('#twitch-settings')
+    const application = twitch.locator('[aria-labelledby="server-twitch-application-heading"]')
+    const secret = application.locator('.server-twitch-secret-row .credential-row')
+    const clientIdField = application.getByLabel('Client ID')
+    await expect(clientIdField).toBeVisible()
+    await expect(secret).toContainText('Twitch client secret')
+    await expect(secret.locator('.credential-actions')).toBeVisible()
+    const clientIdBounds = (await clientIdField.boundingBox())!
+    const secretBounds = (await secret.boundingBox())!
+    expect(secretBounds.y).toBeGreaterThan(clientIdBounds.y + clientIdBounds.height)
+    const secretInputBounds = (await secret.locator('input').boundingBox())!
+    const secretActionsBounds = (await secret.locator('.credential-actions').boundingBox())!
+    expect(Math.abs(secretInputBounds.x - clientIdBounds.x)).toBeLessThanOrEqual(1)
+    expect(Math.abs(secretInputBounds.width - clientIdBounds.width)).toBeLessThanOrEqual(1)
+    expect(secretActionsBounds.y - secretInputBounds.y - secretInputBounds.height).toBeGreaterThanOrEqual(12)
+
+    const pairBoxes: Array<{ first: { x: number; y: number; width: number; height: number }; second: { x: number; y: number; width: number; height: number } }> = []
+    for (const [firstLabel, secondLabel] of [
+      ['Bot account login', 'Bot account user ID'],
+      ['Target channel login', 'Target channel user ID'],
+    ]) {
+      const first = twitch.getByLabel(firstLabel)
+      const second = twitch.getByLabel(secondLabel)
+      const firstBounds = (await first.boundingBox())!
+      const secondBounds = (await second.boundingBox())!
+      pairBoxes.push({ first: firstBounds, second: secondBounds })
+      if (width >= 900) {
+        expect(Math.abs(firstBounds.y - secondBounds.y)).toBeLessThanOrEqual(1)
+        expect(secondBounds.x).toBeGreaterThan(firstBounds.x + firstBounds.width)
+        expect(Math.abs(firstBounds.width - secondBounds.width)).toBeLessThanOrEqual(1)
+      } else {
+        expect(secondBounds.y).toBeGreaterThan(firstBounds.y + firstBounds.height)
+        expect(Math.abs(secondBounds.x - firstBounds.x)).toBeLessThanOrEqual(1)
+      }
+    }
+    expect(Math.abs(pairBoxes[0].first.x - pairBoxes[1].first.x)).toBeLessThanOrEqual(1)
+    expect(Math.abs(pairBoxes[0].second.x - pairBoxes[1].second.x)).toBeLessThanOrEqual(1)
+    expect(Math.abs(pairBoxes[0].first.width - pairBoxes[1].first.width)).toBeLessThanOrEqual(1)
+    expect(Math.abs(pairBoxes[0].second.width - pairBoxes[1].second.width)).toBeLessThanOrEqual(1)
+
+    const clientId = `persisted-client-${width}`
+    await application.getByLabel('Client ID').fill(clientId)
+    const target = twitch.locator('[aria-labelledby="server-twitch-target-heading"]')
+    const save = target.getByRole('button', { name: 'Save Twitch settings', exact: true })
+    const authorization = twitch.getByRole('heading', { name: 'Authorization and status', exact: true }).locator('..')
+    const targetBounds = (await target.boundingBox())!
+    const authorizationBounds = (await authorization.boundingBox())!
+    const saveBounds = (await save.boundingBox())!
+    expect(saveBounds.y).toBeGreaterThan(targetBounds.y)
+    expect(saveBounds.y).toBeLessThan(authorizationBounds.y)
+    for (const button of await secret.locator('button').all()) {
+      const buttonBounds = (await button.boundingBox())!
+      expect(buttonBounds.x).toBeGreaterThanOrEqual(secretBounds.x)
+      expect(buttonBounds.x + buttonBounds.width).toBeLessThanOrEqual(secretBounds.x + secretBounds.width)
+    }
+    await save.click()
+    await expect.poll(() => api.calls.find((call) => call.path === '/v1/twitch/settings')?.body?.client_id).toBe(clientId)
+    await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await expect(page.locator('#twitch-settings').getByLabel('Client ID')).toHaveValue(clientId)
+
+    for (const card of await twitch.locator('.twitch-settings-group').all()) {
+      const box = (await card.boundingBox())!
+      expect(box.x).toBeGreaterThanOrEqual(0)
+      expect(box.x + box.width).toBeLessThanOrEqual(width)
+      expect(await card.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    if (width === 1280 || width === 320) await page.screenshot({ path: `node_modules/.tmp/server-settings-${width}.png`, fullPage: true })
+  })
+}
+
+test('server Twitch settings keep the validation error visible while preserving the draft', async ({ page }) => {
+  const api = await server(page)
+  await page.setViewportSize({ width: 320, height: 900 })
+  await page.goto('/tests/browser.fixture.html')
+  await login(page)
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  const twitch = page.locator('#twitch-settings')
+  const clientId = twitch.getByLabel('Client ID')
+  await clientId.fill('')
+  await twitch.getByRole('button', { name: 'Save Twitch settings', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Enter the Twitch Client ID')
+  await expect(clientId).toHaveValue('')
+  const warning = await page.getByRole('alert').boundingBox()
+  expect(warning).not.toBeNull()
+  expect(warning!.x).toBeGreaterThanOrEqual(0)
+  expect(warning!.x + warning!.width).toBeLessThanOrEqual(320)
+  expect(api.calls.some((call) => call.path === '/v1/twitch/settings')).toBe(false)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320)
 })
 
 test('401 expiration removes editors and their drafts; failed logout still removes local access', async ({ page }) => {

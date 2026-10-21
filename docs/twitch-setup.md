@@ -19,7 +19,9 @@ Server configuration**. Setup works in every operation mode, including Disabled.
    [Authorization Code Grant](https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/#authorization-code-grant-flow)
    requires the registered redirect and exchange redirect to match.
 2. Save the Client ID, expected bot login/numeric ID and target login/numeric ID.
-   Add the client secret under Server credentials. Nonempty external secrets are
+   These fields are grouped under **Twitch application**, **Bot account** and
+   **Target channel**, with one **Save Twitch settings** action for the identity fields.
+   Add the client secret under **Twitch application**. Nonempty external secrets are
    read-only here; rotate them on the host and restart. Make the bot a moderator in
    the target channel as described below.
 3. Select **Connect Twitch** (use **Open Twitch authorization** if the browser blocks

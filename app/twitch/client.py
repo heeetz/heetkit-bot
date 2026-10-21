@@ -147,6 +147,11 @@ async def process_twitch_message(
         logger.exception("Could not map incoming Twitch chat message")
         return
 
+    # Our event_message override replaces TwitchIO's default self-message guard.
+    # EventSub also delivers bot output, including replies starting with !ask.
+    if incoming.author.twitch_user_id == getattr(getattr(services, "settings", None), "twitch_bot_user_id", None):
+        return
+
     opted_out = False
     privacy_check = getattr(services.users, "is_storage_opted_out", None)
     if privacy_check is not None:

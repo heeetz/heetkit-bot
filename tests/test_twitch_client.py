@@ -5,6 +5,7 @@ import asyncio
 from types import SimpleNamespace
 from typing import cast
 from urllib.parse import parse_qs, urlsplit
+from unittest.mock import AsyncMock
 
 import pytest
 from twitchio.exceptions import HTTPException, InvalidTokenException
@@ -219,6 +220,77 @@ def build_settings() -> Settings:
         twitch_channel_user_id="200",
         twitch_channel="testchannel",
     )
+
+
+@pytest.mark.asyncio
+async def test_commands_response_echo_cannot_invoke_ask_or_consume_viewer_cooldown() -> None:
+    from app.commands.ai import register_ai_commands
+    from app.commands.info import register_info_commands
+    from app.commands.registry import CommandRegistry
+    from app.services.ai_request_policy import AIRequestPolicy
+    from app.services.contracts import AIReply
+    from app.utils.cooldown import CooldownManager
+
+    settings = build_settings()
+    registry = CommandRegistry()
+    register_ai_commands(registry)
+    register_info_commands(registry)
+    state = RuntimeState()
+    state.configure_commands(registry.definitions())
+    generate = AsyncMock(return_value=AIReply(text="Viewer reply", is_available=True))
+    services = SimpleNamespace(
+        settings=settings, runtime_state=state, twitch=None,
+        users=RecordingUserRepository(), filter_manager=AllowingFilterManager(),
+        ai=SimpleNamespace(is_available=True, generate_reply=generate),
+        ai_request_policy=AIRequestPolicy(),
+    )
+    dispatcher = CommandDispatcher(registry, CooldownManager(), logging.getLogger(__name__), "!", runtime_state=state)
+    bot = TwitchChatBot(settings, settings.primary_account, services, dispatcher, logging.getLogger(__name__))
+    request = FakeTwitchMessage("!commands")
+    request.id = "viewer-commands"
+    try:
+        await bot.event_message(request)
+        assert len(request.responses) == 1
+        assert "!ask <question>" in request.responses[0]
+        # Twitch EventSub delivers the sent message as a new event from the bot
+        # account (which can also be the broadcaster), with a distinct chat ID.
+        for index, content in enumerate((request.responses[0], "!ask <question> !commands !fate !followage !ping !seen <username> !tg [1-20] !uptime !weather <city>")):
+            echo = FakeTwitchMessage(content)
+            echo.id = f"bot-response-{index}"
+            echo.chatter.id = settings.twitch_bot_user_id
+            echo.chatter.name = settings.twitch_bot_username
+            echo.chatter.broadcaster = True
+            await bot.event_message(echo)
+            assert echo.responses == []
+        generate.assert_not_awaited()
+        assert services.users.seen_user_ids == ["viewer-id"]
+
+        question = FakeTwitchMessage("!ASK What is a telescope?")
+        question.id = "viewer-question"
+        await bot.event_message(question)
+        generate.assert_awaited_once()
+        assert generate.call_args.kwargs["prompt"] == "What is a telescope?"
+        assert question.responses == ["@viewer Viewer reply"]
+    finally:
+        await bot.close(save_tokens=False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content", ["!ask question", "!ping", "!custom", "ordinary reaction"])
+async def test_bot_account_messages_are_ignored_before_filters_persistence_and_dispatch(content):
+    settings = build_settings()
+    raw = FakeTwitchMessage(content)
+    raw.chatter.id = settings.twitch_bot_user_id
+    raw.chatter.name = "changed-login"
+    users = RecordingUserRepository()
+    filters = AllowingFilterManager()
+    dispatcher = ReplyingDispatcher()
+    services = SimpleNamespace(settings=settings, users=users, filter_manager=filters)
+    await process_twitch_message(raw, services, dispatcher, logging.getLogger(__name__))
+    assert users.seen_user_ids == []
+    assert filters.messages == []
+    assert dispatcher.messages == []
+    assert raw.responses == []
 
 
 @pytest.mark.asyncio
