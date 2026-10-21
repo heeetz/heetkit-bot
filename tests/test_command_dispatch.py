@@ -216,7 +216,7 @@ async def test_neutral_dispatch_rejects_bot_identity_before_command_or_trigger_w
     dispatcher = CommandDispatcher(registry, CooldownManager(), logging.getLogger(__name__), "!", message_triggers=trigger_store)
     transport = FakeChatTransport(content, is_moderator=True)
     transport.message = replace(transport.message, author=replace(transport.message.author, twitch_user_id="bot-id"))
-    assert await dispatcher.dispatch(transport.message, SimpleNamespace(settings=settings))
+    assert not await dispatcher.dispatch(transport.message, SimpleNamespace(settings=settings))
     called.assert_not_awaited()
     trigger_store.list.assert_not_called()
     assert transport.replies == []

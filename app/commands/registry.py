@@ -356,7 +356,7 @@ class CommandDispatcher:
         try:
             # Keep the transport-neutral boundary safe as well as Twitch ingress.
             if message.author.twitch_user_id == getattr(getattr(services, "settings", None), "twitch_bot_user_id", None):
-                return True
+                return False
             if self.is_ai_request_blocked(message, services):
                 return True
             parsed_command = parse_command(message.content, self._command_prefix)
