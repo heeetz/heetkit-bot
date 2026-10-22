@@ -19,12 +19,13 @@ pytestmark = pytest.mark.skipif(SHELL is None, reason="Publication uses PowerShe
 
 
 def workflow_script(name):
-    workflow = (ROOT / ".github/workflows/windows-build.yml").read_text(encoding="utf-8")
+    filename = "publish-release" if name == "Verify downloads and publish the existing tag" else "windows-build"
+    workflow = (ROOT / f".github/workflows/{filename}.yml").read_text(encoding="utf-8")
     step = workflow.split(f"- name: {name}", 1)[1].split("\n      - name:", 1)[0]
     return textwrap.dedent(step.split("run: |\n", 1)[1])
 
 
-def version_metadata(tmp_path, *, version=VERSION, tag=None, event="push"):
+def version_metadata(tmp_path, *, version=VERSION, tag=None, event="push", tagged=True):
     package = tmp_path / "app"
     package.mkdir()
     (package / "__init__.py").touch()
@@ -36,6 +37,7 @@ function python {{ & '{interpreter}' @args }}
 $env:GITHUB_EVENT_NAME = '{event}'
 $env:GITHUB_REF_TYPE = 'tag'
 $env:GITHUB_REF_NAME = '{tag or 'v' + version}'
+$env:SELECTED_TAG = '{'refs/tags/' + (tag or 'v' + version) if tagged else ''}'
 $env:GITHUB_OUTPUT = 'version-output'
 """ + workflow_script("Read canonical application version and validate release tag")
     runner = tmp_path / "version.ps1"
@@ -76,6 +78,8 @@ def publication(tmp_path, *, notes=None, tag=None, version=VERSION, prerelease="
         }), encoding="utf-8")
     elif change == "extra":
         (artifacts / "private-profile.json").write_text("synthetic decoy", encoding="utf-8")
+    elif change == "missing":
+        (artifacts / (base + ".zip")).unlink()
     script = workflow_script("Verify downloads and publish the existing tag")
     # The local function captures the actual gh arguments; it never contacts GitHub.
     harness = """$ErrorActionPreference = 'Stop'
@@ -126,9 +130,14 @@ def test_invalid_version_or_mismatched_tag_blocks_build(tmp_path, version, tag, 
     assert not (tmp_path / "version-output").exists()
 
 
+def test_manual_branch_candidate_has_no_tag_requirement(tmp_path):
+    result = version_metadata(tmp_path, event="workflow_dispatch", tagged=False)
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.parametrize("change,reason", [
     ("zip", "Release checksum mismatch"), ("installer", "Release checksum mismatch"),
-    ("trace", "Installer traceability"), ("extra", "Unexpected files"),
+    ("trace", "Installer traceability"), ("extra", "Unexpected files"), ("missing", "Missing release artifact"),
 ])
 def test_invalid_artifacts_prevent_prerelease_publication(tmp_path, change, reason):
     notes = (ROOT / f"docs/releases/v{VERSION}.md").read_text(encoding="utf-8")

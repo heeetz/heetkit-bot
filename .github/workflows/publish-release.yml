@@ -1,0 +1,113 @@
+name: Publish
+
+# A tag is traceability only; publication always requires this explicit dispatch.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Exact 40-character commit SHA of the accepted candidate'
+        required: true
+        type: string
+      tag:
+        description: 'Existing matching version tag (v<canonical version>)'
+        required: true
+        type: string
+      candidate_run_id:
+        description: 'Successful Build candidate run ID for this exact SHA'
+        required: true
+        type: string
+      full_run_id:
+        description: 'Successful Full validation run ID for this exact SHA'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish-release:
+    name: Publish the verified candidate
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-2022
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out publication controls
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14.7'
+          architecture: x64
+      - name: Check out exact candidate source for version and notes
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.sha }}
+          path: release-source
+          persist-credentials: false
+      - name: Read canonical candidate version
+        id: version
+        working-directory: release-source
+        run: |
+          $metadata = @(python -c "from app.version import VERSION, is_prerelease; print(VERSION); print(str(is_prerelease()).lower())")
+          if ($LASTEXITCODE -ne 0 -or $metadata.Count -ne 2) { throw 'Cannot validate the canonical application version.' }
+          "version=$($metadata[0])" >> $env:GITHUB_OUTPUT
+          "prerelease=$($metadata[1])" >> $env:GITHUB_OUTPUT
+      - name: Verify exact-SHA evidence and download the original candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ inputs.sha }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          APP_VERSION: ${{ steps.version.outputs.version }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          FULL_RUN_ID: ${{ inputs.full_run_id }}
+        run: python scripts/release_evidence.py verify
+      - name: Verify downloads and publish the existing tag
+        working-directory: release-source
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ($env:RELEASE_TAG -cne "v$env:APP_VERSION") { throw 'Release tag/version mismatch.' }
+          $notesPath = "docs/releases/$env:RELEASE_TAG.md"
+          if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) { throw "Missing curated release notes: $notesPath" }
+          $notes = Get-Content -LiteralPath $notesPath -Raw
+          if ($notes.Split("`n")[0].Trim() -cne "# HeetKit $env:RELEASE_TAG" -or $notes.Trim().Length -lt 100) {
+            throw 'Curated release notes must describe the matching release version.'
+          }
+          $base = "HeetKit-$env:APP_VERSION-windows-x64"
+          $suffixes = @('.zip', '.zip.sha256', '-setup.exe', '-setup.exe.sha256', '-setup.exe.build.json')
+          $assets = @($suffixes | ForEach-Object { Join-Path 'release-artifacts' "$base$_" })
+          foreach ($asset in $assets) {
+            if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) { throw "Missing release artifact: $asset" }
+          }
+          if (@(Get-ChildItem -LiteralPath 'release-artifacts' -Force).Count -ne $assets.Count) {
+            throw 'Unexpected files in the release artifact download.'
+          }
+          $hashes = @{}
+          foreach ($suffix in @('.zip', '-setup.exe')) {
+            $file = "$base$suffix"
+            $path = Join-Path 'release-artifacts' $file
+            $hashes[$suffix] = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            $checksum = (Get-Content -LiteralPath "$path.sha256" -Raw).Trim()
+            if ($checksum -cne "$($hashes[$suffix])  $file") { throw "Release checksum mismatch: $file" }
+          }
+          $trace = Get-Content -LiteralPath "release-artifacts/$base-setup.exe.build.json" -Raw | ConvertFrom-Json
+          if ($trace.version -cne $env:APP_VERSION -or $trace.portable_zip -cne "$base.zip" -or
+              $trace.portable_sha256 -cne $hashes['.zip'] -or $trace.installer_sha256 -cne $hashes['-setup.exe']) {
+            throw 'Installer traceability does not match the release artifacts.'
+          }
+          $releaseArgs = @('release', 'create', $env:RELEASE_TAG, '--verify-tag', '--notes-file', $notesPath)
+          if ($env:PRERELEASE -eq 'true') { $releaseArgs += @('--prerelease', '--latest=false') }
+          gh @releaseArgs @assets
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub Release publication failed.' }

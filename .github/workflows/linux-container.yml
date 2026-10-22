@@ -1,26 +1,12 @@
-name: Linux container
+name: Native Linux container checks
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'app/**'
-      - 'frontend/src/**'
-      - 'frontend/public/icon.png'
-      - 'frontend/package*.json'
-      - 'frontend/tsconfig*.json'
-      - 'frontend/index.html'
-      - 'frontend/vite.config.ts'
-      - 'pyproject.toml'
-      - 'Dockerfile'
-      - '.dockerignore'
-      - 'compose.yaml'
-      - 'packaging/linux/**'
-      - 'packaging/python-bootstrap.txt'
-      - 'scripts/check_linux_container.py'
-      - 'tests/fixtures/headless_container.py'
-      - '.github/workflows/linux-container.yml'
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      sha:
+        description: Immutable commit resolved by Full validation
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -43,6 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.sha }}
           persist-credentials: false
       - name: Build and validate disposable Linux container
         run: python3 scripts/check_linux_container.py

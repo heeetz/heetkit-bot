@@ -1,110 +1,51 @@
-name: Windows build
+name: Build candidate
 
 on:
-  push:
-    branches: [main]
-    tags: ['v*']
-    paths-ignore:
-      - 'README.md'
-      - 'CONTRIBUTING.md'
-      - 'SECURITY.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - 'NOTICE'
-      - 'THIRD_PARTY_NOTICES.md'
-      - '.github/ISSUE_TEMPLATE/**'
-      - '.github/pull_request_template.md'
   workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch, tag or commit SHA to package (blank uses the workflow commit)'
+        required: false
+        type: string
 
-# Builds remain read-only; only the tag-gated publication job can write releases.
+# Candidate builds never publish and remain read-only.
 permissions:
   contents: read
 
 jobs:
-  checks:
-    name: Regular development checks
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: windows-2022
-    timeout-minutes: 20
-    # Only regular pushes share a cancellation group. Candidate/tag jobs have none.
-    concurrency:
-      group: ${{ github.workflow }}-checks-${{ github.ref }}
-      cancel-in-progress: true
-    defaults:
-      run:
-        shell: pwsh
-
+  resolve:
+    name: Resolve selected commit
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+      tag_ref: ${{ steps.commit.outputs.tag_ref }}
     steps:
-      - name: Check out source
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
-
-      - name: Set up Windows x64 Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.14.7'
-          architecture: x64
-          cache: pip
-          cache-dependency-path: |
-            packaging/python-bootstrap.txt
-            packaging/windows/requirements.txt
-
-      - name: Set up Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24.20.0'
-          architecture: x64
-          package-manager-cache: false
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install pinned Python runtime and test dependencies
+      - name: Record immutable commit
+        id: commit
+        env:
+          SELECTED_REF: ${{ inputs.ref || github.sha }}
         run: |
-          python -m pip install --disable-pip-version-check --only-binary=:all: --require-hashes -r packaging/python-bootstrap.txt
-          if ($LASTEXITCODE -ne 0) { throw 'Python installer bootstrap failed.' }
-          python -m pip install --disable-pip-version-check -r packaging/windows/requirements.txt pytest==8.4.2 pytest-asyncio==0.26.0
-          if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed.' }
-          python -m pip check
-          if ($LASTEXITCODE -ne 0) { throw 'Python dependency check failed.' }
-          python -c "from importlib.metadata import version; from packaging.version import Version; assert Version(version('urllib3')) >= Version('2.8.0'), 'urllib3 must be >= 2.8.0'"
-          if ($LASTEXITCODE -ne 0) { throw 'urllib3 security version check failed.' }
-
-      - name: Run Python tests
-        run: python -m pytest -q
-
-      - name: Install frontend dependencies and check the production build
-        working-directory: frontend
-        run: |
-          npm ci
-          if ($LASTEXITCODE -ne 0) { throw 'Frontend dependency installation failed.' }
-          npm run build
-          if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed.' }
-
-      - name: Ensure the frontend test browser is available
-        working-directory: frontend
-        run: |
-          $edgeRoots = @($env:LOCALAPPDATA, $env:ProgramFiles, ${env:ProgramFiles(x86)})
-          if ($env:HOMEDRIVE) { $edgeRoots += "$env:HOMEDRIVE\Program Files", "$env:HOMEDRIVE\Program Files (x86)" }
-          $edgePaths = $edgeRoots |
-            Where-Object { $_ } | ForEach-Object { Join-Path $_ 'Microsoft/Edge/Application/msedge.exe' }
-          $installedEdge = $edgePaths | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
-          if ($installedEdge) {
-            Write-Host "Using installed Microsoft Edge: $installedEdge"
-          } else {
-            npx --no-install playwright install msedge
-            if ($LASTEXITCODE -ne 0) { throw 'Microsoft Edge installation failed.' }
-          }
-
-      - name: Run frontend tests
-        working-directory: frontend
-        run: npm test -- --reporter=line --workers=2
+          sha=$(git rev-parse HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Selected commit: $sha" >> "$GITHUB_STEP_SUMMARY"
+          selected=$(git rev-parse --symbolic-full-name "$SELECTED_REF")
+          if [[ "$selected" == refs/tags/* ]]; then
+            echo "tag_ref=$selected" >> "$GITHUB_OUTPUT"
+          fi
 
   windows-build:
     name: Test and package Windows x64
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref_type == 'tag')
+    needs: resolve
     runs-on: windows-2022
     timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
     outputs:
       version: ${{ steps.version.outputs.version }}
       prerelease: ${{ steps.version.outputs.prerelease }}
@@ -116,6 +57,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v6
         with:
+          ref: ${{ needs.resolve.outputs.sha }}
           persist-credentials: false
 
       - name: Set up Windows x64 Python
@@ -139,13 +81,15 @@ jobs:
 
       - name: Read canonical application version and validate release tag
         id: version
+        env:
+          SELECTED_TAG: ${{ needs.resolve.outputs.tag_ref }}
         run: |
           $metadata = @(python -c "from app.version import VERSION, is_prerelease; print(VERSION); print(str(is_prerelease()).lower())")
           if ($LASTEXITCODE -ne 0 -or $metadata.Count -ne 2) { throw 'Cannot validate the canonical application version.' }
           $version, $prerelease = $metadata
-          if ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF_TYPE -eq 'tag') {
-            if ($env:GITHUB_REF_NAME -cne "v$version") {
-              throw "Release tag '$env:GITHUB_REF_NAME' must match canonical version 'v$version'."
+          if ($env:SELECTED_TAG) {
+            if ($env:SELECTED_TAG -cne "refs/tags/v$version") {
+              throw "Release tag '$env:SELECTED_TAG' must match canonical version 'v$version'."
             }
           }
           "version=$version" >> $env:GITHUB_OUTPUT
@@ -181,6 +125,7 @@ jobs:
           tests/test_runtime_distribution.py
           tests/test_profile_isolation.py
           tests/test_release_publication.py
+          tests/test_release_evidence.py
 
       - name: Install the pinned Inno Setup compiler
         id: inno
@@ -243,6 +188,7 @@ jobs:
           }
 
       - name: Upload application artifacts and script-generated checksums
+        id: candidate
         uses: actions/upload-artifact@v6
         with:
           name: HeetKit-${{ steps.version.outputs.version }}-windows-x64
@@ -257,69 +203,23 @@ jobs:
             dist/HeetKit-${{ steps.version.outputs.version }}-windows-x64-setup.exe.sha256
             dist/HeetKit-${{ steps.version.outputs.version }}-windows-x64-setup.exe.build.json
 
-  publish-release:
-    name: Publish the verified tag build
-    needs: windows-build
-    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v')
-    runs-on: windows-2022
-    timeout-minutes: 15
-    permissions:
-      contents: write
-    defaults:
-      run:
-        shell: pwsh
-
-    steps:
-      - name: Check out the tagged curated release notes
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-
-      - name: Download only this run's verified Windows artifacts
-        uses: actions/download-artifact@v7
-        with:
-          name: HeetKit-${{ needs.windows-build.outputs.version }}-windows-x64
-          path: release-artifacts
-
-      - name: Verify downloads and publish the existing tag
+      - name: Report observed candidate durations
+        if: always()
         env:
-          APP_VERSION: ${{ needs.windows-build.outputs.version }}
-          PRERELEASE: ${{ needs.windows-build.outputs.prerelease }}
-          RELEASE_TAG: ${{ github.ref_name }}
-          GH_REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if ($env:RELEASE_TAG -cne "v$env:APP_VERSION") { throw 'Release tag/version mismatch.' }
-          $notesPath = "docs/releases/$env:RELEASE_TAG.md"
-          if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) { throw "Missing curated release notes: $notesPath" }
-          $notes = Get-Content -LiteralPath $notesPath -Raw
-          if ($notes.Split("`n")[0].Trim() -cne "# HeetKit $env:RELEASE_TAG" -or $notes.Trim().Length -lt 100) {
-            throw 'Curated release notes must describe the matching release version.'
-          }
-          $base = "HeetKit-$env:APP_VERSION-windows-x64"
-          $suffixes = @('.zip', '.zip.sha256', '-setup.exe', '-setup.exe.sha256', '-setup.exe.build.json')
-          $assets = @($suffixes | ForEach-Object { Join-Path 'release-artifacts' "$base$_" })
-          foreach ($asset in $assets) {
-            if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) { throw "Missing release artifact: $asset" }
-          }
-          if (@(Get-ChildItem -LiteralPath 'release-artifacts' -Force).Count -ne $assets.Count) {
-            throw 'Unexpected files in the release artifact download.'
-          }
-          $hashes = @{}
-          foreach ($suffix in @('.zip', '-setup.exe')) {
-            $file = "$base$suffix"
-            $path = Join-Path 'release-artifacts' $file
-            $hashes[$suffix] = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
-            $checksum = (Get-Content -LiteralPath "$path.sha256" -Raw).Trim()
-            if ($checksum -cne "$($hashes[$suffix])  $file") { throw "Release checksum mismatch: $file" }
-          }
-          $trace = Get-Content -LiteralPath "release-artifacts/$base-setup.exe.build.json" -Raw | ConvertFrom-Json
-          if ($trace.version -cne $env:APP_VERSION -or $trace.portable_zip -cne "$base.zip" -or
-              $trace.portable_sha256 -cne $hashes['.zip'] -or $trace.installer_sha256 -cne $hashes['-setup.exe']) {
-            throw 'Installer traceability does not match the release artifacts.'
-          }
-          $releaseArgs = @('release', 'create', $env:RELEASE_TAG, '--verify-tag', '--notes-file', $notesPath)
-          if ($env:PRERELEASE -eq 'true') { $releaseArgs += @('--prerelease', '--latest=false') }
-          gh @releaseArgs @assets
-          if ($LASTEXITCODE -ne 0) { throw 'GitHub Release publication failed.' }
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/ci_checks.py durations
+
+      - name: Record candidate identity after successful checks and upload
+        env:
+          SELECTED_SHA: ${{ needs.resolve.outputs.sha }}
+          APP_VERSION: ${{ steps.version.outputs.version }}
+          CANDIDATE_ARTIFACT_ID: ${{ steps.candidate.outputs.artifact-id }}
+          CANDIDATE_ARTIFACT_DIGEST: ${{ steps.candidate.outputs.artifact-digest }}
+        run: python scripts/release_evidence.py record-candidate
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: candidate-evidence-${{ github.run_attempt }}
+          path: release-evidence.json
+          if-no-files-found: error
+          retention-days: 14

@@ -209,13 +209,32 @@ python -m pytest -q tests/test_affected_subsystem.py
 git diff --check
 ```
 
-The full Python suite is `python -m pytest -q` when warranted. For frontend code,
-type or asset changes, run the corresponding focused browser tests with
-`npm test -- tests/affected.spec.ts`, plus `npm run typecheck` and `npm run build`
-in `frontend/`. Browser tests use synthetic setup and mocked external actions.
+The full Python suite is `python -m pytest -q` when explicitly warranted. For frontend
+changes, run `npm run typecheck` and the affected browser cases with
+`npm test -- tests/affected.spec.ts` in `frontend/`. Use `npm run build` when changed
+assets/build behavior needs it; that command includes typecheck, so do not duplicate it.
+Browser tests use synthetic setup and mocked external actions.
 On Windows they use installed Microsoft Edge;
 on other development platforms install Chromium with `npx playwright install chromium`.
 Native window, tray and OAuth behavior may need platform-specific manual validation.
+
+Ordinary `main` pushes run only Quick: coarse path selection chooses the fixed Python
+smoke set, TypeScript and/or machine-input tests. Prose-only pushes report explicit
+skips. Quick complements the focused local checks for a change; it does not establish
+full application acceptance. Workflows or their selection/reporting helper can be
+checked locally with `python -m pytest -q tests/test_ci_workflows.py tests/test_release_publication.py tests/test_release_evidence.py`
+(install test-only `PyYAML==6.0.3` alongside pytest), then
+`python scripts/ci_checks.py inputs`. Neither command builds artifacts or calls GitHub.
+
+Full validation and Build candidate are separate manual workflows accepting a ref
+and pinning all jobs to one resolved SHA. Do not start either as incidental local
+validation. Full includes Python, frontend production/Edge and native AMD64/ARM64
+container checks; candidate uses the canonical Windows builders. Dispatch both from
+main and select source through the ref input. Publish is separately manual and requires
+an exact SHA, existing matching tag, candidate run ID and Full validation run ID.
+It verifies current-attempt evidence and reuses the original candidate artifacts.
+Tag pushes start no build or publication. See
+[Actions levels, skip reasons and release guards](release-process.md#github-actions-builds).
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for pull requests.
 
 ### Documentation ownership
