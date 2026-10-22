@@ -184,11 +184,143 @@ Inspect the restored private files before owner-controlled cutover. If authoriza
 has since rotated or been revoked, use Connect Twitch in the authenticated panel,
 or reauthorize through the desktop using the intended profile and stop it before
 restarting headless. Never delete the current volume to
-test a restore. For an update, stop, back up, retain the previous local image for
-rollback, check out the intended revision, then `docker compose build` and
-`docker compose up -d --force-recreate`. Roll back source/image and compatible profile
-backup together if a future version changes profile formats. No registry publication,
-automatic update or cloud deployment is configured.
+test a restore. For the existing private ARM64 host, use the
+[repeatable release update](#repeatable-release-update) below. For other hosts, prepare
+the exact release image before stopping, preserve the previous image/configuration,
+then stop, verify a whole-profile backup and recreate with the prepared image. Reuse
+current state for backward-compatible rollback, retaining rotated OAuth tokens.
+Incompatible state requires a reviewed recovery plan; never restore an older profile
+unconditionally. No registry publication or automatic update is configured.
+
+## Repeatable release update
+
+The operator request `Deploy release v<VERSION> to heetkit` starts a **separate manual
+deployment** of the existing host. Pushes, Quick, Full validation, candidate builds
+and release publication never deploy. Preparation of this helper does not authorize
+SSH, account checks or changes on the VM. The first live deployment must inspect the
+existing private host wrapper before using or replacing it; its interface is not
+assumed by the tracked scripts.
+
+Use [scripts/deploy_release.sh](../scripts/deploy_release.sh), which launches the
+standard-library [Python helper](../scripts/deploy_release.py) on the existing Linux
+ARM64 host. It uses the canonical Dockerfile and the host's existing Compose inputs,
+project `heetkit`, service `bot`, volume `heetkit_profile`, three external secret files
+and private Tailscale HTTPS overlay. Docker/Compose, Git, Python 3.12+, `ss` and
+Tailscale must already be installed and usable by the same operator. It provisions
+nothing. Keep any required sudo setup outside Git; do not invoke a second copy with
+another state directory, Docker context or user.
+
+Before running it, the deploying agent must:
+
+1. Resolve the explicitly requested published tag to a full commit SHA and read its
+   release/migration notes. If the owner explicitly requests latest, resolve one
+   published stable version once, then pass its explicit tag and SHA. The helper
+   independently checks publication, fetches that tag into an isolated directory,
+   requires the expected SHA and matches `app/version.py`; it never selects main tip.
+   Check available same-SHA validation evidence; record historical/missing evidence
+   honestly without dispatching Full, rebuilding Windows or publishing anything.
+2. Connect through the existing SSH/Tailscale route, retaining host-key verification.
+   Inspect the existing wrapper and actual Compose/environment paths without printing
+   credentials or profile contents. Confirm there is no other bot using the same
+   account outside this host. Preserve unrelated checkout work. Do not start a second
+   bot to test a candidate. A VM-local lock cannot police other hosts or manual commands.
+3. Review migration and rollback compatibility **before** permitting cutover. Add
+   `--rollback-compatible` only when old code can safely use the current profile after
+   the new release has run. Without it, a failed cutover leaves the candidate stopped
+   for deliberate recovery. A failure before cutover can resume the unchanged original.
+
+Keep host settings in an operator-owned mode-600 JSON file outside the checkout.
+This example contains placeholders, not a VM provisioning or installation command:
+
+```json
+{
+  "state_dir": "/absolute/private/deployment-state",
+  "env_file": "/absolute/private/compose.env",
+  "compose_files": [
+    "/absolute/existing/checkout/compose.yaml",
+    "/absolute/existing/checkout/compose.remote.yaml"
+  ],
+  "minimum_free_bytes": 4294967296,
+  "minimum_available_memory_bytes": 536870912,
+  "health_timeout_seconds": 180
+}
+```
+
+The state directory must be operator-owned mode 700. The mode-600 `env_file` retains
+the existing `HEETKIT_PLATFORM=linux/arm64`, `HEETKIT_SECRETS_DIR`,
+`HEETKIT_MANAGEMENT_ORIGIN` and `HEETKIT_TWITCH_REDIRECT_URI` values. Secrets remain
+file-backed outside Git; no bearer appears in arguments, environment or output.
+The helper ignores inherited `HEETKIT_*`/`COMPOSE_*` overrides, checks resolved Compose
+against the actual container, and refuses a changed volume, command, environment,
+secret mount, public port or unexpected profile user. Use one stable state directory
+for the host lock. Do not edit Compose inputs, secrets or bot policy during deployment.
+
+On the host, with the checked helper version available:
+
+```bash
+bash /absolute/checked-helper/scripts/deploy_release.sh \
+  --config /absolute/private/deploy.json \
+  --release v<VERSION> --sha <FULL_RELEASE_SHA>
+# Append --rollback-compatible only after the migration review above.
+```
+
+The helper checks disk space on both state and Docker storage and available memory,
+then builds natively while the original service remains available. Adjust thresholds
+upward for the actual profile/build size; defaults are minimum headroom checks, not a
+capacity guarantee. Builds have a 30-minute bound. Public source retains Git modes;
+private umask 077 does not make image sources unreadable by UID 10001. A verified
+already-running exact SHA/image is a no-op. Preparation failures leave the original
+service alone.
+
+Before cutover it preserves the previous image ID, resolved Compose configuration,
+original input/secret copies and their mapping/checksums in a private attempt folder.
+It stops the bot cleanly, checks that no running container mounts the profile, archives
+the whole stopped volume with a network-disabled tar process in the old image, reads
+every archive file, records modes/ownership/digests and verifies copied SQLite databases
+with `integrity_check`. Links, special files and traversal paths are refused. A failed
+stop/backup prevents replacement and attempts to resume the original service. The
+archive includes OAuth tokens and user data; retain it only on host under the existing
+private backup policy. This on-host copy does not replace independent off-host recovery.
+
+Recreation targets only `bot`, with `--no-build --pull never`, the immutable prepared
+image ID and the preserved resolved configuration. A stopped container stays stopped
+and is recorded with health untested. For a running process, health/panel checks allow
+180 seconds by default (90–600 configurable), including the 75-second Docker grace.
+Checks cover Docker image/mounts/restarts/OOM, authenticated status, unchanged
+mode/channel/account, panel assets, loopback listener and private HTTPS returning 401
+without authentication. Persistent Tailscale Serve must proxy to that loopback and
+Funnel must be disabled, using its [Serve configuration fields](https://github.com/tailscale/tailscale/blob/main/ipn/serve.go).
+Manual reconnects only if it was connected immediately before stopping; Disabled and
+stopped Manual stay disconnected. Automatic modes reconcile normally, so Stream Only
+may follow a changed stream state. No chat message, AI request or new OAuth consent is
+used as a check. Health does not prove message delivery or an independent external
+network penetration test.
+
+After verified success, `state_dir/active-compose.json` is the private pinned operational
+configuration. Use `docker compose --project-name heetkit -f /absolute/private/deployment-state/active-compose.json ...`
+for subsequent manual starts/stops; an old wrapper or unpinned checkout command could
+otherwise select an older image. The original files are retained for future input
+resolution; the helper always records the actual previous image. Retain all attempt
+folders, rollback image tags and recovery artifacts until owner acceptance supersedes
+them. No pruning is automatic.
+
+Each attempt's `deployment.json` records tag/SHA, source release URL, old/new image IDs,
+backup checksum, before/after policy, interruption timestamps and deployment/rollback
+outcome. `profile-manifest.json`, `profile.tar.gz.sha256`, `inputs/manifest.json`, and
+the previous/candidate Compose snapshots hold recovery evidence. Commands and raw
+HTTP/provider/profile data are not logged. A nonzero exit never claims deployment or
+rollback success; inspect that private record. Process loss or an interrupted SSH
+session requires inspecting the lock, record and actual container before retrying.
+
+On failed cutover, the helper first stops and verifies the candidate. If compatibility
+was explicitly established, it recreates the previous image/configuration with the
+**current** profile and verifies recovery. It never extracts a backup into the live
+volume or restores old external secrets. Incompatible migrations require an explicitly
+reviewed stopped-state recovery plan and may need a separate volume. Old OAuth tokens
+may already have rotated or been revoked; retain current token state where compatible,
+otherwise report that owner reauthorization is required. If stopping, compatibility or
+recovery verification is uncertain, keep the service stopped where possible and report
+the gap; never start another bot or claim a healthy rollback.
 
 ## ARM64 builds and Oracle A1 preparation
 
