@@ -92,6 +92,11 @@ async def test_desktop_export_server_preview_import_round_trip_and_restart(profi
         return future
 
     bridge = WebUIBridge(type("Host", (), {"application": source.app, "submit": staticmethod(submit)})(), app_settings=source.settings)
+    random_responses = [f"Random reply {index} to {{sender}}" for index in range(30)]
+    assert bridge.save_custom_command({
+        "name": "randompool", "enabled": True, "response_mode": "random", "responses": random_responses,
+        "permission": "USER", "per_user_seconds": 0, "global_seconds": 0, "aliases": [],
+    }) == {"ok": True}
     destination = source.config.parent / "portable.zip"
     bridge._window = type("Window", (), {"create_file_dialog": lambda *args, **kwargs: (str(destination),)})()
     exported = bridge.export_configuration()
@@ -103,6 +108,7 @@ async def test_desktop_export_server_preview_import_round_trip_and_restart(profi
     payload, manifest, _ = unpack_configuration(encoded)
     assert manifest["format_version"] == 1
     assert payload["commands"]["fate"]["aliases"] == ["destiny"]
+    assert next(item for item in payload["custom_commands"] if item["name"] == "randompool")["responses"] == random_responses
     assert "secret-client-sentinel" not in json.dumps(payload)
     assert "secret-gemini-sentinel" not in json.dumps(payload)
     assert "twitch" not in payload and "window" not in payload
@@ -150,6 +156,8 @@ async def test_desktop_export_server_preview_import_round_trip_and_restart(profi
     replacement = build_application(target.app.settings)
     try:
         assert replacement.custom_commands.get_by_name("greeting").responses == ("Hi {sender}!",)
+        assert replacement.custom_commands.get_by_name("randompool").responses == tuple(random_responses)
+        assert replacement.custom_commands.get_by_name("randompool").response_mode == "random"
         assert replacement.services.runtime_state.active_ai_personality == "Portable"
         assert replacement.services.runtime_state.profile_instructions == "Profile instructions."
         assert replacement.services.runtime_state.get_command_settings("fate").aliases == ("destiny",)
@@ -160,6 +168,20 @@ async def test_desktop_export_server_preview_import_round_trip_and_restart(profi
         await replacement.shutdown()
     # Reverse transport uses the same format too.
     assert unpack_configuration(target.export()["archive_base64"])[0] == payload
+
+
+async def test_import_rejects_thirty_one_random_templates_without_writes(profiles):
+    transfer = profiles("profile")
+    seed(transfer)
+    payload, _, _ = unpack_configuration(transfer.export()["archive_base64"])
+    payload["custom_commands"][0].update(response_mode="random", responses=[f"Reply {index}" for index in range(31)])
+    before = file_state(transfer)
+    snapshot = transfer.snapshot()
+    with pytest.raises(ValueError, match="1 to 30 response templates"):
+        transfer.preview(pack_configuration(payload))
+    assert file_state(transfer) == before
+    assert transfer.snapshot() == snapshot
+    assert not (transfer.config / "import-backups").exists()
 
 
 @pytest.mark.parametrize("change", ["unconfirmed", "wrong_zip", "state_changed", "disk_changed", "expired", "replay"])

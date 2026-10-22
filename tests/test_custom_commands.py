@@ -70,6 +70,65 @@ def test_templates_use_safe_fallbacks_and_bounded_output(tmp_path) -> None:
     assert len(render_response(emoji, "", "caller", "recent").encode("utf-8")) <= 450
 
 
+@pytest.mark.parametrize("count", [1, 10, 11, 30])
+def test_random_pool_saves_and_reloads_all_templates(tmp_path, count):
+    path = tmp_path / "commands.json"
+    responses = [f"Reply {index} to {{sender}}" for index in range(count)]
+    saved = CustomCommandStore(path, set()).save(payload(response_mode="random", responses=responses))
+    assert saved.responses == tuple(responses)
+    assert CustomCommandStore(path, set()).get_by_name("hello") == saved
+
+
+@pytest.mark.parametrize("responses", [[], ["Reply"] * 31])
+def test_random_pool_invalid_size_rejected_without_changing_saved_command(tmp_path, responses):
+    path = tmp_path / "commands.json"
+    store = CustomCommandStore(path, set())
+    saved = store.save(payload(response_mode="random", responses=["Reply"] * 30))
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match="1 to 30 response templates"):
+        store.save({**saved.to_json(), "responses": responses})
+    assert store.list() == (saved,)
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("changes,match", [
+    ({"response_mode": "single", "responses": ["Reply"] * 30}, "exactly one"),
+    ({"response_mode": "burst", "permission": "MODERATOR", "responses": ["Reply"] * 30}, "exactly one"),
+    ({"aliases": [f"alias{index}" for index in range(11)]}, "at most 10 aliases"),
+    ({"responses": ["Reply"] * 29 + ["x" * 2001]}, "at most 2000 characters"),
+])
+def test_larger_random_pool_preserves_other_custom_limits(tmp_path, changes, match):
+    with pytest.raises(ValueError, match=match):
+        CustomCommandStore(tmp_path / "commands.json", set()).save(payload(**changes))
+
+
+@pytest.mark.asyncio
+async def test_dispatch_selects_from_entire_thirty_template_pool(tmp_path, monkeypatch):
+    store = CustomCommandStore(tmp_path / "commands.json", set())
+    responses = [f"Reply {index} to {{sender}}" for index in range(29)] + ["{sender} " + "😀" * 200]
+    store.save(payload(response_mode="random", responses=responses))
+    choices = []
+
+    def choose(values):
+        assert tuple(values) == tuple(responses)
+        choices.append(values)
+        return values[-1]
+
+    monkeypatch.setattr("app.commands.registry.random.choice", choose)
+    replies = []
+
+    async def respond(content):
+        replies.append(content)
+
+    dispatcher = CommandDispatcher(CommandRegistry(), CooldownManager(), logging.getLogger(__name__), "!",
+                                   custom_commands=store)
+    message = IncomingChatMessage("channel", "!hello", ChatAuthor("viewer-id", "viewer"), respond)
+    assert await dispatcher.dispatch(message, SimpleNamespace(settings=SimpleNamespace(twitch_bot_user_id="bot-id")))
+    assert len(choices) == len(replies) == 1
+    assert replies[0].startswith("viewer 😀")
+    assert len(replies[0].encode("utf-8")) <= 450
+
+
 def test_malformed_file_skips_bad_entries_and_never_blocks_builtins(tmp_path) -> None:
     path = tmp_path / "custom_commands.json"
     good = CustomCommandStore(path, set()).save(payload())

@@ -105,8 +105,8 @@ def parse_custom_command(raw: object, *, command_id: str | None = None, legacy: 
     if type(enabled) is not bool:
         raise ValueError("Enabled must be a boolean.")
     responses = raw.get("responses")
-    if not isinstance(responses, list) or not 1 <= len(responses) <= 10:
-        raise ValueError("Provide 1 to 10 response templates.")
+    if not isinstance(responses, list) or not 1 <= len(responses) <= 30:
+        raise ValueError("Provide 1 to 30 response templates.")
     parsed_responses = tuple(_response(response) for response in responses)
     permission = raw.get("permission")
     if not isinstance(permission, str) or permission not in Permission.__members__:

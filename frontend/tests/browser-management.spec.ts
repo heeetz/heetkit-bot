@@ -236,6 +236,32 @@ test('disabled browser operation mode removes connect control and explains how t
   await expect(page.getByRole('button', { name: /Connect|Start Bot|Disconnect|Switch to Manual & disconnect/, exact: false })).toHaveCount(0)
 })
 
+test('server Commands saves and reopens thirty Random templates and rejects thirty-one', async ({ page }) => {
+  const api = await server(page)
+  await page.goto('/tests/browser.fixture.html')
+  await login(page)
+  await page.getByRole('button', { name: 'Commands', exact: true }).click()
+  await page.getByRole('button', { name: 'New command', exact: true }).click()
+  const editor = page.locator('.custom-command-editor')
+  await editor.getByLabel('Command name').fill('randompool')
+  await selectOption(editor.getByLabel('Response type'), 'random')
+  const responses = Array.from({ length: 30 }, (_, index) => `Reply ${index} to {sender}`)
+  const text = editor.getByRole('textbox', { name: 'Responses', exact: true })
+  await text.fill([...responses, 'One too many'].join('\n'))
+  await editor.getByRole('button', { name: 'Save command', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('1 to 30 response templates')
+  expect(api.calls.filter((call) => call.path === '/v1/custom-commands/save')).toEqual([])
+  await text.fill(responses.join('\n'))
+  await editor.getByRole('button', { name: 'Save command', exact: true }).click()
+  await expect(editor).toHaveCount(0)
+  expect(api.calls.find((call) => call.path === '/v1/custom-commands/save')?.body).toMatchObject({
+    command: { response_mode: 'random', responses },
+  })
+  const row = page.locator('.custom-command-row').filter({ has: page.getByText('!randompool', { exact: true }) })
+  await row.getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(text).toHaveValue(responses.join('\n'))
+})
+
 for (const width of [1280, 900, 390, 320]) {
   test(`existing browser pages save server drafts and hide native actions at ${width}px`, async ({ page }) => {
     const api = await server(page)

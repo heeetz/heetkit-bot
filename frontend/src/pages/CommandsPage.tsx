@@ -554,8 +554,8 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       setError('Enter a command name, at least one response, and non-negative cooldowns.')
       return
     }
-    if (responses.length > 10) {
-      setError('Keep 1 to 10 response templates.')
+    if (responses.length > 30) {
+      setError('Keep 1 to 30 response templates.')
       return
     }
     const burstCount = parsedBurstCount(customDraft.burstCount)
@@ -913,7 +913,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           </label>
           <p className="custom-mode-example">
             {customDraft.responseMode === 'random'
-              ? `${customData.command_prefix}${customDraft.name || 'hello'} picks one response at random. Enter 1 to 10 non-empty lines; blank lines are ignored.`
+              ? `${customData.command_prefix}${customDraft.name || 'hello'} picks one response at random. Enter 1 to 30 non-empty lines; blank lines are ignored.`
               : customDraft.responseMode === 'burst'
                 ? `${customData.command_prefix}${customDraft.name || 'promo'} sends this message ${customDraft.burstCount || 'N'} times ${parsedBurstInterval(customDraft.burstIntervalMs) === 0 ? 'concurrently' : `with ${customDraft.burstIntervalMs || 'N'} ms between request starts`}. Requires Moderator or Broadcaster permission.`
                 : `${customData.command_prefix}${customDraft.name || 'hello'} sends this message once.`}

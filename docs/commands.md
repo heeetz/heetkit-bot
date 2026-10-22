@@ -229,7 +229,7 @@ Confirm and Cancel actions; Escape dismisses without executing. Built-in removal
 is reversible through Removed commands; custom deletion is permanent.
 
 - **Single** sends one configured message.
-- **Random** selects one of 1–10 templates, entered one per non-empty line.
+- **Random** selects one of 1–30 templates, entered one per non-empty line.
 - **Burst** repeats one configured message using the Burst interval, with a default count of
   1–10. Burst requires Moderator or Broadcaster permission. Enable argument count
   override to let `!promo 10` send ten copies instead of the default, for example five.
