@@ -13,6 +13,12 @@ from scripts import ci_checks
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.fixture(autouse=True)
+def isolate_actions_summary(monkeypatch):
+    # Synthetic gate/timing output must never enter a real runner's job summary.
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+
+
 def workflow(name):
     # BaseLoader preserves the Actions 'on' key rather than YAML 1.1's boolean.
     return yaml.load((ROOT / f".github/workflows/{name}.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)

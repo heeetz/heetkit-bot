@@ -20,6 +20,11 @@ VERSION = "1.4.1"
 BASE = f"HeetKit-{VERSION}-windows-x64"
 
 
+@pytest.fixture(autouse=True)
+def isolate_actions_summary(monkeypatch):
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+
+
 def archive(files):
     stream = BytesIO()
     with zipfile.ZipFile(stream, "w") as bundle:
