@@ -13,7 +13,7 @@ from app.config.settings import Settings
 from app.runtime_state import RuntimeState
 from app.services.ai_request_policy import AIRequestPolicy, PolicyDecision
 from app.services.filter_manager import FilterManager
-from app.services.gemini_ai_service import GeminiAIService
+from app.services.ai_service import SharedAIService
 from app.twitch.client import process_twitch_message
 from app.utils.cooldown import CooldownManager
 
@@ -131,7 +131,7 @@ def test_benign_ai_requests_remain_allowed(prompt: str) -> None:
     ],
 )
 def test_unsafe_generated_responses_are_blocked(response: str) -> None:
-    service = GeminiAIService(SimpleNamespace(), filter_manager=FilterManager())
+    service = SharedAIService(SimpleNamespace(), filter_manager=FilterManager())
 
     assert service._contains_blocked_response_content(response)
 
@@ -159,7 +159,7 @@ def test_unsafe_generated_responses_are_blocked(response: str) -> None:
     ],
 )
 def test_benign_generated_responses_remain_allowed(response: str) -> None:
-    service = GeminiAIService(SimpleNamespace(), filter_manager=FilterManager())
+    service = SharedAIService(SimpleNamespace(), filter_manager=FilterManager())
 
     assert not service._contains_blocked_response_content(response)
 
@@ -192,7 +192,7 @@ async def test_editable_instructions_cannot_bypass_generated_response_filter(
     state = RuntimeState()
     state.apply_profile_instructions(profile_instruction)
     state.apply_ai_personality("malicious-test-style", personality_style)
-    service = GeminiAIService(
+    service = SharedAIService(
         Settings(_env_file=None, gemini_api_key="synthetic-test-key"),
         runtime_state=state,
         filter_manager=FilterManager(),

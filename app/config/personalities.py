@@ -1,4 +1,4 @@
-"""Built-in Gemini personality prompt definitions."""
+"""Built-in shared AI instructions and personality prompt definitions."""
 
 import json
 from datetime import datetime, timezone

@@ -13,7 +13,7 @@ from app.config.personalities import (
 )
 from app.runtime_state import RuntimeState
 from app.config.settings import Settings
-from app.services.gemini_ai_service import GeminiAIService
+from app.services.ai_service import SharedAIService
 from app.config.personalities import ACTIVE_AI_PERSONALITY, build_ai_system_instruction
 
 
@@ -176,7 +176,7 @@ def test_failed_personality_save_does_not_change_runtime(tmp_path, monkeypatch) 
 def test_gemini_service_uses_effective_runtime_personality_prompt() -> None:
     runtime_state = RuntimeState()
     runtime_state.apply_ai_personality("neutral", "\nRuntime personality.")
-    service = GeminiAIService(Settings(), runtime_state=runtime_state)
+    service = SharedAIService(Settings(), runtime_state=runtime_state)
 
     instruction = service._build_system_instruction()
 
@@ -284,7 +284,7 @@ def test_effective_instruction_order_for_every_personality(custom) -> None:
     if custom:
         state.apply_ai_personality("local", "LOCAL STYLE")
     state.apply_profile_instructions("PROFILE INSTRUCTIONS {braces}")
-    service = GeminiAIService(Settings(), runtime_state=state)
+    service = SharedAIService(Settings(), runtime_state=state)
     instruction = service._build_system_instruction()
     style = state.get_ai_personality_prompt(state.active_ai_personality)
     assert instruction.startswith("You are a Twitch chat assistant.")
@@ -305,7 +305,7 @@ def test_profile_instructions_work_with_a_cleared_local_personality() -> None:
     state = RuntimeState()
     state.apply_ai_personality("local", "")
     state.apply_profile_instructions("Shared local instructions")
-    service = GeminiAIService(Settings(), runtime_state=state)
+    service = SharedAIService(Settings(), runtime_state=state)
     instruction = service._build_system_instruction()
     assert instruction.startswith("You are a Twitch chat assistant.")
     assert "Shared local instructions" in instruction
@@ -576,5 +576,5 @@ def test_ai_request_snapshot_survives_personality_mutation(tmp_path, monkeypatch
             state.delete_ai_personality("local")
         return instructions
     monkeypatch.setattr(state, "get_active_ai_instructions", read_then_mutate)
-    service = GeminiAIService(Settings(), runtime_state=state)
+    service = SharedAIService(Settings(), runtime_state=state)
     assert service._build_system_instruction().endswith("Request style")

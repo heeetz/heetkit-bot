@@ -12,7 +12,8 @@ from app.config.ai_models import (
     GEMINI_MODEL_PRESETS,
     GEMINI_PROVIDER_NAME,
 )
-from app.services.gemini_ai_service import GeminiAIService
+from app.services.gemini_ai_service import GeminiProvider
+from app.services.ai_service import SharedAIService
 
 
 class FakeGeminiClient:
@@ -67,9 +68,9 @@ def test_model_discovery_keeps_only_text_generation_models() -> None:
         supported_actions=["embedContent"],
     )
 
-    assert GeminiAIService._normalize_discovered_model(text_model) == "gemini-custom"
-    assert GeminiAIService._normalize_discovered_model(embedding_model) is None
-    assert GeminiAIService._normalize_discovered_model(unsupported_model) is None
+    assert GeminiProvider._normalize_discovered_model(text_model) == "gemini-custom"
+    assert GeminiProvider._normalize_discovered_model(embedding_model) is None
+    assert GeminiProvider._normalize_discovered_model(unsupported_model) is None
 
 
 class ProviderError(Exception):
@@ -80,7 +81,7 @@ class ProviderError(Exception):
 
 @pytest.mark.asyncio
 async def test_unavailable_selected_model_uses_configured_fallback() -> None:
-    service = GeminiAIService(
+    service = GeminiProvider(
         SimpleNamespace(
             gemini_model="gemini-selected",
             gemini_fallback_model="gemini-fallback",
@@ -94,7 +95,7 @@ async def test_unavailable_selected_model_uses_configured_fallback() -> None:
             raise ProviderError(404)
         return "fallback response"
 
-    response, effective_model = await service._request_with_model_fallback(request)
+    response, effective_model = await service._request_with_model_fallback(request, service.snapshot())
 
     assert response == "fallback response"
     assert effective_model == "gemini-fallback"
@@ -104,7 +105,7 @@ async def test_unavailable_selected_model_uses_configured_fallback() -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("error", [ProviderError(401), ProviderError(403), ProviderError(429), OSError("network")])
 async def test_auth_policy_rate_and_network_errors_do_not_use_fallback(error) -> None:
-    service = GeminiAIService(
+    service = GeminiProvider(
         SimpleNamespace(
             gemini_model="gemini-selected",
             gemini_fallback_model="gemini-fallback",
@@ -117,7 +118,7 @@ async def test_auth_policy_rate_and_network_errors_do_not_use_fallback(error) ->
         raise error
 
     with pytest.raises(type(error)):
-        await service._request_with_model_fallback(request)
+        await service._request_with_model_fallback(request, service.snapshot())
 
     assert requested == ["gemini-selected"]
 
@@ -128,7 +129,7 @@ async def test_attempt_events_capture_effective_model_usage_and_snapshot_without
     from app.utils.logging import operator_event_scope
 
     settings = SimpleNamespace(gemini_model="gemini-selected", gemini_fallback_model="gemini-fallback")
-    service = GeminiAIService(settings)
+    service = GeminiProvider(settings)
     async def request(model):
         if model == "gemini-selected":
             settings.gemini_model = "gemini-changed"
@@ -141,7 +142,7 @@ async def test_attempt_events_capture_effective_model_usage_and_snapshot_without
                                    secret="PRIVATE-KEY"))
     with caplog.at_level(logging.INFO, logger="app.services.gemini_ai_service"):
         with operator_event_scope(request_id="r" * 32, channel="channel"):
-            await service._request_with_model_fallback(request)
+            await service._request_with_model_fallback(request, service.snapshot())
     events = [record for record in caplog.records if hasattr(record, "event_kind")]
     assert len({record.event_event_id for record in events}) == len(events)
     assert all(record.event_request_id == "r" * 32 for record in events)
@@ -161,16 +162,16 @@ async def test_attempt_events_capture_effective_model_usage_and_snapshot_without
 async def test_cancelled_attempt_and_fallback_failure_have_explicit_terminal_events(caplog):
     import asyncio
     import logging
-    service = GeminiAIService(SimpleNamespace(gemini_model="first", gemini_fallback_model="second"))
+    service = GeminiProvider(SimpleNamespace(gemini_model="first", gemini_fallback_model="second"))
     async def fail(model):
         raise ProviderError(404 if model == "first" else 500)
     with caplog.at_level(logging.INFO, logger="app.services.gemini_ai_service"):
         with pytest.raises(ProviderError):
-            await service._request_with_model_fallback(fail)
+            await service._request_with_model_fallback(fail, service.snapshot())
         async def cancel(_):
             raise asyncio.CancelledError()
         with pytest.raises(asyncio.CancelledError):
-            await service._request_with_model_fallback(cancel)
+            await service._request_with_model_fallback(cancel, service.snapshot())
     finishes = [record for record in caplog.records if getattr(record, "event_kind", None) == "ai.request_finish"]
     assert [(record.event_model, record.event_outcome) for record in finishes] == [
         ("first", "provider_failure"), ("second", "provider_failure"), ("first", "cancelled")]
@@ -194,7 +195,7 @@ async def test_discovery_and_generation_reuse_client_with_live_model_settings(mo
         gemini_model="gemini-missing",
         gemini_fallback_model="gemini-fallback",
     )
-    service = GeminiAIService(settings)
+    service = SharedAIService(settings)
 
     assert await service.discover_models() == ["gemini-discovered"]
     assert (await service.generate_reply("latest score", "user")).text == "A response."
@@ -224,7 +225,7 @@ async def test_credential_rotation_waits_for_old_client_users(monkeypatch) -> No
 
     monkeypatch.setattr(genai, "Client", create_client)
     settings = SimpleNamespace(gemini_api_key=SecretStr("first-key"))
-    service = GeminiAIService(settings)
+    service = GeminiProvider(settings)
 
     async with service._provider_client():
         settings.gemini_api_key = SecretStr("second-key")
@@ -248,7 +249,7 @@ async def test_application_shutdown_waits_for_gemini_and_closes_resources(monkey
 
     client = FakeGeminiClient("key")
     monkeypatch.setattr(genai, "Client", lambda **kwargs: client)
-    service = GeminiAIService(SimpleNamespace(gemini_api_key=SecretStr("key")))
+    service = GeminiProvider(SimpleNamespace(gemini_api_key=SecretStr("key")))
     closed: list[str] = []
 
     class Resource:

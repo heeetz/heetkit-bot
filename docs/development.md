@@ -77,8 +77,21 @@ the application bundle.
 [`build_application()`](../app/container.py) composes one `Application`: repositories,
 shared HTTP/provider clients, filters, command registry/dispatcher and `RuntimeState`.
 Application startup initializes the database, retention task and filters; shutdown
-closes Gemini, the shared HTTP client and database. [`BotRuntime`](../app/bot_runtime.py)
+closes the AI provider, the shared HTTP client and database. [`BotRuntime`](../app/bot_runtime.py)
 serializes Twitch session transitions and stops the session before application cleanup.
+
+[`SharedAIService`](../app/services/ai_service.py) implements the existing command-facing
+`AIService` contract. It assembles shared instructions, personality, language and untrusted
+context, then checks the complete output before applying the 220-character answer limit.
+The internal [`provider contract`](../app/services/ai_provider.py) carries immutable
+prepared inputs and normalized results. [`GeminiProvider`](../app/services/gemini_ai_service.py)
+owns SDK requests, search tools, discovery, bounded model fallback, safe errors and client
+leases. Profiles without a provider selection continue to use Gemini; no migration is needed.
+Instructions, context, search intent, models and credentials are captured before asynchronous
+provider work, so edits apply to the next request and cannot change an in-flight fallback.
+Global output filters still use the rules active when the response arrives. The current
+shared instruction text and answer limit remain defaults owned by their existing configuration
+helpers; the provider adapter does not define them. Playground uses the same shared pipeline.
 
 [`app.main`](../app/main.py) enters the [pywebview host](../app/webview_host.py), whose
 `AsyncioBackendHost` owns the core on a background asyncio thread. `DesktopController`

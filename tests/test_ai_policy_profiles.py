@@ -13,7 +13,7 @@ from app.filter_settings import save_filter_settings, validate_filter_input
 from app.runtime_paths import DEFAULT_FILTERS, FILTER_NAMES, RuntimePaths, prepare_runtime_data
 from app.services.ai_request_policy import AIRequestPolicy, PolicyDecision
 from app.services.filter_manager import FilterManager
-from app.services.gemini_ai_service import GeminiAIService
+from app.services.ai_service import SharedAIService
 from app.twitch.client import process_twitch_message
 
 
@@ -33,7 +33,7 @@ async def test_provider_request_uses_protected_profile_and_personality_order(mon
     state = RuntimeState()
     state.apply_profile_instructions("Use this synthetic community vocabulary {literally}.")
     state.apply_ai_personality("local", "Use a cheerful tone.")
-    service = GeminiAIService(Settings(gemini_api_key="synthetic-test-key"), runtime_state=state)
+    service = SharedAIService(Settings(gemini_api_key="synthetic-test-key"), runtime_state=state)
     try:
         await service.generate_reply("Tell me a story", "viewer")
         instruction = generate.call_args.kwargs["config"].system_instruction
@@ -152,5 +152,5 @@ def test_shared_request_safeguards_work_with_empty_local_filters(prompt) -> None
     "A statement about terrorism.",
 ])
 def test_shared_response_safeguards_work_with_empty_local_filters(response) -> None:
-    service = GeminiAIService(SimpleNamespace(), filter_manager=FilterManager())
+    service = SharedAIService(SimpleNamespace(), filter_manager=FilterManager())
     assert service._contains_blocked_response_content(response)

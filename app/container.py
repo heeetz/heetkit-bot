@@ -21,7 +21,7 @@ from app.database.repository import AIMemoryRepository, UserRepository
 from app.services.facade import ApplicationServices
 from app.services.memory import AIMemoryService
 from app.services.weather import OpenMeteoWeatherService
-from app.services.gemini_ai_service import GeminiAIService
+from app.services.ai_service import SharedAIService
 from app.services.filter_manager import FilterManager
 from app.services.ai_request_policy import AIRequestPolicy
 from app.services.twitch import TwitchAPIService
@@ -36,7 +36,7 @@ class Application:
     settings: Settings
     database: Database
     http_client: httpx.AsyncClient
-    ai_service: GeminiAIService
+    ai_service: SharedAIService
     services: ApplicationServices
     registry: CommandRegistry
     dispatcher: CommandDispatcher
@@ -80,7 +80,7 @@ def build_application(settings: Settings) -> Application:
         command_settings_path=paths.command_settings,
         personality_settings_path=paths.personality_settings,
     )
-    ai_service = GeminiAIService(
+    ai_service = SharedAIService(
         settings,
         runtime_state=runtime_state,
         filter_manager=filter_manager,

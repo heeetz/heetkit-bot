@@ -118,6 +118,13 @@ distinguishes a successful response, editable-filter or protected-policy input a
 blocks, filter timeouts, provider unavailability, API errors, timeouts and cancellation.
 Protected decisions do not reveal hidden instructions.
 
+Playground and `!ask` share the same backend generation policy. Each request captures
+its applied instructions, personality, language, context, model choices and key before
+provider work begins; model fallback uses that same snapshot. Settings edits apply to
+subsequent requests. Full responses pass the output checks before the current
+220-character answer limit is applied, using any global filter changes active when
+the response arrives. Existing profiles continue to use Gemini without migration.
+
 ## Blocked AI users
 
 Open **AI → AI access**. Enter a **Twitch username** and select

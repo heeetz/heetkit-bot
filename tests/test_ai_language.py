@@ -16,7 +16,7 @@ from app.config.personalities import build_ai_system_instruction
 from app.config.settings import Settings
 from app.runtime_paths import RuntimePaths
 from app.runtime_state import RuntimeState
-from app.services.gemini_ai_service import GeminiAIService
+from app.services.ai_service import SharedAIService
 from app.webview_host import FRONTEND_OPERATIONS, WebUIBridge, apply_ai_app_settings
 
 
@@ -203,7 +203,7 @@ def test_bridge_saves_and_applies_language_and_discloses_same_protected_policy(t
     assert bridge.update_ai_language_settings("limited", ["en", "uk", "ru"], "en") == {"ok": True}
     assert settings.ai_response_language == store.snapshot().ai.response_language == LIMITED
     response = bridge.get_ai_language_settings()
-    instruction = GeminiAIService(settings, runtime_state=state)._build_system_instruction()
+    instruction = SharedAIService(settings, runtime_state=state)._build_system_instruction()
     assert response["active_policy"] in instruction
     assert response["active_policy"] in bridge.get_personalities()["protected_shared_instructions"]
     assert instruction.index(response["active_policy"]) < instruction.index(state.profile_instructions)
@@ -258,7 +258,7 @@ async def test_provider_receives_current_input_and_predictable_selection_guidanc
     state = RuntimeState()
     state.apply_profile_instructions("Always speak Spanish.")
     state.apply_ai_personality("custom", "Speak only French.")
-    service = GeminiAIService(Settings(gemini_api_key="synthetic-key", ai_response_language=LIMITED), runtime_state=state)
+    service = SharedAIService(Settings(gemini_api_key="synthetic-key", ai_response_language=LIMITED), runtime_state=state)
     try:
         await service.generate_reply(prompt, "synthetic-viewer", memory_context="日本語の履歴", stream_category="Français")
         assert generate.await_count == 1  # No detector request.
@@ -287,7 +287,7 @@ async def test_live_policy_change_affects_next_request_but_not_inflight_model_fa
         return SimpleNamespace(text="A friendly answer.", candidates=[])
     client = FakeClient(generate)
     monkeypatch.setattr(genai, "Client", lambda **kwargs: client)
-    service = GeminiAIService(settings)
+    service = SharedAIService(settings)
     try:
         assert (await service.generate_reply("Hello", "viewer")).is_available
         assert len(calls) == 2 and calls[0] == calls[1]

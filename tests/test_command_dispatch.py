@@ -20,7 +20,7 @@ from app.services.contracts import AIReply, WeatherReport
 from app.services.ai_request_policy import AIRequestPolicy
 from app.services.facade import ApplicationServices
 from app.services.filter_manager import FilterManager
-from app.services.gemini_ai_service import GeminiAIService
+from app.services.ai_service import SharedAIService
 from app.services.weather import WeatherServiceError
 from app.runtime_state import RuntimeState
 from app.twitch.client import process_twitch_message
@@ -719,7 +719,7 @@ async def test_ask_continues_when_stream_category_lookup_fails() -> None:
 
 
 def test_gemini_request_content_marks_category_as_untrusted_metadata() -> None:
-    content = GeminiAIService._build_request_content(
+    content = SharedAIService._build_request_content(
         "what game is this?",
         "Recent conversation history",
         "Counter-Strike 2",
@@ -922,7 +922,7 @@ def test_gemini_smart_truncate_length_and_sentence_boundaries() -> None:
         twitch_access_token="access-token",
         twitch_refresh_token="refresh-token",
     )
-    service = GeminiAIService(settings)
+    service = SharedAIService(settings)
 
     short_text = "Short text."
     assert service._smart_truncate(short_text, 200) == short_text

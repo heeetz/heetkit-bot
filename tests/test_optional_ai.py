@@ -17,7 +17,7 @@ from app.credentials import CredentialManager, CredentialName, CredentialStore
 from app.fun_settings import FunSettingsStore
 from app.runtime_state import RuntimeState
 from app.services.contracts import AIReply
-from app.services.gemini_ai_service import GeminiAIService
+from app.services.ai_service import SharedAIService
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.utils.cooldown import CooldownManager
 from app.webview_host import AsyncioBackendHost, WebUIBridge
@@ -25,7 +25,7 @@ from app.webview_host import AsyncioBackendHost, WebUIBridge
 
 def test_gemini_availability_handles_absent_blank_and_missing_provider(monkeypatch):
     settings = Settings(_env_file=None, gemini_api_key=None)
-    service = GeminiAIService(settings)
+    service = SharedAIService(settings)
     assert not service.is_available
     settings.gemini_api_key = SecretStr("   ")
     assert not service.is_available

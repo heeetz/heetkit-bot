@@ -11,7 +11,7 @@ from app.config.settings import Settings
 from app.runtime_state import RuntimeState
 from app.services.ai_request_policy import AIRequestPolicy
 from app.services.filter_manager import FilterEvaluation, FilterManager
-from app.services.gemini_ai_service import GeminiAIService
+from app.services.ai_service import SharedAIService
 from app.webview_host import WebUIBridge
 
 
@@ -42,7 +42,7 @@ def playground(tmp_path, monkeypatch):
         command_settings_path=tmp_path / "commands.json",
     )
     filters = FilterManager()
-    ai = GeminiAIService(settings, runtime_state=state, filter_manager=filters)
+    ai = SharedAIService(settings, runtime_state=state, filter_manager=filters)
     services = SimpleNamespace(
         ai=ai, filter_manager=filters, ai_request_policy=AIRequestPolicy(), runtime_state=state,
         memory=ForbiddenService(), users=ForbiddenService(), twitch=ForbiddenService(),
@@ -200,7 +200,7 @@ async def test_cancel_keeps_slot_until_cleanup_and_discards_late_response(playgr
     result = await bridge._get_ai_playground_result(first["request_id"])
     assert result["status"] == "cancelled"
     assert not result.get("text")
-    assert not ai._client_users[next(iter(ai._client_users))]
+    assert not ai.provider._client_users[next(iter(ai.provider._client_users))]
     generate.side_effect = None
     assert (await run_prompt(bridge, "another prompt"))["status"] == "success"
     with pytest.raises(ValueError):
@@ -219,7 +219,7 @@ async def test_total_timeout_cancels_provider_and_releases_slot(playground, monk
             cancelled.set()
 
     generate.side_effect = waiting_provider
-    monkeypatch.setattr("app.webview_host.GEMINI_REQUEST_TIMEOUT_SECONDS", 0.02)
+    monkeypatch.setattr("app.webview_host.AI_REQUEST_TIMEOUT_SECONDS", 0.02)
     assert (await run_prompt(bridge))["status"] == "timeout"
     assert cancelled.is_set()
     assert not bridge._playground_task.cancelled()

@@ -60,7 +60,7 @@ from app.runtime_paths import (
 from app.system_tray import SystemTray
 from app.services.updates import UpdateCheckError, check_for_updates
 from app.services.ai_request_policy import PolicyDecision
-from app.services.gemini_ai_service import GEMINI_REQUEST_TIMEOUT_SECONDS
+from app.config.ai import AI_REQUEST_TIMEOUT_SECONDS
 from app.windows_runtime import DesktopPrerequisiteError, ensure_windows_runtime
 from app.twitch.client import OAUTH_REDIRECT_URI
 from app.twitch.permissions import Permission
@@ -673,7 +673,7 @@ class WebUIBridge(ApplicationManagement):
                 return {"status": "input_blocked", "moderation_source": "protected_policy"}
             # Reuse generation, instructions, language, fallback and full output checks.
             # No dispatcher, Twitch lookup, viewer identity, memory or activity writes.
-            async with asyncio.timeout(GEMINI_REQUEST_TIMEOUT_SECONDS):
+            async with asyncio.timeout(AI_REQUEST_TIMEOUT_SECONDS):
                 reply = await services.ai.generate_reply(prompt=prompt, user_id="", memory_context=None, stream_category=None)
             if self._playground_cancel_requested:
                 return {"status": "cancelled"}
