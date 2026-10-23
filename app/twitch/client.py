@@ -212,13 +212,6 @@ async def _process_incoming_message(
             operator_event(logger, "command.outcome", "filters", reason="protected_policy")
             return
 
-    logger.info(
-        "Incoming chat message channel=%s author=%s content=%r",
-        incoming.channel,
-        incoming.author.username,
-        incoming.content,
-        extra=event_metadata("chat.incoming"),
-    )
     try:
         await services.users.upsert_seen(
             twitch_user_id=incoming.author.twitch_user_id,

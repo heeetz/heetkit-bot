@@ -27,8 +27,8 @@ physical database cleanup runs at application startup and hourly while the appli
 process runs, including Desktop in the tray and Headless/Server. It continues when the
 Twitch bot is stopped or memory is off. Removal can lag expiry by one cleanup interval;
 when the process is stopped, overdue cleanup waits until its next startup. Desktop
-cleanup failures appear in Logs. Headless/browser diagnostics are filtered to lifecycle
-events and do not expose retention-cleanup failures. Backups and older profile copies
+source-console diagnostics report cleanup failures. The panel's bounded activity
+projection does not expose raw diagnostics or retention-cleanup failures. Backups and older profile copies
 require separate operator handling. Deletion is logical removal, not a promise of forensic
 erasure from disks, journals or provider systems.
 
@@ -114,15 +114,29 @@ use `data/heetkit.db`; Twitch authorization uses `auth/twitchio_tokens.json`.
   Twitch account IDs in this profile's `config/ai_user_blocks.json`.
 - Settings, personality prompts, profile instructions, custom replies, filters and
   recovery copies can contain private community information.
-- Desktop Logs can contain chat and diagnostic details. Recent logs stay in memory;
-  desktop source launches also write console diagnostics. Headless stderr and browser
-  logs expose filtered lifecycle diagnostics; captured service/container logs need their
-  own access and retention policy. HeetKit does not create application
-  log files. Clear affects only the displayed entries, leaving the backend buffer and
-  stored activity intact.
+- Desktop and authenticated Server Logs share an operator activity feed: command
+  inputs/outcomes, permitted reply attempts and fixed lifecycle events. Ordinary chat
+  text is excluded, including text that activates a message trigger; eligible normal
+  chat still updates last-seen. Profile filters, ignored AI input, AI account blocks and
+  storage opt-outs run before personal text capture. Provider payloads, reasoning,
+  raw exception prose and rejected AI output are excluded. Reply text is the exact
+  attempted send, including any mention, with confirmed/failed/uncertain delivery
+  shown separately. Text over 4 KiB is explicitly marked as a truncated excerpt.
+  The feed is separate from 90-day AI memory and does not add database copies.
+  Desktop source launches also write console diagnostics; Headless stderr/Docker logs
+  retain their separate lifecycle-only policy. Captured console/service/container
+  logs need their own access and retention policy. HeetKit creates no application
+  log files. Clear view affects this display, leaving the backend buffer and stored
+  last-seen/AI memory intact. Filters apply to the currently retained display only.
+  Event details link retained input, AI and send events by request ID; an evicted event
+  cannot be recovered there. A confirmed export saves only a snapshot of the filtered
+  view as JSON, including personal text/identities. Review before sharing; exported
+  files are outside HeetKit retention and require separate deletion. Desktop uses
+  a native Save dialog and rejects selected events that have already expired from
+  the backend buffer; Server uses a browser download of the confirmed snapshot.
 - Cooldowns temporarily use account IDs in memory, and stream-category lookup has a
   90-second memory cache. Frontend drafts, Playground results and up to 500 displayed
-  log entries live in React memory. The backend log buffer also holds at most 500
+  log entries live in React memory, capped at 1 MiB serialized UTF-8. The backend log buffer also holds at most 500
   entries, with a 1 MiB serialized UTF-8 budget and a 16 KiB per-entry ceiling,
   until displaced or process exit. Text fields are bounded; oversized entries are
   omitted. No application use of localStorage,

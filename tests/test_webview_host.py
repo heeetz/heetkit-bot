@@ -1508,17 +1508,18 @@ def test_bridge_reads_bounded_logs_with_validated_cursor_arguments() -> None:
     log_buffer = RecentLogBuffer(max_entries=2)
     handler = RecentLogHandler(log_buffer)
     for message in ("first", "second", "third"):
-        handler.emit(
-            logging.LogRecord(
-                name="tests.webview",
-                level=logging.INFO,
-                pathname=__file__,
-                lineno=1,
-                msg=message,
-                args=(),
-                exc_info=None,
-            )
+        record = logging.LogRecord(
+            name="tests.webview",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg=message,
+            args=(),
+            exc_info=None,
         )
+        record.event_kind = "command.input"
+        record.event_text = message
+        handler.emit(record)
     bridge = WebUIBridge(
         cast(AsyncioBackendHost, SimpleNamespace()),
         log_buffer=log_buffer,
@@ -1526,7 +1527,48 @@ def test_bridge_reads_bounded_logs_with_validated_cursor_arguments() -> None:
 
     result = bridge.get_recent_logs(after_id=2, limit=5000)
 
-    assert [entry["message"] for entry in result["entries"]] == ["third"]
+    assert [entry["text"] for entry in result["entries"]] == ["third"]
+
+
+@pytest.mark.parametrize("case", ["saved", "cancelled", "missing_window", "extension", "write_failure", "expired", "invalid"])
+def test_native_activity_export_is_bounded_explicit_and_atomic(tmp_path, monkeypatch, case):
+    import json
+    import webview
+    from app.configuration_transfer import ConfigurationTransfer
+    from app.utils.logging import OperatorActivityHandler, event_metadata
+    buffer = RecentLogBuffer()
+    record = logging.LogRecord("tests.activity", logging.INFO, "", 0, "RAW PRIVATE SENTINEL", (), None)
+    for key, value in event_metadata("command.input", outcome="received").items():
+        setattr(record, key, value)
+    record.event_text = "!ping <literal>"
+    OperatorActivityHandler(buffer).emit(record)
+    bridge = WebUIBridge(SimpleNamespace(), log_buffer=buffer)
+    destination = tmp_path / "activity.json"
+    destination.write_text("existing destination", encoding="utf-8")
+    dialogs = []
+    def dialog(*args, **kwargs):
+        dialogs.append((args, kwargs))
+        return None if case == "cancelled" else (str(destination.with_suffix('.txt') if case == "extension" else destination),)
+    if case != "missing_window":
+        bridge._window = SimpleNamespace(create_file_dialog=dialog)
+    if case == "write_failure":
+        monkeypatch.setattr(ConfigurationTransfer, "stage", lambda *args: (_ for _ in ()).throw(OSError("PRIVATE PATH SENTINEL")))
+    result = bridge.export_activity([True] if case == "invalid" else [999] if case == "expired" else [1])
+    if case == "saved":
+        exported = json.loads(destination.read_text(encoding="utf-8"))
+        assert result == {"ok": True, "saved": True}
+        assert [entry["text"] for entry in exported["entries"]] == ["!ping <literal>"]
+        assert "RAW PRIVATE SENTINEL" not in str(exported)
+    else:
+        assert destination.read_text(encoding="utf-8") == "existing destination"
+        assert result.get("cancelled") is True if case == "cancelled" else result["ok"] is False
+    assert "PRIVATE PATH SENTINEL" not in str(result)
+    if case in {"expired", "invalid", "missing_window"}:
+        assert dialogs == []
+    if dialogs:
+        assert dialogs[0][0] == (webview.FileDialog.SAVE,)
+        assert dialogs[0][1]["file_types"] == ("Activity JSON (*.json)",)
+    assert webview.settings["ALLOW_DOWNLOADS"] is False
 
 
 def test_production_frontend_requires_a_built_entrypoint(monkeypatch) -> None:

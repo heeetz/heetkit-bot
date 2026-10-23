@@ -581,17 +581,8 @@ class ManagementAPI:
             after, limit = payload.get("after_id", 0), payload.get("limit", 100)
             if type(after) is not int or after < 0 or type(limit) is not int or not 1 <= limit <= 200:
                 raise ValueError
-            # Only lifecycle codes and safe fixed messages; raw logger text/context
-            # can contain chat/provider payloads and is deliberately not returned.
-            entries = self.log_buffer.recent(after_id=after, limit=limit) if self.log_buffer else []
-            return {"ok": True, "next_after_id": entries[-1]["id"] if entries else after,
-                "entries": [{"id": entry["id"], "timestamp": entry["timestamp"],
-                "level": entry["level"], "source": "headless", "context": {},
-                "event_kind": entry["event_kind"], "message": "Twitch lifecycle: " + entry["event_kind"]}
-                for entry in entries if entry.get("event_kind") in {
-                    "twitch.subscribe", "twitch.connected", "twitch.recovered", "twitch.disconnected",
-                    "twitch.auth_required", "twitch.failed", "twitch.shutdown",
-                    "operation.mode", "operation.stream", "operation.poll", "operation.failed"}]}
+            return {"ok": True, **(self.log_buffer.activity(after_id=after, limit=limit)
+                    if self.log_buffer else {"entries": [], "next_after_id": after})}
         raise LookupError
 
     def credential_statuses(self) -> list[dict]:

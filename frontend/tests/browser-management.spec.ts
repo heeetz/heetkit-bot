@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
-import type { CommandInfo, CustomCommandInfo, FilterInput } from '../src/bridge'
+import { readFile } from 'node:fs/promises'
+import type { CommandInfo, CustomCommandInfo, FilterInput, LogEntry } from '../src/bridge'
 import { selectOption } from './select-helpers'
 
 const adminToken = 'a'.repeat(43)
@@ -23,6 +24,7 @@ type StatusOverrides = Partial<{
 async function server(page: Page, operationOverrides: OperationOverrides = {}, statusOverrides: StatusOverrides = {}) {
   const calls: Call[] = []
   let expired = false
+  let logs: LogEntry[] = []
   let fail = ''
   let filters: FilterInput = { words: ['synthetic'], phrases: [], patterns: [] }
   let profile = 'Saved instructions'
@@ -108,11 +110,11 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     if (path === '/v1/personalities/save' || path === '/v1/personalities/apply') prompt = body!.prompt as string
     if (path === '/v1/personalities') result = { active_personality: 'neutral', active_personality_saved: true, personalities: [{ name: 'neutral', prompt, built_in_prompt: 'Neutral prompt', is_builtin: true, prompt_saved: true, has_saved_override: false }], profile_instructions: profile, profile_instructions_saved: true, protected_shared_instructions: 'Protected policy' }
     if (path === '/v1/blocked-users') result = { ok: true, users: [] }
-    if (path === '/v1/logs/recent') result = { ok: true, entries: [], next_after_id: 99 }
+    if (path === '/v1/logs/recent') result = { ok: true, entries: logs.filter((entry) => entry.id > Number(body?.after_id ?? 0)), next_after_id: 99 }
     if (path === '/v1/about') result = { application_name: 'HeetKit', application_subtitle: 'Twitch bot controls', version: '1.3.0', author: 'heeetz', license_name: 'Apache-2.0' }
     await route.fulfill({ json: result })
   })
-  return { calls, setTwitch: (values: Record<string, unknown>) => { Object.assign(twitch, values) }, expire: (value = true) => { expired = value }, fail: (path: string) => { fail = path }, setOperation: (values: OperationOverrides) => { operation = { ...operation, ...values }; status.operation = operation }, setOAuthBegin: (result: object) => { oauthBeginResult = result }, setOAuthComplete: (result: object) => { oauthCompleteResult = result } }
+  return { calls, setLogs: (entries: LogEntry[]) => { logs = entries }, setTwitch: (values: Record<string, unknown>) => { Object.assign(twitch, values) }, expire: (value = true) => { expired = value }, fail: (path: string) => { fail = path }, setOperation: (values: OperationOverrides) => { operation = { ...operation, ...values }; status.operation = operation }, setOAuthBegin: (result: object) => { oauthBeginResult = result }, setOAuthComplete: (result: object) => { oauthCompleteResult = result } }
 }
 
 async function login(page: Page) {
@@ -549,6 +551,34 @@ test('401 expiration removes editors and their drafts; failed logout still remov
   expect(await invoke(page, 'get_app_status')).toEqual({ error: 'Sign in to manage this server.' })
 })
 
+test('authenticated operator activity includes replies, outcomes and linked details', async ({ page }) => {
+  const api = await server(page)
+  api.setLogs([
+    { id: 1, timestamp: '2026-10-23T11:00:00Z', level: 'INFO', source: 'synthetic', message: 'command.input outcome=received', event_kind: 'command.input', text: '!ping', context: { request_id: 'shared-request', command: 'ping', source: 'command', outcome: 'received' } },
+    { id: 2, timestamp: '2026-10-23T11:00:01Z', level: 'INFO', source: 'synthetic', message: 'chat.outgoing outcome=uncertain_send', event_kind: 'chat.outgoing', text: '@viewer exact reply', context: { request_id: 'shared-request', command: 'ping', source: 'command', outcome: 'uncertain_send' } },
+  ])
+  await page.goto('/tests/browser.fixture.html')
+  await login(page)
+  await page.getByRole('button', { name: 'Logs', exact: true }).click()
+  await expect(page.locator('.log-row')).toHaveCount(2)
+  await expect(page.getByText('@viewer exact reply', { exact: true })).toBeVisible()
+  await selectOption(page.getByRole('combobox', { name: 'Outcome', exact: true }), 'uncertain_send')
+  await expect(page.locator('.log-row')).toHaveCount(1)
+  await page.getByText('Event details', { exact: true }).click()
+  await expect(page.locator('.log-details')).toContainText('shared-request')
+  await page.getByRole('button', { name: 'Show related events' }).click()
+  await expect(page.locator('.log-row')).toHaveCount(2)
+  await page.getByRole('button', { name: 'Export filtered…' }).click()
+  const downloaded = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click()
+  const download = await downloaded
+  const exported = JSON.parse(await readFile((await download.path())!, 'utf-8'))
+  expect(exported.entries.map((entry: LogEntry) => entry.id)).toEqual([1, 2])
+  expect(api.calls.filter((call) => call.path === '/v1/logs/recent').every((call) => call.authorization === `Bearer ${sessionToken}`)).toBe(true)
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click()
+  await expect(page.locator('.log-row')).toHaveCount(0)
+})
+
 test('status and logs poll at most every five seconds, use cursor and pause while hidden', async ({ page }) => {
   const api = await server(page)
   await page.clock.install()
@@ -559,7 +589,7 @@ test('status and logs poll at most every five seconds, use cursor and pause whil
   await page.clock.fastForward(4900)
   expect(api.calls.filter((call) => call.path === '/v1/snapshot')).toHaveLength(snapshots)
   await page.getByRole('button', { name: 'Logs', exact: true }).click()
-  await expect(page.getByText('SERVER LIFECYCLE LOGS', { exact: true })).toBeVisible()
+  await expect(page.getByText('OPERATOR ACTIVITY', { exact: true })).toBeVisible()
   await expect.poll(() => api.calls.filter((call) => call.path === '/v1/logs/recent').length).toBe(1)
   await page.clock.fastForward(5100)
   await expect.poll(() => api.calls.filter((call) => call.path === '/v1/logs/recent').length).toBe(2)

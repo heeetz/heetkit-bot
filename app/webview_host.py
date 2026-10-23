@@ -89,6 +89,7 @@ BRIDGE_TWITCH_RECONNECT_TIMEOUT_SECONDS = 30.0
 
 # Register functions by exact name; never give pywebview an object to traverse.
 FRONTEND_OPERATIONS = (
+    "export_activity",
     "export_configuration", "preview_configuration_import", "apply_configuration_import",
     "get_app_status", "get_about_info", "check_for_updates", "get_commands", "get_custom_commands",
     "get_filters", "get_ai_status", "get_personalities", "get_recent_logs",
@@ -1232,12 +1233,43 @@ class WebUIBridge(ApplicationManagement):
         safe_after_id = after_id if type(after_id) is int and after_id >= 0 else 0
         safe_limit = limit if type(limit) is int else 200
         safe_limit = min(200, max(1, safe_limit))
-        return {
-            "entries": self._log_buffer.recent(
-                after_id=safe_after_id,
-                limit=safe_limit,
-            )
-        }
+        return self._log_buffer.activity(after_id=safe_after_id, limit=safe_limit)
+
+    def export_activity(self, entry_ids: object) -> dict[str, object]:
+        """Save only retained events selected by the confirmed view, via a native dialog."""
+        import json
+        import webview
+        from datetime import datetime, timezone
+        from app.configuration_transfer import ConfigurationTransfer
+
+        if (not isinstance(entry_ids, list) or not 1 <= len(entry_ids) <= 500
+                or any(type(value) is not int or value < 1 for value in entry_ids)
+                or len(set(entry_ids)) != len(entry_ids)):
+            return {"ok": False, "error": "Select up to 500 retained events to export."}
+        retained = {entry["id"]: entry for entry in self._log_buffer.activity(limit=500)["entries"]}
+        if any(value not in retained for value in entry_ids):
+            return {"ok": False, "error": "Some selected events have expired. Clear the view and select recent events."}
+        if self._window is None:
+            return {"ok": False, "error": "The desktop Save dialog is unavailable."}
+        payload = json.dumps({"exported_at": datetime.now(timezone.utc).isoformat(),
+                              "entries": [retained[value] for value in entry_ids]}, ensure_ascii=False).encode("utf-8")
+        temporary = None
+        try:
+            selected = self._window.create_file_dialog(webview.FileDialog.SAVE,
+                save_filename="heetkit-activity.json", file_types=("Activity JSON (*.json)",))
+            if not selected:
+                return {"ok": True, "cancelled": True}
+            path = Path(selected[0])
+            if not path.is_absolute() or path.suffix.lower() != ".json":
+                return {"ok": False, "error": "Select a filename ending in .json in the Save dialog."}
+            temporary = ConfigurationTransfer.stage(path, payload)
+            os.replace(temporary, path)
+            return {"ok": True, "saved": True}
+        except Exception:
+            return {"ok": False, "error": "Could not save activity. Check the selected destination and try again."}
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
 
     def start_bot(self) -> dict[str, object]:
         if self._app_settings is not None and self._twitch_setup_requires_restart(

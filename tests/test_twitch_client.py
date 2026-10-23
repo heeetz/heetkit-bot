@@ -211,6 +211,36 @@ class ReplyingDispatcher:
         return True
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("opted_out,filtered", [(False, False), (True, False), (False, True)])
+async def test_activity_captures_commands_and_replies_but_not_ordinary_chat(opted_out, filtered):
+    from app.commands.registry import CommandRegistry
+    from app.utils.cooldown import CooldownManager, CooldownPolicy
+    from app.utils.logging import RecentLogBuffer, OperatorActivityHandler
+    users = RecordingUserRepository()
+    users.is_storage_opted_out = AsyncMock(return_value=opted_out)
+    services = SimpleNamespace(users=users, filter_manager=SimpleNamespace(filter_message=lambda text: not filtered))
+    buffer = RecentLogBuffer()
+    logger = logging.Logger("tests.activity", logging.INFO)
+    logger.addHandler(OperatorActivityHandler(buffer))
+    registry = CommandRegistry()
+    @registry.command("ping", cooldown=CooldownPolicy(global_seconds=30))
+    async def ping(context, arguments):
+        await context.reply("@viewer Pong <literal>")
+    dispatcher = CommandDispatcher(registry, CooldownManager(), logger, "!")
+    for content in ("ordinary chat sentinel", "!ping", "!ping"):
+        await process_twitch_message(FakeTwitchMessage(content), services, dispatcher, logger)
+    entries = buffer.activity()["entries"]
+    assert "ordinary chat sentinel" not in str(buffer.recent())
+    if opted_out or filtered:
+        assert entries == []
+    else:
+        assert users.seen_user_ids == ["viewer-id"] * 3
+        assert [entry["text"] for entry in entries if entry["text"] is not None] == ["!ping", "@viewer Pong <literal>", "!ping"]
+        cooldown = next(entry for entry in entries if entry["context"].get("outcome") == "cooldown")
+        assert cooldown["context"]["retry_after_seconds"] > 0
+
+
 def build_settings() -> Settings:
     return Settings(
         _env_file=None,
@@ -393,13 +423,8 @@ async def test_twitch_message_maps_to_dto_persists_user_and_sends_response(
     assert filter_manager.messages == ["!ping"]
     assert dispatcher.messages[0].content == "!ping"
     assert raw_message.responses == ["pong"]
-    incoming_record = next(
-        record
-        for record in caplog.records
-        if getattr(record, "event_kind", None) == "chat.incoming"
-    )
-    assert incoming_record.event_username == "viewer"
-    assert incoming_record.event_channel == "testchannel"
+    assert not any(getattr(record, "event_kind", None) == "chat.incoming" for record in caplog.records)
+    assert "!ping" not in caplog.text
 
 
 @pytest.mark.asyncio

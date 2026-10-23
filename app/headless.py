@@ -22,7 +22,7 @@ from app.desktop_instance import DesktopAlreadyRunningError, desktop_instance_gu
 from app.headless_health import HealthFile
 from app.operation_policy import OperationPolicy
 from app.runtime_paths import DATA_DIR_ENV, RuntimePaths, prepare_runtime_data
-from app.utils.logging import RecentLogHandler, RecentLogBuffer, PrivacyLogFilter
+from app.utils.logging import OperatorActivityHandler, RecentLogBuffer, PrivacyLogFilter
 
 
 logger = logging.getLogger("app.headless")
@@ -132,9 +132,8 @@ async def run_headless(
         if management_config is not None:
             from app.management_api import ManagementAPI
             buffer = RecentLogBuffer()
-            recent_handler = RecentLogHandler(buffer)
+            recent_handler = OperatorActivityHandler(buffer)
             recent_handler.addFilter(PrivacyLogFilter())
-            recent_handler.addFilter(HeadlessLogFilter())
             logging.getLogger().addHandler(recent_handler)
             management = ManagementAPI(runtime, management_config, buffer, policy=policy, app_settings=store, credentials=credentials)
             await management.start()

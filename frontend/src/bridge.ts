@@ -388,6 +388,8 @@ export interface LogEntry {
   message: string
   event_kind: string | null
   context: Record<string, string | number | boolean>
+  text?: string | null
+  text_truncated?: boolean
 }
 
 export interface LogsResponse {
@@ -422,6 +424,7 @@ export interface PythonApi {
   cancel_ai_playground(requestId: string): Promise<AIPlaygroundResult>
   get_personalities(): Promise<PersonalitiesResponse>
   get_recent_logs(after_id?: number, limit?: number): Promise<LogsResponse>
+  export_activity(entryIds: number[]): Promise<ActionResult & { saved?: boolean; cancelled?: boolean }>
   apply_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string, metadata?: CommandSettingsMetadata): Promise<ActionResult>
   save_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string, metadata?: CommandSettingsMetadata): Promise<ActionResult>
   reset_command_settings(commandName: string): Promise<ActionResult>

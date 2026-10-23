@@ -258,6 +258,7 @@ async def test_editable_instructions_cannot_bypass_generated_response_filter(
         respond.assert_not_awaited()
         memory.save_exchange.assert_not_awaited()
         assert unsafe_output not in caplog.text
+        assert unsafe_output not in str([getattr(record, "event_text", None) for record in caplog.records])
 
         instruction = generate.call_args.kwargs["config"].system_instruction
         protected_boundary = "Never encourage suicide, self-harm"
@@ -332,6 +333,7 @@ async def test_ignored_ask_content_is_not_logged_or_saved(
     respond.assert_not_awaited()
     assert restricted_request not in caplog.text
     assert private_marker not in caplog.text
+    assert private_marker not in str([getattr(record, "event_text", None) for record in caplog.records])
     events = [record for record in caplog.records if getattr(record, "event_kind", None) == "command.outcome"]
     assert len(events) == 1
     assert events[0].event_outcome == "filters" and events[0].event_command_id == "ask"

@@ -149,6 +149,7 @@ async def test_transport_guard_does_not_log_prompt_or_persist_user_and_latches_v
     with caplog.at_level(logging.INFO):
         await process_twitch_message(twitch_message, services, dispatcher, logging.getLogger("tests.transport"))
     assert "PRIVATE SENTINEL" not in caplog.text
+    assert "PRIVATE SENTINEL" not in str([getattr(record, "event_text", None) for record in caplog.records])
     assert "ai_user_blocked" in caplog.text
     services.users.upsert_seen.assert_not_awaited()
     services.ai.generate_reply.assert_not_awaited()

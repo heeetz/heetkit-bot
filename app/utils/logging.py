@@ -57,11 +57,14 @@ def event_metadata(kind: str, **context) -> dict:
     }}
 
 
-def operator_event(logger: logging.Logger, kind: str, outcome: str, **context) -> None:
-    # Fixed messages and allowlisted scalars only: no prompts, replies, provider
-    # payloads, exception strings, keys or reasoning are added to operator events.
+def operator_event(logger: logging.Logger, kind: str, outcome: str, *, text: str | None = None, **context) -> None:
+    # Text is an explicit panel-only field at the permitted input/send boundaries.
+    # Stream handlers render the fixed message, never this field or provider payloads.
+    extra = event_metadata(kind, outcome=outcome, **context)
+    if kind in {"command.input", "chat.outgoing"} and text is not None:
+        extra["event_text"] = text
     logger.info("%s outcome=%s", kind, outcome,
-                extra=event_metadata(kind, outcome=outcome, **context))
+                extra=extra)
 
 
 def send_outcome(result: object) -> str:
@@ -100,6 +103,8 @@ class RecentLogEntry:
     message: str
     event_kind: str | None = None
     context: dict[str, EventContextValue] = field(default_factory=dict)
+    text: str | None = None
+    text_truncated: bool = False
 
 
 class RecentLogBuffer:
@@ -129,6 +134,8 @@ class RecentLogBuffer:
             value = getattr(record, attribute, None)
             if isinstance(value, (str, int, float, bool)) and not isinstance(value, bytes):
                 context[field_name] = _bounded_text(value, 512) if isinstance(value, str) else value
+        text = getattr(record, "event_text", None) if event_kind in {"command.input", "chat.outgoing"} else None
+        text = text if isinstance(text, str) else None
         with self._lock:
             entry = RecentLogEntry(
                 id=self._next_id,
@@ -138,6 +145,8 @@ class RecentLogBuffer:
                 message=_bounded_text(message, self._max_entry_bytes // 2),
                 event_kind=event_kind,
                 context=context,
+                text=_bounded_text(text, 4096) if text is not None else None,
+                text_truncated=text is not None and len(text.encode("utf-8", errors="replace")) > 4096,
             )
             self._next_id += 1
             size = len(json.dumps(asdict(entry), ensure_ascii=False).encode("utf-8"))
@@ -153,6 +162,53 @@ class RecentLogBuffer:
         with self._lock:
             entries = [entry for entry, _ in self._entries if entry.id > after_id]
             return [asdict(entry) for entry in entries[:limit]]
+
+    def activity(self, *, after_id: int = 0, limit: int = 200) -> dict:
+        entries = self.recent(after_id=after_id, limit=limit)
+        return {"entries": [projected for entry in entries if (projected := project_activity(entry))],
+                "next_after_id": entries[-1]["id"] if entries else after_id}
+
+
+LIFECYCLE_EVENTS = {
+    "twitch.subscribe", "twitch.connected", "twitch.recovered", "twitch.disconnected",
+    "twitch.auth_required", "twitch.failed", "twitch.shutdown", "twitch.start",
+    "twitch.stop", "twitch.reconnect", "operation.mode", "operation.stream",
+    "operation.poll", "operation.failed",
+}
+ACTIVITY_EVENTS = {
+    "command.input", "command.invoke", "command.outcome", "command.complete", "command.cooldown",
+    "chat.send", "chat.outgoing", "ai.request_start", "ai.request_finish",
+    "ai.fallback", "ai.failure", "ai.result", "ai_user_blocked",
+}
+
+
+def project_activity(entry: dict) -> dict | None:
+    """Both transports expose the same allowlisted projection, never raw log prose."""
+    kind = entry.get("event_kind")
+    if kind in LIFECYCLE_EVENTS:
+        return {**entry, "source": "lifecycle", "context": {}, "text": None,
+                "text_truncated": False, "message": "Twitch lifecycle: " + kind}
+    if kind not in ACTIVITY_EVENTS:
+        return None
+    context = {key: value for key, value in entry["context"].items()
+               if key in EVENT_CONTEXT_ATTRIBUTES.values()}
+    return {**entry, "context": context,
+            "message": f"{kind} outcome={context.get('outcome', 'unknown')}",
+            "text": entry.get("text") if kind in {"command.input", "chat.outgoing"} else None}
+
+
+class OperatorActivityHandler(logging.Handler):
+    """Retain only panel events; stderr lifecycle filtering is independent."""
+
+    def __init__(self, buffer: RecentLogBuffer) -> None:
+        super().__init__()
+        self._buffer = buffer
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if _suppress_private_chat_logs.get():
+            return
+        if getattr(record, "event_kind", None) in ACTIVITY_EVENTS | LIFECYCLE_EVENTS:
+            self._buffer.append(record, "")
 
 
 class RecentLogHandler(logging.Handler):
@@ -174,7 +230,7 @@ class RecentLogHandler(logging.Handler):
 
 
 _recent_log_buffer = RecentLogBuffer()
-_recent_log_handler = RecentLogHandler(_recent_log_buffer)
+_recent_log_handler = OperatorActivityHandler(_recent_log_buffer)
 
 
 def configure_logging(level: str) -> None:

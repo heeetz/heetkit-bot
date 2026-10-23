@@ -5,7 +5,7 @@ import json
 import asyncio
 import pytest
 
-from app.utils.logging import RecentLogBuffer, RecentLogHandler
+from app.utils.logging import RecentLogBuffer, RecentLogHandler, OperatorActivityHandler
 
 
 def emit(
@@ -117,7 +117,7 @@ async def test_private_operator_events_do_not_leak_or_suppress_concurrent_reques
     from app.utils.logging import operator_event, operator_event_scope, privacy_log_scope, PrivacyLogFilter
     buffer = RecentLogBuffer()
     logger = logging.getLogger("tests.operator.privacy")
-    handler = RecentLogHandler(buffer)
+    handler = OperatorActivityHandler(buffer)
     handler.addFilter(PrivacyLogFilter())
     logger.addHandler(handler)
     old_level = logger.level
@@ -144,3 +144,39 @@ async def test_private_operator_events_do_not_leak_or_suppress_concurrent_reques
     finally:
         logger.removeHandler(handler)
         logger.setLevel(old_level)
+
+
+def test_activity_excludes_raw_chat_payloads_and_keeps_explicit_bounded_text():
+    from app.utils.logging import event_metadata
+    buffer = RecentLogBuffer()
+    handler = OperatorActivityHandler(buffer)
+    emit(handler, "PRIVATE CHAT", event_kind="chat.incoming", event_text="PRIVATE CHAT")
+    emit(handler, "PRIVATE EXCEPTION", event_kind="unrecognized")
+    emit(handler, "PRIVATE PROVIDER PAYLOAD", **event_metadata("ai.result", outcome="generated"), event_text="PRIVATE PROVIDER PAYLOAD")
+    emit(handler, "RAW PRIVATE PROSE", **event_metadata("command.input", request_id="request", outcome="received"), event_text="!ping <hello> 🦊")
+    emit(handler, "RAW PRIVATE PROSE", **event_metadata("chat.outgoing", request_id="request", outcome="uncertain_send"), event_text="🦊" * 2000)
+    entries = buffer.activity()["entries"]
+    assert len(entries) == 3
+    assert "PRIVATE" not in json.dumps(entries)
+    assert entries[0]["text"] is None
+    assert buffer.recent()[0]["text"] is None
+    assert entries[1]["text"] == "!ping <hello> 🦊"
+    assert entries[1]["text_truncated"] is False
+    assert entries[2]["text_truncated"] is True
+    assert len(entries[2]["text"].encode("utf-8")) == 4096
+    assert entries[2]["context"]["outcome"] == "uncertain_send"
+
+
+def test_panel_text_is_not_rendered_to_lifecycle_streams():
+    from app.headless import HeadlessLogFilter
+    from app.utils.logging import operator_event
+    from io import StringIO
+    stream = StringIO()
+    logger = logging.Logger("tests.stream", logging.INFO)
+    handler = logging.StreamHandler(stream)
+    logger.addHandler(handler)
+    operator_event(logger, "command.input", "received", text="PRIVATE COMMAND")
+    assert "PRIVATE" not in stream.getvalue()
+    handler.addFilter(HeadlessLogFilter())
+    operator_event(logger, "chat.outgoing", "confirmed_send", text="PRIVATE REPLY")
+    assert "chat.outgoing" not in stream.getvalue()

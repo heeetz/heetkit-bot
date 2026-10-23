@@ -477,7 +477,17 @@ td { color: var(--text); }
 .credential-footer button { max-width: 100%; }
 .logs-card { padding: 0; overflow: hidden; }
 .logs-card .section-heading { padding: var(--space-4) 22px 0; }
-.log-toolbar { display: flex; align-items: end; gap: 12px; padding: 0 22px 18px; }
+.log-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding: 0 22px 18px; }
+.log-policy { padding: 0 22px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.log-toolbar label { min-width: 0; }
+.log-toolbar input { max-width: 100%; min-width: 0; }
+.log-toolbar input[type="datetime-local"] { height: 40px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--panel); color: var(--text); padding: 6px; }
+.log-details { margin-top: 8px; color: var(--muted); overflow-wrap: anywhere; }
+.log-details summary { cursor: pointer; }
+.log-details dl > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.log-details dt { font-weight: 700; }
+.log-details dd { margin: 0; }
+.log-content { padding-top: 6px; }
 .log-toolbar label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; font-weight: 700; letter-spacing: normal; text-transform: none; }
 .log-toolbar .select-trigger, .log-toolbar input[type="text"], .log-toolbar input:not([type]) { border: 1px solid var(--separator); border-radius: 8px; padding: 9px 10px; color: var(--text); background: var(--panel); outline: none; }
 .log-toolbar .select-trigger:focus, .log-toolbar input:focus { border-color: var(--primary); }

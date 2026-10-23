@@ -112,7 +112,7 @@ An accepted callback is distinct from a successful exchange, lookup or save. Use
 the failing operation to investigate; a later-stage failure does not by itself mean
 the registered redirect or credentials are wrong. Cleanup failures are recorded
 separately when another operation already failed. The normal browser log feed
-remains a limited lifecycle projection; these diagnostics are in private Server logs.
+uses an allowlisted activity projection; callback diagnostics remain in private Server logs.
 No exception text, traceback, response body, code, token, secret or callback query
 is logged. Failed attempts consume their state; start a new Connect Twitch attempt
 after addressing the identified failure rather than replaying a callback URL.
@@ -240,7 +240,7 @@ proxy must preserve the exact configured Host including port. The corresponding
 DNS hostname authorities remain unsupported. Do not expose this service publicly.
 
 Commands, response pools, custom commands, filters/tester, personalities, instructions,
-AI enablement/memory/language/models, blocked users, Dashboard and safe lifecycle logs
+AI enablement/memory/language/models, blocked users, Dashboard and operator activity
 reuse the existing pages and server operations. Apply retains the existing session-only
 meaning; Save persists and applies. Bot stop/start keeps the panel available.
 Settings supports [first-run Twitch setup and saved channel presets](twitch-setup.md#server-browser-setup),
@@ -406,7 +406,7 @@ POST writes persist and apply immediately unless stated otherwise.
 | GET `blocked-users` | AI-blocked usernames and whether a verified ID is recorded |
 | POST `blocked-users/block`, `blocked-users/unblock` | `username` |
 | GET / POST `triggers` | GET: ordinary-message reactions. POST: complete `triggers` list, at most 100 unique IDs |
-| POST `logs/recent` | Optional integer `after_id` (default 0), `limit` (1–200, default 100); safe lifecycle entries plus `next_after_id` advancing across excluded private entries |
+| POST `logs/recent` | Optional integer `after_id` (default 0), `limit` (1–200, default 100); allowlisted operator activity plus `next_after_id` advancing across excluded entries; authentication required |
 | GET `diagnostics` | Process uptime, desired session state and settings/restart boundaries |
 
 Each trigger has `id` (1–40 ASCII letters/digits/underscore/hyphen), boolean
@@ -505,9 +505,18 @@ Disabled stays stopped. No duplicate session or process restart is needed. Gemin
 changes apply to subsequent requests; in-flight requests can finish with the old key.
 External secret and API bind/token or privacy/storage policy changes still require
 host-side configuration and process restart. No OAuth/access/refresh token, keyring content, local
-folder operation or raw provider exception is returned. Logs expose only fixed
-lifecycle messages, timestamps, levels and IDs; private chat and raw log text are
-excluded. All responses disable caching.
+folder operation or raw provider exception is returned. Logs expose bounded command
+inputs, permitted reply attempts, semantic outcomes/context and fixed lifecycle messages,
+with the same projection as Desktop. Ordinary chat and raw log prose are excluded.
+The feed remains in memory (500 events / 1 MiB, 16 KiB per event; text capped at 4 KiB
+with an explicit truncation marker), independent of AI memory. Level, command, outcome,
+source and local-time range filters apply to retained entries; request details link
+related events. Cooldown remaining time and uncertain delivery stay visible.
+Clear view is display-only. Export requires confirmation and saves only the filtered
+snapshot; the resulting private JSON copy has no automatic expiry. Desktop uses a native Save dialog;
+the authenticated Server view downloads its confirmed snapshot in the browser. See
+[activity privacy and retention](data-and-privacy.md#credentials-and-local-data).
+All responses disable caching.
 
 Server credentials live in private `auth/server_credentials.json`, separate from
 portable configuration. Nonempty environment/`_FILE` inputs take priority and reject

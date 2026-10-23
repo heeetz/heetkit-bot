@@ -13,6 +13,11 @@ const eventLabels: Record<string, string> = {
   'chat.outgoing': 'CHAT OUT',
   'chat.filtered': 'CHAT FILTERED',
   'command.invoke': 'COMMAND',
+  'command.input': 'COMMAND INPUT',
+  'command.outcome': 'COMMAND OUTCOME',
+  'command.complete': 'HANDLER COMPLETED',
+  'chat.send': 'SEND ATTEMPT',
+  'ai.result': 'AI RESULT',
   'command.cooldown': 'COOLDOWN',
   'twitch.subscribe': 'TWITCH',
   'twitch.connected': 'TWITCH READY',
@@ -179,7 +184,7 @@ function orderedFields(entry: LogEntry): FieldSpec[] {
   return [
     ...configured,
     ...Object.keys(entry.context)
-      .filter((key) => !configuredKeys.has(key))
+      .filter((key) => !configuredKeys.has(key) && !key.endsWith('_id') && key !== 'invoked_name')
       .map((key) => ({ key, emphasis: 'secondary' as const })),
   ].filter(({ key }) => entry.context[key] !== undefined)
 }

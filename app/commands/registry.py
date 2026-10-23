@@ -80,11 +80,11 @@ class CommandContext:
             try:
                 result = await self.message.respond(content)
             except BaseException as error:
-                operator_event(self.logger, "chat.outgoing", send_error_outcome(error))
+                operator_event(self.logger, "chat.outgoing", send_error_outcome(error), text=content)
                 raise
             message_id = getattr(result, "id", None)
             operator_event(self.logger, "chat.outgoing", send_outcome(result),
-                           message_id=message_id if isinstance(message_id, str) else None)
+                           message_id=message_id if isinstance(message_id, str) else None, text=content)
             return result
 
     async def reply_burst(
@@ -399,7 +399,7 @@ class CommandDispatcher:
                 return await self._dispatch_trigger(message, services)
 
             command_name, arguments = parsed_command
-            operator_event(self._logger, "command.input", "received")
+            operator_event(self._logger, "command.input", "received", text=message.content)
             definition = self._builtin_definition(command_name)
             custom = None
             if definition is None:

@@ -136,6 +136,7 @@ window.pywebview = { api: {
     patterns: { rules: [], defaults: [] },
   }),
   get_recent_logs: async () => ({ entries: [] }),
+  export_activity: async () => ({ ok: true, saved: true }),
   get_ai_status: async () => aiStatus,
   get_blocked_ai_users: async () => ({ ok: true, users: structuredClone(blockedAIUsers) }),
   block_ai_user: async (input: string) => {

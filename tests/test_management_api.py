@@ -20,7 +20,7 @@ from app.config.settings import Settings
 from app.container import build_application
 from app.management_api import ManagementAPI, ManagementConfig, load_management_token
 from app.runtime_paths import RuntimePaths, prepare_runtime_data
-from app.utils.logging import RecentLogBuffer
+from app.utils.logging import RecentLogBuffer, OperatorActivityHandler, event_metadata
 
 
 TOKEN = "synthetic_management_token_" + "x" * 32
@@ -354,6 +354,32 @@ async def test_serialized_updates_failures_limits_and_safe_logs(api, monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_authenticated_activity_matches_desktop_without_raw_prose(api):
+    from app.webview_host import WebUIBridge
+    from types import SimpleNamespace
+    server, call = api
+    handler = OperatorActivityHandler(server.log_buffer)
+    for kind, outcome, text in [("command.input", "received", "!ping <literal>"),
+                                ("command.outcome", "cooldown", None),
+                                ("chat.outgoing", "uncertain_send", "@viewer exact reply")]:
+        record = logging.LogRecord("tests.activity", logging.WARNING, "", 0, "PRIVATE RAW PROSE", (), None)
+        for key, value in event_metadata(kind, request_id="shared", command="ping", source="command",
+                                         outcome=outcome, retry_after_seconds=12.5).items():
+            setattr(record, key, value)
+        record.event_text = text
+        handler.emit(record)
+    assert (await call("POST", "/v1/logs/recent", headers={"Authorization": ""}, json={}))[0] == 401
+    status, body, headers = await call("POST", "/v1/logs/recent", json={})
+    assert status == 200 and headers["Cache-Control"] == "no-store"
+    desktop = WebUIBridge(SimpleNamespace(), log_buffer=server.log_buffer).get_recent_logs()
+    assert body["entries"] == desktop["entries"]
+    assert body["next_after_id"] == desktop["next_after_id"]
+    assert "PRIVATE RAW PROSE" not in json.dumps(body)
+    assert [entry["text"] for entry in body["entries"]] == ["!ping <literal>", None, "@viewer exact reply"]
+    assert body["entries"][1]["context"]["retry_after_seconds"] == 12.5
+
+
+@pytest.mark.asyncio
 async def test_partial_connections_headers_and_operation_deadlines_are_bounded(api, monkeypatch):
     server, call = api
     monkeypatch.setattr("app.management_api.CONNECTION_SECONDS", 0.1)
@@ -680,7 +706,7 @@ async def test_browser_presentation_routes_apply_save_and_log_cursor(api, monkey
     record.event_kind = "twitch.connected"
     server.log_buffer.append(record, "private-chat-sentinel")
     _, body, _ = await call("POST", "/v1/logs/recent", json={"after_id": body["next_after_id"]})
-    assert body["entries"][0]["source"] == "headless" and body["entries"][0]["context"] == {}
+    assert body["entries"][0]["source"] == "lifecycle" and body["entries"][0]["context"] == {}
     assert "private-chat-sentinel" not in json.dumps(body)
 
 

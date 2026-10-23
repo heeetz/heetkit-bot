@@ -26,6 +26,7 @@ import { Select } from './components/Select'
 import Switch from './components/Switch'
 import HelpTip from './components/HelpTip'
 import BrowserSession from './components/BrowserSession'
+import Confirmation from './components/Confirmation'
 import './styles.css'
 
 const sections = ['Dashboard', 'Commands', 'Filters', 'AI', 'Logs', 'Settings', 'About'] as const
@@ -325,10 +326,33 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
 
 const logLevels = ['ALL', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'] as const
 
+function boundedActivity(entries: LogEntry[]) {
+  const retained: LogEntry[] = []
+  let bytes = 0
+  const encoder = new TextEncoder()
+  for (const entry of entries.slice(-500).reverse()) {
+    const size = encoder.encode(JSON.stringify(entry)).length
+    if (size > 16 * 1024) continue
+    if (bytes + size > 1024 * 1024) break
+    retained.push(entry)
+    bytes += size
+  }
+  return retained.reverse()
+}
+
 function LogsPage() {
   const [entries, setEntries] = useState<LogEntry[]>([])
   const [level, setLevel] = useState<(typeof logLevels)[number]>('ALL')
   const [search, setSearch] = useState('')
+  const [command, setCommand] = useState('')
+  const [outcome, setOutcome] = useState('ALL')
+  const [source, setSource] = useState('ALL')
+  const [since, setSince] = useState('')
+  const [until, setUntil] = useState('')
+  const [requestId, setRequestId] = useState('')
+  const [exportEntries, setExportEntries] = useState<LogEntry[] | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const [exportNotice, setExportNotice] = useState('')
   const [autoScroll, setAutoScroll] = useState(true)
   const [error, setError] = useState('')
   const cursor = useRef(0)
@@ -349,7 +373,7 @@ function LogsPage() {
         if (active && response.next_after_id !== undefined) cursor.current = response.next_after_id
         if (active && response.entries.length > 0) {
           cursor.current = Math.max(cursor.current, response.entries.at(-1)?.id ?? 0)
-          setEntries((current) => [...current, ...response.entries].slice(-500))
+          setEntries((current) => boundedActivity([...current, ...response.entries]))
         }
         if (active) {
           setError('')
@@ -377,12 +401,51 @@ function LogsPage() {
     const matchesSearch = !normalizedSearch
       || entry.message.toLowerCase().includes(normalizedSearch)
       || entry.source.toLowerCase().includes(normalizedSearch)
+      || entry.text?.toLowerCase().includes(normalizedSearch)
       || entry.event_kind?.toLowerCase().includes(normalizedSearch)
       || Object.values(entry.context).some(
         (value) => String(value).toLowerCase().includes(normalizedSearch),
       )
-    return matchesLevel && matchesSearch
+    const matchesCommand = !command || [entry.context.command, entry.context.command_id, entry.context.invoked_name]
+      .some((value) => String(value ?? '').toLowerCase().includes(command.trim().toLowerCase().replace(/^!/, '')))
+    const timestamp = Date.parse(entry.timestamp)
+    return matchesLevel && matchesSearch && matchesCommand
+      && (outcome === 'ALL' || entry.context.outcome === outcome)
+      && (source === 'ALL' || (entry.context.source ?? entry.source) === source)
+      && (!since || timestamp >= Date.parse(since))
+      && (!until || timestamp <= Date.parse(until))
+      && (!requestId || entry.context.request_id === requestId)
   })
+
+  const filterOptions = (values: string[]) => [{ value: 'ALL', label: 'ALL' },
+    ...[...new Set(values)].sort().map((value) => ({ value, label: value.replaceAll('_', ' ') }))]
+
+  const downloadActivity = async () => {
+    const snapshot = exportEntries
+    setExportEntries(null)
+    setExportNotice('')
+    setExporting(true)
+    try {
+      if (!isBrowserMode()) {
+        const api = await waitForBridge()
+        const result = await api.export_activity((snapshot ?? []).map((entry) => entry.id))
+        if (!result.ok) throw new Error(result.error ?? 'Activity export failed.')
+        setExportNotice(result.cancelled ? 'Export cancelled. No file was saved.' : 'Private activity saved.')
+        return
+      }
+      const url = URL.createObjectURL(new Blob([JSON.stringify({ exported_at: new Date().toISOString(), entries: snapshot }, null, 2)], { type: 'application/json' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'heetkit-activity.json'
+      link.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      setExportNotice('Private activity exported.')
+    } catch (reason) {
+      setExportNotice(reason instanceof Error ? reason.message : 'Activity export failed.')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   useEffect(() => {
     if (autoScroll) {
@@ -393,9 +456,10 @@ function LogsPage() {
   return (
     <section className="card logs-card">
       <div className="section-heading">
-        <div><p className="label">{isBrowserMode() ? 'SERVER LIFECYCLE LOGS' : 'LIVE APPLICATION LOGS'}</p><h2>Recent activity</h2></div>
+        <div><p className="label">OPERATOR ACTIVITY</p><h2>Recent activity</h2></div>
         <span className="read-only-badge">{entries.length} / 500</span>
       </div>
+      <p className="log-policy">Commands and permitted reply text stay in memory, up to 500 events / 1 MiB. Ordinary chat is excluded. AI memory has its separate 90-day retention. Only confirmed send means delivery; uncertain sends are not retried automatically. Clear view affects this display only. Export creates a private copy with its own retention.</p>
       <div className="log-toolbar">
         <label>
           Level
@@ -405,6 +469,11 @@ function LogsPage() {
             options={logLevels.map((item) => ({ value: item, label: item }))}
           />
         </label>
+        <label>Command<input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Name, alias or ID" /></label>
+        <label>Outcome<Select value={outcome} onChange={setOutcome} options={filterOptions(entries.flatMap((entry) => entry.context.outcome ? [String(entry.context.outcome)] : []))} /></label>
+        <label>Source<Select value={source} onChange={setSource} options={filterOptions(entries.map((entry) => String(entry.context.source ?? entry.source)))} /></label>
+        <label>From<input type="datetime-local" value={since} onChange={(event) => setSince(event.target.value)} /></label>
+        <label>Until<input type="datetime-local" value={until} onChange={(event) => setUntil(event.target.value)} /></label>
         <label className="search-field">
           Search
           <input
@@ -421,14 +490,18 @@ function LogsPage() {
           Auto-scroll
         </Switch>
         <button className="secondary" onClick={() => setEntries([])}>Clear view</button>
+        <button className="secondary" disabled={exporting || !visibleEntries.length} onClick={() => setExportEntries([...visibleEntries])}>Export filtered…</button>
       </div>
+      {requestId && <p className="log-policy">Showing linked request {requestId}. <button className="secondary" onClick={() => setRequestId('')}>All requests</button></p>}
+      {exportEntries && <Confirmation title="Export private activity?" description={`Save ${exportEntries.length} filtered events, including viewer names, command inputs and reply text. Review before sharing and delete the file when no longer needed. This copy is outside HeetKit retention.`} onConfirm={() => void downloadActivity()} onCancel={() => setExportEntries(null)} />}
+      {exportNotice && <p className="log-policy" role="status">{exportNotice}</p>}
       {error && <div className="inline-error log-error">{error}</div>}
       <div className="log-console">
         {visibleEntries.length === 0 && (
           <p className="log-empty">
             {entries.length === 0
-              ? 'No application activity yet. Start the bot to see connection, command, and chat events.'
-              : 'No log entries match the current level and search filters.'}
+              ? 'No activity yet. Start the bot to see lifecycle, command and reply events.'
+              : 'No events match the current filters.'}
           </p>
         )}
         {visibleEntries.map((entry) => (
@@ -441,6 +514,16 @@ function LogsPage() {
               <pre className={entry.event_kind && !['WARNING', 'ERROR', 'CRITICAL'].includes(entry.level) ? 'log-raw is-secondary' : 'log-raw'}>
                 {entry.message}
               </pre>
+              {entry.text !== null && entry.text !== undefined && <pre className="log-raw log-content">{entry.text}</pre>}
+              {entry.text_truncated && <p className="inline-error">Text exceeded the 4 KiB limit; shown as a truncated excerpt.</p>}
+              <details className="log-details"><summary>Event details</summary>
+                <dl>{Object.entries(entry.context).map(([key, value]) => <div key={key}><dt>{key.replaceAll('_', ' ')}</dt><dd>{String(value)}</dd></div>)}</dl>
+                {entry.context.request_id && <button className="secondary" onClick={() => {
+                  setRequestId(String(entry.context.request_id))
+                  setLevel('ALL'); setCommand(''); setOutcome('ALL'); setSource('ALL')
+                  setSearch(''); setSince(''); setUntil('')
+                }}>Show related events</button>}
+              </details>
             </div>
           </div>
         ))}
