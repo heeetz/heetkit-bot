@@ -1,15 +1,19 @@
 """Logging setup shared by application entry points."""
 
 import logging
+import json
 from collections import deque
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from threading import RLock
+from uuid import uuid4
 
 
 RECENT_LOG_LIMIT = 500
+RECENT_LOG_BYTES = 1024 * 1024
+RECENT_LOG_ENTRY_BYTES = 16 * 1024
 EVENT_CONTEXT_ATTRIBUTES = {
     "event_username": "username",
     "event_command": "command",
@@ -20,10 +24,56 @@ EVENT_CONTEXT_ATTRIBUTES = {
     "event_provider": "provider",
     "event_setting": "setting",
     "event_action": "action",
+    **{f"event_{name}": name for name in (
+        "request_id", "event_id", "response_id", "input_message_id", "message_id",
+        "command_id", "invoked_name", "source", "outcome", "reason",
+        "requested_provider", "requested_model", "attempt", "fallback",
+        "input_tokens", "output_tokens", "total_tokens",
+    )},
 }
 EventContextValue = str | int | float | bool
 
 _suppress_private_chat_logs: ContextVar[bool] = ContextVar("suppress_private_chat_logs", default=False)
+_operator_context: ContextVar[dict] = ContextVar("operator_context", default={})
+
+
+@contextmanager
+def operator_event_scope(**context):
+    """Carry bounded correlation metadata through awaited work and Burst children."""
+    current = _operator_context.get()
+    token = _operator_context.set({"request_id": uuid4().hex, **current, **context})
+    try:
+        yield
+    finally:
+        _operator_context.reset(token)
+
+
+def event_metadata(kind: str, **context) -> dict:
+    values = {**_operator_context.get(), **context, "event_id": uuid4().hex}
+    return {"event_kind": kind, **{
+        f"event_{key}": _bounded_text(value, 512) if isinstance(value, str) else value
+        for key, value in values.items()
+        if f"event_{key}" in EVENT_CONTEXT_ATTRIBUTES and isinstance(value, (str, int, float, bool))
+    }}
+
+
+def operator_event(logger: logging.Logger, kind: str, outcome: str, **context) -> None:
+    # Fixed messages and allowlisted scalars only: no prompts, replies, provider
+    # payloads, exception strings, keys or reasoning are added to operator events.
+    logger.info("%s outcome=%s", kind, outcome,
+                extra=event_metadata(kind, outcome=outcome, **context))
+
+
+def send_outcome(result: object) -> str:
+    if getattr(result, "sent", None) is False:
+        return "failed_send"
+    if getattr(result, "sent", None) is True:
+        return "confirmed_send"
+    return "uncertain_send"
+
+
+def _bounded_text(value: str, limit: int) -> str:
+    return value[:limit].encode("utf-8", errors="replace")[:limit].decode("utf-8", errors="ignore")
 
 
 @contextmanager
@@ -55,10 +105,15 @@ class RecentLogEntry:
 class RecentLogBuffer:
     """Thread-safe bounded history used by local presentation layers."""
 
-    def __init__(self, max_entries: int = RECENT_LOG_LIMIT) -> None:
-        if max_entries < 1:
+    def __init__(self, max_entries: int = RECENT_LOG_LIMIT, *, max_bytes: int = RECENT_LOG_BYTES,
+                 max_entry_bytes: int = RECENT_LOG_ENTRY_BYTES) -> None:
+        if min(max_entries, max_bytes, max_entry_bytes) < 1:
             raise ValueError("Recent log buffer size must be positive.")
-        self._entries: deque[RecentLogEntry] = deque(maxlen=max_entries)
+        self._entries: deque[tuple[RecentLogEntry, int]] = deque()
+        self._max_entries = max_entries
+        self._max_bytes = max_bytes
+        self._max_entry_bytes = min(max_entry_bytes, max_bytes)
+        self._bytes = 0
         self._lock = RLock()
         self._next_id = 1
 
@@ -67,30 +122,36 @@ class RecentLogBuffer:
         event_kind = getattr(record, "event_kind", None)
         if not isinstance(event_kind, str) or not event_kind.strip():
             event_kind = None
+        elif event_kind:
+            event_kind = _bounded_text(event_kind, 128)
         context: dict[str, EventContextValue] = {}
         for attribute, field_name in EVENT_CONTEXT_ATTRIBUTES.items():
             value = getattr(record, attribute, None)
             if isinstance(value, (str, int, float, bool)) and not isinstance(value, bytes):
-                context[field_name] = value
+                context[field_name] = _bounded_text(value, 512) if isinstance(value, str) else value
         with self._lock:
-            self._entries.append(
-                RecentLogEntry(
-                    id=self._next_id,
-                    timestamp=timestamp.isoformat(timespec="milliseconds").replace(
-                        "+00:00", "Z"
-                    ),
-                    level=record.levelname,
-                    source=record.name,
-                    message=message,
-                    event_kind=event_kind,
-                    context=context,
-                )
+            entry = RecentLogEntry(
+                id=self._next_id,
+                timestamp=timestamp.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                level=_bounded_text(record.levelname, 32),
+                source=_bounded_text(record.name, 256),
+                message=_bounded_text(message, self._max_entry_bytes // 2),
+                event_kind=event_kind,
+                context=context,
             )
             self._next_id += 1
+            size = len(json.dumps(asdict(entry), ensure_ascii=False).encode("utf-8"))
+            if size > self._max_entry_bytes:
+                return  # Never retain an entry exceeding either byte budget.
+            self._entries.append((entry, size))
+            self._bytes += size
+            while len(self._entries) > self._max_entries or self._bytes > self._max_bytes:
+                _, removed_size = self._entries.popleft()
+                self._bytes -= removed_size
 
     def recent(self, *, after_id: int = 0, limit: int = 200) -> list[dict[str, object]]:
         with self._lock:
-            entries = [entry for entry in self._entries if entry.id > after_id]
+            entries = [entry for entry, _ in self._entries if entry.id > after_id]
             return [asdict(entry) for entry in entries[:limit]]
 
 

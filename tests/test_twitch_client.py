@@ -225,7 +225,7 @@ def build_settings() -> Settings:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("same_account", [False, True])
-async def test_commands_response_echo_cannot_invoke_ask_or_consume_viewer_cooldown(same_account) -> None:
+async def test_commands_response_echo_cannot_invoke_ask_or_consume_viewer_cooldown(same_account, caplog) -> None:
     from app.commands.ai import register_ai_commands
     from app.commands.info import register_info_commands
     from app.commands.registry import CommandRegistry
@@ -234,6 +234,7 @@ async def test_commands_response_echo_cannot_invoke_ask_or_consume_viewer_cooldo
     from app.utils.cooldown import CooldownManager
 
     settings = build_settings()
+    caplog.set_level(logging.INFO, logger=__name__)
     registry = CommandRegistry()
     register_ai_commands(registry)
     register_info_commands(registry)
@@ -276,9 +277,18 @@ async def test_commands_response_echo_cannot_invoke_ask_or_consume_viewer_cooldo
         if same_account:
             question.chatter = request.chatter
         await bot.event_message(question)
+        await bot.event_message(question)  # replay must not double count input or sends
         generate.assert_awaited_once()
         assert generate.call_args.kwargs["prompt"] == "What is a telescope?"
         assert question.responses == [f"@{question.chatter.name} Viewer reply"]
+        inputs = [record for record in caplog.records if getattr(record, "event_kind", None) == "command.input"]
+        outputs = [record for record in caplog.records if getattr(record, "event_kind", None) == "chat.outgoing"]
+        assert len(inputs) == len(outputs) == 2
+        assert len({record.event_request_id for record in inputs}) == 2
+        for incoming, outgoing in zip(inputs, outputs):
+            assert incoming.event_request_id == outgoing.event_request_id
+            assert outgoing.event_outcome == "confirmed_send"
+            assert outgoing.event_message_id.startswith(incoming.event_input_message_id)
     finally:
         await bot.close(save_tokens=False)
 

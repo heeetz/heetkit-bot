@@ -6,6 +6,7 @@ import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from contextlib import nullcontext
+from uuid import uuid4
 
 from app.command_settings import CommandSettings, validate_burst_interval, validate_burst_max_count
 from app.config.commands import TG_DEFAULT_MAX_COUNT
@@ -18,6 +19,8 @@ from app.twitch.permissions import Permission, has_permission
 from app.utils.cooldown import CooldownManager, CooldownPolicy
 from app.utils.output_limiter import OutputLimiter
 from app.utils.text import normalize_command_name, parse_command
+from app.utils.logging import event_metadata, operator_event, operator_event_scope, send_outcome
+from app.twitch.message_correlation import send_error_outcome
 
 
 CommandHandler = Callable[["CommandContext", str], Awaitable[None]]
@@ -66,38 +69,23 @@ class CommandContext:
 
     async def reply(self, content: str) -> bool:
         if self.output_limiter is not None and not self.output_limiter.try_acquire():
+            operator_event(self.logger, "chat.outgoing", "limiter_skip", response_id=uuid4().hex)
             return False
         result = await self._send_response(content)
-        return getattr(result, "sent", None) is not False
+        return send_outcome(result) == "confirmed_send"
 
     async def _send_response(self, content: str) -> object:
-        try:
-            result = await self.message.respond(content)
-            if getattr(result, "sent", None) is False:
-                self.logger.warning(
-                    "Twitch dropped command response user=%s code=%s",
-                    self.message.author.username,
-                    getattr(result, "dropped_code", None),
-                )
-                return result
-            self.logger.info(
-                "Outgoing bot response channel=%s user=%s length=%d",
-                self.message.channel,
-                self.message.author.username,
-                len(content),
-                extra={
-                    "event_kind": "chat.outgoing",
-                    "event_channel": self.message.channel,
-                    "event_username": self.message.author.username,
-                },
-            )
+        with operator_event_scope(response_id=uuid4().hex):
+            operator_event(self.logger, "chat.send", "attempt")
+            try:
+                result = await self.message.respond(content)
+            except BaseException as error:
+                operator_event(self.logger, "chat.outgoing", send_error_outcome(error))
+                raise
+            message_id = getattr(result, "id", None)
+            operator_event(self.logger, "chat.outgoing", send_outcome(result),
+                           message_id=message_id if isinstance(message_id, str) else None)
             return result
-        except Exception:
-            self.logger.exception(
-                "Could not send command response user=%s",
-                self.message.author.username,
-            )
-            raise
 
     async def reply_burst(
         self,
@@ -277,6 +265,29 @@ class CommandDispatcher:
         self._custom_commands = custom_commands
         self._message_triggers = message_triggers
 
+    def event_scope(self, message: IncomingChatMessage):
+        parsed = parse_command(message.content, self._command_prefix)
+        name = parsed[0] if parsed else None
+        definition = self._builtin_definition(name) if name else None
+        custom = (self._custom_commands.get_by_name(name)
+                  if name and definition is None and self._custom_commands else None)
+        return operator_event_scope(
+            channel=message.channel, username=message.author.username,
+            input_message_id=message.message_id,
+            source="command" if parsed else "announcement",
+            command=definition.name if definition else custom.name if custom else name,
+            command_id=f"custom:{custom.id}" if custom else definition.name if definition else None,
+            invoked_name=name,
+        )
+
+    def _outcome(self, outcome: str, **context) -> None:
+        operator_event(self._logger, "command.outcome", outcome, **context)
+
+    def is_ai_command(self, message: IncomingChatMessage) -> bool:
+        parsed = parse_command(message.content, self._command_prefix)
+        definition = self._builtin_definition(parsed[0]) if parsed else None
+        return definition is not None and definition.requires_ai
+
     def _builtin_definition(self, command_name: str) -> CommandDefinition | None:
         definition = self._registry.get(command_name)
         if definition is not None and self._runtime_state is not None and command_name != definition.name:
@@ -303,10 +314,7 @@ class CommandDispatcher:
             blocks.remember_observed_id(message.author.username, message.author.twitch_user_id)
         except (ValueError, OSError):
             self._logger.warning("Could not persist observed AI block account ID; request remains blocked")
-        self._logger.info("AI request ignored reason=ai_user_blocked", extra={
-            "event_kind": "ai_user_blocked", "event_reason": "ai_user_blocked",
-            "event_username": message.author.username, "event_channel": message.channel,
-        })
+        operator_event(self._logger, "ai_user_blocked", "ai_user_blocked", reason="ai_user_blocked")
         return True
 
     async def _dispatch_trigger(self, message: IncomingChatMessage, services: ApplicationServices) -> bool:
@@ -317,16 +325,21 @@ class CommandDispatcher:
                 continue
             if random.random() >= trigger.probability:
                 continue
-            cooldown = self._cooldowns.check_and_record(
-                command_name=f"trigger:{trigger.id}",
-                user_id=message.author.twitch_user_id,
-                policy=CooldownPolicy(global_seconds=trigger.cooldown_seconds),
-            )
-            if not cooldown.allowed:
-                continue
-            response = random.choice(trigger.responses)
-            await CommandContext(message, services, self._logger, self._output_limiter).reply(response)
-            return True
+            with operator_event_scope(command_id=f"trigger:{trigger.id}", source="announcement"):
+                operator_event(self._logger, "command.input", "received")
+                cooldown = self._cooldowns.check_and_record(
+                    command_name=f"trigger:{trigger.id}",
+                    user_id=message.author.twitch_user_id,
+                    policy=CooldownPolicy(global_seconds=trigger.cooldown_seconds),
+                )
+                if not cooldown.allowed:
+                    self._outcome("cooldown", retry_after_seconds=round(cooldown.retry_after, 2))
+                    continue
+                response = random.choice(trigger.responses)
+                operator_event(self._logger, "command.invoke", "executing")
+                await CommandContext(message, services, self._logger, self._output_limiter).reply(response)
+                operator_event(self._logger, "command.complete", "handler_completed")
+                return True
         return False
 
     async def _run_custom_command(self, command: CustomCommand, context: CommandContext, arguments: str) -> None:
@@ -336,8 +349,10 @@ class CommandDispatcher:
             try:
                 count = int(count_argument)
             except ValueError:
+                self._outcome("invalid_arguments")
                 return
             if not 1 <= count <= 10:
+                self._outcome("invalid_arguments")
                 return
             # The count is a control argument; templates see the remaining text.
             arguments = tail[0] if tail else ""
@@ -361,6 +376,16 @@ class CommandDispatcher:
                 await context.reply(response)
 
     async def dispatch(self, message: IncomingChatMessage, services: ApplicationServices) -> bool:
+        if message.is_outgoing:
+            return False
+        with self.event_scope(message):
+            try:
+                return await self._dispatch(message, services)
+            except asyncio.CancelledError:
+                self._outcome("cancelled")
+                raise
+
+    async def _dispatch(self, message: IncomingChatMessage, services: ApplicationServices) -> bool:
         try:
             # Keep the transport-neutral boundary safe as well as Twitch ingress.
             if message.is_outgoing:
@@ -374,11 +399,13 @@ class CommandDispatcher:
                 return await self._dispatch_trigger(message, services)
 
             command_name, arguments = parsed_command
+            operator_event(self._logger, "command.input", "received")
             definition = self._builtin_definition(command_name)
             custom = None
             if definition is None:
                 custom = None if self._custom_commands is None else self._custom_commands.get_by_name(command_name)
                 if custom is None:
+                    self._outcome("unknown_command")
                     return False
                 async def custom_handler(context: CommandContext, tail: str) -> None:
                     await self._run_custom_command(custom, context, tail)
@@ -398,28 +425,37 @@ class CommandDispatcher:
                 None if definition.name == "tg" or (custom is not None and custom.response_mode == "burst") else self._output_limiter
             )
 
-            if settings.removed or not settings.enabled or command_unavailable_reason(definition, services) is not None:
+            if settings.removed or not settings.enabled:
+                self._outcome("disabled")
+                return True
+            if command_unavailable_reason(definition, services) is not None:
+                self._outcome("ai_unavailable")
                 return True
 
             if self._runtime_state is not None and not self._runtime_state.command_stream_available(settings.stream_availability):
+                self._outcome("availability")
                 return True
 
             if len(arguments) > self._max_arguments_length:
+                self._outcome("invalid_arguments", reason="too_long")
                 return True
 
             if definition.silent_invalid_arguments and (
                 definition.argument_validator is not None
                 and not definition.argument_validator(arguments)
             ):
+                self._outcome("invalid_arguments")
                 return True
 
             if not has_permission(message.author, max(settings.permission, definition.minimum_permission)):
+                self._outcome("permissions")
                 return True
 
             if (
                 definition.argument_validator is not None
                 and not definition.argument_validator(arguments)
             ):
+                self._outcome("invalid_arguments")
                 await definition.handler(
                     CommandContext(
                         message=message,
@@ -431,6 +467,7 @@ class CommandDispatcher:
                     ),
                     arguments,
                 )
+                operator_event(self._logger, "command.complete", "handler_completed")
                 return True
 
             # Run pre-check if defined
@@ -447,6 +484,8 @@ class CommandDispatcher:
                     arguments
                 ):
                     # Pre-check failed - return immediately without cooldown
+                    if not definition.requires_ai:
+                        self._outcome("invalid_arguments")
                     return True
 
             # Check if this is the ask command and user has bypass permission
@@ -469,15 +508,8 @@ class CommandDispatcher:
                         definition.name,
                         message.author.username,
                         cooldown.retry_after,
-                        extra={
-                            "event_kind": "command.cooldown",
-                            "event_command": definition.name,
-                            "event_username": message.author.username,
-                            "event_retry_after_seconds": round(
-                                cooldown.retry_after,
-                                2,
-                            ),
-                        },
+                        extra=event_metadata("command.cooldown", outcome="cooldown",
+                                             retry_after_seconds=round(cooldown.retry_after, 2)),
                     )
                     return True
 
@@ -485,12 +517,7 @@ class CommandDispatcher:
                 "Executing command name=%s user=%s",
                 definition.name,
                 message.author.username,
-                extra={
-                    "event_kind": "command.invoke",
-                    "event_command": definition.name,
-                    "event_username": message.author.username,
-                    "event_channel": message.channel,
-                },
+                extra=event_metadata("command.invoke", outcome="executing"),
             )
             await definition.handler(
                 CommandContext(
@@ -503,7 +530,9 @@ class CommandDispatcher:
                 ),
                 arguments,
             )
+            operator_event(self._logger, "command.complete", "handler_completed")
             return True
-        except Exception:
-            self._logger.exception("Command dispatch failed")
+        except Exception as error:
+            self._logger.error("Command dispatch failed: %s", type(error).__name__,
+                               extra=event_metadata("command.outcome", outcome="handler_failed"))
             return True

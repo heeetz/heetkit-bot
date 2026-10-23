@@ -4,6 +4,26 @@ import asyncio
 import logging
 from collections import OrderedDict
 from time import monotonic
+from twitchio.exceptions import MessageRejectedError
+
+from app.utils.logging import event_metadata
+
+
+# A fixed UTF-8 byte bound as well as the cache count/TTL. Twitch IDs are much
+# shorter; oversized/untrusted IDs cannot grow retained correlation state.
+MAX_CORRELATION_ID_BYTES = 256
+
+
+def _valid_id(value):
+    return (isinstance(value, str) and 0 < len(value) <= MAX_CORRELATION_ID_BYTES
+            and len(value.encode("utf-8", errors="replace")) <= MAX_CORRELATION_ID_BYTES)
+
+
+def send_error_outcome(error: BaseException) -> str:
+    status = getattr(error, "status", None)
+    definitive = (isinstance(error, MessageRejectedError)
+                  or (type(status) is int and 400 <= status < 500 and status != 408))
+    return "failed_send" if definitive else "uncertain_send"
 
 
 class ChatMessageCorrelation:
@@ -26,7 +46,7 @@ class ChatMessageCorrelation:
 
     def reserve(self, account, channel, message_id):
         self._prune(self.seen)
-        if not isinstance(message_id, str) or not message_id:
+        if not all(_valid_id(value) for value in (account, channel, message_id)):
             return True
         key = (account, channel, message_id)
         if key in self.seen:
@@ -35,6 +55,8 @@ class ChatMessageCorrelation:
         return True
 
     async def send(self, account, channel, responder, content):
+        if not all(_valid_id(value) for value in (account, channel)):
+            raise ValueError("Invalid Twitch correlation identity.")
         # Register before yielding: EventSub can beat the HTTP response. Each
         # incoming event waits only for the sends already in flight at arrival.
         key = (account, channel)
@@ -48,7 +70,7 @@ class ChatMessageCorrelation:
             async with asyncio.timeout(self.send_timeout):
                 result = await responder(content)
             message_id = getattr(result, "id", None)
-            if isinstance(message_id, str) and message_id and getattr(result, "sent", None) is not False:
+            if all(_valid_id(value) for value in (*key, message_id)) and getattr(result, "sent", None) is not False:
                 self._remember(self.outgoing, (*key, message_id))
                 certain = True
             elif getattr(result, "sent", None) is False:
@@ -57,8 +79,7 @@ class ChatMessageCorrelation:
         except Exception as error:
             # A definitive API rejection did not publish a message. Network
             # failures/timeouts, by contrast, can lose a successful result.
-            status = getattr(error, "status", None)
-            if type(status) is int and 400 <= status < 500 and status != 408:
+            if send_error_outcome(error) == "failed_send":
                 certain = True
             raise
         finally:
@@ -68,7 +89,8 @@ class ChatMessageCorrelation:
                 # Quarantine bounded uncertainty rather than match content.
                 self.uncertain_until[key] = self.clock() + self.ttl
                 logging.getLogger("app.headless.chat").warning(
-                    "Twitch response delivery uncertain; same-account input paused for up to %s seconds", self.ttl)
+                    "Twitch response correlation uncertain; same-account input paused for up to %s seconds", self.ttl,
+                    extra=event_metadata("chat.correlation", outcome="input_paused", duration_seconds=self.ttl))
                 while len(self.uncertain_until) > self.limit:
                     self.uncertain_until.pop(next(iter(self.uncertain_until)))
             pending.remove(done)

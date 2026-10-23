@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.twitch.message_correlation import ChatMessageCorrelation
+from twitchio.exceptions import MessageRejectedError
 
 
 @pytest.mark.asyncio
@@ -103,3 +104,45 @@ async def test_cancelled_ingress_does_not_cancel_send_completion():
     release.set()
     await task
     assert await correlation.is_outgoing("bot", "channel", ("sent",))
+
+
+@pytest.mark.asyncio
+async def test_oversized_ids_cannot_expand_retained_cache_bytes():
+    correlation = ChatMessageCorrelation(limit=2)
+    huge_id = "😀" * 256
+    assert correlation.reserve("bot", "channel", huge_id)
+    assert not correlation.seen
+
+    async def send(_):
+        return SimpleNamespace(id=huge_id, sent=True)
+
+    await correlation.send("bot", "channel", send, "response")
+    assert not correlation.outgoing
+    assert await correlation.is_outgoing("bot", "channel", ("unknown",))
+    with pytest.raises(ValueError):
+        await correlation.send(huge_id, "channel", send, "response")
+    assert not correlation.pending
+
+
+@pytest.mark.asyncio
+async def test_sdk_rejection_is_failed_without_quarantine_or_private_error_text(caplog):
+    from app.commands.registry import CommandContext
+    from app.twitch.events import ChatAuthor, IncomingChatMessage
+    import logging
+    correlation = ChatMessageCorrelation()
+    rejection = MessageRejectedError("PRIVATE exception", content="PRIVATE response", channel=None,
+        message=SimpleNamespace(dropped_code="rate_limit", dropped_message="PRIVATE payload"))
+    async def reject(_):
+        raise rejection
+    async def respond(content):
+        return await correlation.send("bot", "channel", reject, content)
+    message = IncomingChatMessage("channel", "!ping", ChatAuthor("viewer", "viewer"), respond)
+    with caplog.at_level(logging.INFO):
+        with pytest.raises(MessageRejectedError):
+            await CommandContext(message, SimpleNamespace(), logging.getLogger(__name__)).reply("PRIVATE response")
+    assert not await correlation.is_outgoing("bot", "channel", ("manual",))
+    assert not correlation.pending and not correlation.uncertain_until
+    outcomes = [record.event_outcome for record in caplog.records
+                if getattr(record, "event_kind", None) == "chat.outgoing"]
+    assert outcomes == ["failed_send"]
+    assert "PRIVATE" not in caplog.text

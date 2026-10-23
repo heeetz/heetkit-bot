@@ -123,6 +123,60 @@ async def test_auth_policy_rate_and_network_errors_do_not_use_fallback(error) ->
 
 
 @pytest.mark.asyncio
+async def test_attempt_events_capture_effective_model_usage_and_snapshot_without_payloads(caplog):
+    import logging
+    from app.utils.logging import operator_event_scope
+
+    settings = SimpleNamespace(gemini_model="gemini-selected", gemini_fallback_model="gemini-fallback")
+    service = GeminiAIService(settings)
+    async def request(model):
+        if model == "gemini-selected":
+            settings.gemini_model = "gemini-changed"
+            settings.gemini_fallback_model = "gemini-changed-fallback"
+            raise ProviderError(404)
+        assert model == "gemini-fallback"
+        return SimpleNamespace(text="PRIVATE-RESPONSE", thoughts="PRIVATE-REASONING",
+                               usage_metadata=SimpleNamespace(prompt_token_count=11,
+                                   candidates_token_count=7, total_token_count=19,
+                                   secret="PRIVATE-KEY"))
+    with caplog.at_level(logging.INFO, logger="app.services.gemini_ai_service"):
+        with operator_event_scope(request_id="r" * 32, channel="channel"):
+            await service._request_with_model_fallback(request)
+    events = [record for record in caplog.records if hasattr(record, "event_kind")]
+    assert len({record.event_event_id for record in events}) == len(events)
+    assert all(record.event_request_id == "r" * 32 for record in events)
+    assert all(record.event_requested_model == "gemini-selected" for record in events)
+    assert all(record.event_requested_provider == record.event_provider == "Google Gemini" for record in events)
+    finishes = [record for record in events if record.event_kind == "ai.request_finish"]
+    assert [(record.event_model, record.event_attempt, record.event_fallback, record.event_outcome)
+            for record in finishes] == [("gemini-selected", 1, False, "provider_failure"),
+                                       ("gemini-fallback", 2, True, "generated")]
+    assert all(record.event_duration_seconds >= 0 for record in finishes)
+    assert (finishes[-1].event_input_tokens, finishes[-1].event_output_tokens,
+            finishes[-1].event_total_tokens) == (11, 7, 19)
+    assert "PRIVATE" not in str([vars(record) for record in events])
+
+
+@pytest.mark.asyncio
+async def test_cancelled_attempt_and_fallback_failure_have_explicit_terminal_events(caplog):
+    import asyncio
+    import logging
+    service = GeminiAIService(SimpleNamespace(gemini_model="first", gemini_fallback_model="second"))
+    async def fail(model):
+        raise ProviderError(404 if model == "first" else 500)
+    with caplog.at_level(logging.INFO, logger="app.services.gemini_ai_service"):
+        with pytest.raises(ProviderError):
+            await service._request_with_model_fallback(fail)
+        async def cancel(_):
+            raise asyncio.CancelledError()
+        with pytest.raises(asyncio.CancelledError):
+            await service._request_with_model_fallback(cancel)
+    finishes = [record for record in caplog.records if getattr(record, "event_kind", None) == "ai.request_finish"]
+    assert [(record.event_model, record.event_outcome) for record in finishes] == [
+        ("first", "provider_failure"), ("second", "provider_failure"), ("first", "cancelled")]
+
+
+@pytest.mark.asyncio
 async def test_discovery_and_generation_reuse_client_with_live_model_settings(monkeypatch) -> None:
     from google import genai
 

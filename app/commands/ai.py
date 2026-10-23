@@ -5,15 +5,18 @@ from app.services.ai_request_policy import PolicyDecision
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
 from app.config.commands import ASK_COOLDOWN_SECONDS
+from app.utils.logging import operator_event
 
 
 def register_ai_commands(registry: CommandRegistry) -> None:
     def ask_pre_check(context, arguments: str) -> bool:
         clean_args = arguments.strip()
         if not clean_args:
+            operator_event(context.logger, "command.outcome", "invalid_arguments")
             return False
         policy_decision = context.services.ai_request_policy.check(clean_args)
         if policy_decision == PolicyDecision.IGNORE:
+            operator_event(context.logger, "command.outcome", "filters", reason="protected_policy")
             return False
         return True
 
@@ -56,6 +59,12 @@ def register_ai_commands(registry: CommandRegistry) -> None:
             memory_context=memory_context,
             stream_category=stream_category,
         )
+        status = getattr(reply, "status", "success" if reply.is_available else "api_error")
+        operator_event(context.logger, "ai.result",
+                       "generated" if reply.is_available and reply.text else
+                       "filters" if status == "output_blocked" else
+                       "ai_unavailable" if status == "provider_unavailable" else "provider_failure",
+                       reason=status)
         if reply.is_available and reply.text:
             username = context.message.author.username.lstrip("@")
             delivered = await context.reply(f"@{username} {reply.text}")

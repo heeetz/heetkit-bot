@@ -202,6 +202,7 @@ def test_manual_tool_refuses_missing_database_and_invalid_identity(tmp_path):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("memory_enabled,opted_out,delivered", [
     (False, False, True), (True, False, True), (True, True, True), (True, False, False),
+    (True, False, None),
 ])
 async def test_chat_storage_memory_off_opt_out_and_erase_remain_scoped(tmp_path, monkeypatch, memory_enabled, opted_out, delivered):
     monkeypatch.setenv("HEETKIT_DATA_DIR", str(tmp_path))

@@ -123,12 +123,26 @@ use `data/heetkit.db`; Twitch authorization uses `auth/twitchio_tokens.json`.
 - Cooldowns temporarily use account IDs in memory, and stream-category lookup has a
   90-second memory cache. Frontend drafts, Playground results and up to 500 displayed
   log entries live in React memory. The backend log buffer also holds at most 500
-  entries until displaced or process exit. No application use of localStorage,
+  entries, with a 1 MiB serialized UTF-8 budget and a 16 KiB per-entry ceiling,
+  until displaced or process exit. Text fields are bounded; oversized entries are
+  omitted. No application use of localStorage,
   sessionStorage, IndexedDB or cookies was found. The embedded browser and an external
   browser used for OAuth or links may maintain their own engine data.
   Opted-out requests suppress application diagnostics for that asynchronous request,
   including its command replies/errors, while other viewers' diagnostics continue.
   External logging integrations and already captured output require operator review.
+- Semantic command events carry transient request/event IDs, canonical built-in or
+  stable custom/trigger identity, channel, invocation name and command/announcement
+  source. Each attempted response has its own ID and, when returned, a Twitch message
+  ID. Echoes and repeated Twitch input IDs do not count as new invocations. Correlation
+  caches retain at most 2,048 IDs each for ten minutes, with a 256-byte bound on each
+  identity component. These IDs are not added to the database.
+  Decisions distinguish disabled commands, permission/availability/filter rejections,
+  unavailable AI, cooldown remaining time and output-limiter skips. Cooldown rejections
+  remain silent in chat. Handler completion and generated AI text do not establish
+  delivery: sends report confirmed, failed or uncertain. Only a transport-confirmed
+  AI reply can be saved as a delivered memory exchange. Missing results, timeouts or
+  network failures can leave delivery uncertain; definitive API/SDK rejections fail.
 - AI blocks, connection presets, optional cooldown-exception IDs and private text in
   settings/recovery copies are operator-managed configuration, with no automatic
   90/180-day expiry. Review them separately when handling a privacy request.

@@ -77,7 +77,8 @@ async def test_dispatch_modes_aliases_and_desktop_isolation(rig, server, status,
 
 
 @pytest.mark.parametrize("custom", [False, True])
-async def test_suppression_preserves_cooldown_and_permissions(rig, custom):
+async def test_suppression_preserves_cooldown_and_permissions(rig, custom, caplog):
+    caplog.set_level(logging.INFO, logger=__name__)
     rig.state.server_runtime = True
     rig.state.server_stream_status = lambda: "offline"
     if custom:
@@ -92,6 +93,9 @@ async def test_suppression_preserves_cooldown_and_permissions(rig, custom):
     await rig.dispatcher.dispatch(rig.message(f"!{alias}", True), rig.services)
     await rig.dispatcher.dispatch(rig.message(f"!{name}", True), rig.services)
     assert len(rig.replies) == 1  # Parent and alias share their original cooldown.
+    outcomes = [record.event_outcome for record in caplog.records
+                if getattr(record, "event_kind", None) in ("command.outcome", "command.cooldown")]
+    assert outcomes == ["availability", "permissions", "cooldown"]
 
 
 @pytest.mark.parametrize("status", ["offline", "unknown"])

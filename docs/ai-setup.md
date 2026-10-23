@@ -207,6 +207,17 @@ and local context checks reduce unsafe replies; they do not guarantee perfect de
 See [data and privacy](data-and-privacy.md) for memory, provider processing and backups,
 and [commands](commands.md) for filters, permissions and cooldowns.
 
+## Generation diagnostics
+
+Semantic AI events link to the command request and identify requested and effective
+provider/model, attempt number, fallback use and elapsed time. When Gemini returns
+aggregate input/output/total token counts, those counts are included. Missing usage
+is left absent. Events exclude keys, prompts, response payloads and reasoning content;
+storage opt-outs suppress these request diagnostics along with command/send events.
+Generation and handler completion are separate from confirmed Twitch delivery. A failed
+or uncertain send is not saved as delivered AI memory. Existing Desktop diagnostics and
+Server lifecycle-log visibility remain as described in [data and privacy](data-and-privacy.md).
+
 ## Free Tier and billing
 
 Google provides a **Gemini API Free Tier** for supported models within their limits.

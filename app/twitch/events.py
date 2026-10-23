@@ -24,3 +24,4 @@ class IncomingChatMessage:
     author: ChatAuthor
     respond: ChatResponder
     is_outgoing: bool = False
+    message_id: str | None = None

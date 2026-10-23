@@ -1,6 +1,7 @@
 """Tests for dispatching registered commands through a fake chat transport."""
 
 import logging
+import asyncio
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import cast
@@ -12,6 +13,7 @@ from app.commands.ai import register_ai_commands
 from app.commands.fun import FATES, register_fun_commands
 from app.commands.info import command_help_page, register_info_commands, register_weather_commands
 from app.commands.registry import CommandDispatcher, CommandRegistry
+from app.custom_commands import CustomCommandStore
 from app.config.settings import Settings
 from app.container import build_application
 from app.services.contracts import AIReply, WeatherReport
@@ -48,8 +50,9 @@ class FakeChatTransport:
             respond=self.respond,
         )
 
-    async def respond(self, content: str) -> None:
+    async def respond(self, content: str) -> object:
         self.replies.append(content)
+        return SimpleNamespace(sent=True, id=f"synthetic-response-{len(self.replies)}")
 
 
 def build_dispatcher(
@@ -155,8 +158,12 @@ async def test_ping_cooldown_is_enforced_per_user(
         record for record in caplog.records if hasattr(record, "event_kind")
     ]
     assert [record.event_kind for record in semantic_records] == [
+        "command.input",
         "command.invoke",
+        "chat.send",
         "chat.outgoing",
+        "command.complete",
+        "command.input",
         "command.cooldown",
     ]
     cooldown_record = semantic_records[-1]
@@ -990,3 +997,104 @@ async def test_generic_filter_blocks_message_before_command_dispatch() -> None:
     assert filter_mgr.filter_message("Visit http://phishing.site for prizes") is False
     # Verify allowed message
     assert filter_mgr.filter_message("!ask how is the weather today?") is True
+
+
+@pytest.mark.asyncio
+async def test_concurrent_custom_alias_bursts_link_each_response_without_double_counting(tmp_path, caplog):
+    store = CustomCommandStore(tmp_path / "custom.json", set())
+    custom = store.save({"name": "greet", "aliases": ["hi"], "enabled": True,
+                         "responses": ["Hello"], "permission": "MODERATOR",
+                         "per_user_seconds": 0, "global_seconds": 0,
+                         "response_mode": "burst", "burst_count": 3, "burst_interval_ms": 0})
+    dispatcher = CommandDispatcher(CommandRegistry(), CooldownManager(), logging.getLogger("tests.commands"),
+                                   "!", custom_commands=store)
+    async def run(index, name):
+        async def respond(content):
+            await asyncio.sleep(0)  # interleave all six responses
+            return SimpleNamespace(sent=True, id=f"twitch-{index}-{asyncio.current_task().get_name()}")
+        message = IncomingChatMessage("channel", f"!{name}", ChatAuthor(str(index), f"viewer{index}",
+                                      is_moderator=True), respond, message_id=f"input-{index}")
+        await dispatcher.dispatch(message, SimpleNamespace())
+
+    with caplog.at_level(logging.INFO, logger="tests.commands"):
+        await asyncio.gather(run(1, "hi"), run(2, "greet"))
+    records = [record for record in caplog.records if hasattr(record, "event_event_id")]
+    assert len({record.event_event_id for record in records}) == len(records)
+    assert len({record.event_request_id for record in records}) == 2
+    for input_id in ("input-1", "input-2"):
+        linked = [record for record in records if record.event_input_message_id == input_id]
+        assert all(record.event_command_id == f"custom:{custom.id}" for record in linked)
+        assert all(record.event_command == "greet" and record.event_source == "command" for record in linked)
+        assert len([record for record in linked if record.event_kind == "command.input"]) == 1
+        assert len([record for record in linked if record.event_kind == "command.complete"]) == 1
+        responses = [record for record in linked if record.event_kind == "chat.outgoing"]
+        assert len(responses) == len({record.event_response_id for record in responses}) == 3
+        assert all(record.event_outcome == "confirmed_send" for record in responses)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("result,outcome", [(None, "uncertain_send"),
+    (SimpleNamespace(sent=False, id="rejected"), "failed_send"),
+    (SimpleNamespace(sent=True, id="delivered"), "confirmed_send"),
+    (OSError("PRIVATE lost result"), "uncertain_send"),
+    (SimpleNamespace(id="id-without-confirmation"), "uncertain_send")])
+async def test_ai_memory_requires_confirmed_send_and_events_do_not_claim_delivery(result, outcome, caplog):
+    registry = CommandRegistry()
+    register_ai_commands(registry)
+    memory = SimpleNamespace(get_recent=AsyncMock(return_value=[]), format_context=lambda _: None,
+                             save_exchange=AsyncMock())
+    services = SimpleNamespace(ai=FakeAIService(), ai_request_policy=AIRequestPolicy(), memory=memory)
+    respond = AsyncMock(side_effect=result) if isinstance(result, Exception) else AsyncMock(return_value=result)
+    message = replace(FakeChatTransport("!ask hello").message, respond=respond)
+    with caplog.at_level(logging.INFO, logger="tests.commands"):
+        await build_dispatcher(registry).dispatch(message, services)
+    sends = [record for record in caplog.records if getattr(record, "event_kind", None) == "chat.outgoing"]
+    assert len(sends) == 1 and sends[0].event_outcome == outcome
+    assert memory.save_exchange.await_count == (outcome == "confirmed_send")
+    assert "PRIVATE" not in caplog.text
+    assert not any(getattr(record, "event_outcome", None) == "confirmed_send" for record in caplog.records
+                   if getattr(record, "event_kind", None) != "chat.outgoing")
+
+
+@pytest.mark.asyncio
+async def test_limiter_and_dispatch_decisions_are_explicit_and_silent(caplog, tmp_path):
+    registry = CommandRegistry()
+    @registry.command("check", aliases=("c",), required_permission=Permission.MODERATOR)
+    async def check(context, _):
+        await context.reply("ok")
+    state = RuntimeState(command_settings_path=tmp_path / "command.json")
+    state.configure_commands(registry.definitions())
+    limiter = OutputLimiter(interval=60)
+    dispatcher = build_dispatcher(registry, runtime_state=state, output_limiter=limiter)
+    transport = FakeChatTransport("!c")
+    with caplog.at_level(logging.INFO, logger="tests.commands"):
+        await dispatcher.dispatch(transport.message, SimpleNamespace())
+        state.apply_command_settings("check", enabled=False)
+        await dispatcher.dispatch(transport.message, SimpleNamespace())
+        state.apply_command_settings("check", enabled=True)
+        transport.message = replace(transport.message, author=replace(transport.message.author, is_moderator=True))
+        await dispatcher.dispatch(transport.message, SimpleNamespace())
+        await dispatcher.dispatch(transport.message, SimpleNamespace())
+    decisions = [record.event_outcome for record in caplog.records
+                 if getattr(record, "event_kind", None) == "command.outcome"]
+    assert decisions == ["permissions", "disabled"]
+    sends = [record.event_outcome for record in caplog.records
+             if getattr(record, "event_kind", None) == "chat.outgoing"]
+    assert sends == ["confirmed_send", "limiter_skip"]
+    assert transport.replies == ["ok"]
+    assert all(record.event_command == "check" and record.event_invoked_name == "c"
+               for record in caplog.records if hasattr(record, "event_command"))
+
+
+@pytest.mark.asyncio
+async def test_trigger_announcement_has_stable_source_identity(caplog):
+    from app.message_triggers import MessageTrigger
+    trigger = MessageTrigger("hello", True, "exact", "hello", False, 1, 0, ("Hi",))
+    dispatcher = CommandDispatcher(CommandRegistry(), CooldownManager(), logging.getLogger("tests.commands"),
+                                   "!", message_triggers=SimpleNamespace(list=lambda: [trigger]))
+    with caplog.at_level(logging.INFO, logger="tests.commands"):
+        await dispatcher.dispatch(FakeChatTransport("hello").message, SimpleNamespace())
+    events = [record for record in caplog.records if hasattr(record, "event_kind")]
+    assert all(record.event_source == "announcement" and record.event_command_id == "trigger:hello"
+               for record in events)
+    assert [record.event_kind for record in events].count("command.input") == 1

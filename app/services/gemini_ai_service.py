@@ -20,6 +20,7 @@ from app.config.personalities import (
 from app.runtime_state import RuntimeState
 from app.services.filter_manager import FilterManager
 from app.services.ai_request_policy import AIRequestPolicy
+from app.utils.logging import operator_event, operator_event_scope
 
 logger = logging.getLogger(__name__)
 GEMINI_REQUEST_TIMEOUT_SECONDS = 60.0
@@ -308,20 +309,39 @@ class GeminiAIService:
         request: Callable[[str], Awaitable[Any]],
     ) -> tuple[Any, str]:
         selected_model = self.settings.gemini_model
-        try:
-            return await request(selected_model), selected_model
-        except Exception as error:
-            fallback_model = self.settings.gemini_fallback_model
-            if getattr(error, "code", None) != 404 or fallback_model == selected_model:
-                raise
-            logger.warning(
-                "Gemini selected model unavailable; using fallback "
-                "selected_model=%s fallback_model=%s error_type=%s",
-                selected_model,
-                fallback_model,
-                type(error).__name__,
-            )
-            return await request(fallback_model), fallback_model
+        fallback_model = self.settings.gemini_fallback_model
+        for attempt, model in enumerate((selected_model, fallback_model), start=1):
+            with operator_event_scope(requested_provider="Google Gemini", requested_model=selected_model,
+                                      provider="Google Gemini", model=model, attempt=attempt,
+                                      fallback=attempt > 1):
+                started = time.monotonic()
+                operator_event(logger, "ai.request_start", "attempt")
+                outcome = "provider_failure"
+                usage = {}
+                try:
+                    response = await request(model)
+                    # Only aggregate usage counts; never serialize provider payloads
+                    # or thought/reasoning parts, even when the SDK exposes them.
+                    metadata = getattr(response, "usage_metadata", None)
+                    for field, attribute in (("input_tokens", "prompt_token_count"),
+                                             ("output_tokens", "candidates_token_count"),
+                                             ("total_tokens", "total_token_count")):
+                        value = getattr(metadata, attribute, None)
+                        if type(value) is int and 0 <= value <= 2**63 - 1:
+                            usage[field] = value
+                    outcome = "generated"
+                    return response, model
+                except asyncio.CancelledError:
+                    outcome = "cancelled"
+                    raise
+                except Exception as error:
+                    if attempt != 1 or getattr(error, "code", None) != 404 or fallback_model == selected_model:
+                        raise
+                    operator_event(logger, "ai.fallback", "model_unavailable")
+                finally:
+                    operator_event(logger, "ai.request_finish", outcome,
+                                   duration_seconds=round(time.monotonic() - started, 3), **usage)
+        raise RuntimeError("No AI model attempt completed.")
 
     async def generate_reply(
         self,
@@ -331,6 +351,14 @@ class GeminiAIService:
         stream_category: str | None = None,
     ) -> AIReply:
         """Generate a reply using the Gemini model with Google Search grounding."""
+        with operator_event_scope(requested_provider="Google Gemini",
+                                  requested_model=getattr(self.settings, "gemini_model", None)):
+            return await self._generate_reply(prompt, user_id, memory_context, stream_category)
+
+    async def _generate_reply(
+        self, prompt: str, user_id: str, memory_context: str | None,
+        stream_category: str | None,
+    ) -> AIReply:
         try:
             # If no API key is configured, return unavailable but don't crash
             if not self.is_available:
@@ -372,25 +400,6 @@ class GeminiAIService:
             # fallback. Saves affect subsequent requests, not an in-flight retry.
             system_instruction = self._build_system_instruction()
 
-            logger.info(
-                "Gemini request config model=%s tools=%s",
-                self.settings.gemini_model,
-                [type(search_tool).__name__] if use_search else [],
-                extra={
-                    "event_kind": "ai.request_config",
-                    "event_provider": "Google Gemini",
-                    "event_model": self.settings.gemini_model,
-                },
-            )
-            request_started_at = time.monotonic()
-            logger.info(
-                "Gemini request start",
-                extra={
-                    "event_kind": "ai.request_start",
-                    "event_provider": "Google Gemini",
-                    "event_model": self.settings.gemini_model,
-                },
-            )
             async def request_model(model: str) -> Any:
                 return await client.models.generate_content(
                     model=model,
@@ -401,34 +410,9 @@ class GeminiAIService:
                     ),
                 )
 
-            try:
-                async with self._provider_client() as client:
-                    async with asyncio.timeout(GEMINI_REQUEST_TIMEOUT_SECONDS):
-                        response, effective_model = await self._request_with_model_fallback(
-                            request_model
-                        )
-            finally:
-                elapsed_seconds = time.monotonic() - request_started_at
-                logger.info(
-                    "Gemini request finished elapsed_seconds=%.2f",
-                    elapsed_seconds,
-                    extra={
-                        "event_kind": "ai.request_finish",
-                        "event_provider": "Google Gemini",
-                        "event_model": self.settings.gemini_model,
-                        "event_duration_seconds": round(elapsed_seconds, 2),
-                    },
-                )
-            if effective_model != self.settings.gemini_model:
-                logger.info(
-                    "Gemini request completed with fallback model=%s",
-                    effective_model,
-                    extra={
-                        "event_kind": "ai.fallback",
-                        "event_provider": "Google Gemini",
-                        "event_model": effective_model,
-                    },
-                )
+            async with self._provider_client() as client:
+                async with asyncio.timeout(GEMINI_REQUEST_TIMEOUT_SECONDS):
+                    response, effective_model = await self._request_with_model_fallback(request_model)
 
             candidates = getattr(response, "candidates", None) or []
             grounding_metadata = [
@@ -508,15 +492,7 @@ class GeminiAIService:
 
         except Exception as e:
             # Log error type safely without exposing secrets or stack traces to chat
-            logger.warning(
-                "Gemini AI generation failed: %s",
-                type(e).__name__,
-                extra={
-                    "event_kind": "ai.failure",
-                    "event_provider": "Google Gemini",
-                    "event_model": self.settings.gemini_model,
-                },
-            )
+            operator_event(logger, "ai.failure", "provider_failure", reason=type(e).__name__)
             return AIReply(
                 text="",
                 is_available=False,

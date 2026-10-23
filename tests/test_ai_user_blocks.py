@@ -55,7 +55,8 @@ def setup(root):
 
 
 def message(content="!ask A private question", *, username="viewer", user_id="123"):
-    return IncomingChatMessage("channel", content, ChatAuthor(user_id, username, is_moderator=True), AsyncMock())
+    return IncomingChatMessage("channel", content, ChatAuthor(user_id, username, is_moderator=True),
+                               AsyncMock(return_value=SimpleNamespace(sent=True, id="synthetic-send")))
 
 
 def test_crud_normalization_id_matching_and_profile_restart(tmp_path):

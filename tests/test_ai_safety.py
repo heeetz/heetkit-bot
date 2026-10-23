@@ -1,6 +1,7 @@
 """Focused safety boundaries for AI requests and generated replies."""
 
 import logging
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -266,7 +267,7 @@ async def test_editable_instructions_cannot_bypass_generated_response_filter(
         await service.aclose()
 
 
-@pytest.mark.parametrize("prefix, command", [("!", "ask"), ("$", "ＡＳＫ"), ("!", "a\u200bsk")])
+@pytest.mark.parametrize("prefix, command", [("!", "ask"), ("$", "ＡＳＫ"), ("!", "a\u200bsk"), ("!", "question")])
 @pytest.mark.asyncio
 async def test_ignored_ask_content_is_not_logged_or_saved(
     caplog: pytest.LogCaptureFixture,
@@ -296,6 +297,11 @@ async def test_ignored_ask_content_is_not_logged_or_saved(
     )
     registry = CommandRegistry()
     register_ai_commands(registry)
+    if command == "question":
+        aliased = CommandRegistry()
+        for definition in registry.definitions():
+            aliased.register(replace(definition, aliases=("question",)) if definition.name == "ask" else definition)
+        registry = aliased
     logger = logging.getLogger("tests.ai_safety.request_privacy")
     dispatcher = CommandDispatcher(
         registry=registry,
@@ -326,3 +332,7 @@ async def test_ignored_ask_content_is_not_logged_or_saved(
     respond.assert_not_awaited()
     assert restricted_request not in caplog.text
     assert private_marker not in caplog.text
+    events = [record for record in caplog.records if getattr(record, "event_kind", None) == "command.outcome"]
+    assert len(events) == 1
+    assert events[0].event_outcome == "filters" and events[0].event_command_id == "ask"
+    assert len(events[0].event_request_id) == 32

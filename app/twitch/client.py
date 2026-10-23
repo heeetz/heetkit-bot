@@ -29,7 +29,7 @@ from app.services.ai_request_policy import PolicyDecision
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.twitch.message_correlation import ChatMessageCorrelation
 from app.utils.text import parse_command
-from app.utils.logging import privacy_log_scope
+from app.utils.logging import privacy_log_scope, operator_event_scope, operator_event, event_metadata
 
 
 class TwitchConnectionError(RuntimeError):
@@ -130,6 +130,7 @@ def to_incoming_chat_message(message: ChatMessage, respond=None) -> IncomingChat
             is_broadcaster=bool(message.chatter.broadcaster),
         ),
         respond=respond or message.respond,
+        message_id=getattr(message, "id", None),
     )
 
 
@@ -167,7 +168,11 @@ async def process_twitch_message(
             logger.error("Could not check storage opt-out: %s", type(error).__name__)
     with privacy_log_scope(opted_out):
         try:
-            await _process_incoming_message(incoming, services, dispatcher, logger)
+            scope = getattr(dispatcher, "event_scope", None)
+            with (scope(incoming) if scope else operator_event_scope(
+                    channel=incoming.channel, username=incoming.author.username,
+                    input_message_id=incoming.message_id)):
+                await _process_incoming_message(incoming, services, dispatcher, logger)
         except Exception:
             if not opted_out:
                 raise
@@ -192,11 +197,7 @@ async def _process_incoming_message(
             "Filtered out message user=%s channel=%s",
             incoming.author.username,
             incoming.channel,
-            extra={
-                "event_kind": "chat.filtered",
-                "event_username": incoming.author.username,
-                "event_channel": incoming.channel,
-            },
+            extra=event_metadata("chat.filtered", outcome="filters"),
         )
         return
 
@@ -205,9 +206,10 @@ async def _process_incoming_message(
     prefix = getattr(getattr(services, "settings", None), "command_prefix", "!")
     parsed = parse_command(incoming.content, prefix)
     policy = getattr(services, "ai_request_policy", None)
-    if parsed is not None and parsed[0] == "ask" and policy is not None:
+    is_ai = getattr(dispatcher, "is_ai_command", lambda _: parsed is not None and parsed[0] == "ask")
+    if parsed is not None and is_ai(incoming) and policy is not None:
         if policy.check(parsed[1]) == PolicyDecision.IGNORE:
-            logger.info("AI request ignored by safety policy")
+            operator_event(logger, "command.outcome", "filters", reason="protected_policy")
             return
 
     logger.info(
@@ -215,11 +217,7 @@ async def _process_incoming_message(
         incoming.channel,
         incoming.author.username,
         incoming.content,
-        extra={
-            "event_kind": "chat.incoming",
-            "event_channel": incoming.channel,
-            "event_username": incoming.author.username,
-        },
+        extra=event_metadata("chat.incoming"),
     )
     try:
         await services.users.upsert_seen(
