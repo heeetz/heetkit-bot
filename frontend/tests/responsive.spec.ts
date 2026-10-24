@@ -84,12 +84,6 @@ async function expectContentAligned(page: Page) {
   return content.width
 }
 
-async function expectActionBefore(first: Locator, second: Locator) {
-  const firstBox = (await first.boundingBox())!
-  const secondBox = (await second.boundingBox())!
-  expect(firstBox.y < secondBox.y || (Math.abs(firstBox.y - secondBox.y) < 1 && firstBox.x < secondBox.x)).toBe(true)
-}
-
 test('column and form thresholds handle fractional CSS content widths', async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 })
   await page.goto('/tests/fixture.html?configured&aiAvailable')
@@ -142,7 +136,9 @@ for (const viewport of viewports) {
       await expect(page.locator('#ai-runtime')).toContainText('Configured for requests')
     } else {
       await expect(page.locator('#ai-runtime')).toContainText('Unavailable')
-      await expect(page.getByRole('button', { name: 'Add Gemini key', exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Manage AI setup', exact: true })).toBeVisible()
+      await page.getByRole('button', { name: 'Manage AI setup', exact: true }).click()
+      await expect(page.locator('#ai-models')).toBeInViewport()
     }
 
     const language = page.locator('#ai-language')
@@ -150,16 +146,14 @@ for (const viewport of viewports) {
     const formColumns = await gridColumns(language.locator('.language-fields'), ':scope > label')
     expect(formColumns).toBe(viewport.width <= 760 || contentWidth <= 621 ? 1 : 2)
 
+    const nav = page.getByRole('navigation', { name: 'Main navigation' })
+    await nav.getByRole('button', { name: 'AI setup', exact: true }).click()
     const models = page.locator('#ai-models')
-    const discover = models.getByRole('button', { name: 'Discover models', exact: true })
-    const playground = models.getByRole('button', { name: 'Open Playground', exact: true })
-    const save = models.getByRole('button', { name: 'Save models', exact: true })
-    await expect(models.locator('.model-action-row').getByRole('button')).toHaveText(['Discover models', 'Open Playground', 'Save models'])
-    await expectActionBefore(discover, playground)
-    await expectActionBefore(playground, save)
-    const playgroundBox = (await playground.boundingBox())!
-    const saveBox = (await save.boundingBox())!
-    expect(playgroundBox.y).toBeCloseTo(saveBox.y, 0)
+    await expect(models.locator('.accordion-trigger')).toHaveAttribute('aria-expanded', 'true')
+    await expect(models.getByRole('button', { name: 'Discover primary models', exact: true })).toBeVisible()
+    await expect(models.getByRole('button', { name: 'Save AI setup', exact: true })).toBeVisible()
+    await expect(nav.getByRole('button', { name: 'Playground', exact: true })).toBeVisible()
+    await expect(page.locator('#ai-playground')).toHaveCount(1)
     await expectNoHorizontalOverflow(page)
     if ([900, 1440, 2560].includes(viewport.width)) {
       await page.locator('#ai-runtime').screenshot({ path: `node_modules/.tmp/a5-ai-state-${viewport.width}.png` })
@@ -265,7 +259,7 @@ test('the desktop menu scrolls independently at minimum height and keyboard help
   await nav.evaluate((element) => { element.scrollTop = element.scrollHeight })
   expect(await nav.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
   expect((await brand.boundingBox())!.y).toBeCloseTo(brandBefore.y, 0)
-  await expect(nav.getByRole('button', { name: 'Built-in restrictions', exact: true })).toBeInViewport()
+  await expect(nav.getByRole('button', { name: 'AI access', exact: true })).toBeInViewport()
 
   await nav.getByRole('button', { name: 'Profile instructions', exact: true }).click()
   const card = page.locator('#ai-profile-instructions')
@@ -333,26 +327,28 @@ for (const width of [1440, 1180, 900, 390, 320]) {
     await expectNoHorizontalOverflow(page)
     if (width === 1180) await access.screenshot({ path: 'node_modules/.tmp/ui-ai-access-1180.png' })
 
-    await nav.getByRole('button', { name: 'Settings', exact: true }).click()
-    const key = page.locator('#credential-settings')
-    await key.locator('.accordion-caret').click()
-    const input = key.getByLabel('Replacement value', { exact: true })
+    await nav.getByRole('button', { name: 'AI', exact: true }).click()
+    await nav.getByRole('button', { name: 'AI setup', exact: true }).click()
+    const key = page.locator('#ai-models')
+    const row = key.locator('.ai-connection-row').filter({ has: page.getByLabel('gemini API key', { exact: true }) })
+    const input = row.getByLabel('gemini API key', { exact: true })
     await input.fill('synthetic-key-draft')
     if (width >= 1180) {
-      const controls = await key.locator('.credential-footer').getByRole('button').all()
+      const controls = await row.locator('.row-actions').getByRole('button').all()
       const boxes = await Promise.all(controls.map(async (control) => (await control.boundingBox())!))
       for (let index = 0; index < boxes.length; index++) {
         expect(boxes[index].y).toBeCloseTo(boxes[0].y, 0)
         expect(boxes[index].height).toBeCloseTo(boxes[0].height, 0)
         if (index) expect(boxes[index - 1].x + boxes[index - 1].width).toBeLessThanOrEqual(boxes[index].x)
       }
-      const row = (await key.locator('.credential-row').boundingBox())!
-      expect((await input.boundingBox())!.width).toBeCloseTo(row.width, 0)
+      const inputBox = (await input.boundingBox())!
+      expect(inputBox.height).toBeCloseTo(boxes[0].height, 0)
+      expect(inputBox.y).toBeCloseTo(boxes[0].y, 0)
     }
     await expectNoHorizontalOverflow(page)
-    if (width === 1180 || width === 320) await key.screenshot({ path: `node_modules/.tmp/ui-gemini-key-${width}.png` })
-    await key.getByRole('button', { name: 'Help: Gemini API key' }).focus()
-    await expect(page.getByRole('tooltip')).toContainText('without generating a reply')
+    if (width === 1180 || width === 320) await row.screenshot({ path: `node_modules/.tmp/ui-gemini-key-${width}.png` })
+    await key.getByRole('button', { name: 'Help: Provider keys', exact: true }).focus()
+    await expect(page.getByRole('tooltip')).toContainText('generation access may differ')
     await page.keyboard.press('Escape')
     await expect(input).toHaveValue('synthetic-key-draft')
   })

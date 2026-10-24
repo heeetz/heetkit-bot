@@ -106,7 +106,17 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     if (path === '/v1/twitch/authorization/begin') result = oauthBeginResult
     if (path === '/v1/twitch/authorization/complete') result = oauthCompleteResult
     if (path === '/v1/twitch/authorization/cancel') result = { ok: true }
-    if (path === '/v1/credentials/replace' || path === '/v1/credentials/remove' || path === '/v1/credentials/test') result = { ok: true }
+    if (['/v1/credentials/replace', '/v1/credentials/remove', '/v1/credentials/test'].includes(path)) {
+      const credential = credentials.find((item) => item.name === body?.name)
+      if (!credential) result = { ok: false, error: 'Unknown credential' }
+      else if (path.endsWith('/test')) { credential.validation_status = 'valid'; result = { ok: true } }
+      else if (!credential.managed) result = { ok: false, error: 'Managed externally' }
+      else {
+        const configured = path.endsWith('/replace')
+        Object.assign(credential, { configured, source: configured ? 'server_file' : 'missing', validation_status: 'not_tested' })
+        result = { ok: true, changed: true }
+      }
+    }
     if (path === '/v1/ai') result = ai()
     if (path === '/v1/ai/enabled') enabled = body!.enabled as boolean
     if (path === '/v1/ai/models') result = { ok: true, settings: aiProvider }
@@ -416,39 +426,46 @@ test('server settings edit Twitch identity, manage credentials and complete or c
 
   const application = page.locator('[aria-labelledby="server-twitch-application-heading"]')
   await expect(application.getByLabel('Client ID')).toHaveValue('new-client')
-  await expect(application.locator('.settings-twitch-secret .credential-actions')).toBeVisible()
+  await expect(application.locator('.twitch-secret-field .credential-actions')).toBeVisible()
 
-  const credentials = page.locator('#credential-settings')
-  await credentials.locator('.accordion-trigger').click()
-  await expect(credentials.getByRole('button', { name: 'Remove', exact: true }).first()).toBeDisabled()
-  const gemini = page.locator('.credential-row').filter({ hasText: 'Gemini API key' })
-  await gemini.getByLabel('New value').fill('synthetic-gemini-secret')
-  await gemini.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(gemini.getByLabel('New value')).toHaveValue('')
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await page.getByRole('navigation').getByRole('button', { name: 'AI setup', exact: true }).click()
+  const setup = page.locator('#ai-models')
+  const gemini = setup.getByLabel('gemini API key', { exact: true })
+  await gemini.fill('synthetic-gemini-secret')
+  await setup.getByRole('button', { name: 'Connect Google Gemini key', exact: true }).click()
+  await expect(gemini).toHaveValue('')
+  await expect(setup.locator('.ai-provider-status .state-pill').first()).toHaveText('Configured')
   expect(api.calls.find((call) => call.path === '/v1/credentials/replace')?.body).toEqual({ name: 'gemini_api_key', value: 'synthetic-gemini-secret' })
+  await setup.getByRole('button', { name: 'Test Google Gemini connection', exact: true }).click()
+  expect(api.calls.find((call) => call.path === '/v1/credentials/test')?.body).toEqual({ name: 'gemini_api_key' })
 
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await page.getByRole('button', { name: 'Connect Twitch', exact: true }).click()
   await expect.poll(() => api.calls.find((call) => call.path === '/v1/twitch/authorization/begin')?.body).toEqual({})
   await expect(page.getByRole('link', { name: 'Open Twitch authorization' })).toHaveAttribute('href', 'https://id.twitch.tv/oauth2/authorize?client_id=synthetic')
   await expect(page.getByRole('link', { name: 'Open Twitch authorization' })).toHaveAttribute('rel', 'noopener noreferrer')
-  await page.getByLabel('Callback URL').fill('http://localhost:8765/oauth/callback?code=synthetic&state=synthetic')
+  await page.getByLabel('Callback URL', { exact: true }).fill('http://localhost:8765/oauth/callback?code=synthetic&state=synthetic')
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect.poll(() => api.calls.find((call) => call.path === '/v1/twitch/authorization/cancel')?.body).toEqual({})
-  await expect(page.getByLabel('Callback URL')).toHaveCount(0)
+  await expect(page.getByLabel('Callback URL', { exact: true })).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Connect Twitch', exact: true }).click()
-  await page.getByLabel('Callback URL').fill('http://localhost:8765/oauth/callback?error=access_denied&state=synthetic')
+  await page.getByLabel('Callback URL', { exact: true }).fill('http://localhost:8765/oauth/callback?error=access_denied&state=synthetic')
   api.setOAuthComplete({ ok: false, error: 'Twitch authorization was denied. Try again.' })
   await page.getByRole('button', { name: 'Complete authorization', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('Twitch authorization was denied')
-  await expect(page.getByLabel('Callback URL')).toHaveValue('')
+  await expect(page.getByLabel('Callback URL', { exact: true })).toHaveValue('')
 
-  await gemini.getByLabel('New value').fill('sensitive-draft')
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await page.getByRole('navigation').getByRole('button', { name: 'AI setup', exact: true }).click()
+  await gemini.fill('sensitive-draft')
   await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  const refreshedGemini = page.locator('.credential-row').filter({ hasText: 'Gemini API key' })
-  await expect(refreshedGemini.getByLabel('New value')).toHaveValue('')
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await page.getByRole('navigation').getByRole('button', { name: 'AI setup', exact: true }).click()
+  await expect(gemini).toHaveValue('')
 
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   api.setOAuthBegin({ ok: true, url: 'http://evil.example/oauth2/authorize', expires_in: 300 })
   await page.getByRole('button', { name: 'Connect Twitch', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('untrusted Twitch authorization URL')
@@ -464,21 +481,29 @@ for (const width of [1280, 900, 390, 320]) {
 
     const twitch = page.locator('#twitch-settings')
     const application = twitch.locator('[aria-labelledby="server-twitch-application-heading"]')
-    const secret = application.locator('.settings-twitch-secret')
+    const secret = application.locator('.twitch-secret-field')
     const clientIdField = application.getByLabel('Client ID')
+    const secretInput = secret.getByLabel('Twitch client secret', { exact: true })
     await expect(clientIdField).toBeVisible()
     await expect(secret).toContainText('Twitch client secret')
     await expect(secret.locator('.credential-actions')).toBeVisible()
     const clientIdBounds = (await clientIdField.boundingBox())!
-    const secretBounds = (await secret.boundingBox())!
+    const secretBounds = (await secretInput.boundingBox())!
+    await expect(secretInput).toHaveAttribute('type', 'password')
+    await expect(secretInput).toBeDisabled()
+    await expect(secret.locator('.twitch-secret-label .state-pill')).toHaveText('Configured')
     if (width >= 900) {
       expect(secretBounds.x).toBeGreaterThan(clientIdBounds.x + clientIdBounds.width)
+      expect(secretBounds.y).toBeCloseTo(clientIdBounds.y, 0)
+      expect(secretBounds.height).toBeCloseTo(clientIdBounds.height, 0)
     } else {
       expect(secretBounds.y).toBeGreaterThan(clientIdBounds.y + clientIdBounds.height)
       expect(Math.abs(secretBounds.x - clientIdBounds.x)).toBeLessThanOrEqual(1)
     }
+    const secretActions = await secret.locator('.credential-actions button').all()
+    const secretActionBounds = await Promise.all(secretActions.map(async (button) => (await button.boundingBox())!))
+    secretActionBounds.forEach((box) => expect(box.y).toBeGreaterThanOrEqual(secretBounds.y + secretBounds.height))
     await expect(secret.getByRole('button', { name: 'Replace secret', exact: true })).toBeDisabled()
-    await expect(secret.locator('input')).toHaveCount(0)
 
     const pairBoxes: Array<{ first: { x: number; y: number; width: number; height: number }; second: { x: number; y: number; width: number; height: number } }> = []
     for (const [firstLabel, secondLabel] of [
@@ -670,7 +695,7 @@ for (const origin of ['http://localhost:8765', 'https://server.example-tailnet.t
     await expect(page.locator('code').filter({ hasText: `${origin}/oauth/callback` })).toBeVisible()
     await page.getByRole('button', { name: 'Connect Twitch', exact: true }).click()
     await expect(page.getByRole('status')).toContainText('Return to this signed-in tab')
-    await expect(page.getByLabel('Callback URL')).toHaveCount(0)
+    await expect(page.getByLabel('Callback URL', { exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Complete authorization', exact: true })).toHaveCount(0)
     api.setTwitch({ authorization_attempt: 'completed' })
     await expect(page.getByRole('status')).toContainText('Twitch authorization completed')
@@ -731,8 +756,7 @@ test('browser Settings sidebar exposes available sections and opens their accord
   const nav = page.getByRole('navigation', { name: 'Main navigation' })
   await nav.getByRole('button', { name: 'Settings', exact: true }).click()
   const submenu = nav.locator('#nav-Settings')
-  await expect(submenu.getByRole('button')).toHaveText(['Twitch connection', 'Gemini API key', 'Configuration transfer'])
-  await submenu.getByRole('button', { name: 'Gemini API key', exact: true }).click()
-  await expect(page.locator('#credential-settings .accordion-trigger')).toHaveAttribute('aria-expanded', 'true')
-  await expect(page.locator('#credential-settings')).toBeInViewport()
+  await expect(submenu.getByRole('button')).toHaveText(['Twitch connection', 'Configuration transfer'])
+  await expect(submenu).not.toContainText('Gemini API key')
+  await expect(page.locator('#credential-settings')).toHaveCount(0)
 })

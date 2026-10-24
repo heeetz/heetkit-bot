@@ -60,7 +60,6 @@ const subsections: Partial<Record<Section, { label: string; targetId: string }[]
   Settings: [
     { label: 'Desktop behavior', targetId: 'desktop-settings' },
     { label: 'Twitch connection', targetId: 'twitch-settings' },
-    { label: 'Gemini API key', targetId: 'credential-settings' },
     { label: 'Configuration transfer', targetId: 'configuration-transfer' },
     { label: 'Data & diagnostics', targetId: 'profile-location-settings' },
   ],
@@ -772,7 +771,7 @@ function ManagementApp() {
           <div hidden={section !== 'Filters'}><FiltersPage active={section === 'Filters'} /></div>
           <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} onOpenPlayground={() => navigate('AI', 'ai-playground')} onOpenAsk={() => navigate('Commands', 'command-editor-ask')} onAIEnabledChanged={synchronizeAIEnabled} /></div>
           {section === 'Logs' && <LogsPage />}
-          <div hidden={section !== 'Settings'}><SettingsPage active={section === 'Settings'} status={status} onReturnToAI={() => navigate('AI', 'ai-playground')} /></div>
+          <div hidden={section !== 'Settings'}><SettingsPage active={section === 'Settings'} status={status} /></div>
           {section === 'About' && <AboutPage />}
         </div>
       </main>

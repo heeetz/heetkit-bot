@@ -21,8 +21,9 @@ Application, account and channel**. Setup works in every operation mode, includi
 2. Save the Client ID, expected bot login/numeric ID and target login/numeric ID.
    These fields are grouped under **Application**, **Bot account** and
    **Target channel**, with one **Save Twitch settings** action for the identity fields.
-   Add the client secret under **Application**. **Replace secret** opens a masked draft;
-   **Save secret** applies it immediately. **Remove secret** deletes the stored credential
+   The masked **Twitch client secret** draft is always visible beside Client ID under
+   **Application**; enter a value and select **Add secret** or **Replace secret** below it.
+   **Remove secret** deletes the stored credential
    after confirmation. **Test client secret** checks the saved application credentials,
    independently of bot-account authorization. Nonempty external secrets are
    read-only here; rotate them on the host and restart. Make the bot a moderator in
@@ -42,7 +43,7 @@ Application, account and channel**. Setup works in every operation mode, includi
    bot identity, target identity and the existing required chat/follower scopes before
    saving authorization. Then use Dashboard: Manual needs Connect, Always On resumes
    automatically, Stream Only follows confirmed live status, and Disabled stays stopped.
-   Add/test an optional provider key in **AI → AI setup** or use **Settings → Gemini API key**.
+   Add/test an optional provider key in **AI → AI setup**.
 
 Use Connect Twitch again after revocation, application/secret/account replacement
 or a failed/expired attempt; Cancel abandons an attempt. Identity/secret changes
@@ -107,10 +108,9 @@ The Desktop procedure below retains its existing restart and callback behavior.
 
 ## Save the details in HeetKit
 
-Settings is ordered **Twitch connection → Gemini API key → Desktop behavior → Data & diagnostics**.
-Twitch connection and Gemini API key start collapsed. Their
-sidebar shortcuts expand and scroll to them; you can also select each card header.
-Collapsing a section keeps unsaved input.
+Settings contains **Desktop behavior**, **Twitch connection**, **Configuration transfer**
+and **Data & diagnostics**. Twitch connection starts collapsed; its sidebar shortcut opens
+and scrolls to it. Collapsing the section keeps unsaved input.
 
 5. In **Settings → Twitch connection**, enter:
 
@@ -125,9 +125,10 @@ Collapsing a section keeps unsaved input.
    use a public lookup such as [StreamWeasels' converter](https://www.streamweasels.com/tools/convert-twitch-username-to-user-id/).
    Give this third-party lookup only the public login, never credentials. HeetKit requires
    both names and IDs. Select **Save for later**.
-6. In the same **Settings → Twitch connection → Twitch application** section, under
-   **Twitch client secret**, paste the secret into **New value** and select **Add secret**.
-   If already configured, use **Replacement value → Replace secret**. It is saved in your
+6. In the same **Settings → Twitch connection → Twitch application** section, enter
+   the secret in the always-visible masked **Twitch client secret** field and select
+   **Add secret**. If already configured, enter the replacement in that field and select
+   **Replace secret**. It is saved in your
    system's secure storage (Windows Credential Manager on Windows), never in ordinary settings.
    Client ID, bot identity and secret changes require an application restart;
    changing only the target channel requires reconnect instead.

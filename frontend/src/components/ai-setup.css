@@ -1,10 +1,10 @@
 .ai-setup-panel, .ai-shared-instructions-slot { min-width: 0; }
-.ai-setup-panel .accordion-content, .ai-shared-instructions .accordion-content { display: grid; gap: 1rem; }
+.ai-setup-panel .accordion-content, .ai-shared-instructions .accordion-content { display: grid; gap: .75rem; }
 .ai-setup-panel .accordion-content[hidden], .ai-shared-instructions .accordion-content[hidden] { display: none; }
 .ai-setup-panel h3, .ai-setup-panel p { margin: 0; }
 .ai-section-title, .ai-discovery-action { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
 .ai-connections, .ai-model-card, .ai-setup-lengths { min-width: 0; border: 1px solid var(--separator); border-radius: .75rem; padding: 1rem; }
-.ai-connection-row { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: .75rem; padding: 1rem 0; }
+.ai-connection-row { display: grid; grid-template-columns: minmax(0, 1fr); align-items: end; gap: .75rem; padding: 1rem 0; }
 .ai-connection-row + .ai-connection-row { border-top: 1px solid var(--separator); }
 .ai-connection-row:last-child { padding-bottom: 0; }
 .ai-connection-row p, .ai-setup-panel p { overflow-wrap: anywhere; }
@@ -14,7 +14,7 @@
 .ai-setup-model-fields { display: grid; gap: .8rem; min-width: 0; }
 .ai-manual-model summary { cursor: pointer; color: var(--muted); }
 .ai-setup-panel input:not([type=checkbox]), .ai-shared-instructions textarea { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
-.ai-setup-panel button:not(.help-trigger):not(.accordion-trigger) { min-height: 44px; white-space: normal; }
+.ai-setup-panel button:not(.help-trigger):not(.accordion-trigger) { min-height: 40px; white-space: normal; }
 .ai-setup-panel .select-value { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ai-routing-consent { display: flex; align-items: flex-start; gap: .6rem; }
 .ai-routing-consent input { flex-shrink: 0; }
@@ -32,3 +32,12 @@
 }
 
 .ai-model-card > .ai-section-title { min-height: 44px; }
+
+.ai-provider-status { display: grid; justify-items: start; align-self: center; gap: .35rem; }
+.ai-search-control { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.ai-search-warning { color: var(--muted); font-size: 13px; }
+.ai-setup-panel .editor-footer { margin-top: 0; gap: .75rem; }
+.ai-save-status { display: grid; gap: .25rem; }
+.ai-cost-note { color: var(--muted); font-size: 13px; }
+.ai-connection-row .row-actions > button, .ai-connection-row input { height: 40px; }
+@media (min-width: 1000px) { .ai-connection-row .row-actions { flex-wrap: nowrap; } }

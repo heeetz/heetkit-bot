@@ -297,7 +297,7 @@ window.pywebview = { api: {
   },
   get_ai_setup: async () => ({ ok: true, settings: structuredClone(aiSetup),
     providers: [
-      { id: 'gemini', label: 'Google Gemini', credential: credentials[1], models: ['gemini-2.5-flash', 'gemini-2.5-pro'], selected_model: 'gemini-2.5-flash', fallback_model: 'gemini-2.5-pro' },
+      { id: 'gemini', label: 'Google Gemini', credential: query.has('environmentGeminiKey') ? { ...credentials[1], source: 'environment' } : credentials[1], models: ['gemini-2.5-flash', 'gemini-2.5-pro'], selected_model: 'gemini-2.5-flash', fallback_model: 'gemini-2.5-pro' },
       { id: 'deepseek', label: 'DeepSeek', credential: credentials[2], models: ['deepseek-flash', 'deepseek-v4-pro'], selected_model: 'deepseek-flash', fallback_model: 'deepseek-v4-pro' },
     ],
     capabilities: { gemini: { 'gemini-2.5-flash': setupCapabilities('gemini', ['default', 'off', 'budget:24576']), 'gemini-2.5-pro': setupCapabilities('gemini', ['default', 'budget:128', 'budget:32768']) },

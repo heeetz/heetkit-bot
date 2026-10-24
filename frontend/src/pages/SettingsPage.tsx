@@ -1,10 +1,9 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
   type AppSettings,
   type AppStatus,
   type CredentialInfo,
-  type CredentialName,
   type TwitchConnectionSettings,
   getBrowserSetup,
   isBrowserMode,
@@ -18,12 +17,12 @@ import Accordion from '../components/Accordion'
 import ConfigurationTransfer from '../components/ConfigurationTransfer'
 import { Select } from '../components/Select'
 import HelpTip from '../components/HelpTip'
+import TwitchSecretField from '../components/TwitchSecretField'
 import '../components/settings-layout.css'
 
 interface SettingsPageProps {
   active: boolean
   status: AppStatus | null
-  onReturnToAI?: () => void
 }
 
 export default function SettingsPage(props: SettingsPageProps) {
@@ -33,8 +32,7 @@ export default function SettingsPage(props: SettingsPageProps) {
 function ServerSettings({ active }: { active: boolean }) {
   const [setup, setSetup] = useState<Awaited<ReturnType<typeof getBrowserSetup>> | null>(null)
   const [twitchDraft, setTwitchDraft] = useState({ clientId: '', botUsername: '', botUserId: '', channel: '', channelUserId: '' })
-  const [credentialDrafts, setCredentialDrafts] = useState<Record<CredentialName, string>>({ gemini_api_key: '', deepseek_api_key: '', twitch_client_secret: '' })
-  const [replacingTwitchSecret, setReplacingTwitchSecret] = useState(false)
+  const [secretDraft, setSecretDraft] = useState('')
   const [callbackUrl, setCallbackUrl] = useState('')
   const [authorizationExpires, setAuthorizationExpires] = useState<number | null>(null)
   const [authorizationUrl, setAuthorizationUrl] = useState('')
@@ -70,7 +68,7 @@ function ServerSettings({ active }: { active: boolean }) {
   useEffect(() => {
     mountedRef.current = active
     if (!active) {
-      setCredentialDrafts({ gemini_api_key: '', deepseek_api_key: '', twitch_client_secret: '' })
+      setSecretDraft('')
       setCallbackUrl('')
       setAuthorizationExpires(null)
       setAuthorizationUrl('')
@@ -213,26 +211,20 @@ function ServerSettings({ active }: { active: boolean }) {
       setNotice('Saved channel applied. Bot identity, credentials, OAuth and operation mode were retained. Inspect Dashboard for connection status.')
     })
   }
-  const runCredentialAction = (name: CredentialName, action: 'replace' | 'remove' | 'test') => run(`${name}:${action}`, async () => {
-    if (action === 'remove' && !window.confirm(name === 'twitch_client_secret'
-      ? 'Remove the stored Twitch Client Secret now? This immediately stops the session and invalidates existing Twitch authorization. Authorize the bot again after adding a valid secret.'
-      : 'Remove this securely stored credential now?')) return
-    const value = credentialDrafts[name]
-    setCredentialDrafts((current) => ({ ...current, [name]: '' }))
-    const credential = setup?.credentials.find((item) => item.name === name)
-    if (!credential) throw new Error('Credential status is unavailable. Refresh and retry.')
-    if ((action === 'replace' || action === 'remove') && !credential.managed) {
-      throw new Error('This credential is managed externally and cannot be changed here.')
-    }
-    if (action === 'replace' && !value.trim()) throw new Error('Enter a credential value before saving.')
+  const runSecretAction = (action: 'replace' | 'remove' | 'test') => run(`twitch_client_secret:${action}`, async () => {
+    if (action === 'remove' && !window.confirm('Remove the stored Twitch Client Secret now? This stops the session and clears authorization. Add a valid secret and authorize Twitch again to reconnect.')) return
+    const value = secretDraft
+    setSecretDraft('')
+    const credential = setup?.credentials.find((item) => item.name === 'twitch_client_secret')
+    if (!credential) throw new Error('Secret status is unavailable. Reopen Settings and retry.')
+    if (action !== 'test' && !credential.managed) throw new Error('This secret is managed externally. Change it on the host.')
+    if (action === 'replace' && !value.trim()) throw new Error('Enter a client secret before saving.')
     const api = await waitForBridge()
-    const result = action === 'replace'
-      ? await api.replace_credential(name, value)
-      : action === 'remove' ? await api.remove_credential(name) : await api.test_credential(name)
-    if (!result.ok) throw new Error(result.error ?? 'Credential operation failed.')
+    const result = action === 'replace' ? await api.replace_credential('twitch_client_secret', value)
+      : action === 'remove' ? await api.remove_credential('twitch_client_secret') : await api.test_credential('twitch_client_secret')
+    if (!result.ok) throw new Error(result.error ?? 'Secret operation failed.')
     await refresh(false)
-    if (name === 'twitch_client_secret') setReplacingTwitchSecret(false)
-    setNotice(action === 'test' ? `${credential.label} validation passed.` : `${credential.label} ${action === 'remove' ? 'removed.' : 'saved.'}${name === 'twitch_client_secret' && result.changed !== false ? ' The session stopped and authorization was cleared; connect Twitch again after saving a valid secret.' : ''}`)
+    setNotice(action === 'test' ? 'Client secret validation passed.' : result.changed === false ? 'Client secret unchanged.' : `Client secret ${action === 'remove' ? 'removed' : 'saved'}. Connect Twitch again after saving a valid secret.`)
   })
   const beginAuthorization = () => run('oauth:begin', async () => {
     setAuthorizationUrl('')
@@ -275,45 +267,23 @@ function ServerSettings({ active }: { active: boolean }) {
     setNotice('Twitch authorization cancelled.')
     })
   }
-  const renderCredential = (credential: CredentialInfo) => {
-    const replacing = busy === `${credential.name}:replace`
-    const removing = busy === `${credential.name}:remove`
-    const testing = busy === `${credential.name}:test`
-    const source = credential.source === 'server_file' ? 'Server secret file' : credential.source === 'environment' ? 'Process environment' : credential.source === 'missing' ? 'Not configured' : 'Managed credential'
-    const isTwitchSecret = credential.name === 'twitch_client_secret'
-    const showReplacement = !isTwitchSecret || !credential.configured || replacingTwitchSecret
-    return <article className={`credential-row${isTwitchSecret ? ' settings-twitch-secret' : ''}`} key={credential.name}>
-      <div className="credential-heading"><div><strong>{credential.label}</strong><small>{source}{!credential.managed && credential.configured ? ' (external)' : ''} · {credential.validation_status === 'valid' ? 'Valid' : credential.validation_status === 'validation_failed' ? 'Validation failed' : 'Not tested'}</small></div><span className={`state-pill ${credential.configured ? 'enabled' : ''}`}>{credential.configured ? 'Configured' : 'Missing'}</span></div>
-      {credential.validation_status === 'validation_failed' && <p className="credential-warning">The last validation failed. Check the value and provider configuration.</p>}
-      {showReplacement && <label className="form-field">{credential.configured ? 'Replacement value' : 'New value'}<input type="password" autoComplete="new-password" maxLength={8192} disabled={Boolean(busy) || !credential.managed} value={credentialDrafts[credential.name]} onChange={(event) => setCredentialDrafts((current) => ({ ...current, [credential.name]: event.target.value }))} /></label>}
-      <div className="credential-actions">
-        {isTwitchSecret && credential.configured && !replacingTwitchSecret
-          ? <button className="primary" disabled={Boolean(busy) || !credential.managed} onClick={() => setReplacingTwitchSecret(true)}>Replace secret</button>
-          : <button className="primary" disabled={Boolean(busy) || !credential.managed || !credentialDrafts[credential.name].trim()} onClick={() => void runCredentialAction(credential.name, 'replace')}>{replacing ? 'Saving…' : isTwitchSecret ? 'Save secret' : credential.configured ? 'Replace' : 'Save'}</button>}
-        <button className="secondary" disabled={Boolean(busy) || !credential.configured} onClick={() => void runCredentialAction(credential.name, 'test')}>{testing ? 'Testing…' : isTwitchSecret ? 'Test client secret' : 'Test'}</button>
-        <button className="danger" disabled={Boolean(busy) || !credential.managed || !credential.configured} onClick={() => void runCredentialAction(credential.name, 'remove')}>{removing ? 'Removing…' : isTwitchSecret ? 'Remove secret' : 'Remove'}</button>
-        {isTwitchSecret && replacingTwitchSecret && <button className="ghost" disabled={Boolean(busy)} onClick={() => { setReplacingTwitchSecret(false); setCredentialDrafts((current) => ({ ...current, twitch_client_secret: '' })) }}>Cancel replacement</button>}
-      </div>
-      {isTwitchSecret && <p className="settings-hint">Secret changes stop the session and clear authorization. Connect Twitch again after saving a valid secret.</p>}
-    </article>
-  }
   const twitchCredential = setup?.credentials.find((credential) => credential.name === 'twitch_client_secret')
-  const geminiCredentials = setup?.credentials.filter((credential) => credential.name === 'gemini_api_key') ?? []
 
   return <div className="settings-layout">
     <FeedbackToast error={error} notice={notice} onDismiss={() => { setError(''); setNotice('') }} />
-    <Accordion id="twitch-settings" title="Application, account and channel" description="Configure Twitch identity, authorization and server credentials. Session control remains in Dashboard." className="settings-page server-settings-page">
+    <Accordion id="twitch-settings" title="Application, account and channel" description="Save application/account/channel drafts separately from immediate secret actions. Server identity or secret changes stop the session and clear authorization; target-only changes retain authorization. Session control remains in Dashboard." className="settings-page server-settings-page">
       {!setup ? <><p className="muted">Loading server setup…</p>{error && <button className="secondary" onClick={() => setRetry((current) => current + 1)}>Retry setup status</button>}</> : <div className="settings-list twitch-settings-list">
         <section className="twitch-settings-group" aria-labelledby="server-twitch-application-heading">
-          <h3 id="server-twitch-application-heading" className="settings-heading-with-help">Application <HelpTip label="Twitch application setup">Create a Twitch Developer Application, copy its Client ID and Client Secret, and register the exact callback shown below. Test client secret checks Twitch client credentials; it does not authorize the bot account.</HelpTip></h3>
-          <p className="settings-hint">Register the exact callback below before connecting. Save identity settings separately from the secret.</p>
-          <div className="server-twitch-application settings-application-grid">
-            <div className="server-twitch-application-row settings-application-fields">
-              <label className="form-field">Client ID<input disabled={Boolean(busy)} value={twitchDraft.clientId} maxLength={128} onChange={(event) => updateDraft('clientId', event.target.value)} /></label>
-              <div className="credential-list">{twitchCredential ? renderCredential(twitchCredential) : <div className="empty-state-inline"><strong>Twitch client secret status is unavailable</strong><p>Refresh setup status before managing the credential.</p></div>}</div>
+          <h3 id="server-twitch-application-heading" className="settings-heading-with-help">Twitch application <HelpTip label="Twitch application setup">Register an application in Twitch Developer Console and copy its Client ID and secret. Register the exact runtime callback shown here before connecting. Save identity settings separately from the secret.</HelpTip></h3>
+          <div className="settings-application-box">
+            <div className="settings-application-fields">
+              <label className="form-field"><span className="application-field-label">Client ID</span><input disabled={Boolean(busy)} value={twitchDraft.clientId} maxLength={128} onChange={(event) => updateDraft('clientId', event.target.value)} /></label>
+              <TwitchSecretField credential={twitchCredential} value={secretDraft} busy={busy} host="server" onChange={setSecretDraft} onAction={(action) => void runSecretAction(action)} />
             </div>
-            <div className="settings-application-links"><a className="secondary" href="https://dev.twitch.tv/console/apps" target="_blank" rel="noopener noreferrer">Open Twitch Developer Console</a></div>
-            <div className="oauth-callback"><span>Exact OAuth callback to register:</span><div><code>{setup.twitch.oauth_callback_url || 'Unavailable'}</code><button className="ghost" disabled={!setup.twitch.oauth_callback_url} onClick={() => void copyBrowserText(setup.twitch.oauth_callback_url)}>Copy</button></div></div>
+            <div className="settings-application-footer">
+              <a className="secondary" href="https://dev.twitch.tv/console/apps" target="_blank" rel="noopener noreferrer">Open Twitch Developer Console</a>
+              <div className="settings-callback"><div><span>OAuth callback URL</span><code>{setup.twitch.oauth_callback_url || 'Unavailable'}</code></div><button className="secondary" aria-label="Copy OAuth callback URL" disabled={!setup.twitch.oauth_callback_url} onClick={() => void copyBrowserText(setup.twitch.oauth_callback_url)}>Copy</button></div>
+            </div>
           </div>
           {setup.twitch.management_url && <div className="oauth-callback"><span>Configured management URL:</span><code>{setup.twitch.management_url}</code></div>}
         </section>
@@ -323,7 +293,7 @@ function ServerSettings({ active }: { active: boolean }) {
             <label className="form-field"><span>Saved channel</span><Select aria-label="Saved channel" value={selectedPresetId} disabled={Boolean(busy)} onChange={selectPreset} options={[{ value: '', label: 'New saved channel' }, ...(setup.twitch.presets ?? []).map((preset) => ({ value: preset.id, label: `${preset.display_name}${preset.id === setup.twitch.active_preset_id ? ' (active)' : ''}` }))]} /></label>
             <label className="form-field">Saved channel name<input value={presetName} maxLength={80} disabled={Boolean(busy)} onChange={(event) => { draftDirty.current = true; setPresetName(event.target.value) }} /></label>
           </div>
-          <p className="settings-hint">Saved channels share the bot account and Twitch authorization. Selecting a channel only changes the draft; use Switch to saved channel to apply it.</p>
+          <p className="settings-hint">Selection edits the target draft. Bot identity and authorization stay shared.</p>
           <div className="settings-actions">
             <button className="secondary" disabled={Boolean(busy) || !presetName.trim()} onClick={() => void savePreset(false)}>Save new channel</button>
             <button className="secondary" disabled={Boolean(busy) || !selectedPreset || !presetName.trim()} onClick={() => void savePreset(true)}>Update saved channel</button>
@@ -347,7 +317,6 @@ function ServerSettings({ active }: { active: boolean }) {
             <label className="form-field">Target channel login<input disabled={Boolean(busy)} value={twitchDraft.channel} maxLength={25} onChange={(event) => updateDraft('channel', event.target.value)} /></label>
             <label className="form-field">Target channel user ID<input disabled={Boolean(busy)} inputMode="numeric" value={twitchDraft.channelUserId} maxLength={20} onChange={(event) => updateDraft('channelUserId', event.target.value)} /></label>
           </div>
-          <p className="settings-hint">Active target: {setup.twitch.target_channel || 'Not configured'}. Target edits are saved separately from saved-channel definitions.</p>
         </section>
         <section className="twitch-settings-group">
           <h3>Authorization, status and save</h3>
@@ -357,7 +326,7 @@ function ServerSettings({ active }: { active: boolean }) {
             <div><span>Authorized account</span><strong>{setup.twitch.authorized_account || 'Not authorized'}</strong></div>
             <div><span>Target channel</span><strong>{setup.twitch.target_channel || 'Not configured'}</strong></div>
           </div>
-          <p className="settings-hint">Authorization works while the bot is stopped or Disabled. Saving identity settings stops the current session; the selected operation mode controls what happens next.</p>
+
           <div className="settings-actions"><button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch()}>{busy === 'twitch:save' ? 'Saving…' : 'Save Twitch settings'}</button></div>
           <button className="primary" disabled={Boolean(busy) || !setup.twitch.client_id} onClick={() => void beginAuthorization()}>{busy === 'oauth:begin' ? 'Opening…' : 'Connect Twitch'}</button>
           {authorizationExpires !== null && <>
@@ -373,25 +342,20 @@ function ServerSettings({ active }: { active: boolean }) {
 
       </div>}
     </Accordion>
-    <Accordion id="credential-settings" title="Gemini API key" className="settings-page" description="Gemini is optional. Key actions apply immediately. Keys are never returned; externally managed values require host-side changes."><div className="credential-list">{geminiCredentials.map(renderCredential)}</div></Accordion>
     <div className="settings-transfer-bottom"><ConfigurationTransfer /></div>
   </div>
 }
 
-function DesktopSettings({ active, status, onReturnToAI }: SettingsPageProps) {
+function DesktopSettings({ active, status }: SettingsPageProps) {
   const [saved, setSaved] = useState<AppSettings | null>(null)
   const [draft, setDraft] = useState<AppSettings | null>(null)
   const [loading, setLoading] = useState(true)
-  const [credentials, setCredentials] = useState<CredentialInfo[]>([])
+  const [twitchCredential, setTwitchCredential] = useState<CredentialInfo>()
   const [twitchSaved, setTwitchSaved] = useState<TwitchConnectionSettings | null>(null)
   const [twitchDraft, setTwitchDraft] = useState<TwitchConnectionSettings | null>(null)
   const [presetName, setPresetName] = useState('')
-  const [credentialDrafts, setCredentialDrafts] = useState<Record<CredentialName, string>>({
-    gemini_api_key: '',
-    deepseek_api_key: '',
-    twitch_client_secret: '',
-  })
-  const [replacingTwitchSecret, setReplacingTwitchSecret] = useState(false)
+  const [secretDraft, setSecretDraft] = useState('')
+  useEffect(() => { if (!active) setSecretDraft('') }, [active])
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -447,7 +411,7 @@ function DesktopSettings({ active, status, onReturnToAI }: SettingsPageProps) {
         if (mounted) {
           setDraft(response.settings)
           setSaved(response.settings)
-          setCredentials(credentialResponse.credentials)
+          setTwitchCredential(credentialResponse.credentials.find((item) => item.name === 'twitch_client_secret'))
           setTwitchDraft((current) => {
             const dirty = current && twitchSaved
               && (current.target_channel !== twitchSaved.target_channel
@@ -758,59 +722,28 @@ function DesktopSettings({ active, status, onReturnToAI }: SettingsPageProps) {
     }
   }
 
-  const runCredentialAction = async (
-    name: CredentialName,
-    action: 'replace' | 'remove' | 'test',
-  ) => {
-    if (action === 'remove' && !window.confirm(name === 'twitch_client_secret'
-      ? 'Remove the stored Twitch Client Secret now? Credential removal is immediate. Restart the application before reconnecting. Existing OAuth tokens are retained.'
-      : 'Remove this securely stored credential now?')) {
-      return
-    }
-    setBusy(`${name}:${action}`)
-    setError('')
-    setNotice('')
+  const runSecretAction = async (action: 'replace' | 'remove' | 'test') => {
+    if (action === 'remove' && !window.confirm('Remove the stored Twitch Client Secret now? Credential removal is immediate. Restart before reconnecting. Existing OAuth tokens are retained.')) return
+    setBusy(`twitch_client_secret:${action}`)
+    setError(''); setNotice('')
     try {
       const api = await waitForBridge()
-      const result = action === 'replace'
-        ? await api.replace_credential(name, credentialDrafts[name])
-        : action === 'remove'
-          ? await api.remove_credential(name)
-          : await api.test_credential(name)
-      if (!result.ok) {
-        throw new Error(result.error ?? 'Credential operation failed.')
-      }
+      const result = action === 'replace' ? await api.replace_credential('twitch_client_secret', secretDraft)
+        : action === 'remove' ? await api.remove_credential('twitch_client_secret') : await api.test_credential('twitch_client_secret')
+      if (!result.ok) throw new Error(result.error ?? 'Secret operation failed.')
       if (action !== 'test') {
         const response = await api.get_credentials()
-        if (!response.ok || !response.credentials) {
-          throw new Error(response.error ?? 'Credential status is unavailable.')
-        }
-        setCredentials(response.credentials)
-        setCredentialDrafts((current) => ({ ...current, [name]: '' }))
-        if (name === 'twitch_client_secret') setReplacingTwitchSecret(false)
-        if (name === 'twitch_client_secret') {
-          const twitchResponse = await api.get_twitch_settings()
-          if (!twitchResponse.ok || !twitchResponse.settings) {
-            throw new Error(twitchResponse.error ?? 'Twitch restart status is unavailable.')
-          }
-          setTwitchSaved(twitchResponse.settings)
-          setTwitchDraft((current) => current
-            ? { ...current, requires_restart: twitchResponse.settings!.requires_restart }
-            : twitchResponse.settings!)
-        }
+        if (!response.ok || !response.credentials) throw new Error(response.error ?? 'Secret status is unavailable.')
+        setTwitchCredential(response.credentials.find((item) => item.name === 'twitch_client_secret'))
+        setSecretDraft('')
+        const twitchResponse = await api.get_twitch_settings()
+        if (!twitchResponse.ok || !twitchResponse.settings) throw new Error(twitchResponse.error ?? 'Twitch restart status is unavailable.')
+        setTwitchSaved(twitchResponse.settings)
+        setTwitchDraft((current) => current ? { ...current, requires_restart: twitchResponse.settings!.requires_restart } : twitchResponse.settings!)
       }
-      setNotice(
-        action === 'replace'
-          ? name === 'gemini_api_key' ? 'Gemini credential stored securely and applied to AI features.' : 'Credential stored securely. Restart the application to use it.'
-          : action === 'remove'
-            ? name === 'gemini_api_key' ? 'Gemini secure value removed. Any configured fallback now applies.' : 'Secure credential removed. Restart to apply the remaining fallback state.'
-            : 'Credential test passed.',
-      )
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Credential operation failed.')
-    } finally {
-      setBusy('')
-    }
+      setNotice(action === 'test' ? 'Client secret validation passed.' : result.changed === false ? 'Client secret unchanged.' : `Client secret ${action === 'remove' ? 'removed' : 'saved'}. Restart the application to apply it.`)
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Secret operation failed.') }
+    finally { setBusy('') }
   }
 
   const twitchDirty = Boolean(
@@ -832,16 +765,10 @@ function DesktopSettings({ active, status, onReturnToAI }: SettingsPageProps) {
         || twitchDraft.target_channel_user_id.trim()
         !== twitchDraft.active_channel_user_id),
   )
-  const twitchCredential = credentials.find(
-    (credential) => credential.name === 'twitch_client_secret',
-  )
   const twitchTargetMissing = Boolean(
     twitchDraft
       && (!twitchDraft.target_channel.trim() || !twitchDraft.target_channel_user_id.trim()
         || !twitchDraft.client_id.trim() || !twitchDraft.bot_username.trim() || !twitchDraft.bot_user_id.trim()),
-  )
-  const geminiCredential = credentials.find(
-    (credential) => credential.name === 'gemini_api_key',
   )
   const twitchAuthorizationStatus = status
     ? twitchAuthorizationLabel(status.twitch_connection_state, twitchDraft?.oauth_token_available ?? false)
@@ -852,69 +779,6 @@ function DesktopSettings({ active, status, onReturnToAI }: SettingsPageProps) {
         )
       : 'Not verified'
 
-  const renderCredentialRow = (
-    credential: CredentialInfo | undefined,
-    absentActionLabel: string,
-    presentActionLabel: string,
-    leadingAction?: ReactNode,
-  ) => {
-    if (!credential) {
-      return (
-        <div className="empty-state-inline">
-          <strong>Credential status is unavailable</strong>
-          <p>Check Logs for details.</p>
-          {leadingAction}
-        </div>
-      )
-    }
-    const replacing = busy === `${credential.name}:replace`
-    const removing = busy === `${credential.name}:remove`
-    const testing = busy === `${credential.name}:test`
-    const isTwitchSecret = credential.name === 'twitch_client_secret'
-    const showReplacement = !isTwitchSecret || !credential.configured || replacingTwitchSecret
-    const sourceLabel = credential.source === 'credential_store'
-      ? 'Stored securely'
-      : credential.source === 'environment'
-        ? 'Using process environment'
-        : 'Not configured'
-    return (
-      <article className={`credential-row${credential.name === 'gemini_api_key' ? ' gemini-credential-row' : ''}${isTwitchSecret ? ' settings-twitch-secret' : ''}`} key={credential.name}>
-        <div className="credential-heading">
-          <div>{credential.name === 'gemini_api_key' ? <strong>{sourceLabel}</strong> : <><strong>{credential.label}</strong><small>{sourceLabel}</small></>}</div>
-          <span className={`state-pill ${credential.configured ? 'enabled' : ''}`}>{credential.configured ? 'Configured' : 'Missing'}</span>
-        </div>
-        {!credential.secure_storage_available && <p className="credential-warning">OS keyring storage is unavailable; an advanced process environment fallback is active when configured.</p>}
-        {isTwitchSecret && credential.managed === false && credential.configured && <p className="credential-warning">This secret is managed outside Settings and takes precedence. Replace and Remove are unavailable here.</p>}
-        {showReplacement && <label className="form-field">
-          {credential.configured ? 'Replacement value' : 'New value'}
-          <input
-            type="password"
-            autoComplete="new-password"
-            disabled={Boolean(busy) || (isTwitchSecret && credential.managed === false)}
-            value={credentialDrafts[credential.name]}
-            placeholder={credential.configured ? 'Enter a replacement' : 'Enter credential'}
-            onChange={(event) => {
-              setCredentialDrafts((current) => ({ ...current, [credential.name]: event.target.value }))
-              setError('')
-              setNotice('')
-            }}
-          />
-        </label>}
-        <div className="credential-footer">
-          {leadingAction}
-          <div className="credential-actions">
-            {isTwitchSecret && credential.configured && !replacingTwitchSecret
-              ? <button className="primary" disabled={Boolean(busy) || credential.managed === false} onClick={() => setReplacingTwitchSecret(true)}>Replace secret</button>
-              : <button className="primary" disabled={Boolean(busy) || !credentialDrafts[credential.name].trim()} onClick={() => void runCredentialAction(credential.name, 'replace')}>{replacing ? 'Saving…' : isTwitchSecret ? 'Save secret' : credential.configured ? presentActionLabel : absentActionLabel}</button>}
-            <button className="secondary" disabled={Boolean(busy) || !credential.configured} onClick={() => void runCredentialAction(credential.name, 'test')}>{testing ? 'Testing…' : isTwitchSecret ? 'Test client secret' : credential.name === 'gemini_api_key' ? 'Test credential' : 'Test'}</button>
-            <button className="danger" disabled={Boolean(busy) || credential.source !== 'credential_store'} onClick={() => void runCredentialAction(credential.name, 'remove')}>{removing ? 'Removing…' : isTwitchSecret ? 'Remove secret' : 'Remove secure value'}</button>
-            {isTwitchSecret && replacingTwitchSecret && <button className="ghost" disabled={Boolean(busy)} onClick={() => { setReplacingTwitchSecret(false); setCredentialDrafts((current) => ({ ...current, twitch_client_secret: '' })) }}>Cancel replacement</button>}
-          </div>
-        </div>
-        {isTwitchSecret && <p className="settings-hint">Secret changes require an application restart.{credential.source === 'environment' && ' A saved secure value overrides the environment fallback.'}</p>}
-      </article>
-    )
-  }
 
   return (
     <div className="settings-layout" aria-busy={loading}>
@@ -951,48 +815,28 @@ function DesktopSettings({ active, status, onReturnToAI }: SettingsPageProps) {
       <Accordion
         id="twitch-settings"
         title="Application, account and channel"
-        description="Complete the initial Twitch setup here, then use saved channels when you need to switch targets."
+        description="Save application/account/channel drafts separately from immediate secret actions. Client ID, bot identity and secret changes require an application restart. Target changes require reconnect. Saved channels share the bot account and authorization."
         badges={twitchDirty && <span className="mini-badge dirty-badge">Edited</span>}
         className="settings-page"
       >
         {!twitchDraft ? <p className="muted">Loading Twitch settings…</p> : (
           <div className="settings-list twitch-settings-list">
             <section className="twitch-settings-group" aria-labelledby="twitch-application-heading">
-              <h3 id="twitch-application-heading" className="settings-heading-with-help">Application <HelpTip label="Twitch application setup">Create an application in the Twitch Developer Console, copy its Client ID and Client Secret, and register the runtime-derived callback exactly as shown. Saving Client ID or secret requires an application restart; the secret test checks Twitch client credentials but does not complete bot-account authorization.</HelpTip></h3>
-              {(twitchTargetMissing || !twitchCredential?.configured) && (
-                <div className="setup-callout">
-                  <div>
-                    <strong>Complete Twitch setup</strong>
-                    <p>Enter the application Client ID, add its secret, save Twitch settings, restart, then connect and authorize the configured bot account.</p>
-                  </div>
-                </div>
-              )}
-              <p className="settings-hint">Before saving, note that Client ID, bot identity or Client Secret changes require an application restart. Target channel changes require reconnect.</p>
-              <div className="twitch-application-setup settings-application-grid">
+              <h3 id="twitch-application-heading" className="settings-heading-with-help">Twitch application <HelpTip label="Twitch application setup">Register an application in Twitch Developer Console, then copy its Client ID and secret. Register this exact callback URL. Save setup, restart, then Start Bot and authorize the configured account.</HelpTip></h3>
+              <div className="settings-application-box">
                 <div className="settings-application-fields">
-                <label className="form-field">
-                  Twitch application client ID
-                  <input value={twitchDraft.client_id} onChange={(event) => updateTwitchDraft({ client_id: event.target.value })} placeholder="Client ID from the Twitch Developer Console" />
-                </label>
-                <div className="credential-list">
-                  {renderCredentialRow(twitchCredential, 'Add secret', 'Replace secret')}
+                  <label className="form-field"><span className="application-field-label">Twitch application client ID</span><input value={twitchDraft.client_id} onChange={(event) => updateTwitchDraft({ client_id: event.target.value })} placeholder="Client ID from the Twitch Developer Console" /></label>
+                  <TwitchSecretField credential={twitchCredential} value={secretDraft} busy={busy} host="desktop" onChange={(value) => { setSecretDraft(value); setError(''); setNotice('') }} onAction={(action) => void runSecretAction(action)} />
                 </div>
-                </div>
-                <div className="settings-application-links">
+                <div className="settings-application-footer">
                   <button className="secondary" disabled={Boolean(busy)} onClick={() => void openTwitchLink('twitch_developer_console')}>Open Twitch Developer Console</button>
-                </div>
-                <div className="oauth-callback">
-                  <span>Register this OAuth callback URL in your application:</span>
-                  <div>
-                    <code>{twitchDraft.oauth_callback_url}</code>
-                    <button className="ghost" aria-label="Copy OAuth callback URL" onClick={() => void copyText(twitchDraft.oauth_callback_url, 'OAuth callback URL copied.', 'Could not copy the callback URL.')}>Copy</button>
-                  </div>
+                  <div className="settings-callback"><div><span>OAuth callback URL</span><code>{twitchDraft.oauth_callback_url}</code></div><button className="secondary" aria-label="Copy OAuth callback URL" onClick={() => void copyText(twitchDraft.oauth_callback_url, 'OAuth callback URL copied.', 'Could not copy the callback URL.')}>Copy</button></div>
                 </div>
               </div>
             </section>
             <section className="twitch-settings-group" aria-labelledby="twitch-preset-heading">
               <h3 id="twitch-preset-heading">Saved channels</h3>
-              <p className="settings-hint">Saved channels share the bot account and Twitch authorization. Selecting a channel only changes the draft; choose Save &amp; reconnect while running or Save &amp; apply while stopped to apply it.</p>
+
               <div className="preset-editor twitch-field-pair">
                 <label className="form-field">
                   <span>Saved channel</span>
@@ -1087,21 +931,9 @@ function DesktopSettings({ active, status, onReturnToAI }: SettingsPageProps) {
                   ? twitchDraft.running
                     ? 'The selected target differs from the active connection. Use Save & reconnect to switch.'
                     : 'The selected target differs from the applied target. Use Save & apply for the next bot start.'
-                  : 'This target matches the applied target.'} Saved channels reuse the configured bot identity and authorization.</p>
+                  : 'This target matches the applied target.'}</p>
             </section>
           </div>
-        )}
-      </Accordion>
-
-      <Accordion
-        id="credential-settings"
-        title="Gemini API key"
-        description="Gemini is optional. The key is stored in the system keyring and is never displayed; changes apply immediately. Test credential validates access without generating a reply. Use AI Playground separately to test real generation with your saved settings and applied instructions; a valid key does not prove model access or available quota."
-        className="settings-page"
-      >
-        {!draft ? <p className="muted">Loading credential status…</p> : (
-          renderCredentialRow(geminiCredential, 'Add key', 'Replace key',
-            onReturnToAI && <button className="secondary" onClick={onReturnToAI}>Return to AI Playground</button>)
         )}
       </Accordion>
 

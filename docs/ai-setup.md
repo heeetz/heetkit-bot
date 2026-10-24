@@ -10,8 +10,9 @@ session are separate states; the guide never authorizes an account itself.
 
 Open **AI → AI setup** on either host:
 
-1. Enter a masked draft in the provider row, then **Connect key** or **Replace key**
-   in **Connected providers**. **Test connection** checks the saved key. These operations
+1. Enter a masked draft in the provider row, then use **Connect key** or
+   **Replace key** in **Connected providers**. **Test connection**
+   checks the saved key. These operations
    apply immediately, independently of model drafts; Cancel AI edits cannot undo a saved key. Removing an in-use key warns that
    requests will become unavailable, and never selects another provider automatically.
 2. In **Primary model**, choose a provider and type/search a model ID. Discover queries
@@ -114,15 +115,16 @@ longer answers never authorize split sends. See [Send Chat Message](https://dev.
    Google's [API key guide](https://ai.google.dev/gemini-api/docs/api-key) covers the current steps.
 4. Copy the key. Treat it like a password: never share it, post it in chat, commit it to
    Git or include it in screenshots.
-5. In HeetKit, open **Settings → Gemini API key**. Paste it into **New value** and
-   select **Add key**. For an existing key, use **Replacement value → Replace key**. HeetKit
+5. In HeetKit, open **AI → AI setup**. Enter the key in the masked **Google Gemini API key**
+   field, then select **Connect key**. For an existing key, enter its
+   replacement in the same field and select **Replace key**. HeetKit
    stores it securely through your operating system. It applies immediately; no restart
    is needed.
-6. Select **Test credential** beside the credential to check access with Google. This verifies the
+6. Select **Test connection** beside the key to check access with Google. This verifies the
    key; model access and usage limits still apply.
 
-The key field spans the section. **Return to AI Playground** and the key actions
-share its footer; the question-mark help explains validation and generation testing.
+The masked key field and its actions are in **AI setup**. The question-mark help explains
+validation and generation testing.
 
 ## Choose how the bot replies
 
@@ -165,8 +167,8 @@ active model availability and personality. Command and memory switches save imme
      See [privacy requests and provider restrictions](data-and-privacy.md) before using AI
      with viewers. Do not put secrets or private information in prompts or chat sent to Google.
 
-Provider keys can be connected/tested directly in AI setup. The existing Gemini key
-entry in Settings remains available. Testing a key does not establish model access or quota.
+Provider keys can be connected and tested in AI setup. Testing a key does not establish
+model access or quota.
 
 9. With Twitch connected, check that **AI command** is enabled and try
    `!ask Say hello to chat` from another account in the target channel. The enabled switch

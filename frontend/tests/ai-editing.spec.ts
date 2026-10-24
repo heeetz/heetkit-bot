@@ -97,18 +97,19 @@ for (const width of [1280, 390]) {
 
   })
 
-  test(`Settings return and !ask editor links retain drafts at ${width}px`, async ({ page }) => {
+  test(`AI setup location and !ask editor links retain drafts at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
     await openAI(page)
     const profile = page.locator('#ai-profile-instructions')
     await profile.locator('textarea').fill('Keep profile draft')
-    await page.getByRole('button', { name: 'Settings', exact: true }).click()
-    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Gemini API key', exact: true }).click()
-    const key = page.locator('#credential-settings')
-    await expect(key).toBeInViewport()
-    await key.getByRole('button', { name: 'Test credential' }).click()
-    expect(await page.evaluate(() => Reflect.get(window, 'playgroundCalls'))).toEqual([])
-    await key.getByRole('button', { name: 'Return to AI Playground' }).click()
+    const settingsNav = page.getByRole('navigation', { name: 'Main navigation' })
+    await settingsNav.getByRole('button', { name: 'Settings', exact: true }).click()
+    await expect(settingsNav.locator('#nav-Settings')).not.toContainText('Gemini API key')
+    await expect(page.locator('#credential-settings')).toHaveCount(0)
+    await page.getByRole('button', { name: 'AI', exact: true }).click()
+    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'AI setup', exact: true }).click()
+    await expect(page.locator('#ai-models')).toBeInViewport()
+    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Playground', exact: true }).click()
     await expect(page.locator('#ai-playground')).toBeInViewport()
     await expect(profile.locator('textarea')).toHaveValue('Keep profile draft')
     await page.getByRole('button', { name: 'Edit !ask access and cooldowns' }).click()

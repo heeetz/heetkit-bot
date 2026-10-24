@@ -56,7 +56,7 @@ const destinations = [
   ] },
   { section: 'Settings', children: [
     ['Desktop behavior', 'desktop-settings'],
-    ['Twitch connection', 'twitch-settings'], ['Gemini API key', 'credential-settings'],
+    ['Twitch connection', 'twitch-settings'],
     ['Configuration transfer', 'configuration-transfer'],
     ['Data & diagnostics', 'profile-location-settings'],
   ] },
@@ -89,7 +89,7 @@ for (const { section, children } of destinations) {
       await expect(parent).toHaveAttribute('aria-expanded', 'true')
       await expect(nav.locator('.sidebar-subnav:visible')).toHaveCount(1)
       await expect.poll(() => page.evaluate(() => Reflect.get(window, 'navigationScrolls').at(-1))).toEqual({ id, hidden: false, loading: false })
-      if (['ai-models', 'ai-shared-instructions', 'ai-language', 'ai-personalities', 'ai-profile-instructions', 'twitch-settings', 'credential-settings'].includes(id)) {
+      if (['ai-models', 'ai-shared-instructions', 'ai-language', 'ai-personalities', 'ai-profile-instructions', 'twitch-settings'].includes(id)) {
         await expect(page.locator(`#${id} .accordion-trigger`)).toHaveAttribute('aria-expanded', 'true')
         await expect.poll(() => page.evaluate(() => Reflect.get(window, 'navigationAccordionStates').at(-1))).toEqual({ id, open: 'true' })
       }
