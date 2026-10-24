@@ -98,6 +98,28 @@ async def test_authentication_origin_host_and_private_surface(api):
         assert TOKEN not in json.dumps(body)
 
 
+async def test_ai_setup_save_reload_validation_and_guide_use_authenticated_shared_operations(api):
+    server, call = api
+    status, result, _ = await call("GET", "/v1/ai/setup")
+    assert status == 200 and {row["id"] for row in result["providers"]} == {"gemini", "deepseek"}
+    assert all("value" not in row["credential"] for row in result["providers"])
+    settings = result["settings"]
+    settings.update(shared_instructions="Owner custom instructions", max_question_length=42, max_answer_length=120)
+    assert (await call("POST", "/v1/ai/setup", json={"settings": settings}))[1]["ok"]
+    assert (await call("GET", "/v1/ai/setup"))[1]["settings"] == settings
+    settings["primary"]["thinking"] = "invented"
+    status, result, _ = await call("POST", "/v1/ai/setup", json={"settings": settings})
+    assert status == 400 and "Thinking choice" in result["error"]
+    assert (await call("GET", "/v1/ai/setup"))[1]["settings"]["primary"]["thinking"] != "invented"
+    status, result, _ = await call("POST", "/v1/setup/guide", json={"dismissed": True, "ai_skipped": True})
+    assert status == 200 and result["dismissed"] and result["ai_skipped"]
+    assert server.service.get_setup_guide() == result
+    settings["primary"]["thinking"] = "default"
+    settings["shared_instructions"] = "🙂" * 20000
+    assert (await call("POST", "/v1/ai/setup", json={"settings": settings}))[1]["ok"]
+    assert (await call("GET", "/v1/ai/setup"))[1]["settings"]["shared_instructions"] == "🙂" * 20000
+
+
 async def test_server_availability_http_save_reset_and_monitor_demand(api, monkeypatch):
     server, call = api
     async def offline(*args):

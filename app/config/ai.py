@@ -1,7 +1,7 @@
 """AI defaults and internal request/output bounds.
 
-Memory enablement is overlaid by profile settings; response and context limits
-currently use application defaults; profile controls are a separate change.
+Profile AI setup overlays question/answer character limits; provider token and
+total-time bounds remain separate. These defaults preserve older profiles.
 """
 
 AI_MEMORY_ENABLED = True

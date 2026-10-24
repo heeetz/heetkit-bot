@@ -3,11 +3,13 @@
 import asyncio
 import logging
 import re
+from dataclasses import replace
 from re import Pattern
 
 import httpx
 
 from app.config.ai import AI_MAX_RESPONSE_LENGTH, AI_REQUEST_TIMEOUT_SECONDS
+from app.config.ai_setup import effective_ai_setup
 from app.config.personalities import (
     AI_PERSONALITY_PROMPTS,
     build_ai_system_instruction as build_system_instruction,
@@ -161,7 +163,9 @@ class SharedAIService:
 
     @property
     def provider(self) -> AIProvider:
-        return self._providers.get("injected") or self._providers[getattr(self.settings, "ai_provider", "gemini")]
+        setup = getattr(self.settings, "ai_setup", None)
+        provider = setup.primary.provider if setup else getattr(self.settings, "ai_provider", "gemini")
+        return self._providers.get("injected") or self._providers[provider]
 
     @property
     def is_available(self) -> bool:
@@ -182,8 +186,14 @@ class SharedAIService:
         selected = self.provider if provider is None else self._providers[validate_ai_provider(provider)]
         if not selected.is_available:
             raise AIModelDiscoveryError("provider_unavailable")
+        credential = selected.snapshot().api_key
         try:
-            return await selected.discover_models()
+            models = await selected.discover_models()
+            if selected.snapshot().api_key != credential:
+                raise AIModelDiscoveryError("credentials_changed")
+            return models
+        except AIModelDiscoveryError:
+            raise
         except Exception as error:
             status = getattr(error, "status_code", None) or getattr(error, "code", None)
             code = ("credential_rejected" if status in (401, 403) else
@@ -192,8 +202,11 @@ class SharedAIService:
             raise AIModelDiscoveryError(code) from None
 
     def _build_system_instruction(self) -> str:
+        setup = effective_ai_setup(self.settings)
         if self.runtime_state is None:
-            return build_system_instruction(response_language=self.settings.ai_response_language)
+            return build_system_instruction(response_language=self.settings.ai_response_language,
+                                            shared_instructions=setup.shared_instructions,
+                                            max_answer_length=setup.max_answer_length)
         personality, prompt, profile_instructions = self.runtime_state.get_active_ai_instructions()
         if prompt == AI_PERSONALITY_PROMPTS.get(personality):
             prompt = None
@@ -202,6 +215,8 @@ class SharedAIService:
             prompt,
             profile_instructions,
             response_language=self.settings.ai_response_language,
+            shared_instructions=setup.shared_instructions,
+            max_answer_length=setup.max_answer_length,
         )
 
     async def generate_reply(
@@ -212,6 +227,9 @@ class SharedAIService:
         stream_category: str | None = None,
     ) -> AIReply:
         provider = self.provider
+        setup = effective_ai_setup(self.settings)
+        if len(prompt.strip()) > setup.max_question_length:
+            return AIReply("", False, "question_too_long")
         with operator_event_scope(requested_provider=provider.name):
             options = None
             try:
@@ -220,20 +238,59 @@ class SharedAIService:
                 # Capture generation choices before the first await. Credential/model
                 # edits, applied styles and language changes affect subsequent requests.
                 options = provider.snapshot()
+                # Both recipients, credentials and all non-secret options belong to
+                # this request. Later edits cannot change an in-flight fallback.
+                configured = getattr(self.settings, "ai_setup", None) is not None
+                if configured:
+                    from app.config.ai_capabilities import validate_model_options
+                    try:
+                        for selection in (setup.primary, setup.fallback):
+                            if selection is not None:
+                                validate_model_options(selection.provider, selection.model,
+                                                       selection.thinking, selection.search)
+                    except ValueError:
+                        return AIReply("", False, "configuration_error")
+                    options = replace(options, model=setup.primary.model, fallback_model=setup.primary.model,
+                                      thinking=setup.primary.thinking, single_attempt=True)
+                    fallback_provider = (self._providers.get("injected") or self._providers[setup.fallback.provider]) if setup.fallback else None
+                    fallback_options = replace(fallback_provider.snapshot(), model=setup.fallback.model,
+                                               fallback_model=setup.fallback.model,
+                                               thinking=setup.fallback.thinking, single_attempt=True) if fallback_provider else None
+                else:
+                    fallback_provider = provider if options.fallback_model != options.model else None
+                    fallback_options = replace(options, model=options.fallback_model,
+                                               single_attempt=True) if fallback_provider else None
+                    options = replace(options, single_attempt=True)
+                legacy_search = provider.capabilities.search if "injected" in self._providers else setup.primary.search
+                use_search = ((setup.primary.search if configured else legacy_search)
+                              and self._should_use_search(prompt))
                 request = AIGenerationRequest(
                     system_instruction=self._build_system_instruction(),
                     content=self._build_request_content(prompt, memory_context, stream_category),
-                    use_search=provider.capabilities.search and self._should_use_search(prompt),
+                    use_search=use_search,
                 )
-                max_length = AI_MAX_RESPONSE_LENGTH
-                with operator_event_scope(requested_model=options.model):
+                max_length = setup.max_answer_length
+                with operator_event_scope(requested_model=options.model, attempt=1, fallback=False):
                     async with asyncio.timeout(AI_REQUEST_TIMEOUT_SECONDS):
                         response = await provider.generate(request, options)
+                        if response.status == "model_unavailable" and fallback_provider is not None:
+                            if configured and setup.fallback.provider != setup.primary.provider and not setup.cross_provider_acknowledged:
+                                return AIReply("", False, "configuration_error")
+                            if configured and use_search and not setup.fallback.search:
+                                return AIReply("", False, "search_unavailable")
+                            fallback_search = ((setup.fallback.search and self._should_use_search(prompt))
+                                               if configured else use_search)
+                            operator_event(logger, "ai.fallback", "model_unavailable")
+                            with operator_event_scope(provider=fallback_provider.name, model=fallback_options.model,
+                                                      attempt=2, fallback=True):
+                                response = await fallback_provider.generate(replace(request, use_search=fallback_search), fallback_options)
                     if response.status != "success":
                         return AIReply("", False, response.status)
                     if response.safety_blocked:
                         return AIReply("", False, "output_blocked", "protected_policy")
                     original_text = response.text.strip()
+                    if response.attribution_required:
+                        return AIReply("", False, "attribution_unavailable")
                     if not original_text:
                         return AIReply("", False, "api_error")
                     # Global filters remain active at output time, including edits
@@ -242,7 +299,19 @@ class SharedAIService:
                     if blocked is not None:
                         logger.info("AI response blocked by local response filter")
                         return blocked
-                    return AIReply(self._smart_truncate(original_text, max_length), True)
+                    citations = ""
+                    if response.search_used:
+                        if not response.sources:
+                            return AIReply("", False, "search_error")
+                        citations = " Sources: " + " ".join(dict.fromkeys(source.url for source in response.sources))
+                        if len(citations) + 20 > max_length:
+                            return AIReply("", False, "attribution_unavailable")
+                    final_text = self._smart_truncate(original_text, max_length - len(citations)) + citations
+                    if citations:
+                        blocked = self._blocked_response_reply(final_text)
+                        if blocked is not None:
+                            return blocked
+                    return AIReply(final_text, True)
             except Exception as error:
                 # Providers return safe statuses; also contain unexpected failures.
                 with operator_event_scope(requested_model=options.model if options is not None else None):

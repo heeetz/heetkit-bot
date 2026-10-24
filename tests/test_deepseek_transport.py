@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 
 import httpx
@@ -159,14 +160,14 @@ async def test_missing_or_blank_key_is_unavailable_and_discovery_makes_no_reques
 
 
 @pytest.mark.asyncio
-async def test_search_request_is_refused_without_transport(monkeypatch):
+async def test_search_on_permits_tools_without_claiming_every_reply_searched(monkeypatch):
     requests = wire_transport(monkeypatch, lambda _: asyncio.sleep(0, result=completion()))
     provider = make_provider()
     result = await provider.generate(
         AIGenerationRequest("s", "u", use_search=True), provider.snapshot(),
     )
-    assert result.status == "provider_unavailable"
-    assert requests == []
+    assert result.status == "success" and not result.search_used and result.sources == ()
+    assert len(requests) == 1 and json.loads(requests[0].content)["tools"]
 
 
 @pytest.mark.asyncio
@@ -281,3 +282,133 @@ async def test_real_httpx_path_uses_fixed_host_limits_and_closes_client(monkeypa
     assert result.status == ("api_error" if oversized else "success")
     assert len(clients) == 1 and clients[0].is_closed
     await provider.aclose()
+
+
+def tool_completion(name, arguments, call_id="call-1"):
+    return httpx.Response(200, json={"choices": [{
+        "message": {"role": "assistant", "content": None, "reasoning_content": "PRIVATE TOOL REASONING",
+                    "tool_calls": [{"type": "function", "id": call_id,
+                                    "function": {"name": name, "arguments": json.dumps(arguments)}}]},
+        "finish_reason": "tool_calls",
+    }]})
+
+
+@pytest.mark.parametrize("thinking", ["low", "high", "max"])
+async def test_native_thinking_uses_documented_toggle_and_effort(monkeypatch, thinking):
+    requests = wire_transport(monkeypatch, lambda _: asyncio.sleep(0, result=completion()))
+    provider = make_provider()
+    options = replace(provider.snapshot(), thinking=thinking, single_attempt=True)
+    result = await provider.generate(AIGenerationRequest("s", "u"), options)
+    assert result.text == "The final answer."
+    payload = json.loads(requests[0].content)
+    assert payload["thinking"] == {"type": "enabled"}
+    assert payload["reasoning_effort"] == thinking
+    assert payload["max_tokens"] == deepseek.DEEPSEEK_MAX_THINKING_OUTPUT_TOKENS
+    assert not {"temperature", "top_p", "frequency_penalty", "presence_penalty"} & payload.keys()
+
+
+async def test_search_fetch_use_fixed_provider_endpoints_and_transient_continuation(monkeypatch, caplog):
+    chats = 0
+    async def handler(request):
+        nonlocal chats
+        assert request.url.host == "api.deepseek.com"
+        assert request.headers["Authorization"] == "Bearer synthetic-key"
+        payload = json.loads(request.content)
+        if request.url.path == "/v1/tools/search":
+            assert payload == {"query": "current news", "count": 5, "need_content": False}
+            return httpx.Response(200, json={"results": [{
+                "title": "Example", "url": "https://example.test/article", "summary": "untrusted summary",
+                "other": "PRIVATE UNNEEDED METADATA",
+            }]})
+        if request.url.path == "/v1/tools/fetch":
+            assert payload == {"url": "https://example.test/article"}
+            return httpx.Response(200, json={"title": "Example article", "content": "untrusted article"})
+        chats += 1
+        if chats == 1:
+            return tool_completion("search_web", {"query": "current news"})
+        assert payload["messages"][2]["reasoning_content"] == "PRIVATE TOOL REASONING"
+        assert "untrusted_web_context" in payload["messages"][3]["content"]
+        if chats == 2:
+            return tool_completion("fetch_web", {"url": "https://example.test/article"}, "call-2")
+        return completion("Verified result")
+    requests = wire_transport(monkeypatch, handler)
+    provider = make_provider()
+    result = await provider.generate(AIGenerationRequest("s", "u", True),
+                                     replace(provider.snapshot(), thinking="low", single_attempt=True))
+    assert result.text == "Verified result" and result.search_used
+    assert result.sources[0].title == "Example article"
+    assert result.sources[0].url == "https://example.test/article"
+    assert len(requests) == 5
+    assert "PRIVATE" not in str([vars(record) for record in caplog.records])
+    assert not result.attribution_required
+
+
+@pytest.mark.parametrize("status,payload", [
+    (404, None), (500, None), (200, {"results": []}), (200, {"results": "invalid"}),
+])
+async def test_search_failures_never_return_partial_verified_answer_or_model_fallback(monkeypatch, status, payload):
+    async def handler(request):
+        if request.url.path == "/chat/completions":
+            return tool_completion("search_web", {"query": "news"})
+        return httpx.Response(status, json=payload)
+    requests = wire_transport(monkeypatch, handler)
+    provider = make_provider()
+    result = await provider.generate(AIGenerationRequest("s", "u", True), provider.snapshot())
+    assert result.status == "search_error" and result.text == ""
+    assert len(requests) == 2
+
+
+async def test_search_disabled_never_exposes_tools_and_single_attempt_has_no_fallback(monkeypatch):
+    requests = wire_transport(monkeypatch, lambda _: asyncio.sleep(0, result=httpx.Response(404)))
+    provider = make_provider()
+    result = await provider.generate(AIGenerationRequest("s", "u"),
+                                     replace(provider.snapshot(), single_attempt=True))
+    assert result.status == "model_unavailable"
+    assert len(requests) == 1 and "tools" not in json.loads(requests[0].content)
+
+
+async def test_continuation_404_cannot_restart_tools_on_another_model(monkeypatch):
+    chats = 0
+    async def handler(request):
+        nonlocal chats
+        if request.url.path == "/chat/completions":
+            chats += 1
+            if chats == 1:
+                return tool_completion("fetch_web", {"url": "https://example.test/"})
+            return httpx.Response(404)
+        return httpx.Response(200, json={"title": "Example", "content": "Page"})
+    requests = wire_transport(monkeypatch, handler)
+    provider = make_provider()
+    result = await provider.generate(AIGenerationRequest("s", "u", True), provider.snapshot())
+    assert result.status == "search_error" and chats == 2 and len(requests) == 3
+
+
+async def test_tool_round_and_call_limits_end_with_search_error(monkeypatch):
+    monkeypatch.setattr(deepseek, "DEEPSEEK_MAX_TOOL_ROUNDS", 1)
+    async def handler(request):
+        if request.url.path == "/chat/completions":
+            return tool_completion("fetch_web", {"url": "https://example.test/"})
+        return httpx.Response(200, json={"title": "Example", "content": "Page"})
+    requests = wire_transport(monkeypatch, handler)
+    provider = make_provider()
+    result = await provider.generate(AIGenerationRequest("s", "u", True), provider.snapshot())
+    assert result.status == "search_error" and len(requests) == 3
+
+
+async def test_tool_bytes_and_timeout_are_bounded(monkeypatch):
+    monkeypatch.setattr(deepseek, "DEEPSEEK_MAX_TOOL_BYTES", 10)
+    async def handler(request):
+        if request.url.path == "/chat/completions":
+            return tool_completion("fetch_web", {"url": "https://example.test/"})
+        return httpx.Response(200, json={"title": "Example", "content": "Page"})
+    requests = wire_transport(monkeypatch, handler)
+    provider = make_provider()
+    assert (await provider.generate(AIGenerationRequest("s", "u", True), provider.snapshot())).status == "search_error"
+    assert len(requests) == 2
+    monkeypatch.setattr(deepseek, "DEEPSEEK_TOOL_TIMEOUT_SECONDS", 0.01)
+    async def stalled(request):
+        if request.url.path == "/chat/completions":
+            return tool_completion("search_web", {"query": "news"})
+        await asyncio.sleep(30)
+    wire_transport(monkeypatch, stalled)
+    assert (await provider.generate(AIGenerationRequest("s", "u", True), provider.snapshot())).status == "search_error"

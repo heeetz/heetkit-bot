@@ -14,6 +14,10 @@ def register_ai_commands(registry: CommandRegistry) -> None:
         if not clean_args:
             operator_event(context.logger, "command.outcome", "invalid_arguments")
             return False
+        from app.config.ai_setup import effective_ai_setup
+        if len(clean_args) > effective_ai_setup(getattr(context.services, "settings", None)).max_question_length:
+            operator_event(context.logger, "command.outcome", "invalid_arguments", reason="question_too_long")
+            return False
         policy_decision = context.services.ai_request_policy.check(clean_args)
         if policy_decision == PolicyDecision.IGNORE:
             operator_event(context.logger, "command.outcome", "filters", reason="protected_policy")
@@ -67,7 +71,17 @@ def register_ai_commands(registry: CommandRegistry) -> None:
                        reason=status)
         if reply.is_available and reply.text:
             username = context.message.author.username.lstrip("@")
-            delivered = await context.reply(f"@{username} {reply.text}")
+            # Twitch's envelope includes the mention; do not split or chop citations.
+            outgoing = f"@{username} {reply.text}"
+            try:
+                outgoing.encode("utf-8")
+                valid_encoding = True
+            except UnicodeError:
+                valid_encoding = False
+            if len(outgoing) > 500 or not valid_encoding:
+                operator_event(context.logger, "ai.result", "provider_failure", reason="outgoing_envelope")
+                return
+            delivered = await context.reply(outgoing)
             memory_still_enabled = memory_enabled and (
                 runtime_state is None or runtime_state.ai_memory_enabled
             )

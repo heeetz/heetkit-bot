@@ -226,7 +226,8 @@ async def test_discovery_and_generation_reuse_client_with_live_model_settings(mo
     assert [model for model, _ in clients[0].calls] == [
         "gemini-missing", "gemini-fallback", "gemini-new",
     ]
-    assert clients[0].calls[0][1].tools is not None
+    # Unknown/manual IDs never acquire search support from model discovery.
+    assert clients[0].calls[0][1].tools is None
     assert clients[0].calls[-1][1].tools is None
     await service.aclose()
     assert clients[0].async_closed and clients[0].sync_closed

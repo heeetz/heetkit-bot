@@ -11,8 +11,10 @@ import httpx
 from pydantic import SecretStr
 
 from app.config.settings import Settings
+from app.config.ai_capabilities import native_thinking_parameters, validate_model_options
 from app.services.ai_provider import (
     AIGenerationRequest, AIProviderCapabilities, AIProviderResponse, AIProviderSettings,
+    AISource, source_metadata,
 )
 from app.utils.logging import operator_event, operator_event_scope
 
@@ -23,6 +25,7 @@ GEMINI_DISCOVERY_TIMEOUT_SECONDS = 15.0
 GEMINI_DISCOVERY_TRANSPORT_TIMEOUT_SECONDS = 10.0
 GEMINI_CLOSE_TIMEOUT_SECONDS = 5.0
 GEMINI_MAX_DISCOVERED_MODELS = 500
+GEMINI_MAX_OUTPUT_TOKENS = 16384
 _NON_CHAT_MODEL_MARKERS = (
     "embedding",
     "image",
@@ -52,6 +55,7 @@ class GeminiProvider:
             model=self.settings.gemini_model,
             fallback_model=self.settings.gemini_fallback_model,
             api_key=getattr(self.settings, "gemini_api_key", None),
+            thinking=getattr(self.settings, "gemini_thinking", "default"),
         )
 
     @property
@@ -189,10 +193,13 @@ class GeminiProvider:
     ) -> tuple[Any, str]:
         selected_model = options.model
         fallback_model = options.fallback_model
-        for attempt, model in enumerate((selected_model, fallback_model), start=1):
-            with operator_event_scope(requested_provider="Google Gemini", requested_model=selected_model,
-                                      provider="Google Gemini", model=model, attempt=attempt,
-                                      fallback=attempt > 1):
+        models = (selected_model,) if options.single_attempt else (selected_model, fallback_model)
+        for attempt, model in enumerate(models, start=1):
+            context = {"provider": "Google Gemini", "model": model}
+            if not options.single_attempt:
+                context.update(requested_provider="Google Gemini", requested_model=selected_model,
+                               attempt=attempt, fallback=attempt > 1)
+            with operator_event_scope(**context):
                 started = time.monotonic()
                 operator_event(logger, "ai.request_start", "attempt")
                 outcome = "provider_failure"
@@ -214,7 +221,8 @@ class GeminiProvider:
                     outcome = "cancelled"
                     raise
                 except Exception as error:
-                    if attempt != 1 or getattr(error, "code", None) != 404 or fallback_model == selected_model:
+                    if (options.single_attempt or attempt != 1 or getattr(error, "code", None) != 404
+                            or fallback_model == selected_model):
                         raise
                     operator_event(logger, "ai.fallback", "model_unavailable")
                 finally:
@@ -228,6 +236,10 @@ class GeminiProvider:
         if not self._available_with_key(options.api_key):
             return AIProviderResponse(status="provider_unavailable")
         try:
+            validate_model_options("gemini", options.model, options.thinking, request.use_search)
+        except ValueError:
+            return AIProviderResponse(status="configuration_error")
+        try:
             from google.genai import types
 
             content = request.content
@@ -236,12 +248,19 @@ class GeminiProvider:
                     "Use Google Search to verify current, changing, or event-related facts before answering.\n\n"
                     + content
                 )
-            config = types.GenerateContentConfig(
-                system_instruction=request.system_instruction,
-                tools=[types.Tool(google_search=types.GoogleSearch())] if request.use_search else None,
-            )
-
             async def request_model(model: str) -> Any:
+                validate_model_options("gemini", model, options.thinking, request.use_search)
+                thinking = native_thinking_parameters("gemini", model, options.thinking)
+                budget = thinking.get("thinking_budget", 0)
+                # Budgets are guidance; the total generation cap bounds thinking plus
+                # final output. Reserve final-answer room even at a native maximum.
+                output_limit = max(GEMINI_MAX_OUTPUT_TOKENS, budget + 1024)
+                config = types.GenerateContentConfig(
+                    system_instruction=request.system_instruction,
+                    tools=[types.Tool(google_search=types.GoogleSearch())] if request.use_search else None,
+                    thinking_config=types.ThinkingConfig(**thinking) if thinking else None,
+                    max_output_tokens=output_limit,
+                )
                 return await client.models.generate_content(model=model, contents=content, config=config)
 
             async with self._provider_client(options.api_key) as client:
@@ -297,11 +316,51 @@ class GeminiProvider:
             )
             if safety_blocked:
                 return AIProviderResponse(safety_blocked=True)
-            if not response.text or not response.text.strip():
+            # Never trust a convenience accessor to decide which parts are thoughts.
+            # Candidates are the provider's canonical final-answer surface.
+            text = ""
+            if candidates:
+                candidate = candidates[0]
+                finish = str(getattr(candidate, "finish_reason", "")).rsplit(".", 1)[-1]
+                if finish in {"MAX_TOKENS", "MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL", "OTHER"}:
+                    return AIProviderResponse(status="api_error")
+                parts = getattr(getattr(candidate, "content", None), "parts", None) or []
+                text = "".join(part.text for part in parts
+                               if not getattr(part, "thought", False)
+                               and isinstance(getattr(part, "text", None), str))
+            else:
+                # Minimal adapter fakes and SDK responses without candidate objects.
+                value = getattr(response, "text", None)
+                text = value if isinstance(value, str) else ""
+            if not text.strip():
                 return AIProviderResponse(status="api_error")
-
-            return AIProviderResponse(text=response.text)
+            sources: dict[str, AISource] = {}
+            attribution_required = False
+            for metadata in grounding_metadata:
+                if metadata is None:
+                    continue
+                entry = getattr(metadata, "search_entry_point", None)
+                attribution_required |= bool(getattr(entry, "rendered_content", None))
+                for chunk in (getattr(metadata, "grounding_chunks", None) or [])[:20]:
+                    web = getattr(chunk, "web", None)
+                    source = source_metadata(getattr(web, "title", None), getattr(web, "uri", None))
+                    if source is not None:
+                        sources[source.url] = source
+            search_used = bool(search_queries or grounding_chunks or attribution_required)
+            return AIProviderResponse(
+                text=text, sources=tuple(sources.values()), search_used=search_used,
+                # Google requires a Suggestions display for grounded responses; URL
+                # citations alone are insufficient for a plain-text chat transport.
+                attribution_required=search_used,
+            )
+        except asyncio.CancelledError:
+            raise
         except Exception as error:
             operator_event(logger, "ai.failure", "provider_failure", reason=type(error).__name__)
-            status = "timeout" if isinstance(error, (TimeoutError, httpx.TimeoutException)) else "api_error"
+            if getattr(error, "code", None) == 404:
+                status = "model_unavailable"
+            elif isinstance(error, ValueError):
+                status = "configuration_error"
+            else:
+                status = "timeout" if isinstance(error, (TimeoutError, httpx.TimeoutException)) else "api_error"
             return AIProviderResponse(status=status)

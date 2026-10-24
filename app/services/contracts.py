@@ -9,7 +9,7 @@ from typing import Literal, Protocol
 class AIReply:
     text: str
     is_available: bool
-    status: Literal["success", "output_blocked", "provider_unavailable", "api_error", "timeout"] = "success"
+    status: Literal["success", "output_blocked", "provider_unavailable", "api_error", "timeout", "model_unavailable", "configuration_error", "search_error", "search_unavailable", "attribution_unavailable", "question_too_long"] = "success"
     moderation_source: Literal["editable_filter", "filter_timeout", "protected_policy"] | None = None
     matched_category: str | None = None
     matched_rule: str | None = None

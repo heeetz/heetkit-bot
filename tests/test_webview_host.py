@@ -55,6 +55,27 @@ def complete_bridge_coroutine(coroutine) -> Future:
     return future
 
 
+def test_desktop_ai_setup_and_guidance_share_atomic_profile_operations(tmp_path):
+    from dataclasses import asdict
+    from app.config.ai_setup import AISetup, AIModelSelection
+    from app.config.settings import Settings
+    application = SimpleNamespace(settings=Settings(), services=SimpleNamespace())
+    store = AppSettingsStore(tmp_path / "app_settings.json")
+    bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace(
+        application=application, submit=complete_bridge_coroutine)), app_settings=store)
+    setup = AISetup(AIModelSelection("deepseek", "deepseek-flash", "off"), shared_instructions="", max_answer_length=70)
+    assert {"get_ai_setup", "save_ai_setup", "get_setup_guide", "save_setup_guide"} <= set(FRONTEND_OPERATIONS)
+    assert bridge.save_ai_setup(asdict(setup)) == {"ok": True}
+    assert bridge.get_ai_setup()["settings"] == asdict(setup)
+    assert application.settings.ai_setup == setup
+    assert bridge.get_ai_provider_settings()["settings"]["selected_model"] == "deepseek-flash"
+    assert bridge.save_setup_guide(True, True) == {"ok": True, "dismissed": True, "ai_skipped": True}
+    assert AppSettingsStore(store._path).snapshot().ai.setup_guide_ai_skipped
+    bad = {**asdict(setup), "max_answer_length": 0}
+    assert not bridge.save_ai_setup(bad)["ok"]
+    assert bridge.get_ai_setup()["settings"] == asdict(setup)
+
+
 def test_desktop_instance_guard_blocks_other_process_and_releases(tmp_path) -> None:
     settings_path = tmp_path / "data" / "app_settings.json"
     probe = (

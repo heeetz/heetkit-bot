@@ -131,7 +131,7 @@ class ApplicationManagement:
         )
         application_settings = self._backend.application.settings
         effective = apply_ai_app_settings(application_settings, updated)
-        for name in ("ai_provider", "gemini_model", "gemini_fallback_model", "deepseek_model", "deepseek_fallback_model"):
+        for name in ("ai_provider", "gemini_model", "gemini_fallback_model", "deepseek_model", "deepseek_fallback_model", "ai_setup"):
             setattr(application_settings, name, getattr(effective, name))
         return updated.ai
 
@@ -503,7 +503,8 @@ class ApplicationManagement:
             "memory_enabled": runtime_state.ai_memory_enabled,
             "active_personality": runtime_state.active_ai_personality,
             "available_personalities": list(runtime_state.available_personalities),
-            "model": getattr(application.settings, application.settings.ai_provider + "_model"),
+            "model": (application.settings.ai_setup.primary.model if getattr(application.settings, "ai_setup", None) is not None
+                      else getattr(application.settings, application.settings.ai_provider + "_model")),
         }
 
     def get_personalities(self) -> dict[str, object]:
@@ -727,7 +728,8 @@ class ApplicationManagement:
         if self._app_settings is None:
             return {"ok": False, "error": "Desktop settings are not configured."}
         application = self._backend.application
-        selected = application.settings.ai_provider if provider is None else validate_ai_provider(provider)
+        setup = getattr(application.settings, "ai_setup", None)
+        selected = (setup.primary.provider if setup else application.settings.ai_provider) if provider is None else validate_ai_provider(provider)
         credential = None
         if self._credential_manager is not None:
             credential = next(
@@ -743,13 +745,52 @@ class ApplicationManagement:
             "settings": {
                 "provider": AI_PROVIDERS[selected],
                 "provider_id": selected,
-                "selected_model": getattr(application.settings, selected + "_model"),
-                "fallback_model": getattr(application.settings, selected + "_fallback_model"),
+                "selected_model": setup.primary.model if setup and provider is None else getattr(application.settings, selected + "_model"),
+                "fallback_model": (setup.fallback.model if setup.fallback else "") if setup and provider is None else getattr(application.settings, selected + "_fallback_model"),
+                "fallback_provider_id": setup.fallback.provider if setup and setup.fallback and provider is None else selected,
                 "presets": ([preset.serialize() for preset in GEMINI_MODEL_PRESETS] if selected == "gemini" else [
-                    {"id": model, "label": model, "description": "DeepSeek direct API (thinking disabled)"}
+                    {"id": model, "label": model, "description": "DeepSeek direct API; configure thinking/search in AI setup"}
                     for model in (DEFAULT_DEEPSEEK_MODEL, DEFAULT_DEEPSEEK_FALLBACK_MODEL)]),
                 "credential": credential,
                 "discovery_proves_generation_access": False,
             },
             "providers": [{"id": key, "label": label} for key, label in AI_PROVIDERS.items()],
         }
+
+    def get_ai_setup(self) -> dict[str, object]:
+        from app.config.ai_setup import effective_ai_setup
+        from app.config.ai_capabilities import KNOWN_MODELS, model_capabilities
+        from app.config.personalities import SHARED_AI_INSTRUCTIONS
+        settings = self._backend.application.settings
+        setup = effective_ai_setup(settings)
+        providers = []
+        for provider, label in AI_PROVIDERS.items():
+            info = self.get_ai_provider_settings(provider)["settings"]
+            providers.append({"id": provider, "label": label, "credential": info["credential"],
+                              "selected_model": info["selected_model"], "fallback_model": info["fallback_model"],
+                              "models": list(KNOWN_MODELS[provider])})
+        return {"ok": True, "settings": asdict(setup), "providers": providers,
+                "capabilities": {provider: {model: model_capabilities(provider, model)
+                                            for model in KNOWN_MODELS[provider]} for provider in AI_PROVIDERS},
+                "default_shared_instructions": SHARED_AI_INSTRUCTIONS,
+                "retained_restrictions": "Local request and full-output checks remain enabled: prompt/secret extraction, sexual or fetish content, abuse of minors or protected traits, self-harm, threats/harassment/private data, restricted real-world political/violent events and illegal-substance instructions may be blocked. Profile filters, language policy, transport limits and provider policies also apply. Editing the shared text does not disable these checks."}
+
+    async def _save_ai_setup(self, settings: object) -> dict[str, object]:
+        try:
+            updated = self._app_settings.update_ai_setup(settings)
+        except ValueError as error:
+            # Setup validators emit application-owned messages, never provider bodies.
+            return {"ok": False, "error": str(error)}
+        application = self._backend.application
+        application.settings.ai_setup = updated.ai.setup
+        application.settings.ai_provider = updated.ai.setup.primary.provider
+        self._logger.info("AI setup saved", extra={"event_kind": "settings.ai", "event_action": "save"})
+        return {"ok": True}
+
+    def get_setup_guide(self) -> dict[str, object]:
+        ai = self._app_settings.snapshot().ai
+        return {"ok": True, "dismissed": ai.setup_guide_dismissed, "ai_skipped": ai.setup_guide_ai_skipped}
+
+    def save_setup_guide(self, dismissed: object, ai_skipped: object) -> dict[str, object]:
+        self._app_settings.update_setup_guide(dismissed, ai_skipped)
+        return self.get_setup_guide()

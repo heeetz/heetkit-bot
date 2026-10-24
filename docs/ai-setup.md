@@ -1,56 +1,103 @@
 # AI provider setup
 
-AI is **optional**. Normal Twitch commands, including weather, followage and custom
-commands, work without it. Gemini remains the default provider. The shared backend also
-supports the direct DeepSeek API; provider selection and DeepSeek controls are currently
-backend operations, with the existing interface still organized around Gemini.
+AI is optional. Normal Twitch commands work without it. Gemini remains the default;
+Desktop and Server share saved connections for Gemini and the direct DeepSeek API.
+Dashboard's optional setup guide can be dismissed/resumed, and AI can be skipped or
+configured before Twitch. Configured credentials, authorization and a connected chat
+session are separate states; the guide never authorizes an account itself.
 
-On Server, use **Settings → Server configuration → Server credentials** to save,
-replace, test or remove the Gemini key. Stored values are never returned to the
-browser. Changes apply to subsequent requests without changing model preferences
-or interrupting in-flight requests. A nonempty externally provisioned environment
-or secret-file key is read-only here and requires host-side rotation/restart.
-Browser-managed values persist in the private volume; see
-[credential storage](management-api.md#requests-and-operations). The Desktop steps follow.
+## Saved connections and model setup
 
-## DeepSeek backend configuration
+Open **AI → AI setup** on either host:
 
-Use the authenticated [management operations](management-api.md#requests-and-operations)
-to replace/test/remove `deepseek_api_key`, discover with
-`POST /v1/ai/models/discover` and `{"provider":"deepseek"}`, and save with
-`POST /v1/ai/models` and `{"provider":"deepseek","selected_model":"deepseek-flash","fallback_model":"deepseek-v4-pro"}`.
-Sending just `{"provider":"gemini"}` or `{"provider":"deepseek"}` to the latter
-operation switches back to that provider's saved choices. Desktop exposes the same
-backend behavior through `replace_credential`, `test_credential`, `remove_credential`,
-`discover_ai_models(provider)` and `update_ai_provider_settings(primary, fallback, provider)`;
-omit both models to switch without replacing choices. This is backend support; the
-current AI page does not provide the complete provider setup flow.
+1. Choose a provider in **Connected providers** and Connect/Replace its key. Save
+   connection, then Test. These operations apply immediately, independently of model
+   drafts; Cancel AI edits cannot undo a saved key. Removing an in-use key warns that
+   requests will become unavailable, and never selects another provider automatically.
+2. In **Primary model**, choose a provider and type/search a model ID. Discover queries
+   that provider's captured credential; failed or stale discovery retains selections.
+   A model listing or credential test does not prove generation access or tool support.
+3. Select Thinking and Internet search independently. Unsupported saved options remain
+   visible until explicitly corrected; unknown/manual IDs receive provider-default
+   generation only, with no invented thinking levels or search capability.
+4. Expand **Fallback model** to configure its provider, model, thinking and search.
+   Its summary remains visible when collapsed. Cross-provider routing requires an
+   acknowledgement that questions, instructions and permitted memory may go to that
+   provider. Missing keys remain unavailable; another provider's key is never borrowed.
+5. **Save AI setup** validates and saves the non-secret choices together. Until then,
+   requests use saved settings. Cancel restores the model/instruction draft. Each slot
+   retains its choices when switching providers; other provider keys remain connected.
 
-Desktop keys use the profile's OS keyring, with intentional environment fallback.
-Server keys use the private credential file, with nonempty external environment or
-`DEEPSEEK_API_KEY_FILE` inputs taking precedence. Keys never appear in settings results
-or portable exports. `AI_PROVIDER=deepseek` supplies an unsaved process default;
-saved provider choices override it. `DEEPSEEK_MODEL` and `DEEPSEEK_FALLBACK_MODEL`
-similarly supply model defaults.
+Desktop keys use the profile's OS keyring with intentional environment fallback.
+Server keys use the private credential file; nonempty environment/secret-file inputs
+are read-only in the panel and require host-side rotation/restart. Keys are never read
+back to React or exported. See [management credentials](management-api.md#requests-and-operations).
+`AI_PROVIDER`, `GEMINI_MODEL`, `DEEPSEEK_MODEL` and their fallback counterparts remain
+unsaved process defaults until profile selections override them.
 
-The adapter uses `https://api.deepseek.com/chat/completions`, explicitly disables
-thinking, requests a single bounded non-streamed completion, and exposes only final
-answer content. Reasoning content, tool calls and incomplete answers are discarded.
-DeepSeek search tools are not enabled. The defaults were verified against the
-[official API guide](https://api-docs.deepseek.com/quick_start) and
-[chat completion reference](https://api-docs.deepseek.com/api/create-chat-completion/)
-on 24 October 2026. Model IDs can change; discovery queries the selected provider/key
-and is bounded by a 15-second total deadline. Authentication, rate-limit and empty-list
-results never overwrite saved choices. A successful key test or model listing does
-not prove generation access, available quota or tool support. Primary-model 404 alone
-can trigger one fallback within the same provider; other errors do not switch models
-or providers. Generation tests consume provider usage and require an explicit operator action.
+## Thinking, search and fallback boundaries
 
-Both providers share instructions, language, filters, memory and the 220-character
-answer limit. Each request captures its provider, models and key before asynchronous
-work; switches, rotations and removals affect subsequent requests. Portable transfer
-includes both providers' non-secret choices. Older Gemini archives explicitly select
-Gemini and preserve any destination DeepSeek choices.
+Thinking options come from exact documented model/API mappings. DeepSeek exposes
+Off, Low, High and Max plus Provider default; Off sends its explicit disabled toggle.
+Gemini models expose supported native levels or numeric budget boundaries. Models
+that cannot disable thinking do not offer Off. Thinking/output token caps and the
+60-second total request deadline are separate from the character limits below.
+Unknown IDs omit thinking parameters; unsupported choices are rejected before work.
+See [DeepSeek thinking](https://api-docs.deepseek.com/guides/thinking_mode/) and
+[Gemini thinking](https://ai.google.dev/gemini-api/docs/generate-content/thinking).
+
+Search Off sends no search tools or calls. On permits search when relevant; not every
+reply searches. DeepSeek Search/Fetch uses the same captured key and fixed provider
+endpoints, never arbitrary fetching from this host. Limits are three tool rounds,
+four calls, 64 KiB of returned context and 12 seconds per tool within the total
+deadline. Retrieved pages are untrusted context. Failures produce no purported fresh
+answer. Only final answer text and safe source metadata leave an adapter; transient
+reasoning/tool continuation is never chat, memory or diagnostic history.
+[DeepSeek Search/Fetch](https://api-docs.deepseek.com/guides/search/) documents the service.
+
+Source URLs are appended within the configured answer bound. If required attribution
+cannot fit, the answer is withheld rather than losing its sources. Gemini Google Search
+remains implemented, but its required Search Suggestions cannot be rendered in plain
+Twitch chat: grounded output is withheld with an attribution-unavailable result.
+The UI explains this limitation. Leave Gemini search Off for ordinary Twitch replies;
+this also applies to the current plain-text Desktop Playground. See
+[Google's grounding/display requirements](https://ai.google.dev/gemini-api/docs/generate-content/google-search).
+Thinking and search may add provider charges; consult the provider rather than relying
+on a price table in the app.
+
+The shared owner allows at most one fallback, only after a model-unavailable (404)
+response. Credential, billing/quota, rate-limit, network, refusal, filter and bad-parameter
+failures never trigger it. Fallback uses its own effort and search choice. If requested
+search is unavailable there, no downgraded answer is sent. Both selections, credentials,
+instructions and permitted context are captured before awaiting; later edits affect
+subsequent requests. Cancellation and existing privacy/late-result checks still apply.
+
+Portable configuration includes the selections, per-provider choices, instructions and
+lengths without credentials. Old same-provider fields/archives remain accepted. Imported
+cross-provider consent is cleared: acknowledge and Save in the destination before it
+can route a fallback. The primary can still run. Legacy model operations accept a model
+pair; after advanced setup exists, provider-only switching must use the setup operation
+so independent settings cannot be silently lost.
+
+## Shared instructions and character limits
+
+Expand **Shared instructions and length limits** inside AI setup. The shared instruction
+text itself is editable, separately from personality/profile instructions. Save persists
+custom text across upgrades; empty deliberately removes the shipped text. Reset restores
+shipped defaults as a draft; Save applies it. Cancel discards edits. Only the documented
+`{current_datetime}`, `{ai_max_response_length}` and `{response_language_instruction}`
+placeholders are substituted; other braces remain literal.
+
+Maximum question length is 1–4000 characters (default 300); only the current trimmed
+question counts, not instructions or memory. Overlong questions are rejected before AI
+memory/provider work, rather than truncated. Maximum answer length is 1–450 characters
+(default 220 for existing profiles), enforced in the prompt and final output. Language
+policy, local request/full-output checks and profile filters remain explicit independent
+restrictions; editing shared text does not disable those checks. Their scope is shown
+beside the editor and described under [Personality editing](#personality-editing).
+Provider policies, credential isolation and management authentication remain in force.
+The outgoing mention must also fit Twitch's 500-character envelope and valid UTF-8;
+longer answers never authorize split sends. See [Send Chat Message](https://dev.twitch.tv/docs/api/reference/#send-chat-message).
 
 ## Get a key and add it to HeetKit
 
@@ -76,17 +123,11 @@ share its footer; the question-mark help explains validation and generation test
 
 ## Choose how the bot replies
 
-Open **AI**. Its sections follow the working order **State → Playground → Personality
-and profile instructions → Language → Models → AI access → Built-in
-restrictions**. Use the AI sidebar shortcuts to open and scroll to a section. Collapsing
-an editor keeps its draft. Editor headers also open or close with Enter or Space.
-Use the question-mark buttons for extra explanations; focus or select one for
-immediate help, or hover briefly. Escape dismisses help without changing your draft.
-
-**State** contains four compact panels: **AI command**, **Conversation memory**,
-**Gemini** and **Active personality**. The command and memory switches save immediately.
-Gemini shows availability and the active model together; **Manage** opens its key in
-Settings. State's help explains key validation and memory retention.
+Open **AI**. AI setup comes first; existing State, Playground, Personality,
+Profile instructions, Response language and AI access sections remain available.
+Sidebar shortcuts scroll to each section. Collapsing editors retains their drafts;
+Enter/Space operates disclosure headers. State shows AI command/memory preferences,
+active model availability and personality. Command and memory switches save immediately.
 
 7. Configure the instructions used for generation:
 
@@ -111,16 +152,8 @@ Settings. State's help explains key validation and memory retention.
      restrictions, or choose **Limited**, select allowed languages and a fallback, then
      **Save language settings**. The initial Limited selection is English, Ukrainian and
      Russian, with English fallback; Auto remains the default.
-   - **Models:** choose **Primary model** on the left and **Fallback model** on the right;
-     they stack on narrow windows. Select **Custom model ID… (advanced)** in either
-     dropdown to enter an ID directly. Save model changes before testing them.
-     Use arrow keys or type a model name to navigate choices, Enter to select, and
-     Escape to close the dropdown without changing the selection.
-     **Discover models** lists compatible text-generation models visible through Google.
-     It shares an action row with **Open Playground** and **Save models**; opening
-     Playground with a draft still requires an explicit choice.
-     The fallback is tried only when a request to the primary model returns 404. Key,
-     network, policy, quota, rate-limit and billing failures do not trigger it.
+   - **Models:** use the primary/fallback cards in AI setup above, then Save AI setup.
+     Playground uses the saved configuration and warns while editor drafts exist.
    - **Conversation memory** in **AI → State:** choose whether successful `!ask` exchanges are kept locally
      and included in later requests for that viewer. Successful history expires after 90 days;
      only the five most recent unexpired exchanges are used as context. Turning memory off
@@ -128,9 +161,8 @@ Settings. State's help explains key validation and memory retention.
      See [privacy requests and provider restrictions](data-and-privacy.md) before using AI
      with viewers. Do not put secrets or private information in prompts or chat sent to Google.
 
-The Gemini key is managed only under **Settings → Gemini API key**; AI provides a link
-there and Settings provides a return path. **Test credential** checks access with Google,
-but it does not prove that a generation request, selected model or quota will succeed.
+Provider keys can be connected/tested directly in AI setup. The existing Gemini key
+entry in Settings remains available. Testing a key does not establish model access or quota.
 
 9. With Twitch connected, check that **AI command** is enabled and try
    `!ask Say hello to chat` from another account in the target channel. The enabled switch
@@ -142,8 +174,8 @@ but it does not prove that a generation request, selected model or quota will su
 
 ## Test locally with AI Playground
 
-Open **AI → Playground** and enter a prompt to make a real Gemini request without
-posting to Twitch. Testing can consume real Gemini API quota. The Playground uses the
+Open **AI → Playground** and enter a prompt to make a real provider request without
+posting to Twitch. Testing can consume real provider API usage. The Playground uses the
 active filters and personality, applied profile instructions, and saved model and
 response-language settings. It does not automatically use editor drafts: explicitly
 save a personality, model or language draft first; apply or save a profile-instruction
@@ -151,7 +183,7 @@ draft. Choosing **Use current applied settings** keeps all editor drafts out of 
 
 Each prompt is independent of viewer memory, Twitch chat activity, stream context,
 `!ask` permissions and command cooldowns. The bot may be stopped and `!ask` may be
-disabled. A successful result confirms only this local Gemini path; it does not prove
+disabled. A successful result confirms only this local provider path; it does not prove
 that Twitch is connected or that a chat reply can be delivered. Only one Playground
 request runs at a time; you can cancel it, and it times out after 60 seconds. The result
 distinguishes a successful response, editable-filter or protected-policy input and output
@@ -161,8 +193,8 @@ Protected decisions do not reveal hidden instructions.
 Playground and `!ask` share the same backend generation policy. Each request captures
 its applied instructions, personality, language, context, model choices and key before
 provider work begins; model fallback uses that same snapshot. Settings edits apply to
-subsequent requests. Full responses pass the output checks before the current
-220-character answer limit is applied, using any global filter changes active when
+subsequent requests. Full responses pass the output checks before the saved
+answer character limit is applied, using any global filter changes active when
 the response arrives. Existing profiles continue to use Gemini without migration.
 
 ## Blocked AI users
@@ -235,7 +267,7 @@ Custom personalities can be renamed or deleted; deleting the active one selects
 Profile instructions apply to every personality in the current profile. Applying a draft
 uses it for this session; saving uses it now and persists it. Neither action saves a
 personality prompt or active selection. **Reset** clears that field without changing
-personality prompts or selection. Protected shared instructions are read-only. Separate
+personality prompts or selection. Shared instruction text is editable in AI setup; the disclosed local checks remain enabled. Separate
 profiles keep their own styles and instructions.
 
 The protected policy allows gaming trash talk, sarcasm and light swearing about

@@ -1,12 +1,10 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import {
   type AILanguageInfo,
   type AILanguageMode,
   type AILanguageSettings,
-  type AIProviderSettings,
   type AIStatus,
-  type GeminiModelPreset,
   type PersonalityInfo,
   type PersonalitiesResponse,
   isBrowserMode,
@@ -15,6 +13,7 @@ import {
 import FeedbackToast from '../components/FeedbackToast'
 import Switch from '../components/Switch'
 import AIPlayground from '../components/AIPlayground'
+import AISetupPanel from '../components/AISetupPanel'
 import BlockedAIUsers from '../components/BlockedAIUsers'
 import Accordion from '../components/Accordion'
 import HelpTip from '../components/HelpTip'
@@ -22,13 +21,11 @@ import { Select } from '../components/Select'
 
 interface AIPageProps {
   active: boolean
-  onOpenSettings: () => void
   onOpenPlayground: () => void
   onOpenAsk: () => void
   onAIEnabledChanged?: (enabled: boolean) => void
 }
 
-const CUSTOM_MODEL_VALUE = '__custom_model__'
 const DEFAULT_LIMITED_LANGUAGES = ['en', 'uk', 'ru']
 
 function sameLanguageSettings(left: AILanguageSettings, right: AILanguageSettings): boolean {
@@ -50,74 +47,17 @@ function languageSettingsLabel(
   return `Limited — ${allowed}; fallback ${labelFor(settings.fallback_language)}.`
 }
 
-function ModelSelector({
-  label,
-  value,
-  presets,
-  discoveredModels,
-  onChange,
-  help,
-}: {
-  label: string
-  value: string
-  presets: GeminiModelPreset[]
-  discoveredModels: string[]
-  onChange: (value: string) => void
-  help: string
-}) {
-  const id = useId()
-  const presetById = new Map(presets.map((preset) => [preset.id, preset]))
-  const choices = Array.from(new Set([
-    ...presets.map((preset) => preset.id),
-    ...discoveredModels,
-  ]))
-  const usesCustomValue = !choices.includes(value)
-
-  return (
-    <div className="model-selector">
-      <div className="form-field">
-        <div className="model-field-label">
-          <label htmlFor={id}>{label}</label>
-          <HelpTip label={label}>{help}</HelpTip>
-        </div>
-        <Select
-          id={id}
-          value={usesCustomValue ? CUSTOM_MODEL_VALUE : value}
-          onChange={(model) => onChange(model === CUSTOM_MODEL_VALUE ? '' : model)}
-          options={[
-            ...choices.map((model) => ({ value: model, label: presetById.has(model) ? `${presetById.get(model)!.label} — ${model}` : model })),
-            { value: CUSTOM_MODEL_VALUE, label: 'Custom model ID… (advanced)' },
-          ]}
-        />
-      </div>
-      {usesCustomValue && (
-        <label className="form-field custom-model-field">
-          Custom model ID
-          <input
-            aria-label={`${label} custom model ID`}
-            value={value}
-            placeholder="gemini-model-id"
-            onChange={(event) => onChange(event.target.value)}
-          />
-        </label>
-      )}
-    </div>
-  )
-}
-
-export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpenAsk, onAIEnabledChanged }: AIPageProps) {
+export default function AIPage({ active, onOpenPlayground, onOpenAsk, onAIEnabledChanged }: AIPageProps) {
   const [status, setStatus] = useState<AIStatus | null>(null)
   const [data, setData] = useState<PersonalitiesResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState('')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [profileDraft, setProfileDraft] = useState('')
-  const [providerSaved, setProviderSaved] = useState<AIProviderSettings | null>(null)
-  const [providerDraft, setProviderDraft] = useState<AIProviderSettings | null>(null)
+  const [setupDirty, setSetupDirty] = useState(false)
   const [languageSaved, setLanguageSaved] = useState<AILanguageSettings | null>(null)
   const [languageDraft, setLanguageDraft] = useState<AILanguageSettings | null>(null)
   const [languageCatalogue, setLanguageCatalogue] = useState<AILanguageInfo[]>([])
-  const [discoveredModels, setDiscoveredModels] = useState<string[]>([])
   const [createOpen, setCreateOpen] = useState(false)
   const [createName, setCreateName] = useState('')
   const [createPrompt, setCreatePrompt] = useState('')
@@ -126,7 +66,7 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [playgroundSource, setPlaygroundSource] = useState<'personality' | 'profile' | 'language' | 'models' | null>(null)
+  const [playgroundSource, setPlaygroundSource] = useState<'personality' | 'profile' | 'language' | null>(null)
 
   const mergeData = (
     response: PersonalitiesResponse,
@@ -182,28 +122,17 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
     const load = async () => {
       try {
         const api = await waitForBridge()
-        const [nextStatus, response, providerResponse, languageResponse] = await Promise.all([
+        const [nextStatus, response, languageResponse] = await Promise.all([
           api.get_ai_status(),
           api.get_personalities(),
-          api.get_ai_provider_settings(),
           api.get_ai_language_settings(),
         ])
-        if (!providerResponse.ok || !providerResponse.settings) {
-          throw new Error(providerResponse.error ?? 'AI provider settings are unavailable.')
-        }
         if (!languageResponse.ok || !languageResponse.settings) {
           throw new Error(languageResponse.error ?? 'AI language settings are unavailable.')
         }
         if (current) {
           setStatus(nextStatus)
           mergeData(response)
-          setProviderDraft((current) => {
-            const dirty = current && providerSaved
-              && (current.selected_model !== providerSaved.selected_model
-                || current.fallback_model !== providerSaved.fallback_model)
-            return dirty ? current : providerResponse.settings!
-          })
-          setProviderSaved(providerResponse.settings)
           setLanguageCatalogue(languageResponse.languages ?? [])
           setLanguageDraft((draft) => {
             const dirty = Boolean(draft && languageSaved && !sameLanguageSettings(draft, languageSaved))
@@ -242,52 +171,6 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
       setNotice(kind === 'enabled' ? 'AI command enabled setting saved.' : 'AI memory state updated.')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'AI setting could not be changed.')
-    } finally {
-      setBusy('')
-    }
-  }
-
-  const updateProviderDraft = (values: Partial<AIProviderSettings>) => {
-    setProviderDraft((current) => current ? { ...current, ...values } : current)
-    setError('')
-    setNotice('')
-  }
-
-  const saveProviderModels = async () => {
-    if (!providerDraft) {
-      return false
-    }
-    const selectedModel = providerDraft.selected_model.trim()
-    const fallbackModel = providerDraft.fallback_model.trim()
-    if (!selectedModel || !fallbackModel) {
-      setError('Selected and fallback model IDs are required.')
-      return false
-    }
-    if (selectedModel === fallbackModel) {
-      setError('Selected and fallback models must be different.')
-      return false
-    }
-    setBusy('provider:save')
-    setError('')
-    setNotice('')
-    try {
-      const api = await waitForBridge()
-      const result = await api.update_ai_provider_settings(selectedModel, fallbackModel)
-      if (!result.ok) {
-        throw new Error(result.error ?? 'AI model settings could not be saved.')
-      }
-      const refreshed = await api.get_ai_provider_settings()
-      if (!refreshed.ok || !refreshed.settings) {
-        throw new Error(refreshed.error ?? 'AI provider settings could not be refreshed.')
-      }
-      setProviderSaved(refreshed.settings)
-      setProviderDraft(refreshed.settings)
-      setStatus(await api.get_ai_status())
-      setNotice('AI model settings saved and active for the next request.')
-      return true
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'AI model settings could not be saved.')
-      return false
     } finally {
       setBusy('')
     }
@@ -363,25 +246,6 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'AI language settings could not be saved.')
       return false
-    } finally {
-      setBusy('')
-    }
-  }
-
-  const discoverModels = async () => {
-    setBusy('provider:discover')
-    setError('')
-    setNotice('')
-    try {
-      const api = await waitForBridge()
-      const result = await api.discover_gemini_models()
-      if (!result.ok || !result.models) {
-        throw new Error(result.error ?? 'Gemini models could not be discovered.')
-      }
-      setDiscoveredModels(result.models)
-      setNotice(`Discovered ${result.models.length} compatible Gemini model${result.models.length === 1 ? '' : 's'}.`)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Gemini models could not be discovered.')
     } finally {
       setBusy('')
     }
@@ -577,11 +441,6 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
   const profileCanReset = Boolean(
     data && (profileDirty || !data.profile_instructions_saved || profileValue.length > 0),
   )
-  const providerDirty = Boolean(
-    providerDraft && providerSaved
-      && (providerDraft.selected_model !== providerSaved.selected_model
-        || providerDraft.fallback_model !== providerSaved.fallback_model),
-  )
   const languageDirty = Boolean(
     languageDraft && languageSaved && !sameLanguageSettings(languageDraft, languageSaved),
   )
@@ -593,7 +452,7 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
         : ''
     : ''
 
-  const hasDrafts = Boolean(profileDirty || providerDirty || languageDirty
+  const hasDrafts = Boolean(profileDirty || setupDirty || languageDirty
     || data?.personalities.some((item) => drafts[item.name] !== undefined && drafts[item.name] !== item.prompt)
     || (createOpen && (createName || createPrompt)))
 
@@ -605,7 +464,7 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
   const saveForPlayground = async (source: NonNullable<typeof playgroundSource>, apply = false) => {
     const succeeded = source === 'personality' ? await runPersonalityAction('save')
       : source === 'profile' ? await runProfileAction(apply ? 'apply' : 'save')
-        : source === 'language' ? await saveLanguageSettings() : await saveProviderModels()
+        : await saveLanguageSettings()
     if (succeeded) openPlayground()
   }
 
@@ -637,11 +496,12 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
         notice={notice}
         onDismiss={() => { setError(''); setNotice('') }}
       />
+      <AISetupPanel active={active} onDirtyChange={setSetupDirty} onSaved={() => { void refresh().catch(() => setError('AI setup saved; status refresh failed. Reopen AI to inspect it.')) }} />
       <div className="ai-status-grid" id="ai-runtime">
         <article className="card ai-state-panel">
           <div className="ai-state-heading">
             <h2>AI command</h2>
-            <HelpTip label="AI command">Saved immediately across restarts. Dashboard, AI and Commands share this !ask setting. If Gemini is unavailable, the enabled preference is retained; add a usable API key to enable replies.</HelpTip>
+            <HelpTip label="AI command">Saved immediately across restarts. Dashboard, AI and Commands share this !ask setting. If the provider is unavailable, the enabled preference is retained; add a usable API key to enable replies.</HelpTip>
           </div>
           <Switch
             className="settings-toggle"
@@ -664,10 +524,10 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
         </article>
         <article className="card ai-state-panel">
           <div className="ai-state-heading ai-gemini-heading">
-            <h2>Gemini</h2>
+            <h2>AI provider</h2>
             <div className="ai-state-actions">
-              <HelpTip label="Gemini">{isBrowserMode() ? 'Gemini is optional. Configure its secret on the server; the browser never reads or changes provider secrets.' : 'Gemini is optional. Manage the API key in Settings and use Test credential to validate access. A valid key does not prove model availability or quota; test generation separately in Playground.'}</HelpTip>
-              <button className="secondary" disabled={loading} aria-label={providerSaved?.credential?.configured ? 'Manage Gemini key' : 'Add Gemini key'} onClick={onOpenSettings}>Manage</button>
+              <HelpTip label="Gemini">{isBrowserMode() ? 'AI is optional. Connect and test provider keys in AI setup above.' : 'AI is optional. Use AI setup above for saved providers and per-model controls. Test generation separately in Playground.'}</HelpTip>
+              <button className="secondary" disabled={loading} aria-label="Manage AI setup" onClick={() => document.getElementById('ai-models')?.scrollIntoView({ block: 'start' })}>Manage</button>
             </div>
           </div>
           <span className="ai-availability">{status ? status.available ? 'Configured for requests' : 'Unavailable' : 'Loading…'}</span>
@@ -932,68 +792,7 @@ export default function AIPage({ active, onOpenSettings, onOpenPlayground, onOpe
           </div>
         )}
       </Accordion>
-      <article className="card ai-provider-card" id="ai-models">
-        <div className="section-heading">
-          <div>
-            <h2>Models and fallback</h2>
-            <p className="section-copy">Choose the model used for AI requests and its unavailable-model fallback.</p>
-          </div>
-          {providerDirty && <span className="mini-badge dirty-badge">Edited</span>}
-        </div>
-        {!providerDraft ? <p className="muted">Loading AI provider settings…</p> : (
-          <div className="settings-list">
-            <p className="model-policy-status">Saved primary model: <strong>{providerSaved?.selected_model || 'Not selected'}</strong>. {providerDirty ? 'Unsaved model draft; Playground keeps using the saved models.' : 'Changes apply after Save models.'}</p>
-            <div className="model-fields">
-              <ModelSelector
-                label="Primary model"
-                value={providerDraft.selected_model}
-                presets={providerDraft.presets}
-                discoveredModels={discoveredModels}
-                onChange={(selected_model) => updateProviderDraft({ selected_model })}
-                help="Used for AI requests."
-              />
-              <ModelSelector
-                label="Fallback model"
-                value={providerDraft.fallback_model}
-                presets={providerDraft.presets}
-                discoveredModels={discoveredModels}
-                onChange={(fallback_model) => updateProviderDraft({ fallback_model })}
-                help="Used only after the primary model returns 404. Key, network, quota and billing failures do not trigger fallback."
-              />
-            </div>
-            <div className="model-action-row">
-              <div className="model-action-group">
-                <button className="secondary" disabled={Boolean(busy) || !providerDraft.credential?.configured} onClick={() => void discoverModels()}>{busy === 'provider:discover' ? 'Discovering…' : 'Discover models'}</button>
-              </div>
-              <div className="model-action-group model-save-actions">
-                {playgroundButton('models', providerDirty)}
-                <button className="primary" disabled={Boolean(busy) || !providerDirty} onClick={() => void saveProviderModels()}>{busy === 'provider:save' ? 'Saving…' : 'Save models'}</button>
-              </div>
-            </div>
-            {playgroundChoice('models')}
-          </div>
-        )}
-      </article>
       <BlockedAIUsers active={active} onOpenAsk={onOpenAsk} />
-      <details className="card protected-instructions-card" id="ai-shared-instructions">
-        <summary className="protected-instructions-summary">
-          <div>
-            <h2>Built-in restrictions</h2>
-            <p className="section-copy">These instructions are managed by the application and cannot be edited here.</p>
-          </div>
-          <span className="mini-badge">Application-owned</span>
-        </summary>
-        <div className="protected-instructions-details">
-          <label className="form-field">
-            Shared instructions
-            <textarea
-              value={data?.protected_shared_instructions ?? ''}
-              readOnly
-              aria-label="Protected shared instructions"
-            />
-          </label>
-        </div>
-      </details>
     </section>
   )
 }

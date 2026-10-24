@@ -668,6 +668,35 @@ async def test_ask_allowed_processes_and_replies() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("answer,expected", [("🙂" * 450, ["@viewer " + "🙂" * 450]), ("\ud800", []), ("A" * 493, [])])
+async def test_ask_respects_encoded_envelope_without_splitting(answer, expected):
+    registry = CommandRegistry()
+    register_ai_commands(registry)
+    services = SimpleNamespace(ai=FakeAIService(answer), ai_request_policy=AIRequestPolicy())
+    transport = FakeChatTransport("!ask hello")
+    await build_dispatcher(registry).dispatch(transport.message, services)
+    assert transport.replies == expected
+
+
+@pytest.mark.asyncio
+async def test_configured_question_limit_precedes_ai_memory_and_accepts_over_legacy_300():
+    from app.config.ai_setup import AIModelSelection, AISetup
+    registry = CommandRegistry()
+    register_ai_commands(registry)
+    ai = FakeAIService()
+    memory = SimpleNamespace(get_recent=AsyncMock(return_value=[]), format_context=lambda _: "", save_exchange=AsyncMock())
+    services = SimpleNamespace(ai=ai, ai_request_policy=AIRequestPolicy(), memory=memory,
+        settings=Settings(ai_setup=AISetup(AIModelSelection("deepseek", "deepseek-flash", "off"), max_question_length=400)))
+    transport = FakeChatTransport("!ask " + "a" * 401)
+    await build_dispatcher(registry).dispatch(transport.message, services)
+    assert not ai.calls
+    memory.get_recent.assert_not_awaited()
+    transport = FakeChatTransport("!ask " + "a" * 400)
+    await build_dispatcher(registry).dispatch(transport.message, services)
+    assert len(ai.calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_ask_passes_optional_stream_category_to_ai() -> None:
     class FakeTwitchService:
         async def get_current_category(self) -> str:

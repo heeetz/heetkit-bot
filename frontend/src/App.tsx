@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import SetupChecklist from './components/SetupChecklist'
 import {
   type AIProviderSettings,
   type AIStatus,
@@ -47,14 +48,13 @@ const subsections: Partial<Record<Section, { label: string; targetId: string }[]
     { label: 'Regex patterns', targetId: 'filters-patterns' },
   ],
   AI: [
+    { label: 'AI setup', targetId: 'ai-models' },
     { label: 'State', targetId: 'ai-runtime' },
     { label: 'Playground', targetId: 'ai-playground' },
     { label: 'Personalities', targetId: 'ai-personalities' },
     { label: 'Profile instructions', targetId: 'ai-profile-instructions' },
     { label: 'Response language', targetId: 'ai-language' },
-    { label: 'Models', targetId: 'ai-models' },
     { label: 'AI access', targetId: 'ai-blocked-users' },
-    { label: 'Built-in restrictions', targetId: 'ai-shared-instructions' },
   ],
   Settings: [
     { label: 'Twitch connection', targetId: 'twitch-settings' },
@@ -203,6 +203,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
 
   return (
     <section className="dashboard-layout">
+      {setup && <SetupChecklist twitchConfigured={!needsTwitchSetup} twitchConnected={connectionState === 'connected'} aiConfigured={Boolean(aiStatus?.available)} onTwitch={() => onNavigate('Settings', 'twitch-settings')} onAI={() => onNavigate('AI', 'ai-models')} />}
       <article className="card dashboard-hero">
         <div className="dashboard-hero-status">
           <span className={`status-dot ${status?.running ? 'online' : ''}`} />
@@ -768,7 +769,7 @@ function ManagementApp() {
           )}
           <div hidden={section !== 'Commands'}><CommandsPage active={section === 'Commands'} revealCommand={navigationTarget?.id === 'command-editor-ask' ? 'ask' : undefined} onAIEnabledChanged={synchronizeAIEnabled} /></div>
           <div hidden={section !== 'Filters'}><FiltersPage active={section === 'Filters'} /></div>
-          <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} onOpenSettings={() => navigate('Settings', isBrowserMode() ? 'twitch-settings' : 'credential-settings')} onOpenPlayground={() => navigate('AI', 'ai-playground')} onOpenAsk={() => navigate('Commands', 'command-editor-ask')} onAIEnabledChanged={synchronizeAIEnabled} /></div>
+          <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} onOpenPlayground={() => navigate('AI', 'ai-playground')} onOpenAsk={() => navigate('Commands', 'command-editor-ask')} onAIEnabledChanged={synchronizeAIEnabled} /></div>
           {section === 'Logs' && <LogsPage />}
           <div hidden={section !== 'Settings'}><SettingsPage active={section === 'Settings'} status={status} onReturnToAI={() => navigate('AI', 'ai-playground')} /></div>
           {section === 'About' && <AboutPage />}

@@ -389,6 +389,8 @@ POST writes persist and apply immediately unless stated otherwise.
 | GET `ai` | AI availability, enablement, memory, model and active personality |
 | POST `ai/enabled`, `ai/memory` | Boolean `enabled` |
 | GET / POST `ai/models` | GET: active `provider_id`, selected/fallback models, presets and credential status, no secret values. POST: optional `provider` (`gemini` default or `deepseek`); supply distinct `selected_model`, `fallback_model` to save that provider's choices, or omit both to switch to its retained choices |
+| GET / POST `ai/setup` | GET: typed primary/fallback selections, connection status, documented capabilities, default shared instructions and retained restrictions. POST: `settings` containing `primary`, nullable `fallback` (each `provider`, `model`, `thinking`, `search`), `cross_provider_acknowledged`, `max_question_length` (1–4000), `max_answer_length` (1–450), nullable `shared_instructions` (empty is deliberate), and `provider_drafts`. Atomic non-secret save; credential operations remain separate. Imported cross-provider routing requires a fresh acknowledgement. After advanced setup exists, legacy `ai/models` needs both models; use this operation for provider switches. |
+| GET / POST `setup/guide` | Profile-local dismiss/resume and optional-AI skip preferences. POST requires boolean `dismissed`, `ai_skipped`; this does not configure or authorize Twitch. |
 | POST `ai/models/discover` | Optional `provider` (otherwise active); bounded discovery with that provider's configured key, returns `provider_id` and `models`. An empty list is valid; listing does not prove generation/tool access and never changes saved models |
 | GET / POST `ai/language` | POST: `mode` (`auto` or `limited`), `allowed_languages` (codes), `fallback_language` |
 | GET `personalities` | Prompts, saved state, active personality and protected instructions |
@@ -536,7 +538,8 @@ authorization URL. There is no unauthenticated OAuth callback route. Treat the p
 callback URL as sensitive, close its browser tab afterwards, and remove it from
 browser history when practical. Remote HTTPS callback automation is not supported.
 
-Limits are 64 KiB per JSON request, except configuration preview/import allow
+Limits are 64 KiB per JSON request, except AI setup allows 256 KiB for escaped Unicode
+instructions, and configuration preview/import allow
 1,399,128 bytes for a base64-encoded ZIP of at most 1 MiB and its fixed arguments.
 Configuration export retains the 2 MiB response limit. Format version 1 requires
 exactly `manifest.json` and `configuration.json`, with a validated byte size/SHA-256

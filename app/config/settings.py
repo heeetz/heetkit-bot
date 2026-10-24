@@ -16,6 +16,7 @@ from app.config.ai_models import (
     DEFAULT_DEEPSEEK_MODEL, DEFAULT_DEEPSEEK_FALLBACK_MODEL, validate_provider_model_id,
 )
 from app.config.ai_language import ResponseLanguageSettings, validate_response_language
+from app.config.ai_setup import AISetup
 from app.runtime_paths import RuntimePaths
 
 if TYPE_CHECKING:
@@ -62,6 +63,7 @@ class Settings(BaseSettings):
     deepseek_fallback_model: str = DEFAULT_DEEPSEEK_FALLBACK_MODEL
     ai_cooldown_bypass_user_id: str | None = None
     ai_response_language: ResponseLanguageSettings = Field(default_factory=ResponseLanguageSettings)
+    ai_setup: AISetup | None = None
     database_url: str = Field(
         default_factory=lambda: "sqlite+aiosqlite:///" + str(RuntimePaths.default().database)
     )

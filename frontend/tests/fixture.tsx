@@ -7,6 +7,7 @@ import SettingsPage from '../src/pages/SettingsPage'
 import type {
   AILanguageInfo,
   AILanguageSettings,
+  AISetupSettings,
   BlockedAIUser,
   AppStatus,
   CommandInfo,
@@ -72,7 +73,20 @@ Object.assign(window, { aiBlockCalls })
 const credentials = [
   { name: 'twitch_client_secret', label: 'Twitch client secret', configured, source: configured ? 'credential_store' : 'missing', secure_storage_available: true },
   { name: 'gemini_api_key', label: 'Gemini API key', configured: aiStatus.available, source: aiStatus.available ? 'credential_store' : 'missing', secure_storage_available: true },
+  { name: 'deepseek_api_key', label: 'DeepSeek API key', configured: query.has('multipleProviders'), source: query.has('multipleProviders') ? 'credential_store' : 'missing', secure_storage_available: true },
 ]
+let aiSetup: AISetupSettings = JSON.parse(sessionStorage.getItem('aiSetup') ?? 'null') ?? {
+  primary: { provider: 'gemini', model: 'gemini-2.5-flash', thinking: 'default', search: false },
+  fallback: { provider: 'gemini', model: 'gemini-2.5-pro', thinking: 'default', search: false },
+  cross_provider_acknowledged: false, max_question_length: 300, max_answer_length: 220,
+  shared_instructions: null, provider_drafts: {},
+}
+const setupCapabilities = (provider: string, options: string[]) => ({ known: true,
+  thinking_options: options.map((value) => ({ value, label: value === 'default' ? 'Provider default' : value })),
+  search_supported: true, search_reason: provider === 'gemini' ? 'Google Search Suggestions cannot be rendered in Twitch.' : 'Bounded DeepSeek Search/Fetch.',
+  attribution_required: provider === 'gemini',
+})
+let setupGuide = JSON.parse(sessionStorage.getItem('setupGuide') ?? '{"dismissed":false,"ai_skipped":false}')
 const activeIdentity = { client_id: twitch.client_id, bot_username: twitch.bot_username, bot_user_id: twitch.bot_user_id }
 let secretRestartRequired = query.has('restartRequired')
 const credentialCalls: unknown[][] = []
@@ -277,6 +291,26 @@ window.pywebview = { api: {
     return { ok: true }
   },
   get_credentials: async () => ({ ok: true, credentials: structuredClone(credentials) }),
+  get_setup_guide: async () => ({ ok: true, ...setupGuide }),
+  save_setup_guide: async (dismissed: boolean, ai_skipped: boolean) => {
+    setupGuide = { dismissed, ai_skipped }; sessionStorage.setItem('setupGuide', JSON.stringify(setupGuide)); return { ok: true, ...setupGuide }
+  },
+  get_ai_setup: async () => ({ ok: true, settings: structuredClone(aiSetup),
+    providers: [
+      { id: 'gemini', label: 'Google Gemini', credential: credentials[1], models: ['gemini-2.5-flash', 'gemini-2.5-pro'], selected_model: 'gemini-2.5-flash', fallback_model: 'gemini-2.5-pro' },
+      { id: 'deepseek', label: 'DeepSeek', credential: credentials[2], models: ['deepseek-flash', 'deepseek-v4-pro'], selected_model: 'deepseek-flash', fallback_model: 'deepseek-v4-pro' },
+    ],
+    capabilities: { gemini: { 'gemini-2.5-flash': setupCapabilities('gemini', ['default', 'off', 'budget:24576']), 'gemini-2.5-pro': setupCapabilities('gemini', ['default', 'budget:128', 'budget:32768']) },
+      deepseek: { 'deepseek-flash': setupCapabilities('deepseek', ['default', 'off', 'low', 'high', 'max']), 'deepseek-v4-pro': setupCapabilities('deepseek', ['default', 'off', 'low', 'high', 'max']) } },
+    default_shared_instructions: 'Synthetic shared defaults.', retained_restrictions: 'Local request and full-output checks remain enabled. Provider policies and transport limits apply.',
+  }),
+  save_ai_setup: async (settings: AISetupSettings) => {
+    aiCalls.push(['save_ai_setup', settings])
+    if (query.has('modelSaveError')) return { ok: false, error: 'Synthetic setup save failure.' }
+    if (settings.primary.model === settings.fallback?.model && settings.primary.provider === settings.fallback?.provider) return { ok: false, error: 'Fallback must differ from primary.' }
+    aiSetup = structuredClone(settings); sessionStorage.setItem('aiSetup', JSON.stringify(aiSetup)); aiStatus.model = aiSetup.primary.model; return { ok: true }
+  },
+  discover_ai_models: async (provider: string) => ({ ok: true, provider_id: provider, models: [`${provider}-discovered-model`] }),
   replace_credential: async (name: string) => {
     credentialCalls.push(['replace', name])
     if (query.has('credentialSaveError')) return { ok: false, error: 'Could not store the credential securely.' }

@@ -16,7 +16,7 @@ def apply_twitch_app_settings(settings: Settings, app_settings: AppSettings) -> 
 
 def apply_ai_app_settings(settings: Settings, app_settings: AppSettings) -> Settings:
     ai = app_settings.ai
-    overrides = {"ai_response_language": ai.response_language}
+    overrides = {"ai_response_language": ai.response_language, "ai_setup": ai.setup}
     if ai.provider is not None:
         overrides["ai_provider"] = ai.provider
     if ai.selected_model is not None and ai.fallback_model is not None:
@@ -25,4 +25,6 @@ def apply_ai_app_settings(settings: Settings, app_settings: AppSettings) -> Sett
         overrides.update(deepseek_model=ai.deepseek_selected_model, deepseek_fallback_model=ai.deepseek_fallback_model)
     if ai.cooldown_bypass_user_id is not None:
         overrides["ai_cooldown_bypass_user_id"] = ai.cooldown_bypass_user_id
+    if ai.setup is not None:
+        overrides["ai_provider"] = ai.setup.primary.provider
     return settings.model_copy(update=overrides) if overrides else settings

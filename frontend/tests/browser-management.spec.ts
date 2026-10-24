@@ -49,6 +49,10 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
   const status = { running: true, twitch_connected: true, twitch_connection_state: 'connected' as const, uptime_seconds: 10, channel: 'synthetic_channel', account: 'synthetic_bot', ...statusOverrides, operation }
   const ai = () => ({ enabled, available: true, memory_enabled: false, active_personality: 'neutral', available_personalities: ['neutral'], model: 'test-model' })
   const aiProvider = { provider: 'Gemini', selected_model: 'test-model', fallback_model: 'test-fallback', presets: [], credential: null }
+  let aiSetup = { primary: { provider: 'gemini', model: 'gemini-2.5-flash', thinking: 'default', search: false },
+    fallback: null, cross_provider_acknowledged: false, max_question_length: 300, max_answer_length: 220,
+    shared_instructions: null, provider_drafts: {} }
+  let setupGuide = { dismissed: false, ai_skipped: false }
   const twitch: Record<string, unknown> = { client_id: 'synthetic-client', bot_username: 'synthetic_bot', bot_user_id: '100', target_channel: 'synthetic_channel', target_channel_user_id: '200', active_channel: 'synthetic_channel', requires_restart: false, requires_reconnect: false, oauth_token_available: true, oauth_callback_url: 'http://localhost:8765/oauth/callback', authorization_status: 'verified', authorized_account: 'synthetic_bot', setup_complete: true }
   const credentials = [{ name: 'twitch_client_secret', label: 'Twitch client secret', configured: true, source: 'environment', managed: false, validation_status: 'not_tested', secure_storage_available: false }, { name: 'gemini_api_key', label: 'Gemini API key', configured: false, source: 'missing', managed: true, validation_status: 'not_tested', secure_storage_available: false }]
   await page.route('**/v1/**', async (route) => {
@@ -75,6 +79,20 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
       Object.assign(status, { operation, running: false, twitch_connected: false, twitch_connection_state: 'stopped' as const })
     }
     if (path === '/v1/setup') result = { ok: true, twitch, credentials, aiProvider }
+    if (path === '/v1/setup/guide') {
+      if (request.method() === 'POST') setupGuide = body as typeof setupGuide
+      result = { ok: true, ...setupGuide }
+    }
+    if (path === '/v1/ai/setup') {
+      if (request.method() === 'POST') aiSetup = body!.settings as typeof aiSetup
+      result = { ok: true, settings: aiSetup, providers: [
+        { id: 'gemini', label: 'Google Gemini', credential: credentials[1], models: ['gemini-2.5-flash'], selected_model: 'gemini-2.5-flash', fallback_model: 'gemini-2.5-pro' },
+        { id: 'deepseek', label: 'DeepSeek', credential: { configured: true, source: 'server_file', managed: true }, models: ['deepseek-flash'], selected_model: 'deepseek-flash', fallback_model: 'deepseek-v4-pro' },
+      ], capabilities: { gemini: { 'gemini-2.5-flash': { known: true, thinking_options: [{ value: 'default', label: 'Provider default' }, { value: 'off', label: 'Off' }], search_supported: true, search_reason: 'Google Suggestions display required', attribution_required: true } },
+        deepseek: { 'deepseek-flash': { known: true, thinking_options: [{ value: 'default', label: 'Provider default' }, { value: 'off', label: 'Off' }, { value: 'high', label: 'High' }], search_supported: true, search_reason: 'Bounded provider search', attribution_required: false } } },
+        default_shared_instructions: 'Shared defaults', retained_restrictions: 'Local request and output checks remain enabled.' }
+    }
+    if (path === '/v1/ai/models/discover') result = { ok: true, provider_id: body?.provider, models: ['deepseek-flash'] }
     if (path === '/v1/twitch/settings') {
       Object.assign(twitch, {
         client_id: body!.client_id,
@@ -362,7 +380,7 @@ for (const width of [1280, 900, 390, 320]) {
     await profile.locator('textarea').fill('Saved browser instructions')
     await profile.getByRole('button', { name: 'Save', exact: true }).click()
     await expect.poll(() => api.calls.find((call) => call.path === '/v1/ai/instructions/save')?.body).toEqual({ prompt: 'Saved browser instructions' })
-    await page.getByRole('button', { name: 'Add Gemini key', exact: true }).click()
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Server configuration' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Configuration transfer' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Save Twitch settings', exact: true })).toBeVisible()
@@ -667,3 +685,35 @@ for (const origin of ['http://localhost:8765', 'https://server.example-tailnet.t
     await expect(page.getByRole('alert')).toContainText('Authorization expired')
   })
 }
+
+
+test('browser AI setup saves typed selections, explicit fallback consent and shared instructions through HTTP', async ({ page }) => {
+  const api = await server(page)
+  await page.goto('/tests/browser.fixture.html')
+  await login(page)
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  const setup = page.locator('#ai-models')
+  await expect(setup.getByLabel('Primary provider')).toBeVisible()
+  await setup.getByLabel('Primary provider').selectOption('deepseek')
+  await setup.getByLabel('Primary thinking').selectOption('high')
+  await setup.locator('summary').filter({ hasText: 'Fallback model' }).click()
+  await setup.getByLabel('Enable fallback', { exact: true }).check()
+  await setup.getByLabel('Fallback provider').selectOption('gemini')
+  await setup.getByLabel('Fallback model', { exact: true }).fill('gemini-2.5-flash')
+  await setup.getByLabel('Fallback thinking').selectOption('off')
+  await expect(setup.getByRole('button', { name: 'Save AI setup' })).toBeDisabled()
+  await setup.getByLabel(/I understand that my question/).check()
+  await setup.locator('summary').filter({ hasText: 'Shared instructions' }).click()
+  await setup.getByLabel('Shared AI instructions', { exact: true }).fill('Owner shared instructions')
+  await setup.getByLabel('Maximum question length', { exact: true }).fill('800')
+  await setup.getByRole('button', { name: 'Save AI setup' }).click()
+  await expect(setup).toContainText('AI setup saved')
+  await expect.poll(() => api.calls.find((call) => call.path === '/v1/ai/setup' && call.method === 'POST')?.body).toMatchObject({ settings: {
+    primary: { provider: 'deepseek', model: 'deepseek-flash', thinking: 'high', search: false },
+    fallback: { provider: 'gemini', thinking: 'off' }, cross_provider_acknowledged: true,
+    max_question_length: 800, shared_instructions: 'Owner shared instructions',
+  } })
+  await setup.getByRole('button', { name: 'Discover primary models' }).click()
+  expect(api.calls.filter((call) => call.path === '/v1/ai/models/discover').at(-1)?.body).toEqual({ provider: 'deepseek' })
+  expect(await page.evaluate(() => Boolean(window.pywebview))).toBe(false)
+})

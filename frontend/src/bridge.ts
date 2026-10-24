@@ -338,6 +338,39 @@ export interface AIProviderSettingsResponse extends ActionResult {
   providers?: { id: AIProviderId; label: string }[]
 }
 
+export interface AIModelSelection {
+  provider: AIProviderId
+  model: string
+  thinking: string
+  search: boolean
+}
+
+export interface AISetupSettings {
+  primary: AIModelSelection
+  fallback: AIModelSelection | null
+  cross_provider_acknowledged: boolean
+  max_question_length: number
+  max_answer_length: number
+  shared_instructions: string | null
+  provider_drafts: Partial<Record<string, AIModelSelection>>
+}
+
+export interface AIModelCapabilities {
+  known: boolean
+  thinking_options: { value: string; label: string }[]
+  search_supported: boolean
+  search_reason: string
+  attribution_required: boolean
+}
+
+export interface AISetupResponse extends ActionResult {
+  settings?: AISetupSettings
+  providers?: { id: AIProviderId; label: string; credential: CredentialInfo | null; models: string[]; selected_model: string; fallback_model: string }[]
+  capabilities?: Record<AIProviderId, Record<string, AIModelCapabilities>>
+  default_shared_instructions?: string
+  retained_restrictions?: string
+}
+
 export type AILanguageMode = 'auto' | 'limited'
 
 export interface AILanguageSettings {
@@ -404,7 +437,7 @@ export interface LogsResponse {
 export interface AIPlaygroundResult {
   ok: boolean
   request_id?: string
-  status?: 'pending' | 'success' | 'input_blocked' | 'output_blocked' | 'provider_unavailable' | 'api_error' | 'timeout' | 'cancelled'
+  status?: 'pending' | 'success' | 'input_blocked' | 'output_blocked' | 'provider_unavailable' | 'api_error' | 'timeout' | 'cancelled' | 'model_unavailable' | 'configuration_error' | 'search_error' | 'search_unavailable' | 'attribution_unavailable' | 'question_too_long'
   text?: string
   moderation_source?: 'editable_filter' | 'filter_timeout' | 'protected_policy' | null
   matched_category?: string | null
@@ -469,6 +502,10 @@ export interface PythonApi {
   reconnect_twitch(): Promise<ActionResult>
   get_credentials(): Promise<CredentialsResponse>
   get_ai_provider_settings(): Promise<AIProviderSettingsResponse>
+  get_ai_setup(): Promise<AISetupResponse>
+  save_ai_setup(settings: AISetupSettings): Promise<ActionResult>
+  get_setup_guide(): Promise<ActionResult & { dismissed?: boolean; ai_skipped?: boolean }>
+  save_setup_guide(dismissed: boolean, ai_skipped: boolean): Promise<ActionResult & { dismissed?: boolean; ai_skipped?: boolean }>
   update_ai_provider_settings(selectedModel?: string | null, fallbackModel?: string | null, provider?: AIProviderId): Promise<ActionResult>
   get_ai_language_settings(): Promise<AILanguageSettingsResponse>
   update_ai_language_settings(mode: string, allowedLanguages: string[], fallbackLanguage: string): Promise<ActionResult>

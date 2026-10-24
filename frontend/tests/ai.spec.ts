@@ -63,9 +63,9 @@ test('profile actions preserve personality drafts and expose state', async ({ pa
 
   const personality = page.locator('.personality-editor')
   const profile = page.locator('.profile-instructions-editor')
-  const protectedInstructions = page.locator('.protected-instructions-card')
+  const sharedInstructions = page.locator('.ai-instructions-editor')
   await expect(profile.locator('textarea')).toHaveValue('')
-  await expect(protectedInstructions).not.toHaveAttribute('open', '')
+  await expect(sharedInstructions).not.toHaveAttribute('open', '')
   await expect(personality.getByText('Built-in', { exact: true })).toBeVisible()
   await expect(personality.getByText('Active', { exact: true })).toBeVisible()
 
@@ -92,9 +92,9 @@ test('profile actions preserve personality drafts and expose state', async ({ pa
   await expect(profile.locator('textarea')).toHaveValue('')
   await expect(personality.locator('textarea')).toHaveValue('saved personality draft')
 
-  await protectedInstructions.locator('summary').click()
-  await expect(protectedInstructions.locator('textarea')).toHaveValue('Synthetic shared instructions.')
-  await expect(protectedInstructions.locator('textarea')).toHaveAttribute('readonly', '')
+  await sharedInstructions.locator('summary').click()
+  await expect(sharedInstructions.locator('textarea')).toHaveValue('Synthetic shared defaults.')
+  await expect(sharedInstructions.locator('textarea')).toBeEditable()
 })
 
 test('custom personality CRUD keeps save and activation separate', async ({ page }) => {

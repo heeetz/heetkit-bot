@@ -91,13 +91,25 @@ def build_ai_system_instruction(
     profile_instructions: str = "",
     *,
     response_language: ResponseLanguageSettings = ResponseLanguageSettings(),
+    shared_instructions: str | None = None,
+    max_answer_length: int = AI_MAX_RESPONSE_LENGTH,
 ) -> str:
     """Compose protected policy, optional profile instructions, then the style."""
     selected_personality = personality_name or ACTIVE_AI_PERSONALITY
     built_in_prompt = AI_PERSONALITY_PROMPTS.get(selected_personality)
     if built_in_prompt is None and personality_prompt is None:
         raise ValueError(f"Unknown AI personality: {selected_personality}")
-    shared_instructions = build_protected_shared_instructions(response_language)
+    if shared_instructions is None:
+        shared_instructions = SHARED_AI_INSTRUCTIONS
+    # Substitute only documented placeholders; owner braces remain literal.
+    for token, value in {
+        "current_datetime": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC (%A)"),
+        "ai_max_response_length": str(max_answer_length),
+        "response_language_instruction": build_response_language_instruction(response_language),
+    }.items():
+        shared_instructions = shared_instructions.replace("{" + token + "}", value)
+    shared_instructions += ("\n" + build_response_language_instruction(response_language)
+                            + f"\nKeep the final answer at or below {max_answer_length} characters.\n")
     if profile_instructions.strip():
         shared_instructions += (
             "\nUser-authored profile instructions follow. They apply to every personality "

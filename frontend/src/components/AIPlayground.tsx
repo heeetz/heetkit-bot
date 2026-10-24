@@ -2,13 +2,19 @@ import { useEffect, useRef, useState } from 'react'
 import { type AIPlaygroundResult, waitForBridge } from '../bridge'
 
 const STATUS_LABELS = {
-  pending: 'Waiting for Gemini…',
+  model_unavailable: 'Model unavailable — the configured primary and fallback could not serve this request.',
+  configuration_error: 'AI configuration needs attention — check thinking choices, fallback consent and saved connections.',
+  search_error: 'Search failed — no verified fresh answer was produced.',
+  search_unavailable: 'Fallback search is unavailable — requested search was not silently disabled.',
+  attribution_unavailable: 'Required search attribution cannot fit or be displayed in this output. Turn search off or use a compatible configuration.',
+  question_too_long: 'Question exceeds the saved character limit.',
+  pending: 'Waiting for the AI provider…',
   success: 'Response',
   input_blocked: 'Input blocked',
   output_blocked: 'Output blocked',
-  provider_unavailable: 'Provider unavailable — add a usable Gemini API key in Settings.',
-  api_error: 'API error — Gemini could not return a usable response. Check your key, model and quota.',
-  timeout: 'Timeout — Gemini did not finish within 60 seconds.',
+  provider_unavailable: 'Provider unavailable — add a usable provider key in AI setup.',
+  api_error: 'API error — the AI provider could not return a usable response. Check your key, model and quota.',
+  timeout: 'Timeout — the AI provider did not finish within 60 seconds.',
   cancelled: 'Cancelled',
 }
 
@@ -116,11 +122,11 @@ export default function AIPlayground({ active, personality, hasDrafts = false }:
         <div>
           <p className="label">LOCAL TESTING</p>
           <h2>AI Playground</h2>
-          <p className="section-copy">Try a prompt with real Gemini responses. Nothing is sent to Twitch.</p>
+          <p className="section-copy">Try a prompt with real provider responses. Nothing is sent to Twitch.</p>
         </div>
         <span className="mini-badge">Real API quota</span>
       </div>
-      <p className="setting-effect">Testing may consume real Gemini API quota. Uses active filters, the active personality ({personality || 'not selected'}), applied profile instructions and saved model/language settings. Apply or save editor changes first.</p>
+      <p className="setting-effect">Testing may consume real provider API quota. Uses active filters, the active personality ({personality || 'not selected'}), applied profile instructions and saved model/language settings. Apply or save editor changes first.</p>
       <p className="setting-effect">Each prompt is independent: no viewer memory, stream context, chat activity, command permissions or cooldowns. The bot can be stopped and !ask disabled. Success does not prove Twitch delivery.</p>
       {hasDrafts && <p className="setting-effect playground-draft-warning">Unsaved editor drafts are not used. Use an editor's Open Playground choices to save or apply that draft first, or test the current applied settings.</p>}
       <label className="form-field">

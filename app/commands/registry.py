@@ -436,7 +436,12 @@ class CommandDispatcher:
                 self._outcome("availability")
                 return True
 
-            if len(arguments) > self._max_arguments_length:
+            maximum = self._max_arguments_length
+            if definition.requires_ai:
+                from app.config.ai_setup import effective_ai_setup
+                maximum = effective_ai_setup(getattr(services, "settings", None)).max_question_length
+            argument_length = len(arguments.strip()) if definition.requires_ai else len(arguments)
+            if argument_length > maximum:
                 self._outcome("invalid_arguments", reason="too_long")
                 return True
 

@@ -34,6 +34,7 @@ from app.server_setup import ServerSetup
 
 
 MAX_BODY = 65536
+MAX_AI_SETUP_BODY = 256 * 1024  # 20k Unicode instructions, including JSON escaping.
 REQUEST_SECONDS = 25
 CONNECTION_SECONDS = 35
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{43,128}\Z")
@@ -175,6 +176,8 @@ READS = {
     "/v1/filters": "get_filters",
     "/v1/ai": "get_ai_status",
     "/v1/ai/models": "get_ai_provider_settings",
+    "/v1/ai/setup": "get_ai_setup",
+    "/v1/setup/guide": "get_setup_guide",
     "/v1/ai/language": "get_ai_language_settings",
     "/v1/personalities": "get_personalities",
     "/v1/blocked-users": "get_blocked_ai_users",
@@ -197,6 +200,8 @@ WRITES = {
     "/v1/ai/enabled": "set_ai_enabled",
     "/v1/ai/memory": "_save_ai_memory_enabled",
     "/v1/ai/models": "_save_ai_provider_models",
+    "/v1/ai/setup": "_save_ai_setup",
+    "/v1/setup/guide": "save_setup_guide",
     "/v1/ai/language": "_save_ai_response_language",
     "/v1/personalities/create": "create_personality",
     "/v1/personalities/rename": "rename_personality",
@@ -429,6 +434,8 @@ class ManagementAPI:
                     length = request.content_length
                     maximum = MAX_TRANSFER_BODY if request.path in (
                         "/v1/configuration/preview", "/v1/configuration/import") else MAX_BODY
+                    if request.path == "/v1/ai/setup":
+                        maximum = MAX_AI_SETUP_BODY
                     if length is None or length < 2 or length > maximum:
                         return reject(413, "JSON body exceeds this operation's size limit.")
                     async with asyncio.timeout(5):
@@ -521,11 +528,16 @@ class ManagementAPI:
             # Domain validators remain authoritative; never echo their exception
             # text (some legacy validators interpolate supplied values).
             if result.get("ok") is False:
+                if path == "/v1/ai/setup":
+                    return result
                 return {"ok": False, "error": "Operation rejected; check input, profile storage and current state."}
             if method == "POST":
                 self.policy.refresh_command_monitoring()
             if method == "GET" and path == "/v1/ai/models":
                 result["settings"]["credential"] = self.ai_credential_status(result["settings"]["provider_id"])
+            if method == "GET" and path == "/v1/ai/setup":
+                for provider in result["providers"]:
+                    provider["credential"] = self.ai_credential_status(provider["id"])
             if method == "GET" and path == "/v1/status":
                 result["operation"] = self.policy.snapshot()
             return result

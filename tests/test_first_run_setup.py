@@ -188,7 +188,9 @@ def test_existing_owner_profile_and_keyring_survive_without_legacy_files(tmp_pat
     assert settings.twitch_bot_username == "savedbot"
     assert settings.gemini_model == "gemini-owner"
     assert settings.ai_cooldown_bypass_user_id == "123"
-    assert all(status.source == "credential_store" for status in manager.statuses())
+    assert all(status.source == "credential_store" for status in manager.statuses()
+               if status.name != "deepseek_api_key")
+    assert next(status for status in manager.statuses() if status.name == "deepseek_api_key").source == "missing"
     backend = webview_host.AsyncioBackendHost(settings, initial_ai_memory_enabled=app_settings.ai.memory_enabled)
     try:
         backend.start()

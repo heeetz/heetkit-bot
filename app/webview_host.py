@@ -106,6 +106,8 @@ FRONTEND_OPERATIONS = (
     "get_twitch_settings", "update_twitch_settings", "save_twitch_preset",
     "delete_twitch_preset", "reconnect_twitch", "get_credentials",
     "get_ai_provider_settings", "update_ai_provider_settings", "discover_gemini_models", "discover_ai_models",
+    "get_ai_setup", "save_ai_setup",
+    "get_setup_guide", "save_setup_guide",
     "get_blocked_ai_users", "block_ai_user", "unblock_ai_user",
     "get_ai_language_settings", "update_ai_language_settings",
     "replace_credential", "remove_credential", "test_credential", "start_bot", "stop_bot",
@@ -648,8 +650,9 @@ class WebUIBridge(ApplicationManagement):
     async def _start_ai_playground(self, prompt: object) -> dict[str, object]:
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("Enter a prompt to test.")
-        maximum = self._backend.application.settings.command_max_arguments_length
-        if len(prompt) > maximum:
+        from app.config.ai_setup import effective_ai_setup
+        maximum = effective_ai_setup(self._backend.application.settings).max_question_length
+        if len(prompt.strip()) > maximum:
             raise ValueError(f"Use at most {maximum} characters, the same limit as Ask.")
         if self._playground_task is not None and not self._playground_task.done():
             return {"ok": False, "error": "A Playground request is already running."}
@@ -1039,6 +1042,15 @@ class WebUIBridge(ApplicationManagement):
         )
         return {"ok": True}
 
+
+    def save_ai_setup(self, settings: object) -> dict[str, object]:
+        try:
+            return self._wait_for_backend(self._save_ai_setup(settings), operation="save_ai_setup",
+                                          timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except Exception:
+            return {"ok": False, "error": "Could not save AI setup. Reload saved state before retrying."}
 
     def update_ai_provider_settings(
         self,

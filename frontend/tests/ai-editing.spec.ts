@@ -79,15 +79,12 @@ for (const width of [1280, 390]) {
     const models = page.locator('#ai-models')
     const language = page.locator('#ai-language')
     await expect(models.getByLabel('Primary model', { exact: true })).toBeVisible()
-    await expect(models.getByLabel('Fallback model', { exact: true })).toBeVisible()
-    await selectOption(models.getByLabel('Primary model', { exact: true }), '__custom_model__')
-    await models.getByLabel('Primary model custom model ID', { exact: true }).fill('synthetic-custom')
+    await models.getByLabel('Primary model', { exact: true }).fill('synthetic-custom')
     await selectOption(language.getByLabel('Response language mode'), 'limited')
-    await models.getByRole('button', { name: 'Open Playground' }).click()
-    await models.getByRole('button', { name: 'Use current applied settings' }).click()
     expect(await testPrompt(page)).toMatchObject({ model: 'synthetic-primary', language: { mode: 'auto' } })
-    await models.getByRole('button', { name: 'Open Playground' }).click()
-    await models.getByRole('button', { name: 'Save draft and open Playground' }).click()
+    await expect(page.locator('.playground-draft-warning')).toBeVisible()
+    await models.getByRole('button', { name: 'Save AI setup', exact: true }).click()
+    await expect(models).toContainText('AI setup saved')
     expect(await testPrompt(page)).toMatchObject({ model: 'synthetic-custom', language: { mode: 'auto' } })
     await expect(language.getByLabel('Response language mode')).toHaveAttribute('data-value', 'limited')
     await language.getByRole('button', { name: 'Open Playground' }).click()
@@ -96,9 +93,7 @@ for (const width of [1280, 390]) {
     await language.getByRole('button', { name: 'Open Playground' }).click()
     await language.getByRole('button', { name: 'Save draft and open Playground' }).click()
     expect(await testPrompt(page)).toMatchObject({ model: 'synthetic-custom', language: { mode: 'limited' } })
-    await models.getByRole('button', { name: 'Help: Fallback model', exact: true }).click()
-    await expect(page.getByRole('tooltip')).toContainText('Key, network, quota and billing failures do not trigger fallback')
-    await expect(models.getByRole('button', { name: 'Test credential' })).toHaveCount(0)
+
   })
 
   test(`Settings return and !ask editor links retain drafts at ${width}px`, async ({ page }) => {
@@ -106,7 +101,8 @@ for (const width of [1280, 390]) {
     await openAI(page)
     const profile = page.locator('#ai-profile-instructions')
     await profile.locator('textarea').fill('Keep profile draft')
-    await page.getByRole('button', { name: 'Manage Gemini key' }).click()
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Gemini API key', exact: true }).click()
     const key = page.locator('#credential-settings')
     await expect(key).toBeInViewport()
     await key.getByRole('button', { name: 'Test credential' }).click()
@@ -130,16 +126,11 @@ for (const [id, failure, field] of [
   ['ai-personalities', 'savePersonalityError', 'Editable prompt'],
   ['ai-profile-instructions', 'profileError', 'Profile instructions'],
   ['ai-language', 'languageSaveError', 'Response language mode'],
-  ['ai-models', 'modelSaveError', 'Primary model'],
 ]) {
   test(`failed ${id} save keeps the draft choice and does not open Playground`, async ({ page }) => {
     await openAI(page, failure)
     const editor = page.locator(`#${id}`)
     if (id === 'ai-language') await selectOption(editor.getByLabel(field), 'limited')
-    else if (id === 'ai-models') {
-      await selectOption(editor.getByLabel(field, { exact: true }), 'synthetic-fallback')
-      await selectOption(editor.getByLabel('Fallback model', { exact: true }), 'synthetic-primary')
-    }
     else await editor.getByRole('textbox', { name: field, exact: true }).fill('Retain failed draft')
     await editor.getByRole('button', { name: 'Open Playground' }).click()
     await editor.getByRole('button', { name: 'Save draft and open Playground' }).click()
@@ -158,7 +149,7 @@ test('AI scope and memory/access explanations remain available while stopped', a
   await expect(playground).toContainText('no viewer memory, stream context, chat activity, command permissions or cooldowns')
   await expect(playground).toContainText('The bot can be stopped and !ask disabled')
   await expect(playground).toContainText('Success does not prove Twitch delivery')
-  await expect(playground).toContainText('real Gemini API quota')
+  await expect(playground).toContainText('real provider API quota')
   await page.getByRole('button', { name: 'Help: Conversation memory', exact: true }).click()
   await expect(page.getByRole('tooltip')).toContainText('previously stored data is retained')
   await expect(page.getByRole('tooltip')).toContainText('up to five successful exchanges per viewer')
@@ -213,7 +204,7 @@ for (const width of [1280, 900, 761, 390, 320]) {
     await page.getByRole('button', { name: 'AI', exact: true }).click()
     await expect(page.locator('.ai-layout')).toHaveAttribute('aria-busy', 'false')
     const state = page.locator('#ai-runtime')
-    await expect(state.getByRole('heading')).toHaveText(['AI command', 'Conversation memory', 'Gemini', 'Active personality'])
+    await expect(state.getByRole('heading')).toHaveText(['AI command', 'Conversation memory', 'AI provider', 'Active personality'])
     await expect(state.locator('.ai-state-panel')).toHaveCount(4)
     const panels = await state.locator('.ai-state-panel').all()
     const panelBoxes = await Promise.all(panels.map(async (panel) => (await panel.boundingBox())!))
@@ -247,17 +238,9 @@ for (const width of [1280, 900, 761, 390, 320]) {
     await language.screenshot({ path: `node_modules/.tmp/a4-language-${width}.png` })
 
     const models = page.locator('#ai-models')
-    const discover = (await models.getByRole('button', { name: 'Discover models' }).boundingBox())!
-    const playground = (await models.getByRole('button', { name: 'Open Playground' }).boundingBox())!
-    const save = (await models.getByRole('button', { name: 'Save models', exact: true }).boundingBox())!
-    expect(playground.y).toBe(save.y)
-    expect(playground.height).toBe(save.height)
-    expect(playground.x).toBeLessThan(save.x)
-    if (width >= 900) expect(discover.y).toBe(playground.y)
-    if (width <= 390) expect(discover.y + discover.height).toBeLessThanOrEqual(playground.y)
-    await selectOption(models.getByLabel('Primary model', { exact: true }), 'synthetic-fallback')
-    await models.getByRole('button', { name: 'Open Playground' }).click()
-    await expect(models.locator('.playground-draft-choice')).toBeVisible()
+    await expect(models.getByRole('button', { name: 'Discover primary models' })).toBeVisible()
+    await models.getByLabel('Primary model', { exact: true }).fill('synthetic-draft')
+    await expect(models).toContainText('Unsaved AI setup')
     await models.screenshot({ path: `node_modules/.tmp/a4-models-${width}.png` })
     await expect(page.locator('#ai-memory').getByRole('checkbox')).not.toBeChecked()
     expect(await page.locator('.ai-layout').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy()
@@ -292,25 +275,22 @@ test('compact state displays loading and unavailable Gemini with reachable key m
   const state = page.locator('#ai-runtime')
   await expect(state.locator('.ai-state-panel')).toHaveCount(4)
   await expect(state.getByRole('checkbox', { name: 'Enable conversation memory' })).toBeDisabled()
-  await expect(state.getByRole('button', { name: 'Add Gemini key' })).toBeDisabled()
+  await expect(state.getByRole('button', { name: 'Manage AI setup' })).toBeDisabled()
   await expect(state).toContainText('Loading…')
   await page.evaluate(() => Reflect.get(window, 'releaseAIStatus')())
   await expect(page.locator('.ai-layout')).toHaveAttribute('aria-busy', 'false')
   await expect(state).toContainText('Unavailable')
   await expect(state).toContainText('Not selected')
-  await state.getByRole('button', { name: 'Add Gemini key' }).click()
-  await expect(page.locator('#credential-settings')).toBeInViewport()
+  await state.getByRole('button', { name: 'Manage AI setup' }).click()
+  await expect(page.locator('#ai-models')).toBeInViewport()
 })
 
-test('model discovery shares the action row and leaves drafts unsaved', async ({ page }) => {
+test('model discovery stays inside selection and leaves drafts unsaved', async ({ page }) => {
   await openAI(page)
-  await page.evaluate(() => {
-    window.pywebview!.api.discover_gemini_models = async () => ({ ok: true, models: ['synthetic-discovered'] })
-  })
   const models = page.locator('#ai-models')
-  await models.getByRole('button', { name: 'Discover models' }).click()
-  await selectOption(models.getByLabel('Primary model', { exact: true }), 'synthetic-discovered')
-  await expect(models.getByRole('button', { name: 'Save models', exact: true })).toBeEnabled()
-  await expect(models).toContainText('Saved primary model: synthetic-primary')
+  await models.getByRole('button', { name: 'Discover primary models' }).click()
+  await models.getByLabel('Primary model', { exact: true }).fill('gemini-discovered-model')
+  await expect(models.getByRole('button', { name: 'Save AI setup', exact: true })).toBeEnabled()
+  await expect(models).toContainText('Unsaved AI setup')
   expect(await page.evaluate(() => Reflect.get(window, 'aiCalls'))).toEqual([])
 })

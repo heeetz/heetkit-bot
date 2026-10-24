@@ -15,6 +15,7 @@ from threading import RLock
 from app.config.ai_models import validate_ai_provider, validate_provider_models
 from app.settings_recovery import preserve_settings_recovery
 from app.config.ai import AI_MEMORY_ENABLED
+from app.config.ai_setup import AIModelSelection, AISetup, parse_ai_setup
 from app.config.ai_language import ResponseLanguageSettings, validate_response_language
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,9 @@ class AISettings:
     # Optional per-account policy; internal AI/output bounds remain code-owned.
     cooldown_bypass_user_id: str | None = None
     response_language: ResponseLanguageSettings = field(default_factory=ResponseLanguageSettings)
+    setup: AISetup | None = None
+    setup_guide_dismissed: bool = False
+    setup_guide_ai_skipped: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -373,6 +377,12 @@ def load_app_settings(path: Path) -> AppSettings:
         except ValueError:
             logger.warning("Ignoring invalid application setting name=ai.response_language")
 
+    setup = None
+    if ai_payload.get("setup") is not None:
+        try:
+            setup = parse_ai_setup(ai_payload["setup"], capabilities=False, require_consent=False)
+        except ValueError:
+            logger.warning("Invalid saved AI setup; retaining legacy model settings")
     return AppSettings(
         window=WindowSettings(
             start_minimized=_read_boolean(
@@ -417,6 +427,9 @@ def load_app_settings(path: Path) -> AppSettings:
             deepseek_fallback_model=deepseek_fallback,
             cooldown_bypass_user_id=cooldown_bypass_user_id,
             response_language=response_language,
+            setup=setup,
+            setup_guide_dismissed=_read_boolean(ai_payload, "ai", "setup_guide_dismissed", False),
+            setup_guide_ai_skipped=_read_boolean(ai_payload, "ai", "setup_guide_ai_skipped", False),
         ),
         twitch=twitch,
     )
@@ -559,12 +572,42 @@ class AppSettingsStore:
             prefix = "deepseek_" if provider == "deepseek" else ""
             changes.update({prefix + "selected_model": selected, prefix + "fallback_model": fallback})
         with self._lock:
+            if self._settings.ai.setup is not None:
+                existing = self._settings.ai.setup
+                if selected_model is None and fallback_model is None:
+                    raise ValueError("Choose both models when changing a configured AI setup through the legacy model operation.")
+                def compatible(previous, model):
+                    if previous and previous.provider == provider and previous.model == model:
+                        return previous
+                    return AIModelSelection(provider, model, "off" if provider == "deepseek" else "default")
+                configured = replace(existing, primary=compatible(existing.primary, selected),
+                                     fallback=compatible(existing.fallback, fallback), cross_provider_acknowledged=False)
+                changes["setup"] = parse_ai_setup(asdict(configured))
             updated = AppSettings(
                 window=self._settings.window,
                 startup=self._settings.startup,
                 ai=replace(self._settings.ai, **changes),
                 twitch=self._settings.twitch,
             )
+            save_app_settings(self._path, updated, recovered_settings=self._settings)
+            self._settings = updated
+        return updated
+
+    def update_ai_setup(self, payload: object) -> AppSettings:
+        setup = parse_ai_setup(payload)
+        with self._lock:
+            updated = replace(self._settings, ai=replace(self._settings.ai, setup=setup,
+                                                       provider=setup.primary.provider))
+            save_app_settings(self._path, updated, recovered_settings=self._settings)
+            self._settings = updated
+        return updated
+
+    def update_setup_guide(self, dismissed: object, ai_skipped: object) -> AppSettings:
+        if type(dismissed) is not bool or type(ai_skipped) is not bool:
+            raise ValueError("Setup guide preferences must be boolean.")
+        with self._lock:
+            updated = replace(self._settings, ai=replace(self._settings.ai,
+                              setup_guide_dismissed=dismissed, setup_guide_ai_skipped=ai_skipped))
             save_app_settings(self._path, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated

@@ -54,6 +54,32 @@ async def profiles(tmp_path, monkeypatch):
         await app.shutdown()
 
 
+async def test_setup_transfer_preserves_nonsecrets_and_requires_destination_routing_consent(profiles):
+    from dataclasses import asdict
+    from app.config.ai_setup import AIModelSelection, AISetup
+    from app.config.profile_settings import apply_ai_app_settings
+    source, target = profiles("source-setup"), profiles("destination-setup")
+    setup = AISetup(AIModelSelection("deepseek", "deepseek-v4-pro", "high", True),
+                    AIModelSelection("gemini", "gemini-2.5-flash", "off", True),
+                    cross_provider_acknowledged=True, shared_instructions="Custom shared", max_answer_length=400)
+    source.settings.update_ai_setup(asdict(setup))
+    source.app.settings.ai_setup = setup
+    source.app.settings.ai_provider = "deepseek"
+    encoded = source.export()["archive_base64"]
+    preview = target.preview(encoded)
+    assert "acknowledged" in str(preview["sections"])
+    assert "Primary: deepseek / deepseek-v4-pro; thinking high; search on" in str(preview["sections"])
+    target.apply(encoded, preview["preview_token"], True)
+    saved = AppSettingsStore(target.settings._path).snapshot().ai.setup
+    assert saved.primary == setup.primary and saved.fallback == setup.fallback
+    assert saved.shared_instructions == "Custom shared" and saved.max_answer_length == 400
+    assert not saved.cross_provider_acknowledged
+    assert target.app.settings.ai_setup == saved
+    # Consent is deliberately absent after restart, too.
+    reloaded = apply_ai_app_settings(Settings(), AppSettingsStore(target.settings._path).snapshot())
+    assert not reloaded.ai_setup.cross_provider_acknowledged
+
+
 def seed(transfer):
     state = transfer.state
     state.apply_command_settings("fate", aliases=["destiny"], display_name="Destiny", enabled=False)
