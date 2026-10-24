@@ -85,6 +85,12 @@ operate on the default Compose project `heetkit`; keep that project name stable.
    credential and its `_FILE` together fails explicitly. Direct private environment
    credentials remain supported for source/service usage.
 
+   The backend also accepts `DEEPSEEK_API_KEY` or `DEEPSEEK_API_KEY_FILE` for direct
+   DeepSeek use. The supplied Compose file retains its two existing secret mounts;
+   a DeepSeek file needs an explicit private mount/environment override. Alternatively,
+   save the DeepSeek key through authenticated credential operations when no external
+   key is provisioned. See [DeepSeek backend configuration](ai-setup.md#deepseek-backend-configuration).
+
 Build, then import your **stopped, trusted** profile into the initially empty volume:
 
 ```bash

@@ -29,7 +29,7 @@ from app.ai_user_blocks import BlockedAIUser, normalize_ai_username, verified_us
 from app.app_settings import APP_SETTINGS_VERSION
 from app.command_settings import CommandSettings, CommandSettingsOverride
 from app.config.ai_language import validate_response_language
-from app.config.ai_models import validate_gemini_model_settings
+from app.config.ai_models import validate_ai_provider, validate_provider_models
 from app.config.personalities import AI_PERSONALITY_PROMPTS
 from app.custom_commands import parse_custom_command
 from app.filter_settings import apply_filter_settings, validate_filter_input
@@ -198,8 +198,11 @@ class ConfigurationTransfer:
             "custom_commands": [item.to_json() for item in self.custom.list()],
             "personalities": asdict(state.get_personality_settings_snapshot()[0]),
             "ai": {"memory_enabled": state.ai_memory_enabled,
+                   "provider": self.app.settings.ai_provider,
                    "selected_model": self.app.settings.gemini_model,
                    "fallback_model": self.app.settings.gemini_fallback_model,
+                   "deepseek_selected_model": self.app.settings.deepseek_model,
+                   "deepseek_fallback_model": self.app.settings.deepseek_fallback_model,
                    "response_language": asdict(self.app.settings.ai_response_language)},
             "filters": {"words": list(words), "phrases": list(phrases), "patterns": [item.pattern for item in patterns]},
             "blocked_users": [asdict(item) for item in self.blocks.list()],
@@ -277,11 +280,20 @@ class ConfigurationTransfer:
             raise ValueError("Unknown active personality.")
         validate_profile_instructions(personality["profile_instructions"])
         ai = payload["ai"]
-        _fields(ai, ("memory_enabled", "selected_model", "fallback_model", "response_language"))
+        legacy_ai_fields = {"memory_enabled", "selected_model", "fallback_model", "response_language"}
+        provider_fields = {"provider", "deepseek_selected_model", "deepseek_fallback_model"}
+        if set(ai) == legacy_ai_fields:
+            # Format-1 Gemini archives must never reinterpret their model choices.
+            ai = {**ai, "provider": "gemini", "deepseek_selected_model": self.app.settings.deepseek_model,
+                  "deepseek_fallback_model": self.app.settings.deepseek_fallback_model}
+        _fields(ai, legacy_ai_fields | provider_fields)
         if type(ai["memory_enabled"]) is not bool:
             raise ValueError("Invalid AI memory setting.")
-        selected_model, fallback_model = validate_gemini_model_settings(ai["selected_model"], ai["fallback_model"])
-        ai = {**ai, "selected_model": selected_model, "fallback_model": fallback_model}
+        selected_model, fallback_model = validate_provider_models("gemini", ai["selected_model"], ai["fallback_model"])
+        deepseek_selected, deepseek_fallback = validate_provider_models("deepseek", ai["deepseek_selected_model"], ai["deepseek_fallback_model"])
+        ai = {**ai, "provider": validate_ai_provider(ai["provider"]), "selected_model": selected_model,
+              "fallback_model": fallback_model, "deepseek_selected_model": deepseek_selected,
+              "deepseek_fallback_model": deepseek_fallback}
         _fields(ai["response_language"], ("mode", "allowed_languages", "fallback_language"))
         language = validate_response_language(**ai["response_language"])
         filters = validate_filter_input(payload["filters"])
@@ -390,8 +402,10 @@ class ConfigurationTransfer:
         if name == "personalities":
             return ["Selected: " + value["active_personality"], *value["overrides"], "Profile instructions included"]
         if name == "ai":
+            prefix = "deepseek_" if value.get("provider") == "deepseek" else ""
             return ["Memory: " + ("enabled" if value["memory_enabled"] else "disabled"),
-                    "Model: " + value["selected_model"], "Fallback: " + value["fallback_model"],
+                    "Provider: " + value.get("provider", "gemini"),
+                    "Model: " + value[prefix + "selected_model"], "Fallback: " + value[prefix + "fallback_model"],
                     "Response language: " + value["response_language"]["mode"]]
         if name in ("filters", "responses"):
             return [f"{key}: {len(entries)}" for key, entries in value.items()]
@@ -419,6 +433,8 @@ class ConfigurationTransfer:
         old_app = self.settings.snapshot()
         new_ai = replace(old_app.ai, memory_enabled=parsed.ai["memory_enabled"],
                          selected_model=parsed.ai["selected_model"], fallback_model=parsed.ai["fallback_model"],
+                         provider=parsed.ai["provider"], deepseek_selected_model=parsed.ai["deepseek_selected_model"],
+                         deepseek_fallback_model=parsed.ai["deepseek_fallback_model"],
                          response_language=parsed.language)
         app_payload = {"version": APP_SETTINGS_VERSION, **asdict(old_app)}
         if originals[self.settings._path] is not None:
@@ -462,7 +478,8 @@ class ConfigurationTransfer:
                   self.app.services.filter_manager)
         snapshots = [(owner, dict(vars(owner))) for owner in owners]
         old_effective = (self.app.settings.gemini_model, self.app.settings.gemini_fallback_model,
-                         self.app.settings.ai_response_language)
+                         self.app.settings.ai_response_language, self.app.settings.ai_provider,
+                         self.app.settings.deepseek_model, self.app.settings.deepseek_fallback_model)
         try:
             for path, data in files.items():
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -489,7 +506,8 @@ class ConfigurationTransfer:
                 vars(owner).clear()
                 vars(owner).update(snapshot)
             (self.app.settings.gemini_model, self.app.settings.gemini_fallback_model,
-             self.app.settings.ai_response_language) = old_effective
+             self.app.settings.ai_response_language, self.app.settings.ai_provider,
+             self.app.settings.deepseek_model, self.app.settings.deepseek_fallback_model) = old_effective
             if rollback_failed:
                 raise OSError("Import rollback needs recovery from config/import-backups; stop the application and restore affected files.") from None
             raise
@@ -538,5 +556,8 @@ class ConfigurationTransfer:
         self.triggers._triggers = parsed.triggers
         self.app.settings.gemini_model = parsed.ai["selected_model"]
         self.app.settings.gemini_fallback_model = parsed.ai["fallback_model"]
+        self.app.settings.ai_provider = parsed.ai["provider"]
+        self.app.settings.deepseek_model = parsed.ai["deepseek_selected_model"]
+        self.app.settings.deepseek_fallback_model = parsed.ai["deepseek_fallback_model"]
         self.app.settings.ai_response_language = parsed.language
         apply_filter_settings(self.app.services.filter_manager, parsed.filters)

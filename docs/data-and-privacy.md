@@ -2,7 +2,7 @@
 
 HeetKit keeps settings and chat data on the operator's computer or server, outside
 its installation folder.
-Twitch and optional Gemini features communicate with their respective providers.
+Twitch and optional AI features communicate with their respective providers.
 
 ## Privacy notice for viewers
 
@@ -18,7 +18,7 @@ The bot uses Twitch account IDs, usernames and first/last-seen times for chat
 features such as last-seen lookup and recent-viewer replies. Successful, delivered
 AI questions and answers are saved locally when conversation memory is on. That
 history expires after **90 days**; only the **five most recent unexpired exchanges
-per viewer** are sent as Gemini context. Viewer records expire **180 days after
+per viewer** are sent as context to the selected AI provider. Viewer records expire **180 days after
 their last recorded activity**. These are maximum application retention windows,
 not permission to retain data that is no longer needed.
 
@@ -99,10 +99,10 @@ Within the profile, `config/` holds JSON settings, commands, personalities, AI b
 and reactions, plus editable filter text in `config/filters/`. Activity and AI memory
 use `data/heetkit.db`; Twitch authorization uses `auth/twitchio_tokens.json`.
 
-- On Desktop, Gemini keys and Twitch client secrets entered in Settings use the OS keyring
+- On Desktop, provider keys and Twitch client secrets use the OS keyring
   (Windows Credential Manager on Windows). They are separate from profile backups.
 - Twitch access and refresh tokens are stored in the profile's `auth/` directory.
-- Server browser-managed client secrets and Gemini keys are stored in
+- Server browser-managed client secrets and provider keys are stored in
   `auth/server_credentials.json` within the persistent profile. Atomic replacement
   uses private staging files (0600) and an owner-only auth directory (0700) on Linux;
   Windows relies on the private directory's inherited ACLs. This provides access
@@ -171,15 +171,18 @@ cannot be overwritten through the browser. HeetKit does not load `.env` files. S
 ## AI processing and memory
 
 Twitch AI requests send the chatter's prompt, protected shared instructions, profile
-instructions and the selected personality prompt to Google, with the current stream
+instructions and the selected personality prompt to the selected provider (Google
+Gemini by default, or the direct DeepSeek API), with the current stream
 category when available. When memory is enabled, up to five recent successful exchanges
-for that chatter are included too. Requests needing current information may use Google
-Search grounding. Credential **Test** and **Discover
-models** also contact Google. Google's terms and data handling apply; see the live
+for that chatter are included too. Gemini requests needing current information may use Google
+Search grounding; DeepSeek search is not enabled. Credential **Test** and **Discover
+models** contact the chosen provider. Provider terms and data handling apply; see the live
 [Gemini pricing and data-use information](https://ai.google.dev/gemini-api/docs/pricing).
 The transport does not attach the viewer's Twitch ID or username as a separate
-Gemini identity field, but prompts, history and operator instructions can themselves
-identify people. Google receives the API key and ordinary connection information.
+provider identity field, but prompts, history and operator instructions can themselves
+identify people. The selected provider receives its API key and ordinary connection information.
+DeepSeek thinking is explicitly disabled; only final answer text is exposed by the
+adapter. See [DeepSeek backend setup](ai-setup.md#deepseek-backend-configuration).
 Local expiry/deletion does not send a provider deletion request.
 
 Twitch receives OAuth/refresh requests, authorized bot/channel IDs, category,
@@ -187,10 +190,10 @@ followage and account-lookup requests, and outgoing messages. Incoming chat is
 received through Twitch EventSub. Permissions, VIP/moderator/subscriber flags and
 followage results are used transiently rather than saved as viewer profiles.
 
-The Desktop-only **AI Playground** makes real Gemini requests with the same instructions
+The Desktop-only **AI Playground** makes real requests to the selected provider with the same instructions
 and output checks, but sends no viewer memory or stream category and writes no chat activity or AI
 memory. Prompts and results are not saved as test cases. **Filter Tester** runs locally
-without contacting Twitch or Google. See [AI setup](ai-setup.md#test-locally-with-ai-playground)
+without contacting Twitch or an AI provider. See [AI setup](ai-setup.md#test-locally-with-ai-playground)
 and [filter testing](commands.md#test-filters-locally).
 
 The `!weather` command sends the supplied place query to Open-Meteo's geocoding
@@ -354,6 +357,11 @@ destination. Set up authorization and secrets separately. Text you enter in prom
 commands or filters can still be private, and AI blocks include usernames/account
 IDs: review and protect the ZIP before sharing it. This is portable configuration,
 not a full private profile backup or an account migration.
+
+AI transfer includes the selected provider and separate primary/fallback choices for
+Gemini and DeepSeek. Legacy Gemini archives select Gemini explicitly and preserve
+the destination's DeepSeek choices. A model in the wrong provider's namespace is
+rejected rather than reinterpreted. No provider key is included.
 
 The ZIP is limited to 1 MiB and contains only `manifest.json` and
 `configuration.json` (at most 768 KiB). Unsupported schemas, unexpected files,

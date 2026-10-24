@@ -706,7 +706,8 @@ def test_saved_auto_start_defaults_off_and_accepts_explicit_override() -> None:
 
 
 def test_bridge_exposes_and_updates_ai_provider_settings(tmp_path) -> None:
-    settings = SimpleNamespace(
+    from app.config.settings import Settings
+    settings = Settings(
         gemini_model="gemini-selected",
         gemini_fallback_model="gemini-fallback",
     )
@@ -751,6 +752,7 @@ def test_bridge_exposes_and_updates_ai_provider_settings(tmp_path) -> None:
     assert settings.gemini_model == "gemini-new"
     assert settings.gemini_fallback_model == "gemini-safe"
     assert store.snapshot().ai == AISettings(
+        provider="gemini",
         selected_model="gemini-new",
         fallback_model="gemini-safe",
     )
@@ -758,7 +760,8 @@ def test_bridge_exposes_and_updates_ai_provider_settings(tmp_path) -> None:
 
 def test_bridge_discovers_models_on_the_existing_backend_loop() -> None:
     class FakeAI:
-        async def discover_models(self) -> list[str]:
+        async def discover_models(self, provider) -> list[str]:
+            assert provider == "gemini"
             return ["gemini-discovered"]
 
     class FakeBackend:
@@ -854,7 +857,8 @@ def test_bridge_serializes_persist_and_apply_model_updates() -> None:
             self.ai = AISettings()
             self.calls: list[str] = []
 
-        def update_ai_models(self, *, selected_model, fallback_model):
+        def update_ai_models(self, *, selected_model, fallback_model, provider):
+            assert provider == "gemini"
             self.calls.append(selected_model)
             if selected_model == "gemini-first":
                 first_started.set()
@@ -869,8 +873,9 @@ def test_bridge_serializes_persist_and_apply_model_updates() -> None:
 
     class SerialBackend:
         def __init__(self) -> None:
+            from app.config.settings import Settings
             self.application = SimpleNamespace(
-                settings=SimpleNamespace(
+                settings=Settings(
                     gemini_model="gemini-original",
                     gemini_fallback_model="gemini-original-fallback",
                 )
@@ -1235,7 +1240,7 @@ def test_bridge_gets_ai_state_without_exposing_personality_prompts() -> None:
     )
     application = SimpleNamespace(
         services=SimpleNamespace(runtime_state=runtime_state),
-        settings=SimpleNamespace(gemini_model="gemini-test"),
+        settings=SimpleNamespace(ai_provider="gemini", gemini_model="gemini-test"),
     )
     bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace(application=application)))
 

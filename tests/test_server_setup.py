@@ -266,19 +266,65 @@ async def test_invalid_credentials_are_bounded_and_do_not_mutate(api, value):
     assert "line\\nbreak" not in json.dumps(result)
 
 
-async def test_external_secrets_cannot_be_shadowed_or_removed(api):
+@pytest.mark.parametrize("provider", ["gemini", "deepseek"])
+async def test_external_secrets_cannot_be_shadowed_or_removed(api, provider):
     server, call = api
     manager = server.setup.credentials
-    manager._environment_fallbacks[CredentialName.GEMINI_API_KEY] = "external-sentinel"
-    manager._store.replace(CredentialName.GEMINI_API_KEY, "dormant-browser-value")
-    for path, payload in (("replace", {"name": "gemini_api_key", "value": "browser-value"}),
-                          ("remove", {"name": "gemini_api_key"})):
+    name = CredentialName(provider + "_api_key")
+    manager._environment_fallbacks[name] = "external-sentinel"
+    manager._store.replace(name, "dormant-browser-value")
+    for path, payload in (("replace", {"name": name.value, "value": "browser-value"}),
+                          ("remove", {"name": name.value})):
         status, result = await call("/v1/credentials/" + path, payload)
         assert status == 400 and "externally managed" in result["error"]
-    assert manager.effective_value(CredentialName.GEMINI_API_KEY) == "external-sentinel"
-    status = (await call("/v1/setup"))[1]["credentials"][1]
+    assert manager.effective_value(name) == "external-sentinel"
+    status = next(item for item in (await call("/v1/setup"))[1]["credentials"] if item["name"] == name)
     assert status["source"] == "environment" and not status["managed"]
-    assert manager._store.get(CredentialName.GEMINI_API_KEY) == "dormant-browser-value"
+    assert manager._store.get(name) == "dormant-browser-value"
+
+
+async def test_deepseek_backend_setup_discovery_rotation_and_removal(api, monkeypatch, caplog):
+    import httpx
+    from app.config.profile_settings import apply_ai_app_settings
+    server, call = api
+    settings = server.runtime.application.settings
+    assert (await call("/v1/ai/models", {"provider": "deepseek"}))[0] == 200
+    assert (await call("/v1/ai/models/discover", {"provider": "deepseek"}))[0] == 400
+    for value in ("PRIVATE-FIRST-KEY", "PRIVATE-ROTATED-KEY"):
+        assert (await call("/v1/credentials/replace", {"name": "deepseek_api_key", "value": value}))[0] == 200
+        assert settings.deepseek_api_key.get_secret_value() == value
+        assert credential_manager(Settings()).effective_value(CredentialName.DEEPSEEK_API_KEY) == value
+    async def send(client, request, **kwargs):
+        assert str(request.url) == "https://api.deepseek.com/models"
+        assert request.headers["Authorization"] == "Bearer PRIVATE-ROTATED-KEY"
+        return httpx.Response(200, request=request, json={"data": [{"id": "deepseek-flash"}]})
+    monkeypatch.setattr("httpx.AsyncClient.send", send)
+    assert (await call("/v1/credentials/test", {"name": "deepseek_api_key"}))[0] == 200
+    status, result = await call("/v1/ai/models/discover", {"provider": "deepseek"})
+    assert status == 200 and result == {"ok": True, "models": ["deepseek-flash"], "provider_id": "deepseek"}
+    assert (await call("/v1/ai/models", {"provider": "deepseek", "selected_model": "deepseek-custom",
+                                             "fallback_model": "deepseek-backup"}))[0] == 200
+    provider = (await call("/v1/ai/models"))[1]["settings"]
+    assert provider["provider_id"] == "deepseek" and provider["selected_model"] == "deepseek-custom"
+    assert provider["credential"]["name"] == "deepseek_api_key"
+    assert provider["credential"]["validation_status"] == "valid"
+    assert (await call("/v1/setup"))[1]["aiProvider"]["credential"] == provider["credential"]
+    async def reject(client, request, **kwargs):
+        return httpx.Response(429, request=request, json={"error": {"message": "PRIVATE-KEY"}})
+    monkeypatch.setattr("httpx.AsyncClient.send", reject)
+    status, error = await call("/v1/ai/models/discover", {"provider": "deepseek"})
+    assert status == 400 and error["error_code"] == "rate_limited"
+    assert settings.deepseek_model == "deepseek-custom" and "PRIVATE" not in json.dumps(error)
+    reloaded = apply_ai_app_settings(Settings(), AppSettingsStore(RuntimePaths.default().app_settings).snapshot())
+    assert reloaded.ai_provider == "deepseek" and reloaded.deepseek_model == "deepseek-custom"
+    assert (await call("/v1/ai/models", {"provider": "deepseek", "selected_model": "gemini-wrong",
+                                             "fallback_model": "gemini-also-wrong"}))[0] == 400
+    assert settings.deepseek_model == "deepseek-custom"
+    assert (await call("/v1/credentials/remove", {"name": "deepseek_api_key"}))[0] == 200
+    assert settings.deepseek_api_key is None
+    assert credential_manager(Settings()).effective_value(CredentialName.DEEPSEEK_API_KEY) is None
+    assert not server.runtime.application.services.ai.is_available
+    assert "PRIVATE" not in json.dumps(provider) + caplog.text
 
 
 async def test_oauth_completion_works_disabled_and_replay_is_rejected(api, twitch_provider):

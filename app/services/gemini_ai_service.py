@@ -22,6 +22,7 @@ GEMINI_TRANSPORT_TIMEOUT_SECONDS = 45.0
 GEMINI_DISCOVERY_TIMEOUT_SECONDS = 15.0
 GEMINI_DISCOVERY_TRANSPORT_TIMEOUT_SECONDS = 10.0
 GEMINI_CLOSE_TIMEOUT_SECONDS = 5.0
+GEMINI_MAX_DISCOVERED_MODELS = 500
 _NON_CHAT_MODEL_MARKERS = (
     "embedding",
     "image",
@@ -152,10 +153,14 @@ class GeminiProvider:
                         ),
                     ))
                     discovered: set[str] = set()
+                    count = 0
                     async for model in pager:
+                        count += 1
                         model_id = self._normalize_discovered_model(model)
                         if model_id is not None:
                             discovered.add(model_id)
+                        if count >= GEMINI_MAX_DISCOVERED_MODELS:
+                            break
         except ImportError as error:
             raise RuntimeError("google-genai package is not available.") from error
         return sorted(discovered)

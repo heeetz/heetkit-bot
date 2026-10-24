@@ -14,17 +14,18 @@ from app.headless_health import HealthFile, healthy
 
 @pytest.fixture(autouse=True)
 def isolated_secrets(monkeypatch):
-    for name in ("TWITCH_CLIENT_SECRET", "GEMINI_API_KEY"):
+    for name in ("TWITCH_CLIENT_SECRET", "GEMINI_API_KEY", "DEEPSEEK_API_KEY"):
         monkeypatch.delenv(name, raising=False)
         monkeypatch.delenv(name + "_FILE", raising=False)
 
 
-def test_secret_files_are_private_inputs_without_environment_publication(tmp_path, monkeypatch):
+@pytest.mark.parametrize("name", ["TWITCH_CLIENT_SECRET", "GEMINI_API_KEY", "DEEPSEEK_API_KEY"])
+def test_secret_files_are_private_inputs_without_environment_publication(tmp_path, monkeypatch, name):
     path = tmp_path / "secret"
     path.write_text("synthetic-value\n", encoding="utf-8")
-    monkeypatch.setenv("TWITCH_CLIENT_SECRET_FILE", str(path))
-    assert secret_file_settings() == {"twitch_client_secret": "synthetic-value"}
-    assert "TWITCH_CLIENT_SECRET" not in os.environ
+    monkeypatch.setenv(name + "_FILE", str(path))
+    assert secret_file_settings() == {name.lower(): "synthetic-value"}
+    assert name not in os.environ
     path.write_text("\n", encoding="utf-8")
     assert secret_file_settings() == {}  # Optional Gemini may use an empty file.
 
@@ -40,13 +41,14 @@ def test_invalid_secret_file_fails_without_disclosing_contents(tmp_path, monkeyp
     assert "private" not in str(error.value)
 
 
-def test_missing_directory_and_conflicting_secret_sources_fail_safely(tmp_path, monkeypatch):
+@pytest.mark.parametrize("name", ["GEMINI_API_KEY", "DEEPSEEK_API_KEY"])
+def test_missing_directory_and_conflicting_secret_sources_fail_safely(tmp_path, monkeypatch, name):
     for path in (tmp_path / "missing", tmp_path):
-        monkeypatch.setenv("GEMINI_API_KEY_FILE", str(path))
-        with pytest.raises(HeadlessError, match="Cannot read GEMINI_API_KEY_FILE"):
+        monkeypatch.setenv(name + "_FILE", str(path))
+        with pytest.raises(HeadlessError, match="Cannot read " + name + "_FILE"):
             secret_file_settings()
-    monkeypatch.setenv("GEMINI_API_KEY", "synthetic")
-    with pytest.raises(HeadlessError, match="Set only GEMINI_API_KEY or GEMINI_API_KEY_FILE"):
+    monkeypatch.setenv(name, "synthetic")
+    with pytest.raises(HeadlessError, match="Set only " + name + " or " + name + "_FILE"):
         secret_file_settings()
 
 

@@ -6,6 +6,21 @@ from typing import Literal, Protocol
 from pydantic import SecretStr
 
 
+class AIModelDiscoveryError(RuntimeError):
+    """Application-owned diagnostics; never render provider errors or bodies."""
+
+    def __init__(self, code: str):
+        messages = {
+            "provider_unavailable": "Configure the provider API key and ensure its adapter is available before discovering models.",
+            "credential_rejected": "The provider rejected the configured key.",
+            "rate_limited": "Model discovery was rate limited. Try again later.",
+            "timeout": "Model discovery timed out. Try again later.",
+            "provider_error": "Could not discover models from the provider.",
+        }
+        self.code = code if code in messages else "provider_error"
+        super().__init__(messages[self.code])
+
+
 @dataclass(frozen=True, slots=True)
 class AIProviderCapabilities:
     search: bool = False

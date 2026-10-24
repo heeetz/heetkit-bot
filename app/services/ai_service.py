@@ -14,7 +14,7 @@ from app.config.personalities import (
 )
 from app.config.settings import Settings
 from app.runtime_state import RuntimeState
-from app.services.ai_provider import AIGenerationRequest, AIProvider
+from app.services.ai_provider import AIGenerationRequest, AIProvider, AIModelDiscoveryError
 from app.services.ai_request_policy import AIRequestPolicy
 from app.services.contracts import AIReply
 from app.services.filter_manager import FilterManager
@@ -57,8 +57,10 @@ class SharedAIService:
         if provider is None:
             # Existing profiles need no provider field or migration.
             from app.services.gemini_ai_service import GeminiProvider
-            provider = GeminiProvider(settings)
-        self.provider = provider
+            from app.services.deepseek_ai_service import DeepSeekProvider
+            self._providers = {"gemini": GeminiProvider(settings), "deepseek": DeepSeekProvider(settings)}
+        else:
+            self._providers = {"injected": provider}
         self._safety_policy = AIRequestPolicy()
         self._blocked_response_patterns: list[Pattern] = [
             # Dedicated hard block for the specified term and grammatical forms.
@@ -158,14 +160,36 @@ class SharedAIService:
         ]
 
     @property
+    def provider(self) -> AIProvider:
+        return self._providers.get("injected") or self._providers[getattr(self.settings, "ai_provider", "gemini")]
+
+    @property
     def is_available(self) -> bool:
         return self.provider.is_available
 
     async def aclose(self) -> None:
-        await self.provider.aclose()
+        # Enter retirement directly: scheduling close in child tasks lets immediate
+        # cancellation skip Gemini's lease retirement before cleanup can take over.
+        providers = iter(self._providers.values())
+        try:
+            await next(providers).aclose()
+        finally:
+            for provider in providers:
+                await provider.aclose()
 
-    async def discover_models(self) -> list[str]:
-        return await self.provider.discover_models()
+    async def discover_models(self, provider: str | None = None) -> list[str]:
+        from app.config.ai_models import validate_ai_provider
+        selected = self.provider if provider is None else self._providers[validate_ai_provider(provider)]
+        if not selected.is_available:
+            raise AIModelDiscoveryError("provider_unavailable")
+        try:
+            return await selected.discover_models()
+        except Exception as error:
+            status = getattr(error, "status_code", None) or getattr(error, "code", None)
+            code = ("credential_rejected" if status in (401, 403) else
+                    "rate_limited" if status == 429 else
+                    "timeout" if isinstance(error, (TimeoutError, httpx.TimeoutException)) else "provider_error")
+            raise AIModelDiscoveryError(code) from None
 
     def _build_system_instruction(self) -> str:
         if self.runtime_state is None:
@@ -187,23 +211,24 @@ class SharedAIService:
         memory_context: str | None = None,
         stream_category: str | None = None,
     ) -> AIReply:
-        with operator_event_scope(requested_provider=self.provider.name):
+        provider = self.provider
+        with operator_event_scope(requested_provider=provider.name):
             options = None
             try:
-                if not self.is_available:
+                if not provider.is_available:
                     return AIReply("", False, "provider_unavailable")
                 # Capture generation choices before the first await. Credential/model
                 # edits, applied styles and language changes affect subsequent requests.
-                options = self.provider.snapshot()
+                options = provider.snapshot()
                 request = AIGenerationRequest(
                     system_instruction=self._build_system_instruction(),
                     content=self._build_request_content(prompt, memory_context, stream_category),
-                    use_search=self.provider.capabilities.search and self._should_use_search(prompt),
+                    use_search=provider.capabilities.search and self._should_use_search(prompt),
                 )
                 max_length = AI_MAX_RESPONSE_LENGTH
                 with operator_event_scope(requested_model=options.model):
                     async with asyncio.timeout(AI_REQUEST_TIMEOUT_SECONDS):
-                        response = await self.provider.generate(request, options)
+                        response = await provider.generate(request, options)
                     if response.status != "success":
                         return AIReply("", False, response.status)
                     if response.safety_blocked:

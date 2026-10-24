@@ -1,8 +1,9 @@
-# AI / Gemini setup
+# AI provider setup
 
-Gemini is **optional**. Normal Twitch commands, including weather, followage and custom
-commands, work without it. For AI replies through `!ask`, add an API key: a private
-credential that lets HeetKit send requests to Google's Gemini service.
+AI is **optional**. Normal Twitch commands, including weather, followage and custom
+commands, work without it. Gemini remains the default provider. The shared backend also
+supports the direct DeepSeek API; provider selection and DeepSeek controls are currently
+backend operations, with the existing interface still organized around Gemini.
 
 On Server, use **Settings → Server configuration → Server credentials** to save,
 replace, test or remove the Gemini key. Stored values are never returned to the
@@ -11,6 +12,45 @@ or interrupting in-flight requests. A nonempty externally provisioned environmen
 or secret-file key is read-only here and requires host-side rotation/restart.
 Browser-managed values persist in the private volume; see
 [credential storage](management-api.md#requests-and-operations). The Desktop steps follow.
+
+## DeepSeek backend configuration
+
+Use the authenticated [management operations](management-api.md#requests-and-operations)
+to replace/test/remove `deepseek_api_key`, discover with
+`POST /v1/ai/models/discover` and `{"provider":"deepseek"}`, and save with
+`POST /v1/ai/models` and `{"provider":"deepseek","selected_model":"deepseek-flash","fallback_model":"deepseek-v4-pro"}`.
+Sending just `{"provider":"gemini"}` or `{"provider":"deepseek"}` to the latter
+operation switches back to that provider's saved choices. Desktop exposes the same
+backend behavior through `replace_credential`, `test_credential`, `remove_credential`,
+`discover_ai_models(provider)` and `update_ai_provider_settings(primary, fallback, provider)`;
+omit both models to switch without replacing choices. This is backend support; the
+current AI page does not provide the complete provider setup flow.
+
+Desktop keys use the profile's OS keyring, with intentional environment fallback.
+Server keys use the private credential file, with nonempty external environment or
+`DEEPSEEK_API_KEY_FILE` inputs taking precedence. Keys never appear in settings results
+or portable exports. `AI_PROVIDER=deepseek` supplies an unsaved process default;
+saved provider choices override it. `DEEPSEEK_MODEL` and `DEEPSEEK_FALLBACK_MODEL`
+similarly supply model defaults.
+
+The adapter uses `https://api.deepseek.com/chat/completions`, explicitly disables
+thinking, requests a single bounded non-streamed completion, and exposes only final
+answer content. Reasoning content, tool calls and incomplete answers are discarded.
+DeepSeek search tools are not enabled. The defaults were verified against the
+[official API guide](https://api-docs.deepseek.com/quick_start) and
+[chat completion reference](https://api-docs.deepseek.com/api/create-chat-completion/)
+on 24 October 2026. Model IDs can change; discovery queries the selected provider/key
+and is bounded by a 15-second total deadline. Authentication, rate-limit and empty-list
+results never overwrite saved choices. A successful key test or model listing does
+not prove generation access, available quota or tool support. Primary-model 404 alone
+can trigger one fallback within the same provider; other errors do not switch models
+or providers. Generation tests consume provider usage and require an explicit operator action.
+
+Both providers share instructions, language, filters, memory and the 220-character
+answer limit. Each request captures its provider, models and key before asynchronous
+work; switches, rotations and removals affect subsequent requests. Portable transfer
+includes both providers' non-secret choices. Older Gemini archives explicitly select
+Gemini and preserve any destination DeepSeek choices.
 
 ## Get a key and add it to HeetKit
 

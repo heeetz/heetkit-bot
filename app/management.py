@@ -11,7 +11,9 @@ from app.app_settings import AISettings, AppSettingsStore
 from app.command_settings import CommandSettings
 from app.commands.registry import command_unavailable_reason
 from app.config.ai_language import RESPONSE_LANGUAGES, build_response_language_instruction
-from app.config.ai_models import GEMINI_MODEL_PRESETS, GEMINI_PROVIDER_NAME
+from app.config.ai_models import (GEMINI_MODEL_PRESETS, AI_PROVIDERS, DEFAULT_DEEPSEEK_MODEL,
+    DEFAULT_DEEPSEEK_FALLBACK_MODEL, validate_ai_provider)
+from app.config.profile_settings import apply_ai_app_settings
 from app.config.personalities import AI_PERSONALITY_PROMPTS, build_protected_shared_instructions
 from app.container import Application
 from app.custom_commands import VARIABLES
@@ -115,19 +117,22 @@ class ApplicationManagement:
 
     async def _save_ai_provider_models(
         self,
-        selected_model: object,
-        fallback_model: object,
+        selected_model: object = None,
+        fallback_model: object = None,
+        provider: object = "gemini",
     ) -> AISettings:
-        """Persist and apply Gemini models in backend-loop submission order."""
+        """Persist provider-scoped choices before publishing on the backend loop."""
         if self._app_settings is None:
             raise RuntimeError("Desktop settings are not configured.")
         updated = self._app_settings.update_ai_models(
             selected_model=selected_model,
             fallback_model=fallback_model,
+            provider=provider,
         )
         application_settings = self._backend.application.settings
-        application_settings.gemini_model = updated.ai.selected_model
-        application_settings.gemini_fallback_model = updated.ai.fallback_model
+        effective = apply_ai_app_settings(application_settings, updated)
+        for name in ("ai_provider", "gemini_model", "gemini_fallback_model", "deepseek_model", "deepseek_fallback_model"):
+            setattr(application_settings, name, getattr(effective, name))
         return updated.ai
 
     async def _save_ai_response_language(
@@ -498,7 +503,7 @@ class ApplicationManagement:
             "memory_enabled": runtime_state.ai_memory_enabled,
             "active_personality": runtime_state.active_ai_personality,
             "available_personalities": list(runtime_state.available_personalities),
-            "model": application.settings.gemini_model,
+            "model": getattr(application.settings, application.settings.ai_provider + "_model"),
         }
 
     def get_personalities(self) -> dict[str, object]:
@@ -718,27 +723,33 @@ class ApplicationManagement:
             "active_policy": build_response_language_instruction(language),
         }
 
-    def get_ai_provider_settings(self) -> dict[str, object]:
+    def get_ai_provider_settings(self, provider: object = None) -> dict[str, object]:
         if self._app_settings is None:
             return {"ok": False, "error": "Desktop settings are not configured."}
         application = self._backend.application
+        selected = application.settings.ai_provider if provider is None else validate_ai_provider(provider)
         credential = None
         if self._credential_manager is not None:
             credential = next(
                 (
                     status.serialize()
                     for status in self._credential_manager.statuses()
-                    if status.name == "gemini_api_key"
+                    if status.name == selected + "_api_key"
                 ),
                 None,
             )
         return {
             "ok": True,
             "settings": {
-                "provider": GEMINI_PROVIDER_NAME,
-                "selected_model": application.settings.gemini_model,
-                "fallback_model": application.settings.gemini_fallback_model,
-                "presets": [preset.serialize() for preset in GEMINI_MODEL_PRESETS],
+                "provider": AI_PROVIDERS[selected],
+                "provider_id": selected,
+                "selected_model": getattr(application.settings, selected + "_model"),
+                "fallback_model": getattr(application.settings, selected + "_fallback_model"),
+                "presets": ([preset.serialize() for preset in GEMINI_MODEL_PRESETS] if selected == "gemini" else [
+                    {"id": model, "label": model, "description": "DeepSeek direct API (thinking disabled)"}
+                    for model in (DEFAULT_DEEPSEEK_MODEL, DEFAULT_DEEPSEEK_FALLBACK_MODEL)]),
                 "credential": credential,
+                "discovery_proves_generation_access": False,
             },
+            "providers": [{"id": key, "label": label} for key, label in AI_PROVIDERS.items()],
         }

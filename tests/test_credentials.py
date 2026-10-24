@@ -164,6 +164,7 @@ def test_secure_credentials_override_environment_without_exposing_values() -> No
     manager = build_manager(backend)
 
     assert manager.settings_overrides() == {
+        "deepseek_api_key": None,
         "gemini_api_key": "secure-gemini",
         "twitch_client_secret": "env-twitch",
     }
@@ -259,6 +260,56 @@ def test_bridge_exposes_status_and_actions_without_secret_values() -> None:
         "ok": True,
         "changed": True,
     }
+
+
+def test_desktop_deepseek_key_rotation_removal_and_environment_fallback(tmp_path):
+    from app.config.settings import Settings
+    from app.app_settings import AppSettingsStore
+    backend = FakeKeyring()
+    manager = CredentialManager({CredentialName.DEEPSEEK_API_KEY: "PRIVATE-ENVIRONMENT"}, CredentialStore(backend))
+    host = ImmediateBackend(FakeHTTPClient())
+    host.application.settings = Settings()
+    bridge = WebUIBridge(cast(AsyncioBackendHost, host), credential_manager=manager,
+                         app_settings=AppSettingsStore(tmp_path / "app_settings.json"))
+    for key in ("PRIVATE-FIRST", "PRIVATE-ROTATED"):
+        assert bridge.replace_credential("deepseek_api_key", key) == {"ok": True}
+        assert host.application.settings.deepseek_api_key.get_secret_value() == key
+        assert CredentialManager({}, CredentialStore(backend)).effective_value(CredentialName.DEEPSEEK_API_KEY) == key
+    assert bridge.update_ai_provider_settings("deepseek-custom", "deepseek-backup", "deepseek")["ok"]
+    status = bridge.get_ai_provider_settings()["settings"]
+    assert status["provider_id"] == "deepseek" and status["credential"]["source"] == "credential_store"
+    assert "PRIVATE" not in repr(status) + repr(bridge.get_credentials())
+    assert bridge.remove_credential("deepseek_api_key")["ok"]
+    assert host.application.settings.deepseek_api_key.get_secret_value() == "PRIVATE-ENVIRONMENT"
+    assert CredentialManager({}, CredentialStore(backend)).effective_value(CredentialName.DEEPSEEK_API_KEY) is None
+
+
+@pytest.mark.parametrize("status", [200, 401, 429])
+async def test_deepseek_credential_probe_is_bounded_and_never_generates(status):
+    from app.credentials import CredentialError
+    manager = CredentialManager({CredentialName.DEEPSEEK_API_KEY: "PRIVATE-KEY"}, CredentialStore(FakeKeyring()))
+    def handle(request):
+        assert request.method == "GET" and str(request.url) == "https://api.deepseek.com/models"
+        assert request.headers["Authorization"] == "Bearer PRIVATE-KEY"
+        return httpx.Response(status, json={"private": "ignored"})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        if status == 200:
+            await manager.test("deepseek_api_key", http_client=client, twitch_client_id="")
+        else:
+            with pytest.raises(CredentialError) as error:
+                await manager.test("deepseek_api_key", http_client=client, twitch_client_id="")
+            assert "PRIVATE" not in str(error.value)
+
+
+async def test_deepseek_credential_header_error_never_returns_secret():
+    from app.credentials import CredentialError
+    manager = CredentialManager({CredentialName.DEEPSEEK_API_KEY: "PRIVATE-KEY"}, CredentialStore(FakeKeyring()))
+    async def reject(request):
+        raise ValueError("Invalid header PRIVATE-KEY")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(reject)) as client:
+        with pytest.raises(CredentialError) as error:
+            await manager.test("deepseek_api_key", http_client=client, twitch_client_id="")
+        assert "PRIVATE" not in str(error.value)
 
 
 def test_bridge_does_not_log_secret_when_secure_storage_fails(caplog) -> None:

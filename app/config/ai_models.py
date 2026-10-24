@@ -9,6 +9,33 @@ from importlib.resources import files
 
 GEMINI_MODELS_RESOURCE = "gemini_models.json"
 _MODEL_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$")
+AI_PROVIDERS = {"gemini": "Google Gemini", "deepseek": "DeepSeek"}
+DEFAULT_DEEPSEEK_MODEL = "deepseek-flash"
+DEFAULT_DEEPSEEK_FALLBACK_MODEL = "deepseek-v4-pro"
+
+
+def validate_ai_provider(value: object) -> str:
+    if not isinstance(value, str) or value not in AI_PROVIDERS:
+        raise ValueError("Unknown AI provider.")
+    return value
+
+
+def validate_provider_models(provider: object, selected: object, fallback: object) -> tuple[str, str]:
+    provider = validate_ai_provider(provider)
+    selected = validate_provider_model_id(provider, selected)
+    fallback = validate_provider_model_id(provider, fallback)
+    if selected == fallback:
+        raise ValueError("Primary and fallback models must be different.")
+    return selected, fallback
+
+
+def validate_provider_model_id(provider: str, value: object) -> str:
+    model = validate_gemini_model_id(value, "AI model")
+    if provider == "deepseek" and not re.fullmatch(r"deepseek-[A-Za-z0-9._-]+", model):
+        raise ValueError("Choose a DeepSeek model for DeepSeek.")
+    if provider == "gemini" and model.lower().startswith("deepseek-"):
+        raise ValueError("Choose a Gemini model for Gemini.")
+    return model
 
 
 @dataclass(frozen=True, slots=True)

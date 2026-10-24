@@ -78,6 +78,34 @@ def file_state(transfer):
     return {path: path.read_bytes() if path.exists() else None for path in transfer.paths()}
 
 
+async def test_both_provider_choices_transfer_without_credentials_and_legacy_stays_gemini(profiles):
+    from app.config.profile_settings import apply_ai_app_settings
+    source, target = profiles("source-providers"), profiles("target-providers")
+    management = ApplicationManagement(source.app, source.settings)
+    await management._save_ai_provider_models("gemini-custom", "gemini-backup")
+    await management._save_ai_provider_models("deepseek-custom", "deepseek-backup", "deepseek")
+    source.app.settings.deepseek_api_key = "PRIVATE-DEEPSEEK-KEY"
+    target.app.settings.deepseek_api_key = "PRIVATE-DESTINATION-KEY"
+    encoded = source.export()["archive_base64"]
+    payload, _, _ = unpack_configuration(encoded)
+    assert "PRIVATE" not in json.dumps(payload)
+    target.apply(encoded, target.preview(encoded)["preview_token"], True)
+    reloaded = apply_ai_app_settings(Settings(), AppSettingsStore(target.settings._path).snapshot())
+    assert reloaded.ai_provider == "deepseek" and reloaded.deepseek_model == "deepseek-custom"
+    assert reloaded.gemini_model == "gemini-custom"
+    assert target.app.settings.deepseek_api_key == "PRIVATE-DESTINATION-KEY"
+    for field in ("provider", "deepseek_selected_model", "deepseek_fallback_model"):
+        payload["ai"].pop(field)
+    legacy = pack_configuration(payload)
+    target.apply(legacy, target.preview(legacy)["preview_token"], True)
+    assert target.app.settings.ai_provider == "gemini"
+    assert target.app.settings.gemini_model == "gemini-custom"
+    assert target.app.settings.deepseek_model == "deepseek-custom"
+    payload["ai"]["selected_model"] = "deepseek-flash"
+    with pytest.raises(ValueError):
+        target.preview(pack_configuration(payload))
+
+
 async def test_desktop_export_server_preview_import_round_trip_and_restart(profiles):
     source = profiles("desktop")
     seed(source)

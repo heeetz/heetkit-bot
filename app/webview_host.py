@@ -105,7 +105,7 @@ FRONTEND_OPERATIONS = (
     "get_profile_info", "open_profile_folder", "update_app_settings",
     "get_twitch_settings", "update_twitch_settings", "save_twitch_preset",
     "delete_twitch_preset", "reconnect_twitch", "get_credentials",
-    "get_ai_provider_settings", "update_ai_provider_settings", "discover_gemini_models",
+    "get_ai_provider_settings", "update_ai_provider_settings", "discover_gemini_models", "discover_ai_models",
     "get_blocked_ai_users", "block_ai_user", "unblock_ai_user",
     "get_ai_language_settings", "update_ai_language_settings",
     "replace_credential", "remove_credential", "test_credential", "start_bot", "stop_bot",
@@ -1042,14 +1042,15 @@ class WebUIBridge(ApplicationManagement):
 
     def update_ai_provider_settings(
         self,
-        selected_model: object,
-        fallback_model: object,
+        selected_model: object = None,
+        fallback_model: object = None,
+        provider: object = "gemini",
     ) -> dict[str, object]:
         if self._app_settings is None:
             return {"ok": False, "error": "Desktop settings are not configured."}
         try:
             updated = self._wait_for_backend(
-                self._save_ai_provider_models(selected_model, fallback_model),
+                self._save_ai_provider_models(selected_model, fallback_model, provider),
                 operation="save_ai_models",
                 timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
             )
@@ -1058,47 +1059,57 @@ class WebUIBridge(ApplicationManagement):
         except BridgeOperationTimedOut:
             return {
                 "ok": False,
-                "error": "Saving Gemini model settings timed out. Check Logs for details.",
+                "error": "Saving AI model settings timed out. Check Logs for details.",
             }
         except OSError:
-            self._logger.exception("Could not save Gemini model settings")
-            return {"ok": False, "error": "Could not save Gemini model settings."}
+            self._logger.warning("Could not save AI model settings")
+            return {"ok": False, "error": "Could not save AI model settings."}
         except Exception:
-            self._logger.exception("Could not save Gemini model settings")
-            return {"ok": False, "error": "Could not save Gemini model settings."}
+            self._logger.warning("Could not save AI model settings")
+            return {"ok": False, "error": "Could not save AI model settings."}
         self._logger.info(
-            "Gemini model settings saved selected_model=%s fallback_model=%s",
-            updated.selected_model,
-            updated.fallback_model,
+            "AI provider model settings saved",
             extra={
                 "event_kind": "settings.ai_model",
-                "event_provider": "Google Gemini",
-                "event_model": str(updated.selected_model),
+                "event_provider": "DeepSeek" if updated.provider == "deepseek" else "Google Gemini",
                 "event_action": "save",
             },
         )
         return {"ok": True}
 
     def discover_gemini_models(self) -> dict[str, object]:
+        """Compatibility entry point; legacy callers always request Gemini."""
+        result = self.discover_ai_models("gemini")
+        return {key: value for key, value in result.items() if key != "provider_id"}
+
+    def discover_ai_models(self, provider: object = None) -> dict[str, object]:
+        from app.config.ai_models import validate_ai_provider
+        from app.services.ai_provider import AIModelDiscoveryError
+        try:
+            selected = validate_ai_provider(provider if provider is not None else self._backend.application.settings.ai_provider)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
         service = self._backend.application.services.ai
         discover = getattr(service, "discover_models", None)
         if discover is None:
-            return {"ok": False, "error": "Gemini model discovery is unavailable."}
+            return {"ok": False, "error": "AI model discovery is unavailable."}
         try:
             models = self._wait_for_backend(
-                discover(),
-                operation="discover_gemini_models",
+                discover(selected),
+                operation="discover_ai_models",
                 timeout=BRIDGE_MODEL_DISCOVERY_TIMEOUT_SECONDS,
             )
+        except AIModelDiscoveryError as error:
+            return {"ok": False, "error": str(error), "error_code": error.code, "provider_id": selected}
         except BridgeOperationTimedOut:
             return {
                 "ok": False,
-                "error": "Gemini model discovery timed out. Check Logs for details.",
+                "error": "AI model discovery timed out. Check Logs for details.",
             }
         except Exception:
-            self._logger.exception("Gemini model discovery failed")
-            return {"ok": False, "error": "Could not discover Gemini models."}
-        return {"ok": True, "models": models}
+            self._logger.warning("AI model discovery failed")
+            return {"ok": False, "error": "Could not discover AI models."}
+        return {"ok": True, "models": models, "provider_id": selected}
 
     def get_credentials(self) -> dict[str, object]:
         if self._credential_manager is None:
@@ -1110,14 +1121,14 @@ class WebUIBridge(ApplicationManagement):
             ],
         }
 
-    async def _refresh_gemini_credential(self) -> None:
-        value = self._credential_manager.effective_value(CredentialName.GEMINI_API_KEY)
-        self._backend.application.settings.gemini_api_key = SecretStr(value) if value else None
+    async def _refresh_ai_credential(self, name: CredentialName) -> None:
+        value = self._credential_manager.effective_value(name)
+        setattr(self._backend.application.settings, name.value, SecretStr(value) if value else None)
 
     def _apply_credential_change(self, name: CredentialName) -> None:
-        if name is CredentialName.GEMINI_API_KEY:
+        if name is not CredentialName.TWITCH_CLIENT_SECRET:
             self._wait_for_backend(
-                self._refresh_gemini_credential(), operation="apply_gemini_credential",
+                self._refresh_ai_credential(name), operation="apply_ai_credential",
                 timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
             )
         else:
@@ -1158,7 +1169,7 @@ class WebUIBridge(ApplicationManagement):
         try:
             parsed_name = self._credential_manager.parse_name(name)
             removed = self._credential_manager.remove(parsed_name.value)
-            if removed or parsed_name is CredentialName.GEMINI_API_KEY:
+            if removed or parsed_name is not CredentialName.TWITCH_CLIENT_SECRET:
                 self._apply_credential_change(parsed_name)
         except BridgeOperationTimedOut:
             return {"ok": False, "error": "Credential removed. Restart to apply the fallback; the backend timed out."}

@@ -31,7 +31,7 @@ export default function SettingsPage(props: SettingsPageProps) {
 function ServerSettings({ active }: { active: boolean }) {
   const [setup, setSetup] = useState<Awaited<ReturnType<typeof getBrowserSetup>> | null>(null)
   const [twitchDraft, setTwitchDraft] = useState({ clientId: '', botUsername: '', botUserId: '', channel: '', channelUserId: '' })
-  const [credentialDrafts, setCredentialDrafts] = useState<Record<CredentialName, string>>({ gemini_api_key: '', twitch_client_secret: '' })
+  const [credentialDrafts, setCredentialDrafts] = useState<Record<CredentialName, string>>({ gemini_api_key: '', deepseek_api_key: '', twitch_client_secret: '' })
   const [callbackUrl, setCallbackUrl] = useState('')
   const [authorizationExpires, setAuthorizationExpires] = useState<number | null>(null)
   const [authorizationUrl, setAuthorizationUrl] = useState('')
@@ -67,7 +67,7 @@ function ServerSettings({ active }: { active: boolean }) {
   useEffect(() => {
     mountedRef.current = active
     if (!active) {
-      setCredentialDrafts({ gemini_api_key: '', twitch_client_secret: '' })
+      setCredentialDrafts({ gemini_api_key: '', deepseek_api_key: '', twitch_client_secret: '' })
       setCallbackUrl('')
       setAuthorizationExpires(null)
       setAuthorizationUrl('')
@@ -345,6 +345,7 @@ function DesktopSettings({ active, status, onReturnToAI }: SettingsPageProps) {
   const [presetName, setPresetName] = useState('')
   const [credentialDrafts, setCredentialDrafts] = useState<Record<CredentialName, string>>({
     gemini_api_key: '',
+    deepseek_api_key: '',
     twitch_client_secret: '',
   })
   const [busy, setBusy] = useState('')

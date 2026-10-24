@@ -12,7 +12,7 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from threading import RLock
 
-from app.config.ai_models import validate_gemini_model_settings
+from app.config.ai_models import validate_ai_provider, validate_provider_models
 from app.settings_recovery import preserve_settings_recovery
 from app.config.ai import AI_MEMORY_ENABLED
 from app.config.ai_language import ResponseLanguageSettings, validate_response_language
@@ -41,6 +41,10 @@ class AISettings:
     memory_enabled: bool = AI_MEMORY_ENABLED
     selected_model: str | None = None
     fallback_model: str | None = None
+    # None preserves intentional process defaults; old profiles still default to Gemini.
+    provider: str | None = None
+    deepseek_selected_model: str | None = None
+    deepseek_fallback_model: str | None = None
     # Optional per-account policy; internal AI/output bounds remain code-owned.
     cooldown_bypass_user_id: str | None = None
     response_language: ResponseLanguageSettings = field(default_factory=ResponseLanguageSettings)
@@ -328,7 +332,8 @@ def load_app_settings(path: Path) -> AppSettings:
         cooldown_bypass_user_id = None
     if selected_model is not None and fallback_model is not None:
         try:
-            selected_model, fallback_model = validate_gemini_model_settings(
+            selected_model, fallback_model = validate_provider_models(
+                "gemini",
                 selected_model,
                 fallback_model,
             )
@@ -342,6 +347,19 @@ def load_app_settings(path: Path) -> AppSettings:
         fallback_model = None
 
     response_language = ResponseLanguageSettings()
+    try:
+        provider = validate_ai_provider(ai_payload["provider"]) if ai_payload.get("provider") is not None else None
+    except ValueError:
+        logger.warning("Ignoring invalid AI provider selection")
+        provider = None
+    deepseek_selected = ai_payload.get("deepseek_selected_model")
+    deepseek_fallback = ai_payload.get("deepseek_fallback_model")
+    if deepseek_selected is not None or deepseek_fallback is not None:
+        try:
+            deepseek_selected, deepseek_fallback = validate_provider_models("deepseek", deepseek_selected, deepseek_fallback)
+        except ValueError:
+            logger.warning("Ignoring invalid DeepSeek model settings override")
+            deepseek_selected = deepseek_fallback = None
     if "response_language" in ai_payload:
         language_payload = ai_payload["response_language"]
         try:
@@ -394,6 +412,9 @@ def load_app_settings(path: Path) -> AppSettings:
             ),
             selected_model=selected_model,
             fallback_model=fallback_model,
+            provider=provider,
+            deepseek_selected_model=deepseek_selected,
+            deepseek_fallback_model=deepseek_fallback,
             cooldown_bypass_user_id=cooldown_bypass_user_id,
             response_language=response_language,
         ),
@@ -527,18 +548,21 @@ class AppSettingsStore:
     def update_ai_models(
         self,
         *,
-        selected_model: object,
-        fallback_model: object,
+        selected_model: object = None,
+        fallback_model: object = None,
+        provider: object = "gemini",
     ) -> AppSettings:
-        selected, fallback = validate_gemini_model_settings(
-            selected_model,
-            fallback_model,
-        )
+        provider = validate_ai_provider(provider)
+        changes = {"provider": provider}
+        if selected_model is not None or fallback_model is not None:
+            selected, fallback = validate_provider_models(provider, selected_model, fallback_model)
+            prefix = "deepseek_" if provider == "deepseek" else ""
+            changes.update({prefix + "selected_model": selected, prefix + "fallback_model": fallback})
         with self._lock:
             updated = AppSettings(
                 window=self._settings.window,
                 startup=self._settings.startup,
-                ai=replace(self._settings.ai, selected_model=selected, fallback_model=fallback),
+                ai=replace(self._settings.ai, **changes),
                 twitch=self._settings.twitch,
             )
             save_app_settings(self._path, updated, recovered_settings=self._settings)

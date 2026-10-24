@@ -301,7 +301,8 @@ export interface TwitchSettingsResponse extends ActionResult {
   settings?: TwitchConnectionSettings
 }
 
-export type CredentialName = 'gemini_api_key' | 'twitch_client_secret'
+export type CredentialName = 'gemini_api_key' | 'deepseek_api_key' | 'twitch_client_secret'
+export type AIProviderId = 'gemini' | 'deepseek'
 
 export interface CredentialInfo {
   name: CredentialName
@@ -325,6 +326,7 @@ export interface GeminiModelPreset {
 
 export interface AIProviderSettings {
   provider: string
+  provider_id?: AIProviderId
   selected_model: string
   fallback_model: string
   presets: GeminiModelPreset[]
@@ -333,6 +335,7 @@ export interface AIProviderSettings {
 
 export interface AIProviderSettingsResponse extends ActionResult {
   settings?: AIProviderSettings
+  providers?: { id: AIProviderId; label: string }[]
 }
 
 export type AILanguageMode = 'auto' | 'limited'
@@ -368,6 +371,7 @@ export interface AboutInfo {
 }
 
 export interface ModelDiscoveryResponse extends ActionResult {
+  provider_id?: AIProviderId
   models?: string[]
 }
 
@@ -465,10 +469,11 @@ export interface PythonApi {
   reconnect_twitch(): Promise<ActionResult>
   get_credentials(): Promise<CredentialsResponse>
   get_ai_provider_settings(): Promise<AIProviderSettingsResponse>
-  update_ai_provider_settings(selectedModel: string, fallbackModel: string): Promise<ActionResult>
+  update_ai_provider_settings(selectedModel?: string | null, fallbackModel?: string | null, provider?: AIProviderId): Promise<ActionResult>
   get_ai_language_settings(): Promise<AILanguageSettingsResponse>
   update_ai_language_settings(mode: string, allowedLanguages: string[], fallbackLanguage: string): Promise<ActionResult>
   discover_gemini_models(): Promise<ModelDiscoveryResponse>
+  discover_ai_models(provider?: AIProviderId): Promise<ModelDiscoveryResponse>
   replace_credential(name: CredentialName, value: string): Promise<ActionResult>
   remove_credential(name: CredentialName): Promise<ActionResult>
   test_credential(name: CredentialName): Promise<ActionResult>

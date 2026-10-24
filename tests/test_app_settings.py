@@ -143,6 +143,7 @@ def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
         },
         "startup": {"auto_start_bot": True, "operation_mode": "always_on"},
         "ai": {
+            "provider": None, "deepseek_selected_model": None, "deepseek_fallback_model": None,
             "cooldown_bypass_user_id": None,
             "fallback_model": None,
             "memory_enabled": False,
@@ -347,11 +348,13 @@ def test_gemini_model_settings_are_validated_persisted_and_reloaded(tmp_path) ->
     )
 
     assert updated.ai == AISettings(
+        provider="gemini",
         selected_model="custom-gemini-model",
         fallback_model="gemini-3.1-flash-lite",
     )
     assert AppSettingsStore(settings_path).snapshot().ai == updated.ai
     assert json.loads(settings_path.read_text(encoding="utf-8"))["ai"] == {
+        "provider": "gemini", "deepseek_selected_model": None, "deepseek_fallback_model": None,
         "cooldown_bypass_user_id": None,
         "fallback_model": "gemini-3.1-flash-lite",
         "memory_enabled": True,
@@ -364,10 +367,32 @@ def test_gemini_model_settings_are_validated_persisted_and_reloaded(tmp_path) ->
 
     memory_updated = store.update_ai_memory(enabled=False)
     assert memory_updated.ai == AISettings(
+        provider="gemini",
         memory_enabled=False,
         selected_model="custom-gemini-model",
         fallback_model="gemini-3.1-flash-lite",
     )
+
+
+def test_provider_switch_restores_independent_models_after_restart(tmp_path):
+    from app.config.profile_settings import apply_ai_app_settings
+    from app.config.settings import Settings
+    path = tmp_path / "app_settings.json"
+    store = AppSettingsStore(path)
+    store.update_ai_models(selected_model="gemini-custom", fallback_model="gemini-other")
+    store.update_ai_models(provider="deepseek", selected_model="deepseek-custom", fallback_model="deepseek-other")
+    effective = apply_ai_app_settings(Settings(), AppSettingsStore(path).snapshot())
+    assert effective.ai_provider == "deepseek" and effective.deepseek_model == "deepseek-custom"
+    assert effective.gemini_model == "gemini-custom"
+    store.update_ai_models(provider="gemini")
+    effective = apply_ai_app_settings(Settings(), AppSettingsStore(path).snapshot())
+    assert effective.ai_provider == "gemini" and effective.deepseek_model == "deepseek-custom"
+    before = path.read_bytes()
+    for provider, selected, fallback in (("deepseek", "gemini-x", "gemini-y"), ("gemini", "deepseek-x", "gemini-y"),
+                                         ("unknown", "x", "y"), ("deepseek", "deepseek-x", None)):
+        with pytest.raises(ValueError):
+            store.update_ai_models(provider=provider, selected_model=selected, fallback_model=fallback)
+    assert path.read_bytes() == before
 
 
 @pytest.mark.parametrize(

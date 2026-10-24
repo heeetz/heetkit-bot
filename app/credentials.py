@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 import os
 from hashlib import sha256
 from collections.abc import Mapping
@@ -20,6 +21,7 @@ CREDENTIAL_SERVICE_NAME = "heetkit"
 LEGACY_CREDENTIAL_SERVICE_NAME = "twitch-bot"
 _MIGRATION_ENTRY_PREFIX = "legacy_migration_v1:"
 GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+DEEPSEEK_MODELS_URL = "https://api.deepseek.com/models"
 TWITCH_TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 MAX_CREDENTIAL_LENGTH = 8_192
 
@@ -27,11 +29,13 @@ MAX_CREDENTIAL_LENGTH = 8_192
 class CredentialName(StrEnum):
     GEMINI_API_KEY = "gemini_api_key"
     TWITCH_CLIENT_SECRET = "twitch_client_secret"
+    DEEPSEEK_API_KEY = "deepseek_api_key"
 
 
 CREDENTIAL_LABELS = {
     CredentialName.GEMINI_API_KEY: "Gemini API key",
     CredentialName.TWITCH_CLIENT_SECRET: "Twitch client secret",
+    CredentialName.DEEPSEEK_API_KEY: "DeepSeek API key",
 }
 
 
@@ -211,7 +215,13 @@ class CredentialManager:
             raise CredentialError("Credential is not configured.")
 
         try:
-            if parsed_name is CredentialName.GEMINI_API_KEY:
+            if parsed_name is CredentialName.DEEPSEEK_API_KEY:
+                # A models probe verifies authentication only, never generation/tool access.
+                async with asyncio.timeout(15):
+                    async with http_client.stream("GET", DEEPSEEK_MODELS_URL,
+                            headers={"Authorization": "Bearer " + value}, timeout=10) as response:
+                        pass  # Do not read or log a credential-test response body.
+            elif parsed_name is CredentialName.GEMINI_API_KEY:
                 response = await http_client.get(
                     GEMINI_MODELS_URL,
                     headers={"x-goog-api-key": value},
@@ -226,8 +236,9 @@ class CredentialManager:
                         "grant_type": "client_credentials",
                     },
                 )
-        except httpx.RequestError as error:
-            raise CredentialError("Credential service could not be reached.") from error
+        except (httpx.RequestError, TimeoutError, ValueError):
+            # Header validation can include the supplied secret in its exception.
+            raise CredentialError("Credential service could not be reached or rejected its input.") from None
 
         if 200 <= response.status_code < 300:
             return

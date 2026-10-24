@@ -8,6 +8,12 @@ from app.config.profile_settings import apply_ai_app_settings, apply_twitch_app_
 from app.config.settings import Settings
 
 
+def test_unsaved_provider_default_and_explicit_saved_selection():
+    settings = Settings(ai_provider="deepseek")
+    assert apply_ai_app_settings(settings, AppSettings()).ai_provider == "deepseek"
+    assert apply_ai_app_settings(settings, AppSettings(ai=AISettings(provider="gemini"))).ai_provider == "gemini"
+
+
 def test_saved_twitch_and_ai_settings_take_precedence() -> None:
     runtime = Settings(
         _env_file=None,

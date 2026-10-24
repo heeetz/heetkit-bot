@@ -154,6 +154,9 @@ async def test_availability_discovery_and_close_delegate_without_changing_prefer
     assert not service.is_available
     assert await service.generate_reply("hello", "viewer") == AIReply("", False, "provider_unavailable")
     provider.generate.assert_not_awaited()
+    with pytest.raises(RuntimeError, match="Configure the provider API key"):
+        await service.discover_models()
+    provider.is_available = True
     assert await service.discover_models() == ["synthetic-primary"]
     await service.aclose()
     provider.discover_models.assert_awaited_once()

@@ -87,6 +87,10 @@ The internal [`provider contract`](../app/services/ai_provider.py) carries immut
 prepared inputs and normalized results. [`GeminiProvider`](../app/services/gemini_ai_service.py)
 owns SDK requests, search tools, discovery, bounded model fallback, safe errors and client
 leases. Profiles without a provider selection continue to use Gemini; no migration is needed.
+[`DeepSeekProvider`](../app/services/deepseek_ai_service.py) uses existing HTTPX against
+the fixed direct API, with thinking disabled and final text only. Each adapter owns its
+capabilities and request parameters. Provider-scoped model choices persist independently;
+backend operations expose selection, discovery and secret-free credential status.
 Instructions, context, search intent, models and credentials are captured before asynchronous
 provider work, so edits apply to the next request and cannot change an in-flight fallback.
 Global output filters still use the rules active when the response arrives. The current
@@ -126,7 +130,8 @@ awaits. It also serves allowlisted production React assets. The typed
 server's explicit document marker selects [`httpTransport.ts`](../frontend/src/httpTransport.ts).
 A delayed desktop bridge does not select HTTP automatically. Browser access uses
 same-origin requests and short-lived in-memory bearer sessions; native actions,
-credential editing, update checks and Playground remain desktop-only. Authentication,
+update checks and Playground remain desktop-only. Credential editing
+is also available through authenticated Server setup. Authentication,
 cookie handling, route limits and browser capabilities belong to the
 [management API guide](management-api.md).
 
@@ -318,6 +323,9 @@ For saved settings, profile paths and recovery, see
 | `TWITCH_CHANNEL`, `TWITCH_CHANNEL_USER_ID` | Target login and numeric broadcaster ID. |
 | `GEMINI_API_KEY` | Optional Gemini credential fallback. |
 | `GEMINI_MODEL`, `GEMINI_FALLBACK_MODEL` | AI model defaults; saved selections override them. |
+| `AI_PROVIDER` | Unsaved provider default: `gemini` (default) or `deepseek`; saved selection overrides it. |
+| `DEEPSEEK_API_KEY` | Optional direct DeepSeek credential fallback; Server also supports `_FILE`. |
+| `DEEPSEEK_MODEL`, `DEEPSEEK_FALLBACK_MODEL` | DeepSeek model defaults; saved provider choices override them. |
 | `AI_COOLDOWN_BYPASS_USER_ID` | One numeric user ID allowed to bypass only the Ask cooldown; a saved value takes priority. |
 | `LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL`. |
 | `COMMAND_PREFIX` | Command prefix, default `!`. |

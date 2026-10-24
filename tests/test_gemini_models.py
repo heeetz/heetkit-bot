@@ -73,6 +73,26 @@ def test_model_discovery_keeps_only_text_generation_models() -> None:
     assert GeminiProvider._normalize_discovered_model(unsupported_model) is None
 
 
+async def test_discovery_stops_after_bounded_model_count(monkeypatch):
+    from contextlib import asynccontextmanager
+    from app.services import gemini_ai_service
+    monkeypatch.setattr(gemini_ai_service, "GEMINI_MAX_DISCOVERED_MODELS", 2)
+    visited = []
+    async def listing(**kwargs):
+        async def models():
+            for name in ("gemini-first", "gemini-second", "gemini-third"):
+                visited.append(name)
+                yield SimpleNamespace(name=name, supported_actions=["generateContent"])
+        return models()
+    @asynccontextmanager
+    async def client(*args):
+        yield SimpleNamespace(models=SimpleNamespace(list=listing))
+    service = GeminiProvider(SimpleNamespace())
+    monkeypatch.setattr(service, "_provider_client", client)
+    assert await service.discover_models() == ["gemini-first", "gemini-second"]
+    assert visited == ["gemini-first", "gemini-second"]
+
+
 class ProviderError(Exception):
     def __init__(self, code: int) -> None:
         super().__init__(f"provider error {code}")

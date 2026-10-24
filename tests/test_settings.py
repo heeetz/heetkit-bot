@@ -107,6 +107,7 @@ def test_intentional_process_environment_defaults_without_dotenv(tmp_path, monke
     monkeypatch.setattr("app.runtime_paths.user_data_path", lambda *args, **kwargs: tmp_path)
     values = valid_settings() | {
         "gemini_api_key": "synthetic-process-key",
+        "deepseek_api_key": "synthetic-deepseek-key",
         "gemini_model": "gemini-process-selected",
         "gemini_fallback_model": "gemini-process-fallback",
         "ai_cooldown_bypass_user_id": "123",

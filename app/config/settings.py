@@ -13,7 +13,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.config.ai_models import (
     DEFAULT_GEMINI_FALLBACK_MODEL,
-    validate_gemini_model_id,
+    DEFAULT_DEEPSEEK_MODEL, DEFAULT_DEEPSEEK_FALLBACK_MODEL, validate_provider_model_id,
 )
 from app.config.ai_language import ResponseLanguageSettings, validate_response_language
 from app.runtime_paths import RuntimePaths
@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None
     gemini_model: str = "gemini-3.5-flash-lite"
     gemini_fallback_model: str = DEFAULT_GEMINI_FALLBACK_MODEL
+    ai_provider: Literal["gemini", "deepseek"] = "gemini"
+    deepseek_api_key: SecretStr | None = None
+    deepseek_model: str = DEFAULT_DEEPSEEK_MODEL
+    deepseek_fallback_model: str = DEFAULT_DEEPSEEK_FALLBACK_MODEL
     ai_cooldown_bypass_user_id: str | None = None
     ai_response_language: ResponseLanguageSettings = Field(default_factory=ResponseLanguageSettings)
     database_url: str = Field(
@@ -75,7 +79,13 @@ class Settings(BaseSettings):
     @field_validator("gemini_model", "gemini_fallback_model")
     @classmethod
     def validate_gemini_model(cls, value: str) -> str:
-        return validate_gemini_model_id(value)
+        return validate_provider_model_id("gemini", value)
+
+    @field_validator("deepseek_model", "deepseek_fallback_model")
+    @classmethod
+    def validate_deepseek_model(cls, value: str) -> str:
+        # Validate the namespace without imposing a static discovery allowlist.
+        return validate_provider_model_id("deepseek", value)
 
     @field_validator("ai_response_language")
     @classmethod
@@ -125,6 +135,7 @@ class EnvironmentCredentialSettings(BaseSettings):
 
     twitch_client_secret: SecretStr | None = None
     gemini_api_key: SecretStr | None = None
+    deepseek_api_key: SecretStr | None = None
 
 
 def _read_environment_secret(value: SecretStr | None) -> str | None:
@@ -149,6 +160,7 @@ def load_settings_with_credentials(
             CredentialName.GEMINI_API_KEY: _read_environment_secret(
                 environment.gemini_api_key
             ),
+            CredentialName.DEEPSEEK_API_KEY: _read_environment_secret(environment.deepseek_api_key),
         },
         store=credential_store,
     )

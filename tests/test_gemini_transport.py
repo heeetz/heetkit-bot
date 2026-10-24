@@ -191,8 +191,10 @@ async def assert_failed(task, operation):
     if operation == "generation":
         assert not (await task).is_available
     else:
-        with pytest.raises((TimeoutError, httpx.TimeoutException)):
+        from app.services.ai_provider import AIModelDiscoveryError
+        with pytest.raises(AIModelDiscoveryError) as error:
             await task
+        assert error.value.code == "timeout"
 
 
 def test_declared_sdk_is_the_installed_contract():

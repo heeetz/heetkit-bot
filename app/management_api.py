@@ -525,7 +525,7 @@ class ManagementAPI:
             if method == "POST":
                 self.policy.refresh_command_monitoring()
             if method == "GET" and path == "/v1/ai/models":
-                result["settings"]["credential"] = self.credential_statuses()[1]
+                result["settings"]["credential"] = self.ai_credential_status(result["settings"]["provider_id"])
             if method == "GET" and path == "/v1/status":
                 result["operation"] = self.policy.snapshot()
             return result
@@ -536,9 +536,16 @@ class ManagementAPI:
         if method == "GET" and path == "/v1/setup":
             return self.setup_status(owner)
         if method == "POST" and path == "/v1/ai/models/discover":
-            if payload:
+            from app.config.ai_models import validate_ai_provider
+            from app.services.ai_provider import AIModelDiscoveryError
+            if set(payload) - {"provider"}:
                 raise ValueError
-            return {"ok": True, "models": await self.runtime.application.services.ai.discover_models()}
+            provider = validate_ai_provider(payload.get("provider", self.runtime.application.settings.ai_provider))
+            try:
+                models = await self.runtime.application.services.ai.discover_models(provider)
+            except AIModelDiscoveryError as error:
+                return {"ok": False, "error": str(error), "error_code": error.code, "provider_id": provider}
+            return {"ok": True, "models": models, "provider_id": provider}
         if method == "GET" and path == "/v1/diagnostics":
             return {"ok": True, "process_uptime_seconds": int(time.monotonic() - self.started),
                     "desired_running": self.policy.desired_running, "operation": self.policy.snapshot(),
@@ -546,6 +553,7 @@ class ManagementAPI:
                         "twitch_target": "save and reconnect",
                         "twitch_identity_secret": "save, authorize and reconnect",
                         "gemini_key": "immediate",
+                        "deepseek_key": "immediate",
                         "privacy_api_bind": "process_restart (configure outside API)"}}
         if method == "POST" and path in ("/v1/bot/start", "/v1/bot/stop"):
             if payload:
@@ -589,12 +597,15 @@ class ManagementAPI:
         """Presence/source only; never read values back to the browser."""
         return self.setup.credentials.server_statuses()
 
+    def ai_credential_status(self, provider: str) -> dict:
+        return next(status for status in self.credential_statuses() if status["name"] == provider + "_api_key")
+
     def setup_status(self, owner: bytes = b"") -> dict:
         """Project effective configuration status, never credentials or paths."""
         settings = self.runtime.application.settings
         credentials = self.credential_statuses()
         provider = self.service.get_ai_provider_settings()["settings"]
-        provider["credential"] = credentials[1]
+        provider["credential"] = self.ai_credential_status(provider["provider_id"])
         state = self.service.get_app_status()
         self.setup._expire()
         connected = state["twitch_connected"]

@@ -695,7 +695,8 @@ async def test_browser_presentation_routes_apply_save_and_log_cursor(api, monkey
                        ("/v1/personalities/apply", {"personality": "neutral", "prompt": "Synthetic prompt"}),
                        ("/v1/commands/reset-all", {})):
         assert (await call("POST", path, json=data))[0] == 200
-    async def discover():
+    async def discover(provider):
+        assert provider == "gemini"
         return ["gemini-synthetic"]
     monkeypatch.setattr(server.runtime.application.services.ai, "discover_models", discover)
     assert (await call("POST", "/v1/ai/models/discover", json={}))[1]["models"] == ["gemini-synthetic"]
