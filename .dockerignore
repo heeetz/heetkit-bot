@@ -61,6 +61,7 @@ frontend/src/**
 frontend/src/components/**
 !frontend/src/components/*.tsx
 !frontend/src/components/settings-layout.css
+!frontend/src/components/ai-setup.css
 !frontend/src/pages/
 frontend/src/pages/**
 !frontend/src/pages/*.tsx
