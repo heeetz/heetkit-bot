@@ -60,6 +60,7 @@ frontend/src/**
 !frontend/src/components/
 frontend/src/components/**
 !frontend/src/components/*.tsx
+!frontend/src/components/settings-layout.css
 !frontend/src/pages/
 frontend/src/pages/**
 !frontend/src/pages/*.tsx
