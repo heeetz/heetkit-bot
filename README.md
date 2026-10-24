@@ -6,7 +6,7 @@ HeetKit is a configurable Twitch bot focused on entertainment and interactive ch
 Use **Windows Desktop** for a local window and tray controls, or **HeetKit Server**
 on Linux/Docker with private browser management.
 
-Its main feature is a customizable Gemini-powered AI responder: create personalities, add profile-wide instructions, choose models, optionally keep conversation memory, and shape how the bot talks in your chat.
+Its main feature is a customizable AI responder powered by Google Gemini or DeepSeek: create personalities, add profile-wide instructions, choose models, optionally keep conversation memory, and shape how the bot talks in your chat.
 
 HeetKit also includes custom commands, useful chat utilities, permissions, cooldowns, filters, live logs, and a local desktop control panel.
 
@@ -22,8 +22,8 @@ HeetKit also includes custom commands, useful chat utilities, permissions, coold
 
 ## Features
 
-- **Configurable AI chat** powered by Gemini
-- **Local AI Playground** to test real Gemini replies without posting to Twitch (uses API quota)
+- **Configurable AI chat** powered by Google Gemini or DeepSeek, with saved models and optional fallback
+- **Desktop AI Playground** to test replies from the selected AI provider without posting to Twitch (uses API quota)
 - **Custom AI personalities** with editable prompts and shared profile instructions
 - **Custom Twitch commands** with aliases, responses, permissions and cooldowns
 - **Useful chat commands** such as followage, weather, last seen and uptime
@@ -35,7 +35,7 @@ HeetKit also includes custom commands, useful chat utilities, permissions, coold
   saved channels and persistent operation modes
 - **Configuration transfer** between Desktop and Server, excluding secrets and history
 
-Gemini is optional. Normal Twitch commands work without an AI API key.
+AI is optional. Normal Twitch commands work without an AI API key.
 
 ---
 
@@ -63,12 +63,12 @@ See the [v1.4.1 changes](docs/releases/v1.4.1.md).
 2. In Settings, save the Twitch application details, client secret, bot account and target channel, then restart HeetKit.
 3. Select **Start Bot** on Dashboard, then **Authorize Twitch** as the configured bot account when prompted.
 4. Wait for **Connected**. Session **Running** alone does not mean Twitch chat is connected.
-5. Optionally add a Gemini API key to enable AI chat.
+5. Optionally open **AI → AI setup**, connect a Gemini or DeepSeek API key, choose a model and save AI setup.
 
-New to Twitch applications or Gemini API keys?
+New to Twitch applications or AI provider keys?
 
 - **[Twitch setup guide](docs/twitch-setup.md)**
-- **[AI / Gemini setup guide](docs/ai-setup.md)**
+- **[AI provider setup guide](docs/ai-setup.md)**
 
 For HeetKit's current Twitch connection model, the bot account should have moderator access in the target channel. See the Twitch setup guide for details.
 
@@ -77,7 +77,7 @@ For HeetKit's current Twitch connection model, the bot account should have moder
 ## Documentation
 
 - [Twitch setup](docs/twitch-setup.md)
-- [AI / Gemini setup](docs/ai-setup.md)
+- [AI provider setup](docs/ai-setup.md)
 - [Commands and customization](docs/commands.md)
 - [Data, profiles and privacy](docs/data-and-privacy.md)
 - [Development and building from source](docs/development.md)

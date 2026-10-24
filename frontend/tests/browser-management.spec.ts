@@ -151,6 +151,29 @@ async function login(page: Page) {
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible()
 }
 
+for (const width of [1280, 390, 320]) {
+  test(`browser setup guide shows configured status and bounded actions at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await server(page)
+    await page.goto('/tests/browser.fixture.html')
+    await login(page)
+    const checklist = page.getByRole('article', { name: 'Setup checklist' })
+    await expect(checklist.locator('.section-heading p')).toHaveText('Twitch connected · AI configured')
+    await checklist.getByRole('button', { name: 'Resume setup guide' }).click()
+    await expect(checklist).not.toContainText(/unverified|not confirmed/)
+    const bounds = (await checklist.boundingBox())!
+    for (const action of await checklist.getByRole('button').all()) {
+      const box = (await action.boundingBox())!
+      expect(box.x).toBeGreaterThanOrEqual(bounds.x)
+      expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width)
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    await page.screenshot({ path: `node_modules/.tmp/server-setup-guide-${width}.png`, fullPage: true })
+    await checklist.getByRole('button', { name: 'Open AI setup' }).click()
+    await expect(page.locator('#ai-models')).toBeInViewport()
+  })
+}
+
 async function invoke(page: Page, method: string, args: unknown[] = []) {
   return page.evaluate(async ({ method, args }) => {
     const modulePath = '/src/bridge.ts'

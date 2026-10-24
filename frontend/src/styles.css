@@ -83,7 +83,7 @@ h1 { margin-bottom: 0; font-size: 28px; }
 .dashboard-operation-card { min-width: 0; }
 .dashboard-operation-card h2 { margin: 0; font-size: 20px; }
 .dashboard-operation-card > p { max-width: 860px; margin: 10px 0 0; color: var(--muted); line-height: 1.5; }
-.dashboard-operation-card .dashboard-card-heading { align-items: center; }
+.dashboard-operation-card .dashboard-card-heading { align-items: center; flex-wrap: wrap; }
 .dashboard-operation-card .select-trigger { min-width: 190px; }
 .dashboard-operation-status { margin-top: 16px; }
 .dashboard-operation-status strong { font-size: 14px; }
@@ -128,6 +128,19 @@ h1 { margin-bottom: 0; font-size: 28px; }
 .muted, .command-meta { color: var(--muted); }
 .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: 20px; }
 .section-heading h2 { margin-bottom: 0; }
+.setup-checklist .section-heading { flex-wrap: wrap; align-items: center; margin-bottom: 0; }
+.setup-checklist .section-heading > div { flex: 1 1 280px; min-width: 0; }
+.setup-checklist .section-heading > button { flex: 0 0 auto; }
+.setup-checklist p { margin: 4px 0 0; overflow-wrap: anywhere; }
+.setup-checklist .section-heading p { color: var(--muted); }
+.setup-checklist ol { display: grid; gap: var(--space-4); margin: var(--space-6) 0 0; padding-left: var(--space-6); }
+.setup-guide-step { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-4); }
+.setup-guide-step p { margin: 0; }
+.setup-guide-step .row-actions { align-items: center; }
+@container page-content (max-width: 700px) {
+  .setup-guide-step { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
+  .setup-guide-step .row-actions { justify-content: flex-start; }
+}
 .read-only-badge, .mini-badge, .state-pill { display: inline-flex; align-items: center; border-radius: 999px; font-size: 13px; font-weight: 700; }
 .read-only-badge { padding: 6px 10px; color: var(--muted); background: var(--hover); }
 .mini-badge { padding: 2px 7px; color: var(--text); background: #302656; }

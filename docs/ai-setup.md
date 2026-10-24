@@ -3,8 +3,10 @@
 AI is optional. Normal Twitch commands work without it. Gemini remains the default;
 Desktop and Server share saved connections for Gemini and the direct DeepSeek API.
 Dashboard's optional setup guide can be dismissed/resumed, and AI can be skipped or
-configured before Twitch. Configured credentials, authorization and a connected chat
-session are separate states; the guide never authorizes an account itself.
+configured before Twitch. Its summary shows saved setup and the current Twitch
+connection without treating an untested provider as a setup failure. Configured
+credentials, authorization and a connected chat session are separate states; the
+guide never authorizes an account itself.
 
 ## Saved connections and model setup
 
@@ -104,6 +106,14 @@ The outgoing mention must also fit Twitch's 500-character envelope and valid UTF
 longer answers never authorize split sends. See [Send Chat Message](https://dev.twitch.tv/docs/api/reference/#send-chat-message).
 
 ## Get a key and add it to HeetKit
+
+For DeepSeek, create an API key in the [DeepSeek platform](https://platform.deepseek.com/),
+then enter it in **AI → AI setup → Connected providers → DeepSeek** and select
+**Connect key**. Choose **DeepSeek** in **Primary provider**, choose a model and
+**Save AI setup**. The key is separate from a Gemini key. **Test connection** checks
+the saved credential; generation still depends on model access and provider limits.
+
+For Google Gemini:
 
 1. Open [Google AI Studio](https://aistudio.google.com/) and sign in with your Google account.
 2. Open the dashboard's **API Keys / Projects** area. New users may already have a default

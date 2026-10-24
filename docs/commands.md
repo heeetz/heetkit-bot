@@ -30,7 +30,7 @@ users when enabled. Disabled or removed commands also stay out of public help.
 
 | Command | Purpose | Default permission |
 | --- | --- | --- |
-| `!ask <question>` | Gemini reply using the active personality and optional memory. | User |
+| `!ask <question>` | AI reply using the active personality and optional memory. | User |
 | `!commands [page]` | List public command help entries. | Moderator |
 | `!erase <username>` | Delete stored AI memory for a known user; hidden from help. | Broadcaster |
 | `!followage` | Show how long the invoking user has followed the channel. | User |
@@ -42,8 +42,9 @@ users when enabled. Disabled or removed commands also stay out of public help.
 | `!uptime` | Show how long the current HeetKit session has been running. | Moderator |
 | `!weather <city>` | Current weather with English, Russian or Ukrainian localization. | User |
 
-`!ask` requires a Gemini key. See [AI setup](ai-setup.md). Other commands work without
-Gemini. `!uptime` measures the bot session, rather than the stream's uptime.
+`!ask` requires a key for the selected Gemini or DeepSeek provider. See
+[AI setup](ai-setup.md). Other commands work without AI. `!uptime` measures the bot
+session, rather than the stream's uptime.
 
 `!commands` and `!help` list enabled public built-ins and custom commands, including
 their current aliases. Edits, removals and restores appear on the next request;

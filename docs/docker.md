@@ -198,6 +198,24 @@ current state for backward-compatible rollback, retaining rotated OAuth tokens.
 Incompatible state requires a reviewed recovery plan; never restore an older profile
 unconditionally. No registry publication or automatic update is configured.
 
+### Unpublished candidates
+
+A successful **Full validation** run checks the selected source SHA on native AMD64
+and ARM64 containers. **Build candidate** produces the Windows ZIP/installer for that
+same SHA; it does not produce a server image or publish a release.
+
+For a later server update without a release tag, retain that full SHA and its successful
+run links. Prepare a separate clean checkout at the exact SHA, or extract a source
+archive made with `scripts/package.ps1` from that clean checkout. Build the canonical
+Dockerfile natively on the server using its existing platform and Compose inputs.
+Keep the previous image/configuration, then follow the stopped-volume backup and
+replacement procedure above, preserving the existing volume and external secrets.
+Do not run a second bot against the same account to test the candidate.
+
+The release helper below requires a published tag and deliberately rejects unpublished
+candidates. Candidate preparation does not update the running server; cutover and
+rollback compatibility still require an explicitly authorized deployment.
+
 ## Repeatable release update
 
 The operator request `Deploy release v<VERSION> to heetkit` starts a **separate manual

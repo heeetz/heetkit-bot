@@ -1,5 +1,39 @@
 import { expect, test, type Page } from '@playwright/test'
 
+for (const width of [1280, 900, 390, 320]) {
+  test(`configured setup guide has clear status and aligned actions at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.goto('/tests/fixture.html?configured&aiAvailable')
+    const checklist = page.getByRole('article', { name: 'Setup checklist' })
+    await expect(checklist.locator('.section-heading p')).toHaveText('Twitch configured · AI configured')
+    await checklist.getByRole('button', { name: 'Resume setup guide' }).click()
+    await expect(checklist).not.toContainText(/unverified|not confirmed/)
+    await expect(checklist.getByRole('button', { name: 'Skip AI for now' })).toHaveCount(0)
+    const steps = checklist.locator('.setup-guide-step')
+    const bounds = (await checklist.boundingBox())!
+    const actions = []
+    for (const step of await steps.all()) {
+      const text = (await step.locator('p').boundingBox())!
+      const action = (await step.locator('.row-actions').boundingBox())!
+      expect(action.x).toBeGreaterThanOrEqual(bounds.x)
+      expect(action.x + action.width).toBeLessThanOrEqual(bounds.x + bounds.width)
+      if (width <= 900) {
+        expect(action.y).toBeGreaterThanOrEqual(text.y + text.height)
+        expect(action.x).toBe(text.x)
+      } else {
+        expect(Math.abs(action.y + action.height / 2 - text.y - text.height / 2)).toBeLessThanOrEqual(1)
+      }
+      actions.push(action)
+    }
+    if (width > 900) expect(actions[0].x + actions[0].width).toBe(actions[1].x + actions[1].width)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    await page.screenshot({ path: `node_modules/.tmp/setup-guide-${width}.png`, fullPage: true })
+    await checklist.getByRole('button', { name: 'Dismiss setup guide' }).click()
+    await page.reload()
+    await expect(checklist.getByRole('heading')).toHaveText('Setup summary')
+  })
+}
+
 async function openTwitchSettings(page: Page) {
   const trigger = page.locator('#twitch-settings .accordion-trigger')
   // The independent Help button can cover the header's center; click its expand caret.

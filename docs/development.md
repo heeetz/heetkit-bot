@@ -472,7 +472,7 @@ sharing; filtering does not detect secrets already committed in tracked source/h
 - Missing UI: build `frontend/`, confirm a graphical desktop and the required renderer.
   `--check` deliberately does not open a window.
 - Dev URL unavailable: start Vite before launching with `--dev-url`.
-- Twitch or Gemini failures: use the setup guides and credential Test actions, and
+- Twitch or AI provider failures: use the setup guides and credential Test actions, and
   redact private information before sharing diagnostic logs.
 
 [Back to README](../README.md#documentation).

@@ -181,12 +181,12 @@ authorization details are in the **Twitch connection** help. **Connection failed
 A fresh profile shows one required Twitch setup step with **Configure Twitch** opening
 the correct Settings section. Pending application restarts and saved channel changes appear
 as separate notices; a healthy connection can still have a channel change waiting to apply.
-Gemini remains optional: commands-only users do not receive an optional AI setup checklist.
+AI remains optional: commands-only users can skip AI and dismiss the setup guide.
 **Manage AI** opens AI controls when needed. Filter Tester and AI Playground can be used
-while stopped; Playground needs Gemini.
+while stopped; Desktop Playground needs a configured AI provider.
 
 If connection fails, check that each login matches its numeric ID, the callback matches
 exactly, the bot has channel access and you authorized the bot account. Do not share your
 local profile folder: it contains Twitch authorization credentials.
 
-Optional: [AI / Gemini setup](ai-setup.md). [Back to README](../README.md#getting-started).
+Optional: [AI provider setup](ai-setup.md). [Back to README](../README.md#getting-started).
