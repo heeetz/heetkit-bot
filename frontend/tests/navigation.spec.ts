@@ -49,15 +49,16 @@ const destinations = [
     ['Blocked phrases', 'filters-phrases'], ['Regex patterns', 'filters-patterns'],
   ] },
   { section: 'AI', children: [
-    ['State', 'ai-runtime'], ['Playground', 'ai-playground'],
+    ['AI setup', 'ai-models'], ['State', 'ai-runtime'], ['Playground', 'ai-playground'],
     ['Personalities', 'ai-personalities'], ['Profile instructions', 'ai-profile-instructions'],
-    ['Response language', 'ai-language'], ['Models', 'ai-models'],
-    ['AI access', 'ai-blocked-users'], ['Built-in restrictions', 'ai-shared-instructions'],
+    ['Shared instructions', 'ai-shared-instructions'], ['Response language', 'ai-language'],
+    ['AI access', 'ai-blocked-users'],
   ] },
   { section: 'Settings', children: [
+    ['Desktop behavior', 'desktop-settings'],
     ['Twitch connection', 'twitch-settings'], ['Gemini API key', 'credential-settings'],
     ['Configuration transfer', 'configuration-transfer'],
-    ['Desktop behavior', 'desktop-settings'], ['Data & diagnostics', 'profile-location-settings'],
+    ['Data & diagnostics', 'profile-location-settings'],
   ] },
 ]
 
@@ -88,7 +89,7 @@ for (const { section, children } of destinations) {
       await expect(parent).toHaveAttribute('aria-expanded', 'true')
       await expect(nav.locator('.sidebar-subnav:visible')).toHaveCount(1)
       await expect.poll(() => page.evaluate(() => Reflect.get(window, 'navigationScrolls').at(-1))).toEqual({ id, hidden: false, loading: false })
-      if (['ai-language', 'ai-personalities', 'ai-profile-instructions', 'twitch-settings', 'credential-settings'].includes(id)) {
+      if (['ai-models', 'ai-shared-instructions', 'ai-language', 'ai-personalities', 'ai-profile-instructions', 'twitch-settings', 'credential-settings'].includes(id)) {
         await expect(page.locator(`#${id} .accordion-trigger`)).toHaveAttribute('aria-expanded', 'true')
         await expect.poll(() => page.evaluate(() => Reflect.get(window, 'navigationAccordionStates').at(-1))).toEqual({ id, open: 'true' })
       }
@@ -121,12 +122,11 @@ test('existing cross-page setup actions expand Settings and scroll only after it
   await expect(nav.locator('#nav-Settings')).toBeVisible()
   await expect.poll(() => page.evaluate(() => Reflect.get(window, 'navigationScrolls').at(-1))).toEqual({ id: 'twitch-settings', hidden: false, loading: false })
   await nav.getByRole('button', { name: 'AI', exact: true }).click()
-  await page.getByRole('button', { name: 'Add Gemini key', exact: true }).click()
-  await expect(nav.locator('#nav-AI')).toBeHidden()
-  await expect(nav.locator('#nav-Settings')).toBeVisible()
-  await expect(nav.getByRole('button', { name: 'Gemini API key', exact: true })).toHaveAttribute('aria-current', 'location')
-  await expect.poll(() => page.evaluate(() => Reflect.get(window, 'navigationScrolls').at(-1))).toEqual({ id: 'credential-settings', hidden: false, loading: false })
-  await expect(page.locator('#credential-settings')).toBeInViewport()
+  await page.getByRole('button', { name: 'Manage AI setup', exact: true }).click()
+  await expect(nav.locator('#nav-AI')).toBeVisible()
+  await expect(page.locator('#ai-models .accordion-trigger')).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.locator('#ai-models')).toBeInViewport()
+
 })
 
 test('a filter child selected during first load scrolls when its anchor appears', async ({ page }) => {
@@ -186,6 +186,7 @@ test('parents and children work with Space, Enter, Tab and visible keyboard focu
   await parent.focus()
   await parent.press('Space')
   await expect(parent).toHaveAttribute('aria-expanded', 'true')
+  await page.keyboard.press('Tab')
   await page.keyboard.press('Tab')
   const child = nav.getByRole('button', { name: 'State', exact: true })
   await expect(child).toBeFocused()

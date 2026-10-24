@@ -479,7 +479,9 @@ td { color: var(--text); }
 .logs-card .section-heading { padding: var(--space-4) 22px 0; }
 .log-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding: 0 22px 18px; }
 .log-policy { padding: 0 22px; color: var(--muted); font-size: 13px; line-height: 1.5; }
-.log-toolbar label { min-width: 0; }
+.log-toolbar label { min-width: min(100%, 9rem); flex: 0 1 auto; }
+.log-toolbar .search-field { min-width: min(100%, 18rem); flex: 1 1 18rem; }
+.log-toolbar .search-field input { width: 100%; box-sizing: border-box; }
 .log-toolbar input { max-width: 100%; min-width: 0; }
 .log-toolbar input[type="datetime-local"] { height: 40px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--panel); color: var(--text); padding: 6px; }
 .log-details { margin-top: 8px; color: var(--muted); overflow-wrap: anywhere; }
@@ -584,6 +586,7 @@ td { color: var(--text); }
   .dashboard-ai-card { grid-column: auto; }
   main { height: auto; padding: 24px 18px; overflow: visible; }
   .log-toolbar { align-items: stretch; flex-direction: column; }
+  .log-toolbar .search-field { min-width: 0; flex: 0 1 auto; }
   .log-row { grid-template-columns: 82px 70px 1fr; }
   .log-message { grid-column: 1 / -1; }
   .commands-layout .section-heading { flex-wrap: wrap; }

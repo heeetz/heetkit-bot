@@ -5,9 +5,10 @@ async function openAI(page: Page, query = '') {
   await page.goto(`/tests/fixture.html?a4Models&aiAvailable&askToggle&${query}`)
   await page.getByRole('button', { name: 'AI', exact: true }).click()
   await expect(page.locator('.ai-layout')).toHaveAttribute('aria-busy', 'false')
-  for (const id of ['ai-personalities', 'ai-profile-instructions', 'ai-language']) {
+  for (const id of ['ai-models', 'ai-personalities', 'ai-profile-instructions', 'ai-language']) {
     await page.locator(`#${id} .accordion-trigger`).click()
   }
+  await page.locator('#ai-models .ai-manual-model summary').first().click()
 }
 
 async function testPrompt(page: Page) {
@@ -238,6 +239,8 @@ for (const width of [1280, 900, 761, 390, 320]) {
     await language.screenshot({ path: `node_modules/.tmp/a4-language-${width}.png` })
 
     const models = page.locator('#ai-models')
+    await models.locator('.accordion-trigger').click()
+    await models.locator('.ai-manual-model summary').first().click()
     await expect(models.getByRole('button', { name: 'Discover primary models' })).toBeVisible()
     await models.getByLabel('Primary model', { exact: true }).fill('synthetic-draft')
     await expect(models).toContainText('Unsaved AI setup')

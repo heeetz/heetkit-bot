@@ -10,9 +10,9 @@ session are separate states; the guide never authorizes an account itself.
 
 Open **AI → AI setup** on either host:
 
-1. Choose a provider in **Connected providers** and Connect/Replace its key. Save
-   connection, then Test. These operations apply immediately, independently of model
-   drafts; Cancel AI edits cannot undo a saved key. Removing an in-use key warns that
+1. Enter a masked draft in the provider row, then **Connect key** or **Replace key**
+   in **Connected providers**. **Test connection** checks the saved key. These operations
+   apply immediately, independently of model drafts; Cancel AI edits cannot undo a saved key. Removing an in-use key warns that
    requests will become unavailable, and never selects another provider automatically.
 2. In **Primary model**, choose a provider and type/search a model ID. Discover queries
    that provider's captured credential; failed or stale discovery retains selections.
@@ -20,12 +20,12 @@ Open **AI → AI setup** on either host:
 3. Select Thinking and Internet search independently. Unsupported saved options remain
    visible until explicitly corrected; unknown/manual IDs receive provider-default
    generation only, with no invented thinking levels or search capability.
-4. Expand **Fallback model** to configure its provider, model, thinking and search.
-   Its summary remains visible when collapsed. Cross-provider routing requires an
+4. Enable **Fallback model** to configure its provider, model, thinking and search
+   in the parallel card. Cross-provider routing requires an
    acknowledgement that questions, instructions and permitted memory may go to that
    provider. Missing keys remain unavailable; another provider's key is never borrowed.
 5. **Save AI setup** validates and saves the non-secret choices together. Until then,
-   requests use saved settings. Cancel restores the model/instruction draft. Each slot
+   requests use saved settings. Cancel restores the model and length draft. Each slot
    retains its choices when switching providers; other provider keys remain connected.
 
 Desktop keys use the profile's OS keyring with intentional environment fallback.
@@ -81,14 +81,17 @@ so independent settings cannot be silently lost.
 
 ## Shared instructions and character limits
 
-Expand **Shared instructions and length limits** inside AI setup. The shared instruction
-text itself is editable, separately from personality/profile instructions. Save persists
-custom text across upgrades; empty deliberately removes the shipped text. Reset restores
-shipped defaults as a draft; Save applies it. Cancel discards edits. Only the documented
+Open **AI → Shared instructions**, below **Profile instructions**. Both this editor and
+**AI setup** are collapsed until opened manually or through a sidebar/setup shortcut.
+**Save instructions** persists only the shared text, preserving model and length drafts.
+**Save AI setup** preserves unsaved instruction edits. Empty deliberately removes the
+shipped text. **Restore default instructions** changes the draft; Save applies it.
+**Cancel instruction edits** restores the saved text. Only the documented
 `{current_datetime}`, `{ai_max_response_length}` and `{response_language_instruction}`
 placeholders are substituted; other braces remain literal.
 
-Maximum question length is 1–4000 characters (default 300); only the current trimmed
+The input/output length limits stay together inside **AI setup** and save with the model
+choices. Maximum question length is 1–4000 characters (default 300); only the current trimmed
 question counts, not instructions or memory. Overlong questions are rejected before AI
 memory/provider work, rather than truncated. Maximum answer length is 1–450 characters
 (default 220 for existing profiles), enforced in the prompt and final output. Language
@@ -124,7 +127,8 @@ share its footer; the question-mark help explains validation and generation test
 ## Choose how the bot replies
 
 Open **AI**. AI setup comes first; existing State, Playground, Personality,
-Profile instructions, Response language and AI access sections remain available.
+Profile instructions, Shared instructions, Response language and AI access sections
+remain available.
 Sidebar shortcuts scroll to each section. Collapsing editors retains their drafts;
 Enter/Space operates disclosure headers. State shows AI command/memory preferences,
 active model availability and personality. Command and memory switches save immediately.
@@ -267,7 +271,8 @@ Custom personalities can be renamed or deleted; deleting the active one selects
 Profile instructions apply to every personality in the current profile. Applying a draft
 uses it for this session; saving uses it now and persists it. Neither action saves a
 personality prompt or active selection. **Reset** clears that field without changing
-personality prompts or selection. Shared instruction text is editable in AI setup; the disclosed local checks remain enabled. Separate
+personality prompts or selection. Shared instruction text is editable in its own
+Shared instructions section; the disclosed local checks remain enabled. Separate
 profiles keep their own styles and instructions.
 
 The protected policy allows gaming trash talk, sarcasm and light swearing about

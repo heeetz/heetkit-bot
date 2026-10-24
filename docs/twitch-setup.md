@@ -7,7 +7,7 @@ application: a registration that lets HeetKit connect to Twitch. No coding is ne
 
 A fresh Server does not need Desktop or a copied profile. Enable the authenticated
 [management panel](management-api.md#docker-opt-in), sign in and open **Settings →
-Server configuration**. Setup works in every operation mode, including Disabled.
+Application, account and channel**. Setup works in every operation mode, including Disabled.
 
 1. Register a Confidential Twitch application using the account/registration guidance
    below. Register the **exact callback URL shown in Settings**. Local/SSH setup
@@ -19,9 +19,12 @@ Server configuration**. Setup works in every operation mode, including Disabled.
    [Authorization Code Grant](https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/#authorization-code-grant-flow)
    requires the registered redirect and exchange redirect to match.
 2. Save the Client ID, expected bot login/numeric ID and target login/numeric ID.
-   These fields are grouped under **Twitch application**, **Bot account** and
+   These fields are grouped under **Application**, **Bot account** and
    **Target channel**, with one **Save Twitch settings** action for the identity fields.
-   Add the client secret under **Twitch application**. Nonempty external secrets are
+   Add the client secret under **Application**. **Replace secret** opens a masked draft;
+   **Save secret** applies it immediately. **Remove secret** deletes the stored credential
+   after confirmation. **Test client secret** checks the saved application credentials,
+   independently of bot-account authorization. Nonempty external secrets are
    read-only here; rotate them on the host and restart. Make the bot a moderator in
    the target channel as described below.
 3. Select **Connect Twitch** (use **Open Twitch authorization** if the browser blocks
@@ -39,7 +42,7 @@ Server configuration**. Setup works in every operation mode, including Disabled.
    bot identity, target identity and the existing required chat/follower scopes before
    saving authorization. Then use Dashboard: Manual needs Connect, Always On resumes
    automatically, Stream Only follows confirmed live status, and Disabled stays stopped.
-   Add/test an optional Gemini key in the same Settings section.
+   Add/test an optional provider key in **AI → AI setup** or use **Settings → Gemini API key**.
 
 Use Connect Twitch again after revocation, application/secret/account replacement
 or a failed/expired attempt; Cancel abandons an attempt. Identity/secret changes
@@ -49,7 +52,7 @@ channel before reconnecting. Server changes do not require a process restart.
 Browser-managed credentials persist in the private server volume, not OS keyring or
 portable ZIPs. See [storage and recovery](docker.md#backup-restore-and-updates).
 
-In **Settings → Server configuration → Target channel**, enter a channel login,
+In **Settings → Application, account and channel → Saved channels**, enter a channel login,
 numeric ID and **Saved channel name**, then choose **Save new channel**. Select an
 existing saved channel to edit its details or rename it with **Update saved channel**.
 Names must be unique. **Delete saved channel** removes only the preset.

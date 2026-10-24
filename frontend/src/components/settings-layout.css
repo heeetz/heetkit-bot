@@ -1,0 +1,111 @@
+.settings-heading-with-help {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-application-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px 16px;
+  min-width: 0;
+}
+
+.settings-application-fields {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px 16px;
+  min-width: 0;
+}
+
+.settings-application-fields > .form-field,
+.settings-application-fields > .credential-list,
+.settings-application-fields .credential-row {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.settings-application-fields .credential-list {
+  display: block;
+}
+
+.settings-application-fields .credential-row {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.settings-application-links {
+  display: flex;
+  align-items: start;
+  min-width: 0;
+}
+
+.settings-application-links > * {
+  max-width: 100%;
+}
+
+.settings-application-grid > .oauth-callback {
+  min-width: 0;
+  align-content: start;
+}
+
+.settings-twitch-secret .credential-heading {
+  margin-bottom: 10px;
+}
+
+.settings-twitch-secret .credential-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-twitch-secret .credential-actions button {
+  min-width: 0;
+  white-space: normal;
+}
+
+.settings-twitch-secret > .settings-hint {
+  margin: 10px 0 0;
+}
+
+.settings-transfer-bottom {
+  margin-top: 4px;
+}
+
+.server-settings-page .settings-application-fields {
+  align-items: start;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.server-settings-page .settings-application-fields .credential-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.server-settings-page .settings-application-fields > .credential-list {
+  grid-column: auto;
+}
+
+.server-settings-page .settings-twitch-secret .credential-actions {
+  margin-top: 0;
+}
+
+@media (max-width: 720px) {
+  .settings-application-grid,
+  .settings-application-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-application-fields,
+  .server-settings-page .settings-application-fields {
+    grid-template-columns: minmax(0, 1fr);
+    grid-column: 1;
+  }
+
+  .settings-application-links,
+  .settings-application-grid > .oauth-callback {
+    grid-column: 1;
+  }
+}

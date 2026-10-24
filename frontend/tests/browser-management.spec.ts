@@ -381,10 +381,10 @@ for (const width of [1280, 900, 390, 320]) {
     await profile.getByRole('button', { name: 'Save', exact: true }).click()
     await expect.poll(() => api.calls.find((call) => call.path === '/v1/ai/instructions/save')?.body).toEqual({ prompt: 'Saved browser instructions' })
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
-    await expect(page.getByRole('heading', { name: 'Server configuration' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Application, account and channel' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Configuration transfer' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Save Twitch settings', exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Remove', exact: true }).first()).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Remove secret', exact: true })).toBeDisabled()
     await expect(page.getByRole('button', { name: /Open profile folder/ })).toHaveCount(0)
     await page.getByRole('button', { name: 'About', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Check for updates', exact: true })).toHaveCount(0)
@@ -400,7 +400,7 @@ test('server settings edit Twitch identity, manage credentials and complete or c
   await page.goto('/tests/browser.fixture.html')
   await login(page)
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Server configuration', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Application, account and channel', exact: true })).toBeVisible()
 
   await page.getByLabel('Client ID').fill('new-client')
   await page.getByLabel('Bot account login').fill('new-bot')
@@ -416,9 +416,10 @@ test('server settings edit Twitch identity, manage credentials and complete or c
 
   const application = page.locator('[aria-labelledby="server-twitch-application-heading"]')
   await expect(application.getByLabel('Client ID')).toHaveValue('new-client')
-  await expect(application.locator('.server-twitch-secret-row .credential-actions')).toBeVisible()
+  await expect(application.locator('.settings-twitch-secret .credential-actions')).toBeVisible()
 
-  const credentials = page.getByRole('heading', { name: 'Server credentials' }).locator('..')
+  const credentials = page.locator('#credential-settings')
+  await credentials.locator('.accordion-trigger').click()
   await expect(credentials.getByRole('button', { name: 'Remove', exact: true }).first()).toBeDisabled()
   const gemini = page.locator('.credential-row').filter({ hasText: 'Gemini API key' })
   await gemini.getByLabel('New value').fill('synthetic-gemini-secret')
@@ -463,19 +464,21 @@ for (const width of [1280, 900, 390, 320]) {
 
     const twitch = page.locator('#twitch-settings')
     const application = twitch.locator('[aria-labelledby="server-twitch-application-heading"]')
-    const secret = application.locator('.server-twitch-secret-row .credential-row')
+    const secret = application.locator('.settings-twitch-secret')
     const clientIdField = application.getByLabel('Client ID')
     await expect(clientIdField).toBeVisible()
     await expect(secret).toContainText('Twitch client secret')
     await expect(secret.locator('.credential-actions')).toBeVisible()
     const clientIdBounds = (await clientIdField.boundingBox())!
     const secretBounds = (await secret.boundingBox())!
-    expect(secretBounds.y).toBeGreaterThan(clientIdBounds.y + clientIdBounds.height)
-    const secretInputBounds = (await secret.locator('input').boundingBox())!
-    const secretActionsBounds = (await secret.locator('.credential-actions').boundingBox())!
-    expect(Math.abs(secretInputBounds.x - clientIdBounds.x)).toBeLessThanOrEqual(1)
-    expect(Math.abs(secretInputBounds.width - clientIdBounds.width)).toBeLessThanOrEqual(1)
-    expect(secretActionsBounds.y - secretInputBounds.y - secretInputBounds.height).toBeGreaterThanOrEqual(12)
+    if (width >= 900) {
+      expect(secretBounds.x).toBeGreaterThan(clientIdBounds.x + clientIdBounds.width)
+    } else {
+      expect(secretBounds.y).toBeGreaterThan(clientIdBounds.y + clientIdBounds.height)
+      expect(Math.abs(secretBounds.x - clientIdBounds.x)).toBeLessThanOrEqual(1)
+    }
+    await expect(secret.getByRole('button', { name: 'Replace secret', exact: true })).toBeDisabled()
+    await expect(secret.locator('input')).toHaveCount(0)
 
     const pairBoxes: Array<{ first: { x: number; y: number; width: number; height: number }; second: { x: number; y: number; width: number; height: number } }> = []
     for (const [firstLabel, secondLabel] of [
@@ -504,13 +507,13 @@ for (const width of [1280, 900, 390, 320]) {
     const clientId = `persisted-client-${width}`
     await application.getByLabel('Client ID').fill(clientId)
     const target = twitch.locator('[aria-labelledby="server-twitch-target-heading"]')
-    const save = target.getByRole('button', { name: 'Save Twitch settings', exact: true })
-    const authorization = twitch.getByRole('heading', { name: 'Authorization and status', exact: true }).locator('..')
+    const authorization = twitch.getByRole('heading', { name: 'Authorization, status and save', exact: true }).locator('..')
+    const save = authorization.getByRole('button', { name: 'Save Twitch settings', exact: true })
     const targetBounds = (await target.boundingBox())!
     const authorizationBounds = (await authorization.boundingBox())!
     const saveBounds = (await save.boundingBox())!
     expect(saveBounds.y).toBeGreaterThan(targetBounds.y)
-    expect(saveBounds.y).toBeLessThan(authorizationBounds.y)
+    expect(saveBounds.y).toBeGreaterThan(authorizationBounds.y)
     for (const button of await secret.locator('button').all()) {
       const buttonBounds = (await button.boundingBox())!
       expect(buttonBounds.x).toBeGreaterThanOrEqual(secretBounds.x)
@@ -693,22 +696,24 @@ test('browser AI setup saves typed selections, explicit fallback consent and sha
   await login(page)
   await page.getByRole('button', { name: 'AI', exact: true }).click()
   const setup = page.locator('#ai-models')
+  await setup.locator('.accordion-trigger').click()
   await expect(setup.getByLabel('Primary provider')).toBeVisible()
-  await setup.getByLabel('Primary provider').selectOption('deepseek')
-  await setup.getByLabel('Primary thinking').selectOption('high')
-  await setup.locator('summary').filter({ hasText: 'Fallback model' }).click()
-  await setup.getByLabel('Enable fallback', { exact: true }).check()
-  await setup.getByLabel('Fallback provider').selectOption('gemini')
-  await setup.getByLabel('Fallback model', { exact: true }).fill('gemini-2.5-flash')
-  await setup.getByLabel('Fallback thinking').selectOption('off')
+  await selectOption(setup.getByLabel('Primary provider'), 'deepseek')
+  await selectOption(setup.getByLabel('Primary thinking'), 'high')
+  await setup.getByLabel('Enable fallback', { exact: true }).press('Space')
+  await selectOption(setup.getByLabel('Fallback provider'), 'gemini')
+  await selectOption(setup.getByLabel('Fallback model choices'), 'gemini-2.5-flash')
+  await selectOption(setup.getByLabel('Fallback thinking'), 'off')
   await expect(setup.getByRole('button', { name: 'Save AI setup' })).toBeDisabled()
   await setup.getByLabel(/I understand that my question/).check()
-  await setup.locator('summary').filter({ hasText: 'Shared instructions' }).click()
-  await setup.getByLabel('Shared AI instructions', { exact: true }).fill('Owner shared instructions')
+  const instructions = page.locator('#ai-shared-instructions')
+  await instructions.locator('.accordion-trigger').click()
+  await instructions.getByLabel('Shared AI instructions', { exact: true }).fill('Owner shared instructions')
+  await instructions.getByRole('button', { name: 'Save instructions', exact: true }).click()
   await setup.getByLabel('Maximum question length', { exact: true }).fill('800')
   await setup.getByRole('button', { name: 'Save AI setup' }).click()
   await expect(setup).toContainText('AI setup saved')
-  await expect.poll(() => api.calls.find((call) => call.path === '/v1/ai/setup' && call.method === 'POST')?.body).toMatchObject({ settings: {
+  await expect.poll(() => api.calls.filter((call) => call.path === '/v1/ai/setup' && call.method === 'POST').at(-1)?.body).toMatchObject({ settings: {
     primary: { provider: 'deepseek', model: 'deepseek-flash', thinking: 'high', search: false },
     fallback: { provider: 'gemini', thinking: 'off' }, cross_provider_acknowledged: true,
     max_question_length: 800, shared_instructions: 'Owner shared instructions',
@@ -716,4 +721,18 @@ test('browser AI setup saves typed selections, explicit fallback consent and sha
   await setup.getByRole('button', { name: 'Discover primary models' }).click()
   expect(api.calls.filter((call) => call.path === '/v1/ai/models/discover').at(-1)?.body).toEqual({ provider: 'deepseek' })
   expect(await page.evaluate(() => Boolean(window.pywebview))).toBe(false)
+})
+
+
+test('browser Settings sidebar exposes available sections and opens their accordions', async ({ page }) => {
+  await server(page)
+  await page.goto('/tests/browser.fixture.html')
+  await login(page)
+  const nav = page.getByRole('navigation', { name: 'Main navigation' })
+  await nav.getByRole('button', { name: 'Settings', exact: true }).click()
+  const submenu = nav.locator('#nav-Settings')
+  await expect(submenu.getByRole('button')).toHaveText(['Twitch connection', 'Gemini API key', 'Configuration transfer'])
+  await submenu.getByRole('button', { name: 'Gemini API key', exact: true }).click()
+  await expect(page.locator('#credential-settings .accordion-trigger')).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.locator('#credential-settings')).toBeInViewport()
 })

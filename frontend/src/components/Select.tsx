@@ -14,12 +14,15 @@ interface SelectProps {
   disabled?: boolean
   id?: string
   className?: string
+  searchable?: boolean
   'aria-label'?: string
   'aria-describedby'?: string
 }
 
-/** A single-choice listbox. Focus stays on the trigger; navigation previews until committed. */
-export function Select({ value, onChange, options, disabled = false, id, className = '', ...aria }: SelectProps) {
+/** A single-choice listbox with optional model search; navigation previews until committed. */
+export function Select({ value, onChange, options: allOptions, disabled = false, id, className = '', searchable = false, ...aria }: SelectProps) {
+  const [query, setQuery] = useState('')
+  const options = query ? allOptions.filter((option) => option.label.toLocaleLowerCase().includes(query.toLocaleLowerCase())) : allOptions
   const generatedId = useId()
   const triggerId = id ?? generatedId
   const listId = `${triggerId}-options`
@@ -29,12 +32,13 @@ export function Select({ value, onChange, options, disabled = false, id, classNa
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState<string | null>(null)
   const [position, setPosition] = useState<{ left: number; top: number; minWidth: number; maxWidth: number; maxHeight: number } | null>(null)
-  const selected = options.find((option) => option.value === value)
+  const selected = allOptions.find((option) => option.value === value)
   const activeIndex = options.findIndex((option) => option.value === active && !option.disabled)
 
   const dismiss = () => {
     setOpen(false)
     setPosition(null)
+    setQuery('')
     search.current = { text: '', time: 0 }
   }
   const show = (fromEnd = false) => {
@@ -114,15 +118,21 @@ export function Select({ value, onChange, options, disabled = false, id, classNa
 
   useLayoutEffect(() => {
     if (!open || !position || activeIndex < 0) return
-    const menu = list.current
-    const option = menu?.children[activeIndex] as HTMLElement | undefined
+    const menu = searchable ? list.current?.querySelector<HTMLElement>('[role=listbox]') : list.current
+    const option = list.current?.querySelectorAll<HTMLElement>('[role=option]')[activeIndex]
     if (!menu || !option) return
     // Scroll only the listbox, never the surrounding application/document.
-    if (option.offsetTop < menu.scrollTop) menu.scrollTop = option.offsetTop
-    else if (option.offsetTop + option.offsetHeight > menu.scrollTop + menu.clientHeight) {
-      menu.scrollTop = option.offsetTop + option.offsetHeight - menu.clientHeight
+    const bounds = menu.getBoundingClientRect()
+    const item = option.getBoundingClientRect()
+    if (item.top < bounds.top) menu.scrollTop += item.top - bounds.top
+    else if (item.bottom > bounds.bottom) menu.scrollTop += item.bottom - bounds.bottom
+  }, [open, activeIndex, position, searchable])
+
+  useLayoutEffect(() => {
+    if (open && searchable && position && !list.current?.contains(document.activeElement)) {
+      list.current?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true })
     }
-  }, [open, activeIndex, position])
+  }, [open, searchable, position])
 
   useEffect(() => {
     if (!open) return
@@ -138,9 +148,10 @@ export function Select({ value, onChange, options, disabled = false, id, classNa
     }
   }, [open])
 
-  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement | HTMLInputElement>) => {
     if (event.key === 'Tab') {
       dismiss()
+      if (searchable) trigger.current?.focus({ preventScroll: true })
       return
     }
     if (event.key === 'Escape') {
@@ -148,6 +159,7 @@ export function Select({ value, onChange, options, disabled = false, id, classNa
         event.preventDefault()
         event.stopPropagation()
         dismiss()
+        trigger.current?.focus({ preventScroll: true })
       }
       return
     }
@@ -162,12 +174,12 @@ export function Select({ value, onChange, options, disabled = false, id, classNa
         const next = index < 0 ? (event.key === 'ArrowDown' ? 0 : enabled.length - 1) : (index + (event.key === 'ArrowDown' ? 1 : -1) + enabled.length) % enabled.length
         setActive(enabled[next].value)
       }
-    } else if (event.key === 'Enter' || event.key === ' ') {
+    } else if (event.key === 'Enter' || (event.key === ' ' && event.currentTarget.tagName !== 'INPUT')) {
       event.preventDefault()
       event.stopPropagation()
       if (!open) show()
       else if (activeIndex >= 0) choose(options[activeIndex])
-    } else if (event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) {
+    } else if (event.currentTarget.tagName !== 'INPUT' && event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) {
       event.preventDefault()
       const now = Date.now()
       const typed = now - search.current.time > 700 ? event.key : search.current.text + event.key
@@ -203,13 +215,15 @@ export function Select({ value, onChange, options, disabled = false, id, classNa
     </button>
     {open && createPortal(<div
       ref={list}
-      id={listId}
-      role="listbox"
-      aria-labelledby={triggerId}
+      id={searchable ? undefined : listId}
+      role={searchable ? undefined : 'listbox'}
+      aria-labelledby={searchable ? undefined : triggerId}
       className="select-menu"
       style={{ ...position, visibility: position ? 'visible' : 'hidden' }}
-      onPointerDown={(event) => event.preventDefault()}
+      onPointerDown={(event) => { if (!(event.target instanceof HTMLInputElement)) event.preventDefault() }}
     >
+      {searchable && <input className="select-search" aria-label="Search models" type="search" autoFocus value={query} onChange={(event) => { setQuery(event.target.value); setActive(null) }} onKeyDown={onKeyDown} aria-controls={listId} aria-activedescendant={activeIndex >= 0 ? `${listId}-${activeIndex}` : undefined} />}
+      <div id={searchable ? listId : undefined} role={searchable ? 'listbox' : undefined} aria-labelledby={searchable ? triggerId : undefined} style={searchable ? { maxHeight: Math.max(0, (position?.maxHeight ?? 280) - 70), overflowY: 'auto' } : { display: 'contents' }}>
       {options.map((option, index) => <div
         key={option.value}
         id={`${listId}-${index}`}
@@ -225,6 +239,7 @@ export function Select({ value, onChange, options, disabled = false, id, classNa
         <span>{option.label}</span><span className="select-check" aria-hidden="true">{option.value === value ? '✓' : ''}</span>
       </div>)}
       {!options.length && <div className="select-empty">No options available</div>}
+      </div>
     </div>, document.body)}
   </>
 }

@@ -55,6 +55,7 @@ export default function AIPage({ active, onOpenPlayground, onOpenAsk, onAIEnable
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [profileDraft, setProfileDraft] = useState('')
   const [setupDirty, setSetupDirty] = useState(false)
+  const [instructionsTarget, setInstructionsTarget] = useState<HTMLDivElement | null>(null)
   const [languageSaved, setLanguageSaved] = useState<AILanguageSettings | null>(null)
   const [languageDraft, setLanguageDraft] = useState<AILanguageSettings | null>(null)
   const [languageCatalogue, setLanguageCatalogue] = useState<AILanguageInfo[]>([])
@@ -496,7 +497,7 @@ export default function AIPage({ active, onOpenPlayground, onOpenAsk, onAIEnable
         notice={notice}
         onDismiss={() => { setError(''); setNotice('') }}
       />
-      <AISetupPanel active={active} onDirtyChange={setSetupDirty} onSaved={() => { void refresh().catch(() => setError('AI setup saved; status refresh failed. Reopen AI to inspect it.')) }} />
+      <AISetupPanel instructionsTarget={instructionsTarget} active={active} onDirtyChange={setSetupDirty} onSaved={() => { void refresh().catch(() => setError('AI setup saved; status refresh failed. Reopen AI to inspect it.')) }} />
       <div className="ai-status-grid" id="ai-runtime">
         <article className="card ai-state-panel">
           <div className="ai-state-heading">
@@ -527,7 +528,7 @@ export default function AIPage({ active, onOpenPlayground, onOpenAsk, onAIEnable
             <h2>AI provider</h2>
             <div className="ai-state-actions">
               <HelpTip label="Gemini">{isBrowserMode() ? 'AI is optional. Connect and test provider keys in AI setup above.' : 'AI is optional. Use AI setup above for saved providers and per-model controls. Test generation separately in Playground.'}</HelpTip>
-              <button className="secondary" disabled={loading} aria-label="Manage AI setup" onClick={() => document.getElementById('ai-models')?.scrollIntoView({ block: 'start' })}>Manage</button>
+              <button className="secondary" disabled={loading} aria-label="Manage AI setup" onClick={() => { const element = document.getElementById('ai-models'); element?.dispatchEvent(new CustomEvent('accordion:open')); element?.scrollIntoView({ block: 'start' }) }}>Manage</button>
             </div>
           </div>
           <span className="ai-availability">{status ? status.available ? 'Configured for requests' : 'Unavailable' : 'Loading…'}</span>
@@ -708,6 +709,7 @@ export default function AIPage({ active, onOpenPlayground, onOpenAsk, onAIEnable
         </div>
         {playgroundChoice('profile')}
       </Accordion>
+      <div ref={setInstructionsTarget} className="ai-shared-instructions-slot" />
       <Accordion
         id="ai-language"
         title="AI response language"

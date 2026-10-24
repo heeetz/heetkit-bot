@@ -53,14 +53,15 @@ const subsections: Partial<Record<Section, { label: string; targetId: string }[]
     { label: 'Playground', targetId: 'ai-playground' },
     { label: 'Personalities', targetId: 'ai-personalities' },
     { label: 'Profile instructions', targetId: 'ai-profile-instructions' },
+    { label: 'Shared instructions', targetId: 'ai-shared-instructions' },
     { label: 'Response language', targetId: 'ai-language' },
     { label: 'AI access', targetId: 'ai-blocked-users' },
   ],
   Settings: [
+    { label: 'Desktop behavior', targetId: 'desktop-settings' },
     { label: 'Twitch connection', targetId: 'twitch-settings' },
     { label: 'Gemini API key', targetId: 'credential-settings' },
     { label: 'Configuration transfer', targetId: 'configuration-transfer' },
-    { label: 'Desktop behavior', targetId: 'desktop-settings' },
     { label: 'Data & diagnostics', targetId: 'profile-location-settings' },
   ],
 }
@@ -729,13 +730,13 @@ function ManagementApp() {
                 type="button"
                 className={section === item ? 'active' : ''}
                 aria-current={section === item ? 'page' : undefined}
-                aria-expanded={subsections[item] && !(isBrowserMode() && item === 'Settings') ? section === item : undefined}
-                aria-controls={subsections[item] && !(isBrowserMode() && item === 'Settings') ? `nav-${item}` : undefined}
+                aria-expanded={subsections[item] ? section === item : undefined}
+                aria-controls={subsections[item] ? `nav-${item}` : undefined}
                 onClick={() => navigate(item)}
               >{item}</button>
-              {subsections[item] && !(isBrowserMode() && item === 'Settings') && (
+              {subsections[item] && (
                 <ul className="sidebar-subnav" id={`nav-${item}`} hidden={section !== item}>
-                  {subsections[item].filter((child) => !isBrowserMode() || child.targetId !== 'ai-playground').map((child) => (
+                  {subsections[item].filter((child) => !isBrowserMode() || !['ai-playground', 'desktop-settings', 'profile-location-settings'].includes(child.targetId)).map((child) => (
                     <li key={child.targetId}>
                       <button
                         type="button"

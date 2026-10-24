@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { type AIModelSelection, type AIProviderId, type AISetupResponse, type AISetupSettings, waitForBridge } from '../bridge'
 import Switch from './Switch'
+import Accordion from './Accordion'
+import HelpTip from './HelpTip'
+import { Select } from './Select'
+import { createPortal } from 'react-dom'
 import './ai-setup.css'
 
-export default function AISetupPanel({ active, onDirtyChange, onSaved }: { active: boolean; onDirtyChange: (dirty: boolean) => void; onSaved?: () => void }) {
+export default function AISetupPanel({ active, onDirtyChange, onSaved, instructionsTarget }: { instructionsTarget: HTMLElement | null; active: boolean; onDirtyChange: (dirty: boolean) => void; onSaved?: () => void }) {
   const [data, setData] = useState<AISetupResponse | null>(null)
   const [saved, setSaved] = useState<AISetupSettings | null>(null)
   const [draft, setDraft] = useState<AISetupSettings | null>(null)
-  const [keyProvider, setKeyProvider] = useState<AIProviderId | null>(null)
-  const [key, setKey] = useState('')
+  const [keys, setKeys] = useState<Partial<Record<AIProviderId, string>>>({})
+  const [instructions, setInstructions] = useState<string | null>(null)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -18,14 +22,15 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved }: { activ
   const mounted = useRef(true)
   const lastFallback = useRef<AIModelSelection | null>(null)
   const dirty = Boolean(draft && saved && JSON.stringify(draft) !== JSON.stringify(saved))
-  useEffect(() => { onDirtyChange(dirty) }, [dirty, onDirtyChange])
+  const instructionsDirty = Boolean(saved && instructions !== saved.shared_instructions)
+  useEffect(() => { onDirtyChange(dirty || instructionsDirty) }, [dirty, instructionsDirty, onDirtyChange])
   useEffect(() => {
     mounted.current = true
     return () => { mounted.current = false; generation.current.gemini++; generation.current.deepseek++ }
   }, [])
   useEffect(() => {
     if (!active) {
-      setKey(''); setKeyProvider(null)
+      setKeys({})
       generation.current.gemini++; generation.current.deepseek++
     }
   }, [active])
@@ -35,7 +40,8 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved }: { activ
     if (!mounted.current) return
     setData(result)
     setSaved(result.settings)
-    if (replaceDraft) { setDraft(result.settings); lastFallback.current = result.settings.fallback }
+    if (replaceDraft) { setDraft(result.settings); setInstructions(result.settings.shared_instructions); lastFallback.current = result.settings.fallback }
+    return result.settings
   }
   useEffect(() => {
     if (active && !data) void load(true).catch((reason: Error) => setError(reason.message))
@@ -43,7 +49,7 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved }: { activ
   const run = async (name: string, action: () => Promise<void>) => {
     setBusy(name); setError(''); setNotice('')
     try { await action() } catch (reason) { setError(reason instanceof Error ? reason.message : 'AI setup failed.') }
-    finally { if (mounted.current) { setBusy(''); setKey('') } }
+    finally { if (mounted.current) { setBusy('') } }
   }
   const change = (patch: Partial<AISetupSettings>) => setDraft((current) => current ? { ...current, ...patch } : current)
   const select = (slot: 'primary' | 'fallback', patch: Partial<AIModelSelection>) => {
@@ -67,19 +73,20 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved }: { activ
     const inUse = draft?.primary.provider === provider || draft?.fallback?.provider === provider
       || saved?.primary.provider === provider || saved?.fallback?.provider === provider
     if (action === 'remove' && !window.confirm(`Remove the ${provider} key? ${inUse ? 'This provider is in use; its requests will be unavailable. ' : ''}Saved model choices stay unchanged. Credential removal is immediate and Cancel cannot undo it.`)) return
-    void run(`${provider}:${action}`, async () => {
+    const operation = run(`${provider}:${action}`, async () => {
       generation.current[provider]++
       setDiscoveries((current) => ({ ...current, [provider]: [] }))
       setDiscoveryState((current) => ({ ...current, [provider]: 'Unknown after credential change' }))
       const api = await waitForBridge()
-      const result = action === 'replace' ? await api.replace_credential(`${provider}_api_key`, key)
+      const result = action === 'replace' ? await api.replace_credential(`${provider}_api_key`, keys[provider] ?? '')
         : action === 'remove' ? await api.remove_credential(`${provider}_api_key`) : await api.test_credential(`${provider}_api_key`)
       if (!result.ok) throw new Error(result.error || 'Credential operation failed.')
       await load()
       onSaved?.()
-      setKeyProvider(null)
+      setKeys((current) => ({ ...current, [provider]: '' }))
       setNotice(action === 'test' ? 'Credential test completed. Discovery and generation access may differ.' : 'Credential change saved immediately. Model and instruction drafts were kept.')
     })
+    void operation.finally(() => setKeys((current) => ({ ...current, [provider]: '' })))
   }
   const discover = (provider: AIProviderId) => void run(`discover:${provider}`, async () => {
     const version = generation.current[provider]
@@ -89,8 +96,9 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved }: { activ
       setDiscoveryState((current) => ({ ...current, [provider]: 'Error; saved choices retained' }))
       throw new Error(result.error || 'Model discovery failed.')
     }
-    setDiscoveries((current) => ({ ...current, [provider]: result.models }))
-    setDiscoveryState((current) => ({ ...current, [provider]: 'Available model IDs; generation and tool access remain unverified' }))
+    const models = result.models
+    setDiscoveries((current) => ({ ...current, [provider]: models }))
+    setDiscoveryState((current) => ({ ...current, [provider]: models.length ? 'Available model IDs; generation and tool access remain unverified' : 'No models returned; saved choices retained' }))
     setNotice('Models discovered. Your selections were retained.')
   })
   const modelCard = (slot: 'primary' | 'fallback') => {
@@ -103,27 +111,23 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved }: { activ
     const staleThinking = !thinking.some((option) => option.value === selection.thinking)
     const models = Array.from(new Set([...(info?.models ?? []), ...(discoveries[selection.provider] ?? [])]))
     return <div className="ai-setup-model-fields">
-      <label className="form-field">{name} provider<select aria-label={`${name} provider`} value={selection.provider} disabled={Boolean(busy)} onChange={(event) => switchProvider(slot, event.target.value as AIProviderId)}>
-        {data?.providers?.map((provider) => <option key={provider.id} value={provider.id}>{provider.label}{provider.credential?.configured ? ' — connected' : ' — unavailable'}</option>)}
-      </select></label>
-      {!info?.credential?.configured && <button className="secondary" onClick={() => { setKeyProvider(selection.provider); setKey('') }}>Connect provider</button>}
-      <label className="form-field">{name} model<input aria-label={`${name} model`} list={`${slot}-model-choices`} value={selection.model} maxLength={200} disabled={Boolean(busy)} onChange={(event) => select(slot, { model: event.target.value })} />
-        <datalist id={`${slot}-model-choices`}>{models.map((model) => <option key={model} value={model} />)}</datalist>
-        <small>Type to search known/discovered IDs or enter a manual ID.</small>
-      </label>
-      <button className="secondary" disabled={Boolean(busy) || !info?.credential?.configured} onClick={() => discover(selection.provider)}>Discover {name.toLowerCase()} models</button>
-      <p className="settings-hint" role="status">{!info?.credential?.configured ? 'Unavailable: connect this provider' : discoveryState[selection.provider] ?? 'Configured; generation access unknown'}. {capabilities?.known ? 'Documented capabilities' : 'Unknown model capabilities: provider default only; search unavailable'}.</p>
-      <label className="form-field">{name} thinking<select aria-label={`${name} thinking`} value={selection.thinking} disabled={Boolean(busy)} onChange={(event) => select(slot, { thinking: event.target.value })}>
-        {staleThinking && <option value={selection.thinking}>Unsupported saved choice: {selection.thinking}</option>}
-        {thinking.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select></label>
+      <div className="ai-model-selectors">
+        <label className="form-field">Provider<Select aria-label={`${name} provider`} value={selection.provider} disabled={Boolean(busy)} onChange={(value) => switchProvider(slot, value as AIProviderId)} options={data?.providers?.map((provider) => ({ value: provider.id, label: provider.label })) ?? []} /></label>
+        <label className="form-field">Model<Select aria-label={`${name} model choices`} searchable value={selection.model} disabled={Boolean(busy)} onChange={(model) => select(slot, { model })} options={Array.from(new Set([selection.model, ...models])).filter(Boolean).map((model) => ({ value: model, label: model }))} /></label>
+        <label className="form-field">Thinking effort<Select aria-label={`${name} thinking`} value={selection.thinking} disabled={Boolean(busy)} onChange={(value) => select(slot, { thinking: value })} options={[...(staleThinking ? [{ value: selection.thinking, label: `Unsupported saved choice: ${selection.thinking}` }] : []), ...thinking]} /></label>
+      </div>
+      {!info?.credential?.configured && <p role="alert">Unavailable: connect this provider in Connected providers above.</p>}
       {staleThinking && <p role="alert">Choose a supported thinking option explicitly. No automatic effort increase will be saved.</p>}
       <Switch checked={selection.search} ariaLabel={`${name} internet search`} disabled={Boolean(busy) || !capabilities?.search_supported} onCheckedChange={(search) => select(slot, { search })}>Internet search {selection.search ? 'On' : 'Off'}</Switch>
       <p className="settings-hint">{capabilities?.search_reason ?? 'Search is unavailable for this model/API.'}</p>
       {selection.search && capabilities?.attribution_required && <p role="alert">Google grounded answers cannot be delivered to Twitch because its required Search Suggestions cannot be displayed there. Turn search off for ordinary Twitch answers.</p>}
       {selection.search && !capabilities?.search_supported && <button className="secondary" onClick={() => select(slot, { search: false })}>Turn unsupported search off</button>}
+      <div className="ai-discovery-action"><button className="secondary" disabled={Boolean(busy) || !info?.credential?.configured} onClick={() => discover(selection.provider)}>Discover {name.toLowerCase()} models</button><span className="settings-hint">{info?.label}</span><HelpTip label={`${name} model discovery`}>Discovery lists this provider's available IDs; it does not verify generation or tool access. Unknown model IDs support provider default only, with search unavailable.</HelpTip></div>
+      <p className="settings-hint" role="status">{busy === `discover:${selection.provider}` ? 'Loading models...' : discoveryState[selection.provider] ?? 'Generation access unknown.'}</p>
+      <details className="ai-manual-model"><summary>Manual model ID</summary><label className="form-field">{name} model<input aria-label={`${name} model`} value={selection.model} maxLength={200} disabled={Boolean(busy)} onChange={(event) => select(slot, { model: event.target.value })} /></label></details>
     </div>
   }
+
   const crossProvider = draft?.fallback && draft.fallback.provider !== draft.primary.provider
   const toggleFallback = (enabled: boolean) => {
     if (!draft) return
@@ -139,44 +143,55 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved }: { activ
       }, cross_provider_acknowledged: false })
     }
   }
-  return <article className="card ai-setup-panel" id="ai-models" aria-busy={Boolean(busy)}>
-    <h2>AI setup</h2>
-    <p className="section-copy">1 Choose provider → 2 Connect/test key → 3 Discover and choose primary model → 4 Configure primary → 5 Choose fallback and Save. AI is optional.</p>
-    {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
-    {!draft ? <p>Loading AI setup…</p> : <>
-      <section aria-label="Connected providers"><h3>Connected providers</h3>
-        {data?.providers?.map((provider) => <div className="ai-connection-row" key={provider.id}>
-          <div><strong>{provider.label}</strong><p>{provider.credential?.configured ? 'Configured' : 'Unavailable'} · Key source: {provider.credential?.source ?? 'none'} · {provider.credential?.validation_status ?? 'unknown'}</p></div>
-          <div className="row-actions"><button className="secondary" disabled={Boolean(busy) || provider.credential?.managed === false} onClick={() => { setKeyProvider(provider.id); setKey('') }}>{provider.credential?.configured ? 'Replace' : 'Connect'} {provider.label}</button>
-            <button className="secondary" disabled={Boolean(busy) || !provider.credential?.configured} onClick={() => credentialAction(provider.id, 'test')}>Test {provider.label}</button>
-            <button className="ghost destructive" disabled={Boolean(busy) || !provider.credential?.configured || provider.credential?.managed === false} onClick={() => credentialAction(provider.id, 'remove')}>Remove {provider.label}</button></div>
-        </div>)}
-        {keyProvider && <div className="ai-key-editor"><label className="form-field">{keyProvider} API key<input type="password" aria-label={`${keyProvider} API key`} autoComplete="off" value={key} onChange={(event) => setKey(event.target.value)} /></label>
-          <p>Saving a key is immediate. Cancel model edits does not undo credential changes. External keys are managed on the host.</p>
-          <div className="row-actions"><button className="primary" disabled={Boolean(busy) || !key.trim()} onClick={() => credentialAction(keyProvider, 'replace')}>Save connection</button><button className="secondary" onClick={() => { setKeyProvider(null); setKey('') }}>Cancel key entry</button></div>
-        </div>}
-      </section>
-      <div className="ai-setup-cards"><section className="ai-model-card"><h3>Primary model</h3>{modelCard('primary')}</section>
-        <section className="ai-model-card"><details><summary>Fallback model · {draft.fallback ? `${draft.fallback.provider} / ${draft.fallback.model} · ${draft.fallback.thinking} · search ${draft.fallback.search ? 'On' : 'Off'}` : 'Disabled'}</summary>
-          <p>One fallback, only after model-unavailable (404). No fallback for credential, quota, billing, refusal or parameter errors. One total deadline. Requested search is never silently disabled.</p>
-          <label><input type="checkbox" checked={Boolean(draft.fallback)} onChange={(event) => toggleFallback(event.target.checked)} /> Enable fallback</label>
-          {modelCard('fallback')}
-        </details></section></div>
-      {crossProvider && <label className="ai-routing-consent"><input type="checkbox" checked={draft.cross_provider_acknowledged} onChange={(event) => change({ cross_provider_acknowledged: event.target.checked })} /> I understand that my question, instructions and permitted conversation memory may be sent to {draft.fallback!.provider} when fallback is used.</label>}
-      <details className="ai-instructions-editor"><summary>Shared instructions and length limits</summary>
-        <div className="ai-setup-lengths"><label className="form-field">Maximum question length (characters, 1–4000; default 300)<input aria-label="Maximum question length" type="number" min={1} max={4000} value={draft.max_question_length} onChange={(event) => change({ max_question_length: Number(event.target.value) })} /></label>
-          <label className="form-field">Maximum answer length (characters, 1–450; default 220)<input aria-label="Maximum answer length" type="number" min={1} max={450} value={draft.max_answer_length} onChange={(event) => change({ max_answer_length: Number(event.target.value) })} /></label></div>
-        <p>Only the current question counts toward its limit; an overlong question is rejected. Token/thinking budgets are separate. The mention and Unicode encoding must fit Twitch’s outgoing envelope; answers are never split.</p>
-        <label className="form-field">Shared AI instructions<textarea aria-label="Shared AI instructions" rows={12} maxLength={20000} value={draft.shared_instructions ?? data?.default_shared_instructions ?? ''} onChange={(event) => change({ shared_instructions: event.target.value })} /></label>
-        <p>Edits replace the shipped shared text for this profile. Empty deliberately removes it. Personality and profile instructions remain separate. Placeholders: {'{current_datetime}'}, {'{ai_max_response_length}'}, {'{response_language_instruction}'}.</p>
-        <button className="secondary" onClick={() => change({ shared_instructions: null })}>Reset shared instructions to defaults</button>
+  const saveInstructions = () => void run('instructions', async () => {
+    if (!saved) return
+    const result = await (await waitForBridge()).save_ai_setup({ ...saved, shared_instructions: instructions })
+    if (!result.ok) throw new Error(result.error || 'Shared instructions could not be saved.')
+    const settings = await load()
+    if (!settings) return
+    setDraft((current) => current ? { ...current, shared_instructions: settings.shared_instructions } : current)
+    setInstructions(settings.shared_instructions)
+    onSaved?.()
+    setNotice('Shared instructions saved. Model and length drafts were kept.')
+  })
+  return <>
+    <Accordion id="ai-models" title="AI setup" className="ai-setup-panel" description="Connect provider keys immediately, then choose primary/fallback models and character limits. Save AI setup applies the non-secret draft; Cancel cannot undo credential changes." badges={dirty && <span className="mini-badge dirty-badge">Edited</span>}>
+      {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
+      {!draft ? <p>Loading AI setup...</p> : <>
+        <section aria-label="Connected providers" className="ai-connections"><div className="ai-section-title"><h3>Connected providers</h3><HelpTip label="Provider keys">Keys are never read back. Connect/Replace/Remove apply immediately and are independent of Save AI setup. Test connection checks credentials; model discovery and real generation access may differ.</HelpTip></div>
+          {data?.providers?.map((provider) => <div className="ai-connection-row" key={provider.id}>
+            <div><strong>{provider.label}</strong><p className="settings-hint">{provider.credential?.configured ? 'Configured' : 'Unavailable'} | {provider.credential?.source ?? 'none'} | {provider.credential?.validation_status ?? 'unknown'}</p>{provider.credential?.managed === false && <p className="settings-hint">Managed externally; change the host environment or secret file.</p>}</div>
+            <label className="form-field ai-key-field"><span>{provider.label} API key</span><input type="password" aria-label={`${provider.id} API key`} autoComplete="off" maxLength={8192} disabled={Boolean(busy) || provider.credential?.managed === false} placeholder={provider.credential?.configured ? 'Enter replacement key' : 'Enter API key'} value={keys[provider.id] ?? ''} onChange={(event) => setKeys((current) => ({ ...current, [provider.id]: event.target.value }))} /></label>
+            <div className="row-actions"><button className="primary" aria-label={`${provider.credential?.configured ? 'Replace' : 'Connect'} ${provider.label} key`} disabled={Boolean(busy) || !keys[provider.id]?.trim() || provider.credential?.managed === false} onClick={() => credentialAction(provider.id, 'replace')}>{provider.credential?.configured ? 'Replace key' : 'Connect key'}</button>
+              <button className="secondary" aria-label={`Test ${provider.label} connection`} disabled={Boolean(busy) || !provider.credential?.configured} onClick={() => credentialAction(provider.id, 'test')}>Test connection</button>
+              <button className="ghost destructive" aria-label={`Remove ${provider.label} key`} disabled={Boolean(busy) || !provider.credential?.configured || provider.credential?.managed === false} onClick={() => credentialAction(provider.id, 'remove')}>Remove key</button></div>
+          </div>)}
+        </section>
+        <div className="ai-setup-cards"><section className="ai-model-card"><div className="ai-section-title"><h3>Primary model</h3></div>{modelCard('primary')}</section>
+          <section className="ai-model-card"><div className="ai-section-title"><h3>Fallback model</h3><HelpTip label="Fallback model">One fallback is attempted only after an initial model-unavailable (404) response, within the same deadline. Credential, quota, billing, refusal and parameter errors do not trigger fallback. Requested search is never silently disabled.</HelpTip>
+            <Switch checked={Boolean(draft.fallback)} ariaLabel="Enable fallback" disabled={Boolean(busy)} onCheckedChange={toggleFallback}>Enable fallback</Switch></div>
+            {modelCard('fallback')}
+          </section></div>
+        {crossProvider && <label className="ai-routing-consent"><input type="checkbox" checked={draft.cross_provider_acknowledged} disabled={Boolean(busy)} onChange={(event) => change({ cross_provider_acknowledged: event.target.checked })} /> I understand that my question, instructions and permitted conversation memory may be sent to {draft.fallback!.provider} when fallback is used.</label>}
+        <section className="ai-setup-lengths" aria-label="Character limits">
+          <label className="form-field">Input length limit<input aria-label="Maximum question length" type="number" min={1} max={4000} disabled={Boolean(busy)} value={draft.max_question_length} onChange={(event) => change({ max_question_length: Number(event.target.value) })} /></label>
+          <label className="form-field">Output length limit<input aria-label="Maximum answer length" type="number" min={1} max={450} disabled={Boolean(busy)} value={draft.max_answer_length} onChange={(event) => change({ max_answer_length: Number(event.target.value) })} /></label>
+          <HelpTip label="Character limits">Question: 1-4000 characters (default 300), counting only the current trimmed question. Overlong questions are rejected. Answer: 1-450 (default 220). Mention and Unicode encoding must fit Twitch's outgoing envelope; answers are never split. Token/thinking budgets are separate.</HelpTip>
+        </section>
+        <p className="settings-hint">Thinking and search can add provider charges. Required sources must fit the answer limit.</p>
+        <div className="editor-footer"><span role="status">{dirty ? 'Unsaved AI setup; saved settings still apply.' : 'Saved AI setup.'}</span><div className="row-actions">
+          <button className="secondary" disabled={Boolean(busy) || !dirty} onClick={() => { setDraft(saved); setError(''); setNotice('Model and length drafts cancelled. Saved credentials are unchanged.') }}>Cancel AI edits</button>
+          <button className="primary" disabled={Boolean(busy) || !dirty || Boolean(crossProvider && !draft.cross_provider_acknowledged)} onClick={() => void run('save', async () => { const result = await (await waitForBridge()).save_ai_setup(draft); if (!result.ok) throw new Error(result.error || 'AI setup was rejected. Check model options and lengths.'); const settings = await load(); if (!settings) return; setDraft(settings); lastFallback.current = settings.fallback; onSaved?.(); setNotice('AI setup saved. Subsequent requests use these settings.') })}>Save AI setup</button>
+        </div></div>
+      </>}
+    </Accordion>
+    {instructionsTarget && createPortal(<Accordion id="ai-shared-instructions" title="Shared instructions" className="ai-shared-instructions" badges={instructionsDirty && <span className="mini-badge dirty-badge">Edited</span>} description="Shared text is separate from personality and profile instructions. Save instructions applies only this editor; model and length drafts stay unchanged. Empty deliberately removes the shared text. Restore defaults changes the draft. Placeholders: {current_datetime}, {ai_max_response_length}, {response_language_instruction}.">
+      {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
+      {!saved ? <p>Loading shared instructions...</p> : <>
+        <label className="form-field">Shared AI instructions<textarea aria-label="Shared AI instructions" rows={12} maxLength={20000} disabled={Boolean(busy)} value={instructions ?? data?.default_shared_instructions ?? ''} onChange={(event) => setInstructions(event.target.value)} /></label>
         <p className="settings-hint">{data?.retained_restrictions}</p>
-      </details>
-      <p className="settings-hint">Thinking and search can add provider charges. Search On permits bounded calls when relevant; it does not promise every answer searches. Search failures are not treated as fresh verification. Source attribution must fit the answer limit.</p>
-      <div className="editor-footer"><span role="status">{dirty ? 'Unsaved AI setup; saved settings still apply.' : 'Saved AI setup.'}</span><div className="row-actions">
-        <button className="secondary" disabled={Boolean(busy) || !dirty} onClick={() => { setDraft(saved); setError(''); setNotice('Model and instruction drafts cancelled. Saved credentials are unchanged.') }}>Cancel AI edits</button>
-        <button className="primary" disabled={Boolean(busy) || !dirty || Boolean(crossProvider && !draft.cross_provider_acknowledged)} onClick={() => void run('save', async () => { const result = await (await waitForBridge()).save_ai_setup(draft); if (!result.ok) throw new Error(result.error || 'AI setup was rejected. Check model options and lengths.'); await load(true); onSaved?.(); setNotice('AI setup saved. Subsequent requests use these settings.') })}>Save AI setup</button>
-      </div></div>
-    </>}
-  </article>
+        <div className="editor-footer"><button className="secondary" disabled={Boolean(busy)} onClick={() => setInstructions(null)}>Restore default instructions</button><div className="row-actions"><button className="secondary" disabled={Boolean(busy) || !instructionsDirty} onClick={() => setInstructions(saved.shared_instructions)}>Cancel instruction edits</button><button className="primary" disabled={Boolean(busy) || !instructionsDirty} onClick={saveInstructions}>Save instructions</button></div></div>
+      </>}
+    </Accordion>, instructionsTarget)}
+  </>
 }

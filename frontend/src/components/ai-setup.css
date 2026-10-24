@@ -1,17 +1,34 @@
-.ai-setup-panel { min-width: 0; display: grid; gap: 1rem; }
-.ai-setup-panel h2, .ai-setup-panel h3, .ai-setup-panel p { margin: 0; }
-.ai-connection-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; padding: .8rem 0; border-bottom: 1px solid var(--separator); }
+.ai-setup-panel, .ai-shared-instructions-slot { min-width: 0; }
+.ai-setup-panel .accordion-content, .ai-shared-instructions .accordion-content { display: grid; gap: 1rem; }
+.ai-setup-panel .accordion-content[hidden], .ai-shared-instructions .accordion-content[hidden] { display: none; }
+.ai-setup-panel h3, .ai-setup-panel p { margin: 0; }
+.ai-section-title, .ai-discovery-action { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
+.ai-connections, .ai-model-card, .ai-setup-lengths { min-width: 0; border: 1px solid var(--separator); border-radius: .75rem; padding: 1rem; }
+.ai-connection-row { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: .75rem; padding: 1rem 0; }
+.ai-connection-row + .ai-connection-row { border-top: 1px solid var(--separator); }
+.ai-connection-row:last-child { padding-bottom: 0; }
 .ai-connection-row p, .ai-setup-panel p { overflow-wrap: anywhere; }
-.ai-setup-cards, .ai-setup-lengths { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
-.ai-model-card { min-width: 0; border: 1px solid var(--separator); border-radius: .75rem; padding: 1rem; }
-.ai-model-card h3, .ai-model-card summary { margin-bottom: .8rem; font-weight: 600; }
-.ai-model-card summary { overflow-wrap: anywhere; cursor: pointer; }
-.ai-setup-model-fields, .ai-key-editor, .ai-instructions-editor[open] { display: grid; gap: .8rem; }
-.ai-setup-panel select, .ai-setup-panel input:not([type=checkbox]), .ai-setup-panel textarea { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
-.ai-setup-panel select { min-height: 44px; padding: .5rem; color: inherit; background: var(--panel); border: 1px solid var(--input-border); border-radius: .4rem; }
-.ai-setup-panel button { min-height: 44px; white-space: normal; }
+.ai-key-field { width: 100%; max-width: 22rem; }
+.ai-setup-cards, .ai-setup-lengths, .ai-model-selectors { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+.ai-model-card { display: flex; flex-direction: column; gap: .8rem; }
+.ai-setup-model-fields { display: grid; gap: .8rem; min-width: 0; }
+.ai-manual-model summary { cursor: pointer; color: var(--muted); }
+.ai-setup-panel input:not([type=checkbox]), .ai-shared-instructions textarea { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
+.ai-setup-panel button:not(.help-trigger):not(.accordion-trigger) { min-height: 44px; white-space: normal; }
+.ai-setup-panel .select-value { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ai-routing-consent { display: flex; align-items: flex-start; gap: .6rem; }
 .ai-routing-consent input { flex-shrink: 0; }
-.ai-instructions-editor summary { cursor: pointer; font-weight: 600; }
-@media (min-width: 1000px) { .ai-setup-cards, .ai-setup-lengths { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 500px) { .ai-setup-panel .row-actions, .ai-setup-panel .editor-footer { flex-direction: column; align-items: stretch; width: 100%; } .ai-setup-panel .ai-model-card { padding: .75rem; } }
+.ai-shared-instructions .editor-footer { gap: .75rem; flex-wrap: wrap; }
+.select-search { width: calc(100% - 16px); margin: 8px; min-width: 0; box-sizing: border-box; min-height: 44px; padding: 8px; border: 1px solid var(--input-border); border-radius: 8px; color: var(--text); background: var(--panel); }
+@media (min-width: 1000px) {
+  .ai-setup-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ai-setup-lengths { grid-template-columns: repeat(2, minmax(0, 1fr)) auto; align-items: end; }
+  .ai-connection-row { grid-template-columns: minmax(8rem, 1fr) minmax(10rem, 22rem) auto; }
+}
+@media (min-width: 1100px) { .ai-model-selectors { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr); } }
+@media (max-width: 600px) {
+  .ai-setup-panel .row-actions, .ai-setup-panel .editor-footer, .ai-shared-instructions .editor-footer, .ai-shared-instructions .row-actions { flex-direction: column; align-items: stretch; width: 100%; }
+  .ai-setup-panel .ai-model-card { padding: .75rem; }
+}
+
+.ai-model-card > .ai-section-title { min-height: 44px; }
