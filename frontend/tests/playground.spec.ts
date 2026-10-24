@@ -7,7 +7,7 @@ test('local Playground uses the prompt only and presents quota, active settings 
   await personality.locator('.accordion-trigger').click()
   await page.getByRole('button', { name: 'Playground', exact: true }).click()
   const playground = page.locator('.ai-playground')
-  await expect(playground).toContainText('Testing may consume real Gemini API quota')
+  await expect(playground).toContainText('Testing may consume real provider API quota')
   await expect(playground).toContainText('active personality (neutral)')
   await expect(playground).toContainText('no viewer memory, stream context, chat activity, command permissions or cooldowns')
   await expect(playground.getByRole('button', { name: 'Test prompt' })).toBeDisabled()

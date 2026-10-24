@@ -83,7 +83,7 @@ for (const host of ['127.0.0.1', '127.0.0.2']) {
       await expect(page.locator('#filters-words textarea')).toHaveValue('real browser saved rule')
 
       await page.getByRole('button', { name: 'Settings', exact: true }).click()
-      const target = page.locator('[aria-labelledby="server-twitch-target-heading"]')
+      const target = page.locator('#twitch-settings')
       await target.getByLabel('Target channel login', { exact: true }).fill('otherchannel')
       await target.getByLabel('Target channel user ID', { exact: true }).fill('300')
       await target.getByLabel('Saved channel name', { exact: true }).fill('Other channel')

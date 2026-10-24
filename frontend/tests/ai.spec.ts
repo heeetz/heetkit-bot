@@ -63,9 +63,9 @@ test('profile actions preserve personality drafts and expose state', async ({ pa
 
   const personality = page.locator('.personality-editor')
   const profile = page.locator('.profile-instructions-editor')
-  const sharedInstructions = page.locator('.ai-instructions-editor')
+  const sharedInstructions = page.locator('#ai-shared-instructions')
   await expect(profile.locator('textarea')).toHaveValue('')
-  await expect(sharedInstructions).not.toHaveAttribute('open', '')
+  await expect(sharedInstructions.locator('.accordion-trigger')).toHaveAttribute('aria-expanded', 'false')
   await expect(personality.getByText('Built-in', { exact: true })).toBeVisible()
   await expect(personality.getByText('Active', { exact: true })).toBeVisible()
 
@@ -92,7 +92,7 @@ test('profile actions preserve personality drafts and expose state', async ({ pa
   await expect(profile.locator('textarea')).toHaveValue('')
   await expect(personality.locator('textarea')).toHaveValue('saved personality draft')
 
-  await sharedInstructions.locator('summary').click()
+  await sharedInstructions.locator('.accordion-trigger').click()
   await expect(sharedInstructions.locator('textarea')).toHaveValue('Synthetic shared defaults.')
   await expect(sharedInstructions.locator('textarea')).toBeEditable()
 })
@@ -263,9 +263,9 @@ test('language settings default to Auto and validate Limited selections before s
 
   await expect(page.getByRole('status').locator('span')).toHaveText('AI language settings saved and active for the next request.')
   await expect(language.getByText('Limited — English, Ukrainian, Russian; fallback English.', { exact: true })).toHaveCount(1)
-  const protectedInstructions = page.locator('.protected-instructions-card')
-  await protectedInstructions.locator('summary').click()
-  await expect(protectedInstructions.locator('textarea')).toHaveValue(/Active language policy: Limited — English, Ukrainian, Russian; fallback English\./)
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
+  await openAI(page)
+  await expect(language.getByText('Limited — English, Ukrainian, Russian; fallback English.', { exact: true })).toHaveCount(1)
 })
 
 test('switching an invalid Limited draft back to Auto restores valid dormant fields before saving', async ({ page }) => {

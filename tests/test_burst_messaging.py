@@ -106,13 +106,18 @@ async def test_batch_collects_success_drops_http_limits_rejections_and_child_can
         return outcome
 
     context = CommandContext(message("!promo", respond), SimpleNamespace(), logging.getLogger(__name__))
-    results = await context.reply_burst("Hello", 6)
+    with caplog.at_level(logging.INFO, logger=__name__):
+        results = await context.reply_burst("Hello", 6)
     assert starts == ["Hello"] * 6
     assert results[:5] == [sent, rate_limit, rejected, dropped, failure]
     assert isinstance(results[5], asyncio.CancelledError)
     assert rate_limit.status == 429
-    assert "Twitch dropped command response" in caplog.text
-    assert "Could not send command response" in caplog.text
+    sends = [record for record in caplog.records if getattr(record, "event_kind", None) == "chat.outgoing"]
+    assert [record.event_outcome for record in sends] == [
+        "confirmed_send", "failed_send", "failed_send", "failed_send", "uncertain_send", "uncertain_send",
+    ]
+    assert len({record.event_response_id for record in sends}) == 6
+    assert "Synthetic failure" not in caplog.text
 
 
 @pytest.mark.asyncio
