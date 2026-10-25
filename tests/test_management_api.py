@@ -6,7 +6,9 @@ import json
 import logging
 import socket
 import ssl
+import time
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock
 
 import aiohttp
 import pytest
@@ -21,6 +23,7 @@ from app.container import build_application
 from app.management_api import ManagementAPI, ManagementConfig, load_management_token
 from app.runtime_paths import RuntimePaths, prepare_runtime_data
 from app.utils.logging import RecentLogBuffer, OperatorActivityHandler, event_metadata
+from app.services.contracts import AIGenerationDetails, AIReply
 
 
 TOKEN = "synthetic_management_token_" + "x" * 32
@@ -118,6 +121,122 @@ async def test_ai_setup_save_reload_validation_and_guide_use_authenticated_share
     settings["shared_instructions"] = "🙂" * 20000
     assert (await call("POST", "/v1/ai/setup", json={"settings": settings}))[1]["ok"]
     assert (await call("GET", "/v1/ai/setup"))[1]["settings"]["shared_instructions"] == "🙂" * 20000
+
+
+async def test_playground_routes_authenticate_and_isolate_the_shared_slot(api):
+    from app.webview_host import WebUIBridge
+    from types import SimpleNamespace
+
+    server, call = api
+    control = server.runtime.application.ai_playground
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def generate(**kwargs):
+        assert kwargs == {"prompt": "Synthetic question", "user_id": "", "memory_context": None, "stream_category": None}
+        entered.set()
+        await release.wait()
+        return AIReply("Synthetic answer", True, generation=AIGenerationDetails("DeepSeek", "deepseek-v4-pro", "high"))
+
+    control.services.ai.generate_reply = generate
+    for action, payload in (("start", {"prompt": "Synthetic question"}),
+                            ("result", {"request_id": "unknown"}), ("cancel", {"request_id": "unknown"})):
+        assert (await call("POST", "/v1/ai/playground/" + action, json=payload, headers={"Authorization": ""}))[0] == 401
+    async def session():
+        return {"Authorization": "Bearer " + (await call("POST", "/v1/session", json={}))[1]["token"]}
+    owner, other = await session(), await session()
+    status, started, headers = await call("POST", "/v1/ai/playground/start", json={"prompt": "Synthetic question"}, headers=owner)
+    assert status == 200 and headers["Cache-Control"] == "no-store"
+    await entered.wait()
+    # Native and HTTP adapters use the same application's single request slot.
+    desktop = WebUIBridge(SimpleNamespace(application=server.runtime.application))
+    assert not (await desktop._start_ai_playground("duplicate"))["ok"]
+    payload = {"request_id": started["request_id"]}
+    for headers in (other, {}):
+        for action in ("result", "cancel"):
+            status, body, _ = await call("POST", "/v1/ai/playground/" + action, json=payload, headers=headers)
+            assert status == 400 and "Synthetic" not in str(body)
+    assert (await call("POST", "/v1/ai/playground/start", json={"prompt": "duplicate"}, headers=other))[0] == 400
+    assert (await call("GET", "/v1/status", headers=owner))[0] == 200  # Generation never holds the HTTP lock.
+    release.set()
+    await control.task
+    status, result, _ = await call("POST", "/v1/ai/playground/result", json=payload, headers=owner)
+    assert status == 200 and result["text"] == "Synthetic answer"
+    assert result["generation"]["provider"] == "DeepSeek" and result["generation"]["thinking"] == "high"
+    with pytest.raises(ValueError):
+        await desktop._get_ai_playground_result(started["request_id"])
+    for payload in ({"prompt": 3}, {"prompt": "x" * 301}, {"prompt": "hello", "owner": "forged"}):
+        assert (await call("POST", "/v1/ai/playground/start", json=payload, headers=owner))[0] == 400
+
+
+@pytest.mark.parametrize("reason", ["logout", "expiry", "eviction", "shutdown"])
+async def test_playground_session_end_revokes_results_and_cancels_once(api, monkeypatch, reason):
+    server, call = api
+    monkeypatch.setattr("app.management_api.MAX_SESSIONS", 1)
+    token = (await call("POST", "/v1/session", json={}))[1]["token"]
+    owner = hashlib.sha256(token.encode("ascii")).digest()
+    headers = {"Authorization": "Bearer " + token}
+    if reason == "expiry":
+        server.sessions[owner] = time.monotonic() + 0.2
+    entered, cleaning, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    control = server.runtime.application.ai_playground
+
+    async def stubborn(**kwargs):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cleaning.set()
+            await release.wait()
+            return AIReply("PRIVATE late answer", True)
+
+    control.services.ai.generate_reply = stubborn
+    started = (await call("POST", "/v1/ai/playground/start", json={"prompt": "Synthetic question"}, headers=headers))[1]
+    await entered.wait()
+    shutdown = None
+    if reason == "logout":
+        assert (await call("POST", "/v1/session/logout", json={}, headers=headers))[0] == 200
+    elif reason == "eviction":
+        assert (await call("POST", "/v1/session", json={}))[0] == 200
+    elif reason == "shutdown":
+        shutdown = asyncio.create_task(server.close())
+    await asyncio.wait_for(cleaning.wait(), 2)
+    task = control.task
+    try:
+        assert not control.start("duplicate during cleanup")["ok"]
+        with pytest.raises(ValueError):
+            control.get(started["request_id"], owner=owner)
+        control.revoke(owner)  # Repeated revocation cannot interrupt provider cleanup.
+        await asyncio.sleep(0)
+        assert not task.done()
+    finally:
+        release.set()
+        await task
+        if shutdown is not None:
+            await shutdown
+    assert task.result() == {"status": "cancelled"}
+    assert control.request_id is None
+
+
+async def test_playground_http_timeout_and_errors_never_expose_provider_payloads(api, monkeypatch, caplog):
+    server, call = api
+    control = server.runtime.application.ai_playground
+    control.services.ai.generate_reply = AsyncMock(side_effect=RuntimeError("PRIVATE credential and prompt"))
+    async def run():
+        started = (await call("POST", "/v1/ai/playground/start", json={"prompt": "Synthetic question"}))[1]
+        await control.task
+        return (await call("POST", "/v1/ai/playground/result", json={"request_id": started["request_id"]}))[1]
+    result = await run()
+    assert result["status"] == "api_error" and "PRIVATE" not in str(result) + caplog.text
+    cancelled = asyncio.Event()
+    async def waiting(**kwargs):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+    control.services.ai.generate_reply = waiting
+    monkeypatch.setattr("app.services.ai_playground.AI_REQUEST_TIMEOUT_SECONDS", 0.02)
+    result = await run()
+    assert result["status"] == "timeout" and cancelled.is_set()
 
 
 async def test_server_availability_http_save_reset_and_monitor_demand(api, monkeypatch):

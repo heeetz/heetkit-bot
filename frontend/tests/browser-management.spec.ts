@@ -31,6 +31,12 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
   let prompt = 'Neutral prompt'
   let customCommands: CustomCommandInfo[] = []
   let enabled = true
+  let playgroundPending = false
+  let playgroundCancelled = false
+  let playgroundReadDelay = 0
+  let playgroundStatus = 'success'
+  let playgroundGeneration = { provider: 'DeepSeek', model: 'deepseek-v4-pro', thinking: 'high',
+    fallback_used: true, search_enabled: true, search_requested: true, search_used: true }
   let oauthBeginResult: object = { ok: true, url: 'https://id.twitch.tv/oauth2/authorize?client_id=synthetic', expires_in: 300 }
   let oauthCompleteResult: object = { ok: true }
   const command: CommandInfo = {
@@ -68,6 +74,17 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     if (expired) return route.fulfill({ status: 401, json: { ok: false } })
     if (path === '/v1/session/logout') return route.fulfill({ json: { ok: true } })
     let result: object = { ok: true }
+    if (path === '/v1/ai/playground/start') {
+      playgroundCancelled = false
+      result = { ok: true, request_id: 'server-playground', status: 'pending' }
+    }
+    if (path === '/v1/ai/playground/cancel') playgroundCancelled = true
+    if (path === '/v1/ai/playground/result') {
+      if (playgroundReadDelay) await new Promise((resolve) => setTimeout(resolve, playgroundReadDelay))
+      result = playgroundCancelled ? { ok: true, status: 'cancelled' }
+        : playgroundPending ? { ok: true, status: 'pending' }
+        : { ok: true, status: playgroundStatus, text: 'Synthetic server answer <b>plain text</b>', generation: playgroundGeneration }
+    }
     if (path === '/v1/snapshot') result = { status, ai_status: ai() }
     if (path === '/v1/status') result = { ...status, operation }
     if (path === '/v1/bot/mode') {
@@ -142,13 +159,76 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     if (path === '/v1/about') result = { application_name: 'HeetKit', application_subtitle: 'Twitch bot controls', version: '1.3.0', author: 'heeetz', license_name: 'Apache-2.0' }
     await route.fulfill({ json: result })
   })
-  return { calls, setLogs: (entries: LogEntry[]) => { logs = entries }, setTwitch: (values: Record<string, unknown>) => { Object.assign(twitch, values) }, expire: (value = true) => { expired = value }, fail: (path: string) => { fail = path }, setOperation: (values: OperationOverrides) => { operation = { ...operation, ...values }; status.operation = operation }, setOAuthBegin: (result: object) => { oauthBeginResult = result }, setOAuthComplete: (result: object) => { oauthCompleteResult = result } }
+  return { calls, setPlayground: (pending: boolean, readDelay = 0, status = 'success', generation = playgroundGeneration) => { playgroundPending = pending; playgroundReadDelay = readDelay; playgroundStatus = status; playgroundGeneration = generation }, setLogs: (entries: LogEntry[]) => { logs = entries }, setTwitch: (values: Record<string, unknown>) => { Object.assign(twitch, values) }, expire: (value = true) => { expired = value }, fail: (path: string) => { fail = path }, setOperation: (values: OperationOverrides) => { operation = { ...operation, ...values }; status.operation = operation }, setOAuthBegin: (result: object) => { oauthBeginResult = result }, setOAuthComplete: (result: object) => { oauthCompleteResult = result } }
 }
 
 async function login(page: Page) {
   await page.getByLabel('Administrator token').fill(adminToken)
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible()
+}
+
+for (const width of [1280, 390, 320]) {
+  test(`Server Playground uses authenticated typed controls and reports effective options at ${width}px`, async ({ page }) => {
+    const api = await server(page)
+    await page.setViewportSize({ width, height: 1000 })
+    await page.goto('/tests/browser.fixture.html')
+    await login(page)
+    await page.getByRole('button', { name: 'AI', exact: true }).click()
+    await page.getByRole('button', { name: 'Playground', exact: true }).click()
+    const playground = page.locator('#ai-playground')
+    await playground.getByLabel('Playground prompt').fill('Latest news?')
+    await playground.getByRole('button', { name: 'Test prompt', exact: true }).click()
+    await expect(playground.getByRole('status')).toContainText('Synthetic server answer <b>plain text</b>')
+    await expect(playground.locator('.playground-response b')).toHaveCount(0)
+    await expect(playground.getByRole('status')).toContainText('Provider: DeepSeek · Model: deepseek-v4-pro · Thinking: high · Fallback used · Search/Fetch: Used')
+    const start = api.calls.find((call) => call.path === '/v1/ai/playground/start')!
+    expect(start.body).toEqual({ prompt: 'Latest news?' })
+    expect(start.authorization).toBe(`Bearer ${sessionToken}`)
+    expect(api.calls.filter((call) => call.path.startsWith('/v1/ai/playground/')).every((call) => call.method === 'POST')).toBeTruthy()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    await page.screenshot({ path: `node_modules/.tmp/server-playground-${width}.png`, fullPage: true })
+    api.setPlayground(true)
+    await playground.getByRole('button', { name: 'Test prompt', exact: true }).click()
+    await playground.getByRole('button', { name: 'Cancel request', exact: true }).click()
+    await expect(playground.getByRole('status')).toContainText('Cancelled')
+    expect(api.calls.find((call) => call.path === '/v1/ai/playground/cancel')?.body).toEqual({ request_id: 'server-playground' })
+    await playground.getByRole('button', { name: 'Test prompt', exact: true }).click()
+    await expect.poll(() => api.calls.filter((call) => call.path === '/v1/ai/playground/start').length).toBe(3)
+    await page.getByRole('button', { name: 'Commands', exact: true }).click()
+    await expect.poll(() => api.calls.filter((call) => call.path === '/v1/ai/playground/cancel').length).toBe(2)
+    await page.getByRole('button', { name: 'AI', exact: true }).click()
+    const profile = page.locator('#ai-profile-instructions')
+    await profile.locator('.accordion-trigger').click()
+    await profile.locator('textarea').fill('Unsaved server draft')
+    await profile.getByRole('button', { name: 'Open Playground', exact: true }).click()
+    await expect(profile).toContainText('Choose what Playground will use')
+    await profile.getByRole('button', { name: 'Use current applied settings' }).click()
+    await expect(playground).toContainText('Unsaved editor drafts are not used')
+  })
+}
+
+for (const end of ['logout', 'expiry']) {
+  test(`Server Playground rejects results arriving after ${end}`, async ({ page }) => {
+    const api = await server(page)
+    api.setPlayground(false, 800)
+    await page.goto('/tests/browser.fixture.html')
+    await login(page)
+    await page.getByRole('button', { name: 'AI', exact: true }).click()
+    const playground = page.locator('#ai-playground')
+    await playground.getByLabel('Playground prompt').fill('Private operator prompt')
+    await playground.getByRole('button', { name: 'Test prompt', exact: true }).click()
+    await expect.poll(() => api.calls.some((call) => call.path === '/v1/ai/playground/result')).toBeTruthy()
+    if (end === 'logout') await page.getByRole('button', { name: 'Sign out', exact: true }).click()
+    else {
+      api.expire()
+      await page.getByRole('button', { name: 'Commands', exact: true }).click()
+    }
+    await expect(page.getByLabel('Administrator token')).toBeVisible()
+    await expect(playground).toHaveCount(0)
+    await page.waitForTimeout(900)
+    await expect(page.getByText('Synthetic server answer', { exact: false })).toHaveCount(0)
+  })
 }
 
 for (const width of [1280, 390, 320]) {
@@ -401,8 +481,8 @@ for (const width of [1280, 900, 390, 320]) {
     await page.getByRole('button', { name: 'Save filters', exact: true }).click()
     await expect(words.getByRole('textbox')).toHaveValue('saved browser filter')
     await page.getByRole('button', { name: 'AI', exact: true }).click()
-    await expect(page.locator('#ai-playground')).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Open Playground', exact: true })).toHaveCount(0)
+    await expect(page.locator('#ai-playground')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Playground', exact: true })).toBeVisible()
     const personality = page.locator('#ai-personalities')
     await personality.locator('.accordion-trigger').press('Enter')
     await personality.getByLabel('Editable prompt').fill('Saved browser personality')

@@ -16,6 +16,7 @@ test('local Playground uses the prompt only and presents quota, active settings 
   await playground.getByRole('button', { name: 'Test prompt' }).click()
   await expect(playground.getByRole('status')).toContainText('Synthetic response <strong>plain text</strong>.')
   await expect(playground.locator('.playground-response strong')).toHaveCount(0)
+  await expect(playground.getByRole('status')).toContainText('Provider: Google Gemini · Model: gemini-2.5-flash · Thinking: off · Primary selection · Search/Fetch: Off')
   const calls = await page.evaluate(() => (window as unknown as { playgroundCalls: unknown[][] }).playgroundCalls)
   expect(calls).toEqual([['start', 'Tell me a story']])
   await playground.getByLabel('Playground prompt').fill('Another prompt')

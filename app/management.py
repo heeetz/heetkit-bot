@@ -53,6 +53,16 @@ class ApplicationManagement:
         self._log_buffer = log_buffer
         self._logger = get_logger("app.management")
 
+    async def _start_ai_playground(self, prompt: object, *, owner: bytes | None = None,
+                                   expires_at: float | None = None) -> dict[str, object]:
+        return self._backend.application.ai_playground.start(prompt, owner=owner, expires_at=expires_at)
+
+    async def _get_ai_playground_result(self, request_id: object, *, owner: bytes | None = None) -> dict[str, object]:
+        return self._backend.application.ai_playground.get(request_id, owner=owner)
+
+    async def _cancel_ai_playground(self, request_id: object, *, owner: bytes | None = None) -> dict[str, object]:
+        return self._backend.application.ai_playground.cancel(request_id, owner=owner)
+
     async def _configuration_action(self, action: str, *arguments) -> dict[str, object]:
         from app.configuration_transfer import ConfigurationTransfer
 

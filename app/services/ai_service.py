@@ -18,7 +18,7 @@ from app.config.settings import Settings
 from app.runtime_state import RuntimeState
 from app.services.ai_provider import AIGenerationRequest, AIProvider, AIModelDiscoveryError
 from app.services.ai_request_policy import AIRequestPolicy
-from app.services.contracts import AIReply
+from app.services.contracts import AIGenerationDetails, AIReply
 from app.services.filter_manager import FilterManager
 from app.utils.logging import operator_event, operator_event_scope
 
@@ -228,13 +228,19 @@ class SharedAIService:
     ) -> AIReply:
         provider = self.provider
         setup = effective_ai_setup(self.settings)
+        generation = AIGenerationDetails(provider.name, setup.primary.model,
+                                         setup.primary.thinking, search_enabled=setup.primary.search)
+
+        def finish(reply: AIReply) -> AIReply:
+            return replace(reply, generation=generation)
+
         if len(prompt.strip()) > setup.max_question_length:
-            return AIReply("", False, "question_too_long")
+            return finish(AIReply("", False, "question_too_long"))
         with operator_event_scope(requested_provider=provider.name):
             options = None
             try:
                 if not provider.is_available:
-                    return AIReply("", False, "provider_unavailable")
+                    return finish(AIReply("", False, "provider_unavailable"))
                 # Capture generation choices before the first await. Credential/model
                 # edits, applied styles and language changes affect subsequent requests.
                 options = provider.snapshot()
@@ -249,7 +255,7 @@ class SharedAIService:
                                 validate_model_options(selection.provider, selection.model,
                                                        selection.thinking, selection.search)
                     except ValueError:
-                        return AIReply("", False, "configuration_error")
+                        return finish(AIReply("", False, "configuration_error"))
                     options = replace(options, model=setup.primary.model, fallback_model=setup.primary.model,
                                       thinking=setup.primary.thinking, single_attempt=True)
                     fallback_provider = (self._providers.get("injected") or self._providers[setup.fallback.provider]) if setup.fallback else None
@@ -264,6 +270,9 @@ class SharedAIService:
                 legacy_search = provider.capabilities.search if "injected" in self._providers else setup.primary.search
                 use_search = ((setup.primary.search if configured else legacy_search)
                               and self._should_use_search(prompt))
+                generation = replace(generation, model=options.model, thinking=options.thinking,
+                                     search_enabled=setup.primary.search if configured else legacy_search,
+                                     search_requested=use_search)
                 request = AIGenerationRequest(
                     system_instruction=self._build_system_instruction(),
                     content=self._build_request_content(prompt, memory_context, stream_category),
@@ -275,49 +284,56 @@ class SharedAIService:
                         response = await provider.generate(request, options)
                         if response.status == "model_unavailable" and fallback_provider is not None:
                             if configured and setup.fallback.provider != setup.primary.provider and not setup.cross_provider_acknowledged:
-                                return AIReply("", False, "configuration_error")
+                                return finish(AIReply("", False, "configuration_error"))
                             if configured and use_search and not setup.fallback.search:
-                                return AIReply("", False, "search_unavailable")
+                                return finish(AIReply("", False, "search_unavailable"))
                             fallback_search = ((setup.fallback.search and self._should_use_search(prompt))
                                                if configured else use_search)
                             operator_event(logger, "ai.fallback", "model_unavailable")
+                            generation = AIGenerationDetails(
+                                fallback_provider.name, fallback_options.model, fallback_options.thinking,
+                                fallback_used=True,
+                                search_enabled=setup.fallback.search if configured else legacy_search,
+                                search_requested=fallback_search,
+                            )
                             with operator_event_scope(provider=fallback_provider.name, model=fallback_options.model,
                                                       attempt=2, fallback=True):
                                 response = await fallback_provider.generate(replace(request, use_search=fallback_search), fallback_options)
+                    generation = replace(generation, search_used=response.search_used)
                     if response.status != "success":
-                        return AIReply("", False, response.status)
+                        return finish(AIReply("", False, response.status))
                     if response.safety_blocked:
-                        return AIReply("", False, "output_blocked", "protected_policy")
+                        return finish(AIReply("", False, "output_blocked", "protected_policy"))
                     original_text = response.text.strip()
                     if response.attribution_required:
-                        return AIReply("", False, "attribution_unavailable")
+                        return finish(AIReply("", False, "attribution_unavailable"))
                     if not original_text:
-                        return AIReply("", False, "api_error")
+                        return finish(AIReply("", False, "api_error"))
                     # Global filters remain active at output time, including edits
                     # made in flight. Check the full text before truncation.
                     blocked = self._blocked_response_reply(original_text)
                     if blocked is not None:
                         logger.info("AI response blocked by local response filter")
-                        return blocked
+                        return finish(blocked)
                     citations = ""
                     if response.search_used:
                         if not response.sources:
-                            return AIReply("", False, "search_error")
+                            return finish(AIReply("", False, "search_error"))
                         citations = " Sources: " + " ".join(dict.fromkeys(source.url for source in response.sources))
                         if len(citations) + 20 > max_length:
-                            return AIReply("", False, "attribution_unavailable")
+                            return finish(AIReply("", False, "attribution_unavailable"))
                     final_text = self._smart_truncate(original_text, max_length - len(citations)) + citations
                     if citations:
                         blocked = self._blocked_response_reply(final_text)
                         if blocked is not None:
-                            return blocked
-                    return AIReply(final_text, True)
+                            return finish(blocked)
+                    return finish(AIReply(final_text, True))
             except Exception as error:
                 # Providers return safe statuses; also contain unexpected failures.
                 with operator_event_scope(requested_model=options.model if options is not None else None):
                     operator_event(logger, "ai.failure", "provider_failure", reason=type(error).__name__)
                 status = "timeout" if isinstance(error, (TimeoutError, httpx.TimeoutException)) else "api_error"
-                return AIReply("", False, status)
+                return finish(AIReply("", False, status))
 
     @staticmethod
     def _should_use_search(prompt: str) -> bool:

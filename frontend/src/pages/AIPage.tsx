@@ -470,7 +470,7 @@ export default function AIPage({ active, onOpenPlayground, onOpenAsk, onAIEnable
   }
 
   const playgroundButton = (source: NonNullable<typeof playgroundSource>, needsChoice: boolean) => (
-    !isBrowserMode() && <button className="secondary" disabled={loading || Boolean(busy)} onClick={() => needsChoice ? setPlaygroundSource(source) : openPlayground()}>Open Playground</button>
+    <button className="secondary" disabled={loading || Boolean(busy)} onClick={() => needsChoice ? setPlaygroundSource(source) : openPlayground()}>Open Playground</button>
   )
 
   const playgroundChoice = (source: NonNullable<typeof playgroundSource>) => (
@@ -540,7 +540,7 @@ export default function AIPage({ active, onOpenPlayground, onOpenAsk, onAIEnable
           <strong>{data ? data.active_personality || 'Not selected' : 'Loading…'}</strong>
         </article>
       </div>
-      {isBrowserMode() ? <article className="card"><p>AI Playground is available in the desktop application. Saved AI settings here apply to requests made by the running bot.</p></article> : <AIPlayground active={active} personality={data?.active_personality ?? ''} hasDrafts={hasDrafts} />}
+      <AIPlayground active={active} personality={data?.active_personality ?? ''} hasDrafts={hasDrafts} />
       <Accordion
         id="ai-personalities"
         title="Personality-specific prompt"

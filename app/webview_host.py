@@ -12,7 +12,6 @@ import subprocess
 import sys
 import threading
 import webbrowser
-from uuid import uuid4
 from functools import wraps
 from inspect import signature
 from urllib.parse import urlsplit
@@ -59,8 +58,6 @@ from app.runtime_paths import (
 )
 from app.system_tray import SystemTray
 from app.services.updates import UpdateCheckError, check_for_updates
-from app.services.ai_request_policy import PolicyDecision
-from app.config.ai import AI_REQUEST_TIMEOUT_SECONDS
 from app.windows_runtime import DesktopPrerequisiteError, ensure_windows_runtime
 from app.twitch.client import OAUTH_REDIRECT_URI
 from app.twitch.permissions import Permission
@@ -359,10 +356,6 @@ class WebUIBridge(ApplicationManagement):
         self._twitch_secret_requires_restart = False
         self._profile_root = RuntimePaths.default().root.resolve()
         self._window: Any | None = None
-        # Owned exclusively by the backend loop; one ephemeral local request.
-        self._playground_request_id: str | None = None
-        self._playground_task: asyncio.Task[dict[str, object]] | None = None
-        self._playground_cancel_requested = False
 
     def _wait_for_backend(
         self,
@@ -647,79 +640,11 @@ class WebUIBridge(ApplicationManagement):
     def start_ai_playground(self, prompt: object) -> dict[str, object]:
         return self._playground_operation(self._start_ai_playground(prompt), "start_ai_playground")
 
-    async def _start_ai_playground(self, prompt: object) -> dict[str, object]:
-        if not isinstance(prompt, str) or not prompt.strip():
-            raise ValueError("Enter a prompt to test.")
-        from app.config.ai_setup import effective_ai_setup
-        maximum = effective_ai_setup(self._backend.application.settings).max_question_length
-        if len(prompt.strip()) > maximum:
-            raise ValueError(f"Use at most {maximum} characters, the same limit as Ask.")
-        if self._playground_task is not None and not self._playground_task.done():
-            return {"ok": False, "error": "A Playground request is already running."}
-        self._playground_request_id = uuid4().hex
-        self._playground_cancel_requested = False
-        self._playground_task = asyncio.create_task(self._run_ai_playground(prompt.strip()))
-        return {"ok": True, "request_id": self._playground_request_id, "status": "pending"}
-
-    async def _run_ai_playground(self, prompt: str) -> dict[str, object]:
-        services = self._backend.application.services
-        try:
-            match = services.filter_manager.evaluate_message(prompt)
-            if not match.allowed:
-                return {
-                    "status": "input_blocked",
-                    "moderation_source": "filter_timeout" if match.timed_out else "editable_filter",
-                    "matched_category": match.category,
-                    "matched_rule": None if match.timed_out else match.rule,
-                }
-            if services.ai_request_policy.check(prompt) == PolicyDecision.IGNORE:
-                return {"status": "input_blocked", "moderation_source": "protected_policy"}
-            # Reuse generation, instructions, language, fallback and full output checks.
-            # No dispatcher, Twitch lookup, viewer identity, memory or activity writes.
-            async with asyncio.timeout(AI_REQUEST_TIMEOUT_SECONDS):
-                reply = await services.ai.generate_reply(prompt=prompt, user_id="", memory_context=None, stream_category=None)
-            if self._playground_cancel_requested:
-                return {"status": "cancelled"}
-            return {
-                "status": reply.status,
-                "text": reply.text if reply.is_available and reply.status == "success" else "",
-                "moderation_source": reply.moderation_source,
-                "matched_category": reply.matched_category,
-                "matched_rule": reply.matched_rule,
-            }
-        except asyncio.CancelledError:
-            return {"status": "cancelled"}
-        except TimeoutError:
-            return {"status": "timeout"}
-        except Exception as error:
-            self._logger.warning("Playground generation failed error_type=%s", type(error).__name__)
-            return {"status": "api_error"}
-
     def get_ai_playground_result(self, request_id: object) -> dict[str, object]:
         return self._playground_operation(self._get_ai_playground_result(request_id), "get_ai_playground_result")
 
-    async def _get_ai_playground_result(self, request_id: object) -> dict[str, object]:
-        if not isinstance(request_id, str) or request_id != self._playground_request_id or self._playground_task is None:
-            raise ValueError("That Playground request is no longer available.")
-        task = self._playground_task
-        if not task.done():
-            result = {"status": "pending"}
-        elif task.cancelled() or self._playground_cancel_requested:
-            result = {"status": "cancelled"}
-        else:
-            result = task.result()
-        return {"ok": True, "request_id": request_id, **result}
-
     def cancel_ai_playground(self, request_id: object) -> dict[str, object]:
         return self._playground_operation(self._cancel_ai_playground(request_id), "cancel_ai_playground")
-
-    async def _cancel_ai_playground(self, request_id: object) -> dict[str, object]:
-        result = await self._get_ai_playground_result(request_id)
-        if result["status"] == "pending" and not self._playground_cancel_requested:
-            self._playground_cancel_requested = True
-            self._playground_task.cancel()
-        return result
-
 
     def set_ai_memory_enabled(self, enabled: object) -> dict[str, object]:
         try:

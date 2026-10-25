@@ -250,8 +250,8 @@ Saving, renaming, selecting or deleting a preset does not change the bot target 
 connection. Switch applies a stored target through controlled session shutdown,
 preserving credentials, authorization and mode. An already-running Manual session
 resumes; a stopped one stays stopped. Automatic modes reconcile the new target.
-Native folders/tray actions, desktop update checks and the local
-AI Playground are unavailable in browser mode. Ordinary project links remain available.
+Native folders/tray actions and desktop update checks are unavailable in browser mode.
+AI Playground and ordinary project links are available.
 
 Settings also supports [portable configuration export/import](data-and-privacy.md#portable-configuration-transfer)
 using the same ZIP as Desktop, with upload, preview and explicit confirmation.
@@ -361,6 +361,8 @@ POST writes persist and apply immediately unless stated otherwise.
 | POST `twitch/presets/delete` | `preset_id`; deletes the preset without changing target or connectivity |
 | POST `twitch/presets/switch` | `preset_id`; explicitly applies the stored target through controlled shutdown and mode reconciliation, retaining bot credentials and OAuth |
 | POST `session` | `{}` with administrator bearer only; returns `token`, `expires_in` (3600 seconds) |
+| POST `ai/playground/start` | `prompt`; starts one isolated test and returns `request_id`, `status: pending`; may consume real provider quota |
+| POST `ai/playground/result` / `ai/playground/cancel` | `request_id`; inspect/cancel only the initiating bearer's current test; completed results include safe `generation` provider/model/thinking/fallback/search metadata |
 | GET `session` / POST `session/logout` | Check current session / revoke it with `{}` |
 | GET `snapshot` | Combined `status` and `ai_status` for browser polling |
 | GET `setup`, `about` | Effective non-secret setup status (including fixed management/callback URLs, `authorization_mode` and this session's `authorization_attempt`) / shared application metadata |
@@ -410,6 +412,23 @@ POST writes persist and apply immediately unless stated otherwise.
 | GET / POST `triggers` | GET: ordinary-message reactions. POST: complete `triggers` list, at most 100 unique IDs |
 | POST `logs/recent` | Optional integer `after_id` (default 0), `limit` (1–200, default 100); allowlisted operator activity plus `next_after_id` advancing across excluded entries; authentication required |
 | GET `diagnostics` | Process uptime, desired session state and settings/restart boundaries |
+
+Playground controls are ephemeral and return promptly; generation runs separately
+from the serialized HTTP operation lock, with one slot per application and a 60-second
+deadline. The same shared pipeline and applied/saved settings serve Desktop and Server.
+There are no Twitch sends, viewer history/activity writes or command cooldowns.
+Only the initiating bearer can inspect/cancel its current request. Browser logout,
+session expiry or eviction revokes result access and requests cancellation immediately;
+expiry does not require another HTTP request. Direct administrator-bearer tests remain
+owned by that bearer until replaced, explicitly logged out or shut down.
+
+Leaving the AI page requests cancellation. Closing a browser tab without signing out
+relies on the deadline or session expiry. Cancellation holds the slot until provider
+cleanup finishes and rejects late output; shutdown revokes results and cancels work
+before provider clients close. Results stay in process memory only and are replaced
+by the next test or removed on session end. Provider error bodies, credentials, reasoning
+and tool payloads are never returned. See [AI Playground](ai-setup.md#test-locally-with-ai-playground)
+for quota, saved/draft and attribution limits.
 
 Each trigger has `id` (1–40 ASCII letters/digits/underscore/hyphen), boolean
 `enabled` and `case_sensitive`, `match_mode` (`exact` or `contains`), `text`

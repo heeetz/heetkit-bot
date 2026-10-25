@@ -63,7 +63,7 @@ cannot fit, the answer is withheld rather than losing its sources. Gemini Google
 remains implemented, but its required Search Suggestions cannot be rendered in plain
 Twitch chat: grounded output is withheld with an attribution-unavailable result.
 The UI explains this limitation. Leave Gemini search Off for ordinary Twitch replies;
-this also applies to the current plain-text Desktop Playground. See
+this also applies to the plain-text Playground on Desktop and Server. See
 [Google's grounding/display requirements](https://ai.google.dev/gemini-api/docs/generate-content/google-search).
 Thinking and search may add provider charges; consult the provider rather than relying
 on a price table in the app.
@@ -190,21 +190,36 @@ model access or quota.
 
 ## Test locally with AI Playground
 
-Open **AI → Playground** and enter a prompt to make a real provider request without
+On Desktop or the authenticated Server panel, open **AI → Playground** and enter a prompt to make a real provider request without
 posting to Twitch. Testing can consume real provider API usage. The Playground uses the
-active filters and personality, applied profile instructions, and saved model and
-response-language settings. It does not automatically use editor drafts: explicitly
+active filters and personality, applied profile instructions, and saved primary/fallback,
+thinking, search and response-language settings. It does not automatically use editor drafts: explicitly
 save a personality, model or language draft first; apply or save a profile-instruction
 draft. Choosing **Use current applied settings** keeps all editor drafts out of the test.
 
 Each prompt is independent of viewer memory, Twitch chat activity, stream context,
 `!ask` permissions and command cooldowns. The bot may be stopped and `!ask` may be
-disabled. A successful result confirms only this local provider path; it does not prove
+disabled. A successful result confirms only this provider path; it does not prove
 that Twitch is connected or that a chat reply can be delivered. Only one Playground
 request runs at a time; you can cancel it, and it times out after 60 seconds. The result
 distinguishes a successful response, editable-filter or protected-policy input and output
-blocks, filter timeouts, provider unavailability, API errors, timeouts and cancellation.
+blocks, filter timeouts, provider/model unavailability, configuration/search/attribution
+failures, API errors, timeouts and cancellation.
 Protected decisions do not reveal hidden instructions.
+
+Results show the effective provider, model, thinking selection, fallback use and
+Search/Fetch outcome reported by the shared pipeline. Provider error bodies, keys,
+reasoning and tool payloads are never displayed. Grounded Gemini output still has
+the plain-text attribution restriction described above.
+
+Server requests run on the backend through authenticated management operations.
+Only the bearer session that started a request can inspect or cancel it. Signing out,
+session expiry or eviction cancels its work and removes access to its result, even
+without another poll. Application shutdown also cancels Playground work before closing
+provider clients. Leaving the AI page requests cancellation on either host. Closing
+a browser tab without signing out relies on the 60-second deadline or session expiry.
+Cancellation keeps the single slot occupied until provider cleanup finishes; late
+responses after cancellation or timeout are discarded. No prompt/result history is saved.
 
 Playground and `!ask` share the same backend generation policy. Each request captures
 its applied instructions, personality, language, context, model choices and key before

@@ -1,6 +1,6 @@
 """Application composition root for explicit dependency wiring."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 import logging
@@ -22,6 +22,7 @@ from app.services.facade import ApplicationServices
 from app.services.memory import AIMemoryService
 from app.services.weather import OpenMeteoWeatherService
 from app.services.ai_service import SharedAIService
+from app.services.ai_playground import AIPlayground
 from app.services.filter_manager import FilterManager
 from app.services.ai_request_policy import AIRequestPolicy
 from app.services.twitch import TwitchAPIService
@@ -42,6 +43,10 @@ class Application:
     dispatcher: CommandDispatcher
     custom_commands: CustomCommandStore | None = None
     fun_settings: FunSettingsStore | None = None
+    ai_playground: AIPlayground = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.ai_playground = AIPlayground(self.settings, self.services)
 
     async def startup(self) -> None:
         await self.database.initialize()
@@ -58,7 +63,10 @@ class Application:
 
     async def shutdown(self) -> None:
         try:
-            await self.ai_service.aclose()
+            try:
+                await self.ai_playground.close()
+            finally:
+                await self.ai_service.aclose()
         finally:
             try:
                 await self.http_client.aclose()

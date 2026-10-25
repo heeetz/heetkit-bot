@@ -1,4 +1,4 @@
-"""Local generation reuses Gemini without viewer or Twitch state."""
+"""Both hosts share isolated operator generation without viewer or Twitch state."""
 
 import asyncio
 from types import SimpleNamespace
@@ -6,12 +6,14 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from pydantic import SecretStr
 
 from app.config.settings import Settings
 from app.runtime_state import RuntimeState
 from app.services.ai_request_policy import AIRequestPolicy
 from app.services.filter_manager import FilterEvaluation, FilterManager
 from app.services.ai_service import SharedAIService
+from app.services.ai_playground import AIPlayground
 from app.webview_host import WebUIBridge
 
 
@@ -51,13 +53,14 @@ def playground(tmp_path, monkeypatch):
     backend = SimpleNamespace(application=SimpleNamespace(
         settings=settings, services=services, dispatcher=ForbiddenService(), database=ForbiddenService(),
     ))
+    backend.application.ai_playground = AIPlayground(settings, services)
     return WebUIBridge(backend), ai, generate, filters, state
 
 
 async def run_prompt(bridge, prompt="Tell me a story"):
     started = await bridge._start_ai_playground(prompt)
     assert started["ok"]
-    await bridge._playground_task
+    await bridge._backend.application.ai_playground.task
     return await bridge._get_ai_playground_result(started["request_id"])
 
 
@@ -165,7 +168,7 @@ async def test_invalid_prompts_do_not_start_a_request(playground, prompt):
     bridge, ai, generate, _, _ = playground
     with pytest.raises(ValueError):
         await bridge._start_ai_playground(prompt)
-    assert bridge._playground_task is None
+    assert bridge._backend.application.ai_playground.task is None
     generate.assert_not_awaited()
     await ai.aclose()
 
@@ -193,10 +196,10 @@ async def test_cancel_keeps_slot_until_cleanup_and_discards_late_response(playgr
     await cleaning.wait()
     await bridge._cancel_ai_playground(first["request_id"])
     await asyncio.sleep(0)
-    assert not bridge._playground_task.done()  # Repeated Cancel must not interrupt lease cleanup.
+    assert not bridge._backend.application.ai_playground.task.done()  # Repeated Cancel must not interrupt lease cleanup.
     assert not (await bridge._start_ai_playground("duplicate during cleanup"))["ok"]
     release.set()
-    await bridge._playground_task
+    await bridge._backend.application.ai_playground.task
     result = await bridge._get_ai_playground_result(first["request_id"])
     assert result["status"] == "cancelled"
     assert not result.get("text")
@@ -219,10 +222,10 @@ async def test_total_timeout_cancels_provider_and_releases_slot(playground, monk
             cancelled.set()
 
     generate.side_effect = waiting_provider
-    monkeypatch.setattr("app.webview_host.AI_REQUEST_TIMEOUT_SECONDS", 0.02)
+    monkeypatch.setattr("app.services.ai_playground.AI_REQUEST_TIMEOUT_SECONDS", 0.02)
     assert (await run_prompt(bridge))["status"] == "timeout"
     assert cancelled.is_set()
-    assert not bridge._playground_task.cancelled()
+    assert not bridge._backend.application.ai_playground.task.cancelled()
     generate.side_effect = None
     assert (await run_prompt(bridge))["status"] == "success"
     await ai.aclose()
@@ -238,12 +241,48 @@ async def test_cancellation_before_task_starts_is_safe(playground):
     await ai.aclose()
 
 
+async def test_timeout_discards_response_when_provider_suppresses_cancellation(playground, monkeypatch):
+    bridge, ai, generate, _, _ = playground
+    cleaning, release = asyncio.Event(), asyncio.Event()
+    async def stubborn(**kwargs):
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cleaning.set()
+            await release.wait()
+            return SimpleNamespace(text="PRIVATE late response", candidates=[])
+    generate.side_effect = stubborn
+    monkeypatch.setattr("app.services.ai_playground.AI_REQUEST_TIMEOUT_SECONDS", 0.02)
+    started = await bridge._start_ai_playground("Tell me a story")
+    await asyncio.wait_for(cleaning.wait(), 1)
+    assert not (await bridge._start_ai_playground("duplicate during cleanup"))["ok"]
+    release.set()
+    await bridge._backend.application.ai_playground.task
+    result = await bridge._get_ai_playground_result(started["request_id"])
+    assert result["status"] == "timeout" and "PRIVATE" not in str(result)
+    await ai.aclose()
+
+
+async def test_completed_result_expires_without_another_http_request(playground):
+    import time
+    bridge, ai, _, _, _ = playground
+    control = bridge._backend.application.ai_playground
+    started = control.start("Tell me a story", owner=b"session", expires_at=time.monotonic() + 0.05)
+    await control.task
+    assert control.get(started["request_id"], owner=b"session")["status"] == "success"
+    await asyncio.sleep(0.06)
+    with pytest.raises(ValueError):
+        control.get(started["request_id"], owner=b"session")
+    assert control.task is None
+    await ai.aclose()
+
+
 async def test_public_controls_submit_to_owner_loop_and_sanitize_failures(playground):
     bridge, ai, generate, _, _ = playground
     loop = asyncio.get_running_loop()
     bridge._backend.submit = lambda coroutine: asyncio.run_coroutine_threadsafe(coroutine, loop)
     started = await asyncio.to_thread(bridge.start_ai_playground, "Tell me a story")
-    await bridge._playground_task
+    await bridge._backend.application.ai_playground.task
     result = await asyncio.to_thread(bridge.get_ai_playground_result, started["request_id"])
     assert result["status"] == "success"
     assert (await asyncio.to_thread(bridge.cancel_ai_playground, "stale"))["ok"] is False
@@ -254,3 +293,62 @@ async def test_public_controls_submit_to_owner_loop_and_sanitize_failures(playgr
     result = await asyncio.to_thread(bridge.start_ai_playground, "Hello")
     assert result == {"ok": False, "error": "The Playground is unavailable. Try again."}
     await ai.aclose()
+
+
+@pytest.mark.parametrize("fallback", [False, True])
+async def test_effective_provider_model_thinking_and_tool_outcome_are_shared(playground, fallback):
+    from app.config.ai_setup import AIModelSelection, AISetup
+    from app.services.ai_provider import AIProviderResponse, AISource
+
+    bridge, ai, _, _, _ = playground
+    ai.settings.ai_setup = AISetup(
+        AIModelSelection("deepseek", "deepseek-v4-pro", "high", True),
+        AIModelSelection("gemini", "gemini-2.5-flash", "off", True),
+        cross_provider_acknowledged=True,
+    )
+    ai.settings.deepseek_api_key = SecretStr("private-deepseek-key")
+    response = AIProviderResponse("Fresh answer.", sources=(AISource("Example", "https://example.test/"),), search_used=True)
+    primary = ai._providers["deepseek"].generate = AsyncMock(
+        return_value=AIProviderResponse(status="model_unavailable") if fallback else response,
+    )
+    secondary = ai._providers["gemini"].generate = AsyncMock(return_value=response)
+    result = await run_prompt(bridge, "What is the latest news?")
+    assert result["status"] == "success"
+    assert result["text"].endswith("Sources: https://example.test/")
+    details = result["generation"]
+    assert details == {
+        "provider": "Google Gemini" if fallback else "DeepSeek",
+        "model": "gemini-2.5-flash" if fallback else "deepseek-v4-pro",
+        "thinking": "off" if fallback else "high", "fallback_used": fallback,
+        "search_enabled": True, "search_requested": True, "search_used": True,
+    }
+    assert primary.call_args.args[1].thinking == "high"
+    assert primary.call_args.args[0].use_search
+    assert secondary.await_count == int(fallback)
+    assert "private-deepseek-key" not in str(result)
+    await ai.aclose()
+
+
+async def test_core_shutdown_cancels_before_closing_provider_and_forgets_result(tmp_path, monkeypatch):
+    from app.container import build_application
+
+    monkeypatch.setenv("HEETKIT_DATA_DIR", str(tmp_path))
+    app = build_application(Settings(_env_file=None, database_url="sqlite+aiosqlite:///:memory:"))
+    entered, cancelled = asyncio.Event(), asyncio.Event()
+
+    async def generate(**kwargs):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    app.ai_service.generate_reply = generate
+    app.ai_service.aclose = AsyncMock(side_effect=lambda: cancelled.is_set() or pytest.fail("Provider closed before cancellation"))
+    started = app.ai_playground.start("Tell me a story")
+    await entered.wait()
+    await app.shutdown()
+    assert cancelled.is_set()
+    with pytest.raises(ValueError):
+        app.ai_playground.get(started["request_id"])
+    assert not app.ai_playground.start("another")["ok"]

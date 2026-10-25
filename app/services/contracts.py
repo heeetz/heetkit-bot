@@ -1,8 +1,21 @@
 """Replaceable service contracts used by command handlers."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal, Protocol
+
+
+@dataclass(frozen=True, slots=True)
+class AIGenerationDetails:
+    """Safe effective options/outcomes, never credentials, reasoning or tool payloads."""
+
+    provider: str
+    model: str
+    thinking: str = "default"
+    fallback_used: bool = False
+    search_enabled: bool = False
+    search_requested: bool = False
+    search_used: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -13,6 +26,7 @@ class AIReply:
     moderation_source: Literal["editable_filter", "filter_timeout", "protected_policy"] | None = None
     matched_category: str | None = None
     matched_rule: str | None = None
+    generation: AIGenerationDetails | None = field(default=None, compare=False)
 
 
 class AIService(Protocol):

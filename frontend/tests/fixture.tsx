@@ -196,6 +196,8 @@ window.pywebview = { api: {
       ok: true, request_id: requestId, status: query.get('playgroundStatus') ?? 'success',
       text: 'Synthetic response <strong>plain text</strong>.',
       moderation_source: query.get('playgroundSource'), matched_category: 'phrases', matched_rule: 'synthetic rule',
+      generation: { provider: 'Google Gemini', model: 'gemini-2.5-flash', thinking: 'off',
+        fallback_used: false, search_enabled: false, search_requested: false, search_used: false },
     }
   },
   cancel_ai_playground: async (requestId: string) => {

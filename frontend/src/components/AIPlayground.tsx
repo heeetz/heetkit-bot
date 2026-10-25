@@ -1,5 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { type AIPlaygroundResult, waitForBridge } from '../bridge'
+import HelpTip from './HelpTip'
+
+function searchOutcome(result: AIPlaygroundResult): string {
+  if (result.status === 'search_error') return 'Failed'
+  if (result.status === 'search_unavailable') return 'Unavailable on fallback'
+  if (result.status === 'attribution_unavailable') return 'Answer withheld: required attribution unavailable'
+  if (result.generation?.search_used) return 'Used'
+  if (!result.generation?.search_enabled) return 'Off'
+  if (!result.generation?.search_requested) return 'Not needed for this prompt'
+  return 'Requested; no tool use reported'
+}
 
 const STATUS_LABELS = {
   model_unavailable: 'Model unavailable — the configured primary and fallback could not serve this request.',
@@ -120,14 +131,15 @@ export default function AIPlayground({ active, personality, hasDrafts = false }:
     <article className="card ai-playground" id="ai-playground">
       <div className="section-heading">
         <div>
-          <p className="label">LOCAL TESTING</p>
+          <p className="label">OPERATOR TESTING</p>
           <h2>AI Playground</h2>
           <p className="section-copy">Try a prompt with real provider responses. Nothing is sent to Twitch.</p>
         </div>
         <span className="mini-badge">Real API quota</span>
       </div>
-      <p className="setting-effect">Testing may consume real provider API quota. Uses active filters, the active personality ({personality || 'not selected'}), applied profile instructions and saved model/language settings. Apply or save editor changes first.</p>
+      <p className="setting-effect">Testing may consume real provider API quota. Uses active filters, the active personality ({personality || 'not selected'}), applied profile instructions and saved primary/fallback, thinking, search and language settings. Apply or save editor changes first.</p>
       <p className="setting-effect">Each prompt is independent: no viewer memory, stream context, chat activity, command permissions or cooldowns. The bot can be stopped and !ask disabled. Success does not prove Twitch delivery.</p>
+      <HelpTip label="Playground request lifecycle">One request can run at a time across this application. Cancel or leave the AI page to request cancellation. The slot stays occupied until provider cleanup finishes; late results are discarded. Server results belong to the session that started them. Sign-out, session expiry or eviction and application shutdown cancel that session's work and clear access to its result. Closing a browser tab without signing out relies on the request timeout or session expiry.</HelpTip>
       {hasDrafts && <p className="setting-effect playground-draft-warning">Unsaved editor drafts are not used. Use an editor's Open Playground choices to save or apply that draft first, or test the current applied settings.</p>}
       <label className="form-field">
         Playground prompt
@@ -146,6 +158,12 @@ export default function AIPlayground({ active, personality, hasDrafts = false }:
         {pending && <p>{cancelling ? 'Cancelling…' : STATUS_LABELS.pending}</p>}
         {result?.status && <>
           <strong>{STATUS_LABELS[result.status]}</strong>
+          {result.generation && <p className="setting-effect">
+            Provider: {result.generation.provider} · Model: {result.generation.model}
+            {' · '}Thinking: {result.generation.thinking}
+            {' · '}{result.generation.fallback_used ? 'Fallback used' : 'Primary selection'}
+            {' · '}Search/Fetch: {searchOutcome(result)}
+          </p>}
           {result.moderation_source === 'editable_filter' && <p>Editable filter · {result.matched_category}: <code>{result.matched_rule}</code></p>}
           {result.moderation_source === 'filter_timeout' && <p>Editable filter evaluation timed out and blocked the text safely. No matched rule is reported.</p>}
           {result.moderation_source === 'protected_policy' && <p>Protected safety policy. This decision is separate from editable filters; no hidden instructions are shown.</p>}

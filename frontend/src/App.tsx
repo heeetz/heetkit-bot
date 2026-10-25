@@ -735,7 +735,7 @@ function ManagementApp() {
               >{item}</button>
               {subsections[item] && (
                 <ul className="sidebar-subnav" id={`nav-${item}`} hidden={section !== item}>
-                  {subsections[item].filter((child) => !isBrowserMode() || !['ai-playground', 'desktop-settings', 'profile-location-settings'].includes(child.targetId)).map((child) => (
+                  {subsections[item].filter((child) => !isBrowserMode() || !['desktop-settings', 'profile-location-settings'].includes(child.targetId)).map((child) => (
                     <li key={child.targetId}>
                       <button
                         type="button"

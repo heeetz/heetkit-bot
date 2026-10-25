@@ -442,6 +442,15 @@ export interface AIPlaygroundResult {
   moderation_source?: 'editable_filter' | 'filter_timeout' | 'protected_policy' | null
   matched_category?: string | null
   matched_rule?: string | null
+  generation?: {
+    provider: string
+    model: string
+    thinking: string
+    fallback_used: boolean
+    search_enabled: boolean
+    search_requested: boolean
+    search_used: boolean
+  } | null
   error?: string
 }
 

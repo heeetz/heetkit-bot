@@ -280,6 +280,7 @@ class ManagementAPI:
         self.setup.close()
         self.sessions.clear()
         try:
+            await self.runtime.application.ai_playground.close()
             if self.runner is not None:
                 await self.runner.cleanup()
                 self.runner = None
@@ -459,8 +460,10 @@ class ManagementAPI:
                         if request.method == "POST":
                             token = secrets.token_urlsafe(32)
                             if len(self.sessions) >= MAX_SESSIONS:
-                                self.setup.cancel(next(iter(self.sessions)))
-                                del self.sessions[next(iter(self.sessions))]
+                                evicted = next(iter(self.sessions))
+                                self.setup.cancel(evicted)
+                                self.runtime.application.ai_playground.revoke(evicted)
+                                del self.sessions[evicted]
                             self.sessions[hashlib.sha256(token.encode("ascii")).digest()] = now + SESSION_SECONDS
                             result.update(token=token, expires_in=SESSION_SECONDS)
                     elif request.method == "POST" and request.path == "/v1/session/logout":
@@ -468,6 +471,7 @@ class ManagementAPI:
                             raise ValueError
                         self.sessions.pop(digest, None)
                         self.setup.cancel(digest)
+                        self.runtime.application.ai_playground.revoke(digest)
                         result = {"ok": True}
                     else:
                         result = await self.dispatch(request.method, request.path, payload, owner=digest)
@@ -489,6 +493,20 @@ class ManagementAPI:
             self.active -= 1
 
     async def dispatch(self, method: str, path: str, payload: dict, *, owner: bytes = b"") -> dict:
+        if method == "POST" and path in (
+            "/v1/ai/playground/start", "/v1/ai/playground/result", "/v1/ai/playground/cancel",
+        ):
+            if path.endswith("/start"):
+                if set(payload) != {"prompt"}:
+                    raise ValueError
+                return await self.service._start_ai_playground(
+                    payload["prompt"], owner=owner, expires_at=self.sessions.get(owner),
+                )
+            if set(payload) != {"request_id"}:
+                raise ValueError
+            operation = (self.service._cancel_ai_playground if path.endswith("/cancel")
+                         else self.service._get_ai_playground_result)
+            return await operation(payload["request_id"], owner=owner)
         if method == "POST" and path.startswith(("/v1/credentials/", "/v1/twitch/")):
             operations = {
                 "/v1/twitch/settings": self.setup.save_twitch,
