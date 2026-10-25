@@ -331,7 +331,7 @@ Server to save the same versioned ZIP (Desktop opens a native Save dialog; the
 browser downloads it). It contains the currently applied
 built-in command settings and response pools, custom commands, personality prompts
 and selection, profile instructions, AI memory/model/language preferences, filters,
-AI account blocks and message triggers. Applied session-only edits are included;
+AI account blocks, message triggers and saved ordinary-chat announcements. Applied session-only edits are included;
 unfinished editor drafts are not. Import saves these values on the destination.
 
 Server exports include per-command stream availability. Desktop exports omit this
@@ -340,6 +340,13 @@ preserves the destination's policy for each matching built-in or custom command
 (custom ID first, then canonical name); new commands default to Anytime. An
 explicit policy in a Server ZIP replaces that value, including explicit Anytime.
 Desktop can retain imported policies but never enforces them.
+
+Announcements carry their stream availability on both hosts. Their saved text,
+intervals and activity thresholds transfer; deadlines, activity counters and send
+status do not. Import restarts enabled schedules with a full interval. Older ZIPs
+without an announcements section preserve the destination's schedules; an explicit
+empty collection in a new ZIP removes them. Announcement activity uses only a
+transient count of eligible events, with no additional viewer/message archive.
 
 Select the ZIP in Settings on the other instance, review the included names/counts,
 replacement scope and preserved settings, then explicitly confirm the import.

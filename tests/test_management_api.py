@@ -101,6 +101,33 @@ async def test_authentication_origin_host_and_private_surface(api):
         assert TOKEN not in json.dumps(body)
 
 
+async def test_announcements_authenticated_settings_status_and_shared_monitor(api):
+    from app.announcements import AnnouncementStore
+    from uuid import uuid4
+    server, call = api
+    assert (await call("GET", "/v1/announcements", headers={"Authorization": ""}))[0] == 401
+    assert (await call("GET", "/v1/announcements"))[1] == {"ok": True, "announcements": []}
+    raw = {"id": str(uuid4()), "name": "Community", "enabled": True, "messages": ["Join us"],
+        "message_mode": "single", "interval_seconds": 60, "min_messages": 1,
+        "stream_availability": "live_only"}
+    assert (await call("POST", "/v1/announcements", json={"announcements": [raw]}))[1]["ok"]
+    row = (await call("GET", "/v1/announcements"))[1]["announcements"][0]
+    assert {key: value for key, value in row.items() if key != "status"} == raw
+    assert row["status"]["next_run_at"] is None
+    assert not server.policy._monitoring  # Manual disconnected does not poll
+    saved = AnnouncementStore(server.runtime.application.announcements._path)
+    assert saved.list()[0].to_json() == raw
+    for payload in ({"announcements": [{**raw, "interval_seconds": 1}]},
+                    {"announcements": [{**raw, "status": {}}]}, {"announcements": [raw], "extra": True}):
+        assert (await call("POST", "/v1/announcements", json=payload))[0] == 400
+    # Collection bounds permit more than the ordinary 64 KiB body, still bounded.
+    large = [{**raw, "id": str(uuid4()), "messages": ["x" * 450] * 30, "message_mode": "random"} for _ in range(6)]
+    assert len(json.dumps({"announcements": large})) > 65536
+    assert (await call("POST", "/v1/announcements", json={"announcements": large}))[1]["ok"]
+    assert len((await call("GET", "/v1/announcements"))[1]["announcements"]) == 6
+    assert (await call("POST", "/v1/announcements", json={"announcements": []}))[1]["ok"]
+
+
 async def test_ai_setup_save_reload_validation_and_guide_use_authenticated_shared_operations(api):
     server, call = api
     status, result, _ = await call("GET", "/v1/ai/setup")

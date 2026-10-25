@@ -36,6 +36,7 @@ type Section = (typeof sections)[number]
 const subsections: Partial<Record<Section, { label: string; targetId: string }[]>> = {
   Commands: [
     { label: 'Your commands', targetId: 'custom-commands' },
+    { label: 'Announcements', targetId: 'announcements' },
     { label: 'Built-in commands', targetId: 'builtin-commands' },
     { label: 'Removed commands', targetId: 'removed-commands' },
     { label: 'Administrative commands', targetId: 'administrative-commands' },

@@ -173,6 +173,7 @@ READS = {
     "/v1/status": "get_app_status",
     "/v1/commands": "get_commands",
     "/v1/custom-commands": "get_custom_commands",
+    "/v1/announcements": "_get_announcements",
     "/v1/filters": "get_filters",
     "/v1/ai": "get_ai_status",
     "/v1/ai/models": "get_ai_provider_settings",
@@ -197,6 +198,7 @@ WRITES = {
     "/v1/commands/responses/reset": "reset_command_responses",
     "/v1/custom-commands/save": "save_custom_command",
     "/v1/custom-commands/delete": "delete_custom_command",
+    "/v1/announcements": "_save_announcements",
     "/v1/ai/enabled": "set_ai_enabled",
     "/v1/ai/memory": "_save_ai_memory_enabled",
     "/v1/ai/models": "_save_ai_provider_models",
@@ -437,6 +439,8 @@ class ManagementAPI:
                         "/v1/configuration/preview", "/v1/configuration/import") else MAX_BODY
                     if request.path == "/v1/ai/setup":
                         maximum = MAX_AI_SETUP_BODY
+                    if request.path == "/v1/announcements":
+                        maximum = 768 * 1024
                     if length is None or length < 2 or length > maximum:
                         return reject(413, "JSON body exceeds this operation's size limit.")
                     async with asyncio.timeout(5):

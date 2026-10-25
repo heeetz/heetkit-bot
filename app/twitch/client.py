@@ -129,6 +129,7 @@ def to_incoming_chat_message(message: ChatMessage, respond=None, send_session=No
             is_vip=bool(message.chatter.vip),
             is_moderator=bool(message.chatter.moderator),
             is_broadcaster=bool(message.chatter.broadcaster),
+            is_bot=any(getattr(badge, "set_id", None) == "bot" for badge in (getattr(message.chatter, "badges", None) or ())),
         ),
         respond=respond or message.respond,
         message_id=getattr(message, "id", None),
@@ -214,6 +215,10 @@ async def _process_incoming_message(
         if policy.check(parsed[1]) == PolicyDecision.IGNORE:
             operator_event(logger, "command.outcome", "filters", reason="protected_policy")
             return
+
+    twitch = getattr(services, "twitch", None)
+    if twitch is not None:
+        twitch.record_human_message(incoming)
 
     try:
         await services.users.upsert_seen(

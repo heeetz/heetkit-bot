@@ -6,8 +6,8 @@ desktop or authenticated browser control panel. Examples below use the default `
 Select **Commands**, **Filters**, **AI** or, on Desktop, **Settings** in the sidebar
 to reveal subsection shortcuts. A shortcut opens the relevant section and scrolls to
 it; selecting another page replaces the shortcuts. Commands follow **Your commands →
-Built-in commands → Removed commands → Administrative commands → Advanced: reset all
-built-ins**. AI follows **State → Playground → Personalities → Profile instructions →
+Announcements → Built-in commands → Removed commands → Administrative commands →
+Advanced: reset all built-ins**. AI follows **State → Playground → Personalities → Profile instructions →
 Response language → Models → AI access → Built-in restrictions**. Conversation memory
 is a panel in **State**, not a separate shortcut. Browser mode omits Playground and
 Settings subsection shortcuts; see [browser capabilities](management-api.md#browser-panel).
@@ -21,6 +21,47 @@ closes the help; using help in a header does not open or close that section.
 Mouse-opened help closes shortly after the pointer leaves both the button and its
 text. Keyboard-opened help stays available until focus moves away or Escape is pressed.
 Setup steps, errors, unsaved changes and reset/delete consequences remain visible.
+
+## Scheduled announcements
+
+Open **Commands → Announcements** on Desktop or the authenticated Server panel.
+Create up to 50 named schedules, enable the ones you want, then select **Save
+announcements**. **Cancel** discards the collection's drafts. Removing a row from
+the draft takes effect only when saved.
+
+Each schedule sends one ordinary chat message every 60–86400 seconds while chat
+is connected. Single uses one message; Random chooses one of 1–30 saved lines on
+each attempt. Each line allows up to 450 UTF-8 bytes. Text is sent literally,
+without command variables. These are ordinary chat sends, not Twitch's highlighted
+Announcement API, and share the five-second output limiter with ordinary replies.
+Coincident schedules give never/least-recently delivered messages first use of
+that limiter; skipped or unconfirmed messages wait until their next interval.
+
+Startup, reconnect, channel switch and saved edits start a full interval. Nothing
+is sent immediately to catch up. Only one announcement send runs at a time;
+stop/loss/switch cancels pending work and old senders cannot follow a new channel.
+An already submitted request may still arrive at Twitch.
+
+Under **Advanced announcement settings**, choose a minimum of 0–1000 eligible
+incoming messages. Each schedule counts accepted chat since its interval began;
+every scheduled check starts a fresh activity window, including activity/stream
+skips and failures. Earlier quiet windows cannot accumulate toward a later send.
+Own-account messages, bot-marked messages, outgoing echoes, replayed events,
+filtered messages and ignored AI input do not count. Other automation without a
+bot marker cannot be distinguished from human chat. Counts are transient; message
+bodies and chatter identities are not saved for this feature.
+
+**Stream availability** works on both hosts. Anytime allows unknown stream state;
+Live only and Offline only require a fresh matching observation. Failed checks
+and observations 135 seconds old are unknown, so restricted sends pause. Server
+reuses its operation-policy monitor; Desktop polls at most once per minute while
+connected with an enabled restricted schedule. Connection modes still determine
+whether Server is connected at all.
+
+Each saved row shows the next check, last confirmed send, last outcome and current
+eligible count. A check may skip for activity or stream availability. Unconfirmed
+delivery (including limiter skips), failure and cancellation never trigger immediate
+retries. Status is recent session evidence, not a persisted delivery history.
 
 ## Built-in commands
 

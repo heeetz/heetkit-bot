@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
-import type { CommandInfo, CustomCommandInfo, FilterInput, LogEntry } from '../src/bridge'
+import type { AnnouncementInfo, AnnouncementInput, CommandInfo, CustomCommandInfo, FilterInput, LogEntry } from '../src/bridge'
 import { selectOption } from './select-helpers'
 
 const adminToken = 'a'.repeat(43)
@@ -30,6 +30,7 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
   let profile = 'Saved instructions'
   let prompt = 'Neutral prompt'
   let customCommands: CustomCommandInfo[] = []
+  let announcements: AnnouncementInfo[] = []
   let enabled = true
   let playgroundPending = false
   let playgroundCancelled = false
@@ -149,6 +150,13 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     if (path === '/v1/commands/responses/save' || path === '/v1/commands/responses/apply') command.response_pool!.responses = body!.responses as string[]
     if (path === '/v1/custom-commands') result = { command_prefix: '!', permissions: ['EVERYONE', 'MODERATOR'], variables: ['sender'], commands: customCommands }
     if (path === '/v1/custom-commands/save') customCommands = [{ ...(body!.command as CustomCommandInfo), id: 'saved-command' }]
+    if (path === '/v1/announcements') {
+      if (request.method() === 'POST') announcements = (body!.announcements as AnnouncementInput[]).map((item, index) => ({
+        ...item, id: item.id ?? `00000000-0000-0000-0000-${String(index + 1).padStart(12, '0')}`,
+        status: { next_run_at: null, last_sent_at: null, last_outcome: null, eligible_messages: 0 },
+      }))
+      result = { ok: true, announcements }
+    }
     if (path === '/v1/filters') result = Object.fromEntries(Object.entries(filters).map(([category, values]) => [category, { rules: (values as string[]).map((value: string) => ({ value, origin: 'local', valid: true })), defaults: [] }]))
     if (path === '/v1/filters/save' || path === '/v1/filters/apply') filters = body!.payload as unknown as FilterInput
     if (path === '/v1/ai/instructions/save' || path === '/v1/ai/instructions/apply') profile = body!.prompt as string
@@ -262,6 +270,28 @@ async function invoke(page: Page, method: string, args: unknown[] = []) {
     try { return await api[method](...args) } catch (error) { return { error: error instanceof Error ? error.message : 'failed' } }
   }, { method, args })
 }
+
+test('Server announcements save through authenticated fixed routes and retain ordinary chat scope', async ({ page }) => {
+  const api = await server(page)
+  await page.goto('/tests/browser.fixture.html')
+  await login(page)
+  await page.getByRole('button', { name: 'Commands', exact: true }).click()
+  const panel = page.locator('#announcements')
+  await panel.getByRole('button', { name: 'New announcement', exact: true }).click()
+  await panel.getByLabel('Name', { exact: true }).fill('Server reminder')
+  await panel.getByLabel('Announcement message', { exact: true }).fill('A scheduled ordinary message.')
+  await panel.getByText('Advanced announcement settings', { exact: true }).click()
+  await selectOption(panel.getByLabel('Announcement stream availability', { exact: true }), 'live_only')
+  await panel.getByRole('button', { name: 'Save announcements', exact: true }).click()
+  await expect(panel.getByRole('status')).toContainText('Announcements saved')
+  const write = api.calls.find((call) => call.path === '/v1/announcements' && call.method === 'POST')
+  expect(write).toMatchObject({ authorization: `Bearer ${sessionToken}`, body: { announcements: [{
+    id: null, name: 'Server reminder', enabled: true, messages: ['A scheduled ordinary message.'], message_mode: 'single',
+    interval_seconds: 900, min_messages: 0, stream_availability: 'live_only',
+  }] } })
+  expect(api.calls.filter((call) => call.path === '/v1/announcements').every((call) => call.authorization === `Bearer ${sessionToken}`)).toBe(true)
+  await expect(panel).toContainText('Last outcome: No attempts yet')
+})
 
 test('browser login keeps tokens out of storage, URLs and request bodies; reload signs out', async ({ page, context }) => {
   const api = await server(page)

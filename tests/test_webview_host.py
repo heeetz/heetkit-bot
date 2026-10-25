@@ -55,6 +55,31 @@ def complete_bridge_coroutine(coroutine) -> Future:
     return future
 
 
+def test_desktop_announcements_use_shared_saved_settings_and_backend_status(tmp_path):
+    from app.announcements import AnnouncementScheduler, AnnouncementStore
+    from app.services.twitch import TwitchAPIService
+    from uuid import uuid4
+    store = AnnouncementStore(tmp_path / "announcements.json")
+    twitch = TwitchAPIService()
+    state = RuntimeState()
+    scheduler = AnnouncementScheduler(store, twitch, Settings(), state)
+    application = SimpleNamespace(announcements=store, announcement_scheduler=scheduler)
+    bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace(
+        application=application, submit=complete_bridge_coroutine)))
+    assert {"get_announcements", "save_announcements"} <= set(FRONTEND_OPERATIONS)
+    assert bridge.get_announcements() == {"ok": True, "announcements": []}
+    raw = {"id": str(uuid4()), "name": "Community", "enabled": True, "messages": ["Join us"],
+        "message_mode": "single", "interval_seconds": 900, "min_messages": 2,
+        "stream_availability": "live_only"}
+    assert bridge.save_announcements([raw]) == {"ok": True}
+    result = bridge.get_announcements()["announcements"][0]
+    assert {key: value for key, value in result.items() if key != "status"} == raw
+    assert result["status"]["next_run_at"] is None
+    assert AnnouncementStore(store._path).list() == store.list()
+    assert not bridge.save_announcements([{**raw, "interval_seconds": 1}])["ok"]
+    assert bridge.get_announcements()["announcements"][0] == result
+
+
 def test_desktop_ai_setup_and_guidance_share_atomic_profile_operations(tmp_path):
     from dataclasses import asdict
     from app.config.ai_setup import AISetup, AIModelSelection

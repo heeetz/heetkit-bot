@@ -63,7 +63,7 @@ async def rig(tmp_path, monkeypatch):
         twitch_client_secret="synthetic", twitch_bot_username="testbot", twitch_bot_user_id="100",
         twitch_channel="testchannel", twitch_channel_user_id="200"),
         services=SimpleNamespace(runtime_state=state, twitch=SimpleNamespace(
-            get_broadcaster_live=live, close_stream_monitor=close)),
+            get_broadcaster_live=live, close_stream_monitor=close, stop_chat=lambda: None)),
         dispatcher=object(), startup=noop, shutdown=noop)
     monkeypatch.setattr("app.bot_runtime.run_twitch_bot", session)
     runtime = BotRuntime(app, logging.getLogger("test.policy"), headless=True)
@@ -80,6 +80,30 @@ async def rig(tmp_path, monkeypatch):
             calls.stop_gate.set()
         await policy.close()
         await runtime.shutdown()
+
+
+async def test_announcement_restrictions_share_existing_server_monitor(rig, tmp_path):
+    from app.announcements import AnnouncementStore
+    from uuid import uuid4
+    policy, runtime, calls, state, _ = rig
+    state.server_runtime = True
+    store = AnnouncementStore(tmp_path / "announcements.json")
+    runtime.application.announcements = store
+    raw = {"id": str(uuid4()), "name": "Community", "enabled": True, "messages": ["Join us"],
+        "message_mode": "single", "interval_seconds": 60, "min_messages": 0,
+        "stream_availability": "offline_only"}
+    store.save([raw])
+    policy.connect()
+    monitor = policy._monitor
+    await eventually(lambda: policy.confirmed_stream_status() == "offline")
+    assert state.server_stream_status() == "offline"
+    assert calls.starts == 1 and runtime.bot_active and policy._monitor is monitor
+    calls.live = OSError("synthetic")
+    await eventually(lambda: policy.confirmed_stream_status() == "unknown")
+    store.save([{**raw, "enabled": False}])
+    policy.refresh_command_monitoring()
+    assert not policy._monitoring and policy.confirmed_stream_status() == "unknown"
+    assert runtime.bot_active
 
 
 @pytest.mark.parametrize("source", sorted(OPERATION_MODES))

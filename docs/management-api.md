@@ -386,6 +386,7 @@ POST writes persist and apply immediately unless stated otherwise.
 | POST `commands/responses/reset` | `name` |
 | POST `commands/responses/apply` | Same as responses Save, session-only |
 | GET `custom-commands` | Commands, allowed template variables and permissions |
+| GET / POST `announcements` | GET: saved schedules plus transient `status` (`next_run_at`, `last_sent_at`, `last_outcome`, `eligible_messages`). POST: complete `announcements` list, at most 50; each has UUID `id` (null/omitted for new rows), `name` (80 UTF-8 bytes), `enabled`, `messages` (1–30 single lines, 450 UTF-8 bytes each), `message_mode` (`single`/`random`), `interval_seconds` (60–86400), `min_messages` (0–1000), `stream_availability` (`anytime`/`live_only`/`offline_only`). Saved edits restart full intervals; both hosts enforce announcement availability. Body limit: 768 KiB. See [announcements](commands.md#scheduled-announcements). |
 | POST `custom-commands/save` | `command` object in the existing command format: `name`, `enabled`, `responses`, `permission`, `per_user_seconds`, `global_seconds`, `aliases`; an existing `id` edits that command; existing optional response-mode/burst fields are supported |
 | POST `custom-commands/delete` | `identifier` (saved command ID) |
 | GET `ai` | AI availability, enablement, memory, model and active personality |
@@ -474,11 +475,12 @@ and backs off checks from 120 seconds to at most 900 seconds. Each check has a
 15-second deadline; TwitchIO retains its rate-limit handling. Timing and confirmation
 thresholds are internal constructor settings for controlled testing/operation.
 The same single monitor also runs in Always On and connected Manual when any
-built-in or custom command has a stream restriction. Those observations only gate
-command execution; they never connect or disconnect chat in these modes. Manual
-while stopped, Disabled, and Always On without restrictions need no command polls.
-Command settings edits wake monitoring only when this demand changes, preserving
-poll intervals and backoff. Desktop never starts this monitoring.
+built-in/custom command or enabled announcement has a stream restriction. Those
+observations gate execution; they never connect or disconnect chat in these modes.
+Manual while stopped, Disabled, and Always On without restrictions need no such
+polls. Settings edits wake monitoring only when this demand changes, preserving
+poll intervals and backoff. Desktop announcements use their own bounded poll with
+the same freshness limit; Desktop commands retain their existing behavior.
 
 For command execution, a successful Get Streams response confirms the current
 state until a failed check, monitoring stops, configuration/mode changes, or the
@@ -558,7 +560,8 @@ callback URL as sensitive, close its browser tab afterwards, and remove it from
 browser history when practical. Remote HTTPS callback automation is not supported.
 
 Limits are 64 KiB per JSON request, except AI setup allows 256 KiB for escaped Unicode
-instructions, and configuration preview/import allow
+instructions, announcements allow 768 KiB for their bounded message collections,
+and configuration preview/import allow
 1,399,128 bytes for a base64-encoded ZIP of at most 1 MiB and its fixed arguments.
 Configuration export retains the 2 MiB response limit. Format version 1 requires
 exactly `manifest.json` and `configuration.json`, with a validated byte size/SHA-256

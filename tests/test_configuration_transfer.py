@@ -54,6 +54,53 @@ async def profiles(tmp_path, monkeypatch):
         await app.shutdown()
 
 
+async def test_announcements_transfer_both_hosts_legacy_preservation_and_rollback(profiles, monkeypatch):
+    from app.announcements import AnnouncementStore
+    from uuid import uuid4
+    source, target = profiles("announcement-desktop"), profiles("announcement-server")
+    target.state.server_runtime = True
+    raw = {"id": str(uuid4()), "name": "Community", "enabled": True, "messages": ["Join us", "Welcome"],
+        "message_mode": "random", "interval_seconds": 900, "min_messages": 5,
+        "stream_availability": "offline_only"}
+    source.announcements.save([raw])
+    encoded = source.export()["archive_base64"]
+    payload, _, _ = unpack_configuration(encoded)
+    assert payload["announcements"] == [raw]  # availability travels from Desktop too
+    preview = target.preview(encoded)
+    assert next(section for section in preview["sections"] if section["name"] == "announcements")["details"] == ["Community"]
+    target.apply(encoded, preview["preview_token"], True)
+    assert AnnouncementStore(target.announcements._path).list() == source.announcements.list()
+    assert target.app.announcement_scheduler.snapshot()[0]["status"]["next_run_at"] is None
+    # A legacy archive preserves destination schedules; no misleading replacement preview.
+    payload.pop("announcements")
+    legacy = pack_configuration(payload)
+    preview = target.preview(legacy)
+    assert not any(section["name"] == "announcements" for section in preview["sections"])
+    target.apply(legacy, preview["preview_token"], True)
+    assert target.announcements.list()[0].to_json() == raw
+    payload["announcements"] = []
+    clearing = pack_configuration(payload)
+    before = file_state(target)
+    preview = target.preview(clearing)
+    original = target.publish
+    def fail_publish(*args):
+        original(*args)
+        raise OSError("synthetic publication failure")
+    with monkeypatch.context() as scoped:
+        scoped.setattr(target, "publish", fail_publish)
+        with pytest.raises(OSError):
+            target.apply(clearing, preview["preview_token"], True)
+    assert file_state(target) == before
+    assert target.announcements.list()[0].to_json() == raw
+    target.apply(clearing, target.preview(clearing)["preview_token"], True)
+    assert not target.announcements.list()
+    # Reject injected operational status, duplicate IDs and dangerous intervals.
+    for invalid in ([{**raw, "status": {}}], [raw, raw], [{**raw, "interval_seconds": 0}]):
+        payload["announcements"] = invalid
+        with pytest.raises(ValueError):
+            target.preview(pack_configuration(payload))
+
+
 async def test_setup_transfer_preserves_nonsecrets_and_requires_destination_routing_consent(profiles):
     from dataclasses import asdict
     from app.config.ai_setup import AIModelSelection, AISetup
@@ -182,7 +229,7 @@ async def test_desktop_export_server_preview_import_round_trip_and_restart(profi
     preview = target.preview(encoded)
     assert file_state(target) == before
     assert not (target.config / "import-backups").exists()
-    assert len(preview["sections"]) == 8 and preview["preserved"] and preview["effects"]
+    assert len(preview["sections"]) == 9 and preview["preserved"] and preview["effects"]
     server = ApplicationManagement(target.app, target.settings)
     server._configuration_transfer = target
     result = await server.apply_configuration_import(encoded, preview["preview_token"], True)

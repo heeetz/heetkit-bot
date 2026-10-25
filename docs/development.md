@@ -212,7 +212,15 @@ work, then await its `reply(content)`. This uses the bound TwitchIO client and m
 bot user token to send ordinary chat to the captured channel, without an incoming
 message, extra OAuth flow or message queue. The producer must retain that sender
 through delays; acquiring a new one later deliberately selects the current connection.
-This boundary supplies no scheduler or saved announcement configuration.
+[`AnnouncementScheduler`](../app/announcements.py) is the application-owned producer
+for saved ordinary-chat schedules on both hosts. It starts with application startup
+and drains on shutdown; connection changes synchronously reset its ephemeral
+deadlines/activity and cancel pending output. It owns one serial send worker and
+bounded Desktop stream polling. Server uses the existing OperationPolicy monitor,
+including its expiry and unknown-state rules. Saved collections live in
+`config/announcements.json`, participate in portable replacement/rollback and use
+the existing atomic-save/recovery rules. See [announcement behavior](commands.md#scheduled-announcements)
+and [`test_announcements.py`](../tests/test_announcements.py).
 
 Each connection owns its in-flight sends and Burst timers. Stop, connection loss,
 authorization failure and channel replacement invalidate captured senders and cancel

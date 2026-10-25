@@ -11,6 +11,7 @@ from app.commands.info import register_info_commands, register_weather_commands
 from app.commands.social import register_social_commands
 from app.commands.registry import CommandDispatcher, CommandRegistry
 from app.custom_commands import CustomCommandStore
+from app.announcements import AnnouncementStore, AnnouncementScheduler
 from app.ai_user_blocks import AIUserBlocklist
 from app.message_triggers import MessageTriggerStore
 from app.runtime_paths import RuntimePaths
@@ -42,10 +43,15 @@ class Application:
     dispatcher: CommandDispatcher
     custom_commands: CustomCommandStore | None = None
     fun_settings: FunSettingsStore | None = None
+    announcements: AnnouncementStore | None = None
     ai_playground: AIPlayground = field(init=False)
+    announcement_scheduler: AnnouncementScheduler | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
         self.ai_playground = AIPlayground(self.settings, self.services)
+        if self.announcements is not None:
+            self.announcement_scheduler = AnnouncementScheduler(self.announcements,
+                self.services.twitch, self.settings, self.services.runtime_state)
 
     async def startup(self) -> None:
         await self.database.initialize()
@@ -59,11 +65,17 @@ class Application:
         except Exception:
             logger = logging.getLogger(__name__)
             logger.exception("Filter loading failed unexpectedly; existing rules remain active")
+        if self.announcement_scheduler is not None:
+            self.announcement_scheduler.start()
 
     async def shutdown(self) -> None:
         try:
             try:
-                await self.ai_playground.close()
+                try:
+                    if self.announcement_scheduler is not None:
+                        await self.announcement_scheduler.close()
+                finally:
+                    await self.ai_playground.close()
             finally:
                 await self.ai_service.aclose()
         finally:
@@ -142,4 +154,5 @@ def build_application(settings: Settings) -> Application:
         custom_commands=custom_commands,
         dispatcher=dispatcher,
         fun_settings=fun_settings,
+        announcements=AnnouncementStore(paths.config / "announcements.json"),
     )

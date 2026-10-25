@@ -133,6 +133,33 @@ export interface CustomCommandInfo extends CustomCommandInput {
 
 export type StreamAvailability = 'anytime' | 'live_only' | 'offline_only'
 
+export interface AnnouncementInput {
+  id?: string | null
+  name: string
+  enabled: boolean
+  messages: string[]
+  message_mode: 'single' | 'random'
+  interval_seconds: number
+  min_messages: number
+  stream_availability: StreamAvailability
+}
+
+export interface AnnouncementInfo extends AnnouncementInput {
+  id: string
+  status: {
+    next_run_at: string | null
+    last_sent_at: string | null
+    last_outcome: string | null
+    eligible_messages: number
+  }
+}
+
+export interface AnnouncementsResponse {
+  ok: boolean
+  announcements: AnnouncementInfo[]
+  error?: string
+}
+
 export interface CustomCommandsResponse {
   command_prefix: string
   permissions: string[]
@@ -460,6 +487,8 @@ export interface PythonApi {
   check_for_updates(): Promise<UpdateCheckResponse>
   get_commands(): Promise<CommandsResponse>
   get_custom_commands(): Promise<CustomCommandsResponse>
+  get_announcements(): Promise<AnnouncementsResponse>
+  save_announcements(announcements: AnnouncementInput[]): Promise<ActionResult>
   get_filters(): Promise<FiltersResponse>
   get_ai_status(): Promise<AIStatus>
   get_blocked_ai_users(): Promise<AIUserBlocksResponse>

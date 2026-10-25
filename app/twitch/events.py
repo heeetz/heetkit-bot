@@ -19,6 +19,7 @@ class ChatAuthor:
     is_vip: bool = False
     is_moderator: bool = False
     is_broadcaster: bool = False
+    is_bot: bool = False
 
 
 @dataclass(frozen=True, slots=True)

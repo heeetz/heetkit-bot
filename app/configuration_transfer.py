@@ -27,6 +27,7 @@ from types import SimpleNamespace
 
 from app.ai_user_blocks import BlockedAIUser, normalize_ai_username, verified_user_id
 from app.app_settings import APP_SETTINGS_VERSION
+from app.announcements import parse_announcements
 from app.command_settings import CommandSettings, CommandSettingsOverride
 from app.config.ai_language import validate_response_language
 from app.config.ai_models import validate_ai_provider, validate_provider_models
@@ -50,7 +51,7 @@ MAX_ARCHIVE = 1024 * 1024
 MAX_CONFIGURATION = 768 * 1024
 MAX_LOCAL_FILE = 8 * 1024 * 1024
 MAX_TRANSFER_BODY = 4 * ((MAX_ARCHIVE + 2) // 3) + 1024
-SECTIONS = ("commands", "responses", "custom_commands", "personalities", "ai", "filters", "blocked_users", "triggers")
+SECTIONS = ("commands", "responses", "custom_commands", "personalities", "ai", "filters", "blocked_users", "triggers", "announcements")
 EFFECTS = ["All included settings are saved and apply to subsequent bot processing immediately.",
            "In-flight replies may finish with earlier settings. No reconnect or restart is required."]
 PRESERVED = ["Twitch identity, channel and authorization", "Provider and management credentials",
@@ -176,6 +177,7 @@ class ConfigurationTransfer:
         self.fun = application.fun_settings
         self.blocks = application.services.ai_user_blocks
         self.triggers = application.dispatcher._message_triggers
+        self.announcements = application.announcements
         self.config = app_settings._path.parent
         self.pending = {}
 
@@ -183,7 +185,7 @@ class ConfigurationTransfer:
     def locked(self):
         with ExitStack() as stack:
             for lock in (self.state.command_namespace_lock, self.settings._lock, self.fun._lock,
-                         self.blocks._lock, self.triggers._lock):
+                         self.blocks._lock, self.triggers._lock, self.announcements._lock):
                 stack.enter_context(lock)
             yield
 
@@ -209,12 +211,15 @@ class ConfigurationTransfer:
             "filters": {"words": list(words), "phrases": list(phrases), "patterns": [item.pattern for item in patterns]},
             "blocked_users": [asdict(item) for item in self.blocks.list()],
             "triggers": [asdict(item) for item in self.triggers.list()],
+            "announcements": [item.to_json() for item in self.announcements.list()],
         }
 
     def validate(self, payload):
         from app.management import ApplicationManagement
 
-        _fields(payload, SECTIONS)
+        # Older format-1 archives know nothing about schedules. Preserve the
+        # destination collection; explicit [] in a new archive clears it.
+        _fields(payload, SECTIONS if isinstance(payload, dict) and "announcements" in payload else SECTIONS[:-1])
         _fields(payload["commands"], self.state.runtime_toggleable_commands)
         commands = {}
         for name, value in payload["commands"].items():
@@ -326,11 +331,13 @@ class ConfigurationTransfer:
             used.add(trigger.id)
         return SimpleNamespace(commands=commands, customs=customs, responses=responses,
                                personality=personality, ai=ai, setup=setup, language=language, filters=filters,
-                               users=tuple(users), triggers=tuple(triggers))
+                               users=tuple(users), triggers=tuple(triggers),
+                               announcements=parse_announcements(payload["announcements"])
+                                   if "announcements" in payload else self.announcements.list())
 
     def paths(self):
         return [self.state._command_settings_path, self.custom._path, self.state._personality_settings_path,
-                self.fun.path, self.settings._path, self.blocks._path, self.triggers._path,
+                self.fun.path, self.settings._path, self.blocks._path, self.triggers._path, self.announcements._path,
                 *(self.config / "filters" / name for name in FILTER_NAMES)]
 
     def originals(self):
@@ -392,7 +399,7 @@ class ConfigurationTransfer:
                 "application_version": manifest["application_version"],
                 "sections": [{"name": name, "incoming_count": self.count(name, payload[name]),
                               "current_count": self.count(name, current[name]), "details": self.details(name, payload[name])}
-                             for name in SECTIONS], "effects": EFFECTS, "preserved": PRESERVED}
+                             for name in SECTIONS if name in payload], "effects": EFFECTS, "preserved": PRESERVED}
 
     @staticmethod
     def count(name, value):
@@ -408,6 +415,8 @@ class ConfigurationTransfer:
             return ["!" + key for key in value]
         if name == "custom_commands":
             return ["!" + item["name"] for item in value]
+        if name == "announcements":
+            return [item["name"] for item in value]
         if name == "personalities":
             return ["Selected: " + value["active_personality"], *value["overrides"], "Profile instructions included"]
         if name == "ai":
@@ -444,6 +453,7 @@ class ConfigurationTransfer:
                 raise ValueError("Preview expired or configuration changed. Preview the ZIP again.")
             parsed = self.validate(payload)
             self.commit(parsed, originals)
+            self.app.announcement_scheduler.reset()
         return {"ok": True, "effects": EFFECTS}
 
     def commit(self, parsed, originals):
@@ -472,14 +482,15 @@ class ConfigurationTransfer:
             parsed.personality, fun_payload, app_payload,
             self.blocks._payload(parsed.users),
             {"version": 1, "triggers": [asdict(item) for item in parsed.triggers]},
+            {"version": 1, "announcements": [item.to_json() for item in parsed.announcements]},
         ]
         # Existing recovery rules refuse corrupt/future local stores. Exact import
         # backups additionally preserve every affected file, even fully valid ones.
-        for index, path in enumerate(self.paths()[:7]):
-            preserve_settings_recovery(path, None, version={1: (1, 2), 3: 1, 4: 1, 5: 1, 6: 1}.get(index),
+        for index, path in enumerate(self.paths()[:8]):
+            preserve_settings_recovery(path, None, version={1: (1, 2), 3: 1, 4: 1, 5: 1, 6: 1, 7: 1}.get(index),
                                        allow_legacy=index == 4, encoding="utf-8-sig" if index == 6 else "utf-8")
-        files = dict(zip(self.paths()[:7], map(_encode, values)))
-        for path, rules in zip(self.paths()[7:], (parsed.filters[0], parsed.filters[1], [rule.pattern for rule in parsed.filters[2]])):
+        files = dict(zip(self.paths()[:8], map(_encode, values)))
+        for path, rules in zip(self.paths()[8:], (parsed.filters[0], parsed.filters[1], [rule.pattern for rule in parsed.filters[2]])):
             files[path] = "".join(f"{rule}\n" for rule in rules).encode("utf-8")
         backup_root = self.config / "import-backups"
         if backup_root.is_symlink() or (hasattr(backup_root, "is_junction") and backup_root.is_junction()):
@@ -495,7 +506,7 @@ class ConfigurationTransfer:
         staged, replaced = {}, []
         # Publication is last. Capture just owned configuration attributes so an
         # unexpected publication failure can also restore active unsaved settings.
-        owners = (state, self.custom, self.fun, self.settings, self.blocks, self.triggers,
+        owners = (state, self.custom, self.fun, self.settings, self.blocks, self.triggers, self.announcements,
                   self.app.services.filter_manager)
         snapshots = [(owner, dict(vars(owner))) for owner in owners]
         old_effective = (self.app.settings.gemini_model, self.app.settings.gemini_fallback_model,
@@ -577,6 +588,7 @@ class ConfigurationTransfer:
         self.settings._settings = app_settings
         self.blocks._users = parsed.users
         self.triggers._triggers = parsed.triggers
+        self.announcements._announcements = parsed.announcements
         self.app.settings.gemini_model = parsed.ai["selected_model"]
         self.app.settings.gemini_fallback_model = parsed.ai["fallback_model"]
         self.app.settings.ai_provider = parsed.ai["provider"]

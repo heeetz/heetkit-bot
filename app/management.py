@@ -267,6 +267,22 @@ class ApplicationManagement:
             ],
         }
 
+    async def _get_announcements(self) -> dict[str, object]:
+        scheduler = self._backend.application.announcement_scheduler
+        return {"ok": True, "announcements": scheduler.snapshot()}
+
+    async def _save_announcements(self, announcements: object) -> dict[str, object]:
+        application = self._backend.application
+        try:
+            application.announcements.save(announcements)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except OSError:
+            return {"ok": False, "error": "Could not save announcements. Check profile storage."}
+        application.announcement_scheduler.reset()
+        self._logger.info("Announcement settings saved", extra={"event_kind": "settings.announcements"})
+        return {"ok": True}
+
     def get_filters(self) -> dict[str, object]:
         return get_filter_settings(self._backend.application.services.filter_manager)
 

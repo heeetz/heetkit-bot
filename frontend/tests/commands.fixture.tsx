@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client'
 import App from '../src/App'
-import type { CommandInfo, CommandSettingsMetadata, CustomCommandInfo, CustomCommandInput, waitForBridge } from '../src/bridge'
+import type { AnnouncementInfo, AnnouncementInput, CommandInfo, CommandSettingsMetadata, CustomCommandInfo, CustomCommandInput, waitForBridge } from '../src/bridge'
 import CommandsPage from '../src/pages/CommandsPage'
 import '../src/styles.css'
 
@@ -45,6 +45,14 @@ let customCommands: CustomCommandInfo[] = [{
 }]
 const commandCalls: unknown[][] = []
 Object.assign(window, { commandCalls })
+let announcements: AnnouncementInfo[] = new URLSearchParams(window.location.search).has('announcements') ? [{
+  id: '00000000-0000-0000-0000-000000000001', name: 'Community', enabled: true,
+  messages: ['Visit our community.'], message_mode: 'single', interval_seconds: 900, min_messages: 3, stream_availability: 'live_only',
+  status: { next_run_at: '2026-10-25T12:15:00Z', last_sent_at: '2026-10-25T12:00:00Z', last_outcome: 'sent', eligible_messages: 2 },
+}] : []
+Object.assign(window, { updateAnnouncementStatus: (status: Partial<AnnouncementInfo['status']>) => {
+  announcements = announcements.map((item) => ({ ...item, status: { ...item.status, ...status } }))
+} })
 
 function settingsAction(action: string, name: string, enabled?: boolean, perUserSeconds?: number, globalSeconds?: number, permission?: string, metadata?: CommandSettingsMetadata) {
   commandCalls.push([`${action}_command_settings`, name, enabled, perUserSeconds, globalSeconds, permission, ...(metadata ? [structuredClone(metadata)] : [])])
@@ -98,6 +106,14 @@ function responseAction(action: string, name: string, responses?: string[]) {
 }
 
 window.pywebview = { api: {
+  get_announcements: async () => ({ ok: true, announcements: structuredClone(announcements) }),
+  save_announcements: async (input: AnnouncementInput[]) => {
+    commandCalls.push(['save_announcements', structuredClone(input)])
+    if (new URLSearchParams(window.location.search).has('announcementError')) return { ok: false, error: 'Synthetic announcement save failure.' }
+    announcements = input.map((item, index) => ({ ...item, id: item.id ?? `00000000-0000-0000-0000-${String(index + 2).padStart(12, '0')}`,
+      status: { next_run_at: null, last_sent_at: null, last_outcome: null, eligible_messages: 0 } }))
+    return { ok: true }
+  },
   get_app_status: async () => ({
     running: false, twitch_connected: false, twitch_connection_state: 'stopped',
     uptime_seconds: 0, channel: '', account: '',

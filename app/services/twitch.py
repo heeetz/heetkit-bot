@@ -43,6 +43,24 @@ class TwitchAPIService:
         self._retiring_sends: set[asyncio.Task] = set()
         self._channel_name: str | None = None
         self._chat_stopping = False
+        self.human_messages = 0
+        self.on_chat_session_changed: Callable[[], None] | None = None
+
+    @property
+    def chat_connected(self) -> bool:
+        return self._client is not None and self._send_session.active
+
+    def record_human_message(self, message) -> None:
+        """Count accepted, current-session ingress, never our own output/echo.
+
+        EventSub IDs are reserved by the ingress adapter before this hook. Keep
+        only a counter: no message bodies or viewer identities are retained.
+        """
+        if (self.chat_connected and message.send_session is self._send_session
+                and message.channel.casefold() == (self._channel_name or "").casefold()
+                and message.author.twitch_user_id != self._token_user_id
+                and not message.is_outgoing and not message.author.is_bot):
+            self.human_messages += 1
 
     async def get_broadcaster_live(self, settings: Settings) -> bool:
         """Get Streams using TwitchIO's app authentication, even without chat.
@@ -90,6 +108,8 @@ class TwitchAPIService:
         for task in self._send_session.tasks:
             self._retiring_sends.add(task)
             task.add_done_callback(self._retiring_sends.discard)
+        if self.on_chat_session_changed is not None:
+            self.on_chat_session_changed()
 
     def set_chat_ready(self, client: Any, ready: bool) -> None:
         if client is not self._client:
@@ -97,6 +117,9 @@ class TwitchAPIService:
         if ready and not self._chat_stopping:
             if not self._send_session.active:
                 self._send_session = ChatSendSession(active=True)
+                self.human_messages = 0
+                if self.on_chat_session_changed is not None:
+                    self.on_chat_session_changed()
         else:
             self.suspend_chat()
 

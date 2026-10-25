@@ -17,6 +17,7 @@ import { Select } from '../components/Select'
 import Switch from '../components/Switch'
 import AccordionHeader from '../components/AccordionHeader'
 import HelpTip from '../components/HelpTip'
+import AnnouncementsPanel from '../components/AnnouncementsPanel'
 
 interface CommandDraft {
   enabled: boolean
@@ -1025,6 +1026,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         </div>
       )}
     </section>
+    <AnnouncementsPanel active={active} />
     <section className="card command-editor-card" id="builtin-commands">
       <div className="section-heading">
         <div>

@@ -89,6 +89,7 @@ FRONTEND_OPERATIONS = (
     "export_activity",
     "export_configuration", "preview_configuration_import", "apply_configuration_import",
     "get_app_status", "get_about_info", "check_for_updates", "get_commands", "get_custom_commands",
+    "get_announcements", "save_announcements",
     "get_filters", "get_ai_status", "get_personalities", "get_recent_logs",
     "start_ai_playground", "get_ai_playground_result", "cancel_ai_playground",
     "apply_command_settings", "save_command_settings", "reset_command_settings",
@@ -392,6 +393,20 @@ class WebUIBridge(ApplicationManagement):
                 cancellation_requested,
             )
             raise BridgeOperationTimedOut(operation) from error
+
+    def get_announcements(self) -> dict[str, object]:
+        try:
+            return self._wait_for_backend(self._get_announcements(), operation="get_announcements",
+                                          timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS)
+        except (OSError, RuntimeError, BridgeOperationTimedOut):
+            return {"ok": False, "error": "Could not read announcement status."}
+
+    def save_announcements(self, announcements: object) -> dict[str, object]:
+        try:
+            return self._wait_for_backend(self._save_announcements(announcements), operation="save_announcements",
+                                          timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS)
+        except (OSError, RuntimeError, BridgeOperationTimedOut):
+            return {"ok": False, "error": "Could not save announcements. Reopen Commands to check saved settings."}
 
     def _configuration_bridge_action(self, action: str, *arguments) -> dict[str, object]:
         try:

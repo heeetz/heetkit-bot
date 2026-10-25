@@ -63,6 +63,9 @@ class OperationPolicy:
                 customs = getattr(self.runtime.application, "custom_commands", None)
                 required = required or (customs is not None and any(
                     command.stream_availability != "anytime" for command in customs.list()))
+                announcements = getattr(self.runtime.application, "announcements", None)
+                required = required or (announcements is not None and any(
+                    item.enabled and item.stream_availability != "anytime" for item in announcements.list()))
         required = bool(required and not self._setup_suspended and not self._closed)
         if required != self._monitoring:
             self._monitoring = required

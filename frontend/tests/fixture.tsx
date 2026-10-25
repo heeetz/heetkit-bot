@@ -144,6 +144,8 @@ window.pywebview = { api: {
     return { ok: true }
   },
   get_custom_commands: async () => ({ command_prefix: '!', permissions: ['USER'], variables: ['sender'], commands: [] }),
+  get_announcements: async () => ({ ok: true, announcements: [] }),
+  save_announcements: async () => ({ ok: true }),
   get_filters: async () => ({
     words: { rules: [], defaults: [] },
     phrases: { rules: [], defaults: [] },
