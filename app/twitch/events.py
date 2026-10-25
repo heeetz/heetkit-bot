@@ -2,6 +2,10 @@
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.twitch.sending import ChatSendSession
 
 
 ChatResponder = Callable[[str], Awaitable[object]]
@@ -25,3 +29,4 @@ class IncomingChatMessage:
     respond: ChatResponder
     is_outgoing: bool = False
     message_id: str | None = None
+    send_session: "ChatSendSession | None" = None

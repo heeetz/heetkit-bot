@@ -28,6 +28,7 @@ from app.services.facade import ApplicationServices
 from app.services.ai_request_policy import PolicyDecision
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.twitch.message_correlation import ChatMessageCorrelation
+from app.twitch.sending import ChatSendSession
 from app.utils.text import parse_command
 from app.utils.logging import privacy_log_scope, operator_event_scope, operator_event, event_metadata
 
@@ -115,7 +116,7 @@ class DesktopOAuthAdapter(AiohttpAdapter):
         await super().close(*args, **kwargs)
 
 
-def to_incoming_chat_message(message: ChatMessage, respond=None) -> IncomingChatMessage:
+def to_incoming_chat_message(message: ChatMessage, respond=None, send_session=None) -> IncomingChatMessage:
     """Map a TwitchIO chat event to the transport-neutral command DTO."""
 
     return IncomingChatMessage(
@@ -131,6 +132,7 @@ def to_incoming_chat_message(message: ChatMessage, respond=None) -> IncomingChat
         ),
         respond=respond or message.respond,
         message_id=getattr(message, "id", None),
+        send_session=send_session,
     )
 
 
@@ -140,6 +142,7 @@ async def process_twitch_message(
     dispatcher: CommandDispatcher,
     logger: logging.Logger,
     correlation: ChatMessageCorrelation | None = None,
+    send_session: ChatSendSession | None = None,
 ) -> None:
     """Persist the chatter and route a mapped Twitch event to the dispatcher."""
 
@@ -152,7 +155,7 @@ async def process_twitch_message(
                 return
         async def respond(content):
             return await correlation.send(account, channel, message.respond, content)
-        incoming = to_incoming_chat_message(message, respond if correlation is not None else None)
+        incoming = to_incoming_chat_message(message, respond if correlation is not None else None, send_session)
     except (AttributeError, TypeError):
         logger.exception("Could not map incoming Twitch chat message")
         return
@@ -266,9 +269,11 @@ class TwitchChatBot(commands.Bot):
             adapter=DesktopOAuthAdapter(host="localhost", port=4343),
         )
         if services.twitch is not None:
-            services.twitch.bind(self, account.channel_user_id, account.user_id)
+            services.twitch.bind(self, account.channel_user_id, account.user_id, channel_name=account.channel)
 
     def _set_connection_state(self, state: TwitchConnectionState) -> None:
+        if self._services.twitch is not None:
+            self._services.twitch.set_chat_ready(self, state == "connected" and not self._closing_requested)
         runtime_state = getattr(self._services, "runtime_state", None)
         if runtime_state is not None:
             runtime_state.set_twitch_connection_state(state)
@@ -289,7 +294,11 @@ class TwitchChatBot(commands.Bot):
             # this close task may save now; queued refresh listeners must not later
             # replace the persisted cache with the cleared in-memory dictionary.
             try:
-                await super().close(*args, **{**kwargs, "save_tokens": self._tokens_loaded})
+                try:
+                    if self._services.twitch is not None:
+                        await self._services.twitch.unbind(self)
+                finally:
+                    await super().close(*args, **{**kwargs, "save_tokens": self._tokens_loaded})
             finally:
                 self._closing_task = None
             if self._close_save_failed:
@@ -477,6 +486,8 @@ class TwitchChatBot(commands.Bot):
                 dispatcher=self._dispatcher,
                 logger=self._logger,
                 correlation=self._chat_messages,
+                send_session=(self._services.twitch.chat_session(self)
+                              if self._services.twitch is not None else None),
             )
         except Exception:
             self._logger.exception("Unexpected Twitch message processing failure")
@@ -560,6 +571,9 @@ async def run_twitch_bot(
     monitor_task: asyncio.Task[None] | None = None
 
     def terminal_failure(state: TwitchConnectionState, message: str) -> None:
+        twitch = getattr(services, "twitch", None)
+        if twitch is not None:
+            twitch.set_chat_ready(bot, False)
         runtime_state = getattr(services, "runtime_state", None)
         if runtime_state is not None:
             runtime_state.set_twitch_connection_state(state)

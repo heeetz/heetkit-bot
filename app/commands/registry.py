@@ -6,9 +6,8 @@ import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from contextlib import nullcontext
-from uuid import uuid4
 
-from app.command_settings import CommandSettings, validate_burst_interval, validate_burst_max_count
+from app.command_settings import CommandSettings
 from app.config.commands import TG_DEFAULT_MAX_COUNT
 from app.custom_commands import CustomCommand, CustomCommandStore, render_response
 from app.message_triggers import MessageTriggerStore
@@ -19,8 +18,8 @@ from app.twitch.permissions import Permission, has_permission
 from app.utils.cooldown import CooldownManager, CooldownPolicy
 from app.utils.output_limiter import OutputLimiter
 from app.utils.text import normalize_command_name, parse_command
-from app.utils.logging import event_metadata, operator_event, operator_event_scope, send_outcome
-from app.twitch.message_correlation import send_error_outcome
+from app.utils.logging import event_metadata, operator_event, operator_event_scope
+from app.twitch.sending import ChatSender
 
 
 CommandHandler = Callable[["CommandContext", str], Awaitable[None]]
@@ -68,24 +67,10 @@ class CommandContext:
     burst_max_count: int = TG_DEFAULT_MAX_COUNT
 
     async def reply(self, content: str) -> bool:
-        if self.output_limiter is not None and not self.output_limiter.try_acquire():
-            operator_event(self.logger, "chat.outgoing", "limiter_skip", response_id=uuid4().hex)
-            return False
-        result = await self._send_response(content)
-        return send_outcome(result) == "confirmed_send"
+        return await self._sender().reply(content)
 
-    async def _send_response(self, content: str) -> object:
-        with operator_event_scope(response_id=uuid4().hex):
-            operator_event(self.logger, "chat.send", "attempt")
-            try:
-                result = await self.message.respond(content)
-            except BaseException as error:
-                operator_event(self.logger, "chat.outgoing", send_error_outcome(error), text=content)
-                raise
-            message_id = getattr(result, "id", None)
-            operator_event(self.logger, "chat.outgoing", send_outcome(result),
-                           message_id=message_id if isinstance(message_id, str) else None, text=content)
-            return result
+    def _sender(self) -> ChatSender:
+        return ChatSender(self.message.respond, self.logger, self.output_limiter, self.message.send_session)
 
     async def reply_burst(
         self,
@@ -98,16 +83,8 @@ class CommandContext:
         TwitchIO/Twitch still own API rejection and rate limiting. Cancelling the
         batch cancels its children and waits for their cleanup through gather.
         """
-        maximum = validate_burst_max_count(self.burst_max_count)
-        if type(count) is not int or not 1 <= count <= maximum:
-            raise ValueError(f"Burst repeat count must be an integer from 1 to {maximum}.")
-        interval = validate_burst_interval(self.burst_interval_ms if interval_ms is None else interval_ms)
-        async def send(index: int) -> object:
-            if index and interval:
-                await asyncio.sleep(index * interval / 1000)
-            return await self._send_response(content)
-        return await asyncio.gather(
-            *(send(index) for index in range(count)), return_exceptions=True,
+        return await self._sender().reply_burst(
+            content, count, self.burst_interval_ms if interval_ms is None else interval_ms, self.burst_max_count,
         )
 
 

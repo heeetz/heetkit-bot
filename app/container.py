@@ -29,7 +29,6 @@ from app.services.twitch import TwitchAPIService
 from app.runtime_state import RuntimeState
 from app.utils.cooldown import CooldownManager
 from app.utils.logging import get_logger
-from app.utils.output_limiter import OutputLimiter
 
 
 @dataclass(slots=True)
@@ -127,7 +126,7 @@ def build_application(settings: Settings) -> Application:
         logger=get_logger("app.commands"),
         command_prefix=settings.command_prefix,
         max_arguments_length=settings.command_max_arguments_length,
-        output_limiter=OutputLimiter(),
+        output_limiter=twitch_api.output_limiter,
         ai_cooldown_bypass_user_id=settings.ai_cooldown_bypass_user_id,
         runtime_state=runtime_state,
         custom_commands=custom_commands,

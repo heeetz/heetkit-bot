@@ -1,5 +1,6 @@
 """Small adapters for Twitch API calls used by command services."""
 
+import asyncio
 import logging
 from collections.abc import Callable
 from datetime import datetime
@@ -9,6 +10,8 @@ from twitchio import Client
 from app.config.settings import Settings
 from app.ai_user_blocks import verified_user_id
 from app.twitch.message_correlation import ChatMessageCorrelation
+from app.twitch.sending import ChatSender, ChatSendSession, ChatSessionClosedError
+from app.utils.output_limiter import OutputLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +26,7 @@ class TwitchAPIService:
         *,
         category_cache_ttl: float = CATEGORY_CACHE_TTL_SECONDS,
         clock: Callable[[], float] = monotonic,
+        output_limiter: OutputLimiter | None = None,
     ) -> None:
         self._client: Any | None = None
         self._channel_user_id: str | None = None
@@ -34,6 +38,11 @@ class TwitchAPIService:
         self._monitor_client: Client | None = None
         # Application-owned: preserve echo/replay protection across session binds.
         self.chat_messages = ChatMessageCorrelation()
+        self.output_limiter = output_limiter if output_limiter is not None else OutputLimiter()
+        self._send_session = ChatSendSession()
+        self._retiring_sends: set[asyncio.Task] = set()
+        self._channel_name: str | None = None
+        self._chat_stopping = False
 
     async def get_broadcaster_live(self, settings: Settings) -> bool:
         """Get Streams using TwitchIO's app authentication, even without chat.
@@ -60,12 +69,71 @@ class TwitchAPIService:
         if client is not None:
             await client.close(save_tokens=False)
 
-    def bind(self, client: Any, channel_user_id: str, token_user_id: str) -> None:
+    def bind(self, client: Any, channel_user_id: str, token_user_id: str, *, channel_name: str | None = None) -> None:
+        self.suspend_chat()
         self._client = client
         self._channel_user_id = channel_user_id
         self._token_user_id = token_user_id
         self._cached_category = None
         self._category_cached_at = None
+        self._channel_name = channel_name or channel_user_id
+        self._chat_stopping = False
+
+    def chat_session(self, client: Any) -> ChatSendSession:
+        if client is not self._client:
+            raise ChatSessionClosedError("Twitch chat session has been replaced.")
+        return self._send_session
+
+    def suspend_chat(self) -> None:
+        """Invalidate captured senders synchronously, before lifecycle work yields."""
+        self._send_session.invalidate()
+        for task in self._send_session.tasks:
+            self._retiring_sends.add(task)
+            task.add_done_callback(self._retiring_sends.discard)
+
+    def set_chat_ready(self, client: Any, ready: bool) -> None:
+        if client is not self._client:
+            return
+        if ready and not self._chat_stopping:
+            if not self._send_session.active:
+                self._send_session = ChatSendSession(active=True)
+        else:
+            self.suspend_chat()
+
+    def stop_chat(self) -> None:
+        self._chat_stopping = True
+        self.suspend_chat()
+
+    async def unbind(self, client: Any) -> None:
+        if client is not self._client:
+            return
+        self.stop_chat()
+        self._client = self._channel_user_id = self._token_user_id = None
+        self._cached_category = self._category_cached_at = None
+        if self._retiring_sends:
+            await asyncio.gather(*tuple(self._retiring_sends), return_exceptions=True)
+
+    def chat_sender(self) -> ChatSender:
+        """Capture a sender now; delayed callers must keep it across their awaits.
+
+        A sender never follows a later connection/channel binding. This is the
+        seam for non-command producers; it does not schedule or queue messages.
+        """
+        client, channel, account = self._client, self._channel_user_id, self._token_user_id
+        session, channel_name = self._send_session, self._channel_name
+        if client is None or not session.active:
+            raise ChatSessionClosedError("Twitch chat is not connected.")
+
+        async def send(content: str) -> object:
+            async def respond(text: str) -> object:
+                return await client.create_partialuser(channel).send_message(
+                    message=text, sender=account, token_for=account,
+                )
+
+            return await self.chat_messages.send(account, channel, respond, content)
+
+        return ChatSender(send, logger, self.output_limiter, session,
+                          context={"source": "announcement", "channel": channel_name})
 
     async def begin_authorization(self) -> str:
         """Issue state on the backend loop for the currently bound bot session."""

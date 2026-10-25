@@ -200,7 +200,29 @@ socket welcome alone does not prove chat delivery. [Docker health](docker.md#run
 reports recent supervision of connection or intentional idle state; live refresh/reconnect and cloud recovery
 need their own acceptance evidence.
 
-All chat responses pass through the Twitch adapter's ID correlation wrapper.
+Commands, custom replies, triggers and independent chat sends share
+[`ChatSender`](../app/twitch/sending.py) for output limits, per-send activity and
+delivery results. Ordinary output shares one application-owned five-second limiter;
+explicit bounded Bursts retain their existing bypass and spacing. Only `sent=True`
+reports confirmed delivery. Failed, uncertain and limiter-skipped sends retain their
+existing meanings, including the AI memory gate.
+
+Non-command producers capture `services.twitch.chat_sender()` before awaiting their
+work, then await its `reply(content)`. This uses the bound TwitchIO client and managed
+bot user token to send ordinary chat to the captured channel, without an incoming
+message, extra OAuth flow or message queue. The producer must retain that sender
+through delays; acquiring a new one later deliberately selects the current connection.
+This boundary supplies no scheduler or saved announcement configuration.
+
+Each connection owns its in-flight sends and Burst timers. Stop, connection loss,
+authorization failure and channel replacement invalidate captured senders and cancel
+outstanding output. Close drains cancellation before TwitchIO/token cleanup; a recovered
+connection creates a new send session. Late command/AI results and captured independent
+senders cannot follow it to the recovered connection or a different channel. Stop takes
+effect before the runtime yields, including against late ready events. An HTTP request
+already in flight may have reached Twitch; cancellation cannot retract that message.
+
+All Twitch sends pass through the same adapter ID correlation implementation.
 TwitchIO `respond()` returns `SentMessage.id`/`sent`; EventSub provides `id` and shared
 chat `source_id`. Application-owned bounded ten-minute caches survive session rebinding.
 Same-account ingress waits for already-pending sends before checking IDs; unrelated

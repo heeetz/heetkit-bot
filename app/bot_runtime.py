@@ -92,6 +92,9 @@ class BotRuntime:
     def request_stop(self) -> None:
         """Signal the current Twitch session from its owning event loop."""
         self._stop_requested = True
+        twitch = getattr(self.application.services, "twitch", None)
+        if twitch is not None:
+            twitch.stop_chat()
         if self._stop_event is not None:
             self._stop_event.set()
 
