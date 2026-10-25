@@ -36,8 +36,16 @@ python -m app.main --check
 python -m app.main
 ```
 
-`run.bat` uses `.venv\Scripts\python.exe`; the installed `heetkit` entry point is also
-equivalent to `python -m app.main`. Rerun the editable install after dependency changes.
+`run.bat` rebuilds the frontend with `npm run build` on every launch, then uses
+`.venv\Scripts\python.exe`. It requires Node.js/npm and the installed frontend
+dependencies (`npm ci` in `frontend/`). A failed build stops the launch so an older
+UI is not opened. It uses the current checkout; it does not pull repository updates
+or change the version in `app/version.py`.
+
+The installed `heetkit` entry point is equivalent to `python -m app.main` and does
+not rebuild assets. Direct Python launches also use the existing build; rebuild
+after frontend changes or use the development server below. Rerun the editable
+install after dependency changes.
 The base package installs backend dependencies only; use `.[desktop]` for a desktop
 installation or `.[dev]` for the existing full development setup (which includes desktop).
 On macOS/Linux, create and activate a virtual environment with your platform's commands,
