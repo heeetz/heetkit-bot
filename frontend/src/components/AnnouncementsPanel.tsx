@@ -123,7 +123,7 @@ export default function AnnouncementsPanel({ active }: { active: boolean }) {
       setDrafts(next)
       setSaved(refreshed.announcements)
       setExpanded({})
-      setNotice('Announcements saved. Enabled schedules restart with a full interval when chat is connected.')
+      setNotice('Announcements saved.')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not save announcements.')
     } finally { setBusy(false) }
@@ -132,7 +132,7 @@ export default function AnnouncementsPanel({ active }: { active: boolean }) {
   return <section className="card command-editor-card announcements-panel" id="announcements" aria-busy={busy}>
     <div className="section-heading">
       <div><h2>Announcements</h2><p className="section-copy">Send scheduled ordinary chat messages.</p></div>
-      <button className="secondary" disabled={!saved || busy || drafts.length >= 50} onClick={() => {
+      <button className="primary" disabled={!saved || busy || drafts.length >= 50} onClick={() => {
         const key = crypto.randomUUID()
         setDrafts((current) => [...current, { key, id: null, name: '', enabled: true, message: '', randomMessages: '',
           mode: 'single', interval: '900', minimum: '0', availability: 'anytime' }])
@@ -145,6 +145,7 @@ export default function AnnouncementsPanel({ active }: { active: boolean }) {
     {notice && <p role="status">{notice}</p>}
     {saved === null ? <p className="muted">Loading announcements…</p> : <>
       {drafts.length === 0 && <p className="muted">No announcements configured.</p>}
+      <div className="announcement-collection">
       <div className="command-list">{drafts.map((draft, index) => {
         const status = saved.find((item) => item.id === draft.id)?.status
         const prefix = `announcement-${draft.key}`
@@ -153,42 +154,47 @@ export default function AnnouncementsPanel({ active }: { active: boolean }) {
             expanded={Boolean(expanded[draft.key])} contentId={`${prefix}-editor`}
             ariaLabel={`Edit announcement ${draft.name || index + 1}`}
             onToggle={() => setExpanded((current) => ({ ...current, [draft.key]: !current[draft.key] }))}
+            helpLabel={`Announcement status ${draft.name || index + 1}`}
+            help={<span className="announcement-status-details">
+              <span>Next run: {status?.next_run_at ? time(status.next_run_at) : 'Waiting for connection or disabled'}</span>
+              <span>Last sent: {time(status?.last_sent_at ?? null)}</span>
+              <span>Last outcome: {status?.last_outcome ? outcomeLabels[status.last_outcome] ?? status.last_outcome : 'No attempts yet'}</span>
+              <span>Eligible messages: {status?.eligible_messages ?? 0}</span>
+              {!draft.id && <span>Save to schedule this announcement.</span>}
+            </span>}
             badges={<span className={`state-pill ${draft.enabled ? 'enabled' : ''}`}>{draft.enabled ? 'Enabled' : 'Disabled'}</span>} />
-          <div className="announcement-status">
-            <span>Next run: {status?.next_run_at ? time(status.next_run_at) : 'Waiting for connection or disabled'}</span>
-            <span>Last sent: {time(status?.last_sent_at ?? null)}</span>
-            <span>Last outcome: {status?.last_outcome ? outcomeLabels[status.last_outcome] ?? status.last_outcome : 'No attempts yet'}</span>
-            <span>Eligible messages: {status?.eligible_messages ?? 0}</span>
-            {!draft.id && <span>Save to schedule this announcement.</span>}
-          </div>
+          {status?.last_outcome && ['failed', 'not_confirmed', 'cancelled', 'skipped_stream'].includes(status.last_outcome) &&
+            <p className={`announcement-outcome ${status.last_outcome === 'skipped_stream' ? 'muted' : 'inline-error'}`} role="status">
+              Last outcome: {outcomeLabels[status.last_outcome]}
+            </p>}
           {expanded[draft.key] && <fieldset disabled={busy} id={`${prefix}-editor`} className="announcement-editor" aria-label="Announcement settings">
-            <div className="custom-command-fields">
-              <label className="form-field" htmlFor={`${prefix}-name`}>Name<input id={`${prefix}-name`} maxLength={80} value={draft.name} onChange={(event) => update(draft.key, { name: event.target.value })} /></label>
-              <div className="form-field"><div className="custom-field-label"><label htmlFor={`${prefix}-interval`}>Interval (seconds)</label><HelpTip label="Announcement interval">Choose 60 to 86400 seconds. Startup, reconnect, channel changes and saved edits restart the full interval. Missed checks never create a catch-up backlog.</HelpTip></div>
-                <input id={`${prefix}-interval`} type="number" min={60} max={86400} step={1} value={draft.interval} aria-invalid={integer(draft.interval, 60, 86400) === null} onChange={(event) => update(draft.key, { interval: event.target.value })} /></div>
-            </div>
-            <div className="custom-command-status">
-              <Switch checked={draft.enabled} ariaLabel="Enable announcement" onCheckedChange={(enabled) => update(draft.key, { enabled })}><span>{draft.enabled ? 'Enabled' : 'Disabled'}</span></Switch>
-              <label className="form-field">Message selection<Select aria-label="Message selection" value={draft.mode} onChange={(mode) => update(draft.key, { mode: mode as Draft['mode'] })} options={[{ value: 'single', label: 'Single message' }, { value: 'random', label: 'Random message' }]} /></label>
-            </div>
-            <div className="form-field"><div className="custom-field-label"><label htmlFor={`${prefix}-message`}>{draft.mode === 'random' ? 'Random messages' : 'Announcement message'}</label><HelpTip label="Announcement messages">Single sends one plain-text line. Random chooses one of 1 to 30 non-empty lines per interval. Each line allows up to 450 UTF-8 bytes. Template variables are not expanded.</HelpTip></div>
-              <textarea id={`${prefix}-message`} rows={draft.mode === 'random' ? 5 : 3} value={draft.mode === 'random' ? draft.randomMessages : draft.message} onChange={(event) => update(draft.key, draft.mode === 'random' ? { randomMessages: event.target.value } : { message: event.target.value })} /></div>
-            <details className="factory-commands"><summary>Advanced announcement settings</summary>
-              <div className="custom-command-fields">
-                <div className="form-field"><div className="custom-field-label"><label htmlFor={`${prefix}-minimum`}>Minimum eligible messages</label><HelpTip label="Announcement activity">Count eligible incoming chat during this announcement’s current interval. Each scheduled check starts a fresh activity window, including skipped checks. Own bot output and replayed events do not count. Zero allows quiet chat.</HelpTip></div>
-                  <input id={`${prefix}-minimum`} type="number" min={0} max={1000} step={1} value={draft.minimum} aria-invalid={integer(draft.minimum, 0, 1000) === null} onChange={(event) => update(draft.key, { minimum: event.target.value })} /></div>
-                <div className="form-field"><div className="custom-field-label"><label htmlFor={`${prefix}-availability`}>Announcement stream availability</label><HelpTip label="Announcement stream availability">Live only and Offline only require a fresh matching stream observation. Unknown or stale stream status pauses restricted sends on both Desktop and Server.</HelpTip></div>
-                  <Select id={`${prefix}-availability`} aria-label="Announcement stream availability" value={draft.availability} onChange={(availability) => update(draft.key, { availability: availability as StreamAvailability })} options={availabilityOptions} /></div>
+            <div className="announcement-controls">
+              <div className="announcement-name-row">
+                <label className="form-field" htmlFor={`${prefix}-name`}>Name<input id={`${prefix}-name`} maxLength={80} value={draft.name} onChange={(event) => update(draft.key, { name: event.target.value })} /></label>
+                <Switch className="announcement-enable" checked={draft.enabled} ariaLabel="Enable announcement" onCheckedChange={(enabled) => update(draft.key, { enabled })}>{null}</Switch>
               </div>
-            </details>
-            <div className="row-actions"><button className="ghost destructive" onClick={() => { setDrafts((current) => current.filter((item) => item.key !== draft.key)); setNotice('') }}>Remove from draft</button></div>
+              <div className="form-field"><div className="custom-field-label"><label htmlFor={`${prefix}-interval`}>Interval (s)</label><HelpTip label="Announcement interval">Choose 60 to 86400 seconds. Startup, reconnect, channel changes and saved edits restart the full interval. Missed checks never create a catch-up backlog.</HelpTip></div>
+                <input id={`${prefix}-interval`} type="number" min={60} max={86400} step={1} value={draft.interval} aria-invalid={integer(draft.interval, 60, 86400) === null} onChange={(event) => update(draft.key, { interval: event.target.value })} /></div>
+              <div className="form-field"><div className="custom-field-label"><label htmlFor={`${prefix}-minimum`}>Trigger after</label><HelpTip label="Announcement activity">At each interval check, send only if this many eligible incoming messages arrived during this announcement’s current interval. This is a minimum activity condition, not an immediate message-count trigger. Each scheduled check starts a fresh activity window, including skipped checks. Own bot output and replayed events do not count. Zero allows quiet chat.</HelpTip></div>
+                <div className="number-with-unit announcement-message-count"><input id={`${prefix}-minimum`} type="number" min={0} max={1000} step={1} value={draft.minimum} aria-invalid={integer(draft.minimum, 0, 1000) === null} onChange={(event) => update(draft.key, { minimum: event.target.value })} /><span aria-hidden="true">messages</span></div></div>
+              <div className="form-field"><div className="custom-field-label"><label htmlFor={`${prefix}-availability`}>Works when:</label><HelpTip label="Announcement stream availability">Live only and Offline only require a fresh matching stream observation. Unknown or stale stream status pauses restricted sends on both Desktop and Server.</HelpTip></div>
+                <Select id={`${prefix}-availability`} aria-label="Works when:" value={draft.availability} onChange={(availability) => update(draft.key, { availability: availability as StreamAvailability })} options={availabilityOptions} /></div>
+              <div className="form-field"><div className="custom-field-label"><label htmlFor={`${prefix}-mode`}>Message selection</label><HelpTip label="Announcement messages">Single sends one plain-text line. Random chooses one of 1 to 30 non-empty lines per interval. Each line allows up to 450 UTF-8 bytes. Template variables are not expanded.</HelpTip></div>
+                <Select id={`${prefix}-mode`} aria-label="Message selection" value={draft.mode} onChange={(mode) => update(draft.key, { mode: mode as Draft['mode'] })} options={[{ value: 'single', label: 'Single message' }, { value: 'random', label: 'Random message' }]} /></div>
+            </div>
+            <div className="form-field announcement-message">
+              <textarea id={`${prefix}-message`} aria-label={draft.mode === 'random' ? 'Random messages' : 'Announcement message'} rows={draft.mode === 'random' ? 5 : 3} value={draft.mode === 'random' ? draft.randomMessages : draft.message} onChange={(event) => update(draft.key, draft.mode === 'random' ? { randomMessages: event.target.value } : { message: event.target.value })} />
+            </div>
+            <div className="announcement-remove"><button className="ghost destructive" onClick={() => { setDrafts((current) => current.filter((item) => item.key !== draft.key)); setNotice('') }}>Remove from draft</button></div>
           </fieldset>}
         </article>
       })}</div>
       <div className="row-actions announcement-actions">
+        <HelpTip label="Saving announcements">Save announcements saves the entire collection, including enabled switches and removals, and restarts enabled schedules with a full interval. Cancel discards all unsaved announcement edits. Scheduling status is available from (?) beside each announcement’s name.</HelpTip>
         {dirty && <span className="mini-badge dirty-badge">Unsaved changes</span>}
         <button className="primary" disabled={busy || !dirty} onClick={() => void save()}>Save announcements</button>
         <button className="secondary" disabled={busy || !dirty} onClick={() => { setDrafts(JSON.parse(baseline.current) as Draft[]); setError(''); setNotice(''); setExpanded({}) }}>Cancel</button>
+      </div>
       </div>
     </>}
   </section>

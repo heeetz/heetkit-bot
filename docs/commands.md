@@ -42,8 +42,13 @@ is sent immediately to catch up. Only one announcement send runs at a time;
 stop/loss/switch cancels pending work and old senders cannot follow a new channel.
 An already submitted request may still arrive at Twitch.
 
-Under **Advanced announcement settings**, choose a minimum of 0–1000 eligible
-incoming messages. Each schedule counts accepted chat since its interval began;
+The editor places Name and its enabled switch, **Interval (s)**, **Trigger after**,
+**Works when:** and **Message selection** beside the message on wider screens;
+narrow screens stack these controls above the message. Help lives in the (?) controls.
+**Save announcements** and **Cancel** apply to the entire announcement collection.
+
+**Trigger after** sets a minimum of 0–1000 eligible incoming messages, checked at
+each interval rather than triggering an immediate send. Each schedule counts accepted chat since its interval began;
 every scheduled check starts a fresh activity window, including activity/stream
 skips and failures. Earlier quiet windows cannot accumulate toward a later send.
 Own-account messages, bot-marked messages, outgoing echoes, replayed events,
@@ -51,15 +56,16 @@ filtered messages and ignored AI input do not count. Other automation without a
 bot marker cannot be distinguished from human chat. Counts are transient; message
 bodies and chatter identities are not saved for this feature.
 
-**Stream availability** works on both hosts. Anytime allows unknown stream state;
+**Works when:** controls stream availability on both hosts. Anytime allows unknown stream state;
 Live only and Offline only require a fresh matching observation. Failed checks
 and observations 135 seconds old are unknown, so restricted sends pause. Server
 reuses its operation-policy monitor; Desktop polls at most once per minute while
 connected with an enabled restricted schedule. Connection modes still determine
 whether Server is connected at all.
 
-Each saved row shows the next check, last confirmed send, last outcome and current
-eligible count. A check may skip for activity or stream availability. Unconfirmed
+The (?) beside each announcement's name shows the next check, last confirmed send,
+last outcome and current eligible count. Failures, unconfirmed/cancelled delivery and
+unavailable stream states also remain visible on the row. A check may skip for activity or stream availability. Unconfirmed
 delivery (including limiter skips), failure and cancellation never trigger immediate
 retries. Status is recent session evidence, not a persisted delivery history.
 

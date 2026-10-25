@@ -280,8 +280,7 @@ test('Server announcements save through authenticated fixed routes and retain or
   await panel.getByRole('button', { name: 'New announcement', exact: true }).click()
   await panel.getByLabel('Name', { exact: true }).fill('Server reminder')
   await panel.getByLabel('Announcement message', { exact: true }).fill('A scheduled ordinary message.')
-  await panel.getByText('Advanced announcement settings', { exact: true }).click()
-  await selectOption(panel.getByLabel('Announcement stream availability', { exact: true }), 'live_only')
+  await selectOption(panel.getByLabel('Works when:', { exact: true }), 'live_only')
   await panel.getByRole('button', { name: 'Save announcements', exact: true }).click()
   await expect(panel.getByRole('status')).toContainText('Announcements saved')
   const write = api.calls.find((call) => call.path === '/v1/announcements' && call.method === 'POST')
@@ -290,7 +289,8 @@ test('Server announcements save through authenticated fixed routes and retain or
     interval_seconds: 900, min_messages: 0, stream_availability: 'live_only',
   }] } })
   expect(api.calls.filter((call) => call.path === '/v1/announcements').every((call) => call.authorization === `Bearer ${sessionToken}`)).toBe(true)
-  await expect(panel).toContainText('Last outcome: No attempts yet')
+  await panel.getByRole('button', { name: 'Help: Announcement status Server reminder', exact: true }).click()
+  await expect(page.getByRole('tooltip')).toContainText('Last outcome: No attempts yet')
 })
 
 test('browser login keeps tokens out of storage, URLs and request bodies; reload signs out', async ({ page, context }) => {
