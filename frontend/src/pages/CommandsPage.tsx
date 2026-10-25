@@ -227,6 +227,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
   const [customDraft, setCustomDraft] = useState<CustomDraft | null>(null)
   const customBaseline = useRef<CustomDraft | null>(null)
   const customEditorToggle = useRef<HTMLButtonElement>(null)
+  const customResponse = useRef<HTMLTextAreaElement>(null)
   const [focusTarget, setFocusTarget] = useState<string | null>(null)
   const [busyCommand, setBusyCommand] = useState('')
   const [busyCustom, setBusyCustom] = useState(false)
@@ -866,6 +867,8 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
 
   }
 
+  const customResponseCount = customDraft?.responses.split(/\r?\n/).filter((response) => response.trim()).length ?? 0
+
   return (
     <div className="commands-layout" aria-busy={loading}>
       {confirmation && <Confirmation {...confirmation} onConfirm={() => finishConfirmation(true)} onCancel={() => finishConfirmation(false)} />}
@@ -880,28 +883,35 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           <h2>Your commands</h2>
           <p className="section-copy">Create responses with template variables. Save applies changes immediately.</p>
         </div>
-        <button ref={customEditorToggle} className="primary" disabled={!customData || busyCustom} aria-expanded={Boolean(customDraft)} aria-controls="custom-command-editor" onClick={() => void replaceCustomDraft(customDraft ? null : newCustomDraft(customData?.permissions[0] ?? 'USER'))}>{customDraft ? 'Discard draft' : 'New command'}</button>
+        <button ref={customEditorToggle} className="primary" hidden={Boolean(customDraft)} disabled={!customData || busyCustom} aria-expanded={false} aria-controls="custom-command-editor" onClick={() => void replaceCustomDraft(newCustomDraft(customData?.permissions[0] ?? 'USER'))}>New command</button>
       </div>
       {customDraft && customData && (
         <div className="custom-command-editor" id="custom-command-editor">
           <div className="section-heading">
             <div>
               <h3>{customDraft.id ? 'Edit command' : 'New command'}</h3>
-              <p className="section-copy">Choose a name, response type and text, then set access and cooldowns. Names omit {customData.command_prefix}.</p>
+              {JSON.stringify(customDraft) !== JSON.stringify(customBaseline.current) && <span className="mini-badge dirty-badge">Unsaved changes</span>}
             </div>
           </div>
           <div className="custom-command-fields">
-            <label className="form-field">Command name
-              <span className="custom-name-input"><span>{customData.command_prefix}</span><input value={customDraft.name} onChange={(event) => updateCustomDraft({ name: event.target.value })} placeholder="hello" /></span>
-            </label>
-          </div>
-          <div className="custom-response-heading">
-            <div>
-              <h3>Response</h3>
+            <div className="form-field">
+              <div className="custom-field-label"><label htmlFor="custom-name">Command name</label><HelpTip label="Command name">Use a single word of up to 40 characters, without {customData.command_prefix}. Names and aliases cannot conflict with another command.</HelpTip></div>
+              <span className="custom-name-input"><span>{customData.command_prefix}</span><input id="custom-name" value={customDraft.name} onChange={(event) => updateCustomDraft({ name: event.target.value })} placeholder="hello" /></span>
+            </div>
+            <div className="form-field">
+              <div className="custom-field-label"><label htmlFor="custom-aliases">Aliases, separated by commas</label><HelpTip label="Aliases">Optional alternate names, for example hi, hey. Use up to ten unique aliases without {customData.command_prefix}; the same naming rules apply.</HelpTip></div>
+              <input id="custom-aliases" value={customDraft.aliases} onChange={(event) => updateCustomDraft({ aliases: event.target.value })} placeholder="hi, hey" />
             </div>
           </div>
-          <label className="form-field custom-response-mode">Response type
-            <Select
+          <div className="custom-command-fields custom-command-settings">
+            <div className="form-field">
+              <div className="custom-field-label"><label htmlFor="custom-permission">Permission</label><HelpTip label="Custom command permission">The minimum chat role allowed to run this command. Burst requires Moderator or Broadcaster permission.</HelpTip></div>
+              <Select id="custom-permission" aria-label="Permission" value={customDraft.permission} onChange={(value) => updateCustomDraft({ permission: value })}
+                options={customData.permissions.filter((permission) => customDraft.responseMode !== 'burst' || burstPermissions.includes(permission)).map((permission) => ({ value: permission, label: permission.toLowerCase() }))} />
+            </div>
+            <div className="form-field">
+              <div className="custom-field-label"><label htmlFor="custom-mode">Response type</label><HelpTip label="Response type">Single sends one message. Random picks one of 1 to 30 non-empty lines; blank lines are ignored. Burst repeats one message up to ten times with optional spacing and an argument count override.</HelpTip></div>
+              <Select id="custom-mode" aria-label="Response type"
               value={customDraft.responseMode}
               onChange={(value) => changeCustomMode(value as CustomResponseMode)}
               options={[
@@ -909,20 +919,63 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
                 { value: 'random', label: 'Random' },
                 { value: 'burst', label: 'Burst' },
               ]}
-            />
-          </label>
-          <p className="custom-mode-example">
-            {customDraft.responseMode === 'random'
-              ? `${customData.command_prefix}${customDraft.name || 'hello'} picks one response at random. Enter 1 to 30 non-empty lines; blank lines are ignored.`
-              : customDraft.responseMode === 'burst'
-                ? `${customData.command_prefix}${customDraft.name || 'promo'} sends this message ${customDraft.burstCount || 'N'} times ${parsedBurstInterval(customDraft.burstIntervalMs) === 0 ? 'concurrently' : `with ${customDraft.burstIntervalMs || 'N'} ms between request starts`}. Requires Moderator or Broadcaster permission.`
-                : `${customData.command_prefix}${customDraft.name || 'hello'} sends this message once.`}
-          </p>
-          <label className="form-field custom-response-field">{customDraft.responseMode === 'random' ? 'Responses' : 'Message'}
-            <textarea className="custom-response-textarea" rows={customDraft.responseMode === 'random' ? 7 : 4} value={customDraft.responseMode === 'random' ? customDraft.responses : customDraft.message} onChange={(event) => updateCustomDraft(customDraft.responseMode === 'random' ? { responses: event.target.value } : { message: event.target.value })} placeholder="Hello, {sender}!" />
-          </label>
-          <div className="custom-variable-help">
-            <strong>Available variables</strong>
+              />
+            </div>
+            <div className="form-field">
+              <div className="custom-field-label"><label htmlFor="custom-per-user">Per-user cooldown (seconds)</label><HelpTip label="Per-user cooldown">Minimum wait for the same viewer to use the command again. Zero disables this cooldown.</HelpTip></div>
+              <input id="custom-per-user" type="number" min="0" step="0.5" aria-invalid={parsedCooldown(customDraft.perUserSeconds) === null} value={customDraft.perUserSeconds} onChange={(event) => updateCustomDraft({ perUserSeconds: event.target.value })} />
+            </div>
+            <div className="form-field">
+              <div className="custom-field-label"><label htmlFor="custom-global">Global cooldown (seconds)</label><HelpTip label="Global cooldown">Minimum wait between uses by any viewers. Zero disables this cooldown.</HelpTip></div>
+              <input id="custom-global" type="number" min="0" step="0.5" aria-invalid={parsedCooldown(customDraft.globalSeconds) === null} value={customDraft.globalSeconds} onChange={(event) => updateCustomDraft({ globalSeconds: event.target.value })} />
+            </div>
+          </div>
+          <div className="custom-command-status">
+            <Switch checked={customDraft.enabled} ariaLabel="Enable custom command" onCheckedChange={(enabled) => updateCustomDraft({ enabled })}>
+              <span>{customDraft.enabled ? 'Enabled' : 'Disabled'}</span>
+            </Switch>
+            {isBrowserMode() && <label className="form-field">Stream availability
+              <Select value={customDraft.streamAvailability} aria-label="Stream availability" onChange={(value) => updateCustomDraft({ streamAvailability: value as StreamAvailability })} options={streamAvailabilityOptions} />
+            </label>}
+          </div>
+          <div className="form-field custom-response-field">
+            <div className="custom-field-label"><label htmlFor="custom-response">{customDraft.responseMode === 'random' ? 'Responses' : 'Message'}</label><HelpTip label="Custom response">Use template variables such as Hello, {'{sender}'}! Replies are limited to 450 UTF-8 bytes. Single and Burst use one line; Random uses one template per non-empty line.</HelpTip></div>
+            <textarea ref={customResponse} id="custom-response" className="custom-response-textarea" rows={customDraft.responseMode === 'random' ? 7 : 4} value={customDraft.responseMode === 'random' ? customDraft.responses : customDraft.message} onChange={(event) => updateCustomDraft(customDraft.responseMode === 'random' ? { responses: event.target.value } : { message: event.target.value })} placeholder="Hello, {sender}!" />
+          </div>
+          {customDraft.responseMode === 'random' && <div className="custom-random-actions">
+            <span className="muted">{customResponseCount} / 30 responses</span>
+            <button className="secondary" disabled={busyCustom || customResponseCount >= 30} onClick={() => {
+              updateCustomDraft({ responses: customDraft.responses.trimEnd() + (customDraft.responses.trim() ? '\n' : '') })
+              requestAnimationFrame(() => {
+                const field = customResponse.current
+                field?.focus()
+                field?.setSelectionRange(field.value.length, field.value.length)
+              })
+            }}>Add response</button>
+            <button className="secondary" disabled={busyCustom || !customDraft.responses.trim()} onClick={() => {
+              const responses = customDraft.responses.trimEnd().split(/\r?\n/)
+              responses.pop()
+              updateCustomDraft({ responses: responses.join('\n') })
+              customResponse.current?.focus()
+            }}>Remove last response</button>
+          </div>}
+          {customDraft.responseMode === 'burst' && <div className="custom-burst-controls">
+            <p className="custom-burst-restriction">Burst requires Moderator or Broadcaster permission. Sends 1–10 copies.</p>
+            <div className="form-field">
+              <div className="custom-field-label"><label htmlFor="custom-burst-count">Default repeat count</label><HelpTip label="Default repeat count">How many copies to send per invocation, from 1 to 10.</HelpTip></div>
+              <input id="custom-burst-count" type="number" min="1" max="10" step="1" className={parsedBurstCount(customDraft.burstCount) === null ? 'invalid' : ''} aria-invalid={parsedBurstCount(customDraft.burstCount) === null} value={customDraft.burstCount} onChange={(event) => updateCustomDraft({ burstCount: event.target.value })} />
+            </div>
+            <div className="form-field">
+              <div className="custom-field-label"><label htmlFor="custom-burst-interval">Burst interval (ms)</label><HelpTip label="Custom burst interval">0–1000 ms between request starts; 0 sends concurrently. Every send is awaited.</HelpTip></div>
+              <input id="custom-burst-interval" type="number" min="0" max="1000" step="1" className={parsedBurstInterval(customDraft.burstIntervalMs) === null ? 'invalid' : ''} aria-invalid={parsedBurstInterval(customDraft.burstIntervalMs) === null} value={customDraft.burstIntervalMs} onChange={(event) => updateCustomDraft({ burstIntervalMs: event.target.value })} />
+            </div>
+            <div className="custom-field-label">
+              <Switch checked={customDraft.burstAllowOverride} ariaLabel="Allow argument count override" onCheckedChange={(burstAllowOverride) => updateCustomDraft({ burstAllowOverride })}><span>Allow argument count override</span></Switch>
+              <HelpTip label="Argument count override">When enabled, {customData.command_prefix}{customDraft.name || 'promo'} 10 sends ten copies instead of the default. A target can follow, for example 10 @alice. Invalid counts send nothing.</HelpTip>
+            </div>
+          </div>}
+          <details className="custom-variable-help" key={customDraft.id ?? 'new'}>
+            <summary>Available variables</summary>
             <p>Use these in any message.</p>
             <div className="custom-variable-list">
               {commonVariables.filter((name) => customData.variables.some((variable) => variable.replace(/^\{|\}$/g, '') === name)).map((name) => <div key={name}><code>{`{${name}}`}</code><span>{variableHelp[name]}</span></div>)}
@@ -933,62 +986,8 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
                 {customData.variables.map((variable) => variable.replace(/^\{|\}$/g, '')).filter((name) => !commonVariables.includes(name)).map((name) => <div key={name}><code>{`{${name}}`}</code><span>{/^arg[1-9]$/.test(name) ? `Argument ${name.slice(3)}; blank when missing.` : 'A supported template variable.'}</span></div>)}
               </div>
             </details>
-          </div>
-          <div className="custom-response-heading"><h3>Access</h3></div>
-          <div className="custom-command-fields">
-            <label className="form-field">Permission
-              <Select
-                value={customDraft.permission}
-                onChange={(value) => updateCustomDraft({ permission: value })}
-                options={customData.permissions
-                  .filter((permission) => customDraft.responseMode !== 'burst' || burstPermissions.includes(permission))
-                  .map((permission) => ({ value: permission, label: permission.toLowerCase() }))}
-              />
-            </label>
-            <Switch checked={customDraft.enabled} ariaLabel="Enable custom command" onCheckedChange={(enabled) => updateCustomDraft({ enabled })}>
-              <span>{customDraft.enabled ? 'Enabled' : 'Disabled'}</span>
-            </Switch>
-            {isBrowserMode() && <label className="form-field">
-              Stream availability
-              <Select
-                value={customDraft.streamAvailability}
-                aria-label="Stream availability"
-                onChange={(value) => updateCustomDraft({ streamAvailability: value as StreamAvailability })}
-                options={streamAvailabilityOptions}
-              />
-            </label>}
-          </div>
-          <div className="custom-response-heading"><h3>Cooldowns</h3></div>
-          <div className="custom-command-fields">
-            <label className="form-field">Per-user cooldown (seconds)
-              <input type="number" min="0" step="0.5" value={customDraft.perUserSeconds} onChange={(event) => updateCustomDraft({ perUserSeconds: event.target.value })} />
-            </label>
-            <label className="form-field">Global cooldown (seconds)
-              <input type="number" min="0" step="0.5" value={customDraft.globalSeconds} onChange={(event) => updateCustomDraft({ globalSeconds: event.target.value })} />
-            </label>
-          </div>
-          <div className="custom-response-heading"><h3>Aliases & advanced options</h3></div>
-          <label className="form-field">Aliases, separated by commas
-            <input value={customDraft.aliases} onChange={(event) => updateCustomDraft({ aliases: event.target.value })} placeholder="hi, hey" />
-          </label>
-          {customDraft.responseMode === 'burst' && <div className="custom-burst-controls">
-            <label className="form-field">Default repeat count
-              <input type="number" min="1" max="10" step="1" className={parsedBurstCount(customDraft.burstCount) === null ? 'invalid' : ''} aria-invalid={parsedBurstCount(customDraft.burstCount) === null} value={customDraft.burstCount} onChange={(event) => updateCustomDraft({ burstCount: event.target.value })} />
-              <span className="custom-field-hint">1–10 copies.</span>
-            </label>
-            <label className="form-field">Burst interval (ms)
-              <input type="number" min="0" max="1000" step="1" className={parsedBurstInterval(customDraft.burstIntervalMs) === null ? 'invalid' : ''} aria-invalid={parsedBurstInterval(customDraft.burstIntervalMs) === null} value={customDraft.burstIntervalMs} onChange={(event) => updateCustomDraft({ burstIntervalMs: event.target.value })} />
-              <span className="custom-field-hint">0–1000 ms between request starts; 0 sends concurrently.</span>
-            </label>
-            <div>
-              <Switch checked={customDraft.burstAllowOverride} ariaLabel="Allow argument count override" onCheckedChange={(burstAllowOverride) => updateCustomDraft({ burstAllowOverride })}>
-                <span>Allow argument count override</span>
-              </Switch>
-              <p className="custom-field-hint">{customDraft.burstAllowOverride
-                ? `${customData.command_prefix}${customDraft.name || 'promo'} 10 sends 10 copies. The first argument sets the count; a target can follow, e.g. 10 @alice.`
-                : 'Uses the default repeat count for every invocation.'}</p>
-            </div>
-          </div>}
+          </details>
+          {error && <p className="custom-editor-error">{error}</p>}
           <div className="settings-actions custom-editor-actions">
             <button className="primary" disabled={busyCustom || (customDraft.responseMode === 'burst' && (parsedBurstCount(customDraft.burstCount) === null || parsedBurstInterval(customDraft.burstIntervalMs) === null))} onClick={() => void saveCustom()}>{busyCustom ? 'Saving…' : 'Save command'}</button>
             <button className="secondary" disabled={busyCustom} onClick={() => void replaceCustomDraft(null)}>Discard and close</button>

@@ -216,14 +216,20 @@ into view and focus **Command name**. Keyboard focus surrounds the complete name
 field, including the command prefix. Unsaved changes still require confirmation
 before replacing or discarding a draft.
 
-Use **Custom Commands** to edit **Name → Response type → Text → Access → Cooldowns →
-Aliases & advanced options**. Variable help stays beside the text; Burst count,
-spacing and argument override follow aliases. **Save command** applies changes
-immediately and keeps them across restarts. Names and aliases use the same case-insensitive, single-word,
-40-character limit as built-ins, with at most ten aliases and no prefix in the editor.
-They cannot conflict with built-in commands.
-The top **New command** control becomes **Discard draft** while editing;
-**Discard and close** is also available inside. Discarding or switching commands asks to discard
+The custom editor places **Command name** and **Aliases** first, followed by
+**Permission**, **Response type**, **Per-user cooldown (seconds)** and
+**Global cooldown (seconds)**. The message editor spans the full width, with
+mode-specific controls beside it and a collapsed **Available variables** reference
+below. The same fields stack in reading order on narrow screens. The enabled
+switch and Server stream availability remain available in the draft.
+
+Use the **(?)** buttons for field rules and examples; they work with keyboard,
+click and touch, and Escape dismisses help. **Save command** applies changes
+immediately and keeps them across restarts. Names and aliases use the same
+case-insensitive, single-word, 40-character limit as built-ins, with at most ten
+aliases and no prefix in the editor. They cannot conflict with built-in commands.
+While editing, **Discard and close** is the single close action. Discarding or
+switching commands asks to discard
 changes only when the draft was edited. A successful save closes the editor; a failed
 save retains the draft and shows the error. Commands use styled confirmations with
 Confirm and Cancel actions; Escape dismisses without executing. Built-in removal
@@ -231,6 +237,8 @@ is reversible through Removed commands; custom deletion is permanent.
 
 - **Single** sends one configured message.
 - **Random** selects one of 1–30 templates, entered one per non-empty line.
+  **Add response** focuses a new line; **Remove last response** removes the last entry.
+  The response count shows the 30-template limit.
 - **Burst** repeats one configured message using the Burst interval, with a default count of
   1–10. Burst requires Moderator or Broadcaster permission. Enable argument count
   override to let `!promo 10` send ten copies instead of the default, for example five.
@@ -248,8 +256,8 @@ Commas remain literal text. Templates support:
 | `{random_user}` | A chatter seen in the last 30 minutes, or the sender if none exists. |
 
 For example, a `!hello` response could be `Welcome, {sender}!`.
-Common variables appear beside the message; positional arguments are under the
-collapsed **Advanced variables** section. Unknown variables are rejected. Templates
+Expand **Available variables** for common variables; positional arguments are under
+the nested **Advanced variables** section. Unknown variables are rejected. Templates
 never execute code, and replies are limited to 450 UTF-8 bytes. Burst renders the
 template once and repeats the same result, including the same random chatter.
 
