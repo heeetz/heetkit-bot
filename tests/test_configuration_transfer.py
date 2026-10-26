@@ -54,6 +54,44 @@ async def profiles(tmp_path, monkeypatch):
         await app.shutdown()
 
 
+async def test_openai_transfer_retains_options_clears_consent_excludes_keys_and_rolls_back(profiles, monkeypatch):
+    from dataclasses import asdict
+    from pydantic import SecretStr
+    from app.config.ai_setup import AISetup, AIModelSelection
+    source, target = profiles("openai-desktop"), profiles("openai-server")
+    source.app.settings.openai_api_key = SecretStr("private-openai-key-sentinel")
+    setup = AISetup(AIModelSelection("openai", "gpt-6-luna", "none", True),
+                    AIModelSelection("deepseek", "deepseek-flash", "off", True), True)
+    source.settings.update_ai_setup(asdict(setup))
+    source.app.settings.ai_setup = setup
+    source.app.settings.ai_provider = "openai"
+    encoded = source.export()["archive_base64"]
+    payload, _, _ = unpack_configuration(encoded)
+    assert "private-openai-key-sentinel" not in json.dumps(payload)
+    target.apply(encoded, target.preview(encoded)["preview_token"], True)
+    assert target.app.settings.ai_setup.primary == setup.primary
+    assert not target.app.settings.ai_setup.cross_provider_acknowledged
+    assert target.app.settings.openai_api_key is None
+    target.app.settings.openai_model = "gpt-destination"
+    original = target.publish
+    def fail_publish(*args):
+        original(*args)
+        raise OSError("synthetic publication failure")
+    with monkeypatch.context() as scoped:
+        scoped.setattr(target, "publish", fail_publish)
+        with pytest.raises(OSError):
+            target.apply(encoded, target.preview(encoded)["preview_token"], True)
+    assert target.app.settings.openai_model == "gpt-destination"
+    payload["ai"].pop("openai_selected_model")
+    payload["ai"].pop("openai_fallback_model")
+    payload["ai"]["setup"] = None
+    payload["ai"]["provider"] = "gemini"
+    legacy = pack_configuration(payload)
+    target.apply(legacy, target.preview(legacy)["preview_token"], True)
+    assert target.app.settings.ai_provider == "gemini"
+    assert target.app.settings.openai_model == "gpt-destination"
+
+
 async def test_announcements_transfer_both_hosts_legacy_preservation_and_rollback(profiles, monkeypatch):
     from app.announcements import AnnouncementStore
     from uuid import uuid4
@@ -173,7 +211,7 @@ async def test_both_provider_choices_transfer_without_credentials_and_legacy_sta
     assert reloaded.ai_provider == "deepseek" and reloaded.deepseek_model == "deepseek-custom"
     assert reloaded.gemini_model == "gemini-custom"
     assert target.app.settings.deepseek_api_key == "PRIVATE-DESTINATION-KEY"
-    for field in ("provider", "deepseek_selected_model", "deepseek_fallback_model"):
+    for field in ("provider", "deepseek_selected_model", "deepseek_fallback_model", "openai_selected_model", "openai_fallback_model"):
         payload["ai"].pop(field)
     legacy = pack_configuration(payload)
     target.apply(legacy, target.preview(legacy)["preview_token"], True)

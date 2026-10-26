@@ -22,6 +22,7 @@ LEGACY_CREDENTIAL_SERVICE_NAME = "twitch-bot"
 _MIGRATION_ENTRY_PREFIX = "legacy_migration_v1:"
 GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 DEEPSEEK_MODELS_URL = "https://api.deepseek.com/models"
+OPENAI_MODELS_URL = "https://api.openai.com/v1/models"
 TWITCH_TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 MAX_CREDENTIAL_LENGTH = 8_192
 
@@ -30,12 +31,14 @@ class CredentialName(StrEnum):
     GEMINI_API_KEY = "gemini_api_key"
     TWITCH_CLIENT_SECRET = "twitch_client_secret"
     DEEPSEEK_API_KEY = "deepseek_api_key"
+    OPENAI_API_KEY = "openai_api_key"
 
 
 CREDENTIAL_LABELS = {
     CredentialName.GEMINI_API_KEY: "Gemini API key",
     CredentialName.TWITCH_CLIENT_SECRET: "Twitch client secret",
     CredentialName.DEEPSEEK_API_KEY: "DeepSeek API key",
+    CredentialName.OPENAI_API_KEY: "OpenAI API key",
 }
 
 
@@ -215,10 +218,11 @@ class CredentialManager:
             raise CredentialError("Credential is not configured.")
 
         try:
-            if parsed_name is CredentialName.DEEPSEEK_API_KEY:
+            if parsed_name in {CredentialName.DEEPSEEK_API_KEY, CredentialName.OPENAI_API_KEY}:
                 # A models probe verifies authentication only, never generation/tool access.
                 async with asyncio.timeout(15):
-                    async with http_client.stream("GET", DEEPSEEK_MODELS_URL,
+                    url = OPENAI_MODELS_URL if parsed_name is CredentialName.OPENAI_API_KEY else DEEPSEEK_MODELS_URL
+                    async with http_client.stream("GET", url,
                             headers={"Authorization": "Bearer " + value}, timeout=10) as response:
                         pass  # Do not read or log a credential-test response body.
             elif parsed_name is CredentialName.GEMINI_API_KEY:

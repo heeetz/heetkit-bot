@@ -131,7 +131,7 @@ async def test_announcements_authenticated_settings_status_and_shared_monitor(ap
 async def test_ai_setup_save_reload_validation_and_guide_use_authenticated_shared_operations(api):
     server, call = api
     status, result, _ = await call("GET", "/v1/ai/setup")
-    assert status == 200 and {row["id"] for row in result["providers"]} == {"gemini", "deepseek"}
+    assert status == 200 and {row["id"] for row in result["providers"]} == {"gemini", "deepseek", "openai"}
     assert all("value" not in row["credential"] for row in result["providers"])
     settings = result["settings"]
     settings.update(shared_instructions="Owner custom instructions", max_question_length=42, max_answer_length=120)

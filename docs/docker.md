@@ -91,6 +91,10 @@ operate on the default Compose project `heetkit`; keep that project name stable.
    save the DeepSeek key through authenticated credential operations when no external
    key is provisioned. See [DeepSeek backend configuration](ai-setup.md#deepseek-backend-configuration).
 
+   OpenAI also accepts `OPENAI_API_KEY` or `OPENAI_API_KEY_FILE`, or a key saved through
+   authenticated AI setup when no external key is provisioned. A secret file needs an
+   explicit private mount/environment override. See [AI provider setup](ai-setup.md).
+
 Build, then import your **stopped, trusted** profile into the initially empty volume:
 
 ```bash

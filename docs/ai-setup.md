@@ -1,7 +1,7 @@
 # AI provider setup
 
 AI is optional. Normal Twitch commands work without it. Gemini remains the default;
-Desktop and Server share saved connections for Gemini and the direct DeepSeek API.
+Desktop and Server share saved connections for Gemini, direct DeepSeek and direct OpenAI.
 Dashboard's optional setup guide can be dismissed/resumed, and AI can be skipped or
 configured before Twitch. Its summary shows saved setup and the current Twitch
 connection without treating an untested provider as a setup failure. The guide and
@@ -39,10 +39,39 @@ Desktop keys use the profile's OS keyring with intentional environment fallback.
 Server keys use the private credential file; nonempty environment/secret-file inputs
 are read-only in the panel and require host-side rotation/restart. Keys are never read
 back to React or exported. See [management credentials](management-api.md#requests-and-operations).
-`AI_PROVIDER`, `GEMINI_MODEL`, `DEEPSEEK_MODEL` and their fallback counterparts remain
+`AI_PROVIDER`, `GEMINI_MODEL`, `DEEPSEEK_MODEL`, `OPENAI_MODEL` and their fallback counterparts remain
 unsaved process defaults until profile selections override them.
 
 ## Thinking, search and fallback boundaries
+
+OpenAI uses the Responses API. Its economical preset is `gpt-6-luna`; the independent
+fallback preset is `gpt-6.1-sol`. This selection compares documented Standard text
+prices and capabilities, checked 2026-10-26: Luna is $0.10 input/$0.50 output per
+million tokens, versus Sol at $2/$10. Both support web search; Luna is intended for
+focused, high-volume tasks. These prices and capabilities motivate the default for
+short chat replies; they do not predict quality or latency for a particular prompt.
+See the [Luna model](https://developers.openai.com/api/docs/models/gpt-6-luna),
+[Sol model](https://developers.openai.com/api/docs/models/gpt-6.1-sol) and
+[current pricing](https://developers.openai.com/api/docs/pricing).
+
+Luna exposes None, Low, Medium, High, Xhigh and Max; Sol exposes Low through Max.
+Provider default omits the effort field (both currently default to Medium).
+Unknown IDs expose only Provider default and no search. OpenAI requests set
+`store: false`, use no server conversation history and have no adapter retries.
+Output is capped at 1,024 tokens with None, otherwise 4,096 including reasoning;
+the existing shared 60-second deadline covers primary and fallback together.
+
+OpenAI Web Search uses the captured OpenAI key, low search context and at most two
+built-in tool calls in one Responses request. Only search selected by the shared
+freshness policy sends the tool; that request requires tool use. Search costs
+$10 per 1,000 calls plus model-rate search content tokens at the checked prices.
+Failed/incomplete search produces no fresh answer. Native citation positions become
+visible inline URLs, clickable in Playground and Twitch. Cited answers are kept whole;
+if text plus URLs exceeds the saved character limit, the answer is withheld.
+No host-side fetches, hidden source removal or silent search downgrade occurs. See
+[OpenAI search and attribution](https://developers.openai.com/api/docs/guides/tools-web-search).
+Playground reports the effective returned model and bounded input/output token counts;
+safe request events record usage without prompts, keys, reasoning or tool bodies.
 
 Thinking options come from exact documented model/API mappings. DeepSeek exposes
 Off, Low, High and Max plus Provider default; Off sends its explicit disabled toggle.
@@ -62,7 +91,7 @@ answer. Only final answer text and safe source metadata leave an adapter; transi
 reasoning/tool continuation is never chat, memory or diagnostic history.
 [DeepSeek Search/Fetch](https://api-docs.deepseek.com/guides/search/) documents the service.
 
-Source URLs are appended within the configured answer bound. If required attribution
+DeepSeek source URLs are appended within the configured answer bound. If required attribution
 cannot fit, the answer is withheld rather than losing its sources. Gemini Google Search
 remains implemented, but its required Search Suggestions cannot be rendered in plain
 Twitch chat: grounded output is withheld with an attribution-unavailable result.
@@ -110,6 +139,14 @@ The outgoing mention must also fit Twitch's 500-character envelope and valid UTF
 longer answers never authorize split sends. See [Send Chat Message](https://dev.twitch.tv/docs/api/reference/#send-chat-message).
 
 ## Get a key and add it to HeetKit
+
+For OpenAI, create a project API key in the [OpenAI platform](https://platform.openai.com/api-keys),
+enter it in **AI → AI setup → Connected providers → OpenAI**, and choose **Connect key**.
+Choose OpenAI as primary or fallback, select the model and native effort, then
+**Save AI setup**. Credential testing and discovery only probe `/v1/models`; they do
+not establish generation/search access or available quota. Desktop uses its existing
+profile keyring with `OPENAI_API_KEY` as an environment fallback. Server supports
+the private credential file or authoritative `OPENAI_API_KEY` / `OPENAI_API_KEY_FILE`.
 
 For DeepSeek, create an API key in the [DeepSeek platform](https://platform.deepseek.com/),
 then enter it in **AI → AI setup → Connected providers → DeepSeek** and select

@@ -40,7 +40,7 @@ class Provider:
 
 def pipeline(configuration):
     service = SharedAIService(Settings(ai_provider=configuration.primary.provider, ai_setup=configuration))
-    providers = {name: Provider(name) for name in ("deepseek", "gemini")}
+    providers = {name: Provider(name) for name in ("deepseek", "gemini", "openai")}
     service._providers = providers
     return service, providers
 
@@ -169,6 +169,48 @@ async def test_citation_urls_remain_subject_to_profile_filters():
         sources=(AISource("Source", "https://blockedsite.test/"),))
     result = await service.generate_reply("latest weather", "viewer")
     assert result.status == "output_blocked" and result.moderation_source == "editable_filter"
+
+
+async def test_openai_preserves_inline_attribution_usage_and_exact_model_without_truncation():
+    configuration = AISetup(AIModelSelection("openai", "gpt-6-luna", "none", True))
+    service, providers = pipeline(configuration)
+    text = "Fresh fact https://example.test/facts then a second claim https://example.test/other"
+    providers["openai"].generate.return_value = AIProviderResponse(text, search_used=True,
+        sources=(AISource("Fact", "https://example.test/facts"), AISource("Other", "https://example.test/other")),
+        inline_citations=True, effective_model="gpt-6-luna", input_tokens=200, output_tokens=32)
+    reply = await service.generate_reply("latest news", "viewer")
+    assert reply.text == text and reply.generation.model == "gpt-6-luna"
+    assert (reply.generation.input_tokens, reply.generation.output_tokens) == (200, 32)
+    service.settings.ai_setup = replace(configuration, max_answer_length=len(text) - 1)
+    withheld = await service.generate_reply("latest news", "viewer")
+    assert withheld.status == "attribution_unavailable" and not withheld.text
+
+
+async def test_openai_cross_provider_fallback_keeps_independent_options_and_consent():
+    configuration = AISetup(AIModelSelection("openai", "gpt-6-luna", "none"),
+                            AIModelSelection("deepseek", "deepseek-flash", "off"), True)
+    service, providers = pipeline(configuration)
+    providers["openai"].generate.return_value = AIProviderResponse(status="model_unavailable")
+    reply = await service.generate_reply("hello", "viewer")
+    assert reply.is_available and reply.generation.provider == "deepseek" and reply.generation.fallback_used
+    assert providers["openai"].generate.call_args.args[1].thinking == "none"
+    assert providers["deepseek"].generate.call_args.args[1].thinking == "off"
+    service.settings.ai_setup = replace(configuration, cross_provider_acknowledged=False)
+    providers["deepseek"].generate.reset_mock()
+    assert (await service.generate_reply("hello", "viewer")).status == "configuration_error"
+    providers["deepseek"].generate.assert_not_awaited()
+
+
+def test_openai_setup_and_legacy_models_reload_without_changing_other_providers(tmp_path):
+    store = AppSettingsStore(tmp_path / "settings.json")
+    store.update_ai_models(provider="openai", selected_model="gpt-6-luna", fallback_model="gpt-6.1-sol")
+    runtime = apply_ai_app_settings(Settings(), AppSettingsStore(store._path).snapshot())
+    assert runtime.ai_provider == "openai" and runtime.openai_model == "gpt-6-luna"
+    assert runtime.gemini_model == Settings().gemini_model
+    value = AISetup(AIModelSelection("openai", "gpt-6-luna", "none", True),
+                    provider_drafts={"primary:openai": asdict(AIModelSelection("openai", "gpt-6-luna", "low"))})
+    store.update_ai_setup(asdict(value))
+    assert AppSettingsStore(store._path).snapshot().ai.setup == value
 
 
 async def test_one_total_deadline_and_cancellation(monkeypatch):

@@ -46,6 +46,8 @@ class AISettings:
     provider: str | None = None
     deepseek_selected_model: str | None = None
     deepseek_fallback_model: str | None = None
+    openai_selected_model: str | None = None
+    openai_fallback_model: str | None = None
     # Optional per-account policy; internal AI/output bounds remain code-owned.
     cooldown_bypass_user_id: str | None = None
     response_language: ResponseLanguageSettings = field(default_factory=ResponseLanguageSettings)
@@ -364,6 +366,14 @@ def load_app_settings(path: Path) -> AppSettings:
         except ValueError:
             logger.warning("Ignoring invalid DeepSeek model settings override")
             deepseek_selected = deepseek_fallback = None
+    openai_selected = ai_payload.get("openai_selected_model")
+    openai_fallback = ai_payload.get("openai_fallback_model")
+    if openai_selected is not None or openai_fallback is not None:
+        try:
+            openai_selected, openai_fallback = validate_provider_models("openai", openai_selected, openai_fallback)
+        except ValueError:
+            logger.warning("Ignoring invalid OpenAI model settings override")
+            openai_selected = openai_fallback = None
     if "response_language" in ai_payload:
         language_payload = ai_payload["response_language"]
         try:
@@ -425,6 +435,8 @@ def load_app_settings(path: Path) -> AppSettings:
             provider=provider,
             deepseek_selected_model=deepseek_selected,
             deepseek_fallback_model=deepseek_fallback,
+            openai_selected_model=openai_selected,
+            openai_fallback_model=openai_fallback,
             cooldown_bypass_user_id=cooldown_bypass_user_id,
             response_language=response_language,
             setup=setup,
@@ -569,7 +581,7 @@ class AppSettingsStore:
         changes = {"provider": provider}
         if selected_model is not None or fallback_model is not None:
             selected, fallback = validate_provider_models(provider, selected_model, fallback_model)
-            prefix = "deepseek_" if provider == "deepseek" else ""
+            prefix = provider + "_" if provider != "gemini" else ""
             changes.update({prefix + "selected_model": selected, prefix + "fallback_model": fallback})
         with self._lock:
             if self._settings.ai.setup is not None:

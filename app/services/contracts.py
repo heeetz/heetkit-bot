@@ -16,6 +16,8 @@ class AIGenerationDetails:
     search_enabled: bool = False
     search_requested: bool = False
     search_used: bool = False
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

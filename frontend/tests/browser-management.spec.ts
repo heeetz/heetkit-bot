@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
-import type { AnnouncementInfo, AnnouncementInput, CommandInfo, CustomCommandInfo, FilterInput, LogEntry } from '../src/bridge'
+import type { AIPlaygroundResult, AnnouncementInfo, AnnouncementInput, CommandInfo, CustomCommandInfo, FilterInput, LogEntry } from '../src/bridge'
 import { selectOption } from './select-helpers'
 
 const adminToken = 'a'.repeat(43)
@@ -36,7 +36,7 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
   let playgroundCancelled = false
   let playgroundReadDelay = 0
   let playgroundStatus = 'success'
-  let playgroundGeneration = { provider: 'DeepSeek', model: 'deepseek-v4-pro', thinking: 'high',
+  let playgroundGeneration: NonNullable<AIPlaygroundResult['generation']> = { provider: 'DeepSeek', model: 'deepseek-v4-pro', thinking: 'high',
     fallback_used: true, search_enabled: true, search_requested: true, search_used: true }
   let oauthBeginResult: object = { ok: true, url: 'https://id.twitch.tv/oauth2/authorize?client_id=synthetic', expires_in: 300 }
   let oauthCompleteResult: object = { ok: true }
@@ -84,7 +84,7 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
       if (playgroundReadDelay) await new Promise((resolve) => setTimeout(resolve, playgroundReadDelay))
       result = playgroundCancelled ? { ok: true, status: 'cancelled' }
         : playgroundPending ? { ok: true, status: 'pending' }
-        : { ok: true, status: playgroundStatus, text: 'Synthetic server answer <b>plain text</b>', generation: playgroundGeneration }
+        : { ok: true, status: playgroundStatus, text: playgroundGeneration.provider === 'OpenAI' ? 'Fresh fact https://example.test/facts' : 'Synthetic server answer <b>plain text</b>', generation: playgroundGeneration }
     }
     if (path === '/v1/snapshot') result = { status, ai_status: ai() }
     if (path === '/v1/status') result = { ...status, operation }
@@ -106,8 +106,10 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
       result = { ok: true, settings: aiSetup, providers: [
         { id: 'gemini', label: 'Google Gemini', credential: credentials[1], models: ['gemini-2.5-flash'], selected_model: 'gemini-2.5-flash', fallback_model: 'gemini-2.5-pro' },
         { id: 'deepseek', label: 'DeepSeek', credential: credentials[2], models: ['deepseek-flash'], selected_model: 'deepseek-flash', fallback_model: 'deepseek-v4-pro' },
+        { id: 'openai', label: 'OpenAI', credential: { name: 'openai_api_key', label: 'OpenAI API key', configured: true, source: 'server_file', managed: true }, models: ['gpt-6-luna'], selected_model: 'gpt-6-luna', fallback_model: 'gpt-6.1-sol' },
       ], capabilities: { gemini: { 'gemini-2.5-flash': { known: true, thinking_options: [{ value: 'default', label: 'Provider default' }, { value: 'off', label: 'Off' }], search_supported: true, search_reason: 'Google Suggestions display required', attribution_required: true } },
-        deepseek: { 'deepseek-flash': { known: true, thinking_options: [{ value: 'default', label: 'Provider default' }, { value: 'off', label: 'Off' }, { value: 'high', label: 'High' }], search_supported: true, search_reason: 'Bounded provider search', attribution_required: false } } },
+        deepseek: { 'deepseek-flash': { known: true, thinking_options: [{ value: 'default', label: 'Provider default' }, { value: 'off', label: 'Off' }, { value: 'high', label: 'High' }], search_supported: true, search_reason: 'Bounded provider search', attribution_required: false } },
+        openai: { 'gpt-6-luna': { known: true, thinking_options: [{ value: 'default', label: 'Provider default' }, { value: 'none', label: 'None' }, { value: 'low', label: 'Low' }], search_supported: true, search_reason: 'OpenAI Web Search with inline source URLs', attribution_required: false } } },
         default_shared_instructions: 'Shared defaults', retained_restrictions: 'Local request and output checks remain enabled.' }
     }
     if (path === '/v1/ai/models/discover') result = { ok: true, provider_id: body?.provider, models: ['deepseek-flash'] }
@@ -175,6 +177,34 @@ async function login(page: Page) {
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible()
 }
+
+test('Server OpenAI controls and Playground preserve native options, usage and clickable sources', async ({ page }) => {
+  const api = await server(page)
+  await page.setViewportSize({ width: 390, height: 1000 })
+  await page.goto('/tests/browser.fixture.html')
+  await login(page)
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await page.getByRole('navigation').getByRole('button', { name: 'AI setup', exact: true }).click()
+  const setup = page.locator('#ai-models')
+  await selectOption(setup.getByLabel('Primary provider'), 'openai')
+  await selectOption(setup.getByLabel('Primary thinking'), 'none')
+  await setup.getByLabel('Primary internet search', { exact: true }).press('Space')
+  await setup.getByRole('button', { name: 'Save AI setup', exact: true }).click()
+  await expect(setup).toContainText('AI setup saved')
+  expect(api.calls.filter((call) => call.path === '/v1/ai/setup' && call.method === 'POST').at(-1)?.body?.settings).toMatchObject({ primary: { provider: 'openai', model: 'gpt-6-luna', thinking: 'none', search: true } })
+  api.setPlayground(false, 0, 'success', { provider: 'OpenAI', model: 'gpt-6-luna', thinking: 'none',
+    fallback_used: false, search_enabled: true, search_requested: true, search_used: true,
+    input_tokens: 150, output_tokens: 25 })
+  await page.getByRole('button', { name: 'Playground', exact: true }).click()
+  const playground = page.locator('#ai-playground')
+  await playground.getByLabel('Playground prompt').fill('Latest fact?')
+  await playground.getByRole('button', { name: 'Test prompt', exact: true }).click()
+  await expect(playground.getByRole('status')).toContainText('Provider: OpenAI')
+  await expect(playground.getByRole('status')).toContainText('Input tokens: 150')
+  await expect(playground.getByRole('link', { name: 'https://example.test/facts' })).toHaveAttribute('href', 'https://example.test/facts')
+  await page.screenshot({ path: 'node_modules/.tmp/task11-openai-server-390.png', fullPage: true })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+})
 
 for (const width of [1280, 390, 320]) {
   test(`Server Playground uses authenticated typed controls and reports effective options at ${width}px`, async ({ page }) => {

@@ -13,10 +13,10 @@ from app.services.ai_service import SharedAIService
 from app.services.filter_manager import FilterManager
 
 
-@pytest.fixture(params=["gemini", "deepseek"])
+@pytest.fixture(params=["gemini", "deepseek", "openai"])
 async def provider_pipeline(request, tmp_path, monkeypatch):
     settings = Settings(ai_provider=request.param, gemini_api_key="PRIVATE-GEMINI-KEY",
-                        deepseek_api_key="PRIVATE-DEEPSEEK-KEY")
+                        deepseek_api_key="PRIVATE-DEEPSEEK-KEY", openai_api_key="PRIVATE-OPENAI-KEY")
     filters = FilterManager()
     state = RuntimeState(personality_settings_path=tmp_path / "personalities.json")
     state.apply_profile_instructions("PRIVATE-PROFILE-INSTRUCTIONS")
@@ -36,12 +36,21 @@ async def provider_pipeline(request, tmp_path, monkeypatch):
                 pass
 
         monkeypatch.setattr(genai, "Client", lambda **kwargs: Client())
-    else:
+    elif request.param == "deepseek":
         async def http_json(method, path, key, **kwargs):
             payload = kwargs["json"]
             calls.append((payload["messages"][0]["content"], payload["messages"][1]["content"], payload["model"]))
             return 200, {"choices": [{"finish_reason": "stop", "message": {
                 "content": await exchange(), "reasoning_content": "PRIVATE-THOUGHT"}}]}
+        monkeypatch.setattr(service.provider, "_http_json", http_json)
+    else:
+        async def http_json(method, path, key, **kwargs):
+            payload = kwargs["json"]
+            calls.append((payload["instructions"], payload["input"], payload["model"]))
+            return 200, {"status": "completed", "model": payload["model"], "output": [
+                {"type": "reasoning", "summary": [{"text": "PRIVATE-THOUGHT"}]},
+                {"type": "message", "role": "assistant", "status": "completed", "content": [
+                    {"type": "output_text", "text": await exchange(), "annotations": []}]}]}
         monkeypatch.setattr(service.provider, "_http_json", http_json)
     yield service, exchange, calls
     await service.aclose()

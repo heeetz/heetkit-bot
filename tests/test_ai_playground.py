@@ -295,20 +295,23 @@ async def test_public_controls_submit_to_owner_loop_and_sanitize_failures(playgr
     await ai.aclose()
 
 
+@pytest.mark.parametrize("provider,model,thinking,label", [("deepseek", "deepseek-v4-pro", "high", "DeepSeek"),
+                                                          ("openai", "gpt-6-luna", "none", "OpenAI")])
 @pytest.mark.parametrize("fallback", [False, True])
-async def test_effective_provider_model_thinking_and_tool_outcome_are_shared(playground, fallback):
+async def test_effective_provider_model_thinking_and_tool_outcome_are_shared(playground, fallback, provider, model, thinking, label):
     from app.config.ai_setup import AIModelSelection, AISetup
     from app.services.ai_provider import AIProviderResponse, AISource
 
     bridge, ai, _, _, _ = playground
     ai.settings.ai_setup = AISetup(
-        AIModelSelection("deepseek", "deepseek-v4-pro", "high", True),
+        AIModelSelection(provider, model, thinking, True),
         AIModelSelection("gemini", "gemini-2.5-flash", "off", True),
         cross_provider_acknowledged=True,
     )
     ai.settings.deepseek_api_key = SecretStr("private-deepseek-key")
+    ai.settings.openai_api_key = SecretStr("private-openai-key")
     response = AIProviderResponse("Fresh answer.", sources=(AISource("Example", "https://example.test/"),), search_used=True)
-    primary = ai._providers["deepseek"].generate = AsyncMock(
+    primary = ai._providers[provider].generate = AsyncMock(
         return_value=AIProviderResponse(status="model_unavailable") if fallback else response,
     )
     secondary = ai._providers["gemini"].generate = AsyncMock(return_value=response)
@@ -317,12 +320,13 @@ async def test_effective_provider_model_thinking_and_tool_outcome_are_shared(pla
     assert result["text"].endswith("Sources: https://example.test/")
     details = result["generation"]
     assert details == {
-        "provider": "Google Gemini" if fallback else "DeepSeek",
-        "model": "gemini-2.5-flash" if fallback else "deepseek-v4-pro",
-        "thinking": "off" if fallback else "high", "fallback_used": fallback,
+        "provider": "Google Gemini" if fallback else label,
+        "model": "gemini-2.5-flash" if fallback else model,
+        "thinking": "off" if fallback else thinking, "fallback_used": fallback,
         "search_enabled": True, "search_requested": True, "search_used": True,
+        "input_tokens": None, "output_tokens": None,
     }
-    assert primary.call_args.args[1].thinking == "high"
+    assert primary.call_args.args[1].thinking == thinking
     assert primary.call_args.args[0].use_search
     assert secondary.await_count == int(fallback)
     assert "private-deepseek-key" not in str(result)

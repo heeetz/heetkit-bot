@@ -12,6 +12,40 @@ async function openModels(page: Page, query = '') {
   return models
 }
 
+for (const width of [1280, 390]) {
+  test(`OpenAI connections, native controls and saved provider drafts work at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    const models = await openModels(page)
+    await models.getByLabel('openai API key', { exact: true }).fill('synthetic-openai-key')
+    await models.getByRole('button', { name: 'Replace OpenAI key', exact: true }).click()
+    await models.getByRole('button', { name: 'Test OpenAI connection', exact: true }).click()
+    await selectOption(models.getByLabel('Primary provider'), 'openai')
+    await expect(models.getByLabel('Primary model choices')).toHaveAttribute('data-value', 'gpt-6-luna')
+    await selectOption(models.getByLabel('Primary thinking'), 'none')
+    await models.getByLabel('Primary internet search', { exact: true }).press('Space')
+    await models.getByRole('button', { name: 'Help: Primary internet search', exact: true }).focus()
+    await expect(page.getByRole('tooltip')).toContainText('inline source URLs must fit')
+    await models.getByRole('button', { name: 'Discover primary models' }).click()
+    await expect(models).toContainText('Models discovered')
+    await selectOption(models.getByLabel('Primary provider'), 'deepseek')
+    await selectOption(models.getByLabel('Primary provider'), 'openai')
+    await expect(models.getByLabel('Primary thinking')).toHaveAttribute('data-value', 'none')
+    await expect(models.getByLabel('Primary internet search', { exact: true })).toBeChecked()
+    await selectOption(models.getByLabel('Fallback provider'), 'openai')
+    await expect(models.getByLabel('Fallback model choices')).toHaveAttribute('data-value', 'gpt-6.1-sol')
+    await models.getByRole('button', { name: 'Save AI setup' }).click()
+    await expect(models).toContainText('AI setup saved')
+    expect(await page.evaluate(() => Reflect.get(window, 'credentialCalls'))).toContainEqual(['test', 'openai_api_key'])
+    await models.screenshot({ path: `node_modules/.tmp/task11-openai-${width}.png` })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    await page.reload()
+    await page.getByRole('button', { name: 'AI', exact: true }).click()
+    await models.locator('.accordion-trigger').click()
+    await expect(models.getByLabel('Primary provider')).toHaveAttribute('data-value', 'openai')
+    await expect(models.getByLabel('Primary thinking')).toHaveAttribute('data-value', 'none')
+  })
+}
+
 for (const width of [1280, 390, 320]) {
   test(`provider/model cards and editable instructions fit keyboard layout at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
@@ -133,7 +167,7 @@ for (const width of [1280, 390, 320]) {
     const models = page.locator('#ai-models')
     await page.getByRole('navigation').getByRole('button', { name: 'AI setup', exact: true }).click()
     const badges = models.locator('.ai-provider-status .state-pill')
-    await expect(badges).toHaveText(['Configured', 'Unconfigured'])
+    await expect(badges).toHaveText(['Configured', 'Unconfigured', 'Unconfigured'])
     await expect(badges.nth(0)).toHaveClass(/enabled/)
     await expect(badges.nth(1)).toHaveClass(/unconfigured/)
     await expect(models.locator('.ai-connection-row').first()).not.toContainText('credential_store')

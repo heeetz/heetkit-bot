@@ -2,6 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import { type AIPlaygroundResult, waitForBridge } from '../bridge'
 import HelpTip from './HelpTip'
 
+function linkedResponse(text: string) {
+  return text.split(/(https?:\/\/[^\s<>]+)/g).map((part, index) => {
+    if (!/^https?:\/\//.test(part)) return part
+    try {
+      const url = new URL(part)
+      if (!url.username && !url.password) return <a key={index} href={url.href} target="_blank" rel="noopener noreferrer">{part}</a>
+    } catch { /* Invalid URLs remain plain text. */ }
+    return part
+  })
+}
+
 function searchOutcome(result: AIPlaygroundResult): string {
   if (result.status === 'search_error') return 'Failed'
   if (result.status === 'search_unavailable') return 'Unavailable on fallback'
@@ -163,11 +174,13 @@ export default function AIPlayground({ active, personality, hasDrafts = false }:
             {' · '}Thinking: {result.generation.thinking}
             {' · '}{result.generation.fallback_used ? 'Fallback used' : 'Primary selection'}
             {' · '}Search/Fetch: {searchOutcome(result)}
+            {result.generation.input_tokens != null && <>{' · '}Input tokens: {result.generation.input_tokens}</>}
+            {result.generation.output_tokens != null && <>{' · '}Output tokens: {result.generation.output_tokens}</>}
           </p>}
           {result.moderation_source === 'editable_filter' && <p>Editable filter · {result.matched_category}: <code>{result.matched_rule}</code></p>}
           {result.moderation_source === 'filter_timeout' && <p>Editable filter evaluation timed out and blocked the text safely. No matched rule is reported.</p>}
           {result.moderation_source === 'protected_policy' && <p>Protected safety policy. This decision is separate from editable filters; no hidden instructions are shown.</p>}
-          {result.status === 'success' && <p className="playground-response">{result.text}</p>}
+          {result.status === 'success' && <p className="playground-response">{linkedResponse(result.text ?? '')}</p>}
         </>}
       </div>
     </article>

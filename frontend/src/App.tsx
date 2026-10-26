@@ -176,7 +176,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
   )
   const needsTwitchSetup = Boolean(setup && (!twitchTargetReady || !twitchCredential?.configured))
   const aiConfigured = Boolean(setup?.credentials.some((credential) => credential.configured
-    && (credential.name === 'gemini_api_key' || credential.name === 'deepseek_api_key')))
+    && (credential.name === 'gemini_api_key' || credential.name === 'deepseek_api_key' || credential.name === 'openai_api_key')))
   const pendingRestart = Boolean(setup?.twitch.requires_restart)
   const pendingReconnect = Boolean(setup?.twitch.requires_reconnect && !pendingRestart && !needsTwitchSetup)
   const connectionState = status?.twitch_connection_state

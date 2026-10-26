@@ -329,8 +329,8 @@ export interface TwitchSettingsResponse extends ActionResult {
   settings?: TwitchConnectionSettings
 }
 
-export type CredentialName = 'gemini_api_key' | 'deepseek_api_key' | 'twitch_client_secret'
-export type AIProviderId = 'gemini' | 'deepseek'
+export type CredentialName = 'gemini_api_key' | 'deepseek_api_key' | 'openai_api_key' | 'twitch_client_secret'
+export type AIProviderId = 'gemini' | 'deepseek' | 'openai'
 
 export interface CredentialInfo {
   name: CredentialName
@@ -478,6 +478,8 @@ export interface AIPlaygroundResult {
     search_enabled: boolean
     search_requested: boolean
     search_used: boolean
+    input_tokens?: number | null
+    output_tokens?: number | null
   } | null
   error?: string
 }

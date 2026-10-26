@@ -60,7 +60,9 @@ class SharedAIService:
             # Existing profiles need no provider field or migration.
             from app.services.gemini_ai_service import GeminiProvider
             from app.services.deepseek_ai_service import DeepSeekProvider
-            self._providers = {"gemini": GeminiProvider(settings), "deepseek": DeepSeekProvider(settings)}
+            from app.services.openai_ai_service import OpenAIProvider
+            self._providers = {"gemini": GeminiProvider(settings), "deepseek": DeepSeekProvider(settings),
+                               "openai": OpenAIProvider(settings)}
         else:
             self._providers = {"injected": provider}
         self._safety_policy = AIRequestPolicy()
@@ -299,7 +301,9 @@ class SharedAIService:
                             with operator_event_scope(provider=fallback_provider.name, model=fallback_options.model,
                                                       attempt=2, fallback=True):
                                 response = await fallback_provider.generate(replace(request, use_search=fallback_search), fallback_options)
-                    generation = replace(generation, search_used=response.search_used)
+                    generation = replace(generation, search_used=response.search_used,
+                                         model=response.effective_model or generation.model,
+                                         input_tokens=response.input_tokens, output_tokens=response.output_tokens)
                     if response.status != "success":
                         return finish(AIReply("", False, response.status))
                     if response.safety_blocked:
@@ -319,9 +323,15 @@ class SharedAIService:
                     if response.search_used:
                         if not response.sources:
                             return finish(AIReply("", False, "search_error"))
-                        citations = " Sources: " + " ".join(dict.fromkeys(source.url for source in response.sources))
-                        if len(citations) + 20 > max_length:
-                            return finish(AIReply("", False, "attribution_unavailable"))
+                        if response.inline_citations:
+                            # Native OpenAI citations stay beside the supported text.
+                            # Truncation could remove a citation or the claim it supports.
+                            if len(original_text) > max_length:
+                                return finish(AIReply("", False, "attribution_unavailable"))
+                        else:
+                            citations = " Sources: " + " ".join(dict.fromkeys(source.url for source in response.sources))
+                            if len(citations) + 20 > max_length:
+                                return finish(AIReply("", False, "attribution_unavailable"))
                     final_text = self._smart_truncate(original_text, max_length - len(citations)) + citations
                     if citations:
                         blocked = self._blocked_response_reply(final_text)

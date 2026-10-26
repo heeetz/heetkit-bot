@@ -9,6 +9,10 @@ https://api-docs.deepseek.com/guides/thinking_mode/
 https://api-docs.deepseek.com/guides/search/
 https://ai.google.dev/gemini-api/docs/generate-content/thinking
 https://ai.google.dev/gemini-api/docs/generate-content/google-search
+OpenAI mappings verified 2026-10-26:
+https://developers.openai.com/api/docs/models/gpt-6-luna
+https://developers.openai.com/api/docs/models/gpt-6.1-sol
+https://developers.openai.com/api/docs/guides/tools-web-search
 """
 
 from typing import Any
@@ -37,9 +41,14 @@ _GEMINI_BUDGETS = {
 }
 _GEMINI_SEARCH = frozenset(_GEMINI_LEVELS) | frozenset(_GEMINI_BUDGETS) | {"gemini-2.0-flash"}
 _DEFAULT = {"value": "default", "label": "Provider default"}
+_OPENAI_LEVELS = {
+    "gpt-6-luna": ("none", "low", "medium", "high", "xhigh", "max"),
+    "gpt-6.1-sol": ("low", "medium", "high", "xhigh", "max"),
+}
 KNOWN_MODELS = {
     "deepseek": tuple(sorted(_DEEPSEEK_MODELS)),
     "gemini": tuple(sorted(_GEMINI_SEARCH | frozenset(_GEMINI_LEVELS))),
+    "openai": tuple(_OPENAI_LEVELS),
 }
 
 
@@ -54,6 +63,11 @@ def model_capabilities(provider: str, model: str) -> dict[str, Any]:
         known = search = True
         options += [{"value": value, "label": value.capitalize()} for value in ("off", "low", "high", "max")]
         reason = "Search and Fetch use DeepSeek's API and this provider's key; calls are bounded."
+    elif provider == "openai" and model in _OPENAI_LEVELS:
+        known = search = True
+        options += [{"value": value, "label": value.capitalize()} for value in _OPENAI_LEVELS[model]]
+        reason = ("OpenAI Web Search uses this key, at most two tool calls and low search context. "
+                  "Search adds charges; cited URLs must fit the answer limit or the answer is withheld.")
     elif provider == "gemini":
         known = model in _GEMINI_LEVELS or model in _GEMINI_BUDGETS or model in _GEMINI_SEARCH
         search = model in _GEMINI_SEARCH
@@ -73,7 +87,8 @@ def model_capabilities(provider: str, model: str) -> dict[str, Any]:
         "provider": provider, "model": model, "known": known,
         "thinking_options": options, "search_supported": search,
         "search_reason": reason, "attribution_required": provider == "gemini" and search,
-        "api_version": "chat-completions" if provider == "deepseek" else "v1beta/generateContent",
+        "api_version": {"deepseek": "chat-completions", "gemini": "v1beta/generateContent",
+                        "openai": "v1/responses"}[provider],
     }
 
 
@@ -92,6 +107,8 @@ def native_thinking_parameters(provider: str, model: str, thinking: str) -> dict
     validate_model_options(provider, model, thinking, False)
     if thinking == "default":
         return {}
+    if provider == "openai":
+        return {"reasoning": {"effort": thinking}}
     if provider == "deepseek":
         if thinking == "off":
             return {"thinking": {"type": "disabled"}}

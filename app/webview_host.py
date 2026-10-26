@@ -29,7 +29,7 @@ from app.management import APPLICATION_NAME, APPLICATION_SUBTITLE, EXTERNAL_LINK
 from app.command_settings import CommandSettings
 from app.commands.registry import command_unavailable_reason
 from app.custom_commands import VARIABLES
-from app.config.ai_models import GEMINI_MODEL_PRESETS, GEMINI_PROVIDER_NAME
+from app.config.ai_models import GEMINI_MODEL_PRESETS, GEMINI_PROVIDER_NAME, AI_PROVIDERS
 from app.ai_user_blocks import normalize_ai_username, verified_user_id
 from app.config.ai_language import (
     RESPONSE_LANGUAGES, build_response_language_instruction,
@@ -1023,7 +1023,7 @@ class WebUIBridge(ApplicationManagement):
             "AI provider model settings saved",
             extra={
                 "event_kind": "settings.ai_model",
-                "event_provider": "DeepSeek" if updated.provider == "deepseek" else "Google Gemini",
+                "event_provider": AI_PROVIDERS[updated.provider],
                 "event_action": "save",
             },
         )

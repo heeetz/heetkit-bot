@@ -14,12 +14,12 @@ from app.headless_health import HealthFile, healthy
 
 @pytest.fixture(autouse=True)
 def isolated_secrets(monkeypatch):
-    for name in ("TWITCH_CLIENT_SECRET", "GEMINI_API_KEY", "DEEPSEEK_API_KEY"):
+    for name in ("TWITCH_CLIENT_SECRET", "GEMINI_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY"):
         monkeypatch.delenv(name, raising=False)
         monkeypatch.delenv(name + "_FILE", raising=False)
 
 
-@pytest.mark.parametrize("name", ["TWITCH_CLIENT_SECRET", "GEMINI_API_KEY", "DEEPSEEK_API_KEY"])
+@pytest.mark.parametrize("name", ["TWITCH_CLIENT_SECRET", "GEMINI_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY"])
 def test_secret_files_are_private_inputs_without_environment_publication(tmp_path, monkeypatch, name):
     path = tmp_path / "secret"
     path.write_text("synthetic-value\n", encoding="utf-8")

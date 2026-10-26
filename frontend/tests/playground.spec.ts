@@ -1,5 +1,23 @@
 import { expect, test } from '@playwright/test'
 
+test('OpenAI Playground displays safe usage and clickable inline attribution', async ({ page }) => {
+  await page.goto('/tests/fixture.html')
+  await page.evaluate(() => {
+    window.pywebview!.api.get_ai_playground_result = async () => ({ ok: true, status: 'success',
+      text: 'Fresh fact https://example.test/facts', generation: { provider: 'OpenAI', model: 'gpt-6-luna',
+        thinking: 'none', fallback_used: false, search_enabled: true, search_requested: true, search_used: true,
+        input_tokens: 150, output_tokens: 25 } })
+  })
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  const playground = page.locator('.ai-playground')
+  await playground.getByLabel('Playground prompt').fill('Latest synthetic fact')
+  await playground.getByRole('button', { name: 'Test prompt' }).click()
+  await expect(playground.getByRole('status')).toContainText('Provider: OpenAI')
+  await expect(playground.getByRole('status')).toContainText('Input tokens: 150')
+  await expect(playground.getByRole('status')).toContainText('Output tokens: 25')
+  await expect(playground.getByRole('link', { name: 'https://example.test/facts', exact: true })).toHaveAttribute('href', 'https://example.test/facts')
+})
+
 test('local Playground uses the prompt only and presents quota, active settings and plain text', async ({ page }) => {
   await page.goto('/tests/fixture.html')
   await page.getByRole('button', { name: 'AI', exact: true }).click()

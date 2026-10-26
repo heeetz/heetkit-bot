@@ -23,6 +23,8 @@ def apply_ai_app_settings(settings: Settings, app_settings: AppSettings) -> Sett
         overrides.update(gemini_model=ai.selected_model, gemini_fallback_model=ai.fallback_model)
     if ai.deepseek_selected_model is not None and ai.deepseek_fallback_model is not None:
         overrides.update(deepseek_model=ai.deepseek_selected_model, deepseek_fallback_model=ai.deepseek_fallback_model)
+    if ai.openai_selected_model is not None and ai.openai_fallback_model is not None:
+        overrides.update(openai_model=ai.openai_selected_model, openai_fallback_model=ai.openai_fallback_model)
     if ai.cooldown_bypass_user_id is not None:
         overrides["ai_cooldown_bypass_user_id"] = ai.cooldown_bypass_user_id
     if ai.setup is not None:

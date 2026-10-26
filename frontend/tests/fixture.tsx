@@ -74,6 +74,7 @@ const credentials = [
   { name: 'twitch_client_secret', label: 'Twitch client secret', configured, source: configured ? 'credential_store' : 'missing', secure_storage_available: true },
   { name: 'gemini_api_key', label: 'Gemini API key', configured: aiStatus.available, source: aiStatus.available ? 'credential_store' : 'missing', secure_storage_available: true },
   { name: 'deepseek_api_key', label: 'DeepSeek API key', configured: query.has('multipleProviders'), source: query.has('multipleProviders') ? 'credential_store' : 'missing', secure_storage_available: true },
+  { name: 'openai_api_key', label: 'OpenAI API key', configured: query.has('multipleProviders'), source: query.has('multipleProviders') ? 'credential_store' : 'missing', secure_storage_available: true },
 ]
 let aiSetup: AISetupSettings = JSON.parse(sessionStorage.getItem('aiSetup') ?? 'null') ?? {
   primary: { provider: 'gemini', model: 'gemini-2.5-flash', thinking: 'default', search: false },
@@ -83,7 +84,7 @@ let aiSetup: AISetupSettings = JSON.parse(sessionStorage.getItem('aiSetup') ?? '
 }
 const setupCapabilities = (provider: string, options: string[]) => ({ known: true,
   thinking_options: options.map((value) => ({ value, label: value === 'default' ? 'Provider default' : value })),
-  search_supported: true, search_reason: provider === 'gemini' ? 'Google Search Suggestions cannot be rendered in Twitch.' : 'Bounded DeepSeek Search/Fetch.',
+  search_supported: true, search_reason: provider === 'gemini' ? 'Google Search Suggestions cannot be rendered in Twitch.' : provider === 'openai' ? 'OpenAI Web Search: two calls, inline source URLs must fit.' : 'Bounded DeepSeek Search/Fetch.',
   attribution_required: provider === 'gemini',
 })
 let setupGuide = JSON.parse(sessionStorage.getItem('setupGuide') ?? '{"dismissed":false,"ai_skipped":false}')
@@ -303,9 +304,11 @@ window.pywebview = { api: {
     providers: [
       { id: 'gemini', label: 'Google Gemini', credential: query.has('environmentGeminiKey') ? { ...credentials[1], source: 'environment' } : credentials[1], models: ['gemini-2.5-flash', 'gemini-2.5-pro'], selected_model: 'gemini-2.5-flash', fallback_model: 'gemini-2.5-pro' },
       { id: 'deepseek', label: 'DeepSeek', credential: credentials[2], models: ['deepseek-flash', 'deepseek-v4-pro'], selected_model: 'deepseek-flash', fallback_model: 'deepseek-v4-pro' },
+      { id: 'openai', label: 'OpenAI', credential: credentials[3], models: ['gpt-6-luna', 'gpt-6.1-sol'], selected_model: 'gpt-6-luna', fallback_model: 'gpt-6.1-sol' },
     ],
     capabilities: { gemini: { 'gemini-2.5-flash': setupCapabilities('gemini', ['default', 'off', 'budget:24576']), 'gemini-2.5-pro': setupCapabilities('gemini', ['default', 'budget:128', 'budget:32768']) },
-      deepseek: { 'deepseek-flash': setupCapabilities('deepseek', ['default', 'off', 'low', 'high', 'max']), 'deepseek-v4-pro': setupCapabilities('deepseek', ['default', 'off', 'low', 'high', 'max']) } },
+      deepseek: { 'deepseek-flash': setupCapabilities('deepseek', ['default', 'off', 'low', 'high', 'max']), 'deepseek-v4-pro': setupCapabilities('deepseek', ['default', 'off', 'low', 'high', 'max']) },
+      openai: { 'gpt-6-luna': setupCapabilities('openai', ['default', 'none', 'low', 'medium', 'high', 'xhigh', 'max']), 'gpt-6.1-sol': setupCapabilities('openai', ['default', 'low', 'medium', 'high', 'xhigh', 'max']) } },
     default_shared_instructions: 'Synthetic shared defaults.', retained_restrictions: 'Local request and full-output checks remain enabled. Provider policies and transport limits apply.',
   }),
   save_ai_setup: async (settings: AISetupSettings) => {

@@ -4,7 +4,8 @@ from dataclasses import asdict, dataclass, field, replace
 
 from app.config.ai_models import (validate_ai_provider, validate_provider_model_id,
                                   DEFAULT_GEMINI_FALLBACK_MODEL, DEFAULT_DEEPSEEK_MODEL,
-                                  DEFAULT_DEEPSEEK_FALLBACK_MODEL)
+                                  DEFAULT_DEEPSEEK_FALLBACK_MODEL, AI_PROVIDERS,
+                                  DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL)
 
 MAX_SHARED_INSTRUCTIONS = 20000
 
@@ -70,7 +71,7 @@ def parse_ai_setup(value: object, *, capabilities: bool = True, require_consent:
         except UnicodeError:
             raise ValueError("Shared instructions must contain valid Unicode.") from None
     drafts = value.get("provider_drafts", {})
-    draft_keys = {"gemini", "deepseek", "primary:gemini", "primary:deepseek", "fallback:gemini", "fallback:deepseek"}
+    draft_keys = {key for provider in AI_PROVIDERS for key in (provider, f"primary:{provider}", f"fallback:{provider}")}
     if not isinstance(drafts, dict) or set(drafts) - draft_keys:
         raise ValueError("Invalid saved provider choices.")
     parsed_drafts = {}
@@ -89,10 +90,13 @@ def effective_ai_setup(settings) -> AISetup:
         return saved
     provider = getattr(settings, "ai_provider", "gemini")
     thinking = "off" if provider == "deepseek" else "default"
+    default_models = {"gemini": ("gemini-3.5-flash-lite", DEFAULT_GEMINI_FALLBACK_MODEL),
+                      "deepseek": (DEFAULT_DEEPSEEK_MODEL, DEFAULT_DEEPSEEK_FALLBACK_MODEL),
+                      "openai": (DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL)}
     primary = AIModelSelection(provider, getattr(settings, provider + "_model",
-        DEFAULT_DEEPSEEK_MODEL if provider == "deepseek" else "gemini-3.5-flash-lite"), thinking)
+        default_models[provider][0]), thinking)
     fallback = AIModelSelection(provider, getattr(settings, provider + "_fallback_model",
-        DEFAULT_DEEPSEEK_FALLBACK_MODEL if provider == "deepseek" else DEFAULT_GEMINI_FALLBACK_MODEL), thinking)
+        default_models[provider][1]), thinking)
     if provider == "gemini":
         from app.config.ai_capabilities import model_capabilities
         primary = replace(primary, search=model_capabilities(provider, primary.model)["search_supported"])

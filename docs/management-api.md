@@ -367,7 +367,7 @@ POST writes persist and apply immediately unless stated otherwise.
 | GET `snapshot` | Combined `status` and `ai_status` for browser polling |
 | GET `setup`, `about` | Effective non-secret setup status (including fixed management/callback URLs, `authorization_mode` and this session's `authorization_attempt`) / shared application metadata |
 | POST `twitch/settings` | `client_id`, `bot_username`, `bot_user_id`, `channel`, `channel_user_id`; save/apply after stopping the old session |
-| POST `credentials/replace` | `name` (`twitch_client_secret`, `gemini_api_key` or `deepseek_api_key`), `value`; browser-managed credentials only |
+| POST `credentials/replace` | `name` (`twitch_client_secret`, `gemini_api_key`, `deepseek_api_key` or `openai_api_key`), `value`; browser-managed credentials only |
 | POST `credentials/remove`, `credentials/test` | `name`; remove the browser value / check the effective value against its provider |
 | POST `twitch/authorization/begin` | `{}`; checks application credentials, stops the old session and returns Twitch's `url`, `expires_in` (300 seconds) |
 | POST `twitch/authorization/complete` | `callback_url`; authenticated paste completion for this session and the fixed configured redirect, returning no tokens; default local and configured HTTPS modes complete through GET `/oauth/callback` |
@@ -391,7 +391,7 @@ POST writes persist and apply immediately unless stated otherwise.
 | POST `custom-commands/delete` | `identifier` (saved command ID) |
 | GET `ai` | AI availability, enablement, memory, model and active personality |
 | POST `ai/enabled`, `ai/memory` | Boolean `enabled` |
-| GET / POST `ai/models` | GET: active `provider_id`, selected/fallback models, presets and credential status, no secret values. POST: optional `provider` (`gemini` default or `deepseek`); supply distinct `selected_model`, `fallback_model` to save that provider's choices, or omit both to switch to its retained choices |
+| GET / POST `ai/models` | GET: active `provider_id`, selected/fallback models, presets and credential status, no secret values. POST: optional `provider` (`gemini` default, `deepseek` or `openai`); supply distinct `selected_model`, `fallback_model` to save that provider's choices, or omit both to switch to its retained choices |
 | GET / POST `ai/setup` | GET: typed primary/fallback selections, connection status, documented capabilities, default shared instructions and retained restrictions. POST: `settings` containing `primary`, nullable `fallback` (each `provider`, `model`, `thinking`, `search`), `cross_provider_acknowledged`, `max_question_length` (1–4000), `max_answer_length` (1–450), nullable `shared_instructions` (empty is deliberate), and `provider_drafts`. Atomic non-secret save; credential operations remain separate. Imported cross-provider routing requires a fresh acknowledgement. After advanced setup exists, legacy `ai/models` needs both models; use this operation for provider switches. |
 | GET / POST `setup/guide` | Profile-local dismiss/resume and optional-AI skip preferences. POST requires boolean `dismissed`, `ai_skipped`; this does not configure or authorize Twitch. |
 | POST `ai/models/discover` | Optional `provider` (otherwise active); bounded discovery with that provider's configured key, returns `provider_id` and `models`. An empty list is valid; listing does not prove generation/tool access and never changes saved models |
@@ -428,7 +428,9 @@ relies on the deadline or session expiry. Cancellation holds the slot until prov
 cleanup finishes and rejects late output; shutdown revokes results and cancels work
 before provider clients close. Results stay in process memory only and are replaced
 by the next test or removed on session end. Provider error bodies, credentials, reasoning
-and tool payloads are never returned. See [AI Playground](ai-setup.md#test-locally-with-ai-playground)
+and tool payloads are never returned. OpenAI also reports its effective response model and
+bounded input/output token counts; unavailable usage is null. Search citations remain
+visible inline URLs and are clickable in the shared Playground. See [AI Playground](ai-setup.md#test-locally-with-ai-playground)
 for quota, saved/draft and attribution limits.
 
 Each trigger has `id` (1–40 ASCII letters/digits/underscore/hyphen), boolean

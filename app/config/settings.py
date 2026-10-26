@@ -14,6 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from app.config.ai_models import (
     DEFAULT_GEMINI_FALLBACK_MODEL,
     DEFAULT_DEEPSEEK_MODEL, DEFAULT_DEEPSEEK_FALLBACK_MODEL, validate_provider_model_id,
+    DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL,
 )
 from app.config.ai_language import ResponseLanguageSettings, validate_response_language
 from app.config.ai_setup import AISetup
@@ -57,10 +58,13 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None
     gemini_model: str = "gemini-3.5-flash-lite"
     gemini_fallback_model: str = DEFAULT_GEMINI_FALLBACK_MODEL
-    ai_provider: Literal["gemini", "deepseek"] = "gemini"
+    ai_provider: Literal["gemini", "deepseek", "openai"] = "gemini"
     deepseek_api_key: SecretStr | None = None
     deepseek_model: str = DEFAULT_DEEPSEEK_MODEL
     deepseek_fallback_model: str = DEFAULT_DEEPSEEK_FALLBACK_MODEL
+    openai_api_key: SecretStr | None = None
+    openai_model: str = DEFAULT_OPENAI_MODEL
+    openai_fallback_model: str = DEFAULT_OPENAI_FALLBACK_MODEL
     ai_cooldown_bypass_user_id: str | None = None
     ai_response_language: ResponseLanguageSettings = Field(default_factory=ResponseLanguageSettings)
     ai_setup: AISetup | None = None
@@ -88,6 +92,11 @@ class Settings(BaseSettings):
     def validate_deepseek_model(cls, value: str) -> str:
         # Validate the namespace without imposing a static discovery allowlist.
         return validate_provider_model_id("deepseek", value)
+
+    @field_validator("openai_model", "openai_fallback_model")
+    @classmethod
+    def validate_openai_model(cls, value: str) -> str:
+        return validate_provider_model_id("openai", value)
 
     @field_validator("ai_response_language")
     @classmethod
@@ -138,6 +147,7 @@ class EnvironmentCredentialSettings(BaseSettings):
     twitch_client_secret: SecretStr | None = None
     gemini_api_key: SecretStr | None = None
     deepseek_api_key: SecretStr | None = None
+    openai_api_key: SecretStr | None = None
 
 
 def _read_environment_secret(value: SecretStr | None) -> str | None:
@@ -163,6 +173,7 @@ def load_settings_with_credentials(
                 environment.gemini_api_key
             ),
             CredentialName.DEEPSEEK_API_KEY: _read_environment_secret(environment.deepseek_api_key),
+            CredentialName.OPENAI_API_KEY: _read_environment_secret(environment.openai_api_key),
         },
         store=credential_store,
     )

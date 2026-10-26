@@ -18,7 +18,7 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
   const [notice, setNotice] = useState('')
   const [discoveries, setDiscoveries] = useState<Partial<Record<AIProviderId, string[]>>>({})
   const [discoveryState, setDiscoveryState] = useState<Partial<Record<AIProviderId, string>>>({})
-  const generation = useRef({ gemini: 0, deepseek: 0 })
+  const generation = useRef({ gemini: 0, deepseek: 0, openai: 0 })
   const mounted = useRef(true)
   const lastFallback = useRef<AIModelSelection | null>(null)
   const dirty = Boolean(draft && saved && JSON.stringify(draft) !== JSON.stringify(saved))
@@ -26,12 +26,12 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
   useEffect(() => { onDirtyChange(dirty || instructionsDirty) }, [dirty, instructionsDirty, onDirtyChange])
   useEffect(() => {
     mounted.current = true
-    return () => { mounted.current = false; generation.current.gemini++; generation.current.deepseek++ }
+    return () => { mounted.current = false; generation.current.gemini++; generation.current.deepseek++; generation.current.openai++ }
   }, [])
   useEffect(() => {
     if (!active) {
       setKeys({})
-      generation.current.gemini++; generation.current.deepseek++
+      generation.current.gemini++; generation.current.deepseek++; generation.current.openai++
     }
   }, [active])
   const load = async (replaceDraft = false) => {

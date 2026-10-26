@@ -79,6 +79,10 @@ class AIProviderResponse:
     sources: tuple[AISource, ...] = ()
     search_used: bool = False
     attribution_required: bool = False
+    effective_model: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    inline_citations: bool = False
 
 
 class AIProvider(Protocol):

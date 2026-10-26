@@ -40,7 +40,7 @@ class HeadlessError(RuntimeError):
 def secret_file_settings() -> dict[str, str]:
     """Read only supported secret files, bounded and without environment publication."""
     values = {}
-    for name in ("TWITCH_CLIENT_SECRET", "GEMINI_API_KEY", "DEEPSEEK_API_KEY"):
+    for name in ("TWITCH_CLIENT_SECRET", "GEMINI_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY"):
         filename = os.environ.get(name + "_FILE")
         if not filename:
             continue

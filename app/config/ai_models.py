@@ -9,9 +9,11 @@ from importlib.resources import files
 
 GEMINI_MODELS_RESOURCE = "gemini_models.json"
 _MODEL_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$")
-AI_PROVIDERS = {"gemini": "Google Gemini", "deepseek": "DeepSeek"}
+AI_PROVIDERS = {"gemini": "Google Gemini", "deepseek": "DeepSeek", "openai": "OpenAI"}
 DEFAULT_DEEPSEEK_MODEL = "deepseek-flash"
 DEFAULT_DEEPSEEK_FALLBACK_MODEL = "deepseek-v4-pro"
+DEFAULT_OPENAI_MODEL = "gpt-6-luna"
+DEFAULT_OPENAI_FALLBACK_MODEL = "gpt-6.1-sol"
 
 
 def validate_ai_provider(value: object) -> str:
@@ -35,6 +37,8 @@ def validate_provider_model_id(provider: str, value: object) -> str:
         raise ValueError("Choose a DeepSeek model for DeepSeek.")
     if provider == "gemini" and model.lower().startswith("deepseek-"):
         raise ValueError("Choose a Gemini model for Gemini.")
+    if provider == "openai" and model.lower().startswith(("gemini-", "deepseek-")):
+        raise ValueError("Choose an OpenAI model for OpenAI.")
     return model
 
 

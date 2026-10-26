@@ -66,6 +66,33 @@ async def api(unused_tcp_port):
     await runtime.shutdown()
 
 
+async def test_openai_saved_setup_and_playground_use_shared_policy_and_safe_usage(api, monkeypatch):
+    from dataclasses import asdict
+    from app.config.ai_setup import AISetup, AIModelSelection
+    server, call = api
+    assert (await call("/v1/credentials/replace", {"name": "openai_api_key", "value": "PRIVATE-OPENAI-KEY"}))[0] == 200
+    setup = AISetup(AIModelSelection("openai", "gpt-6-luna", "none"))
+    assert (await call("/v1/ai/setup", {"settings": asdict(setup)}))[0] == 200
+    result = (await call("/v1/ai/setup"))[1]
+    assert result["settings"]["primary"]["provider"] == "openai"
+    assert result["capabilities"]["openai"]["gpt-6-luna"]["search_supported"]
+    async def generate(method, path, key, **kwargs):
+        assert key.get_secret_value() == "PRIVATE-OPENAI-KEY"
+        assert kwargs["json"]["reasoning"] == {"effort": "none"}
+        return 200, {"status": "completed", "model": "gpt-6-luna", "usage": {"input_tokens": 150, "output_tokens": 25},
+                     "output": [{"type": "message", "role": "assistant", "status": "completed",
+                                 "content": [{"type": "output_text", "text": "Friendly answer.", "annotations": []}]}]}
+    monkeypatch.setattr(server.runtime.application.services.ai._providers["openai"], "_http_json", generate)
+    status, started = await call("/v1/ai/playground/start", {"prompt": "Hello!"})
+    assert status == 200
+    await server.runtime.application.ai_playground.task
+    status, answer = await call("/v1/ai/playground/result", {"request_id": started["request_id"]})
+    assert status == 200 and answer["text"] == "Friendly answer."
+    assert answer["generation"]["provider"] == "OpenAI"
+    assert answer["generation"]["input_tokens"] == 150 and answer["generation"]["output_tokens"] == 25
+    assert "PRIVATE" not in json.dumps(answer)
+
+
 async def configure(call):
     assert (await call("/v1/twitch/settings", TWITCH))[0] == 200
     assert (await call("/v1/credentials/replace", {"name": "twitch_client_secret", "value": "synthetic-secret"}))[0] == 200
@@ -266,7 +293,7 @@ async def test_invalid_credentials_are_bounded_and_do_not_mutate(api, value):
     assert "line\\nbreak" not in json.dumps(result)
 
 
-@pytest.mark.parametrize("provider", ["gemini", "deepseek"])
+@pytest.mark.parametrize("provider", ["gemini", "deepseek", "openai"])
 async def test_external_secrets_cannot_be_shadowed_or_removed(api, provider):
     server, call = api
     manager = server.setup.credentials
@@ -283,48 +310,53 @@ async def test_external_secrets_cannot_be_shadowed_or_removed(api, provider):
     assert manager._store.get(name) == "dormant-browser-value"
 
 
-async def test_deepseek_backend_setup_discovery_rotation_and_removal(api, monkeypatch, caplog):
+@pytest.mark.parametrize("provider,url,model", [("deepseek", "https://api.deepseek.com/models", "deepseek-flash"),
+                                              ("openai", "https://api.openai.com/v1/models", "gpt-6-luna")])
+async def test_direct_backend_setup_discovery_rotation_and_removal(api, monkeypatch, caplog, provider, url, model):
+    credential = provider + "_api_key"
+    key_name = CredentialName(credential)
+    custom, backup = provider + "-custom", provider + "-backup"
     import httpx
     from app.config.profile_settings import apply_ai_app_settings
     server, call = api
     settings = server.runtime.application.settings
-    assert (await call("/v1/ai/models", {"provider": "deepseek"}))[0] == 200
-    assert (await call("/v1/ai/models/discover", {"provider": "deepseek"}))[0] == 400
+    assert (await call("/v1/ai/models", {"provider": provider}))[0] == 200
+    assert (await call("/v1/ai/models/discover", {"provider": provider}))[0] == 400
     for value in ("PRIVATE-FIRST-KEY", "PRIVATE-ROTATED-KEY"):
-        assert (await call("/v1/credentials/replace", {"name": "deepseek_api_key", "value": value}))[0] == 200
-        assert settings.deepseek_api_key.get_secret_value() == value
-        assert credential_manager(Settings()).effective_value(CredentialName.DEEPSEEK_API_KEY) == value
+        assert (await call("/v1/credentials/replace", {"name": credential, "value": value}))[0] == 200
+        assert getattr(settings, credential).get_secret_value() == value
+        assert credential_manager(Settings()).effective_value(key_name) == value
     async def send(client, request, **kwargs):
-        assert str(request.url) == "https://api.deepseek.com/models"
+        assert str(request.url) == url
         assert request.headers["Authorization"] == "Bearer PRIVATE-ROTATED-KEY"
-        return httpx.Response(200, request=request, json={"data": [{"id": "deepseek-flash"}]})
+        return httpx.Response(200, request=request, json={"data": [{"id": model}]})
     monkeypatch.setattr("httpx.AsyncClient.send", send)
-    assert (await call("/v1/credentials/test", {"name": "deepseek_api_key"}))[0] == 200
-    status, result = await call("/v1/ai/models/discover", {"provider": "deepseek"})
-    assert status == 200 and result == {"ok": True, "models": ["deepseek-flash"], "provider_id": "deepseek"}
-    assert (await call("/v1/ai/models", {"provider": "deepseek", "selected_model": "deepseek-custom",
-                                             "fallback_model": "deepseek-backup"}))[0] == 200
-    provider = (await call("/v1/ai/models"))[1]["settings"]
-    assert provider["provider_id"] == "deepseek" and provider["selected_model"] == "deepseek-custom"
-    assert provider["credential"]["name"] == "deepseek_api_key"
-    assert provider["credential"]["validation_status"] == "valid"
-    assert (await call("/v1/setup"))[1]["aiProvider"]["credential"] == provider["credential"]
+    assert (await call("/v1/credentials/test", {"name": credential}))[0] == 200
+    status, result = await call("/v1/ai/models/discover", {"provider": provider})
+    assert status == 200 and result == {"ok": True, "models": [model], "provider_id": provider}
+    assert (await call("/v1/ai/models", {"provider": provider, "selected_model": custom,
+                                             "fallback_model": backup}))[0] == 200
+    provider_info = (await call("/v1/ai/models"))[1]["settings"]
+    assert provider_info["provider_id"] == provider and provider_info["selected_model"] == custom
+    assert provider_info["credential"]["name"] == credential
+    assert provider_info["credential"]["validation_status"] == "valid"
+    assert (await call("/v1/setup"))[1]["aiProvider"]["credential"] == provider_info["credential"]
     async def reject(client, request, **kwargs):
         return httpx.Response(429, request=request, json={"error": {"message": "PRIVATE-KEY"}})
     monkeypatch.setattr("httpx.AsyncClient.send", reject)
-    status, error = await call("/v1/ai/models/discover", {"provider": "deepseek"})
+    status, error = await call("/v1/ai/models/discover", {"provider": provider})
     assert status == 400 and error["error_code"] == "rate_limited"
-    assert settings.deepseek_model == "deepseek-custom" and "PRIVATE" not in json.dumps(error)
+    assert getattr(settings, provider + "_model") == custom and "PRIVATE" not in json.dumps(error)
     reloaded = apply_ai_app_settings(Settings(), AppSettingsStore(RuntimePaths.default().app_settings).snapshot())
-    assert reloaded.ai_provider == "deepseek" and reloaded.deepseek_model == "deepseek-custom"
-    assert (await call("/v1/ai/models", {"provider": "deepseek", "selected_model": "gemini-wrong",
+    assert reloaded.ai_provider == provider and getattr(reloaded, provider + "_model") == custom
+    assert (await call("/v1/ai/models", {"provider": provider, "selected_model": "gemini-wrong",
                                              "fallback_model": "gemini-also-wrong"}))[0] == 400
-    assert settings.deepseek_model == "deepseek-custom"
-    assert (await call("/v1/credentials/remove", {"name": "deepseek_api_key"}))[0] == 200
-    assert settings.deepseek_api_key is None
-    assert credential_manager(Settings()).effective_value(CredentialName.DEEPSEEK_API_KEY) is None
+    assert getattr(settings, provider + "_model") == custom
+    assert (await call("/v1/credentials/remove", {"name": credential}))[0] == 200
+    assert getattr(settings, credential) is None
+    assert credential_manager(Settings()).effective_value(key_name) is None
     assert not server.runtime.application.services.ai.is_available
-    assert "PRIVATE" not in json.dumps(provider) + caplog.text
+    assert "PRIVATE" not in json.dumps(provider_info) + caplog.text
 
 
 async def test_oauth_completion_works_disabled_and_replay_is_rejected(api, twitch_provider):

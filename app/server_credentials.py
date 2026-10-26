@@ -129,7 +129,7 @@ class ServerCredentialManager(CredentialManager):
             "secure_storage_available": True, "managed": not bool(self._environment_fallbacks[name]),
             "validation_status": self.validation[name]} for name in (
                 CredentialName.TWITCH_CLIENT_SECRET, CredentialName.GEMINI_API_KEY,
-                CredentialName.DEEPSEEK_API_KEY)]
+                CredentialName.DEEPSEEK_API_KEY, CredentialName.OPENAI_API_KEY)]
 
     def check_managed(self, name: object) -> CredentialName:
         parsed = self.parse_name(name)

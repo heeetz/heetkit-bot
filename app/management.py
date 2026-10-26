@@ -12,7 +12,7 @@ from app.command_settings import CommandSettings
 from app.commands.registry import command_unavailable_reason
 from app.config.ai_language import RESPONSE_LANGUAGES, build_response_language_instruction
 from app.config.ai_models import (GEMINI_MODEL_PRESETS, AI_PROVIDERS, DEFAULT_DEEPSEEK_MODEL,
-    DEFAULT_DEEPSEEK_FALLBACK_MODEL, validate_ai_provider)
+    DEFAULT_DEEPSEEK_FALLBACK_MODEL, DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL, validate_ai_provider)
 from app.config.profile_settings import apply_ai_app_settings
 from app.config.personalities import AI_PERSONALITY_PROMPTS, build_protected_shared_instructions
 from app.container import Application
@@ -141,7 +141,7 @@ class ApplicationManagement:
         )
         application_settings = self._backend.application.settings
         effective = apply_ai_app_settings(application_settings, updated)
-        for name in ("ai_provider", "gemini_model", "gemini_fallback_model", "deepseek_model", "deepseek_fallback_model", "ai_setup"):
+        for name in ("ai_provider", "gemini_model", "gemini_fallback_model", "deepseek_model", "deepseek_fallback_model", "openai_model", "openai_fallback_model", "ai_setup"):
             setattr(application_settings, name, getattr(effective, name))
         return updated.ai
 
@@ -775,8 +775,9 @@ class ApplicationManagement:
                 "fallback_model": (setup.fallback.model if setup.fallback else "") if setup and provider is None else getattr(application.settings, selected + "_fallback_model"),
                 "fallback_provider_id": setup.fallback.provider if setup and setup.fallback and provider is None else selected,
                 "presets": ([preset.serialize() for preset in GEMINI_MODEL_PRESETS] if selected == "gemini" else [
-                    {"id": model, "label": model, "description": "DeepSeek direct API; configure thinking/search in AI setup"}
-                    for model in (DEFAULT_DEEPSEEK_MODEL, DEFAULT_DEEPSEEK_FALLBACK_MODEL)]),
+                    {"id": model, "label": model, "description": AI_PROVIDERS[selected] + " direct API; configure thinking/search in AI setup"}
+                    for model in ((DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL) if selected == "openai"
+                                  else (DEFAULT_DEEPSEEK_MODEL, DEFAULT_DEEPSEEK_FALLBACK_MODEL))]),
                 "credential": credential,
                 "discovery_proves_generation_access": False,
             },
