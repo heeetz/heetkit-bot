@@ -12,7 +12,7 @@ export default function SetupChecklist({ twitchConfigured, twitchConnected, aiCo
     void waitForBridge().then((api) => api.get_setup_guide()).then((response) => { if (current && response.ok) setPreferences(response) }).catch(() => {})
     return () => { current = false }
   }, [])
-  if (!preferences) return null
+  if (!preferences || (twitchConfigured && aiConfigured)) return null
   const complete = twitchConfigured && (aiConfigured || preferences.ai_skipped)
   const open = expanded || (!preferences.dismissed && !complete)
   const save = async (dismissed: boolean, ai_skipped: boolean) => {

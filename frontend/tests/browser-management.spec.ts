@@ -21,7 +21,7 @@ type StatusOverrides = Partial<{
   twitch_connection_state: 'stopped' | 'connecting' | 'connected' | 'reconnecting' | 'auth_required' | 'failed'
 }>
 
-async function server(page: Page, operationOverrides: OperationOverrides = {}, statusOverrides: StatusOverrides = {}) {
+async function server(page: Page, operationOverrides: OperationOverrides = {}, statusOverrides: StatusOverrides = {}, aiConfigured = true) {
   const calls: Call[] = []
   let expired = false
   let logs: LogEntry[] = []
@@ -54,14 +54,14 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     ...operationOverrides,
   }
   const status = { running: true, twitch_connected: true, twitch_connection_state: 'connected' as const, uptime_seconds: 10, channel: 'synthetic_channel', account: 'synthetic_bot', ...statusOverrides, operation }
-  const ai = () => ({ enabled, available: true, memory_enabled: false, active_personality: 'neutral', available_personalities: ['neutral'], model: 'test-model' })
+  const ai = () => ({ enabled, available: aiConfigured, memory_enabled: false, active_personality: 'neutral', available_personalities: ['neutral'], model: 'test-model' })
   const aiProvider = { provider: 'Gemini', selected_model: 'test-model', fallback_model: 'test-fallback', presets: [], credential: null }
   let aiSetup = { primary: { provider: 'gemini', model: 'gemini-2.5-flash', thinking: 'default', search: false },
     fallback: null, cross_provider_acknowledged: false, max_question_length: 300, max_answer_length: 220,
     shared_instructions: null, provider_drafts: {} }
   let setupGuide = { dismissed: false, ai_skipped: false }
   const twitch: Record<string, unknown> = { client_id: 'synthetic-client', bot_username: 'synthetic_bot', bot_user_id: '100', target_channel: 'synthetic_channel', target_channel_user_id: '200', active_channel: 'synthetic_channel', requires_restart: false, requires_reconnect: false, oauth_token_available: true, oauth_callback_url: 'http://localhost:8765/oauth/callback', authorization_status: 'verified', authorized_account: 'synthetic_bot', setup_complete: true }
-  const credentials = [{ name: 'twitch_client_secret', label: 'Twitch client secret', configured: true, source: 'environment', managed: false, validation_status: 'not_tested', secure_storage_available: false }, { name: 'gemini_api_key', label: 'Gemini API key', configured: false, source: 'missing', managed: true, validation_status: 'not_tested', secure_storage_available: false }]
+  const credentials = [{ name: 'twitch_client_secret', label: 'Twitch client secret', configured: true, source: 'environment', managed: false, validation_status: 'not_tested', secure_storage_available: false }, { name: 'gemini_api_key', label: 'Gemini API key', configured: false, source: 'missing', managed: true, validation_status: 'not_tested', secure_storage_available: false }, { name: 'deepseek_api_key', label: 'DeepSeek API key', configured: aiConfigured, source: aiConfigured ? 'server_file' : 'missing', managed: true, validation_status: 'not_tested', secure_storage_available: false }]
   await page.route('**/v1/**', async (route) => {
     const request = route.request()
     const path = new URL(request.url()).pathname
@@ -105,7 +105,7 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
       if (request.method() === 'POST') aiSetup = body!.settings as typeof aiSetup
       result = { ok: true, settings: aiSetup, providers: [
         { id: 'gemini', label: 'Google Gemini', credential: credentials[1], models: ['gemini-2.5-flash'], selected_model: 'gemini-2.5-flash', fallback_model: 'gemini-2.5-pro' },
-        { id: 'deepseek', label: 'DeepSeek', credential: { configured: true, source: 'server_file', managed: true }, models: ['deepseek-flash'], selected_model: 'deepseek-flash', fallback_model: 'deepseek-v4-pro' },
+        { id: 'deepseek', label: 'DeepSeek', credential: credentials[2], models: ['deepseek-flash'], selected_model: 'deepseek-flash', fallback_model: 'deepseek-v4-pro' },
       ], capabilities: { gemini: { 'gemini-2.5-flash': { known: true, thinking_options: [{ value: 'default', label: 'Provider default' }, { value: 'off', label: 'Off' }], search_supported: true, search_reason: 'Google Suggestions display required', attribution_required: true } },
         deepseek: { 'deepseek-flash': { known: true, thinking_options: [{ value: 'default', label: 'Provider default' }, { value: 'off', label: 'Off' }, { value: 'high', label: 'High' }], search_supported: true, search_reason: 'Bounded provider search', attribution_required: false } } },
         default_shared_instructions: 'Shared defaults', retained_restrictions: 'Local request and output checks remain enabled.' }
@@ -240,14 +240,13 @@ for (const end of ['logout', 'expiry']) {
 }
 
 for (const width of [1280, 390, 320]) {
-  test(`browser setup guide shows configured status and bounded actions at ${width}px`, async ({ page }) => {
+  test(`browser setup guide remains available without AI and has bounded actions at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 })
-    await server(page)
+    await server(page, {}, {}, false)
     await page.goto('/tests/browser.fixture.html')
     await login(page)
     const checklist = page.getByRole('article', { name: 'Setup checklist' })
-    await expect(checklist.locator('.section-heading p')).toHaveText('Twitch connected · AI configured')
-    await checklist.getByRole('button', { name: 'Resume setup guide' }).click()
+    await expect(checklist.locator('.section-heading p')).toHaveText('Twitch connected · AI optional')
     await expect(checklist).not.toContainText(/unverified|not confirmed/)
     const bounds = (await checklist.boundingBox())!
     for (const action of await checklist.getByRole('button').all()) {
@@ -259,6 +258,18 @@ for (const width of [1280, 390, 320]) {
     await page.screenshot({ path: `node_modules/.tmp/server-setup-guide-${width}.png`, fullPage: true })
     await checklist.getByRole('button', { name: 'Open AI setup' }).click()
     await expect(page.locator('#ai-models')).toBeInViewport()
+  })
+  test(`browser setup summary disappears with Twitch and an unselected configured provider at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    const api = await server(page)
+    const setupLoaded = page.waitForResponse((response) => new URL(response.url()).pathname === '/v1/setup/guide')
+    await page.goto('/tests/browser.fixture.html')
+    await login(page)
+    await setupLoaded
+    await expect(page.locator('.dashboard-card').first().getByRole('heading')).toHaveText('Connected')
+    await expect(page.getByRole('article', { name: 'Setup checklist' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Resume setup guide' })).toHaveCount(0)
+    expect(api.calls.find((call) => call.path === '/v1/setup')?.authorization).toBe(`Bearer ${sessionToken}`)
   })
 }
 

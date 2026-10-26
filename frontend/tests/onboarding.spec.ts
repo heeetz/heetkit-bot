@@ -1,14 +1,13 @@
 import { expect, test, type Page } from '@playwright/test'
 
 for (const width of [1280, 900, 390, 320]) {
-  test(`configured setup guide has clear status and aligned actions at ${width}px`, async ({ page }) => {
+  test(`incomplete setup guide has clear status and aligned actions at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 })
-    await page.goto('/tests/fixture.html?configured&aiAvailable')
+    await page.goto('/tests/fixture.html?configured')
     const checklist = page.getByRole('article', { name: 'Setup checklist' })
-    await expect(checklist.locator('.section-heading p')).toHaveText('Twitch configured · AI configured')
-    await checklist.getByRole('button', { name: 'Resume setup guide' }).click()
+    await expect(checklist.locator('.section-heading p')).toHaveText('Twitch configured · AI optional')
     await expect(checklist).not.toContainText(/unverified|not confirmed/)
-    await expect(checklist.getByRole('button', { name: 'Skip AI for now' })).toHaveCount(0)
+    await expect(checklist.getByRole('button', { name: 'Skip AI for now' })).toBeVisible()
     const steps = checklist.locator('.setup-guide-step')
     const bounds = (await checklist.boundingBox())!
     const actions = []
@@ -33,6 +32,50 @@ for (const width of [1280, 900, 390, 320]) {
     await expect(checklist.getByRole('heading')).toHaveText('Setup summary')
   })
 }
+
+for (const width of [1280, 900, 390, 320]) {
+  for (const provider of ['aiAvailable', 'multipleProviders']) {
+    test(`configured Dashboard hides the setup summary with ${provider === 'aiAvailable' ? 'Gemini' : 'only unselected DeepSeek'} at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 1000 })
+      await page.goto(`/tests/fixture.html?configured&${provider}`)
+      await expect(page.locator('.dashboard-card').first()).toContainText('Start Bot to connect.')
+      await expect(page.locator('.dashboard-hero')).toContainText('Stopped')
+      await expect(page.getByRole('article', { name: 'Setup checklist' })).toHaveCount(0)
+      await expect(page.getByRole('button', { name: 'Resume setup guide' })).toHaveCount(0)
+      if (provider === 'multipleProviders') await expect(page.locator('.dashboard-ai-card')).toContainText('AI unavailable')
+      await page.reload()
+      await expect(page.locator('.dashboard-card').first()).toContainText('Start Bot to connect.')
+      await expect(page.getByRole('article', { name: 'Setup checklist' })).toHaveCount(0)
+    })
+  }
+}
+
+test('setup summary still requires Twitch configuration and an actual AI credential', async ({ page }) => {
+  await page.goto('/tests/fixture.html?aiAvailable')
+  const checklist = page.getByRole('article', { name: 'Setup checklist' })
+  await expect(checklist).toContainText('Twitch needs configuration · AI configured')
+  await page.goto('/tests/fixture.html?configured')
+  await expect(checklist.getByRole('button', { name: 'Skip AI for now' })).toBeVisible()
+  await checklist.getByRole('button', { name: 'Skip AI for now' }).click()
+  await expect(checklist).toContainText('skipped (optional)')
+  await expect(checklist.getByRole('heading')).toHaveText('Setup summary')
+})
+
+test('setup summary follows saved provider keys when returning to Dashboard', async ({ page }) => {
+  await page.goto('/tests/fixture.html?configured&multipleProviders')
+  const checklist = page.getByRole('article', { name: 'Setup checklist' })
+  await expect(page.locator('.dashboard-card').first()).toContainText('Start Bot to connect.')
+  await expect(checklist).toHaveCount(0)
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await page.evaluate(() => window.pywebview!.api.remove_credential('deepseek_api_key'))
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
+  await expect(checklist).toContainText('AI optional')
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await page.evaluate(() => window.pywebview!.api.replace_credential('gemini_api_key', 'synthetic-key'))
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
+  await expect(page.locator('.dashboard-card').first()).toContainText('Start Bot to connect.')
+  await expect(checklist).toHaveCount(0)
+})
 
 async function openTwitchSettings(page: Page) {
   const trigger = page.locator('#twitch-settings .accordion-trigger')

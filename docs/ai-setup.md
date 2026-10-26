@@ -4,7 +4,11 @@ AI is optional. Normal Twitch commands work without it. Gemini remains the defau
 Desktop and Server share saved connections for Gemini and the direct DeepSeek API.
 Dashboard's optional setup guide can be dismissed/resumed, and AI can be skipped or
 configured before Twitch. Its summary shows saved setup and the current Twitch
-connection without treating an untested provider as a setup failure. Configured
+connection without treating an untested provider as a setup failure. The guide and
+summary disappear once Twitch settings and its client secret, plus a key for at
+least one AI provider, are configured. This includes an unselected provider and
+does not require chat to be running or connected. Skipping AI alone does not hide
+the summary. Setup remains accessible from Settings and AI. Configured
 credentials, authorization and a connected chat session are separate states; the
 guide never authorizes an account itself.
 

@@ -171,7 +171,8 @@ test('optional first-run guidance supports skip, dismiss/resume and configured s
   await checklist.getByRole('button', { name: 'Open AI setup' }).click()
   await expect(page.locator('#ai-models')).toBeInViewport()
   await page.goto('/tests/fixture.html?configured&aiAvailable')
-  await expect(checklist.getByRole('heading')).toHaveText('Setup summary')
+  await expect(page.locator('.dashboard-card').first()).toContainText('Start Bot to connect.')
+  await expect(checklist).toHaveCount(0)
 })
 
 
