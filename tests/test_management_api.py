@@ -109,7 +109,7 @@ async def test_announcements_authenticated_settings_status_and_shared_monitor(ap
     assert (await call("GET", "/v1/announcements"))[1] == {"ok": True, "announcements": []}
     raw = {"id": str(uuid4()), "name": "Community", "enabled": True, "messages": ["Join us"],
         "message_mode": "single", "interval_seconds": 60, "min_messages": 1,
-        "stream_availability": "live_only"}
+        "stream_availability": "live_only", "delivery_mode": "highlighted"}
     assert (await call("POST", "/v1/announcements", json={"announcements": [raw]}))[1]["ok"]
     row = (await call("GET", "/v1/announcements"))[1]["announcements"][0]
     assert {key: value for key, value in row.items() if key != "status"} == raw

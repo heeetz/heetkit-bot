@@ -16,7 +16,7 @@ from app.credentials import CredentialError, CredentialName
 from app.runtime_paths import RuntimePaths
 from app.server_credentials import ServerCredentialManager, ServerCredentialStore
 from app.twitch.client import (
-    CHAT_SCOPES, OAUTH_STATE_TTL_SECONDS, TwitchChatBot,
+    OAUTH_SCOPES, OAUTH_STATE_TTL_SECONDS, TwitchChatBot,
     headless_twitch_diagnostics, validate_bot_authorization,
 )
 
@@ -225,7 +225,7 @@ class ServerSetup:
             bot = self._bot()
             try:
                 state = secrets.token_urlsafe(32)
-                url = bot.http.get_authorization_url(scopes=CHAT_SCOPES, state=state,
+                url = bot.http.get_authorization_url(scopes=OAUTH_SCOPES, state=state,
                     redirect_uri=self.redirect_uri, force_verify=True)["url"]
             finally:
                 await bot.close(save_tokens=False)

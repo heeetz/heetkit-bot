@@ -139,6 +139,7 @@ export interface AnnouncementInput {
   enabled: boolean
   messages: string[]
   message_mode: 'single' | 'random'
+  delivery_mode?: 'regular' | 'highlighted'
   interval_seconds: number
   min_messages: number
   stream_availability: StreamAvailability

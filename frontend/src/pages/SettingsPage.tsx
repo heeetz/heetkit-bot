@@ -922,6 +922,10 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
                 </div>
               )}
               <div className="settings-actions">
+                {status?.twitch_connected && <button className="secondary" disabled={Boolean(busy) || twitchDraft.requires_restart} onClick={() => void openTwitchLink('twitch_authorization')}>
+                  {busy === 'external:twitch_authorization' ? 'Opening…' : 'Renew Twitch authorization'}
+                </button>}
+                {status?.twitch_connected && <HelpTip label="Renew Twitch authorization">Sign in as the configured bot account to grant updated permissions, including highlighted announcements. The account must also be a moderator or broadcaster in the target channel.</HelpTip>}
                 <button className="secondary" disabled={!twitchDirty || Boolean(busy)} onClick={() => void saveTwitch(false)}>{busy === 'twitch:save' ? 'Saving…' : 'Save for later'}</button>
                 <button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch(true)}>{busy === 'twitch:reconnect' ? 'Saving…' : twitchDraft.requires_restart ? 'Save (restart required)' : twitchDraft.running ? 'Save & reconnect' : 'Save & apply'}</button>
               </div>

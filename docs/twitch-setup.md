@@ -46,7 +46,8 @@ Application, account and channel**. Setup works in every operation mode, includi
    Add/test an optional provider key in **AI → AI setup**.
 
 Use Connect Twitch again after revocation, application/secret/account replacement
-or a failed/expired attempt; Cancel abandons an attempt. Identity/secret changes
+or a failed/expired attempt, or to grant highlighted-announcement permission;
+Cancel abandons an attempt. Identity/secret changes
 stop the old session and discard its local authorization. Change only the target
 to retain the bot authorization; HeetKit stops the old session and verifies the new
 channel before reconnecting. Server changes do not require a process restart.
@@ -78,6 +79,13 @@ Existing authorized-profile transfer is an optional advanced path: keep credenti
 OAuth state and private history separate from portable configuration ZIPs, stop the
 source instance, and use the approved [whole-profile procedure](docker.md#prepare-private-storage-and-authorization).
 The Desktop procedure below retains its existing restart and callback behavior.
+
+New Twitch consent includes `moderator:manage:announcements` for highlighted
+announcements. Existing chat tokens remain valid for Regular messages. On a connected
+Desktop session, **Settings → Twitch connection → Renew Twitch authorization** requests
+updated consent as the configured bot account. On Server use **Connect Twitch**.
+Highlighted sends also require that account to be a moderator or the broadcaster;
+OAuth consent alone does not establish that role. See [scheduled announcements](commands.md#scheduled-announcements).
 
 ## Choose the accounts and register an application
 

@@ -39,6 +39,8 @@ class TwitchConnectionError(RuntimeError):
 
 OAUTH_REDIRECT_URI = "http://localhost:4343/oauth/callback"
 CHAT_SCOPES = Scopes(["user:read:chat", "user:write:chat", "user:bot", "moderator:read:followers"])
+# New consent includes highlighted sending; existing base-chat grants remain valid.
+OAUTH_SCOPES = Scopes([*CHAT_SCOPES.selected, "moderator:manage:announcements"])
 OAUTH_STATE_TTL_SECONDS = 300.0
 
 
@@ -84,7 +86,7 @@ class DesktopOAuthAdapter(AiohttpAdapter):
     def begin_authorization(self) -> str:
         state = secrets.token_urlsafe(32)
         payload = self.client.http.get_authorization_url(
-            scopes=CHAT_SCOPES,
+            scopes=OAUTH_SCOPES,
             state=state,
             redirect_uri=OAUTH_REDIRECT_URI,
             force_verify=True,
@@ -270,7 +272,7 @@ class TwitchChatBot(commands.Bot):
             bot_id=account.user_id,
             prefix=settings.command_prefix,
             redirect_uri=OAUTH_REDIRECT_URI,
-            scopes=CHAT_SCOPES,
+            scopes=OAUTH_SCOPES,
             adapter=DesktopOAuthAdapter(host="localhost", port=4343),
         )
         if services.twitch is not None:
@@ -285,7 +287,7 @@ class TwitchChatBot(commands.Bot):
 
     def begin_authorization(self) -> str:
         state = self._services.runtime_state
-        if self._closing_requested or state is None or not state.status()[0] or state.twitch_connection_state != "auth_required":
+        if self._closing_requested or state is None or not state.status()[0] or state.twitch_connection_state not in ("auth_required", "connected"):
             raise ValueError("Twitch authorization is not currently required.")
         return self.adapter.begin_authorization()
 
@@ -366,7 +368,8 @@ class TwitchChatBot(commands.Bot):
             self._cached_tokens = {}
             await self.save_tokens()
             self._logger.info("Configured bot account OAuth authorization completed")
-            await self._subscribe_to_chat()
+            if not (self._services.twitch is not None and self._services.twitch.chat_connected):
+                await self._subscribe_to_chat()
             self._set_connection_state("connected")
             return
 

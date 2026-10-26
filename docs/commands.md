@@ -25,18 +25,19 @@ Setup steps, errors, unsaved changes and reset/delete consequences remain visibl
 ## Scheduled announcements
 
 Open **Commands → Announcements** on Desktop or the authenticated Server panel.
-Create up to 50 named schedules, enable the ones you want, then select **Save
-announcements**. **Cancel** discards the collection's drafts. An empty saved collection
-shows no editor/footer. New drafts show dimmed examples for the name and message;
-these placeholders are not saved text. Use Cancel to discard new drafts.
-Saved rows have **Delete announcement**; deletion takes effect only when saved.
-Save/Cancel remain available while a deletion is pending, including the last row.
+Create up to 50 named schedules. Saved rows show **Edit**, **Disable** (or **Enable**)
+and **Delete**, like Custom commands. Enable/Disable and confirmed deletion take
+effect immediately. **Save announcements** and **Cancel** appear only while creating
+or editing; Cancel discards that draft. An empty saved collection shows no editor/footer.
+New drafts show dimmed examples for the name and message; these placeholders are not saved text.
 
-Each schedule sends one ordinary chat message every 60–86400 seconds while chat
+Each schedule sends one message every 60–86400 seconds while chat
 is connected. Single uses one message; Random chooses one of 1–30 saved lines on
 each attempt. Each line allows up to 450 UTF-8 bytes. Text is sent literally,
-without command variables. These are ordinary chat sends, not Twitch's highlighted
-Announcement API, and share the five-second output limiter with ordinary replies.
+without command variables. **Announcement type** selects **Highlighted**
+or **Regular message**. New schedules default to Highlighted; existing schedules and
+older imported schedules retain Regular. Highlighted uses Twitch's Announcement API
+with the channel's accent color. Both types share the five-second output limiter with ordinary replies.
 Coincident schedules give never/least-recently delivered messages first use of
 that limiter; skipped or unconfirmed messages wait until their next interval.
 
@@ -46,9 +47,20 @@ stop/loss/switch cancels pending work and old senders cannot follow a new channe
 An already submitted request may still arrive at Twitch.
 
 The editor places Name and its enabled switch, **Interval (s)**, **Trigger after**,
-**Works when:** and **Message selection** beside the message on wider screens;
+**Works when:** and **Message selection** beside the message on wider screens, with
+**Announcement type** directly below **Works when:** at the same width;
 narrow screens stack these controls above the message. Help lives in the (?) controls.
-**Save announcements** and **Cancel** apply to the entire announcement collection.
+
+Highlighted sending requires the configured sending account to be the broadcaster
+or a moderator, with the `moderator:manage:announcements` OAuth permission. New
+authorization requests include this permission; old chat authorization remains usable
+for Regular messages. To add the permission, use **Settings → Twitch connection →
+Renew Twitch authorization** while connected on Desktop, or **Connect Twitch** on
+Server, and sign in as the configured bot account. Granting a scope does not grant
+moderator status. Authorization and permission failures remain visible on the row;
+there is no automatic fallback to Regular. During Twitch Shared Chat, highlighted
+announcements sent with this user authorization reach all participating channels.
+See Twitch's [Announcement API](https://dev.twitch.tv/docs/api/reference/#send-chat-announcement).
 
 **Trigger after** sets a minimum of 0–1000 eligible incoming messages, checked at
 each interval rather than triggering an immediate send. Each schedule counts accepted chat since its interval began;

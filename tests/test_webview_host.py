@@ -70,7 +70,7 @@ def test_desktop_announcements_use_shared_saved_settings_and_backend_status(tmp_
     assert bridge.get_announcements() == {"ok": True, "announcements": []}
     raw = {"id": str(uuid4()), "name": "Community", "enabled": True, "messages": ["Join us"],
         "message_mode": "single", "interval_seconds": 900, "min_messages": 2,
-        "stream_availability": "live_only"}
+        "stream_availability": "live_only", "delivery_mode": "highlighted"}
     assert bridge.save_announcements([raw]) == {"ok": True}
     result = bridge.get_announcements()["announcements"][0]
     assert {key: value for key, value in result.items() if key != "status"} == raw
@@ -566,15 +566,16 @@ def twitch_authorization_bridge(tmp_path, *, running=True, state="auth_required"
     )
 
 
-def test_twitch_authorization_opens_only_on_explicit_action(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("state", ["auth_required", "connected"])
+def test_twitch_authorization_opens_only_on_explicit_action(monkeypatch, tmp_path, state) -> None:
     opened = []
     monkeypatch.setattr(
         "app.webview_host.webbrowser.open",
         lambda url, *, new: opened.append((url, new)) or True,
     )
-    bridge = twitch_authorization_bridge(tmp_path)
+    bridge = twitch_authorization_bridge(tmp_path, state=state)
 
-    assert bridge.get_app_status()["twitch_connection_state"] == "auth_required"
+    assert bridge.get_app_status()["twitch_connection_state"] == state
     assert bridge.get_twitch_settings()["settings"]["oauth_callback_url"] == OAUTH_REDIRECT_URI
     assert opened == []
     assert bridge.open_external_link("twitch_authorization") == {"ok": True}
@@ -583,7 +584,7 @@ def test_twitch_authorization_opens_only_on_explicit_action(monkeypatch, tmp_pat
 
 @pytest.mark.parametrize("running,state", [
     (False, "stopped"), (False, "auth_required"), (True, "connecting"),
-    (True, "connected"), (True, "reconnecting"), (True, "failed"),
+    (True, "reconnecting"), (True, "failed"),
 ])
 def test_twitch_authorization_requires_a_running_auth_required_session(
     monkeypatch, tmp_path, running, state,

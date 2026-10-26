@@ -62,6 +62,57 @@ async def test_independent_send_uses_existing_sdk_user_auth_and_correlates_resul
         await client.close(save_tokens=False)
 
 
+async def test_highlighted_send_uses_sdk_user_auth_and_204_without_chat_quarantine(monkeypatch, caplog):
+    client = Client(client_id="synthetic", client_secret="synthetic", bot_id="bot")
+    post = AsyncMock(return_value=None)
+    ordinary = AsyncMock()
+    monkeypatch.setattr(client._http, "post_chat_announcement", post)
+    monkeypatch.setattr(client._http, "post_chat_message", ordinary)
+    service = TwitchAPIService(output_limiter=OutputLimiter(interval=0))
+    service.bind(client, "channel", "bot")
+    with pytest.raises(ChatSessionClosedError):
+        service.announcement_sender()
+    service.set_chat_ready(client, True)
+    try:
+        with caplog.at_level(logging.INFO):
+            assert await service.announcement_sender().reply("Highlighted announcement")
+        assert post.await_args.kwargs == {
+            "broadcaster_id": "channel", "moderator_id": "bot", "message": "Highlighted announcement",
+            "color": "primary", "token_for": "bot", "source_only": None,
+        }
+        ordinary.assert_not_awaited()
+        assert not service.chat_messages.pending and not service.chat_messages.uncertain_until
+        assert not await service.chat_messages.is_outgoing("bot", "channel", ("manual-message",))
+        outgoing = [record for record in caplog.records if getattr(record, "event_kind", None) == "chat.outgoing"]
+        assert len(outgoing) == 1 and outgoing[0].event_outcome == "confirmed_send"
+    finally:
+        await service.unbind(client)
+        await client.close(save_tokens=False)
+
+
+@pytest.mark.parametrize("transition", ["stop", "reconnect", "channel"])
+async def test_highlighted_captured_sender_never_follows_a_changed_connection(transition):
+    post = AsyncMock(return_value=None)
+    client = SimpleNamespace(create_partialuser=lambda channel: SimpleNamespace(send_announcement=post))
+    service = TwitchAPIService()
+    service.bind(client, "channel", "bot")
+    service.set_chat_ready(client, True)
+    sender = service.announcement_sender()
+    if transition == "stop":
+        service.stop_chat()
+    elif transition == "reconnect":
+        service.set_chat_ready(client, False)
+        service.set_chat_ready(client, True)
+    else:
+        service.bind(client, "new-channel", "bot")
+        service.set_chat_ready(client, True)
+    with pytest.raises(ChatSessionClosedError):
+        await sender.reply("stale highlight")
+    post.assert_not_awaited()
+    assert service.output_limiter.try_acquire()
+    await service.unbind(client)
+
+
 @pytest.mark.parametrize("result,outcome", [
     (SimpleNamespace(id="sent", sent=True), "confirmed_send"),
     (SimpleNamespace(id="dropped", sent=False), "failed_send"),

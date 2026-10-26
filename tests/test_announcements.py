@@ -1,6 +1,7 @@
 """Synthetic schedules: monotonic time, no Twitch accounts or wall-clock waits."""
 
 import asyncio
+import json
 from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -8,6 +9,7 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from twitchio.exceptions import HTTPException
 
 from app.announcements import AnnouncementScheduler, AnnouncementStore, parse_announcements
 from app.services.twitch import TwitchAPIService
@@ -18,7 +20,7 @@ from app.utils.output_limiter import OutputLimiter
 def entry(**changes):
     return {"id": str(uuid4()), "name": "Community", "enabled": True, "messages": ["Join our community"],
         "message_mode": "single", "interval_seconds": 60, "min_messages": 0,
-        "stream_availability": "anytime", **changes}
+        "stream_availability": "anytime", "delivery_mode": "regular", **changes}
 
 
 @pytest.fixture
@@ -27,7 +29,7 @@ async def rig(tmp_path):
     store = AnnouncementStore(tmp_path / "announcements.json")
     store.save([entry()])
     responder = AsyncMock(return_value=SimpleNamespace(id="sent", sent=True))
-    client = SimpleNamespace(create_partialuser=lambda channel: SimpleNamespace(send_message=responder))
+    client = SimpleNamespace(create_partialuser=lambda channel: SimpleNamespace(send_message=responder, send_announcement=responder))
     twitch = TwitchAPIService(output_limiter=OutputLimiter(interval=0, clock=lambda: now[0]))
     twitch.bind(client, "200", "100", channel_name="channel")
     state = SimpleNamespace(server_runtime=False, server_stream_status=None)
@@ -198,7 +200,8 @@ async def test_reconnect_stop_switch_and_edits_reset_interval_and_activity(rig):
     await r.twitch.unbind(client)
 
 
-async def test_inflight_cancelled_on_stop_and_no_concurrent_pileup(rig):
+@pytest.mark.parametrize("delivery_mode", ["regular", "highlighted"])
+async def test_inflight_cancelled_on_stop_and_no_concurrent_pileup(rig, delivery_mode):
     r = rig
     started, release = asyncio.Event(), asyncio.Event()
     active = maximum = 0
@@ -213,7 +216,7 @@ async def test_inflight_cancelled_on_stop_and_no_concurrent_pileup(rig):
         finally:
             active -= 1
     r.responder.side_effect = blocked
-    r.store.save([entry(), entry()])
+    r.store.save([entry(delivery_mode=delivery_mode), entry(delivery_mode=delivery_mode)])
     r.scheduler.reset()
     r.now[0] = 60
     first = asyncio.create_task(r.scheduler.tick())
@@ -246,9 +249,42 @@ async def test_delivery_outcomes_without_retry_and_preserved_history(rig, result
     assert r.scheduler.snapshot()[0]["status"]["last_outcome"] == outcome
 
 
-async def test_disabled_schedules_and_shared_limiter(rig):
+@pytest.mark.parametrize("server", [False, True])
+@pytest.mark.parametrize("error_status,outcome", [(None, "sent"), (401, "authorization_required"),
+    (403, "permission_denied"), (429, "failed"), (500, "failed")])
+async def test_highlighted_delivery_both_hosts_without_regular_fallback(rig, server, error_status, outcome, caplog):
     r = rig
-    r.save(enabled=False)
+    r.save(delivery_mode="highlighted")
+    r.state.server_runtime = server
+    r.responder.return_value = None  # Twitch's successful 204 has no result body.
+    if error_status:
+        r.responder.side_effect = HTTPException("PRIVATE provider rejection", status=error_status, extra={})
+    r.now[0] = 60
+    await r.scheduler.tick()
+    await r.scheduler.tick()
+    r.responder.assert_awaited_once_with(moderator="100", message="Join our community", color="primary", token_for="100")
+    status = r.scheduler.snapshot()[0]["status"]
+    assert status["last_outcome"] == outcome
+    assert bool(status["last_sent_at"]) is (outcome == "sent")
+    assert not r.twitch.chat_messages.pending and not r.twitch.chat_messages.uncertain_until
+    assert "PRIVATE" not in caplog.text
+
+
+def test_legacy_announcement_defaults_to_regular_and_type_survives_reload(tmp_path):
+    legacy = entry()
+    legacy.pop("delivery_mode")
+    path = tmp_path / "announcements.json"
+    path.write_text(json.dumps({"version": 1, "announcements": [legacy]}), encoding="utf-8")
+    store = AnnouncementStore(path)
+    assert store.list()[0].delivery_mode == "regular"
+    store.save([{**legacy, "delivery_mode": "highlighted"}])
+    assert AnnouncementStore(path).list()[0].delivery_mode == "highlighted"
+
+
+@pytest.mark.parametrize("delivery_mode", ["regular", "highlighted"])
+async def test_disabled_schedules_and_shared_limiter(rig, delivery_mode):
+    r = rig
+    r.save(enabled=False, delivery_mode=delivery_mode)
     r.now[0] = 100
     await r.scheduler.tick()
     r.responder.assert_not_awaited()
@@ -307,6 +343,7 @@ async def test_worker_start_is_idempotent_and_close_drains_pending_output(rig):
     {"messages": ["🙂" * 113]}, {"name": " "}, {"name": "x" * 81},
     {"message_mode": "burst"}, {"messages": ["one", "two"]},
     {"stream_availability": "unknown"}, {"unknown": "field"}, {"id": "bad"},
+    {"delivery_mode": "announcepurple"}, {"delivery_mode": None}, {"delivery_mode": True},
 ])
 def test_invalid_values_never_change_store(tmp_path, changes):
     store = AnnouncementStore(tmp_path / "announcements.json")

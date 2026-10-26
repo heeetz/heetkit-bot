@@ -25,7 +25,7 @@ from app.management_api import ManagementAPI, ManagementConfig
 from app.runtime_paths import RuntimePaths, prepare_runtime_data
 from app.server_credentials import ServerCredentialManager, ServerCredentialStore
 from app.server_setup import credential_manager
-from app.twitch.client import CHAT_SCOPES, OAUTH_REDIRECT_URI, TwitchChatBot
+from app.twitch.client import CHAT_SCOPES, OAUTH_SCOPES, OAUTH_REDIRECT_URI, TwitchChatBot
 
 
 TOKEN = "synthetic_management_token_" + "x" * 32
@@ -181,7 +181,7 @@ async def begin(call):
     assert query["redirect_uri"] == [redirect]
     assert redirect.startswith("http://localhost:") and redirect != OAUTH_REDIRECT_URI
     assert query["force_verify"] == ["true"]
-    assert set(query["scope"][0].split()) == set(CHAT_SCOPES.selected)
+    assert set(query["scope"][0].split()) == set(OAUTH_SCOPES.selected)
     return redirect + "?" + urlencode({"code": "private-code-sentinel", "state": query["state"][0]})
 
 

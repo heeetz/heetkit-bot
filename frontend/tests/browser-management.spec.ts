@@ -282,7 +282,7 @@ async function invoke(page: Page, method: string, args: unknown[] = []) {
   }, { method, args })
 }
 
-test('Server announcements save through authenticated fixed routes and retain ordinary chat scope', async ({ page }) => {
+test('Server announcements save highlighted delivery through authenticated fixed routes', async ({ page }) => {
   const api = await server(page)
   await page.goto('/tests/browser.fixture.html')
   await login(page)
@@ -297,7 +297,7 @@ test('Server announcements save through authenticated fixed routes and retain or
   const write = api.calls.find((call) => call.path === '/v1/announcements' && call.method === 'POST')
   expect(write).toMatchObject({ authorization: `Bearer ${sessionToken}`, body: { announcements: [{
     id: null, name: 'Server reminder', enabled: true, messages: ['A scheduled ordinary message.'], message_mode: 'single',
-    interval_seconds: 900, min_messages: 0, stream_availability: 'live_only',
+    delivery_mode: 'highlighted', interval_seconds: 900, min_messages: 0, stream_availability: 'live_only',
   }] } })
   expect(api.calls.filter((call) => call.path === '/v1/announcements').every((call) => call.authorization === `Bearer ${sessionToken}`)).toBe(true)
   await panel.getByRole('button', { name: 'Help: Announcement status Server reminder', exact: true }).click()

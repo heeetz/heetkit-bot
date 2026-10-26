@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from time import monotonic
 from typing import Any
@@ -16,6 +17,12 @@ from app.utils.output_limiter import OutputLimiter
 logger = logging.getLogger(__name__)
 
 CATEGORY_CACHE_TTL_SECONDS = 90.0
+
+
+@dataclass(frozen=True, slots=True)
+class _AcceptedAnnouncement:
+    # The announcement endpoint confirms success with HTTP 204, without an ID.
+    sent: bool = True
 
 
 class TwitchAPIService:
@@ -163,6 +170,27 @@ class TwitchAPIService:
         if self._client is None:
             raise ValueError("Twitch authorization is not ready. Try again after starting the bot.")
         return self._client.begin_authorization()
+
+    def announcement_sender(self) -> ChatSender:
+        """Capture highlighted output with the same limiter and session ownership.
+
+        Announcement notifications are separate from our ChatMessage subscription.
+        Their successful 204 has no message ID, so do not use ordinary message-ID
+        correlation (which would quarantine unrelated same-account chat).
+        """
+        client, channel, account = self._client, self._channel_user_id, self._token_user_id
+        session, channel_name = self._send_session, self._channel_name
+        if client is None or not session.active:
+            raise ChatSessionClosedError("Twitch chat is not connected.")
+
+        async def send(content: str) -> object:
+            await client.create_partialuser(channel).send_announcement(
+                moderator=account, message=content, color="primary", token_for=account,
+            )
+            return _AcceptedAnnouncement()
+
+        return ChatSender(send, logger, self.output_limiter, session,
+                          context={"source": "announcement", "channel": channel_name})
 
     async def get_current_category(self) -> str | None:
         """Return the live channel category, caching successful and empty lookups."""

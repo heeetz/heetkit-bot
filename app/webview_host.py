@@ -551,7 +551,7 @@ class WebUIBridge(ApplicationManagement):
             runtime_state = application.services.runtime_state
             if not runtime_state.status()[0]:
                 return {"ok": False, "error": "Start Bot before authorizing Twitch."}
-            if runtime_state.twitch_connection_state != "auth_required":
+            if runtime_state.twitch_connection_state not in ("auth_required", "connected"):
                 return {"ok": False, "error": "Twitch authorization is not currently required."}
             try:
                 application.settings.validate_twitch_configuration()

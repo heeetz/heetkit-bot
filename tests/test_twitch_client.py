@@ -44,6 +44,7 @@ def test_desktop_authorization_preserves_scopes_callback_and_consent(monkeypatch
     assert calls[0]["force_verify"] is True
     assert set(calls[0]["scopes"].selected) == {
         "user:read:chat", "user:write:chat", "user:bot", "moderator:read:followers",
+        "moderator:manage:announcements",
     }
 
 
@@ -139,7 +140,7 @@ async def test_oauth_denial_consumes_state_without_exchanging_a_token(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_bot_only_issues_state_for_a_running_authorization_required_session() -> None:
+async def test_bot_issues_state_for_running_initial_or_explicit_renewal_only() -> None:
     settings = build_settings()
     state = RuntimeState()
     bot = TwitchChatBot(
@@ -156,6 +157,8 @@ async def test_bot_only_issues_state_for_a_running_authorization_required_sessio
         assert url.scheme == "https" and url.netloc == "id.twitch.tv"
         assert parse_qs(url.query)["state"]
         state.set_twitch_connection_state("connected")
+        assert parse_qs(urlsplit(bot.begin_authorization()).query)["state"]
+        state.set_twitch_connection_state("reconnecting")
         with pytest.raises(ValueError, match="not currently required"):
             bot.begin_authorization()
     finally:
@@ -644,7 +647,8 @@ async def test_revoked_chat_authorization_is_not_reported_as_reconnecting() -> N
 
 
 @pytest.mark.asyncio
-async def test_oauth_callback_accepts_the_configured_bot_account(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("renewal", [False, True])
+async def test_oauth_callback_accepts_the_configured_bot_account(monkeypatch: pytest.MonkeyPatch, renewal) -> None:
     settings = build_settings()
     bot = TwitchChatBot(
         settings=settings,
@@ -668,12 +672,15 @@ async def test_oauth_callback_accepts_the_configured_bot_account(monkeypatch: py
     monkeypatch.setattr(bot, "add_token", add_token)
     monkeypatch.setattr(bot, "save_tokens", save_tokens)
     monkeypatch.setattr(bot, "_subscribe_to_chat", subscribe)
+    if renewal:
+        bot._services.twitch = SimpleNamespace(chat_connected=True, set_chat_ready=lambda *args: None)
 
     await bot.event_oauth_authorized(
         {"access_token": "test-access", "refresh_token": "test-refresh", "user_id": "100"}
     )
 
-    assert calls == ["add", "save", "subscribe"]
+    assert calls == (["add", "save"] if renewal else ["add", "save", "subscribe"])
+    bot._services.twitch = None
     await bot.close(save_tokens=False)
 
 

@@ -1,4 +1,4 @@
-"""Validated ordinary-chat schedules and one connection-scoped scheduler."""
+"""Validated Twitch announcements and one connection-scoped scheduler."""
 
 from __future__ import annotations
 
@@ -15,6 +15,8 @@ from threading import RLock
 from time import monotonic
 from uuid import UUID, uuid4
 
+from twitchio.exceptions import HTTPException
+
 from app.command_settings import validate_stream_availability
 from app.settings_recovery import preserve_settings_recovery
 from app.twitch.sending import ChatSessionClosedError
@@ -22,7 +24,7 @@ from app.twitch.sending import ChatSessionClosedError
 
 logger = logging.getLogger(__name__)
 FIELDS = {"id", "name", "enabled", "messages", "message_mode", "interval_seconds",
-          "min_messages", "stream_availability"}
+          "min_messages", "stream_availability", "delivery_mode"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +37,7 @@ class Announcement:
     interval_seconds: int
     min_messages: int
     stream_availability: str
+    delivery_mode: str = "regular"
 
     def to_json(self) -> dict:
         return {**asdict(self), "messages": list(self.messages)}
@@ -56,7 +59,7 @@ def parse_announcements(payload: object, *, allow_new: bool = False) -> tuple[An
         raise ValueError("Provide at most 50 announcements.")
     result, used = [], set()
     for raw in payload:
-        if not isinstance(raw, dict) or set(raw) - FIELDS or FIELDS - {"id"} - set(raw):
+        if not isinstance(raw, dict) or set(raw) - FIELDS or FIELDS - {"id", "delivery_mode"} - set(raw):
             raise ValueError("Unexpected or missing announcement fields.")
         identifier = raw.get("id")
         if identifier is None and allow_new:
@@ -81,9 +84,12 @@ def parse_announcements(payload: object, *, allow_new: bool = False) -> tuple[An
             raise ValueError("Announcement interval must be 60 to 86400 whole seconds.")
         if type(minimum) is not int or not 0 <= minimum <= 1000:
             raise ValueError("Minimum eligible messages must be an integer from 0 to 1000.")
+        delivery = raw.get("delivery_mode", "regular")
+        if delivery not in ("regular", "highlighted"):
+            raise ValueError("Announcement type must be regular or highlighted.")
         result.append(Announcement(identifier, _text(raw["name"], "Name", 80), raw["enabled"],
             tuple(_text(message, "Message", 450) for message in messages), mode, interval, minimum,
-            validate_stream_availability(raw["stream_availability"])))
+            validate_stream_availability(raw["stream_availability"]), delivery))
     return tuple(result)
 
 
@@ -240,7 +246,7 @@ class AnnouncementScheduler:
                     status.last_outcome = "skipped_stream"
                     continue
                 try:
-                    sender = self.twitch.chat_sender()
+                    sender = self.twitch.announcement_sender() if item.delivery_mode == "highlighted" else self.twitch.chat_sender()
                     self._sending_id = item.id
                     self._send = asyncio.create_task(sender.reply(self._choose(item.messages)))
                     async with asyncio.timeout(15):
@@ -254,6 +260,10 @@ class AnnouncementScheduler:
                     status.last_outcome = "cancelled"
                 except ChatSessionClosedError:
                     status.last_outcome = "cancelled"
+                except HTTPException as error:
+                    status.last_outcome = ({401: "authorization_required", 403: "permission_denied"}.get(error.status, "failed")
+                        if item.delivery_mode == "highlighted" else "failed")
+                    logger.warning("Scheduled send rejected; waiting for the next interval.")
                 except Exception:
                     status.last_outcome = "failed"
                     logger.warning("Scheduled chat send failed; waiting for the next interval.")

@@ -61,7 +61,7 @@ async def test_announcements_transfer_both_hosts_legacy_preservation_and_rollbac
     target.state.server_runtime = True
     raw = {"id": str(uuid4()), "name": "Community", "enabled": True, "messages": ["Join us", "Welcome"],
         "message_mode": "random", "interval_seconds": 900, "min_messages": 5,
-        "stream_availability": "offline_only"}
+        "stream_availability": "offline_only", "delivery_mode": "highlighted"}
     source.announcements.save([raw])
     encoded = source.export()["archive_base64"]
     payload, _, _ = unpack_configuration(encoded)
@@ -71,6 +71,12 @@ async def test_announcements_transfer_both_hosts_legacy_preservation_and_rollbac
     target.apply(encoded, preview["preview_token"], True)
     assert AnnouncementStore(target.announcements._path).list() == source.announcements.list()
     assert target.app.announcement_scheduler.snapshot()[0]["status"]["next_run_at"] is None
+    # Older archives without a delivery type remain regular, never gain moderation behavior.
+    legacy_target = profiles("legacy-announcement-server")
+    legacy_payload = {**payload, "announcements": [{key: value for key, value in raw.items() if key != "delivery_mode"}]}
+    legacy_encoded = pack_configuration(legacy_payload)
+    legacy_target.apply(legacy_encoded, legacy_target.preview(legacy_encoded)["preview_token"], True)
+    assert legacy_target.announcements.list()[0].delivery_mode == "regular"
     # A legacy archive preserves destination schedules; no misleading replacement preview.
     payload.pop("announcements")
     legacy = pack_configuration(payload)

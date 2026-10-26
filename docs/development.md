@@ -213,7 +213,15 @@ bot user token to send ordinary chat to the captured channel, without an incomin
 message, extra OAuth flow or message queue. The producer must retain that sender
 through delays; acquiring a new one later deliberately selects the current connection.
 [`AnnouncementScheduler`](../app/announcements.py) is the application-owned producer
-for saved ordinary-chat schedules on both hosts. It starts with application startup
+for saved Regular and Highlighted schedules on both hosts. Highlighted captures
+`services.twitch.announcement_sender()`, using the same session and limiter with an
+explicit managed bot user token and the channel accent color. The SDK's successful
+204 response has no message ID; the adapter marks it accepted without ordinary
+message-ID correlation or uncertainty quarantine. Announcements arrive as separate
+ChatNotification events, outside the bot's ChatMessage-only subscription. HTTP failures
+never fall back to ordinary sends. New consent includes `moderator:manage:announcements`;
+base chat grants remain valid, and Settings supports explicit permission renewal.
+It starts with application startup
 and drains on shutdown; connection changes synchronously reset its ephemeral
 deadlines/activity and cancel pending output. It owns one serial send worker and
 bounded Desktop stream polling. Server uses the existing OperationPolicy monitor,
@@ -221,6 +229,8 @@ including its expiry and unknown-state rules. Saved collections live in
 `config/announcements.json`, participate in portable replacement/rollback and use
 the existing atomic-save/recovery rules. See [announcement behavior](commands.md#scheduled-announcements)
 and [`test_announcements.py`](../tests/test_announcements.py).
+The optional `delivery_mode` field defaults to `regular` when reading old collections
+or portable archives; newly saved records always include it. Runtime outcomes remain transient.
 
 Each connection owns its in-flight sends and Burst timers. Stop, connection loss,
 authorization failure and channel replacement invalidate captured senders and cancel

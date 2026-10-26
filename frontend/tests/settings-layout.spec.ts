@@ -1,5 +1,17 @@
 import { expect, test } from '@playwright/test'
 
+test('connected Desktop can explicitly renew Twitch announcement permission', async ({ page }) => {
+  await page.goto('/tests/fixture.html?configured')
+  await page.evaluate(() => Reflect.get(window, 'setFixtureStatus')({ running: true, twitch_connected: true, twitch_connection_state: 'connected' }))
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  const twitch = page.locator('#twitch-settings')
+  await twitch.locator('.accordion-trigger').click()
+  await expect(page.getByRole('button', { name: 'Renew Twitch authorization', exact: true })).toBeVisible()
+  expect(await page.evaluate(() => Reflect.get(window, 'opened'))).toEqual([])
+  await page.getByRole('button', { name: 'Renew Twitch authorization', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, 'opened'))).toEqual(['twitch_authorization'])
+})
+
 for (const width of [1280, 390, 320]) {
   test(`desktop Settings grouping, always-visible secret draft and ordering at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
