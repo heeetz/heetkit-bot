@@ -88,10 +88,12 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def http(url, token=None, post=False):
+def http(url, token=None, post=False, trusted_origin=None):
     headers = {"Accept": "application/json", "User-Agent": "HeetKit-release-deploy"}
-    if url.startswith(LOCAL + "/"):
-        # Direct loopback checks emulate the trusted HTTPS proxy's required header.
+    if trusted_origin:
+        require(url.startswith(LOCAL + "/"), "Trusted proxy headers are only for loopback checks")
+        # Direct loopback checks emulate Tailscale Serve's trusted HTTPS request.
+        headers["Host"] = urlsplit(trusted_origin).netloc
         headers["X-Forwarded-Proto"] = "https"
     if token:
         headers["Authorization"] = "Bearer " + token
@@ -214,7 +216,7 @@ class Deployment:
         return ids[0]
 
     def api(self, path="status", post=False):
-        code, body = http(LOCAL + "/v1/" + path, self.token.read_text().strip(), post)
+        code, body = http(LOCAL + "/v1/" + path, self.token.read_text().strip(), post, self.origin)
         require(code == 200, "Authenticated management check failed")
         return json.loads(body)
 
@@ -231,7 +233,7 @@ class Deployment:
         listeners = run(["ss", "-H", "-ltn"]).decode().splitlines()
         addresses = [line.split()[3] for line in listeners if len(line.split()) >= 4 and line.split()[3].endswith(":8765")]
         require(addresses == ["127.0.0.1:8765"], "Management listener must be loopback only")
-        code, body = http(LOCAL + "/")
+        code, body = http(LOCAL + "/", trusted_origin=self.origin)
         require(code == 200 and b'id="root"' in body, "Management panel asset check failed")
 
     def check_container(self, info, image):

@@ -38,12 +38,14 @@ def test_loopback_management_http_emulates_trusted_https_proxy(monkeypatch):
     class Opener:
         def open(self, request, timeout):
             assert timeout == 10
+            assert request.get_header("Host") == "synthetic.ts.net"
             assert request.get_header("X-forwarded-proto") == "https"
             assert request.get_header("Authorization") == "Bearer synthetic-token"
             return Response()
 
     monkeypatch.setattr(deploy, "build_opener", lambda *handlers: Opener())
-    assert deploy.http(deploy.LOCAL + "/v1/status", "synthetic-token") == (200, b"{}")
+    assert deploy.http(deploy.LOCAL + "/v1/status", "synthetic-token",
+                       trusted_origin="https://synthetic.ts.net") == (200, b"{}")
 
 
 def profile_archive(tmp_path, mode="manual", corrupt=False):
@@ -211,7 +213,7 @@ class Host:
             return b"LISTEN 0 128 127.0.0.1:8765 0.0.0.0:*\n"
         raise AssertionError(args)
 
-    def http(self, url, token=None, post=False):
+    def http(self, url, token=None, post=False, trusted_origin=None):
         if url.startswith(deploy.RELEASE_API):
             return 200, json.dumps({"tag_name": "v1.4.1", "draft": self.release_draft, "published_at": self.publication,
                                     "html_url": "https://github.com/heeetz/heetkit-bot/releases/tag/v1.4.1"}).encode()
@@ -224,6 +226,7 @@ class Host:
             self.connected = True
             return 200, b'{"ok":true}'
         if url.endswith("/v1/status"):
+            assert trusted_origin == "https://synthetic.ts.net"
             self.health_calls += 1
             assert self.running
             return 200, json.dumps({"operation": {"mode": self.mode, "pending": False, "error": None},
