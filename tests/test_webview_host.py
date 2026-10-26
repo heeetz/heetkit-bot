@@ -913,6 +913,7 @@ def test_bridge_serializes_persist_and_apply_model_updates() -> None:
             else:
                 second_entered.set()
             self.ai = AISettings(
+                provider=provider,
                 selected_model=selected_model,
                 fallback_model=fallback_model,
             )
@@ -967,6 +968,7 @@ def test_bridge_serializes_persist_and_apply_model_updates() -> None:
     assert results == [{"ok": True}, {"ok": True}]
     assert store.calls == ["gemini-first", "gemini-second"]
     assert store.ai == AISettings(
+        provider="gemini",
         selected_model="gemini-second",
         fallback_model="gemini-second-fallback",
     )
