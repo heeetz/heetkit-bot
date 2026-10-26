@@ -40,7 +40,7 @@ def launcher(tmp_path):
         "@echo off\necho %* > build.txt\nexit /b %TEST_BUILD_EXIT%\n",
         encoding="utf-8",
     )
-    env = {**os.environ, "PATH": f"{tools};{os.environ['SystemRoot']}\\System32",
+    env = {**os.environ, "PATH": f"{tools};{sys.base_prefix};{os.environ['SystemRoot']}\\System32",
            "TEST_BUILD_EXIT": "0"}
     return root, env
 
