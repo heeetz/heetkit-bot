@@ -26,8 +26,11 @@ Setup steps, errors, unsaved changes and reset/delete consequences remain visibl
 
 Open **Commands → Announcements** on Desktop or the authenticated Server panel.
 Create up to 50 named schedules, enable the ones you want, then select **Save
-announcements**. **Cancel** discards the collection's drafts. Removing a row from
-the draft takes effect only when saved.
+announcements**. **Cancel** discards the collection's drafts. An empty saved collection
+shows no editor/footer. New drafts show dimmed examples for the name and message;
+these placeholders are not saved text. Use Cancel to discard new drafts.
+Saved rows have **Delete announcement**; deletion takes effect only when saved.
+Save/Cancel remain available while a deletion is pending, including the last row.
 
 Each schedule sends one ordinary chat message every 60–86400 seconds while chat
 is connected. Single uses one message; Random chooses one of 1–30 saved lines on

@@ -1,6 +1,37 @@
 import { expect, test } from '@playwright/test'
 import { selectOption } from './select-helpers'
 
+for (const width of [1280, 390, 320]) {
+  test(`empty announcements hide the entire footer and new drafts show only example placeholders at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.goto('/tests/commands.fixture.html')
+    const panel = page.locator('#announcements')
+    await expect(panel).toContainText('No announcements configured.')
+    await expect(panel.locator('.announcement-collection')).toHaveCount(0)
+    await expect(panel.getByRole('button', { name: 'Save announcements', exact: true })).toHaveCount(0)
+    await expect(panel.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0)
+    await expect(panel.getByRole('button', { name: 'Help: Saving announcements', exact: true })).toHaveCount(0)
+    await panel.screenshot({ path: `node_modules/.tmp/announcements-empty-${width}.png` })
+    await panel.getByRole('button', { name: 'New announcement', exact: true }).click()
+    await expect(panel.getByLabel('Name', { exact: true })).toHaveAttribute('placeholder', 'e.g. Community reminder')
+    await expect(panel.getByLabel('Name', { exact: true })).toHaveValue('')
+    await expect(panel.getByLabel('Announcement message', { exact: true })).toHaveAttribute('placeholder', 'e.g. Join our community: https://example.com')
+    await expect(panel.getByLabel('Announcement message', { exact: true })).toHaveValue('')
+    await expect(panel.getByRole('button', { name: 'Remove from draft', exact: true })).toHaveCount(0)
+    await expect(panel.getByRole('button', { name: 'Delete announcement', exact: true })).toHaveCount(0)
+    await expect(panel.getByRole('button', { name: 'Save announcements', exact: true })).toBeVisible()
+    await panel.screenshot({ path: `node_modules/.tmp/announcements-new-draft-${width}.png` })
+    await selectOption(panel.getByLabel('Message selection', { exact: true }), 'random')
+    await expect(panel.getByLabel('Random messages', { exact: true })).toHaveAttribute('placeholder', /community.*\nFollow/)
+    await expect(panel.getByLabel('Random messages', { exact: true })).toHaveValue('')
+    await panel.getByRole('button', { name: 'Save announcements', exact: true }).click()
+    await expect(panel.getByRole('alert')).toContainText('Use a name')
+    expect(await page.evaluate(() => Reflect.get(window, 'commandCalls'))).toEqual([])
+    await panel.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(panel.locator('.announcement-collection')).toHaveCount(0)
+  })
+}
+
 test('announcement drafts save random messages and both-host stream restrictions together', async ({ page }) => {
   await page.goto('/tests/commands.fixture.html?announcements')
   const panel = page.locator('#announcements')
@@ -35,8 +66,8 @@ test('cancel discards edits and draft removal without changing the saved collect
   const panel = page.locator('#announcements')
   await panel.getByRole('button', { name: 'Edit announcement Community', exact: true }).click()
   await panel.getByLabel('Name', { exact: true }).fill('Changed name')
-  await panel.getByRole('button', { name: 'Remove from draft', exact: true }).click()
-  await expect(panel).toContainText('No announcements configured.')
+  await panel.getByRole('button', { name: 'Delete announcement', exact: true }).click()
+  await expect(panel).toContainText('All announcements marked for deletion.')
   await panel.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(panel.getByRole('button', { name: 'Edit announcement Community', exact: true })).toBeVisible()
   await panel.getByRole('button', { name: 'New announcement', exact: true }).click()
@@ -44,6 +75,18 @@ test('cancel discards edits and draft removal without changing the saved collect
   await panel.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(panel.locator('.announcement-card')).toHaveCount(1)
   expect(await page.evaluate(() => Reflect.get(window, 'commandCalls'))).toEqual([])
+})
+
+test('deleting the last saved announcement can be committed before the empty footer disappears', async ({ page }) => {
+  await page.goto('/tests/commands.fixture.html?announcements')
+  const panel = page.locator('#announcements')
+  await panel.getByRole('button', { name: 'Edit announcement Community', exact: true }).click()
+  await panel.getByRole('button', { name: 'Delete announcement', exact: true }).click()
+  await expect(panel.getByRole('button', { name: 'Save announcements', exact: true })).toBeEnabled()
+  await panel.getByRole('button', { name: 'Save announcements', exact: true }).click()
+  await expect(panel).toContainText('No announcements configured.')
+  await expect(panel.locator('.announcement-collection')).toHaveCount(0)
+  expect(await page.evaluate(() => Reflect.get(window, 'commandCalls'))).toEqual([['save_announcements', []]])
 })
 
 test('invalid intervals and oversized UTF-8 messages remain local and show actionable errors', async ({ page }) => {

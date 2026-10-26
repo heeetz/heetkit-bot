@@ -144,8 +144,8 @@ export default function AnnouncementsPanel({ active }: { active: boolean }) {
     {loadError && <p className="inline-error" role="alert">{loadError}</p>}
     {notice && <p role="status">{notice}</p>}
     {saved === null ? <p className="muted">Loading announcements…</p> : <>
-      {drafts.length === 0 && <p className="muted">No announcements configured.</p>}
-      <div className="announcement-collection">
+      {drafts.length === 0 && <p className="muted">{dirty ? 'All announcements marked for deletion.' : 'No announcements configured.'}</p>}
+      {(drafts.length > 0 || dirty) && <div className="announcement-collection">
       <div className="command-list">{drafts.map((draft, index) => {
         const status = saved.find((item) => item.id === draft.id)?.status
         const prefix = `announcement-${draft.key}`
@@ -170,7 +170,7 @@ export default function AnnouncementsPanel({ active }: { active: boolean }) {
           {expanded[draft.key] && <fieldset disabled={busy} id={`${prefix}-editor`} className="announcement-editor" aria-label="Announcement settings">
             <div className="announcement-controls">
               <div className="announcement-name-row">
-                <label className="form-field" htmlFor={`${prefix}-name`}>Name<input id={`${prefix}-name`} maxLength={80} value={draft.name} onChange={(event) => update(draft.key, { name: event.target.value })} /></label>
+                <label className="form-field" htmlFor={`${prefix}-name`}>Name<input id={`${prefix}-name`} placeholder="e.g. Community reminder" maxLength={80} value={draft.name} onChange={(event) => update(draft.key, { name: event.target.value })} /></label>
                 <Switch className="announcement-enable" checked={draft.enabled} ariaLabel="Enable announcement" onCheckedChange={(enabled) => update(draft.key, { enabled })}>{null}</Switch>
               </div>
               <div className="form-field"><div className="custom-field-label"><label htmlFor={`${prefix}-interval`}>Interval (s)</label><HelpTip label="Announcement interval">Choose 60 to 86400 seconds. Startup, reconnect, channel changes and saved edits restart the full interval. Missed checks never create a catch-up backlog.</HelpTip></div>
@@ -183,9 +183,9 @@ export default function AnnouncementsPanel({ active }: { active: boolean }) {
                 <Select id={`${prefix}-mode`} aria-label="Message selection" value={draft.mode} onChange={(mode) => update(draft.key, { mode: mode as Draft['mode'] })} options={[{ value: 'single', label: 'Single message' }, { value: 'random', label: 'Random message' }]} /></div>
             </div>
             <div className="form-field announcement-message">
-              <textarea id={`${prefix}-message`} aria-label={draft.mode === 'random' ? 'Random messages' : 'Announcement message'} rows={draft.mode === 'random' ? 5 : 3} value={draft.mode === 'random' ? draft.randomMessages : draft.message} onChange={(event) => update(draft.key, draft.mode === 'random' ? { randomMessages: event.target.value } : { message: event.target.value })} />
+              <textarea id={`${prefix}-message`} aria-label={draft.mode === 'random' ? 'Random messages' : 'Announcement message'} placeholder={draft.mode === 'random' ? 'Join our community: https://example.com\nFollow for updates and the next stream!' : 'e.g. Join our community: https://example.com'} rows={draft.mode === 'random' ? 5 : 3} value={draft.mode === 'random' ? draft.randomMessages : draft.message} onChange={(event) => update(draft.key, draft.mode === 'random' ? { randomMessages: event.target.value } : { message: event.target.value })} />
             </div>
-            <div className="announcement-remove"><button className="ghost destructive" onClick={() => { setDrafts((current) => current.filter((item) => item.key !== draft.key)); setNotice('') }}>Remove from draft</button></div>
+            {draft.id && <div className="announcement-remove"><button className="ghost destructive" onClick={() => { setDrafts((current) => current.filter((item) => item.key !== draft.key)); setNotice('') }}>Delete announcement</button></div>}
           </fieldset>}
         </article>
       })}</div>
@@ -195,7 +195,7 @@ export default function AnnouncementsPanel({ active }: { active: boolean }) {
         <button className="primary" disabled={busy || !dirty} onClick={() => void save()}>Save announcements</button>
         <button className="secondary" disabled={busy || !dirty} onClick={() => { setDrafts(JSON.parse(baseline.current) as Draft[]); setError(''); setNotice(''); setExpanded({}) }}>Cancel</button>
       </div>
-      </div>
+      </div>}
     </>}
   </section>
 }
