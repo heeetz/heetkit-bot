@@ -300,8 +300,10 @@ class Deployment:
                 {"type": "volume", "source": "profile", "target": "/var/lib/heetkit"}.items()) and
                 not bot["volumes"][0].get("read_only"),
                 "Expected the existing profile mount only")
-        mounted = {item["source"]: item.get("target", item["source"]) for item in bot["secrets"]}
-        require(mounted == {name: name for name in ("twitch_client_secret", "gemini_api_key", "management_token")},
+        mounted = {item["source"]: item.get("target", "/run/secrets/" + item["source"])
+                   for item in bot["secrets"]}
+        require(mounted == {name: "/run/secrets/" + name for name in
+                            ("twitch_client_secret", "gemini_api_key", "management_token")},
                 "Expected the existing external secret mounts")
         self.secrets = {name: Path(model["secrets"][name]["file"]) for name in mounted}
         require(all(path.is_absolute() and path.is_file() and not path.is_symlink() for path in self.secrets.values()),
