@@ -112,12 +112,12 @@ def http(url, token=None, post=False, trusted_origin=None):
         raise DeployError("HTTP verification unavailable") from None
 
 
-def run(args, *, cwd=None, output=None, timeout=60):
+def run(args, *, cwd=None, output=None, stderr_output=None, timeout=60):
     environment = {key: value for key, value in os.environ.items()
                    if not key.startswith(("HEETKIT_", "COMPOSE_"))}
     try:
         result = subprocess.run([str(arg) for arg in args], cwd=cwd, env=environment,
-                                stdout=output or subprocess.PIPE, stderr=subprocess.PIPE,
+                                stdout=output or subprocess.PIPE, stderr=stderr_output or subprocess.PIPE,
                                 timeout=timeout, check=True)
         return result.stdout or b""
     except (OSError, subprocess.SubprocessError):
@@ -134,6 +134,27 @@ def archive_members(archive):
                 "Archive contains unsafe or duplicate entries")
         names.add(str(path))
     return members
+
+
+def extract_source(archive, source):
+    """Make only validated public source readable by the image's non-root user.
+
+    The data filter deliberately drops directory modes, so extraction under our
+    private umask otherwise creates mode-700 package directories. Do not walk the
+    attempt tree: Git metadata, backups, profiles and secrets must stay private.
+    """
+    members = archive_members(archive)
+    archive.extractall(source, members=members, filter="data")
+    directories = {source}
+    for member in members:
+        target = source.joinpath(*PurePosixPath(member.name).parts)
+        if member.isfile():
+            target.chmod(0o755 if member.mode & 0o100 else 0o644)
+        else:
+            directories.add(target)
+        directories.update(parent for parent in target.parents if parent == source or source in parent.parents)
+    for directory in directories:
+        directory.chmod(0o755)
 
 
 def verify_backup(path):
@@ -369,8 +390,7 @@ class Deployment:
         with archive_path.open("wb") as output:
             run(["git", "-C", source, "archive", self.sha], output=output)
         with tarfile.open(archive_path) as archive:
-            archive_members(archive)
-            archive.extractall(source, filter="data")
+            extract_source(archive, source)
         module = ast.parse((source / "app/version.py").read_text())
         version = next(ast.literal_eval(node.value) for node in module.body if isinstance(node, ast.Assign) and
                        any(isinstance(target, ast.Name) and target.id == "VERSION" for target in node.targets))
@@ -455,6 +475,29 @@ class Deployment:
         self.check_container(self.inspect(self.container(previous)), self.old_image)
         return "previous_image_process_stopped"
 
+    def preserve_candidate_diagnostics(self):
+        """Capture before recreation destroys the failed container; never print logs."""
+        directory = self.attempt / "startup-diagnostics"
+        directory.mkdir(mode=0o700)
+        result = {"state": "unavailable", "logs": "unavailable"}
+        try:
+            container = self.container(self.attempt / "candidate.compose.json")
+            info = self.inspect(container)
+            require(info["Image"] == self.image, "Candidate diagnostics image mismatch")
+            write_json(directory / "container-state.json", {
+                "container": container, "image": info["Image"],
+                "state": info["State"], "restart_count": info["RestartCount"],
+            })
+            result["state"] = "captured"
+            with (directory / "container.log").open("wb") as output:
+                (directory / "container.log").chmod(0o600)
+                run(["docker", "logs", "--timestamps", "--tail", "200", container],
+                    output=output, stderr_output=output, timeout=30)
+            result["logs"] = "captured"
+        except (Exception, KeyboardInterrupt):
+            pass  # Missing/partial diagnostics must never prevent recovery.
+        self.record["startup_diagnostics"] = result
+
     def execute(self):
         self.attempt = self.state / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8])
         self.attempt.mkdir(mode=0o700)
@@ -496,6 +539,11 @@ class Deployment:
                       interruption_ended=datetime.now(timezone.utc).isoformat())
         except (Exception, KeyboardInterrupt) as error:
             rollback = "not_needed"
+            if self.cutover:
+                try:
+                    self.preserve_candidate_diagnostics()
+                except (Exception, KeyboardInterrupt):
+                    self.record["startup_diagnostics"] = {"state": "unavailable", "logs": "unavailable"}
             if self.stopping:
                 try:
                     rollback = self.recover()

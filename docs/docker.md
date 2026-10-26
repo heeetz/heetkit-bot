@@ -295,8 +295,11 @@ bash /absolute/checked-helper/scripts/deploy_release.sh \
 The helper checks disk space on both state and Docker storage and available memory,
 then builds natively while the original service remains available. Adjust thresholds
 upward for the actual profile/build size; defaults are minimum headroom checks, not a
-capacity guarantee. Builds have a 30-minute bound. Public source retains Git modes;
-private umask 077 does not make image sources unreadable by UID 10001. A verified
+capacity guarantee. Builds have a 30-minute bound. After safe archive extraction,
+only archived public source directories are set to 755 and files to 644 (755 for
+Git executables). This repairs the data filter's discarded directory modes under
+umask 077 so UID 10001 can traverse Python packages. The attempt parent, Git metadata,
+backups and private inputs retain restrictive permissions. A verified
 already-running exact SHA/image is a no-op. Preparation failures leave the original
 service alone.
 
@@ -335,8 +338,12 @@ them. No pruning is automatic.
 Each attempt's `deployment.json` records tag/SHA, source release URL, old/new image IDs,
 backup checksum, before/after policy, interruption timestamps and deployment/rollback
 outcome. `profile-manifest.json`, `profile.tar.gz.sha256`, `inputs/manifest.json`, and
-the previous/candidate Compose snapshots hold recovery evidence. Commands and raw
-HTTP/provider/profile data are not logged. A nonzero exit never claims deployment or
+the previous/candidate Compose snapshots hold recovery evidence. On failed cutover,
+`startup-diagnostics/` captures candidate state and the last 200 timestamped log lines
+from stdout/stderr before rollback can replace the container. These mode-600 files
+remain inside private host state: logs may contain private runtime data and must not
+be uploaded or printed. Diagnostic failures are recorded and do not block recovery.
+Commands and raw HTTP/provider/profile responses are not logged. A nonzero exit never claims deployment or
 rollback success; inspect that private record. Process loss or an interrupted SSH
 session requires inspecting the lock, record and actual container before retrying.
 

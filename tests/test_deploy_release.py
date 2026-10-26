@@ -3,8 +3,10 @@
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import sqlite3
+import stat
 import subprocess
 import tarfile
 from types import SimpleNamespace
@@ -132,7 +134,7 @@ class Host:
                 [{"Source": str(path), "Destination": "/run/secrets/" + name, "RW": False} for name, path in self.secret_paths.items()],
                 "HostConfig": {"PortBindings": {}, "NetworkMode": "host", "ReadonlyRootfs": True}}
 
-    def run(self, args, *, cwd=None, output=None, timeout=60):
+    def run(self, args, *, cwd=None, output=None, stderr_output=None, timeout=60):
         args = [str(arg) for arg in args]
         self.calls.append(args)
         def encoded(value):
@@ -165,6 +167,12 @@ class Host:
             raise AssertionError(args)
         if args[:2] == ["docker", "inspect"]:
             return encoded([self.info()])
+        if args[:2] == ["docker", "logs"]:
+            self.events.append("diagnostics")
+            assert self.current == NEW and args[-1] == NEW
+            output.write(b"synthetic startup stdout\n")
+            stderr_output.write(b"synthetic private startup stderr\n")
+            return b""
         if args[:2] == ["docker", "ps"]:
             assert "--no-trunc" in args
             return (self.current if self.running else "").encode()
@@ -474,6 +482,61 @@ def test_exited_candidate_can_roll_back_without_clean_candidate_exit(host, monke
         host.execute()
     assert host.current == OLD and host.running
     assert host.record()["rollback"] == "healthy_previous_image_current_profile"
+    diagnostics = host.deployment.attempt / "startup-diagnostics"
+    state = json.loads((diagnostics / "container-state.json").read_text())
+    assert state["image"] == NEW_IMAGE and state["state"]["ExitCode"] == 1
+    assert (diagnostics / "container.log").read_bytes() == b"synthetic startup stdout\nsynthetic private startup stderr\n"
+    assert host.events.index("diagnostics") < host.events.index("rollback")
+    assert host.record()["startup_diagnostics"] == {"state": "captured", "logs": "captured"}
+
+
+def test_diagnostic_failure_does_not_prevent_rollback(host, monkeypatch):
+    host.fail = "health"
+    original = host.run
+    def run(args, **kwargs):
+        if args[:2] == ["docker", "logs"]:
+            raise deploy.DeployError("safe diagnostic failure")
+        return original(args, **kwargs)
+    monkeypatch.setattr(deploy, "run", run)
+    with pytest.raises(deploy.DeployError):
+        host.execute()
+    assert host.current == OLD and host.running
+    assert host.record()["startup_diagnostics"] == {"state": "captured", "logs": "unavailable"}
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX umask and directory traversal permissions")
+def test_source_extraction_under_private_umask_preserves_only_public_modes(tmp_path):
+    previous = os.umask(0o077)
+    try:
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / ".git").mkdir()
+        private = tmp_path / "inputs"
+        private.mkdir()
+        secret = private / "secret"
+        secret.write_text("synthetic secret")
+        payload = io.BytesIO()
+        with tarfile.open(fileobj=payload, mode="w") as archive:
+            directory = tarfile.TarInfo("app/config")
+            directory.type, directory.mode = tarfile.DIRTYPE, 0o775
+            archive.addfile(directory)
+            for name, mode in (("app/config/models.py", 0o664), ("scripts/start.sh", 0o775)):
+                member = tarfile.TarInfo(name)
+                member.mode, member.size = mode, 4
+                archive.addfile(member, io.BytesIO(b"test"))
+        payload.seek(0)
+        with tarfile.open(fileobj=payload) as archive:
+            deploy.extract_source(archive, source)
+        for path in (source, source / "app", source / "app/config", source / "scripts"):
+            assert stat.S_IMODE(path.stat().st_mode) == 0o755
+        assert stat.S_IMODE((source / "app/config/models.py").stat().st_mode) == 0o644
+        assert stat.S_IMODE((source / "scripts/start.sh").stat().st_mode) == 0o755
+        assert stat.S_IMODE(private.stat().st_mode) == 0o700
+        assert stat.S_IMODE((source / ".git").stat().st_mode) == 0o700
+        assert stat.S_IMODE(secret.stat().st_mode) == 0o600
+        assert os.umask(0o077) == 0o077
+    finally:
+        os.umask(previous)
 
 
 def test_stopped_partial_recreate_rollback_stays_stopped(host):
