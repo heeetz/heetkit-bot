@@ -21,6 +21,31 @@ OLD_IMAGE, NEW_IMAGE = ("sha256:" + value * 64 for value in ("1", "2"))
 OLD, NEW = "b" * 64, "c" * 64
 
 
+def test_loopback_management_http_emulates_trusted_https_proxy(monkeypatch):
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, limit):
+            assert limit == 2 * 1024 * 1024 + 1
+            return b"{}"
+
+    class Opener:
+        def open(self, request, timeout):
+            assert timeout == 10
+            assert request.get_header("X-forwarded-proto") == "https"
+            assert request.get_header("Authorization") == "Bearer synthetic-token"
+            return Response()
+
+    monkeypatch.setattr(deploy, "build_opener", lambda *handlers: Opener())
+    assert deploy.http(deploy.LOCAL + "/v1/status", "synthetic-token") == (200, b"{}")
+
+
 def profile_archive(tmp_path, mode="manual", corrupt=False):
     profile = tmp_path / "synthetic-profile"
     (profile / "config").mkdir(parents=True)

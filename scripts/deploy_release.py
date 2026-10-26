@@ -90,6 +90,9 @@ class NoRedirect(HTTPRedirectHandler):
 
 def http(url, token=None, post=False):
     headers = {"Accept": "application/json", "User-Agent": "HeetKit-release-deploy"}
+    if url.startswith(LOCAL + "/"):
+        # Direct loopback checks emulate the trusted HTTPS proxy's required header.
+        headers["X-Forwarded-Proto"] = "https"
     if token:
         headers["Authorization"] = "Bearer " + token
     if post:
