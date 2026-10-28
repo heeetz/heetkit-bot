@@ -234,3 +234,29 @@ async def test_session_failure_metadata_respects_opt_out(sandbox):
     await turns()
     await s.ingress('!yt 3', 'private')
     assert not s.sent and s.outcomes('private') == []
+
+
+async def test_failed_candidate_does_not_cancel_pending_send_or_create_quarantine(sandbox):
+    s = sandbox
+    entered, release = asyncio.Event(), asyncio.Event()
+    async def pending(_):
+        entered.set()
+        await release.wait()
+        return NS(id='confirmed-pending', sent=True)
+    first = asyncio.create_task(s.bot.event_message(s.event('!single', 'pending', '300', pending)))
+    await entered.wait()
+    manual = asyncio.create_task(s.bot.event_message(s.event('!tg', 'manual')))
+    await turns()
+    candidate = Websocket(client=s.bot, token_for='100', http=s.bot._http)
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    session.ws_connect.side_effect = OSError('Synthetic failed candidate')
+    with patch('twitchio.eventsub.websockets.aiohttp.ClientSession', return_value=session):
+        with pytest.raises(WebsocketConnectionException):
+            await candidate.connect(url='wss://synthetic.invalid', fail_once=True)
+    await turns()
+    assert not first.done() and not manual.done()
+    release.set()
+    await asyncio.gather(first, manual)
+    assert 'confirmed_send' in s.outcomes('pending') and 'confirmed_send' in s.outcomes('manual')
+    assert not s.twitch.chat_messages.uncertain_until
