@@ -165,6 +165,10 @@ use `data/heetkit.db`; Twitch authorization uses `auth/twitchio_tokens.json`.
   Filter rejection is visible without rejected text or input context, subject to
   the same storage opt-out and privacy-check suppression as other request events.
   These events stay in the operator feed; Headless stderr remains lifecycle-only.
+  Failed command outcomes include the exception class and a fixed operation stage
+  (for example, `ChatSessionClosedError` at `send_session`); transport failures carry
+  their class at `transport_send`. Exception messages, tracebacks and provider
+  payloads are excluded, and opted-out requests retain diagnostic suppression.
 - AI blocks, connection presets, optional cooldown-exception IDs and private text in
   settings/recovery copies are operator-managed configuration, with no automatic
   90/180-day expiry. Review them separately when handling a privacy request.

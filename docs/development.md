@@ -239,6 +239,12 @@ connection creates a new send session. Late command/AI results and captured inde
 senders cannot follow it to the recovered connection or a different channel. Stop takes
 effect before the runtime yields, including against late ready events. An HTTP request
 already in flight may have reached Twitch; cancellation cannot retract that message.
+Once a socket has welcomed the active connection, close events from other session
+IDs or unwelcomed reconnect candidates do not invalidate its senders. The SDK can
+emit a close event for a candidate whose connection failed before it acquired an ID.
+Actual active-socket loss still invalidates captured work until recovery welcomes a
+new session. This distinction applies equally to built-in and custom Single/Burst
+commands; see [`test_command_lifecycle.py`](../tests/test_command_lifecycle.py).
 
 All Twitch sends pass through the same adapter ID correlation implementation.
 TwitchIO `respond()` returns `SentMessage.id`/`sent`; EventSub provides `id` and shared

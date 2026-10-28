@@ -84,7 +84,8 @@ class ChatSender:
             try:
                 result = await self._responder(content)
             except BaseException as error:
-                operator_event(self._logger, "chat.outgoing", send_error_outcome(error), text=content)
+                operator_event(self._logger, "chat.outgoing", send_error_outcome(error), text=content,
+                               error_type=type(error).__name__, stage="transport_send")
                 raise
             message_id = getattr(result, "id", None)
             operator_event(self._logger, "chat.outgoing", send_outcome(result),

@@ -539,7 +539,12 @@ class TwitchChatBot(commands.Bot):
         ):
             return
         socket_id = getattr(getattr(payload, "socket", None), "session_id", None)
-        if socket_id is not None and socket_id != self._active_socket_id:
+        # Failed SDK reconnect candidates also emit close, without ever receiving
+        # a welcome/session ID. They do not own the current sending connection.
+        if self._active_socket_id is not None and socket_id != self._active_socket_id:
+            operator_event(self._logger, "twitch.socket", "close_ignored", inherit_context=False,
+                           reason="unwelcomed_socket" if socket_id is None else "superseded_socket",
+                           stage="connection_lifecycle", source="lifecycle")
             return
         self._set_connection_state("reconnecting")
         self._logger.warning(

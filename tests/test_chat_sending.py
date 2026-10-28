@@ -139,6 +139,9 @@ async def test_independent_send_preserves_delivery_results_and_safe_activity(res
     assert outgoing[0].event_source == "announcement"
     assert outgoing[0].event_channel == "channelname"
     assert outgoing[0].event_response_id and outgoing[0].event_request_id
+    if isinstance(result, Exception):
+        assert outgoing[0].event_error_type == type(result).__name__
+        assert outgoing[0].event_stage == "transport_send"
     assert "PRIVATE" not in caplog.text
     assert not service.chat_messages.pending
     assert bool(service.chat_messages.uncertain_until) is (

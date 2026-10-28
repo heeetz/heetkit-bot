@@ -31,7 +31,7 @@ EVENT_CONTEXT_ATTRIBUTES = {
         "request_id", "event_id", "response_id", "input_message_id", "message_id",
         "command_id", "invoked_name", "source", "outcome", "reason",
         "requested_provider", "requested_model", "attempt", "fallback",
-        "input_tokens", "output_tokens", "total_tokens",
+        "input_tokens", "output_tokens", "total_tokens", "error_type", "stage",
     )},
 }
 EventContextValue = str | int | float | bool
@@ -182,7 +182,7 @@ ACTIVITY_EVENTS = {
     "command.input", "command.invoke", "command.outcome", "command.complete", "command.cooldown",
     "chat.send", "chat.outgoing", "ai.request_start", "ai.request_finish",
     "ai.fallback", "ai.failure", "ai.result", "ai_user_blocked",
-    "chat.correlation", "chat.filtered",
+    "chat.correlation", "chat.filtered", "twitch.socket",
 }
 CORRELATION_CONTEXT_FIELDS = {
     "event_id", "source", "outcome", "reason", "remaining_seconds", "drop_count", "pending_count",

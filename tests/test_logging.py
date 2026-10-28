@@ -216,3 +216,15 @@ def test_diagnostic_feed_does_not_expand_headless_console_policy():
                    reason="send_timeout", remaining_seconds=600)
     operator_event(logger, "chat.filtered", "filters", text="PRIVATE")
     assert stream.getvalue() == ""
+
+
+def test_error_type_and_stage_are_projected_without_exception_prose():
+    from app.utils.logging import event_metadata
+    buffer = RecentLogBuffer()
+    handler = OperatorActivityHandler(buffer)
+    emit(handler, "PRIVATE exception details", **event_metadata("command.outcome", outcome="handler_failed",
+         error_type="ChatSessionClosedError", stage="send_session"), event_exception="PRIVATE payload")
+    entry = buffer.activity()["entries"][0]
+    assert entry["context"]["error_type"] == "ChatSessionClosedError"
+    assert entry["context"]["stage"] == "send_session"
+    assert "PRIVATE" not in str(entry)

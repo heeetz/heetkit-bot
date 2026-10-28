@@ -19,7 +19,7 @@ from app.utils.cooldown import CooldownManager, CooldownPolicy
 from app.utils.output_limiter import OutputLimiter
 from app.utils.text import normalize_command_name, parse_command
 from app.utils.logging import event_metadata, operator_event, operator_event_scope
-from app.twitch.sending import ChatSender
+from app.twitch.sending import ChatSender, ChatSessionClosedError
 
 
 CommandHandler = Callable[["CommandContext", str], Awaitable[None]]
@@ -516,5 +516,8 @@ class CommandDispatcher:
             return True
         except Exception as error:
             self._logger.error("Command dispatch failed: %s", type(error).__name__,
-                               extra=event_metadata("command.outcome", outcome="handler_failed"))
+                               extra=event_metadata("command.outcome", outcome="handler_failed",
+                                                    error_type=type(error).__name__,
+                                                    stage="send_session" if isinstance(error, ChatSessionClosedError)
+                                                    else "dispatch_handler"))
             return True
