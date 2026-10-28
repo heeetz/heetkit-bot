@@ -180,3 +180,39 @@ def test_panel_text_is_not_rendered_to_lifecycle_streams():
     handler.addFilter(HeadlessLogFilter())
     operator_event(logger, "chat.outgoing", "confirmed_send", text="PRIVATE REPLY")
     assert "chat.outgoing" not in stream.getvalue()
+
+
+def test_correlation_projection_strips_personal_context_and_rejected_text():
+    from app.utils.logging import event_metadata, operator_event_scope
+    buffer = RecentLogBuffer()
+    handler = OperatorActivityHandler(buffer)
+    with operator_event_scope(username="PRIVATE", request_id="PRIVATE", command="PRIVATE"):
+        clean = event_metadata("chat.correlation", inherit_context=False,
+                               outcome="input_paused", reason="send_timeout", remaining_seconds=600)
+        assert "PRIVATE" not in str(clean)
+        # Projection also refuses accidentally attached personal metadata.
+        emit(handler, "PRIVATE prose", **event_metadata("chat.correlation", outcome="input_dropped",
+            reason="quarantine", remaining_seconds=590, drop_count=3), event_text="PRIVATE input")
+        emit(handler, "PRIVATE prose", **event_metadata("chat.filtered", inherit_context=False,
+            outcome="filters", reason="content_filter"), event_text="PRIVATE rejected text")
+    entries = buffer.activity()["entries"]
+    assert [e["event_kind"] for e in entries] == ["chat.correlation", "chat.filtered"]
+    assert "PRIVATE" not in str(entries)
+    assert entries[0]["context"]["drop_count"] == 3
+    assert entries[0]["context"]["remaining_seconds"] == 590
+    assert all(e["text"] is None for e in entries)
+
+
+def test_diagnostic_feed_does_not_expand_headless_console_policy():
+    from app.headless import HeadlessLogFilter
+    from app.utils.logging import operator_event
+    from io import StringIO
+    stream = StringIO()
+    logger = logging.Logger("app.headless.chat", logging.INFO)
+    handler = logging.StreamHandler(stream)
+    handler.addFilter(HeadlessLogFilter())
+    logger.addHandler(handler)
+    operator_event(logger, "chat.correlation", "input_paused", inherit_context=False,
+                   reason="send_timeout", remaining_seconds=600)
+    operator_event(logger, "chat.filtered", "filters", text="PRIVATE")
+    assert stream.getvalue() == ""

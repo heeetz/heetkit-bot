@@ -20,6 +20,9 @@ EVENT_CONTEXT_ATTRIBUTES = {
     "event_channel": "channel",
     "event_retry_after_seconds": "retry_after_seconds",
     "event_duration_seconds": "duration_seconds",
+    "event_remaining_seconds": "remaining_seconds",
+    "event_drop_count": "drop_count",
+    "event_pending_count": "pending_count",
     "event_model": "model",
     "event_provider": "provider",
     "event_setting": "setting",
@@ -48,8 +51,8 @@ def operator_event_scope(**context):
         _operator_context.reset(token)
 
 
-def event_metadata(kind: str, **context) -> dict:
-    values = {**_operator_context.get(), **context, "event_id": uuid4().hex}
+def event_metadata(kind: str, *, inherit_context: bool = True, **context) -> dict:
+    values = {**(_operator_context.get() if inherit_context else {}), **context, "event_id": uuid4().hex}
     return {"event_kind": kind, **{
         f"event_{key}": _bounded_text(value, 512) if isinstance(value, str) else value
         for key, value in values.items()
@@ -179,6 +182,10 @@ ACTIVITY_EVENTS = {
     "command.input", "command.invoke", "command.outcome", "command.complete", "command.cooldown",
     "chat.send", "chat.outgoing", "ai.request_start", "ai.request_finish",
     "ai.fallback", "ai.failure", "ai.result", "ai_user_blocked",
+    "chat.correlation", "chat.filtered",
+}
+CORRELATION_CONTEXT_FIELDS = {
+    "event_id", "source", "outcome", "reason", "remaining_seconds", "drop_count", "pending_count",
 }
 
 
@@ -192,6 +199,8 @@ def project_activity(entry: dict) -> dict | None:
         return None
     context = {key: value for key, value in entry["context"].items()
                if key in EVENT_CONTEXT_ATTRIBUTES.values()}
+    if kind == "chat.correlation":
+        context = {key: value for key, value in context.items() if key in CORRELATION_CONTEXT_FIELDS}
     return {**entry, "context": context,
             "message": f"{kind} outcome={context.get('outcome', 'unknown')}",
             "text": entry.get("text") if kind in {"command.input", "chat.outgoing"} else None}

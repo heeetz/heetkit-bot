@@ -548,6 +548,28 @@ async def test_authenticated_activity_matches_desktop_without_raw_prose(api):
 
 
 @pytest.mark.asyncio
+async def test_authenticated_correlation_and_filter_projection_is_sanitized(api):
+    server, call = api
+    handler = OperatorActivityHandler(server.log_buffer)
+    for kind, outcome, reason in [("chat.correlation", "input_paused", "send_timeout"),
+                                  ("chat.correlation", "input_dropped", "quarantine"),
+                                  ("chat.correlation", "input_resumed", "quarantine_expired"),
+                                  ("chat.filtered", "filters", "content_filter")]:
+        record = logging.LogRecord("app.headless.chat", logging.INFO, "", 0, "PRIVATE prose", (), None)
+        for key, value in event_metadata(kind, inherit_context=False, outcome=outcome,
+                                         reason=reason, remaining_seconds=0, drop_count=2).items():
+            setattr(record, key, value)
+        record.event_text = "PRIVATE rejected text"
+        handler.emit(record)
+    assert (await call("POST", "/v1/logs/recent", headers={"Authorization": ""}, json={}))[0] == 401
+    status, body, headers = await call("POST", "/v1/logs/recent", json={})
+    assert status == 200 and headers["Cache-Control"] == "no-store"
+    assert len(body["entries"]) == 4
+    assert "PRIVATE" not in json.dumps(body)
+    assert all(e["text"] is None for e in body["entries"])
+
+
+@pytest.mark.asyncio
 async def test_partial_connections_headers_and_operation_deadlines_are_bounded(api, monkeypatch):
     server, call = api
     monkeypatch.setattr("app.management_api.CONNECTION_SECONDS", 0.1)

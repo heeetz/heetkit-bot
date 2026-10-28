@@ -12,6 +12,9 @@ from app.utils.logging import event_metadata
 # A fixed UTF-8 byte bound as well as the cache count/TTL. Twitch IDs are much
 # shorter; oversized/untrusted IDs cannot grow retained correlation state.
 MAX_CORRELATION_ID_BYTES = 256
+DECISION_LOG_INTERVAL_SECONDS = 5.0
+
+logger = logging.getLogger("app.headless.chat")
 
 
 def _valid_id(value):
@@ -33,6 +36,66 @@ class ChatMessageCorrelation:
         self.seen = OrderedDict()
         self.pending = {}
         self.uncertain_until = {}
+        self._expiry_timers = {}
+        self._paused_drops = {}
+        self._decisions = OrderedDict()
+
+    def _event(self, outcome, reason, **context):
+        # Correlation runs before ingress privacy checks. Never inherit the
+        # sending request's personal metadata, including in timer callbacks.
+        logger.info("Twitch input correlation outcome=%s reason=%s", outcome, reason,
+                    extra=event_metadata("chat.correlation", inherit_context=False,
+                                         source="correlation", outcome=outcome, reason=reason, **context))
+
+    def _decision(self, key, outcome, reason, **context):
+        notice_key = (key, outcome, reason)
+        now = self.clock()
+        last_report, count = self._decisions.pop(notice_key, (None, 0))
+        count += 1
+        report = last_report is None or now - last_report >= DECISION_LOG_INTERVAL_SECONDS
+        self._decisions[notice_key] = (now if report else last_report, count)
+        while len(self._decisions) > self.limit:
+            self._decisions.popitem(last=False)
+        if report:
+            self._event(outcome, reason, **context,
+                        **({"drop_count": count} if outcome == "input_dropped" else {}))
+
+    def _finish_pause(self, key, reason):
+        self.uncertain_until.pop(key, None)
+        timer = self._expiry_timers.pop(key, None)
+        if timer is not None:
+            timer.cancel()
+        dropped = self._paused_drops.pop(key, 0)
+        self._decisions.pop((key, "input_dropped", "quarantine"), None)
+        self._event("input_resumed", reason, remaining_seconds=0.0, drop_count=dropped)
+
+    def _expire_pause(self, key):
+        deadline = self.uncertain_until.get(key)
+        if deadline is None:
+            return
+        remaining = deadline - self.clock()
+        if remaining <= 0:
+            self._finish_pause(key, "quarantine_expired")
+        else:
+            self._expiry_timers[key] = asyncio.get_running_loop().call_later(
+                remaining, self._expire_pause, key)
+
+    def _pause(self, key, reason):
+        if key in self.uncertain_until and self.uncertain_until[key] <= self.clock():
+            self._finish_pause(key, "quarantine_expired")
+        self.uncertain_until[key] = self.clock() + self.ttl
+        self._paused_drops.setdefault(key, 0)
+        timer = self._expiry_timers.pop(key, None)
+        if timer is not None:
+            timer.cancel()
+        # The callback retains privacy suppression from the initiating request;
+        # only its explicit operational fields can enter activity projection.
+        self._expiry_timers[key] = asyncio.get_running_loop().call_later(
+            max(0.0, self.ttl), self._expire_pause, key)
+        self._event("input_paused", reason, remaining_seconds=max(0.0, self.ttl),
+                    drop_count=self._paused_drops[key])
+        while len(self.uncertain_until) > self.limit:
+            self._finish_pause(next(iter(self.uncertain_until)), "tracking_evicted")
 
     def _prune(self, cache):
         now = self.clock()
@@ -50,6 +113,7 @@ class ChatMessageCorrelation:
             return True
         key = (account, channel, message_id)
         if key in self.seen:
+            self._decision((account, channel), "input_dropped", "replay")
             return False
         self._remember(self.seen, key)
         return True
@@ -66,6 +130,7 @@ class ChatMessageCorrelation:
         done = asyncio.get_running_loop().create_future()
         pending.add(done)
         certain = False
+        uncertainty_reason = "missing_send_result"
         try:
             async with asyncio.timeout(self.send_timeout):
                 result = await responder(content)
@@ -76,23 +141,22 @@ class ChatMessageCorrelation:
             elif getattr(result, "sent", None) is False:
                 certain = True  # Explicit rejection cannot produce an echo.
             return result
+        except asyncio.CancelledError:
+            uncertainty_reason = "send_cancelled"
+            raise
         except Exception as error:
             # A definitive API rejection did not publish a message. Network
             # failures/timeouts, by contrast, can lose a successful result.
             if send_error_outcome(error) == "failed_send":
                 certain = True
+            uncertainty_reason = "send_timeout" if isinstance(error, TimeoutError) else "send_error"
             raise
         finally:
             if not certain:
                 # A lost HTTP result may still have delivered chat. Without an ID
                 # there is no safe way to classify that account's next event.
                 # Quarantine bounded uncertainty rather than match content.
-                self.uncertain_until[key] = self.clock() + self.ttl
-                logging.getLogger("app.headless.chat").warning(
-                    "Twitch response correlation uncertain; same-account input paused for up to %s seconds", self.ttl,
-                    extra=event_metadata("chat.correlation", outcome="input_paused", duration_seconds=self.ttl))
-                while len(self.uncertain_until) > self.limit:
-                    self.uncertain_until.pop(next(iter(self.uncertain_until)))
+                self._pause(key, uncertainty_reason)
             pending.remove(done)
             if not pending:
                 self.pending.pop(key, None)
@@ -102,11 +166,19 @@ class ChatMessageCorrelation:
         key = (account, channel)
         pending = tuple(self.pending.get(key, ()))
         if pending:
+            self._decision(key, "input_waiting", "pending_send", pending_count=len(pending))
             # Shield send completion from an event task's cancellation.
             await asyncio.gather(*(asyncio.shield(done) for done in pending))
         self._prune(self.outgoing)
         if self.uncertain_until.get(key, 0) > self.clock():
+            self._paused_drops[key] = self._paused_drops.get(key, 0) + 1
+            self._decision(key, "input_dropped", "quarantine",
+                           remaining_seconds=round(max(0.0, self.uncertain_until[key] - self.clock()), 2))
             return True
-        self.uncertain_until.pop(key, None)
-        return any((*key, message_id) in self.outgoing for message_id in message_ids
-                   if isinstance(message_id, str) and message_id)
+        if key in self.uncertain_until:
+            self._finish_pause(key, "quarantine_expired")
+        outgoing = any((*key, message_id) in self.outgoing for message_id in message_ids
+                       if isinstance(message_id, str) and message_id)
+        if outgoing:
+            self._decision(key, "input_dropped", "outgoing_message_id")
+        return outgoing

@@ -215,7 +215,7 @@ class ReplyingDispatcher:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("opted_out,filtered", [(False, False), (True, False), (False, True)])
+@pytest.mark.parametrize("opted_out,filtered", [(False, False), (True, False), (False, True), (True, True)])
 async def test_activity_captures_commands_and_replies_but_not_ordinary_chat(opted_out, filtered):
     from app.commands.registry import CommandRegistry
     from app.utils.cooldown import CooldownManager, CooldownPolicy
@@ -235,13 +235,97 @@ async def test_activity_captures_commands_and_replies_but_not_ordinary_chat(opte
         await process_twitch_message(FakeTwitchMessage(content), services, dispatcher, logger)
     entries = buffer.activity()["entries"]
     assert "ordinary chat sentinel" not in str(buffer.recent())
-    if opted_out or filtered:
+    if opted_out:
         assert entries == []
+    elif filtered:
+        assert len(entries) == 3
+        assert all(entry["event_kind"] == "chat.filtered" and entry["text"] is None for entry in entries)
+        assert all(set(entry["context"]) == {"event_id", "source", "outcome", "reason"} for entry in entries)
     else:
         assert users.seen_user_ids == ["viewer-id"] * 3
         assert [entry["text"] for entry in entries if entry["text"] is not None] == ["!ping", "@viewer Pong <literal>", "!ping"]
         cooldown = next(entry for entry in entries if entry["context"].get("outcome") == "cooldown")
         assert cooldown["context"]["retry_after_seconds"] > 0
+
+
+@pytest.mark.asyncio
+async def test_filter_diagnostic_stays_suppressed_when_privacy_lookup_fails():
+    from app.commands.registry import CommandRegistry
+    from app.utils.cooldown import CooldownManager
+    from app.utils.logging import RecentLogBuffer, OperatorActivityHandler
+    users = RecordingUserRepository()
+    users.is_storage_opted_out = AsyncMock(side_effect=OSError("PRIVATE storage fault"))
+    services = SimpleNamespace(users=users, filter_manager=SimpleNamespace(filter_message=lambda _: False))
+    buffer = RecentLogBuffer()
+    logger = logging.Logger("tests.filtered.privacy", logging.INFO)
+    logger.addHandler(OperatorActivityHandler(buffer))
+    dispatcher = CommandDispatcher(CommandRegistry(), CooldownManager(), logger, "!")
+    await process_twitch_message(FakeTwitchMessage("!PRIVATE rejected text"), services, dispatcher, logger)
+    assert buffer.activity()["entries"] == []
+    assert users.seen_user_ids == []
+
+
+@pytest.mark.asyncio
+async def test_real_ingress_exposes_wait_and_quarantine_without_dispatching_dropped_input(tmp_path, caplog):
+    from app.commands.fun import register_fun_commands
+    from app.commands.registry import CommandRegistry
+    from app.fun_settings import FunSettingsStore
+    from app.services.twitch import TwitchAPIService
+    from app.utils.cooldown import CooldownManager
+    from app.utils.logging import RecentLogBuffer, OperatorActivityHandler
+    caplog.set_level(logging.INFO)
+    buffer = RecentLogBuffer()
+    handler = OperatorActivityHandler(buffer)
+    logging.getLogger().addHandler(handler)
+    logger = logging.getLogger("tests.ingress.correlation")
+    settings = build_settings()
+    users = RecordingUserRepository()
+    users.is_storage_opted_out = AsyncMock(return_value=False)
+    services = SimpleNamespace(users=users, filter_manager=AllowingFilterManager(), settings=settings,
+                               twitch=TwitchAPIService(), runtime_state=None)
+    registry = CommandRegistry()
+    register_fun_commands(registry, FunSettingsStore(tmp_path / "fun.json"))
+    dispatcher = CommandDispatcher(registry, CooldownManager(), logger, "!",
+                                   output_limiter=services.twitch.output_limiter)
+    bot = TwitchChatBot(settings, settings.primary_account, services, dispatcher, logger)
+    services.twitch.set_chat_ready(bot, True)
+    entered, release = asyncio.Event(), asyncio.Event()
+    async def lost(_):
+        entered.set()
+        await release.wait()
+        raise OSError("PRIVATE lost result")
+    first = FakeTwitchMessage("!tg")
+    first.id, first.respond = "first", lost
+    manual = FakeTwitchMessage("!tg")
+    manual.id, manual.chatter.id = "manual", settings.twitch_bot_user_id
+    control = FakeTwitchMessage("!tg")
+    control.id = "control"
+    task = waiting = None
+    try:
+        task = asyncio.create_task(bot.event_message(first))
+        await entered.wait()
+        waiting = asyncio.create_task(bot.event_message(manual))
+        for _ in range(8):
+            await asyncio.sleep(0)
+        assert not waiting.done()
+        await bot.event_message(control)
+        assert len(control.responses) == 1
+        release.set()
+        await asyncio.gather(task, waiting)
+        assert manual.responses == []
+        assert settings.twitch_bot_user_id not in users.seen_user_ids
+        entries = buffer.activity()["entries"]
+        assert not any(e["event_kind"] == "command.input" and e["context"].get("input_message_id") == "manual" for e in entries)
+        diagnostics = [e for e in entries if e["event_kind"] == "chat.correlation"]
+        assert [e["context"]["outcome"] for e in diagnostics] == ["input_waiting", "input_paused", "input_dropped"]
+        assert diagnostics[-1]["context"]["remaining_seconds"] > 590
+        assert not any("username" in e["context"] or "input_message_id" in e["context"] for e in diagnostics)
+        assert "PRIVATE" not in str(entries)
+    finally:
+        release.set()
+        await asyncio.gather(*(t for t in (task, waiting) if t is not None), return_exceptions=True)
+        await bot.close(save_tokens=False)
+        logging.getLogger().removeHandler(handler)
 
 
 def build_settings() -> Settings:

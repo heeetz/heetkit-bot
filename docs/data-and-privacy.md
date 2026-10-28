@@ -157,6 +157,14 @@ use `data/heetkit.db`; Twitch authorization uses `auth/twitchio_tokens.json`.
   delivery: sends report confirmed, failed or uncertain. Only a transport-confirmed
   AI reply can be saved as a delivered memory exchange. Missing results, timeouts or
   network failures can leave delivery uncertain; definitive API/SDK rejections fail.
+  Correlation diagnostics show pending-send waits, replay/echo/quarantine drops and
+  remaining pause time without viewer names, chat text, Twitch IDs or inherited
+  request context. Repeated wait/drop decisions are limited to one event per reason and
+  account/channel every five seconds; quarantine expiry reports the total drops
+  even without new chat. Another uncertain send can extend the existing pause.
+  Filter rejection is visible without rejected text or input context, subject to
+  the same storage opt-out and privacy-check suppression as other request events.
+  These events stay in the operator feed; Headless stderr remains lifecycle-only.
 - AI blocks, connection presets, optional cooldown-exception IDs and private text in
   settings/recovery copies are operator-managed configuration, with no automatic
   90/180-day expiry. Review them separately when handling a privacy request.

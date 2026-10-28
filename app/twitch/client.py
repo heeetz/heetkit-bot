@@ -199,12 +199,8 @@ async def _process_incoming_message(
 
     # Check if message should be filtered out
     if not services.filter_manager.filter_message(incoming.content):
-        logger.info(
-            "Filtered out message user=%s channel=%s",
-            incoming.author.username,
-            incoming.channel,
-            extra=event_metadata("chat.filtered", outcome="filters"),
-        )
+        operator_event(logger, "chat.filtered", "filters", inherit_context=False,
+                       source="filter", reason="content_filter")
         return
 
     # Decide before recording request content; ignored AI input must stay out of
