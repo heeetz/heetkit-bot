@@ -16,7 +16,8 @@ def apply_twitch_app_settings(settings: Settings, app_settings: AppSettings) -> 
 
 def apply_ai_app_settings(settings: Settings, app_settings: AppSettings) -> Settings:
     ai = app_settings.ai
-    overrides = {"ai_response_language": ai.response_language, "ai_setup": ai.setup}
+    overrides = {"ai_response_language": ai.response_language, "ai_setup": ai.setup,
+                 "ai_history_max_entries": ai.history_max_entries, "ai_context_max_entries": ai.context_max_entries}
     if ai.provider is not None:
         overrides["ai_provider"] = ai.provider
     if ai.selected_model is not None and ai.fallback_model is not None:

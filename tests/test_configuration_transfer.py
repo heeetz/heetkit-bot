@@ -411,7 +411,7 @@ async def test_hostile_archives_are_rejected_without_writes(profiles, kind):
 
 
 @pytest.mark.parametrize("change", ["permission_floor", "primary_collision", "primary_custom_alias", "primary_duplicate_alias",
-    "primary_empty", "primary_invalid", "primary_case", "collision", "custom_collision", "invalid_template",
+    "primary_empty", "primary_invalid", "primary_case", "collision", "custom_collision", "privacy_collision", "invalid_template",
     "unknown_field", "invalid_bool", "invalid_language", "invalid_models", "bad_regex", "unknown_personality",
     "duplicate_personality", "duplicate_block", "invalid_id", "duplicate_trigger"])
 async def test_domain_security_and_regression_validation(profiles, change):
@@ -436,6 +436,8 @@ async def test_domain_security_and_regression_validation(profiles, change):
         payload["commands"]["fate"]["aliases"] = ["ask"]
     elif change == "custom_collision":
         payload["custom_commands"][0]["name"] = "fate"
+    elif change == "privacy_collision":
+        payload["custom_commands"][0]["aliases"] = ["optout"]
     elif change == "invalid_template":
         payload["custom_commands"][0]["responses"] = ["{__import__}"]
     elif change == "unknown_field":

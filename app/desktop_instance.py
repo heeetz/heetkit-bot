@@ -21,13 +21,13 @@ ALREADY_RUNNING_MESSAGE = (
 
 
 @contextmanager
-def desktop_instance_guard(settings_path: Path, *, legacy_identity: bool = False) -> Iterator[None]:
+def desktop_instance_guard(settings_path: Path, *, legacy_identity: bool = False, database: bool = False) -> Iterator[None]:
     """Keep one normal desktop process per resolved local settings path."""
     if sys.platform == "win32":
         with _windows_mutex(settings_path, legacy_identity=legacy_identity):
             yield
     else:
-        with _posix_file_lock(settings_path):
+        with _posix_file_lock(settings_path, database=database):
             yield
 
 
@@ -59,13 +59,17 @@ def _windows_mutex(settings_path: Path, *, legacy_identity: bool = False) -> Ite
 
 
 @contextmanager
-def _posix_file_lock(settings_path: Path) -> Iterator[None]:
+def _posix_file_lock(settings_path: Path, *, database: bool = False) -> Iterator[None]:
     import fcntl
 
     # Keep the file; closing the descriptor releases the lock even after a crash.
     directory = settings_path.resolve().parent
     directory.mkdir(parents=True, exist_ok=True)
-    lock_path = directory / ".desktop-instance.lock"
+    # Keep the existing profile lock compatible with older binaries. A database
+    # may live beside settings (DATABASE_URL), and must not collide with our own
+    # profile guard or another database in that directory.
+    identity = hashlib.sha256(str(settings_path.resolve()).encode("utf-8")).hexdigest()[:32]
+    lock_path = directory / (f".database-{identity}.lock" if database else ".desktop-instance.lock")
     descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
         try:

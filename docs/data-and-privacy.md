@@ -14,13 +14,24 @@ chat history or profile uploads. If the developer operates a bot instance, they 
 the operator of that instance. Information you voluntarily send in an issue or
 support request is separate; never attach a private profile or unredacted logs.
 
-The bot uses Twitch account IDs, usernames and first/last-seen times for chat
-features such as last-seen lookup and recent-viewer replies. Successful, delivered
-AI questions and answers are saved locally when conversation memory is on. That
-history expires after **90 days**; only the **five most recent unexpired exchanges
-per viewer** are sent as context to the selected AI provider. Viewer records expire **180 days after
-their last recorded activity**. These are maximum application retention windows,
-not permission to retain data that is no longer needed.
+The bot keeps two distinct personal collections in one database per profile, scoped
+by Twitch's stable channel ID and viewer ID. Presence stores the current login and
+first/last observation for `!seen` and recent-viewer replies; ordinary chat text is
+not archived. First observed means membership in this retained bot database, not
+Twitch's first-ever chatter designation. Successful, delivered AI questions and
+answers have their own timestamps and are saved when conversation memory is on.
+Each AI exchange expires **60 days after creation**, or sooner under the stored-count
+cap. Presence expires **60 days after last observed activity**; active metadata can
+outlive its original creation date. These are maximum windows, not permission to
+retain data that is no longer needed.
+
+The defaults are the last **100 stored exchanges (N)** and **5 model-context exchanges
+(M)** per viewer/channel. Valid limits are N = 1–500 and M = 1–50, with M no greater
+than N. Writes, startup and saved limit changes enforce the count cap; retrieval
+never expands it. Limits are backend settings in `config/app_settings.json` under
+`ai.history_max_entries` and `ai.context_max_entries`; stop the application before
+manual edits. Invalid limits stop startup. There are no count controls in the panel
+yet. The memory toggle still stops subsequent memory reads/writes.
 
 Expiry uses UTC elapsed time. Expired records are excluded from lookups immediately;
 physical database cleanup runs at application startup and hourly while the application
@@ -32,16 +43,21 @@ projection does not expose raw diagnostics or retention-cleanup failures. Backup
 require separate operator handling. Deletion is logical removal, not a promise of forensic
 erasure from disks, journals or provider systems.
 
-AI prompts, instructions and optional context go to Google; bot replies go to the
-Twitch channel. A storage opt-out deletes that viewer's local activity and AI history
-and prevents future writes to both database collections, including after a rename
-or restart. It retains only their Twitch ID as a suppression record until the
+AI prompts, instructions and optional context go to the selected provider; bot replies
+go to Twitch. Type `!optout` (using the operator's configured prefix) to disable local
+storage for your authenticated Twitch account. Extra text never selects another person.
+The request runs before normal command restrictions, filters and cooldowns, and
+deletes your presence and AI history across all channels in that profile. It prevents
+future identifying writes, including pending AI results and renamed accounts.
+It retains only your Twitch ID as a suppression record until the
 verified viewer withdraws the opt-out or the operator retires the profile. It does
-not disable chat commands, Twitch processing or fresh Gemini requests. Ask the
+not disable chat commands, Twitch processing or fresh AI provider requests. Ask the
 operator to also use **AI → AI access** if you want your `!ask` requests ignored.
 Opted-out requests are excluded from HeetKit's session log buffer and configured
-console handlers; necessary transient command state is described below.
-Local requests cannot delete Twitch's chat or Google's copies.
+console handlers, including later diagnostics from requests already in progress;
+earlier logs need operator handling. Access blocks/notes and other safety configuration
+remain in place. Necessary transient command state is described below.
+Local requests cannot delete Twitch's chat or provider copies.
 
 Operators should publish their identity and contact route beside this notice,
 explain their lawful basis and provider use to their community, and resolve the
@@ -107,9 +123,11 @@ use `data/heetkit.db`; Twitch authorization uses `auth/twitchio_tokens.json`.
   uses private staging files (0600) and an owner-only auth directory (0700) on Linux;
   Windows relies on the private directory's inherited ACLs. This provides access
   control, not encryption at rest. Protect the host, volume and backups separately.
-- The local database contains Twitch user IDs, usernames, first/last-seen timestamps,
+- The local database contains channel IDs, Twitch user IDs, usernames, first/last-seen timestamps,
   successful AI exchanges when memory is enabled, and minimal storage opt-out IDs.
-  `users`, `ai_memory_entries` and `privacy_opt_outs` are separate tables.
+  `users`, `ai_memory_entries` and `privacy_opt_outs` are separate tables; the latter
+  is profile-wide and exempt from age/count expiry. Schema/migration metadata records
+  the database version, explicit legacy mapping and aggregate exclusion counts.
 - Blocked AI users are saved as normalized logins and, when available, verified
   Twitch account IDs in this profile's `config/ai_user_blocks.json`.
 - Settings, personality prompts, profile instructions, custom replies, filters and
@@ -122,7 +140,7 @@ use `data/heetkit.db`; Twitch authorization uses `auth/twitchio_tokens.json`.
   raw exception prose and rejected AI output are excluded. Reply text is the exact
   attempted send, including any mention, with confirmed/failed/uncertain delivery
   shown separately. Text over 4 KiB is explicitly marked as a truncated excerpt.
-  The feed is separate from 90-day AI memory and does not add database copies.
+  The feed is separate from 60-day AI memory and does not add database copies.
   Desktop source launches also write console diagnostics; Headless stderr/Docker logs
   retain their separate lifecycle-only policy. Captured console/service/container
   logs need their own access and retention policy. HeetKit creates no application
@@ -171,7 +189,8 @@ use `data/heetkit.db`; Twitch authorization uses `auth/twitchio_tokens.json`.
   payloads are excluded, and opted-out requests retain diagnostic suppression.
 - AI blocks, connection presets, optional cooldown-exception IDs and private text in
   settings/recovery copies are operator-managed configuration, with no automatic
-  90/180-day expiry. Review them separately when handling a privacy request.
+  60-day expiry. Credentials and settings are not removed by personal-data cleanup.
+  Review them separately when handling a privacy request.
 
 Desktop can use intentional process environment credential fallbacks; stored keyring
 values take priority. Headless uses nonempty private environment or `_FILE` inputs
@@ -185,8 +204,9 @@ cannot be overwritten through the browser. HeetKit does not load `.env` files. S
 Twitch AI requests send the chatter's prompt, protected shared instructions, profile
 instructions and the selected personality prompt to the selected provider (Google
 Gemini by default, or the direct DeepSeek API), with the current stream
-category when available. When memory is enabled, up to five recent successful exchanges
-for that chatter are included too. Gemini requests needing current information may use Google
+category when available. When memory is enabled, up to M recent unexpired successful
+exchanges (default five) for that chatter in that channel are included too. Switching
+channels never moves a pending exchange into the new channel's history. Gemini requests needing current information may use Google
 Search grounding; DeepSeek search is not enabled. Credential **Test** and **Discover
 models** contact the chosen provider. Provider terms and data handling apply; see the live
 [Gemini pricing and data-use information](https://ai.google.dev/gemini-api/docs/pricing).
@@ -231,7 +251,8 @@ Avoid sharing profile folders, database files, tokens, recovery copies or unreda
 
 ## Manual privacy requests
 
-Requests are handled by the operator, not by a new chat command or management UI.
+Viewers can use the self-only `!optout` command. The operator handles access, correction,
+deletion without suppression, verified withdrawal and requests covering other copies.
 Verify control of the Twitch account through an authenticated message from that
 account, and resolve its stable numeric ID using Twitch's authenticated account
 lookup or an already verified record. A supplied display name or screenshot alone
@@ -264,8 +285,10 @@ deadlines and exceptions using the [ICO individual-rights guidance](https://ico.
    existing opt-out. `opt-in` removes only the suppression record after verified
    withdrawal; it does not restore deleted history. Repeating an action is safe.
    The tool requires an existing, initialized privacy-enabled database and refuses
-   an invalid/non-numeric ID or missing path. Launch the updated application once
-   to initialize the added table, then stop the process before applying a request.
+   an invalid/non-numeric ID, missing path, unsupported version or running database.
+   Legacy upgrades may first require the explicit channel mapping below.
+   The tool also applies the request to this database's migration recovery snapshot;
+   it creates no backup. Other copies still require separate handling.
    Server/Docker paths refer to the selected profile's `data/heetkit.db`; do not use
    the Desktop example path. Preserve mounted-file ownership/permissions. Advanced
    desktop `DATABASE_URL` deployments must supply their actual SQLite file.
@@ -288,6 +311,24 @@ deadlines and exceptions using the [ICO individual-rights guidance](https://ico.
 
 ## Legal assessment and open questions
 
+For each instance, record an operator LIA outline using the ICO's
+[purpose, necessity and balancing tests](https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/lawful-basis/legitimate-interests/what-is-the-legitimate-interests-basis/)
+(link checked 2026-10-29):
+
+1. **Purpose:** identify the operator, contact/notice location, specific benefit and
+   separate purposes of presence and AI memory; assess provider disclosure separately.
+2. **Necessity:** explain why stable IDs, each field, N/M and the chosen windows are
+   needed; consider less data, shorter retention or disabling memory.
+3. **Balancing:** consider viewer expectations, children, sensitive text, provider
+   access and harms; document safeguards, `!optout`, objection/deletion handling,
+   the decision and when it will be reviewed. Publish the operator's contact and
+   a link to this notice in channel information or a chat notice.
+
+This outline grants no blanket legitimate-interest approval. The maximum 60-day
+policy does not establish necessity; the ICO's
+[storage-limitation guidance](https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/data-protection-principles/a-guide-to-the-data-protection-principles/storage-limitation/)
+requires an operator-specific retention justification.
+
 Reviewed against the linked primary guidance/terms on **2026-10-13**. This is an
 engineering assessment; instance-specific legal clearance remains open.
 
@@ -299,10 +340,9 @@ engineering assessment; instance-specific legal clearance remains open.
   for sending viewer text to AI. Consent, where chosen, needs a valid withdrawal
   process. Resolve the basis for each use and any sensitive data before processing.
   See [ICO legitimate interests](https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/lawful-basis/legitimate-interests/what-is-the-legitimate-interests-basis/).
-- **Retention:** 90 days supports returning-viewer continuity; 180 days supports
-  inactive-viewer last-seen lookup. These are product choices, not statutory
-  periods. Only five exchanges are used at a time, so the need to keep older AI
-  history for 90 days requires operator justification. Document why these windows
+- **Retention:** 60-day AI age and 60-day presence inactivity are product choices,
+  not statutory periods. Only M exchanges are used at a time, so retaining older AI
+  history under N requires operator justification. Document why these windows
   are proportionate for the actual community, delete sooner when unnecessary,
   and review backups and suppression IDs. The software has no shorter-window UI;
   operators can disable memory or manually delete data. See
@@ -317,7 +357,7 @@ engineering assessment; instance-specific legal clearance remains open.
   downstream copies. Treat transmitting API-derived chat/history/category to
   Gemini as potentially covered; a viewer's `!ask` or bot OAuth is not proof of
   Twitch's permission. No such written approval was verified. Confirm applicable
-  storage/caching limits, including Schedule 1's application to these 90/180-day
+  storage/caching limits, including Schedule 1's application to these 60-day
   records, and any exceptions with Twitch. The current page's full body was not
   readable in the research tool; indexed current sharing/deletion clauses were
   checked, but retention permissions remain unresolved. Local suppression-ID
@@ -409,6 +449,53 @@ Keep these private backups until satisfied with the import, then delete unwanted
 copies according to your retention/deletion policy; they are not automatically removed.
 
 ## Backups and settings recovery
+
+### Versioned database upgrade and recovery
+
+Desktop and Server run the same versioned SQLite upgrade before Twitch, requests or
+cleanup workers start. Fresh databases start at schema version 1. Existing unversioned
+presence/AI tables require an explicit mapping for their unscoped rows; the selected
+startup channel is never used as a guess. With all profile processes stopped, create
+`data/legacy-channel-mapping.json` beside the actual database, for example:
+
+```json
+{"version": 1, "channel_id": "123456"}
+```
+
+Use the channel's verified numeric Twitch ID and keep this input private. A historical
+attribution approximation must be an explicit operator decision. Already-scoped rows
+keep their channels. The upgrade preserves original timestamps/text/IDs, retains every
+suppression ID, excludes opted-out/expired/over-count rows with separate aggregate
+counts, checks fields/uniqueness/relationships, and commits data plus version together.
+It does not fabricate command executions or analytics. Unsupported/corrupt schemas,
+unexplained loss or failed backups stop startup without resetting the database.
+
+Before transformation, SQLite's backup API creates one verified recovery database
+under `data/<database-name>.recovery/schema-0.sqlite3`, with private JSON counts,
+checksum and fixed expiry. WAL contents are included. Failed transactions roll back;
+the verified backup remains available. Successful restarts do not remigrate or make
+another migration backup. Resolve any incomplete/unverifiable recovery copy while
+stopped before retrying; never delete the profile database to bypass a failed upgrade.
+
+This recovery copy has a **seven-day acceptance window**, fixed from creation and
+never extended by startup, use or a privacy request. Startup/hourly cleanup removes
+it at expiry (catch-up after downtime); do not restore/use an expired snapshot.
+`!optout` and the offline privacy tool scrub applicable personal rows in that copy;
+opt-out preserves suppression, deletion alone adds no suppression, and verified
+opt-in removes only the marker. A failed recovery scrub leaves live suppression in
+place; hourly cleanup retries opt-outs. Other backups, exported logs and copied
+profiles require operator handling, with a fixed expiry no later than 60 days from
+creation and earlier deletion where required. They are restricted recovery copies,
+not extra model history.
+
+Do not run an older binary against the upgraded database. Rollback across this schema
+change requires the matching pre-upgrade snapshot and a compatible binary, with all
+writers stopped. Preserve the current database first; account for post-upgrade writes
+and reapply current deletions/suppression before any connection. Do not overwrite
+unrelated settings, credentials or token rotations with an old whole-profile copy.
+These steps describe a controlled recovery operation, not an automatic downgrade.
+
+### Whole-profile and settings copies
 
 Stop every process using the profile before copying it. Desktop uses **tray Exit**
 or application exit; Server uses service/container shutdown. A management **Stop bot**

@@ -3,6 +3,7 @@
 import logging
 import json
 from collections import deque
+from collections.abc import Callable
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
@@ -36,7 +37,7 @@ EVENT_CONTEXT_ATTRIBUTES = {
 }
 EventContextValue = str | int | float | bool
 
-_suppress_private_chat_logs: ContextVar[bool] = ContextVar("suppress_private_chat_logs", default=False)
+_suppress_private_chat_logs: ContextVar[bool | Callable[[], bool]] = ContextVar("suppress_private_chat_logs", default=False)
 _operator_context: ContextVar[dict] = ContextVar("operator_context", default={})
 
 
@@ -83,7 +84,7 @@ def _bounded_text(value: str, limit: int) -> str:
 
 
 @contextmanager
-def privacy_log_scope(suppressed: bool):
+def privacy_log_scope(suppressed: bool | Callable[[], bool]):
     """Suppress this request's diagnostics without affecting concurrent viewers."""
     token = _suppress_private_chat_logs.set(suppressed)
     try:
@@ -92,9 +93,14 @@ def privacy_log_scope(suppressed: bool):
         _suppress_private_chat_logs.reset(token)
 
 
+def _private_logs_suppressed() -> bool:
+    value = _suppress_private_chat_logs.get()
+    return value() if callable(value) else value
+
+
 class PrivacyLogFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
-        return not _suppress_private_chat_logs.get()
+        return not _private_logs_suppressed()
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,7 +220,7 @@ class OperatorActivityHandler(logging.Handler):
         self._buffer = buffer
 
     def emit(self, record: logging.LogRecord) -> None:
-        if _suppress_private_chat_logs.get():
+        if _private_logs_suppressed():
             return
         if getattr(record, "event_kind", None) in ACTIVITY_EVENTS | LIFECYCLE_EVENTS:
             self._buffer.append(record, "")
@@ -226,7 +232,7 @@ class RecentLogHandler(logging.Handler):
         self._buffer = buffer
 
     def emit(self, record: logging.LogRecord) -> None:
-        if _suppress_private_chat_logs.get():
+        if _private_logs_suppressed():
             return
         try:
             message = record.getMessage()

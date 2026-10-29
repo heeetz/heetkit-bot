@@ -44,7 +44,7 @@ def register_ai_commands(registry: CommandRegistry) -> None:
         memory_context = None
         if memory_enabled:
             try:
-                entries = await memory_service.get_recent(context.message.author.twitch_user_id)
+                entries = await memory_service.get_recent(context.message.author.twitch_user_id, channel_id=context.message.channel_id)
                 memory_context = memory_service.format_context(entries)
             except Exception:
                 context.logger.exception("Could not load AI memory")
@@ -91,6 +91,7 @@ def register_ai_commands(registry: CommandRegistry) -> None:
                         twitch_user_id=context.message.author.twitch_user_id,
                         request_text=clean_args,
                         response_text=reply.text,
+                        channel_id=context.message.channel_id,
                     )
                 except Exception:
                     context.logger.exception("Could not save AI memory")
@@ -109,6 +110,6 @@ def register_ai_commands(registry: CommandRegistry) -> None:
         if not target_username:
             return
 
-        user = await context.services.users.get_by_username(target_username)
+        user = await context.services.users.get_by_username(target_username, channel_id=context.message.channel_id)
         if user is not None:
-            await context.services.memory.erase_for_user(user.twitch_user_id)
+            await context.services.memory.erase_for_user(user.twitch_user_id, channel_id=context.message.channel_id)

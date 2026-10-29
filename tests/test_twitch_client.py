@@ -170,7 +170,7 @@ async def test_bot_issues_state_for_running_initial_or_explicit_renewal_only() -
 
 class FakeTwitchMessage:
     def __init__(self, content: str = "!ping") -> None:
-        self.broadcaster = SimpleNamespace(name="testchannel")
+        self.broadcaster = SimpleNamespace(name="testchannel", id="100")
         self.chatter = SimpleNamespace(
             id="viewer-id",
             name="viewer",
@@ -191,7 +191,7 @@ class RecordingUserRepository:
     def __init__(self) -> None:
         self.seen_user_ids: list[str] = []
 
-    async def upsert_seen(self, *, twitch_user_id: str, username: str) -> None:
+    async def upsert_seen(self, *, twitch_user_id: str, username: str, channel_id: str) -> None:
         self.seen_user_ids.append(twitch_user_id)
 
 
@@ -212,6 +212,32 @@ class ReplyingDispatcher:
         self.messages.append(message)
         await message.respond("pong")
         return True
+
+
+@pytest.mark.asyncio
+async def test_self_optout_runs_once_after_replay_and_outgoing_echo_validation():
+    from app.services.twitch import TwitchAPIService
+    settings = build_settings()
+    users = SimpleNamespace(opt_out=AsyncMock())
+    services = SimpleNamespace(users=users, settings=settings, twitch=TwitchAPIService())
+    dispatcher = SimpleNamespace(dispatch=AsyncMock())
+    bot = TwitchChatBot(settings, settings.primary_account, services, dispatcher, logging.getLogger(__name__))
+    try:
+        request = FakeTwitchMessage("!optout")
+        request.id, request.chatter.id = "privacy-request", "123"
+        await bot.event_message(request)
+        await bot.event_message(request)
+        users.opt_out.assert_awaited_once_with("123")
+        echo = FakeTwitchMessage("!optout")
+        echo.id, echo.chatter.id = "privacy-echo", settings.twitch_bot_user_id
+        async def accepted(_):
+            return SimpleNamespace(id="privacy-echo", sent=True)
+        await services.twitch.chat_messages.send(settings.twitch_bot_user_id, "100", accepted, "!optout")
+        await bot.event_message(echo)
+        users.opt_out.assert_awaited_once_with("123")
+        dispatcher.dispatch.assert_not_awaited()
+    finally:
+        await bot.close(save_tokens=False)
 
 
 @pytest.mark.asyncio

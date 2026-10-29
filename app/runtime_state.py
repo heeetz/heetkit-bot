@@ -142,7 +142,7 @@ class RuntimeState:
 
     def reserved_command_names(self) -> set[str]:
         with self._lock:
-            names = set(self._command_defaults)
+            names = set(self._command_defaults) | {"optout"}
             for name, defaults in self._command_defaults.items():
                 names.update(defaults.aliases)
                 names.update(self._command_settings[name].aliases)
@@ -181,7 +181,7 @@ class RuntimeState:
                     raise ValueError("This command's identity is protected.")
                 settings = replace(settings, aliases=defaults.aliases, display_name=defaults.display_name)
         validate_primary_name(settings.primary_name)
-        used = set(self._command_defaults) - {name}
+        used = (set(self._command_defaults) - {name}) | {"optout"}
         for other, other_defaults in self._command_defaults.items():
             if other != name:
                 used.update(other_defaults.aliases)

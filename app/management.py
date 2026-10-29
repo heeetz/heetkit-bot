@@ -94,6 +94,16 @@ class ApplicationManagement:
             self._app_settings.update_ai_memory(enabled=enabled)
         self._backend.application.services.runtime_state.set_ai_memory_enabled(enabled)
 
+    async def _save_ai_memory_limits(self, stored: object, context: object) -> None:
+        """Backend seam for count settings; presentation is separate work."""
+        if self._app_settings is None:
+            raise RuntimeError("Profile settings are not configured.")
+        await self._backend.application.database.configure_memory_limits(stored, context,
+            persist=lambda: self._app_settings.update_ai_memory_limits(stored=stored, context=context))
+        settings = self._backend.application.settings
+        settings.ai_history_max_entries = stored
+        settings.ai_context_max_entries = context
+
     def get_blocked_ai_users(self) -> dict[str, object]:
         store = self._backend.application.services.ai_user_blocks
         return {"ok": True, "users": [
@@ -109,7 +119,7 @@ class ApplicationManagement:
             user_id = await services.twitch.resolve_user_id(username)
         if user_id is None:
             try:
-                observed = await services.users.get_by_username(username)
+                observed = await services.users.get_by_username(username, channel_id=services.settings.twitch_channel_user_id)
                 user_id = verified_user_id(getattr(observed, "twitch_user_id", None))
             except Exception as error:
                 self._logger.warning("Could not look up observed AI block user error_type=%s", type(error).__name__)

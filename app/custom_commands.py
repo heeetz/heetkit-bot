@@ -173,7 +173,7 @@ class CustomCommandStore:
 
     def __init__(self, path: Path, built_in_names: set[str], *, namespace_lock=None) -> None:
         self._path = path
-        self._built_in_names = built_in_names
+        self._built_in_names = built_in_names | {"optout"}
         self._builtin_names_provider: Callable[[], set[str]] | None = None
         self._lock = namespace_lock if namespace_lock is not None else RLock()
         self._commands: dict[str, CustomCommand] = {}

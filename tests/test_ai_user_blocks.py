@@ -171,6 +171,7 @@ async def test_failed_id_capture_still_blocks_without_prompt_logging(tmp_path, m
 
 def test_bridge_add_list_and_unblock_use_backend_and_observed_id(tmp_path, monkeypatch):
     blocks, services, _, bridge, _ = setup(tmp_path)
+    services.settings = SimpleNamespace(twitch_channel_user_id="100")
     services.users.get_by_username.return_value = SimpleNamespace(twitch_user_id="123")
     def submit(coroutine):
         future = Future()

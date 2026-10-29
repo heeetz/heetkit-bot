@@ -30,6 +30,16 @@ def custom_payload(**changes):
             "aliases": [], **changes}
 
 
+@pytest.mark.parametrize("field", ["primary_name", "aliases"])
+def test_privacy_name_is_reserved_for_builtin_and_custom_edits(tmp_path, field):
+    _, state, custom, _, _, _, _ = setup_commands(tmp_path)
+    value = "optout" if field == "primary_name" else ["optout"]
+    with pytest.raises(ValueError, match="already exists"):
+        state.apply_command_settings("ping", **{field: value})
+    with pytest.raises(ValueError, match="already exists"):
+        custom.save(custom_payload(**({"name": "optout"} if field == "primary_name" else {"aliases": ["optout"]})))
+
+
 def setup_commands(root):
     registry = CommandRegistry()
     fun = FunSettingsStore(root / "fun_settings.json")
@@ -57,7 +67,7 @@ def setup_commands(root):
 
 
 def chat(content, respond, **roles):
-    return IncomingChatMessage("test", content, ChatAuthor("user", "caller", **roles), respond)
+    return IncomingChatMessage("test", content, ChatAuthor("user", "caller", **roles), respond, channel_id="100")
 
 
 @pytest.mark.asyncio
@@ -154,6 +164,8 @@ async def test_command_help_pages_preserve_utf8_limits_permissions_and_output_li
         assert page <= len(expected)
     assert page > 1
     assert observed == [entry.split(" ", 1)[0][1:] for entry in expected]
+    assert expected[-1] == "?optout - Don't save my data"
+    assert observed.count("optout") == 1 and observed[-1] == "optout"
     response.reset_mock()
     await dispatcher.dispatch(chat("?commands nonsense", response, is_moderator=True), services)
     assert response.await_args.args[0] == "Usage: ?catalog [page]"
@@ -312,7 +324,7 @@ async def test_renamed_ai_and_hidden_admin_keep_privacy_and_authority(tmp_path):
     await dispatcher.dispatch(chat("!forget @target", response, is_moderator=True), services)
     services.memory.erase_for_user.assert_not_awaited()
     await dispatcher.dispatch(chat("!forget @target", response, is_broadcaster=True), services)
-    services.memory.erase_for_user.assert_awaited_once_with("target-id")
+    services.memory.erase_for_user.assert_awaited_once_with("target-id", channel_id="100")
     assert "!question <question>" in registry.help_entries(state, custom)
     assert not any(entry.startswith(("!forget", "!erase", "!ask")) for entry in registry.help_entries(state, custom))
 
@@ -479,7 +491,7 @@ async def test_edited_dynamic_commands_keep_original_ask_weather_and_erase_imple
     await dispatcher.dispatch(chat("!erase @target", respond, is_moderator=True), services)
     services.memory.erase_for_user.assert_not_awaited()
     await dispatcher.dispatch(chat("!erase @target", respond, is_broadcaster=True), services)
-    services.memory.erase_for_user.assert_awaited_once_with("target-id")
+    services.memory.erase_for_user.assert_awaited_once_with("target-id", channel_id="100")
     assert original_handlers == {definition.name: definition.handler for definition in registry.definitions()}
 
 

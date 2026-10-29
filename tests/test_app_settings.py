@@ -143,6 +143,7 @@ def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
         },
         "startup": {"auto_start_bot": True, "operation_mode": "always_on"},
         "ai": {
+            "history_max_entries": 100, "context_max_entries": 5,
             "provider": None, "deepseek_selected_model": None, "deepseek_fallback_model": None,
             "openai_selected_model": None, "openai_fallback_model": None,
             "setup": None, "setup_guide_dismissed": False, "setup_guide_ai_skipped": False,
@@ -356,6 +357,7 @@ def test_gemini_model_settings_are_validated_persisted_and_reloaded(tmp_path) ->
     )
     assert AppSettingsStore(settings_path).snapshot().ai == updated.ai
     assert json.loads(settings_path.read_text(encoding="utf-8"))["ai"] == {
+        "history_max_entries": 100, "context_max_entries": 5,
         "provider": "gemini", "deepseek_selected_model": None, "deepseek_fallback_model": None,
         "openai_selected_model": None, "openai_fallback_model": None,
         "setup": None, "setup_guide_dismissed": False, "setup_guide_ai_skipped": False,

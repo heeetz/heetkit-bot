@@ -9,6 +9,7 @@ from contextlib import nullcontext
 
 from app.command_settings import CommandSettings
 from app.config.commands import TG_DEFAULT_MAX_COUNT
+from app.config.privacy import PRIVACY_COMMAND
 from app.custom_commands import CustomCommand, CustomCommandStore, render_response
 from app.message_triggers import MessageTriggerStore
 from app.runtime_state import RuntimeState
@@ -142,6 +143,8 @@ class CommandRegistry:
         normalized_names = tuple(normalize_command_name(name) for name in command_names)
         if not all(normalized_names):
             raise ValueError("Command names cannot be empty.")
+        if PRIVACY_COMMAND in normalized_names:
+            raise ValueError("The optout command is reserved for self-service privacy requests.")
         if len(set(normalized_names)) != len(normalized_names):
             raise ValueError("A command cannot repeat its own name or alias.")
         duplicates = [name for name in normalized_names if name in self._commands]
@@ -211,7 +214,7 @@ class CommandRegistry:
                         continue
                     usage = " [1-10]" if command.response_mode == "burst" and command.burst_allow_override else ""
                     entries[command.name] = f"{prefix}{command.name}{usage}"
-        return tuple(entries[name] for name in sorted(entries))
+        return (*tuple(entries[name] for name in sorted(entries)), f"{prefix}{PRIVACY_COMMAND} - Don't save my data")
 
 
 def command_unavailable_reason(definition: CommandDefinition, services: ApplicationServices) -> str | None:
@@ -340,7 +343,7 @@ class CommandDispatcher:
         if "{random_user}" in template:
             try:
                 excluded = (context.message.author.twitch_user_id, context.services.settings.twitch_bot_user_id)
-                recent = await context.services.users.recent_usernames(exclude_user_ids=excluded)
+                recent = await context.services.users.recent_usernames(channel_id=context.message.channel_id, exclude_user_ids=excluded)
                 eligible = [name for name in recent if name.casefold() != context.services.settings.twitch_bot_username.casefold()]
                 if eligible:
                     random_user = random.choice(eligible)

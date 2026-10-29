@@ -482,7 +482,11 @@ async def test_management_applies_and_persists_existing_stores(api):
     # Load a second composition only after inspecting persisted settings. No live
     # account, private profile, desktop host or second Twitch session is involved.
     profile = AppSettingsStore(RuntimePaths.default().app_settings).snapshot()
-    clone = build_application(apply_ai_app_settings(settings(), profile))
+    clone_settings = apply_ai_app_settings(settings(), profile)
+    # This verifies configuration stores; the running composition exclusively owns
+    # the persistent database. Use an independent synthetic database for the clone.
+    clone_settings.database_url = "sqlite+aiosqlite:///:memory:"
+    clone = build_application(clone_settings)
     await clone.startup()
     try:
         state = clone.services.runtime_state

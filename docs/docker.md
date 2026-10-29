@@ -202,6 +202,16 @@ current state for backward-compatible rollback, retaining rotated OAuth tokens.
 Incompatible state requires a reviewed recovery plan; never restore an older profile
 unconditionally. No registry publication or automatic update is configured.
 
+The channel-scoped database upgrade uses the same backend as Desktop. Before first
+startup on legacy state, provide the private explicit channel mapping beside the
+database; see [versioned upgrade and recovery](data-and-privacy.md#versioned-database-upgrade-and-recovery).
+Its verified SQLite recovery snapshot expires seven days after creation and must
+receive deletion/opt-out requests during that window. This schema change is not
+compatible with older binaries: stop writers, preserve post-upgrade writes and current
+privacy suppression, and use a compatible snapshot for any controlled rollback.
+Whole-volume backups need their own fixed expiry (no later than 60 days) and privacy
+handling; a live storage opt-out does not erase independent archives.
+
 ### Unpublished candidates
 
 A successful **Full validation** run checks the selected source SHA on native AMD64

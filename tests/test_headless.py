@@ -73,8 +73,8 @@ async def test_real_core_restarts_with_saved_profile_and_sqlite(monkeypatch):
         assert not services.runtime_state.ai_memory_enabled
         assert not services.filter_manager.filter_message("syntheticblocked")
         if sessions:
-            assert await services.users.get_by_twitch_user_id("300") is not None
-        await services.users.upsert_seen(twitch_user_id="300", username="syntheticviewer")
+            assert await services.users.get_by_twitch_user_id("300", channel_id=value.twitch_channel_user_id) is not None
+        await services.users.upsert_seen(twitch_user_id="300", username="syntheticviewer", channel_id=value.twitch_channel_user_id)
         sessions.append(services)
         services.runtime_state.set_twitch_connection_state("connected")
         await asyncio.sleep(0.15)

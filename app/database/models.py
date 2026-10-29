@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Integer, String, TypeDecorator
+from sqlalchemy import DateTime, Integer, String, TypeDecorator, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -33,9 +33,11 @@ class Base(DeclarativeBase):
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("channel_id", "twitch_user_id"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    twitch_user_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    channel_id: Mapped[str] = mapped_column(String(32), index=True)
+    twitch_user_id: Mapped[str] = mapped_column(String(32), index=True)
     username: Mapped[str] = mapped_column(String(64), index=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
@@ -45,6 +47,7 @@ class AIMemoryEntry(Base):
     __tablename__ = "ai_memory_entries"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    channel_id: Mapped[str] = mapped_column(String(32), index=True)
     twitch_user_id: Mapped[str] = mapped_column(String(32), index=True)
     request_text: Mapped[str] = mapped_column(String(500))
     response_text: Mapped[str] = mapped_column(String(500))

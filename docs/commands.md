@@ -98,6 +98,7 @@ users when enabled. Disabled or removed commands also stay out of public help.
 | `!followage` | Show how long the invoking user has followed the channel. | User |
 | `!fate` | Return a random configured prediction. | User |
 | `!help [page]` | List public command help entries. | User |
+| `!optout` | Disable local identifying storage and delete your presence/AI history across this profile's channels. | User; self-only |
 | `!ping` | Reply with `pong`. | Moderator |
 | `!seen <username>` | Show when a known chatter was last seen. | User |
 | `!tg [1-20]` | Send the configured community message once by default, or repeat up to its configured maximum, with optional Burst spacing. | Moderator |
@@ -118,6 +119,16 @@ The list keeps each command's existing invocation permissions and omits hidden,
 disabled and removed commands. Long lists use numbered pages within the Twitch
 message limit; follow the displayed next-page command, for example `!commands 2`.
 If a help command is renamed, its usage and next-page hints use the current primary name.
+The final page ends with `!optout - Don't save my data`, once after ordinary commands.
+`optout` is reserved: built-in primary names/aliases, custom commands and imported
+presets cannot take it. Older collisions are excluded from the active namespace with
+a diagnostic; rename those settings rather than relying on their previous behavior.
+Privacy requests use the configured prefix and authenticated chatter ID; extra text
+cannot target another account. They run after replay/echo validation and before normal
+filters, access rules or cooldowns, without identifying command diagnostics.
+The minimal confirmation concerns local storage: fresh AI requests still reach the
+provider. Existing bans/notes stay intact. Publish the operator's contact and
+[privacy notice](data-and-privacy.md#privacy-notice-for-viewers) in channel information.
 You can use the broadcaster's account as the bot account and type commands manually.
 HeetKit correlates its own outgoing messages by Twitch message ID, so a command list
 starting with `!ask` cannot launch another AI request. Identical manually typed text
@@ -181,8 +192,9 @@ messages or AI editor changes. Use **Save** for those settings as usual. A remov
 `!ask` must first be restored from **Removed commands**. **AI → AI access** links to
 this existing `!ask` editor for permission and cooldown changes.
 
-`!erase` is restricted to the broadcaster and accepts a known username. It deletes only
-that viewer's stored AI conversation memory. It does not remove activity history, Twitch
+`!erase` is restricted to the broadcaster and accepts a known username in the current
+channel. It deletes only that viewer's stored AI conversation memory in that channel.
+It does not remove presence, Twitch
 messages or an AI block, and blocking a user from `!ask` does not erase their existing
 memory or ban them from Twitch chat.
 For deletion of both activity and AI history, or a persistent local-storage opt-out,

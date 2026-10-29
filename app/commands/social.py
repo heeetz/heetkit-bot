@@ -108,7 +108,7 @@ def register_social_commands(registry: CommandRegistry) -> None:
     async def seen(context, arguments: str) -> None:
         username = arguments.strip().lstrip("@").strip()
         try:
-            user = await context.services.users.get_by_username(username)
+            user = await context.services.users.get_by_username(username, channel_id=context.message.channel_id)
         except Exception:
             context.logger.exception("Could not retrieve last seen user")
             return

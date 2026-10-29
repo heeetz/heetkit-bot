@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.config.ai_models import (
@@ -18,6 +18,7 @@ from app.config.ai_models import (
 )
 from app.config.ai_language import ResponseLanguageSettings, validate_response_language
 from app.config.ai_setup import AISetup
+from app.config.privacy import AI_HISTORY_MAX_ENTRIES, AI_CONTEXT_MAX_ENTRIES, validate_memory_limits
 from app.runtime_paths import RuntimePaths
 
 if TYPE_CHECKING:
@@ -68,12 +69,19 @@ class Settings(BaseSettings):
     ai_cooldown_bypass_user_id: str | None = None
     ai_response_language: ResponseLanguageSettings = Field(default_factory=ResponseLanguageSettings)
     ai_setup: AISetup | None = None
+    ai_history_max_entries: int = Field(default=AI_HISTORY_MAX_ENTRIES, strict=True, ge=1, le=500)
+    ai_context_max_entries: int = Field(default=AI_CONTEXT_MAX_ENTRIES, strict=True, ge=1, le=50)
     database_url: str = Field(
         default_factory=lambda: "sqlite+aiosqlite:///" + str(RuntimePaths.default().database)
     )
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     command_prefix: str = "!"
     command_max_arguments_length: int = Field(default=300, ge=1, le=450)
+
+    @model_validator(mode="after")
+    def validate_memory_policy(self):
+        validate_memory_limits(self.ai_history_max_entries, self.ai_context_max_entries)
+        return self
 
     @field_validator("command_prefix")
     @classmethod

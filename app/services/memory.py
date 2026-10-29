@@ -1,6 +1,5 @@
 """Small per-user memory service for recent successful !ask exchanges."""
 
-from app.config.ai import AI_MEMORY_MAX_ENTRIES
 from app.database.repository import AIMemoryRepository
 from app.services.contracts import AIMemoryExchange
 
@@ -9,8 +8,8 @@ class AIMemoryService:
     def __init__(self, repository: AIMemoryRepository) -> None:
         self._repository = repository
 
-    async def get_recent(self, twitch_user_id: str) -> list[AIMemoryExchange]:
-        entries = await self._repository.get_recent(twitch_user_id, AI_MEMORY_MAX_ENTRIES)
+    async def get_recent(self, twitch_user_id: str, *, channel_id: str) -> list[AIMemoryExchange]:
+        entries = await self._repository.get_recent(twitch_user_id, self._repository.policy.context, channel_id=channel_id)
         return [
             AIMemoryExchange(
                 request_text=entry.request_text,
@@ -25,15 +24,17 @@ class AIMemoryService:
         twitch_user_id: str,
         request_text: str,
         response_text: str,
+        *, channel_id: str,
     ) -> None:
         await self._repository.append(
             twitch_user_id=twitch_user_id,
             request_text=request_text,
             response_text=response_text,
+            channel_id=channel_id,
         )
 
-    async def erase_for_user(self, twitch_user_id: str) -> None:
-        await self._repository.erase_for_user(twitch_user_id)
+    async def erase_for_user(self, twitch_user_id: str, *, channel_id: str) -> None:
+        await self._repository.erase_for_user(twitch_user_id, channel_id=channel_id)
 
     @staticmethod
     def format_context(entries: list[AIMemoryExchange]) -> str | None:

@@ -31,3 +31,4 @@ class IncomingChatMessage:
     is_outgoing: bool = False
     message_id: str | None = None
     send_session: "ChatSendSession | None" = None
+    channel_id: str = ""

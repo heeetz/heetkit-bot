@@ -1,13 +1,20 @@
 """Offline operator tool for an identity-verified local privacy request.
 
 Quit HeetKit (including tray Exit) before use. No profile discovery, provider
-requests, backups or database creation are performed by this tool.
+requests or database/backup creation are performed by this tool. Existing migration
+recovery copies receive the same privacy request under their original expiry.
 """
 
 import argparse
 from contextlib import closing
 from pathlib import Path
 import sqlite3
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.database.migrations import maintain_recovery
+from app.database.migrations import SCHEMA_VERSION, DatabaseMigrationError
+from app.desktop_instance import desktop_instance_guard, DesktopAlreadyRunningError
 
 
 def apply_request(database_path: Path, user_id: str, action: str) -> None:
@@ -17,22 +24,27 @@ def apply_request(database_path: Path, user_id: str, action: str) -> None:
         raise ValueError("Unknown privacy action.")
     # mode=rw refuses a misspelled/missing database instead of making a new one.
     uri = database_path.resolve().as_uri() + "?mode=rw"
-    with closing(sqlite3.connect(uri, uri=True)) as connection:
+    with desktop_instance_guard(database_path, database=True), closing(sqlite3.connect(uri, uri=True, timeout=0)) as connection:
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not {"users", "ai_memory_entries", "privacy_opt_outs"} <= tables:
             raise ValueError("Expected an initialized HeetKit privacy-enabled database.")
+        if connection.execute("PRAGMA user_version").fetchone()[0] not in (0, SCHEMA_VERSION):
+            raise ValueError("Use a privacy tool compatible with this database version.")
         connection.execute("PRAGMA secure_delete = ON")
         with connection:
             connection.execute("BEGIN IMMEDIATE")
             if action == "opt-in":
                 connection.execute("DELETE FROM privacy_opt_outs WHERE twitch_user_id = ?", (user_id,))
-                return
-            if action == "opt-out":
+            elif action == "opt-out":
                 connection.execute(
                     "INSERT OR IGNORE INTO privacy_opt_outs (twitch_user_id) VALUES (?)", (user_id,),
                 )
-            connection.execute("DELETE FROM ai_memory_entries WHERE twitch_user_id = ?", (user_id,))
-            connection.execute("DELETE FROM users WHERE twitch_user_id = ?", (user_id,))
+            if action != "opt-in":
+                connection.execute("DELETE FROM ai_memory_entries WHERE twitch_user_id = ?", (user_id,))
+                connection.execute("DELETE FROM users WHERE twitch_user_id = ?", (user_id,))
+        maintain_recovery(database_path, (user_id,) if action == "opt-out" else (),
+                          deleted=(user_id,) if action == "delete" else (),
+                          withdrawn=(user_id,) if action == "opt-in" else ())
 
 
 def main() -> int:
@@ -43,7 +55,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         apply_request(args.database, args.user_id, args.action)
-    except (ValueError, sqlite3.Error) as error:
+    except (ValueError, sqlite3.Error, DatabaseMigrationError, DesktopAlreadyRunningError, OSError) as error:
         # Database exceptions can contain private paths or values.
         parser.exit(1, f"Privacy request failed ({type(error).__name__}); check the path, schema and stopped application.\n")
     print("Local privacy request applied. Review backups, logs and provider data separately.")

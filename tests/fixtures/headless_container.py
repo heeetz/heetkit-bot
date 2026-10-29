@@ -103,8 +103,8 @@ async def session(**kwargs):
     counter = paths.data / "probe-starts"
     previous = int(counter.read_text()) if counter.exists() else 0
     if previous:
-        assert await services.users.get_by_twitch_user_id("300") is not None
-    await services.users.upsert_seen(twitch_user_id="300", username="syntheticviewer")
+        assert await services.users.get_by_twitch_user_id("300", channel_id=settings.twitch_channel_user_id) is not None
+    await services.users.upsert_seen(twitch_user_id="300", username="syntheticviewer", channel_id=settings.twitch_channel_user_id)
     bot = TwitchChatBot(settings, settings.primary_account, services, kwargs["dispatcher"], logging.getLogger("probe"))
 
     async def validate_and_rotate(token, refresh):

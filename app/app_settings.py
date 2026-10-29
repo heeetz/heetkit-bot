@@ -15,6 +15,7 @@ from threading import RLock
 from app.config.ai_models import validate_ai_provider, validate_provider_models
 from app.settings_recovery import preserve_settings_recovery
 from app.config.ai import AI_MEMORY_ENABLED
+from app.config.privacy import AI_HISTORY_MAX_ENTRIES, AI_CONTEXT_MAX_ENTRIES, validate_memory_limits
 from app.config.ai_setup import AIModelSelection, AISetup, parse_ai_setup
 from app.config.ai_language import ResponseLanguageSettings, validate_response_language
 
@@ -40,6 +41,8 @@ class StartupSettings:
 @dataclass(frozen=True, slots=True)
 class AISettings:
     memory_enabled: bool = AI_MEMORY_ENABLED
+    history_max_entries: int = AI_HISTORY_MAX_ENTRIES
+    context_max_entries: int = AI_CONTEXT_MAX_ENTRIES
     selected_model: str | None = None
     fallback_model: str | None = None
     # None preserves intentional process defaults; old profiles still default to Gemini.
@@ -393,6 +396,12 @@ def load_app_settings(path: Path) -> AppSettings:
             setup = parse_ai_setup(ai_payload["setup"], capabilities=False, require_consent=False)
         except ValueError:
             logger.warning("Invalid saved AI setup; retaining legacy model settings")
+    try:
+        history_limit, context_limit = validate_memory_limits(ai_payload.get("history_max_entries", AI_HISTORY_MAX_ENTRIES),
+                                                             ai_payload.get("context_max_entries", AI_CONTEXT_MAX_ENTRIES))
+    except ValueError:
+        # Reject invalid policy rather than silently expanding a requested cap.
+        raise ValueError("Invalid saved AI history/context limits; correct profile settings before startup.") from None
     return AppSettings(
         window=WindowSettings(
             start_minimized=_read_boolean(
@@ -424,6 +433,8 @@ def load_app_settings(path: Path) -> AppSettings:
             ),
         ),
         ai=AISettings(
+            history_max_entries=history_limit,
+            context_max_entries=context_limit,
             memory_enabled=_read_boolean(
                 ai_payload,
                 "ai",
@@ -552,6 +563,15 @@ class AppSettingsStore:
                 ai=self._settings.ai,
                 twitch=self._settings.twitch,
             )
+            save_app_settings(self._path, updated, recovered_settings=self._settings)
+            self._settings = updated
+        return updated
+
+    def update_ai_memory_limits(self, *, stored: object, context: object) -> AppSettings:
+        stored, context = validate_memory_limits(stored, context)
+        with self._lock:
+            updated = replace(self._settings, ai=replace(self._settings.ai,
+                              history_max_entries=stored, context_max_entries=context))
             save_app_settings(self._path, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated

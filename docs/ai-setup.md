@@ -212,8 +212,11 @@ active model availability and personality. Command and memory switches save imme
    - **Models:** use the primary/fallback cards in AI setup above, then Save AI setup.
      Playground uses the saved configuration and warns while editor drafts exist.
    - **Conversation memory** in **AI → State:** choose whether successful `!ask` exchanges are kept locally
-     and included in later requests for that viewer. Successful history expires after 90 days;
-     only the five most recent unexpired exchanges are used as context. Turning memory off
+     and included in later requests for that viewer in the same channel. Each exchange
+     expires after 60 days, with a default cap of 100 stored pairs and five context pairs
+     per viewer/channel. Validated backend N/M limits and the self-only `!optout` route
+     are described in the [privacy notice](data-and-privacy.md#privacy-notice-for-viewers).
+     Turning memory off
      stops subsequent use and storage; automatic expiry still applies to prior exchanges.
      See [privacy requests and provider restrictions](data-and-privacy.md) before using AI
      with viewers. Do not put secrets or private information in prompts or chat sent to Google.

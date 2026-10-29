@@ -87,7 +87,8 @@ class Application:
 
 def build_application(settings: Settings) -> Application:
     paths = RuntimePaths.default()
-    database = Database(settings.database_url)
+    database = Database(settings.database_url, history_limit=settings.ai_history_max_entries,
+                        context_limit=settings.ai_context_max_entries)
     http_client = httpx.AsyncClient(timeout=httpx.Timeout(8.0))
     user_repository = UserRepository(database.session_factory)
     memory_repository = AIMemoryRepository(database.session_factory)
