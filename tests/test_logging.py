@@ -228,3 +228,34 @@ def test_error_type_and_stage_are_projected_without_exception_prose():
     assert entry["context"]["error_type"] == "ChatSessionClosedError"
     assert entry["context"]["stage"] == "send_session"
     assert "PRIVATE" not in str(entry)
+
+
+def test_socket_diagnostics_have_fixed_sanitized_stderr_and_feed_projection():
+    from app.headless import HeadlessLogFilter
+    from app.utils.logging import event_metadata, privacy_log_scope
+    buffer = RecentLogBuffer()
+    handler = OperatorActivityHandler(buffer)
+    record = logging.LogRecord('app.headless.twitch', logging.INFO, '', 1, 'PRIVATE %s', ('SECRET',),
+                               (ValueError, ValueError('PRIVATE'), None))
+    for key, value in event_metadata('twitch.socket', outcome='connection_observation', reason='active_socket_closed',
+                                    client_instance='a'*16, socket_ref='b'*12, current_client=True,
+                                    send_active=False, sdk_socket_count=2, event_count=1,
+                                    username='PRIVATE', command='PRIVATE', request_id='PRIVATE').items():
+        setattr(record, key, value)
+    record.event_text = 'PRIVATE chat'
+    handler.emit(record)
+    projected = buffer.activity()['entries'][0]
+    assert 'PRIVATE' not in str(projected)
+    assert projected['context']['sdk_socket_count'] == 2
+    filter_ = HeadlessLogFilter()
+    assert filter_.filter(record)
+    assert 'PRIVATE' not in record.getMessage() and 'SECRET' not in record.getMessage()
+    assert record.exc_info is None
+    with privacy_log_scope(True):
+        assert not filter_.filter(record)
+        handler.emit(record)
+    assert len(buffer.activity()['entries']) == 1
+    record.event_client_instance = 'PRIVATE'
+    record.event_reason = 'PRIVATE'
+    assert filter_.filter(record)
+    assert 'PRIVATE' not in record.getMessage()

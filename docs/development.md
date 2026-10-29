@@ -254,6 +254,17 @@ emit a close event for a candidate whose connection failed before it acquired an
 Actual active-socket loss still invalidates captured work until recovery welcomes a
 new session. This distinction applies equally to built-in and custom Single/Burst
 commands; see [`test_command_lifecycle.py`](../tests/test_command_lifecycle.py).
+Retired or closing clients are rejected before reserving IDs in the application-wide
+replay cache. Close cancels and drains SDK reconnect tasks before and after SDK
+teardown so an already pending connection attempt cannot outlive its client.
+This does not create another reconnect loop or bypass stale send-session guards.
+
+Bounded socket lifecycle diagnostics carry opaque per-process client, socket and
+send-session references, current ownership, active state and registered SDK socket/
+reconnect-task counts. Repeated ignored/stale-ingress notices are limited to one
+per reason/client every 30 seconds with cumulative counts. These sanitized fields
+also enter the fixed Headless lifecycle stream; SDK/HTTP debug logging stays off.
+SDK socket counts describe registered objects, not proof of open network connections.
 
 All Twitch sends pass through the same adapter ID correlation implementation.
 TwitchIO `respond()` returns `SentMessage.id`/`sent`; EventSub provides `id` and shared
@@ -263,6 +274,14 @@ accounts do not wait. Uncertain sends fail closed for that sending account and c
 for the cache lifetime, without matching text. Neutral dispatch/reactions use the
 explicit outgoing flag rather than account identity. Permissions and privacy checks
 still apply to manually authored messages.
+Replay diagnostics compare the first and repeated arrival's opaque origin and age.
+`same_dispatch` identifies multiple callbacks from one SDK dispatch;
+`same_notification` identifies repeated notification metadata across dispatches;
+`different_subscriptions` identifies overlapping subscription delivery for one chat
+ID. Transport references come from SDK listener task context; absent metadata is
+reported as `unattributed`. These sampled, rate-limited notices count duplicate
+decisions, not lost commands. The extra origin metadata shares the replay cache's
+count/TTL bounds and never records chat text or raw notification/subscription IDs.
 
 ### Validation by impact
 

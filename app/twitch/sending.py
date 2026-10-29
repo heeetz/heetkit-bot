@@ -21,6 +21,7 @@ class ChatSendSession:
 
     def __init__(self, *, active: bool = False) -> None:
         self.active = active
+        self.diagnostic_ref = uuid4().hex[:16]
         self.tasks: set[asyncio.Task] = set()
 
     def invalidate(self) -> None:

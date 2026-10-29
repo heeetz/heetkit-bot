@@ -2,6 +2,7 @@
 
 import logging
 import json
+import re
 from collections import deque
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -33,6 +34,9 @@ EVENT_CONTEXT_ATTRIBUTES = {
         "command_id", "invoked_name", "source", "outcome", "reason",
         "requested_provider", "requested_model", "attempt", "fallback",
         "input_tokens", "output_tokens", "total_tokens", "error_type", "stage",
+        "client_instance", "current_client", "send_active", "send_session_ref", "connection_state", "socket_ref",
+        "active_socket_ref", "transport_ref", "sdk_socket_count", "sdk_reconnect_count", "event_count",
+        "duplicate_origin", "duplicate_delivery", "duplicate_age_seconds",
     )},
 }
 EventContextValue = str | int | float | bool
@@ -192,7 +196,35 @@ ACTIVITY_EVENTS = {
 }
 CORRELATION_CONTEXT_FIELDS = {
     "event_id", "source", "outcome", "reason", "remaining_seconds", "drop_count", "pending_count",
+    "duplicate_origin", "duplicate_delivery", "duplicate_age_seconds",
 }
+
+
+def socket_diagnostic_context(context: dict) -> dict:
+    """Fixed operational fields only, safe for authenticated activity and stderr."""
+    allowed = {
+        "source": {"lifecycle"}, "stage": {"connection_lifecycle"},
+        "outcome": {"connection_observation", "close_ignored"},
+        "connection_state": {"unknown", "connecting", "connected", "reconnecting", "stopped", "auth_required", "failed"},
+        "reason": {"socket_welcome", "active_socket_closed", "unwelcomed_socket", "superseded_socket",
+                   "client_closing", "client_closed", "closed_client_ingress", "replaced_client_ingress",
+                   "inactive_session_ingress", "state_connecting", "state_connected", "state_reconnecting",
+                   "state_stopped", "state_auth_required", "state_failed"},
+    }
+    result = {key: value for key, value in context.items()
+              if key in allowed and isinstance(value, str) and value in allowed[key]}
+    for key in ("client_instance", "send_session_ref", "socket_ref", "active_socket_ref", "transport_ref"):
+        value = context.get(key)
+        if isinstance(value, str) and re.fullmatch(r"[a-f0-9]{12}(?:[a-f0-9]{4})?", value):
+            result[key] = value
+    for key in ("current_client", "send_active"):
+        if type(context.get(key)) is bool:
+            result[key] = context[key]
+    for key in ("sdk_socket_count", "sdk_reconnect_count", "event_count"):
+        value = context.get(key)
+        if type(value) is int and 0 <= value <= 1_000_000_000:
+            result[key] = value
+    return result
 
 
 def project_activity(entry: dict) -> dict | None:
@@ -207,6 +239,8 @@ def project_activity(entry: dict) -> dict | None:
                if key in EVENT_CONTEXT_ATTRIBUTES.values()}
     if kind == "chat.correlation":
         context = {key: value for key, value in context.items() if key in CORRELATION_CONTEXT_FIELDS}
+    if kind == "twitch.socket":
+        context = socket_diagnostic_context(context)
     return {**entry, "context": context,
             "message": f"{kind} outcome={context.get('outcome', 'unknown')}",
             "text": entry.get("text") if kind in {"command.input", "chat.outgoing"} else None}

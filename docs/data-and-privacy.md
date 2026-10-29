@@ -187,6 +187,14 @@ use `data/heetkit.db`; Twitch authorization uses `auth/twitchio_tokens.json`.
   (for example, `ChatSessionClosedError` at `send_session`); transport failures carry
   their class at `transport_send`. Exception messages, tracebacks and provider
   payloads are excluded, and opted-out requests retain diagnostic suppression.
+  Connection lifecycle records use opaque client/socket/send-session references,
+  ownership flags and bounded counters. Their strict scalar/enum projection is
+  shared by the authenticated feed and fixed Headless lifecycle stream, preserving
+  evidence beyond the feed's eviction window without SDK/HTTP debug logging.
+  Duplicate notices classify SDK dispatch, notification, subscription and transport
+  relationships using opaque metadata under the existing replay-cache count/TTL;
+  raw Twitch IDs and message text are excluded. Counts are duplicate decisions,
+  not evidence that commands were lost.
 - AI blocks, connection presets, optional cooldown-exception IDs and private text in
   settings/recovery copies are operator-managed configuration, with no automatic
   60-day expiry. Credentials and settings are not removed by personal-data cleanup.

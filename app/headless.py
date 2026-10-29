@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import math
 import os
@@ -22,7 +23,7 @@ from app.desktop_instance import DesktopAlreadyRunningError, desktop_instance_gu
 from app.headless_health import HealthFile
 from app.operation_policy import OperationPolicy
 from app.runtime_paths import DATA_DIR_ENV, RuntimePaths, prepare_runtime_data
-from app.utils.logging import OperatorActivityHandler, RecentLogBuffer, PrivacyLogFilter
+from app.utils.logging import OperatorActivityHandler, RecentLogBuffer, PrivacyLogFilter, socket_diagnostic_context
 
 
 logger = logging.getLogger("app.headless")
@@ -66,9 +67,17 @@ def secret_file_settings() -> dict[str, str]:
 
 class HeadlessLogFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
+        kind = getattr(record, "event_kind", None)
+        if kind == "twitch.socket":
+            if not PrivacyLogFilter().filter(record):
+                return False
+            fields = socket_diagnostic_context({key.removeprefix("event_"): value
+                                               for key, value in vars(record).items() if key.startswith("event_")})
+            record.msg, record.args = "Twitch socket lifecycle: %s", (json.dumps(fields, sort_keys=True),)
+            record.exc_info = record.exc_text = record.stack_info = None
+            return True
         if record.name == "app.headless":
             return True
-        kind = getattr(record, "event_kind", None)
         if kind in {
             "twitch.subscribe", "twitch.connected", "twitch.recovered", "twitch.disconnected",
             "twitch.auth_required", "twitch.failed", "twitch.shutdown",

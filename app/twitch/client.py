@@ -7,7 +7,9 @@ import os
 import secrets
 import tempfile
 from contextlib import contextmanager
+from contextvars import ContextVar
 from collections.abc import Callable
+import hashlib
 from pathlib import Path
 from time import monotonic
 
@@ -29,7 +31,7 @@ from app.services.facade import ApplicationServices
 from app.services.ai_request_policy import PolicyDecision
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.twitch.message_correlation import ChatMessageCorrelation
-from app.twitch.sending import ChatSendSession
+from app.twitch.sending import ChatSendSession, ChatSessionClosedError
 from app.utils.text import parse_command
 from app.utils.logging import privacy_log_scope, operator_event_scope, operator_event, event_metadata
 
@@ -43,6 +45,8 @@ CHAT_SCOPES = Scopes(["user:read:chat", "user:write:chat", "user:bot", "moderato
 # New consent includes highlighted sending; existing base-chat grants remain valid.
 OAUTH_SCOPES = Scopes([*CHAT_SCOPES.selected, "moderator:manage:announcements"])
 OAUTH_STATE_TTL_SECONDS = 300.0
+_transport_origin: ContextVar[str | None] = ContextVar("twitch_transport_origin", default=None)
+_dispatch_origin: ContextVar[tuple | None] = ContextVar("twitch_dispatch_origin", default=None)
 
 
 def validate_bot_authorization(token, settings: Settings) -> None:
@@ -271,6 +275,10 @@ class TwitchChatBot(commands.Bot):
         self._token_file = Path(settings.twitch_token_file)
         self._active_socket_id: str | None = None
         self._closing_requested = False
+        self._diagnostic_id = secrets.token_hex(8)
+        self._diagnostic_salt = secrets.token_bytes(16)
+        self._message_dispatches = 0
+        self._connection_notices: dict[str, tuple[float, int]] = {}
         self._chat_messages = getattr(services.twitch, "chat_messages", None) or ChatMessageCorrelation()
         self._token_save_lock = asyncio.Lock()
         self._tokens_loaded = False
@@ -293,12 +301,82 @@ class TwitchChatBot(commands.Bot):
         if services.twitch is not None:
             services.twitch.bind(self, account.channel_user_id, account.user_id, channel_name=account.channel)
 
+    def _socket_ref(self, value: str | None) -> str | None:
+        return (hashlib.blake2s(value.encode(), key=self._diagnostic_salt, digest_size=6).hexdigest()
+                if isinstance(value, str) and value else None)
+
+    def _registered_sockets(self):
+        return {socket for sockets in self._websockets.values() for socket in sockets.values()}
+
+    def dispatch(self, event: str, payload=None) -> None:
+        # SDK listener tasks carry the source socket name. Preserve only an
+        # opaque per-client reference across SDK-created handler tasks.
+        task = asyncio.current_task()
+        name = task.get_name() if task is not None else ""
+        prefix = "EventsubWebsocketListener: "
+        origin = self._socket_ref(name[len(prefix):]) if name.startswith(prefix) else None
+        token = _transport_origin.set(origin)
+        delivery = None
+        if event.lower() == "message":
+            self._message_dispatches += 1
+            subscription = notification = None
+            try:
+                subscription = self._socket_ref(getattr(getattr(payload, "subscription_data", None), "id", None))
+                notification = self._socket_ref(getattr(getattr(payload, "metadata", None), "message_id", None))
+            except (AttributeError, KeyError, TypeError, ValueError):
+                pass  # Missing SDK metadata affects diagnostics only.
+            delivery = (self._message_dispatches, subscription, notification)
+        delivery_token = _dispatch_origin.set(delivery)
+        try:
+            super().dispatch(event, payload)
+        finally:
+            _transport_origin.reset(token)
+            _dispatch_origin.reset(delivery_token)
+
+    def _connection_event(self, reason: str, *, socket_id: str | None = None) -> None:
+        now = monotonic()
+        last, count = self._connection_notices.get(reason, (float("-inf"), 0))
+        self._connection_notices[reason] = (last, count + 1)
+        repeated = reason in {"closed_client_ingress", "replaced_client_ingress", "inactive_session_ingress",
+                              "unwelcomed_socket", "superseded_socket"}
+        if repeated and now - last < 30:
+            return
+        self._connection_notices[reason] = (now, count + 1)
+        twitch = self._services.twitch
+        try:
+            session = twitch.chat_session(self) if twitch is not None else None
+            current = twitch is not None
+        except ChatSessionClosedError:
+            session, current = None, False
+        sockets = self._registered_sockets()
+        state = getattr(self._services, "runtime_state", None)
+        operator_event(self._logger, "twitch.socket", "connection_observation", inherit_context=False,
+                       source="lifecycle", reason=reason, stage="connection_lifecycle",
+                       client_instance=self._diagnostic_id, current_client=current,
+                       send_active=session.active if session is not None else False,
+                       send_session_ref=session.diagnostic_ref if session is not None else None,
+                       connection_state=state.twitch_connection_state if state is not None else "unknown",
+                       socket_ref=self._socket_ref(socket_id), active_socket_ref=self._socket_ref(self._active_socket_id),
+                       transport_ref=_transport_origin.get(), sdk_socket_count=len(sockets),
+                       sdk_reconnect_count=sum(not task.done() for socket in sockets
+                                               for task in getattr(socket, "_connection_tasks", ())),
+                       event_count=count + 1)
+
     def _set_connection_state(self, state: TwitchConnectionState) -> None:
         if self._services.twitch is not None:
             self._services.twitch.set_chat_ready(self, state == "connected" and not self._closing_requested)
         runtime_state = getattr(self._services, "runtime_state", None)
         if runtime_state is not None:
             runtime_state.set_twitch_connection_state(state)
+        self._connection_event("state_" + state)
+
+    async def _drain_sdk_reconnects(self, sockets) -> None:
+        tasks = {task for socket in sockets for task in getattr(socket, "_connection_tasks", ())
+                 if not task.done() and task is not asyncio.current_task()}
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     def begin_authorization(self) -> str:
         state = self._services.runtime_state
@@ -312,16 +390,23 @@ class TwitchChatBot(commands.Bot):
                 return
             self._closing_requested = True
             self._closing_task = asyncio.current_task()
+            sockets = self._registered_sockets()
+            self._connection_event("client_closing")
             # TwitchIO stops refresh work, saves, then clears managed tokens. Only
             # this close task may save now; queued refresh listeners must not later
             # replace the persisted cache with the cleared in-memory dictionary.
             try:
+                await self._drain_sdk_reconnects(sockets)
                 try:
                     if self._services.twitch is not None:
                         await self._services.twitch.unbind(self)
                 finally:
                     await super().close(*args, **{**kwargs, "save_tokens": self._tokens_loaded})
             finally:
+                # SDK close cancels listeners but does not drain its reconnect
+                # tasks. Prevent an in-progress connect from resurrecting a client.
+                await self._drain_sdk_reconnects(sockets | self._registered_sockets())
+                self._connection_event("client_closed")
                 self._closing_task = None
             if self._close_save_failed:
                 raise TwitchConnectionError("Could not persist Twitch authorization during shutdown.")
@@ -495,12 +580,26 @@ class TwitchChatBot(commands.Bot):
                     self._logger.error("Could not remove private token staging file", extra={"event_kind": "twitch.failed"})
 
     async def event_message(self, message: ChatMessage) -> None:
+        if self._closing_requested:
+            self._connection_event("closed_client_ingress")
+            return
+        # Ownership must be checked before the shared replay reservation. A late
+        # retired reader must not poison the active client's copy of this event.
+        try:
+            send_session = self._services.twitch.chat_session(self) if self._services.twitch is not None else None
+        except ChatSessionClosedError:
+            self._connection_event("replaced_client_ingress")
+            return
+        if send_session is not None and not send_session.active:
+            self._connection_event("inactive_session_ingress")
         # EventSub delivery is not an exactly-once command invocation. Reserve
         # the stable chat ID before any await so concurrent replays cannot send
         # another batch, even when the command has no cooldown.
         message_id = getattr(message, "id", None)
         channel = str(getattr(message.broadcaster, "id", message.broadcaster.name))
-        if not self._chat_messages.reserve(self.bot_id, channel, message_id):
+        if not self._chat_messages.reserve(self.bot_id, channel, message_id,
+                                          origin=(self._diagnostic_id, _transport_origin.get(),
+                                                  *(_dispatch_origin.get() or (None, None, None)))):
             return
         try:
             await process_twitch_message(
@@ -509,14 +608,14 @@ class TwitchChatBot(commands.Bot):
                 dispatcher=self._dispatcher,
                 logger=self._logger,
                 correlation=self._chat_messages,
-                send_session=(self._services.twitch.chat_session(self)
-                              if self._services.twitch is not None else None),
+                send_session=send_session,
             )
         except Exception:
             self._logger.exception("Unexpected Twitch message processing failure")
 
     async def event_websocket_welcome(self, payload: object) -> None:
         self._active_socket_id = getattr(payload, "id", None)
+        self._connection_event("socket_welcome", socket_id=self._active_socket_id)
         if self.bot_id not in self.tokens or self._closing_requested:
             return
         runtime_state = getattr(self._services, "runtime_state", None)
@@ -561,10 +660,9 @@ class TwitchChatBot(commands.Bot):
         # Failed SDK reconnect candidates also emit close, without ever receiving
         # a welcome/session ID. They do not own the current sending connection.
         if self._active_socket_id is not None and socket_id != self._active_socket_id:
-            operator_event(self._logger, "twitch.socket", "close_ignored", inherit_context=False,
-                           reason="unwelcomed_socket" if socket_id is None else "superseded_socket",
-                           stage="connection_lifecycle", source="lifecycle")
+            self._connection_event("unwelcomed_socket" if socket_id is None else "superseded_socket", socket_id=socket_id)
             return
+        self._connection_event("active_socket_closed", socket_id=socket_id)
         self._set_connection_state("reconnecting")
         self._logger.warning(
             "Twitch chat connection closed; TwitchIO is handling recovery channel=%s",

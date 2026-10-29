@@ -783,7 +783,8 @@ async def test_oauth_callback_accepts_the_configured_bot_account(monkeypatch: py
     monkeypatch.setattr(bot, "save_tokens", save_tokens)
     monkeypatch.setattr(bot, "_subscribe_to_chat", subscribe)
     if renewal:
-        bot._services.twitch = SimpleNamespace(chat_connected=True, set_chat_ready=lambda *args: None)
+        bot._services.twitch = SimpleNamespace(chat_connected=True, set_chat_ready=lambda *args: None,
+                                              chat_session=lambda _: SimpleNamespace(active=True, diagnostic_ref="a"*16))
 
     await bot.event_oauth_authorized(
         {"access_token": "test-access", "refresh_token": "test-refresh", "user_id": "100"}

@@ -39,6 +39,7 @@ class ChatMessageCorrelation:
         self._expiry_timers = {}
         self._paused_drops = {}
         self._decisions = OrderedDict()
+        self._ingress_origins = OrderedDict()
 
     def _event(self, outcome, reason, **context):
         # Correlation runs before ingress privacy checks. Never inherit the
@@ -107,15 +108,37 @@ class ChatMessageCorrelation:
         cache[key] = self.clock() + self.ttl
         self._prune(cache)
 
-    def reserve(self, account, channel, message_id):
+    def reserve(self, account, channel, message_id, *, origin=None):
         self._prune(self.seen)
+        while self._ingress_origins and next(iter(self._ingress_origins)) not in self.seen:
+            self._ingress_origins.popitem(last=False)
         if not all(_valid_id(value) for value in (account, channel, message_id)):
             return True
         key = (account, channel, message_id)
         if key in self.seen:
-            self._decision((account, channel), "input_dropped", "replay")
+            first, first_at = self._ingress_origins.get(key, (None, self.clock()))
+            relation = ("unattributed" if first is None or origin is None else
+                        "different_client" if first[0] != origin[0] else
+                        "unattributed" if first[1] is None or origin[1] is None else
+                        "same_transport" if first[1] == origin[1] else "different_transport")
+            delivery = "unattributed"
+            if first is not None and origin is not None and len(first) == len(origin) == 5 and first[0] == origin[0]:
+                if first[2] is not None and first[2] == origin[2]:
+                    delivery = "same_dispatch"
+                elif first[3] is not None and origin[3] is not None and first[3] != origin[3]:
+                    delivery = "different_subscriptions"
+                elif first[4] is not None and first[4] == origin[4]:
+                    delivery = "same_notification"
+                elif first[4] is not None and origin[4] is not None:
+                    delivery = "distinct_notification"
+            self._decision((account, channel), "input_dropped", "replay", duplicate_origin=relation,
+                           duplicate_delivery=delivery,
+                           duplicate_age_seconds=round(max(0.0, self.clock() - first_at), 3))
             return False
         self._remember(self.seen, key)
+        self._ingress_origins[key] = (origin, self.clock())
+        while self._ingress_origins and next(iter(self._ingress_origins)) not in self.seen:
+            self._ingress_origins.popitem(last=False)
         return True
 
     async def send(self, account, channel, responder, content):

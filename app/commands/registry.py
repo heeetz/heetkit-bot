@@ -264,6 +264,7 @@ class CommandDispatcher:
             command=definition.name if definition else custom.name if custom else name,
             command_id=f"custom:{custom.id}" if custom else definition.name if definition else None,
             invoked_name=name,
+            send_session_ref=getattr(message.send_session, "diagnostic_ref", None),
         )
 
     def _outcome(self, outcome: str, **context) -> None:
@@ -522,6 +523,7 @@ class CommandDispatcher:
             self._logger.error("Command dispatch failed: %s", type(error).__name__,
                                extra=event_metadata("command.outcome", outcome="handler_failed",
                                                     error_type=type(error).__name__,
+                                                    send_active=message.send_session.active if message.send_session is not None else None,
                                                     stage="send_session" if isinstance(error, ChatSessionClosedError)
                                                     else "dispatch_handler"))
             return True

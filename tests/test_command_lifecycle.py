@@ -211,6 +211,7 @@ async def test_pending_and_uncertain_sends_remain_distinct_from_session_failures
 
 async def test_delayed_ingress_never_retargets_a_captured_closed_session(sandbox):
     s = sandbox
+    original = s.twitch.chat_session(s.bot)
     entered, release = asyncio.Event(), asyncio.Event()
     async def delayed(**kwargs):
         entered.set()
@@ -225,6 +226,9 @@ async def test_delayed_ingress_never_retargets_a_captured_closed_session(sandbox
     await task
     assert not s.sent and 'handler_failed' in s.outcomes('late')
     assert not s.twitch.chat_messages.uncertain_until
+    failure = next(e for e in s.buffer.activity()['entries'] if e['context'].get('outcome') == 'handler_failed')
+    assert failure['context']['send_session_ref'] == original.diagnostic_ref
+    assert failure['context']['send_session_ref'] != s.twitch.chat_session(s.bot).diagnostic_ref
 
 
 async def test_session_failure_metadata_respects_opt_out(sandbox):
@@ -260,3 +264,121 @@ async def test_failed_candidate_does_not_cancel_pending_send_or_create_quarantin
     await asyncio.gather(first, manual)
     assert 'confirmed_send' in s.outcomes('pending') and 'confirmed_send' in s.outcomes('manual')
     assert not s.twitch.chat_messages.uncertain_until
+
+
+@pytest.mark.parametrize('retired', [False, True])
+@pytest.mark.parametrize('old_first', [False, True])
+@pytest.mark.parametrize('uid', ['100', '300'])
+async def test_retired_ingress_cannot_reserve_the_current_clients_message_id(sandbox, retired, old_first, uid):
+    s = sandbox
+    old = s.bot
+    current = TwitchChatBot(old._settings, old._account, s.services, s.dispatcher, s.logger)
+    current._http._tokens['100'] = {}
+    await current.event_ready()
+    try:
+        if retired:
+            await old.close(save_tokens=False)
+        message = s.event('!tg', 'same-event', uid)
+        for bot in ([old, current] if old_first else [current, old]):
+            await bot.event_message(message)
+        assert len(s.sent) == 1
+        assert 'handler_completed' in s.outcomes('same-event')
+        assert s.state.twitch_connection_state == 'connected'
+    finally:
+        await current.close(save_tokens=False)
+
+
+async def test_sdk_reconnect_task_is_drained_before_client_close_returns(sandbox):
+    s = sandbox
+    socket = s.sockets[0]
+    # Match the registry populated by SDK subscribe_websocket, without subscribing.
+    s.bot._websockets['100'] = {'current': socket}
+    entered, release = asyncio.Event(), asyncio.Event()
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    async def connect(*args, **kwargs):
+        entered.set()
+        await release.wait()
+        raise OSError('Synthetic transport closes before reconnect completes')
+    session.ws_connect.side_effect = connect
+    # The real SDK owns/schedules the reconnect task. HTTP is fully mocked.
+    with patch('twitchio.eventsub.websockets.aiohttp.ClientSession', return_value=session):
+        await socket._create_connection_task()
+        await entered.wait()
+        pending = tuple(socket._connection_tasks)
+        try:
+            await s.bot.close(save_tokens=False)
+            assert all(task.done() for task in pending)
+        finally:
+            for task in pending:
+                task.cancel()
+            release.set()
+            await asyncio.gather(*pending, return_exceptions=True)
+
+
+async def test_duplicate_diagnostics_keep_sdk_transport_origin_without_raw_ids(sandbox, caplog):
+    s = sandbox
+    caplog.set_level(logging.INFO)
+    async def deliver():
+        s.bot.dispatch('message', s.event('!tg', 'PRIVATE-event'))
+    for origin in ('PRIVATE-socket-one', 'PRIVATE-socket-one', 'PRIVATE-socket-two'):
+        await asyncio.create_task(deliver(), name='EventsubWebsocketListener: ' + origin)
+        await turns()
+        s.now += 6
+    assert len(s.sent) == 1
+    duplicates = [r for r in caplog.records if getattr(r, 'event_kind', None) == 'chat.correlation'
+                  and getattr(r, 'event_reason', None) == 'replay']
+    assert [r.event_duplicate_origin for r in duplicates] == ['same_transport', 'different_transport']
+    assert [r.event_duplicate_age_seconds for r in duplicates] == [6, 12]
+    transitions = [r for r in caplog.records if getattr(r, 'event_kind', None) == 'twitch.socket']
+    assert all('PRIVATE' not in str(vars(r)) for r in duplicates + transitions)
+
+
+@pytest.mark.parametrize('second_subscription,second_notification,expected', [
+    ('one', 'notification', 'same_notification'),
+    ('two', 'different', 'different_subscriptions'),
+    ('one', 'different', 'distinct_notification'),
+])
+async def test_duplicate_metadata_distinguishes_subscription_overlap_and_redelivery(
+        sandbox, caplog, second_subscription, second_notification, expected):
+    s = sandbox
+    caplog.set_level(logging.INFO)
+    for subscription, notification in [('one', 'notification'), (second_subscription, second_notification)]:
+        raw = s.event('!tg', 'PRIVATE-chat-id')
+        raw.subscription_data = NS(id='PRIVATE-subscription-' + subscription)
+        raw.metadata = NS(message_id='PRIVATE-' + notification)
+        s.bot.dispatch('message', raw)
+        await turns()
+        s.now += 6
+    record = next(r for r in caplog.records if getattr(r, 'event_reason', None) == 'replay')
+    assert record.event_duplicate_delivery == expected
+    assert len(s.sent) == 1
+    assert 'PRIVATE' not in str(vars(record))
+
+
+async def test_duplicate_callbacks_in_one_sdk_dispatch_have_a_distinct_diagnostic(sandbox, caplog):
+    s = sandbox
+    caplog.set_level(logging.INFO)
+    async def other_listener(payload):
+        await s.bot.event_message(payload)
+    s.bot.add_listener(other_listener, event='event_message')
+    s.bot.dispatch('message', s.event('!tg', 'same-dispatch'))
+    await turns()
+    record = next(r for r in caplog.records if getattr(r, 'event_reason', None) == 'replay')
+    assert record.event_duplicate_delivery == 'same_dispatch'
+    assert len(s.sent) == 1
+
+
+async def test_repeated_retired_ingress_diagnostics_are_rate_limited(sandbox, monkeypatch):
+    s = sandbox
+    monkeypatch.setattr('app.twitch.client.monotonic', lambda: s.now)
+    await s.bot.close(save_tokens=False)
+    for i in range(20):
+        await s.bot.event_message(s.event('!tg', 'retired-' + str(i)))
+    entries = [e for e in s.buffer.activity()['entries'] if e['context'].get('reason') == 'closed_client_ingress']
+    assert len(entries) == 1 and entries[0]['context']['event_count'] == 1
+    s.now += 30
+    await s.bot.event_message(s.event('!tg', 'retired-later'))
+    entries = [e for e in s.buffer.activity()['entries'] if e['context'].get('reason') == 'closed_client_ingress']
+    assert len(entries) == 2 and entries[-1]['context']['event_count'] == 21
+    assert not s.twitch.chat_messages.seen

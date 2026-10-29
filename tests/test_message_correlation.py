@@ -309,3 +309,18 @@ async def test_diagnostic_timers_and_counters_respect_cache_bound_and_request_pr
         assert "PRIVATE" not in str(buffer.activity())
     finally:
         logger.removeHandler(handler)
+
+
+def test_replay_origin_metadata_expires_and_remains_bounded(caplog):
+    caplog.set_level(logging.INFO)
+    now = [100.0]
+    correlation = ChatMessageCorrelation(limit=2, ttl=10, clock=lambda: now[0])
+    for value in ('one', 'two', 'three'):
+        assert correlation.reserve('account', 'channel', value, origin=('client-a', 'socket-a'))
+    assert len(correlation._ingress_origins) == len(correlation.seen) == 2
+    assert not correlation.reserve('account', 'channel', 'three', origin=('client-b', 'socket-a'))
+    record = caplog.records[-1]
+    assert record.event_duplicate_origin == 'different_client'
+    now[0] += 10
+    assert correlation.reserve('account', 'channel', 'three', origin=('client-b', 'socket-b'))
+    assert len(correlation._ingress_origins) == 1
