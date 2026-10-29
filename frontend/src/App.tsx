@@ -27,6 +27,7 @@ import { Select } from './components/Select'
 import Switch from './components/Switch'
 import HelpTip from './components/HelpTip'
 import BrowserSession from './components/BrowserSession'
+import DesktopStartup from './components/DesktopStartup'
 import Confirmation from './components/Confirmation'
 import './styles.css'
 
@@ -783,5 +784,5 @@ function ManagementApp() {
 }
 
 export default function App() {
-  return isBrowserMode() ? <BrowserSession><ManagementApp /></BrowserSession> : <ManagementApp />
+  return isBrowserMode() ? <BrowserSession><ManagementApp /></BrowserSession> : <DesktopStartup><ManagementApp /></DesktopStartup>
 }

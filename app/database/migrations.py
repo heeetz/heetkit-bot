@@ -43,6 +43,20 @@ SCHEMA_SQL = (
 class DatabaseMigrationError(RuntimeError):
     """Fixed diagnostics only: sqlite exception strings may contain private values."""
 
+    @property
+    def operator_message(self):
+        return (f"{self} Close every HeetKit process using this profile before retrying. "
+                "Keep the database and recovery copies; do not delete them to bypass this error. "
+                "See Data and privacy: Versioned database upgrade and recovery.")
+
+
+class LegacyChannelMappingRequired(DatabaseMigrationError):
+    """Only absent input for recognized unscoped legacy rows opens the Desktop form."""
+
+    def __init__(self):
+        super().__init__("Legacy history needs an explicit channel choice. Confirm its numeric Twitch channel ID in Desktop, "
+                         "or provide legacy-channel-mapping.json beside the database for Server.")
+
 
 async def run_sqlite_work(operation, *args, **kwargs):
     """Retain caller-owned guards/locks until a cancelled worker really finishes."""
@@ -97,6 +111,7 @@ def _recovery_paths(path):
 
 
 def _backup(path, connection, now):
+    maintain_recovery(path, now=now)
     folder, target, manifest = _recovery_paths(path)
     folder.mkdir(mode=0o700, exist_ok=True)
     if target.is_symlink() or manifest.is_symlink():
@@ -154,8 +169,39 @@ def _mapping(path):
         if type(payload.get("version")) is not int or payload["version"] != 1 or not _identifier(payload.get("channel_id")):
             raise ValueError
         return payload["channel_id"]
+    except FileNotFoundError:
+        raise LegacyChannelMappingRequired() from None
     except (OSError, ValueError, AttributeError):
-        raise DatabaseMigrationError("Legacy rows need explicit profile-local legacy-channel-mapping.json (version 1, numeric channel_id); startup stopped.") from None
+        raise DatabaseMigrationError("Cannot read a valid legacy-channel-mapping.json (version 1, numeric channel_id). "
+                                     "Correct the existing profile-local mapping or its permissions, then restart.") from None
+
+
+def validate_legacy_channel_choice(channel_id, confirmed):
+    if confirmed is not True:
+        raise ValueError("Confirm that all unscoped legacy history belongs to the chosen channel.")
+    if not _identifier(channel_id):
+        raise ValueError("Enter the numeric Twitch channel ID (1–32 ASCII digits), verified separately with Twitch.")
+
+
+def save_legacy_channel_mapping(path: Path, channel_id: str):
+    """Caller holds the database guard. Create once; never replace existing input."""
+    validate_legacy_channel_choice(channel_id, True)
+    target = path.resolve().parent / "legacy-channel-mapping.json"
+    staged = target.with_name(".legacy-channel-mapping-" + secrets.token_hex(8) + ".tmp")
+    try:
+        _private_json(staged, {"version": 1, "channel_id": channel_id})
+        # Atomic create-if-absent on the same filesystem; unlike replace this
+        # cannot overwrite a mapping supplied while the form was open.
+        os.link(staged, target)
+    except FileExistsError:
+        raise DatabaseMigrationError("A legacy channel mapping already exists. Review it with HeetKit stopped, then restart; it was not overwritten.") from None
+    except OSError:
+        raise DatabaseMigrationError("Could not save the legacy channel choice. Check write permissions beside the profile database, then restart.") from None
+    finally:
+        try:
+            staged.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _validate_current(connection):
@@ -319,15 +365,33 @@ def maintain_recovery(path: Path, suppressed=(), *, deleted=(), withdrawn=(), no
         raise DatabaseMigrationError("Unsafe database recovery file.")
     try:
         metadata = json.loads(manifest.read_text(encoding="utf-8"))
+        if (not isinstance(metadata, dict) or type(metadata.get("version")) is not int or metadata["version"] != 1
+                or not isinstance(metadata.get("source_checksum"), str)
+                or re.fullmatch(r"[0-9a-f]{64}", metadata["source_checksum"]) is None
+                or not isinstance(metadata.get("sha256"), str)
+                or re.fullmatch(r"[0-9a-f]{64}", metadata["sha256"]) is None
+                or not isinstance(metadata.get("counts"), dict)
+                or not {"users", "ai_memory_entries"} <= metadata["counts"].keys()
+                or set(metadata["counts"]) - TABLE_COLUMNS.keys()
+                or any(type(count) is not int or count < 0 for count in metadata["counts"].values())):
+            raise ValueError
         created, expiry = _date(metadata["created_at"]), _date(metadata["expires_at"])
-        if not created < expiry <= created + timedelta(days=60):
+        if expiry != created + timedelta(days=RECOVERY_DAYS):
+            raise ValueError
+        # The fixed names alone do not establish ownership. Verify this generated
+        # manifest and its regular, unlinked snapshot before deleting either file.
+        if not manifest.is_file() or manifest.stat().st_nlink != 1:
+            raise ValueError
+        if target.exists():
+            if (not target.is_file() or target.stat().st_nlink != 1
+                    or metadata["sha256"] != hashlib.sha256(target.read_bytes()).hexdigest()):
+                raise ValueError
+        elif now < expiry:
             raise ValueError
         if now >= expiry:
             target.unlink(missing_ok=True)
             manifest.unlink()
             return
-        if metadata["sha256"] != hashlib.sha256(target.read_bytes()).hexdigest():
-            raise ValueError
         if suppressed or deleted or withdrawn:
             with closing(sqlite3.connect(target.as_uri() + "?mode=rw", uri=True, timeout=0)) as backup:
                 backup.execute("PRAGMA secure_delete=ON")

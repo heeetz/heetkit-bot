@@ -312,3 +312,78 @@ async def test_database_beside_settings_does_not_collide_with_own_profile_guard(
             assert read(path, "PRAGMA user_version") == [(migrations.SCHEMA_VERSION,)]
     finally:
         await database.close()
+
+
+def test_expired_recovery_cleanup_only_removes_verified_owned_files(tmp_path):
+    path = tmp_path / "synthetic.db"
+    seed(path)
+    map_channel(path)
+    migrations.initialize_schema(path, 100, now=NOW)
+    folder, backup, manifest = migrations._recovery_paths(path)
+    unrelated = folder / "operator-notes.txt"
+    unrelated.write_text("keep this manually owned file")
+    source = path.read_bytes()
+    migrations.maintain_recovery(path, now=NOW + timedelta(days=7))
+    assert not backup.exists() and not manifest.exists()
+    assert unrelated.read_text() == "keep this manually owned file"
+    assert path.read_bytes() == source
+
+
+@pytest.mark.parametrize("fault", ["version", "checksum", "expiry", "invalid", "hardlink", "missing_digest"])
+def test_cleanup_refuses_unowned_or_unverifiable_recovery_files(tmp_path, fault):
+    import os
+    path = tmp_path / "synthetic.db"
+    seed(path)
+    map_channel(path)
+    migrations.initialize_schema(path, 100, now=NOW)
+    _, backup, manifest = migrations._recovery_paths(path)
+    metadata = json.loads(manifest.read_text())
+    if fault == "version":
+        metadata["version"] = 99
+    elif fault == "checksum":
+        backup.write_bytes(b"unrelated operator file")
+    elif fault == "expiry":
+        metadata["expires_at"] = (NOW + timedelta(days=8)).isoformat()
+    elif fault == "hardlink":
+        os.link(backup, tmp_path / "operator-copy.sqlite3")
+    elif fault == "missing_digest":
+        metadata.pop("sha256")
+        backup.unlink()  # An orphan still needs a complete ownership manifest.
+    manifest.write_text("[]" if fault == "invalid" else json.dumps(metadata))
+    before = backup.read_bytes() if backup.exists() else None, manifest.read_bytes()
+    with pytest.raises(migrations.DatabaseMigrationError):
+        migrations.maintain_recovery(path, now=NOW + timedelta(days=10))
+    assert (backup.read_bytes() if backup.exists() else None, manifest.read_bytes()) == before
+
+
+def test_failed_upgrade_retry_reuses_existing_cleanup_for_expired_snapshot(tmp_path):
+    path = tmp_path / "synthetic.db"
+    seed(path)
+    map_channel(path)
+    def fail(_):
+        raise RuntimeError("synthetic interruption")
+    with pytest.raises(RuntimeError):
+        migrations.initialize_schema(path, 100, now=NOW, before_commit=fail)
+    folder, _, manifest = migrations._recovery_paths(path)
+    (folder / "operator-notes.txt").write_text("keep")
+    later = NOW + timedelta(days=8)
+    migrations.initialize_schema(path, 100, now=later)
+    assert json.loads(manifest.read_text())["created_at"] == later.isoformat()
+    assert (folder / "operator-notes.txt").read_text() == "keep"
+
+
+@pytest.mark.parametrize("expired", [False, True])
+def test_recovery_cleanup_resumes_after_only_expired_snapshot_was_removed(tmp_path, expired):
+    path = tmp_path / "synthetic.db"
+    seed(path)
+    map_channel(path)
+    migrations.initialize_schema(path, 100, now=NOW)
+    _, backup, manifest = migrations._recovery_paths(path)
+    backup.unlink()
+    if expired:
+        migrations.maintain_recovery(path, now=NOW + timedelta(days=7))
+        assert not manifest.exists()
+    else:
+        with pytest.raises(migrations.DatabaseMigrationError):
+            migrations.maintain_recovery(path, now=NOW + timedelta(days=6))
+        assert manifest.exists()

@@ -120,6 +120,10 @@ h1 { margin-bottom: 0; font-size: 28px; }
 .browser-login h1 { margin-bottom: 12px; }
 .browser-login form { display: grid; gap: 12px; }
 .browser-login form input { width: 100%; min-width: 0; }
+.desktop-startup { height: 100vh; overflow-y: auto; align-content: safe center; }
+.desktop-startup form { margin-top: var(--space-4); }
+.desktop-startup .startup-confirmation { display: flex; align-items: flex-start; gap: 10px; }
+.desktop-startup .startup-confirmation input { width: 18px; height: 18px; flex: 0 0 18px; margin-top: 2px; accent-color: var(--primary); }
 .browser-management { display: flex; flex-direction: column; height: 100%; }
 .browser-session-bar { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--separator); background: var(--panel); }
 .browser-management > .app-shell { flex: 1; min-height: 0; height: auto; }

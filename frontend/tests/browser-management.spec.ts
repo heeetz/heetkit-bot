@@ -844,6 +844,7 @@ test('desktop startup waits for delayed pywebviewready without selecting browser
   await page.addInitScript(() => {
     window.setTimeout(() => {
       Object.assign(window, { pywebview: { api: {
+        get_desktop_startup: async () => ({ state: 'ready' }),
         get_app_status: async () => ({ running: true, twitch_connected: true, twitch_connection_state: 'connected', uptime_seconds: 1, channel: 'test', account: 'bot' }),
         get_ai_status: async () => ({ enabled: false, available: false, memory_enabled: false, active_personality: 'neutral', model: '' }),
         get_twitch_settings: async () => ({ ok: false }),

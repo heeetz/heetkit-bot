@@ -487,7 +487,17 @@ export interface AIPlaygroundResult {
   error?: string
 }
 
+export interface DesktopStartupStatus {
+  state: 'starting' | 'mapping_required' | 'failed' | 'ready'
+  suggested_channel?: string
+  suggested_channel_id?: string
+  error?: string | null
+}
+
 export interface PythonApi {
+  get_desktop_startup(): Promise<DesktopStartupStatus>
+  confirm_legacy_channel(channelId: string, confirmed: boolean): Promise<ActionResult>
+  cancel_desktop_startup(): Promise<ActionResult>
   get_app_status(): Promise<AppStatus>
   get_about_info(): Promise<AboutInfo>
   check_for_updates(): Promise<UpdateCheckResponse>

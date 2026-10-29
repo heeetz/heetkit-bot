@@ -26,4 +26,9 @@ if errorlevel 1 (
 )
 
 ".venv\Scripts\python.exe" -m app.main %*
-exit /b %errorlevel%
+set "HEETKIT_EXIT_CODE=%errorlevel%"
+if not "%HEETKIT_EXIT_CODE%"=="0" (
+    echo ERROR: HeetKit stopped with exit code %HEETKIT_EXIT_CODE%. Review the startup error above.
+    pause
+)
+exit /b %HEETKIT_EXIT_CODE%

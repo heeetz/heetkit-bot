@@ -10,6 +10,7 @@ import type {
   AISetupSettings,
   BlockedAIUser,
   AppStatus,
+  DesktopStartupStatus,
   CommandInfo,
   PersonalitiesResponse,
   TwitchConnectionSettings,
@@ -17,6 +18,9 @@ import type {
 } from '../src/bridge'
 
 const query = new URLSearchParams(window.location.search)
+let startupState: DesktopStartupStatus['state'] = query.has('legacyMapping') ? 'mapping_required' : 'ready'
+const startupCalls: unknown[] = []
+Object.assign(window, { startupCalls })
 const configured = query.has('configured')
 const authRequired = query.has('auth')
 const initialConnection = (query.get('connection') ?? (authRequired ? 'auth_required' : 'stopped')) as AppStatus['twitch_connection_state']
@@ -117,7 +121,18 @@ const toggleCommands: CommandInfo[] = ['ask', 'ping'].map((name) => ({
   saved: true, has_saved_override: true,
 }))
 window.pywebview = { api: {
+  get_desktop_startup: async () => ({ state: startupState, suggested_channel: 'syntheticchannel',
+    suggested_channel_id: query.has('noSuggestedChannel') ? '' : '200',
+    error: startupState === 'failed' ? 'Recovery backup could not be verified. Keep the database and recovery copies; close HeetKit and review the recovery guide.' : null }),
+  confirm_legacy_channel: async (channelId: string, confirmed: boolean) => {
+    startupCalls.push(['confirm', channelId, confirmed])
+    if (query.has('migrationDelay')) await new Promise((resolve) => window.setTimeout(resolve, 600))
+    startupState = query.has('migrationFailure') ? 'failed' : 'ready'
+    return startupState === 'ready' ? { ok: true } : { ok: false, error: 'Recovery backup could not be verified. Keep the database and recovery copies; close HeetKit and review the recovery guide.' }
+  },
+  cancel_desktop_startup: async () => { startupCalls.push(['cancel']); return { ok: true } },
   get_app_status: async () => {
+    if (startupState !== 'ready') throw new Error('Normal operations must wait for startup confirmation')
     if (query.has('statusDelay')) await new Promise((resolve) => window.setTimeout(resolve, 800))
     return status
   },

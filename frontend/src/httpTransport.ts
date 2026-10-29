@@ -126,6 +126,9 @@ const commandPayload = (command_name: string, enabled: boolean, per_user_seconds
 
 // Fixed methods and named payloads only: no HTTP access to arbitrary bridge names.
 export const browserApi: PythonApi = {
+  get_desktop_startup: async () => ({ state: 'ready' }),
+  confirm_legacy_channel: unsupported,
+  cancel_desktop_startup: unsupported,
   get_app_status: () => read('/v1/status'),
   get_about_info: () => read('/v1/about'),
   get_commands: () => read('/v1/commands'),

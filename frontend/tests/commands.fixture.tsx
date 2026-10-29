@@ -108,6 +108,9 @@ function responseAction(action: string, name: string, responses?: string[]) {
 }
 
 window.pywebview = { api: {
+  get_desktop_startup: async () => ({ state: 'ready' }),
+  confirm_legacy_channel: async () => ({ ok: false }),
+  cancel_desktop_startup: async () => ({ ok: true }),
   get_announcements: async () => ({ ok: true, announcements: structuredClone(announcements) }),
   save_announcements: async (input: AnnouncementInput[]) => {
     commandCalls.push(['save_announcements', structuredClone(input)])

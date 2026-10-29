@@ -41,6 +41,9 @@ python -m app.main
 dependencies (`npm ci` in `frontend/`). A failed build stops the launch so an older
 UI is not opened. It uses the current checkout; it does not pull repository updates
 or change the version in `app/version.py`.
+If Python exits with a startup/application error, the launcher displays its exit code
+and waits for a key so the diagnostic remains visible; it returns the original code.
+Successful exits do not pause.
 
 The installed `heetkit` entry point is equivalent to `python -m app.main` and does
 not rebuild assets. Direct Python launches also use the existing build; rebuild
@@ -55,6 +58,12 @@ install the project and frontend, then use the same Python entry point.
 window or creating/migrating profile files. Twitch setup is checked when connecting;
 the desktop can open before it is configured. `--stopped` forces a disconnected launch
 even when automatic startup is saved. Use a separate `--data-dir` for test profiles.
+An absent legacy channel mapping opens a one-time Desktop confirmation form before
+normal controls, Twitch or cleanup workers start. Confirm the proposed configured
+target or enter another verified numeric channel ID, acknowledge the attribution and
+continue. Cancel exits without saving a choice. Existing invalid mappings and other
+migration failures show recovery guidance instead of silently replacing input; see
+[database upgrade and recovery](data-and-privacy.md#versioned-database-upgrade-and-recovery).
 See [Twitch setup](twitch-setup.md), [AI setup](ai-setup.md) and
 [data and privacy](data-and-privacy.md).
 

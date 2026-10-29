@@ -455,8 +455,18 @@ copies according to your retention/deletion policy; they are not automatically r
 Desktop and Server run the same versioned SQLite upgrade before Twitch, requests or
 cleanup workers start. Fresh databases start at schema version 1. Existing unversioned
 presence/AI tables require an explicit mapping for their unscoped rows; the selected
-startup channel is never used as a guess. With all profile processes stopped, create
-`data/legacy-channel-mapping.json` beside the actual database, for example:
+startup channel is never used as a guess. **Desktop** opens a one-time confirmation
+form only when recognized legacy history needs a mapping and the input file is absent.
+The configured target is offered as a suggestion; it requires an explicit acknowledgement
+and confirmation, or you can enter another numeric channel ID verified with Twitch.
+**Confirm channel and continue** saves the private profile-local choice and resumes
+the normal verified upgrade. **Cancel and exit** leaves the choice unsaved. Normal
+controls, Twitch and cleanup workers remain blocked until startup succeeds. Existing
+invalid mappings, backup failures and other migration errors show actionable guidance;
+they do not trigger an inferred mapping or overwrite an existing choice.
+
+**Server**, or optional manual Desktop preparation: with all profile processes stopped,
+create `data/legacy-channel-mapping.json` beside the actual database, for example:
 
 ```json
 {"version": 1, "channel_id": "123456"}
@@ -480,6 +490,9 @@ stopped before retrying; never delete the profile database to bypass a failed up
 This recovery copy has a **seven-day acceptance window**, fixed from creation and
 never extended by startup, use or a privacy request. Startup/hourly cleanup removes
 it at expiry (catch-up after downtime); do not restore/use an expired snapshot.
+The same cleanup also handles an expired verified snapshot when retrying an interrupted
+upgrade. Only the owned, manifest-verified `schema-0.sqlite3` and `schema-0.json` are
+removed; unrelated files and unverifiable copies are retained for operator review.
 `!optout` and the offline privacy tool scrub applicable personal rows in that copy;
 opt-out preserves suppression, deletion alone adds no suppression, and verified
 opt-in removes only the marker. A failed recovery scrub leaves live suppression in

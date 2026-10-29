@@ -87,3 +87,12 @@ def test_launcher_preserves_application_exit_code(launcher):
     root, env = launcher
     result = run_launcher(root, {**env, "TEST_APP_EXIT": "9"})
     assert result.returncode == 9
+    assert "HeetKit stopped with exit code 9" in result.stdout
+    assert "Press any key" in result.stdout
+
+
+def test_launcher_does_not_pause_after_a_successful_exit(launcher):
+    root, env = launcher
+    result = run_launcher(root, env)
+    assert result.returncode == 0
+    assert "Press any key" not in result.stdout

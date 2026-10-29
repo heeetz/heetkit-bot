@@ -38,6 +38,7 @@ from app.config.personalities import AI_PERSONALITY_PROMPTS, build_protected_sha
 from app.config.profile_settings import apply_ai_app_settings, apply_twitch_app_settings
 from app.config.settings import Settings, TwitchConfigurationError, load_settings_with_credentials
 from app.container import Application, build_application
+from app.database.migrations import DatabaseMigrationError, LegacyChannelMappingRequired, validate_legacy_channel_choice
 from app.credentials import CredentialError, CredentialManager, CredentialName, CredentialStore
 from app.desktop_instance import (
     DesktopAlreadyRunningError,
@@ -86,6 +87,7 @@ BRIDGE_TWITCH_RECONNECT_TIMEOUT_SECONDS = 30.0
 
 # Register functions by exact name; never give pywebview an object to traverse.
 FRONTEND_OPERATIONS = (
+    "get_desktop_startup", "confirm_legacy_channel", "cancel_desktop_startup",
     "export_activity",
     "export_configuration", "preview_configuration_import", "apply_configuration_import",
     "get_app_status", "get_about_info", "check_for_updates", "get_commands", "get_custom_commands",
@@ -143,6 +145,18 @@ class AsyncioBackendHost:
         self._bot_runtime: BotRuntime | None = None
         self._close_lock = threading.Lock()
         self._shutdown_future: Future[Any] | None = None
+        self._startup_state = "starting"
+        self._migration_error: str | None = None
+        self._resume_startup_task: asyncio.Task | None = None
+
+    @property
+    def startup_pending(self) -> bool:
+        return self._startup_state != "ready"
+
+    def startup_status(self) -> dict[str, object]:
+        return {"state": self._startup_state, "error": self._migration_error,
+                "suggested_channel": self._settings.twitch_channel,
+                "suggested_channel_id": self._settings.twitch_channel_user_id}
 
     @property
     def application(self) -> Application:
@@ -168,7 +182,52 @@ class AsyncioBackendHost:
         if not self._ready.wait(timeout):
             raise TimeoutError("Desktop backend startup timed out.")
         if self._startup_error is not None:
+            if isinstance(self._startup_error, DatabaseMigrationError):
+                raise self._startup_error from None
             raise RuntimeError("Desktop backend startup failed.") from self._startup_error
+
+    async def _complete_startup(self) -> None:
+        await self.bot_runtime.startup()
+        if self._auto_start:
+            try:
+                await self.bot_runtime.start_bot()
+            except TwitchConfigurationError as error:
+                self._logger.warning("Automatic Twitch start skipped: %s", error)
+        self._startup_state = "ready"
+
+    async def confirm_legacy_channel(self, channel_id, confirmed) -> dict[str, object]:
+        validate_legacy_channel_choice(channel_id, confirmed)
+        if self._startup_state != "mapping_required":
+            return {"ok": False, "error": "Channel confirmation is unavailable. Close HeetKit and review the startup error before retrying."}
+        self._startup_state = "starting"
+        self._resume_startup_task = asyncio.current_task()
+        try:
+            await self.application.database.confirm_legacy_channel(channel_id, confirmed)
+            await self._complete_startup()
+            return {"ok": True}
+        except DatabaseMigrationError as error:
+            self._migration_error = error.operator_message
+        except asyncio.CancelledError:
+            self._migration_error = "Startup was cancelled. Close HeetKit and restart to continue using the saved channel choice."
+            raise
+        except Exception as error:
+            self._logger.error("Desktop startup resume failed: %s", type(error).__name__)
+            self._migration_error = "Desktop startup could not complete. Close HeetKit and review its startup diagnostics before retrying."
+        finally:
+            self._resume_startup_task = None
+            if self._startup_state != "ready":
+                self._startup_state = "failed"
+        return {"ok": False, "error": self._migration_error}
+
+    async def _shutdown_backend(self) -> None:
+        pending = self._resume_startup_task
+        if pending is not None and pending is not asyncio.current_task():
+            pending.cancel()
+            try:
+                await pending
+            except asyncio.CancelledError:
+                pass
+        await self.bot_runtime.shutdown()
 
     def _run(self) -> None:
         loop = asyncio.new_event_loop()
@@ -183,17 +242,19 @@ class AsyncioBackendHost:
             bot_runtime = BotRuntime(application, get_logger("app.twitch"))
             self._application = application
             self._bot_runtime = bot_runtime
-            loop.run_until_complete(bot_runtime.startup())
-            if self._auto_start:
-                try:
-                    loop.run_until_complete(bot_runtime.start_bot())
-                except TwitchConfigurationError as error:
-                    self._logger.warning("Automatic Twitch start skipped: %s", error)
+            try:
+                loop.run_until_complete(self._complete_startup())
+            except LegacyChannelMappingRequired:
+                # Keep only the bridge alive. No Twitch/cleanup workers have started.
+                self._startup_state = "mapping_required"
             self._ready.set()
             loop.run_forever()
         except Exception as error:
             self._startup_error = error
-            self._logger.exception("Desktop backend failed")
+            if isinstance(error, DatabaseMigrationError):
+                self._logger.error("Desktop database startup failed: %s", error.operator_message)
+            else:
+                self._logger.exception("Desktop backend failed")
         finally:
             try:
                 if self._bot_runtime is not None and self._shutdown_future is None:
@@ -209,7 +270,7 @@ class AsyncioBackendHost:
         if self._bot_runtime is None:
             return
         task = loop.create_task(
-            self._bot_runtime.shutdown(),
+            self._shutdown_backend(),
             name="desktop-backend-shutdown",
         )
         loop.run_until_complete(
@@ -287,7 +348,7 @@ class AsyncioBackendHost:
                 and self._bot_runtime is not None
             ):
                 if self._shutdown_future is None:
-                    self._shutdown_future = self.submit(self._bot_runtime.shutdown())
+                    self._shutdown_future = self.submit(self._shutdown_backend())
                 try:
                     self._shutdown_future.result(timeout=timeout)
                 except FutureTimeoutError:
@@ -357,6 +418,31 @@ class WebUIBridge(ApplicationManagement):
         self._twitch_secret_requires_restart = False
         self._profile_root = RuntimePaths.default().root.resolve()
         self._window: Any | None = None
+        self._on_startup_complete = None
+
+    def get_desktop_startup(self) -> dict[str, object]:
+        return self._backend.startup_status()
+
+    def confirm_legacy_channel(self, channel_id: object, confirmed: object) -> dict[str, object]:
+        try:
+            validate_legacy_channel_choice(channel_id, confirmed)
+            result = self._wait_for_backend(self._backend.confirm_legacy_channel(channel_id, confirmed),
+                                           operation="confirm_legacy_channel", timeout=120.0)
+            if result.get("ok") and self._on_startup_complete is not None:
+                self._on_startup_complete()
+            return result
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except (BridgeOperationTimedOut, FutureCancelledError):
+            return {"ok": False, "error": "Startup confirmation did not complete. Close HeetKit and restart; check the saved mapping before retrying."}
+        except Exception:
+            return {"ok": False, "error": "Could not complete startup. Close HeetKit and check profile permissions and startup diagnostics."}
+
+    def cancel_desktop_startup(self) -> dict[str, object]:
+        if not self._backend.startup_pending or self._window is None:
+            return {"ok": False, "error": "Close the Desktop window to exit."}
+        self._window.destroy()
+        return {"ok": True}
 
     def _wait_for_backend(
         self,
@@ -1341,6 +1427,9 @@ def expose_frontend_operations(window: Any, bridge: WebUIBridge) -> None:
         def call(*args: Any, **kwargs: Any) -> Any:
             if trusted_origin is None or _frontend_origin(window.get_current_url()) != trusted_origin:
                 return {"ok": False, "error": "This page cannot access the application bridge."}
+            if (getattr(bridge._backend, "startup_pending", False)
+                    and name not in {"get_desktop_startup", "confirm_legacy_channel", "cancel_desktop_startup"}):
+                return {"ok": False, "error": "Complete the channel confirmation before using HeetKit."}
             return operation(*args, **kwargs)
 
         call.__signature__ = signature(operation)
@@ -1390,7 +1479,8 @@ class DesktopController:
 
     def start_tray(self) -> None:
         with self._exit_lock:
-            if not self._tray_supported or self._tray_started or self._exit_requested:
+            if (not self._tray_supported or self._tray_started or self._exit_requested
+                    or getattr(self._backend, "startup_pending", False)):
                 return
             try:
                 self._tray.start()
@@ -1532,7 +1622,7 @@ def run_desktop_host(
             width=1180,
             height=760,
             min_size=(900, 620),
-            hidden=settings_snapshot.window.start_minimized and sys.platform == "win32",
+            hidden=settings_snapshot.window.start_minimized and sys.platform == "win32" and not backend.startup_pending,
             background_color="#0b0f17",
             text_select=True,
         )
@@ -1543,6 +1633,7 @@ def run_desktop_host(
         if sys.platform == "win32":
             window.events.shown += configure_windows_taskbar
         controller.bind_window(window)
+        bridge._on_startup_complete = controller.start_tray
         controller.start_tray()
         development_mode = frontend_url.startswith(("http://", "https://"))
         icon_name = (
@@ -1632,6 +1723,10 @@ def main() -> None:
     except DesktopAlreadyRunningError as error:
         notify_existing_desktop(str(error))
         parser.exit(1, f"ERROR: {error}\n")
+    except DatabaseMigrationError as error:
+        if not arguments.check:
+            notify_existing_desktop(error.operator_message)
+        parser.exit(1, f"ERROR: {error.operator_message}\n")
     except (ValidationError, FileNotFoundError, RuntimeDataError) as error:
         parser.error(str(error))
 
