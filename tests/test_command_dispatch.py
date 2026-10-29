@@ -201,14 +201,14 @@ async def test_application_help_reuses_persisted_custom_store_after_restart() ->
         })
         transport = FakeChatTransport("!commands", is_moderator=True)
         await application.dispatcher.dispatch(transport.message, application.services)
-        assert "!hello" in transport.replies[0] and "!welcome" in transport.replies[0]
+        assert "!hello" in transport.replies[0] and "!welcome" not in transport.replies[0]
     finally:
         await application.shutdown()
     restarted = build_application(settings)
     try:
         transport = FakeChatTransport("!commands", is_moderator=True)
         await restarted.dispatcher.dispatch(transport.message, restarted.services)
-        assert "!hello" in transport.replies[0] and "!welcome" in transport.replies[0]
+        assert "!hello" in transport.replies[0] and "!welcome" not in transport.replies[0]
         assert restarted.custom_commands.list() == (command,)
     finally:
         await restarted.shutdown()

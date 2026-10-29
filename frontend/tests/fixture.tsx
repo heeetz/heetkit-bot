@@ -111,7 +111,7 @@ const toggleCommands: CommandInfo[] = ['ask', 'ping'].map((name) => ({
   name, enabled: name === 'ask' ? aiStatus.enabled : true,
   permission: 'USER', cooldown: { per_user_seconds: 3, global_seconds: 15 },
   aliases: [], hidden: false, available: true, unavailable_reason: null,
-  removed: false, identity_editable: name !== 'ask', minimum_permission: 'USER',
+  removed: false, identity_editable: true, minimum_permission: 'USER',
   display_name: '', burst_interval_ms: 0, response_pool: null,
   default_settings: { enabled: true, permission: 'USER', cooldown: { per_user_seconds: 3, global_seconds: 15 } },
   saved: true, has_saved_override: true,

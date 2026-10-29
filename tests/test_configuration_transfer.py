@@ -173,7 +173,7 @@ async def test_setup_transfer_preserves_nonsecrets_and_requires_destination_rout
 
 def seed(transfer):
     state = transfer.state
-    state.apply_command_settings("fate", aliases=["destiny"], display_name="Destiny", enabled=False)
+    state.apply_command_settings("fate", primary_name="fortune", aliases=["destiny"], display_name="Destiny", enabled=False)
     state.create_ai_personality("Portable", "Be concise.")
     state.apply_ai_personality("Portable", "Use a friendly style.")
     state.apply_profile_instructions("Profile instructions.")
@@ -253,6 +253,7 @@ async def test_desktop_export_server_preview_import_round_trip_and_restart(profi
     payload, manifest, _ = unpack_configuration(encoded)
     assert manifest["format_version"] == 1
     assert payload["commands"]["fate"]["aliases"] == ["destiny"]
+    assert payload["commands"]["fate"]["primary_name"] == "fortune"
     assert next(item for item in payload["custom_commands"] if item["name"] == "randompool")["responses"] == random_responses
     assert "secret-client-sentinel" not in json.dumps(payload)
     assert "secret-gemini-sentinel" not in json.dumps(payload)
@@ -306,6 +307,7 @@ async def test_desktop_export_server_preview_import_round_trip_and_restart(profi
         assert replacement.services.runtime_state.active_ai_personality == "Portable"
         assert replacement.services.runtime_state.profile_instructions == "Profile instructions."
         assert replacement.services.runtime_state.get_command_settings("fate").aliases == ("destiny",)
+        assert replacement.services.runtime_state.get_command_settings("fate").primary_name == "fortune"
         assert replacement.services.ai_user_blocks.is_blocked("12345", "renamed")
         assert replacement.dispatcher._message_triggers.list()[0].id == "hello"
         assert not AppSettingsStore(target.settings._path).snapshot().ai.memory_enabled
@@ -408,7 +410,8 @@ async def test_hostile_archives_are_rejected_without_writes(profiles, kind):
     assert not (transfer.config / "import-backups").exists()
 
 
-@pytest.mark.parametrize("change", ["permission_floor", "protected_alias", "collision", "custom_collision", "invalid_template",
+@pytest.mark.parametrize("change", ["permission_floor", "primary_collision", "primary_custom_alias", "primary_duplicate_alias",
+    "primary_empty", "primary_invalid", "primary_case", "collision", "custom_collision", "invalid_template",
     "unknown_field", "invalid_bool", "invalid_language", "invalid_models", "bad_regex", "unknown_personality",
     "duplicate_personality", "duplicate_block", "invalid_id", "duplicate_trigger"])
 async def test_domain_security_and_regression_validation(profiles, change):
@@ -417,8 +420,18 @@ async def test_domain_security_and_regression_validation(profiles, change):
     payload, _, _ = unpack_configuration(transfer.export()["archive_base64"])
     if change == "permission_floor":
         payload["commands"]["erase"]["permission"] = "USER"
-    elif change == "protected_alias":
-        payload["commands"]["ask"]["aliases"] = ["unsafe"]
+    elif change == "primary_collision":
+        payload["commands"]["ask"]["primary_name"] = "erase"
+    elif change == "primary_custom_alias":
+        payload["commands"]["ask"]["primary_name"] = "greeting"
+    elif change == "primary_duplicate_alias":
+        payload["commands"]["fate"].update(primary_name="destiny", aliases=["destiny"])
+    elif change == "primary_empty":
+        payload["commands"]["fate"]["primary_name"] = ""
+    elif change == "primary_invalid":
+        payload["commands"]["fate"]["primary_name"] = "two words"
+    elif change == "primary_case":
+        payload["commands"]["fate"]["primary_name"] = "ASK"
     elif change == "collision":
         payload["commands"]["fate"]["aliases"] = ["ask"]
     elif change == "custom_collision":
@@ -544,6 +557,20 @@ async def test_deflated_compatible_archive_and_saved_edit_after_import(profiles)
     assert target.custom.get_by_name("hello").responses == ("Edited {sender}",)
     assert target.state.get_ai_personality_prompt("Portable") == "Edited style"
     assert not target.state.ai_enabled
+
+
+async def test_legacy_command_archive_defaults_to_factory_primary_names(profiles):
+    source, target = profiles("legacy-source"), profiles("legacy-target")
+    seed(source)
+    payload, _, _ = unpack_configuration(source.export()["archive_base64"])
+    for value in payload["commands"].values():
+        value.pop("primary_name")
+    encoded = pack_configuration(payload)
+    target.apply(encoded, target.preview(encoded)["preview_token"], True)
+    fate = target.state.get_command_settings("fate")
+    assert fate.primary_name == "fate"
+    assert fate.aliases == ("destiny",) and not fate.enabled
+    assert target.state.get_command_settings("ask").primary_name == "ask"
 
 
 async def test_rollback_storage_failure_retains_exact_original_backups(profiles, monkeypatch):

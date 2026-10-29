@@ -149,7 +149,7 @@ export default function AIPlayground({ active, personality, hasDrafts = false }:
         <span className="mini-badge">Real API quota</span>
       </div>
       <p className="setting-effect">Testing may consume real provider API quota. Uses active filters, the active personality ({personality || 'not selected'}), applied profile instructions and saved primary/fallback, thinking, search and language settings. Apply or save editor changes first.</p>
-      <p className="setting-effect">Each prompt is independent: no viewer memory, stream context, chat activity, command permissions or cooldowns. The bot can be stopped and !ask disabled. Success does not prove Twitch delivery.</p>
+      <p className="setting-effect">Each prompt is independent: no viewer memory, stream context, chat activity, command permissions or cooldowns. The bot can be stopped and the AI command disabled. Success does not prove Twitch delivery.</p>
       <HelpTip label="Playground request lifecycle">One request can run at a time across this application. Cancel or leave the AI page to request cancellation. The slot stays occupied until provider cleanup finishes; late results are discarded. Server results belong to the session that started them. Sign-out, session expiry or eviction and application shutdown cancel that session's work and clear access to its result. Closing a browser tab without signing out relies on the request timeout or session expiry.</HelpTip>
       {hasDrafts && <p className="setting-effect playground-draft-warning">Unsaved editor drafts are not used. Use an editor's Open Playground choices to save or apply that draft first, or test the current applied settings.</p>}
       <label className="form-field">

@@ -48,6 +48,7 @@ export function twitchAuthorizationLabel(state: TwitchConnectionState, tokenCach
 
 export interface CommandInfo {
   name: string
+  primary_name?: string
   aliases: string[]
   display_name?: string
   removed?: boolean
@@ -80,6 +81,7 @@ export interface CommandInfo {
 }
 
 export interface CommandSettings {
+  primary_name?: string
   enabled: boolean
   removed?: boolean
   aliases?: string[]
@@ -95,6 +97,7 @@ export interface CommandSettings {
 }
 
 export interface CommandSettingsMetadata {
+  primary_name?: string
   aliases?: string[]
   display_name?: string
   burst_interval_ms?: number

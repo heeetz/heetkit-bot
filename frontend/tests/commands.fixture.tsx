@@ -14,9 +14,9 @@ const initialResponses: Record<string, string[]> = {
 }
 const savedResponses = structuredClone(initialResponses)
 const commands: CommandInfo[] = ['fate', 'ping', 'tg'].map((name) => ({
-  name, ...structuredClone(defaults), permission: name === 'tg' ? 'MODERATOR' : 'USER', available: true, unavailable_reason: null,
+  name, ...structuredClone(defaults), primary_name: name, permission: name === 'tg' ? 'MODERATOR' : 'USER', available: true, unavailable_reason: null,
   minimum_permission: name === 'tg' ? 'MODERATOR' : 'USER', identity_editable: true,
-  hidden: false, default_settings: structuredClone(defaults), saved: true, has_saved_override: false,
+  hidden: false, default_settings: { ...structuredClone(defaults), primary_name: name }, saved: true, has_saved_override: false,
   response_pool: name === 'ping' ? null : {
     responses: [...initialResponses[name]], defaults: [...initialResponses[name]],
     saved: true, has_saved_override: false,
@@ -27,10 +27,10 @@ if (new URLSearchParams(window.location.search).has('extended')) {
   for (const name of ['ask', 'weather', 'erase']) {
     const minimum = name === 'erase' ? 'BROADCASTER' : 'USER'
     commands.push({
-      name, ...structuredClone(defaults), permission: minimum, available: true,
-      unavailable_reason: null, hidden: name === 'erase', identity_editable: name !== 'ask' && name !== 'erase',
+      name, ...structuredClone(defaults), primary_name: name, permission: minimum, available: true,
+      unavailable_reason: null, hidden: name === 'erase', identity_editable: true,
       minimum_permission: minimum, response_pool: null,
-      default_settings: { ...structuredClone(defaults), permission: minimum }, saved: true, has_saved_override: false,
+      default_settings: { ...structuredClone(defaults), primary_name: name, permission: minimum }, saved: true, has_saved_override: false,
     })
   }
 }
@@ -57,8 +57,10 @@ Object.assign(window, { updateAnnouncementStatus: (status: Partial<AnnouncementI
 function settingsAction(action: string, name: string, enabled?: boolean, perUserSeconds?: number, globalSeconds?: number, permission?: string, metadata?: CommandSettingsMetadata) {
   commandCalls.push([`${action}_command_settings`, name, enabled, perUserSeconds, globalSeconds, permission, ...(metadata ? [structuredClone(metadata)] : [])])
   if (new URLSearchParams(window.location.search).has('settingsError')) return { ok: false, error: 'Synthetic settings save failure.' }
-  if (metadata?.aliases?.some((alias) => commands.some((command) => command.name !== name && (command.name === alias || command.aliases.includes(alias))) || customCommands.some((command) => command.name === alias || command.aliases.includes(alias)))) {
-    return { ok: false, error: 'Command alias is already in use.' }
+  const names = [metadata?.primary_name, ...(metadata?.aliases ?? [])].filter((value): value is string => value !== undefined).map((value) => value.trim().replace(/^!+/, '').toLowerCase())
+  if (names.some((value) => !value || value.length > 40 || /[\s!{}]/.test(value)) || new Set(names).size !== names.length) return { ok: false, error: 'Invalid or duplicate command name.' }
+  if (names.some((value) => commands.some((command) => command.name !== name && [command.name, command.primary_name, ...command.aliases].includes(value)) || customCommands.some((command) => [command.name, ...command.aliases].includes(value)))) {
+    return { ok: false, error: 'Command name or alias is already in use.' }
   }
   const command = commands.find((item) => item.name === name)!
   if (action === 'reset') Object.assign(command, structuredClone(command.default_settings))

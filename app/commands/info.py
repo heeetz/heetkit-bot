@@ -55,7 +55,7 @@ def register_weather_commands(registry: CommandRegistry) -> None:
     )
     async def weather(context, arguments: str) -> None:
         if not arguments:
-            await context.reply("Usage: !weather <city>")
+            await context.reply(f"Usage: {context.invocation('weather')} <city>")
             return
         username = context.message.author.username.lstrip("@")
         try:
@@ -89,7 +89,7 @@ def register_info_commands(registry: CommandRegistry) -> None:
             getattr(context.services, "custom_commands", None),
             prefix,
         )
-        await context.reply(command_help_page(entries, f"{prefix}{command}", arguments))
+        await context.reply(command_help_page(entries, context.invocation(command), arguments))
 
     @registry.command(
             "help",
@@ -117,7 +117,7 @@ def register_info_commands(registry: CommandRegistry) -> None:
     )
     async def uptime(context, arguments: str) -> None:
         if arguments.strip():
-            await context.reply("Usage: !uptime")
+            await context.reply(f"Usage: {context.invocation('uptime')}")
             return
 
         await context.reply(

@@ -61,7 +61,7 @@ def register_fun_commands(registry: CommandRegistry, fun_settings: FunSettingsSt
     async def tg(context, arguments: str) -> None:
         count = _tg_count(arguments)
         if count is None or count > context.burst_max_count:
-            await context.reply(f"Usage: !tg [1-{context.burst_max_count}] (default: 1)")
+            await context.reply(f"Usage: {context.invocation('tg')} [1-{context.burst_max_count}] (default: 1)")
             return
 
         await context.reply_burst(fun_settings.tg_message, count)
@@ -74,7 +74,7 @@ def register_fun_commands(registry: CommandRegistry, fun_settings: FunSettingsSt
     )
     async def fate(context, arguments: str) -> None:
         if arguments:
-            await context.reply("Usage: !fate")
+            await context.reply(f"Usage: {context.invocation('fate')}")
             return
         username = context.message.author.username.lstrip("@")
         await context.reply(f"@{username}, {random_fate(fun_settings.fates)}")

@@ -119,7 +119,7 @@ const write = <T = ActionResult>(path: string, payload: object = {}) => browserR
 const unsupported = async (): Promise<never> => { throw new Error('This action is available in the desktop application only. Configure this setting on the server.') }
 const commandPayload = (command_name: string, enabled: boolean, per_user_seconds: number, global_seconds: number, permission: string, options?: CommandSettingsMetadata) => ({
   command_name, enabled, per_user_seconds, global_seconds, permission,
-  ...(options ? { options: { aliases: options.aliases, display_name: options.display_name,
+  ...(options ? { options: { primary_name: options.primary_name, aliases: options.aliases, display_name: options.display_name,
     burst_interval_ms: options.burst_interval_ms, burst_max_count: options.burst_max_count,
     stream_availability: options.stream_availability } } : {}),
 })

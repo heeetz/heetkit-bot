@@ -41,10 +41,10 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
   let oauthBeginResult: object = { ok: true, url: 'https://id.twitch.tv/oauth2/authorize?client_id=synthetic', expires_in: 300 }
   let oauthCompleteResult: object = { ok: true }
   const command: CommandInfo = {
-    name: 'ping', aliases: [], enabled: true, available: true, unavailable_reason: null,
+    name: 'ping', primary_name: 'ping', aliases: [], enabled: true, available: true, unavailable_reason: null,
     response_pool: { responses: ['Pong'], defaults: ['Pong'], saved: true, has_saved_override: false, response_mode: 'single', max_responses: 1 },
     permission: 'EVERYONE', stream_availability: 'live_only', cooldown: { per_user_seconds: 1, global_seconds: 0 }, hidden: false,
-    default_settings: { enabled: true, permission: 'EVERYONE', stream_availability: 'anytime', cooldown: { per_user_seconds: 1, global_seconds: 0 } },
+    default_settings: { primary_name: 'ping', enabled: true, permission: 'EVERYONE', stream_availability: 'anytime', cooldown: { per_user_seconds: 1, global_seconds: 0 } },
     saved: true, has_saved_override: false,
   }
   let operation = {
@@ -144,7 +144,8 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     if (path === '/v1/commands') result = { command_prefix: '!', permissions: ['EVERYONE', 'MODERATOR'], commands: [command] }
     if (path === '/v1/commands/save' || path === '/v1/commands/apply') {
       command.cooldown.per_user_seconds = body!.per_user_seconds as number
-      const options = body!.options as { stream_availability?: CommandInfo['stream_availability'] } | undefined
+      const options = body!.options as { primary_name?: string; stream_availability?: CommandInfo['stream_availability'] } | undefined
+      if (options?.primary_name) command.primary_name = options.primary_name
       if (options?.stream_availability) command.stream_availability = options.stream_availability
       command.has_saved_override = true
     }
@@ -517,12 +518,15 @@ for (const width of [1280, 900, 390, 320]) {
     expect(Math.abs(availabilityBounds!.width - cooldownBounds!.width)).toBeLessThanOrEqual(2)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
     await command.getByLabel('Per-user cooldown').fill('7')
+    await command.getByLabel('Primary chat name', { exact: true }).fill('servercheck')
     await command.getByRole('button', { name: 'Save command', exact: true }).click()
     await expect.poll(() => api.calls.find((call) => call.path === '/v1/commands/save')?.body?.per_user_seconds).toBe(7)
-    expect(api.calls.find((call) => call.path === '/v1/commands/save')?.body).toMatchObject({ options: { stream_availability: 'offline_only' } })
+    expect(api.calls.find((call) => call.path === '/v1/commands/save')?.body).toMatchObject({ command_name: 'ping', options: { primary_name: 'servercheck', stream_availability: 'offline_only' } })
+    await expect(command.locator('.command-summary-title strong')).toHaveText('!servercheck')
     await command.getByRole('button', { name: 'Reset settings', exact: true }).click()
     await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click()
     await expect(availability).toHaveAttribute('data-value', 'anytime')
+    await expect(command.getByLabel('Primary chat name', { exact: true })).toHaveValue('ping')
     await page.getByRole('button', { name: 'New command', exact: true }).click()
     const custom = page.locator('.custom-command-editor')
     await expect(custom.getByLabel('Stream availability', { exact: true })).toHaveAttribute('data-value', 'anytime')

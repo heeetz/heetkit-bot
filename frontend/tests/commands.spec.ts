@@ -18,6 +18,53 @@ async function respondToConfirmation(page: Page, choice: 'Confirm' | 'Cancel') {
   await expect(dialog).toHaveCount(0)
 }
 
+for (const width of [1280, 400]) {
+  test(`primary chat names preserve drafts, report conflicts and restore factory naming at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.goto('/tests/commands.fixture.html?extended')
+    await expandCommand(page, 'ping')
+    const ping = page.locator('#command-editor-ping')
+    const primary = ping.getByLabel('Primary chat name', { exact: true })
+    await primary.fill('hello')
+    await ping.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page.getByRole('alert')).toContainText('already in use')
+    await expect(primary).toHaveValue('hello')
+    await primary.fill('check')
+    // An independent command save preserves this unsaved primary-name draft.
+    const fate = await expandCommand(page, 'fate')
+    await fate.getByLabel('Per-user cooldown').fill('3')
+    await fate.getByRole('button', { name: 'Save command', exact: true }).click()
+    await expect(primary).toHaveValue('check')
+    await ping.getByLabel('Aliases, separated by commas', { exact: true }).fill('ping, pong')
+    await ping.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(ping.locator('.command-summary-title strong')).toHaveText('!check')
+    const saved = (await page.evaluate(() => window.pywebview!.api.get_commands())).commands.find((item) => item.name === 'ping')!
+    expect(saved.primary_name).toBe('check')
+    expect(saved.aliases).toEqual(['ping', 'pong'])
+    await ping.getByRole('button', { name: 'Help: Primary chat name', exact: true }).click()
+    await expect(page.getByRole('tooltip')).toContainText('old name stops working unless kept as an alias')
+    await page.keyboard.press('Escape')
+    await primary.scrollIntoViewIfNeeded()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    await page.screenshot({ path: `node_modules/.tmp/task16-primary-${width}.png`, fullPage: true })
+    await ping.getByRole('button', { name: 'Reset settings', exact: true }).click()
+    await expect(page.getByRole('dialog')).toContainText('primary chat name')
+    await respondToConfirmation(page, 'Confirm')
+    await expect(primary).toHaveValue('ping')
+    await expect(ping.locator('.command-summary-title strong')).toHaveText('!ping')
+    await expandCommand(page, 'ask')
+    const ask = page.locator('#command-editor-ask')
+    await ask.getByLabel('Primary chat name', { exact: true }).fill('question')
+    await ask.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(ask.locator('.command-summary-title strong')).toHaveText('!question')
+    await expandCommand(page, 'tg')
+    const tg = page.locator('#command-editor-tg')
+    await tg.getByLabel('Primary chat name', { exact: true }).fill('community')
+    await tg.getByRole('button', { name: 'Save command', exact: true }).click()
+    await expect(tg.locator('.custom-field-hint').filter({ hasText: 'Default' })).toContainText('Default !community sends 1.')
+  })
+}
+
 test.beforeEach(({ page }) => {
   page.on('dialog', () => { throw new Error('Commands must use styled confirmations.') })
 })
@@ -304,7 +351,7 @@ test('fate Save command saves text and settings together while resets retain the
   await save.click()
   await expect(page.getByRole('status')).toContainText('Saved !fate text and settings')
   expect(await calls(page)).toEqual([
-    ['save_command_settings', 'fate', true, 4, 15, 'MODERATOR', { aliases: [], display_name: '' }],
+    ['save_command_settings', 'fate', true, 4, 15, 'MODERATOR', { primary_name: 'fate', aliases: [], display_name: '' }],
     ['save_command_responses', 'fate', ['Tomorrow, try again.', 'Take a break, {literal}.']],
   ])
   await expect(save).toBeDisabled()
@@ -341,7 +388,7 @@ test('tg Save command keeps the whole message and other command drafts', async (
   await expect(tgResponses.locator('textarea')).toHaveValue(' Community, https://example.test\nJoin us! ')
   await tgResponses.locator('..').locator('.command-action-footer').getByRole('button', { name: 'Save command', exact: true }).click()
   expect((await calls(page)).slice(1)).toEqual([
-    ['save_command_settings', 'tg', true, 0, 8, 'BROADCASTER', { aliases: [], display_name: '', burst_interval_ms: 200, burst_max_count: 10 }],
+    ['save_command_settings', 'tg', true, 0, 8, 'BROADCASTER', { primary_name: 'tg', aliases: [], display_name: '', burst_interval_ms: 200, burst_max_count: 10 }],
     ['save_command_responses', 'tg', [' Community, https://example.test\nJoin us! ']],
   ])
   await expect(page.getByRole('status')).toContainText('!tg')
@@ -552,7 +599,7 @@ test('Tg maximum repeat count validates, saves, reloads and resets with a legacy
   await expect(tg).toContainText('!tg 5 sends 5 copies')
   await save.click()
   expect((await calls(page))[0]).toEqual(['save_command_settings', 'tg', true, 0, 15, 'MODERATOR', {
-    aliases: [], display_name: '', burst_interval_ms: 0, burst_max_count: 5,
+    primary_name: 'tg', aliases: [], display_name: '', burst_interval_ms: 0, burst_max_count: 5,
   }])
   await expect(maxCount).toHaveValue('5')
   await tg.getByRole('button', { name: 'Collapse !tg', exact: true }).click()
@@ -585,7 +632,7 @@ test('built-in editors retain implementation identity and protected permission f
   await expect(tg.locator('.command-summary-title strong')).toHaveText('!tg')
   await expect(tg.locator('.command-display-name')).toHaveText('Community promo')
   expect((await calls(page))[0]).toEqual(['save_command_settings', 'tg', true, 0, 15, 'MODERATOR', {
-    aliases: ['community', 'discord'], display_name: 'Community promo', burst_interval_ms: 50, burst_max_count: 10,
+    primary_name: 'tg', aliases: ['community', 'discord'], display_name: 'Community promo', burst_interval_ms: 50, burst_max_count: 10,
   }])
   await tg.getByRole('button', { name: 'Collapse !tg', exact: true }).click()
   await expect(tg.locator('.command-details')).toHaveCount(0)
@@ -598,16 +645,16 @@ test('built-in editors retain implementation identity and protected permission f
   await page.keyboard.press('Escape')
   await expect(weather.locator('textarea')).toHaveCount(0)
   const ask = await expandCommand(page, 'ask')
-  await expect(ask.getByLabel('Aliases, separated by commas', { exact: true })).toHaveCount(0)
-  await expect(ask.getByLabel('Name in UI')).toHaveCount(0)
+  await expect(ask.getByLabel('Aliases, separated by commas', { exact: true })).toBeVisible()
+  await expect(ask.getByLabel('Name in UI')).toBeVisible()
   await expect(page.locator('.removed-commands')).not.toContainText('!erase')
   await expect(page.locator('#builtin-commands > .command-list')).not.toContainText('!erase')
   await page.getByText('Administrative commands', { exact: true }).click()
   const erase = await expandCommand(page, 'erase')
-  await expect(erase).toContainText('Protected administrative command')
+  await expect(erase).toContainText('Hidden administrative command')
   await expect(erase).toContainText('Minimum permission: broadcaster')
-  await expect(erase.getByLabel('Aliases, separated by commas', { exact: true })).toHaveCount(0)
-  await expect(erase.getByLabel('Name in UI')).toHaveCount(0)
+  await expect(erase.getByLabel('Aliases, separated by commas', { exact: true })).toBeVisible()
+  await expect(erase.getByLabel('Name in UI')).toBeVisible()
   await expect(erase.locator('textarea')).toHaveCount(0)
   await expect(erase.getByRole('button', { name: 'Remove and disable', exact: true })).toHaveCount(0)
   await erase.getByLabel('Permission').click()

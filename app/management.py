@@ -191,6 +191,7 @@ class ApplicationManagement:
             commands.append(
                 {
                     "name": definition.name,
+                    "primary_name": settings.primary_name,
                     "aliases": list(settings.aliases),
                     "display_name": settings.display_name,
                     "removed": settings.removed,
@@ -198,7 +199,8 @@ class ApplicationManagement:
                     "burst_max_count": settings.burst_max_count,
                     "minimum_permission": definition.minimum_permission.name,
                     "identity_editable": definition.identity_editable,
-                    "help_text": definition.help_text or f"!{definition.name}",
+                    "help_text": f"{application.settings.command_prefix}{settings.primary_name}"
+                    + (" " + definition.help_text.partition(" ")[2] if definition.help_text and " " in definition.help_text else ""),
                     "enabled": settings.enabled,
                     **({"stream_availability": settings.stream_availability} if server else {}),
                     "available": unavailable_reason is None,
@@ -334,6 +336,7 @@ class ApplicationManagement:
             "permission": settings.permission.name,
             "aliases": list(settings.aliases),
             "display_name": settings.display_name,
+            "primary_name": settings.primary_name,
             "removed": settings.removed,
             "burst_interval_ms": settings.burst_interval_ms,
             "burst_max_count": settings.burst_max_count,
@@ -481,7 +484,7 @@ class ApplicationManagement:
     def _parse_command_options(self, options: object) -> dict[str, object]:
         if options is None:
             return {}
-        allowed = ("aliases", "display_name", "burst_interval_ms", "burst_max_count")
+        allowed = ("primary_name", "aliases", "display_name", "burst_interval_ms", "burst_max_count")
         if self._backend.application.services.runtime_state.server_runtime:
             allowed += ("stream_availability",)
         if not isinstance(options, dict) or any(key not in allowed for key in options):

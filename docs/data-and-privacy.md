@@ -346,6 +346,12 @@ and selection, profile instructions, AI memory/model/language preferences, filte
 AI account blocks, message triggers and saved ordinary-chat announcements. Applied session-only edits are included;
 unfinished editor drafts are not. Import saves these values on the destination.
 
+Built-in settings include their primary chat names and aliases, keyed by stable
+factory command IDs. Renaming does not change which implementation or permission
+floor the imported settings control. Older archives without primary names restore
+factory triggers while retaining their other command settings. Invalid or conflicting
+names reject the import before any replacement.
+
 Server exports include per-command stream availability. Desktop exports omit this
 Server-only preference. When an older or Desktop ZIP omits availability, import
 preserves the destination's policy for each matching built-in or custom command

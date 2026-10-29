@@ -44,8 +44,8 @@ class CommandDefinition:
 
     @property
     def identity_editable(self) -> bool:
-        # Ask's canonical name participates in pre-log AI policy; keep it fixed.
-        return not self.hidden and not self.requires_ai
+        # Trigger edits never change the stable handler/policy identity.
+        return True
 
     @property
     def default_settings(self) -> CommandSettings:
@@ -54,6 +54,7 @@ class CommandDefinition:
             cooldown=self.cooldown,
             permission=self.required_permission,
             aliases=self.aliases,
+            primary_name=self.name,
         )
 
 
@@ -65,6 +66,12 @@ class CommandContext:
     output_limiter: OutputLimiter | None = None
     burst_interval_ms: int = 0
     burst_max_count: int = TG_DEFAULT_MAX_COUNT
+
+    def invocation(self, command_id: str) -> str:
+        state = getattr(self.services, "runtime_state", None)
+        name = command_id if state is None else state.get_command_settings(command_id).primary_name
+        prefix = getattr(getattr(self.services, "settings", None), "command_prefix", "!")
+        return f"{prefix}{name}"
 
     async def reply(self, content: str) -> bool:
         return await self._sender().reply(content)
@@ -194,8 +201,8 @@ class CommandRegistry:
                 usage = "" if definition.help_text is None else definition.help_text.partition(" ")[2]
                 if definition.name == "tg":
                     usage = f"[1-{settings.burst_max_count}]"
-                for name in (definition.name, *settings.aliases):
-                    entries[name] = f"{prefix}{name}" + (f" {usage}" if usage else "")
+                name = settings.primary_name
+                entries[name] = f"{prefix}{name}" + (f" {usage}" if usage else "")
             if custom_commands is not None:
                 for command in custom_commands.list():
                     if not command.enabled:
@@ -203,8 +210,7 @@ class CommandRegistry:
                     if not visible(command.stream_availability):
                         continue
                     usage = " [1-10]" if command.response_mode == "burst" and command.burst_allow_override else ""
-                    for name in (command.name, *command.aliases):
-                        entries[name] = f"{prefix}{name}{usage}"
+                    entries[command.name] = f"{prefix}{command.name}{usage}"
         return tuple(entries[name] for name in sorted(entries))
 
 
@@ -266,15 +272,10 @@ class CommandDispatcher:
         return definition is not None and definition.requires_ai
 
     def _builtin_definition(self, command_name: str) -> CommandDefinition | None:
-        definition = self._registry.get(command_name)
-        if definition is not None and self._runtime_state is not None and command_name != definition.name:
-            if command_name not in self._runtime_state.get_command_settings(definition.name).aliases:
-                definition = None
-        if definition is None and self._runtime_state is not None:
-            canonical = self._runtime_state.resolve_command_alias(command_name)
-            if canonical is not None:
-                definition = self._registry.get(canonical)
-        return definition
+        if self._runtime_state is None:
+            return self._registry.get(command_name)
+        command_id = self._runtime_state.resolve_command_alias(command_name)
+        return None if command_id is None else self._registry.get(command_id)
 
     def is_ai_request_blocked(self, message: IncomingChatMessage, services: ApplicationServices) -> bool:
         """Also used before content logging in the Twitch adapter."""

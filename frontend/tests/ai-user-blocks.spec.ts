@@ -99,7 +99,7 @@ test('AI access keeps the compact header action and explains blocking scope', as
   await expect(section.locator('.ai-access-heading')).toContainText('AI access')
   await expect(section.locator('.ai-access-heading').getByRole('heading', { name: 'Blocked AI users' })).toHaveCount(0)
   await expect(section.locator('.ai-access-heading').getByRole('button', { name: 'Help: AI access' })).toBeVisible()
-  await expect(section.locator('.ai-access-actions').getByRole('button', { name: 'Edit !ask access and cooldowns' })).toBeVisible()
+  await expect(section.locator('.ai-access-actions').getByRole('button', { name: 'Edit AI command access and cooldowns' })).toBeVisible()
   await section.locator('.ai-access-heading').getByRole('button', { name: 'Help: AI access' }).focus()
   await expect(page.getByRole('tooltip')).toContainText('does not ban a Twitch user or delete their messages')
 })

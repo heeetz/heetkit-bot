@@ -108,14 +108,16 @@ users when enabled. Disabled or removed commands also stay out of public help.
 [AI setup](ai-setup.md). Other commands work without AI. `!uptime` measures the bot
 session, rather than the stream's uptime.
 
-`!commands` and `!help` list enabled public built-ins and custom commands, including
-their current aliases. Edits, removals and restores appear on the next request;
-saved changes also survive restart. UI display names do not rename chat commands.
+`!commands` and `!help` list each enabled public built-in and custom command once,
+under its current primary chat name. Aliases still execute but do not add help entries.
+Edits, removals and restores appear on the next request; saved changes also survive
+restart. **Name in UI** is a separate optional label and does not appear in public help.
 In Server, help also omits commands whose stream availability does not match a
 confirmed live/offline state. Unknown or stale status does not filter the help list.
 The list keeps each command's existing invocation permissions and omits hidden,
 disabled and removed commands. Long lists use numbered pages within the Twitch
 message limit; follow the displayed next-page command, for example `!commands 2`.
+If a help command is renamed, its usage and next-page hints use the current primary name.
 You can use the broadcaster's account as the bot account and type commands manually.
 HeetKit correlates its own outgoing messages by Twitch message ID, so a command list
 starting with `!ask` cannot launch another AI request. Identical manually typed text
@@ -151,18 +153,25 @@ existing connection/disconnection behavior.
 
 Select a built-in command's header on **Commands** to edit its enabled state,
 permission and per-user/global cooldowns. Opening the editor scrolls it into view
-and focuses **Permission**. Most commands also accept alternate
-aliases and **Name in UI**. This label does not rename the chat command: its original
-name stays available. Enter up to ten comma-separated aliases; each is a single
+and focuses **Permission**. **Primary chat name** changes the actual chat trigger,
+including for Ask and hidden administrative commands. Renaming keeps the built-in
+implementation, saved enabled state, permissions, cooldowns and internal command ID.
+The old primary trigger stops working unless explicitly kept in **Aliases**.
+Existing separate aliases are kept. **Name in UI** remains an optional display label.
+Enter up to ten comma-separated aliases; each is a single
 command word of at most 40 characters, without the prefix. Names and aliases are
 case-insensitive. Those already reserved by another built-in or custom command are
-rejected, including removed factory commands.
+rejected before any settings are saved or applied. Factory names remain reserved
+even after renaming or removal so factory restoration is always available. Current
+and saved primary names and aliases share this namespace with custom commands.
+Naming is saved per profile and included in portable configuration transfer; older
+profiles and archives keep their factory triggers and existing settings.
 
 The permission order is User → Subscriber → VIP → Moderator → Broadcaster; higher
 roles also satisfy lower requirements. `!tg` requires at least Moderator and `!erase`
-requires Broadcaster. `!ask` keeps its fixed identity. Protected commands appear in
-the separate **Administrative commands** section with fixed identities and no text
-template editor.
+requires Broadcaster. Hidden commands appear in the separate **Administrative
+commands** section and stay hidden after renaming, with their permission floors
+and dynamic implementations intact. Naming edits do not create a text template editor.
 
 The `!ask` enabled switch saves immediately on **Dashboard**, **AI** and **Commands**.
 All three views share the same saved value, which survives restarts; no extra Commands
@@ -181,7 +190,7 @@ follow the operator's [manual privacy-request procedure](data-and-privacy.md#man
 
 - **Save** immediately applies the settings and keeps them across restarts.
 - **Reset settings** removes this command's saved settings override and restores the
-  shipped settings, including its enabled state. Its message is kept.
+  shipped settings, including its primary chat name, aliases and enabled state. Its message is kept.
 - Select the command header again to collapse it; unsaved input is kept for when
   you expand the command again.
 
@@ -206,7 +215,7 @@ memory-erasure or other built-in implementation.
 Its implementation is retained. The collapsed **Removed commands** list shows a count
 and only removed commands. Disabled commands remain in the working list. Select
 **Restore defaults and enable** to replace an individual removed command's settings
-with defaults and enable it. Previous custom access, cooldowns, aliases and UI names
+with defaults and enable it. Previous custom access, cooldowns, primary names, aliases and UI names
 are not recovered; its saved message is kept. Removal discards that command's unsaved
 draft after confirmation; cancel keeps it. Custom and administrative groups remain separate.
 **Advanced: reset all built-ins** follows **Administrative commands**, matching the

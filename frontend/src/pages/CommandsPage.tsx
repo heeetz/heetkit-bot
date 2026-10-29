@@ -20,6 +20,7 @@ import HelpTip from '../components/HelpTip'
 import AnnouncementsPanel from '../components/AnnouncementsPanel'
 
 interface CommandDraft {
+  primaryName: string
   enabled: boolean
   permission: string
   perUserSeconds: string
@@ -82,6 +83,7 @@ function tgBurstMaxCount(command: CommandInfo): number {
 
 function draftFromCommand(command: CommandInfo): CommandDraft {
   return {
+    primaryName: command.primary_name ?? command.name,
     enabled: command.enabled,
     permission: command.permission,
     perUserSeconds: String(command.cooldown.per_user_seconds),
@@ -117,7 +119,8 @@ function parsedCooldown(value: string): number | null {
 }
 
 function settingsDraftIsDirty(command: CommandInfo, draft: CommandDraft): boolean {
-  return draft.enabled !== command.enabled
+  return draft.primaryName !== (command.primary_name ?? command.name)
+    || draft.enabled !== command.enabled
     || draft.permission !== command.permission
     || parsedCooldown(draft.perUserSeconds) !== command.cooldown.per_user_seconds
     || parsedCooldown(draft.globalSeconds) !== command.cooldown.global_seconds
@@ -211,7 +214,7 @@ function parseAliases(value: string): string[] {
 }
 
 function canEditIdentity(command: CommandInfo): boolean {
-  return !command.hidden && command.name !== 'ask' && command.identity_editable !== false
+  return command.identity_editable !== false
 }
 
 function commandPermissions(data: CommandsResponse, command: CommandInfo): string[] {
@@ -289,6 +292,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           nextDraft.perUserSeconds = previousDraft.perUserSeconds
           nextDraft.globalSeconds = previousDraft.globalSeconds
           nextDraft.aliases = previousDraft.aliases
+          nextDraft.primaryName = previousDraft.primaryName
           nextDraft.displayName = previousDraft.displayName
           nextDraft.burstIntervalMs = previousDraft.burstIntervalMs
           nextDraft.burstMaxCount = previousDraft.burstMaxCount
@@ -305,6 +309,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         nextDraft.perUserSeconds = previousDraft.perUserSeconds
         nextDraft.globalSeconds = previousDraft.globalSeconds
         nextDraft.aliases = previousDraft.aliases
+        nextDraft.primaryName = previousDraft.primaryName
         nextDraft.displayName = previousDraft.displayName
         nextDraft.burstIntervalMs = previousDraft.burstIntervalMs
         nextDraft.burstMaxCount = previousDraft.burstMaxCount
@@ -415,6 +420,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       return
     }
     const metadata = {
+      primary_name: draft.primaryName,
       ...(canEditIdentity(command) ? { aliases: parseAliases(draft.aliases), display_name: draft.displayName } : {}),
       ...(command.name === 'tg' ? { burst_interval_ms: burstInterval!, burst_max_count: burstMaxCount! } : {}),
       ...(isBrowserMode() ? { stream_availability: draft.streamAvailability } : {}),
@@ -428,8 +434,8 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       return
     }
     if (action === 'reset' && !await confirmAction({
-      title: `Reset !${command.name} settings?`,
-      description: 'Reset only this command’s settings to factory defaults, including its enabled state. Its saved message is kept.',
+      title: `Reset ${data?.command_prefix ?? '!'}${command.primary_name ?? command.name} settings?`,
+      description: 'Reset only this command’s settings to factory defaults, including its primary chat name and enabled state. Its saved message is kept.',
       danger: true,
     })) {
       return
@@ -464,16 +470,16 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       }
       await loadCommands(command.name, action === 'reset' ? 'settings' : undefined)
       setNotice(action === 'save'
-          ? `Saved !${command.name}${responsePool ? ' text and settings' : ''}.`
+          ? `Saved ${data?.command_prefix ?? '!'}${draft.primaryName.trim()}${responsePool ? ' text and settings' : ''}.`
           : `Reset !${command.name} settings to built-in defaults. Its message was kept.`)
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : 'Command could not be saved.'
       if (settingsSaved && !responsesSaved && saveResponses) {
-        setError(`Saved !${command.name} settings, but its text could not be saved. ${message} Your text draft is kept; use Save command to retry.`)
+        setError(`Saved ${data?.command_prefix ?? '!'}${draft.primaryName.trim()} settings, but its text could not be saved. ${message} Your text draft is kept; use Save command to retry.`)
         // Refresh the committed settings while retaining this command's text and other drafts.
         try { await loadCommands(command.name, 'settings') } catch { /* Keep the drafts if refreshing also fails. */ }
       } else if (settingsSaved || responsesSaved) {
-        setError(`Saved !${command.name}, but could not refresh it. ${message} Reopen Commands to check the saved values.`)
+        setError(`Saved ${data?.command_prefix ?? '!'}${draft.primaryName.trim()}, but could not refresh it. ${message} Reopen Commands to check the saved values.`)
       } else {
         setError(message)
       }
@@ -492,7 +498,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     }
     const responseNoun = responsePool.response_mode === 'random' ? 'responses' : 'message'
     if (!await confirmAction({
-      title: `Reset !${command.name} ${responseNoun}?`,
+      title: `Reset ${data?.command_prefix ?? '!'}${command.primary_name ?? command.name} ${responseNoun}?`,
       description: 'Replace saved responses with factory defaults. Other command settings are kept.',
       danger: true,
     })) {
@@ -509,7 +515,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         throw new Error(result.error ?? `Command ${responseNoun} could not be updated.`)
       }
       await loadCommands(command.name, 'responses')
-      setNotice(`Reset !${command.name} ${responseNoun} to built-in defaults.`)
+      setNotice(`Reset ${data?.command_prefix ?? '!'}${command.primary_name ?? command.name} ${responseNoun} to built-in defaults.`)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : `Command ${responseNoun} could not be updated.`)
     } finally {
@@ -660,11 +666,11 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
   const runFactoryAction = async (action: 'remove' | 'restore' | 'resetAll', command?: CommandInfo) => {
     const hasDirtyDraft = command && drafts[command.name] && draftIsDirty(command, drafts[command.name])
     const request: CommandConfirmation = action === 'remove' ? {
-      title: `Remove and disable !${command!.name}?`,
+      title: `Remove and disable ${data?.command_prefix ?? '!'}${command!.primary_name ?? command!.name}?`,
       description: `Disable and hide this built-in command. You can restore it from Removed commands.${hasDirtyDraft ? ' Unsaved changes will be discarded.' : ''}`,
       danger: true,
     } : action === 'restore' ? {
-      title: `Restore defaults and enable !${command!.name}?`,
+      title: `Restore defaults and enable ${data?.command_prefix ?? '!'}${command!.primary_name ?? command!.name}?`,
       description: `Replace this command’s settings with factory defaults and enable it. Previous custom settings are not recovered. Its saved message is kept.${hasDirtyDraft ? ' Unsaved changes will be discarded.' : ''}`,
       danger: true,
     } : {
@@ -694,7 +700,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       await loadCommands(command?.name)
       if (command) setExpandedCommands((current) => ({ ...current, [command.name]: false }))
       setNotice(action === 'remove'
-        ? `Removed and disabled !${command!.name}. Restore it from Removed commands.`
+        ? `Removed and disabled ${data?.command_prefix ?? '!'}${command!.primary_name ?? command!.name}. Restore it from Removed commands.`
         : action === 'restore' ? `Restored !${command!.name} default settings and enabled it. Its saved message was kept.` : 'Restored all factory command settings and messages.')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Factory command could not be updated.')
@@ -705,6 +711,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
 
   const renderBuiltin = (command: CommandInfo) => {
     if (!data) return null
+    const primaryName = command.primary_name ?? command.name
     const draft = drafts[command.name] ?? draftFromCommand(command)
     const perUserValid = parsedCooldown(draft.perUserSeconds) !== null
     const globalValid = parsedCooldown(draft.globalSeconds) !== null
@@ -726,7 +733,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       <article className={`command-card ${dirty ? 'dirty' : ''}`} key={command.name} id={`command-editor-${command.name}`}>
         <AccordionHeader
           title={(<span className="command-summary-title">
-              <strong>{data.command_prefix}{command.name}</strong>
+              <strong>{data.command_prefix}{primaryName}</strong>
               {command.display_name && <span className="command-display-name">{command.display_name}</span>}
             </span>)}
           badges={(
@@ -745,9 +752,9 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
               {command.aliases.length > 0 && <span>Aliases: {command.aliases.map((alias) => `${data.command_prefix}${alias}`).join(', ')}</span>}
             </span>)}
           help={command.help_text || 'Permission is the minimum chat role. Per-user cooldown limits one viewer; global cooldown limits all viewers.'}
-          helpLabel={`${data.command_prefix}${command.name}`}
+          helpLabel={`${data.command_prefix}${primaryName}`}
           expanded={expanded} contentId={detailsId}
-          ariaLabel={`${expanded ? 'Collapse' : 'Edit'} ${data.command_prefix}${command.name}`}
+          ariaLabel={`${expanded ? 'Collapse' : 'Edit'} ${data.command_prefix}${primaryName}`}
           onToggle={() => {
             setExpandedCommands((current) => ({ ...current, [command.name]: !expanded }))
             if (!expanded) setFocusTarget(`command-editor-${command.name}`)
@@ -758,7 +765,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
             className="toggle-field command-enabled-toggle"
             checked={draft.enabled}
             disabled={busy}
-            ariaLabel={`Enable ${data.command_prefix}${command.name}`}
+            ariaLabel={`Enable ${data.command_prefix}${primaryName}`}
             onCheckedChange={(enabled) => command.name === 'ask'
               ? void changeAIEnabled(enabled) : updateDraft(command.name, { enabled })}
           >
@@ -800,15 +807,19 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
             </label>
           </div>
           {command.name === 'ask' && <p className="setting-effect">Enabled state is saved immediately and shared with Dashboard and AI. Save applies only your other settings edits.</p>}
-          {canEditIdentity(command) && <div className="command-identity-fields">
-            <label className="form-field">Name in UI
-              <input disabled={busy} value={draft.displayName} maxLength={80} onChange={(event) => updateDraft(command.name, { displayName: event.target.value })} placeholder="Optional label" />
-              <span className="custom-field-hint">Display label only; chat name is unchanged.</span>
-            </label>
-            <label className="form-field">Aliases, separated by commas
+          <div className="command-identity-fields">
+            <div className="form-field">
+              <div className="custom-field-label"><label htmlFor={`primary-name-${command.name}`}>Primary chat name</label><HelpTip label="Primary chat name">Use one word of up to 40 characters, without {data.command_prefix}. Renaming keeps this command’s behavior, permission and cooldowns. The old name stops working unless kept as an alias. Reset settings restores the factory name. Factory names remain reserved for restoration.</HelpTip></div>
+              <input id={`primary-name-${command.name}`} disabled={busy} value={draft.primaryName} maxLength={40} onChange={(event) => updateDraft(command.name, { primaryName: event.target.value })} />
+            </div>
+            {canEditIdentity(command) && <label className="form-field">Aliases, separated by commas
               <input disabled={busy} value={draft.aliases} onChange={(event) => updateDraft(command.name, { aliases: event.target.value })} placeholder="Optional alternate commands" />
-            </label>
-          </div>}
+            </label>}
+            {canEditIdentity(command) && <label className="form-field">Name in UI
+              <input disabled={busy} value={draft.displayName} maxLength={80} onChange={(event) => updateDraft(command.name, { displayName: event.target.value })} placeholder="Optional label" />
+              <span className="custom-field-hint">Optional display label; public help uses the primary chat name.</span>
+            </label>}
+          </div>
           {command.name === 'tg' && <div className="command-burst-controls">
             <label className="form-field command-burst-interval">Burst interval (ms)
               <input disabled={busy} type="number" min="0" max="1000" step="1" aria-invalid={!intervalValid} className={intervalValid ? '' : 'invalid'} value={draft.burstIntervalMs} onChange={(event) => updateDraft(command.name, { burstIntervalMs: event.target.value })} />
@@ -816,10 +827,10 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
             </label>
             <label className="form-field command-burst-max-count">Maximum repeat count
               <input disabled={busy} type="number" min="1" max="20" step="1" aria-invalid={!maxCountValid} className={maxCountValid ? '' : 'invalid'} value={draft.burstMaxCount} onChange={(event) => updateDraft(command.name, { burstMaxCount: event.target.value })} />
-              <span className="custom-field-hint">Default !tg sends 1. Use 1–{maxCount}; e.g. !tg {maxCount} sends {maxCount} copies.</span>
+              <span className="custom-field-hint">Default {data.command_prefix}{primaryName} sends 1. Use 1–{maxCount}; e.g. {data.command_prefix}{primaryName} {maxCount} sends {maxCount} copies.</span>
             </label>
           </div>}
-          {command.hidden && <p className="command-behavior-note">Protected administrative command; identity is fixed.</p>}
+          {command.hidden && <p className="command-behavior-note">Hidden administrative command; broadcaster permission is required.</p>}
           {!responsePool && <div className="command-behavior-note command-dynamic-note">
             <span>Dynamic response</span>
             <HelpTip label="Dynamic response">This command generates its response from its built-in behavior and cannot be edited as a text template. Enabled state, permission and cooldowns still apply.</HelpTip>
@@ -853,7 +864,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
             <p className="command-meta">{isRandom ? `${parsedResponses.length} responses ready` : responseValid ? 'Message ready' : 'Message required'}</p>
           </div>}
           <div className="command-editor-actions">
-            <div className="command-action-footer" role="group" aria-label={`${data.command_prefix}${command.name} settings actions`}>
+            <div className="command-action-footer" role="group" aria-label={`${data.command_prefix}${primaryName} settings actions`}>
               {!command.hidden && <button className="ghost command-remove" disabled={busy} onClick={() => void runFactoryAction('remove', command)}>Remove and disable</button>}
               <div className="command-action-group">
                 {!command.hidden && responsePool && responseDraft !== null && <button className="ghost" disabled={busy || (!responseDirty && !responsePool.has_saved_override && responsePool.saved)} onClick={() => void runResponseAction(command)}>{isRandom ? 'Reset responses' : 'Reset message'}</button>}
@@ -1042,10 +1053,10 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       )}
       {data && <details className="factory-commands removed-commands" id="removed-commands">
         <summary>Removed commands ({data.commands.filter((command) => !command.hidden && command.removed).length})</summary>
-        <p className="section-copy">Restore defaults and enable replaces a removed command’s settings with defaults, including access, cooldowns and aliases. Previous custom settings are not recovered; its saved text is kept.</p>
+        <p className="section-copy">Restore defaults and enable replaces a removed command’s settings with defaults, including primary chat names, access, cooldowns and aliases. Previous custom settings are not recovered; its saved text is kept.</p>
         <div className="factory-command-list">
           {data.commands.filter((command) => !command.hidden && command.removed).map((command) => <div className="factory-command-row" key={command.name} id={`command-editor-${command.name}`}>
-            <div><strong>{data.command_prefix}{command.name}</strong><span className="custom-field-hint">Removed and disabled</span></div>
+            <div><strong>{data.command_prefix}{command.primary_name ?? command.name}</strong><span className="custom-field-hint">Removed and disabled</span></div>
             <button className="secondary" disabled={busyCommand !== ''} onClick={() => void runFactoryAction('restore', command)}>Restore defaults and enable</button>
           </div>)}
         </div>
@@ -1053,7 +1064,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       </details>}
       {data && <details className="factory-commands administrative-commands" id="administrative-commands">
         <summary>Administrative commands</summary>
-        <p className="section-copy">Protected commands retain their original names, minimum permissions and implementations.</p>
+        <p className="section-copy">Administrative commands stay hidden from public help and retain their minimum permissions and implementations.</p>
         <div className="command-list">{data.commands.filter((command) => command.hidden).map(renderBuiltin)}</div>
         {!data.commands.some((command) => command.hidden) && <p className="muted">No administrative commands.</p>}
       </details>}

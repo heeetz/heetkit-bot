@@ -502,7 +502,7 @@ export default function AIPage({ active, onOpenPlayground, onOpenAsk, onAIEnable
         <article className="card ai-state-panel">
           <div className="ai-state-heading">
             <h2>AI command</h2>
-            <HelpTip label="AI command">Saved immediately across restarts. Dashboard, AI and Commands share this !ask setting. If the provider is unavailable, the enabled preference is retained; add a usable API key to enable replies.</HelpTip>
+            <HelpTip label="AI command">Saved immediately across restarts. Dashboard, AI and Commands share this AI command setting. If the provider is unavailable, the enabled preference is retained; add a usable API key to enable replies.</HelpTip>
           </div>
           <Switch
             className="settings-toggle"
@@ -517,7 +517,7 @@ export default function AIPage({ active, onOpenPlayground, onOpenAsk, onAIEnable
         <article className="card ai-state-panel" id="ai-memory">
           <div className="ai-state-heading">
             <h2>Conversation memory</h2>
-            <HelpTip label="Conversation memory">Saved immediately. Turning memory off stops subsequent use and storage; previously stored data is retained. !ask uses up to five successful exchanges per viewer. Playground never reads or stores viewer memory. The broadcaster-only !erase username command clears AI memory for a known viewer; it does not delete chat or activity records.</HelpTip>
+            <HelpTip label="Conversation memory">Saved immediately. Turning memory off stops subsequent use and storage; previously stored data is retained. The AI command uses up to five successful exchanges per viewer. Playground never reads or stores viewer memory. The broadcaster-only memory erasure command in the Commands page’s Administrative commands section clears AI memory for a known viewer; it does not delete chat or activity records.</HelpTip>
           </div>
           <Switch className="settings-toggle" checked={status?.memory_enabled ?? false} disabled={!status || Boolean(busy)} ariaLabel="Enable conversation memory" onCheckedChange={(enabled) => void changeToggle('memory', enabled)}>
             <span>{status ? status.memory_enabled ? 'Enabled' : 'Disabled' : 'Loading…'}</span>

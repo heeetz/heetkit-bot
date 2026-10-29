@@ -321,7 +321,7 @@ for (const width of [1440, 1180, 900, 390, 320]) {
     await page.keyboard.press('Escape')
 
     const access = page.locator('#ai-blocked-users')
-    const settings = access.getByRole('button', { name: 'Edit !ask access and cooldowns' })
+    const settings = access.getByRole('button', { name: 'Edit AI command access and cooldowns' })
     await expect(access.locator('.ai-access-footer')).toContainText('No blocked AI users.')
     expect((await settings.boundingBox())!.y).toBeGreaterThanOrEqual((await access.getByLabel('Twitch username').boundingBox())!.y + 40)
     await expectNoHorizontalOverflow(page)

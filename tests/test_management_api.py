@@ -272,12 +272,14 @@ async def test_server_availability_http_save_reset_and_monitor_demand(api, monke
         return False
     monkeypatch.setattr(server.runtime.application.services.twitch, "get_broadcaster_live", offline)
     payload = {"command_name": "ask", "enabled": True, "per_user_seconds": 0,
-        "global_seconds": 0, "permission": "USER", "options": {"stream_availability": "live_only"}}
+        "global_seconds": 0, "permission": "USER", "options": {
+            "primary_name": "question", "aliases": ["ask"], "stream_availability": "live_only"}}
     _, result, _ = await call("POST", "/v1/commands/save", json=payload)
     assert result["ok"]
     _, result, _ = await call("GET", "/v1/commands")
     ask = next(item for item in result["commands"] if item["name"] == "ask")
     assert ask["stream_availability"] == "live_only" and ask["saved"]
+    assert ask["primary_name"] == "question" and ask["aliases"] == ["ask"]
     assert ask["default_settings"]["stream_availability"] == "anytime"
     assert not server.policy._monitoring  # Manual is stopped.
     # Exercise demand notification through the actual fixed HTTP dispatcher,
@@ -287,6 +289,7 @@ async def test_server_availability_http_save_reset_and_monitor_demand(api, monke
     assert result["ok"] and server.policy._monitoring
     await call("POST", "/v1/commands/reset", json={"command_name": "ask"})
     assert not server.policy._monitoring
+    assert server.runtime.application.services.runtime_state.get_command_settings("ask").primary_name == "ask"
     _, result, _ = await call("POST", "/v1/commands/save", json={**payload,
         "options": {"stream_availability": "invalid"}})
     assert not result["ok"]

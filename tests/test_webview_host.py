@@ -1140,6 +1140,7 @@ def test_bridge_gets_commands_from_registry_and_effective_runtime_settings() -> 
     )
     settings = SimpleNamespace(
         enabled=False,
+        primary_name="erase",
         permission=SimpleNamespace(name="BROADCASTER"),
         cooldown=SimpleNamespace(per_user_seconds=3.0, global_seconds=5.0),
         aliases=("forget",), display_name="", removed=False, burst_interval_ms=0, burst_max_count=10,
@@ -1171,6 +1172,7 @@ def test_bridge_gets_commands_from_registry_and_effective_runtime_settings() -> 
         "commands": [
             {
                 "name": "erase",
+                "primary_name": "erase",
                 "aliases": ["forget"],
                 "display_name": "", "removed": False, "burst_interval_ms": 0, "burst_max_count": 10,
                 "minimum_permission": "BROADCASTER", "identity_editable": False,
@@ -1187,6 +1189,7 @@ def test_bridge_gets_commands_from_registry_and_effective_runtime_settings() -> 
                 "hidden": True,
                 "default_settings": {
                     "enabled": False,
+                    "primary_name": "erase",
                     "permission": "BROADCASTER",
                     "aliases": ["forget"], "display_name": "", "removed": False, "burst_interval_ms": 0, "burst_max_count": 10,
                     "cooldown": {

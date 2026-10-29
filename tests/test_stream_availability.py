@@ -125,9 +125,9 @@ async def test_commands_visibility_respects_confirmed_state_and_public_rules(rig
     await rig.dispatcher.dispatch(rig.message("!commands", True), rig.services)
     text = " ".join(rig.replies)
     assert ("!crosshair" in text) == (status != "offline")
-    assert ("!cross" in text) == (status != "offline")
+    assert "!cross " not in text
     assert ("!hello" in text) == (status != "live")
-    assert ("!hi" in text) == (status != "live")
+    assert "!hi " not in text
     assert "!ask" not in text and "!erase" not in text
 
 

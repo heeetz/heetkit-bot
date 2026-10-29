@@ -16,6 +16,7 @@ from app.command_settings import (
     save_command_overrides,
     validate_command_aliases,
     validate_display_name,
+    validate_primary_name,
 )
 from app.config.personalities import AI_PERSONALITY_PROMPTS
 from app.personality_settings import (
@@ -134,7 +135,7 @@ class RuntimeState:
             if validated != settings:
                 # Lossy input still gets an exact recovery copy at the next save.
                 changed = {key: getattr(validated, key) for key in (
-                    "enabled", "permission", "aliases", "display_name", "burst_interval_ms", "burst_max_count"
+                    "enabled", "permission", "aliases", "display_name", "primary_name", "burst_interval_ms", "burst_max_count"
                 ) if getattr(validated, key) != getattr(settings, key)}
                 override = self._persisted_command_overrides.get(name, CommandSettingsOverride())
                 self._persisted_command_overrides[name] = replace(override, **changed)
@@ -145,12 +146,16 @@ class RuntimeState:
             for name, defaults in self._command_defaults.items():
                 names.update(defaults.aliases)
                 names.update(self._command_settings[name].aliases)
-                names.update(self._persisted_command_overrides.get(name, CommandSettingsOverride()).apply(defaults).aliases)
+                names.add(self._command_settings[name].primary_name)
+                saved = self._persisted_command_overrides.get(name, CommandSettingsOverride()).apply(defaults)
+                names.update(saved.aliases)
+                names.add(saved.primary_name)
             return names
 
     def resolve_command_alias(self, alias: str) -> str | None:
         with self._lock:
-            return next((name for name, settings in self._command_settings.items() if alias in settings.aliases), None)
+            return next((name for name, settings in self._command_settings.items()
+                         if alias == settings.primary_name or alias in settings.aliases), None)
 
     def _validated_command_settings(self, name: str, settings: CommandSettings, *, loading: bool = False) -> CommandSettings:
         definition = self._command_definitions[name]
@@ -175,15 +180,24 @@ class RuntimeState:
                 if not loading:
                     raise ValueError("This command's identity is protected.")
                 settings = replace(settings, aliases=defaults.aliases, display_name=defaults.display_name)
-        used = set(self._command_defaults)
+        validate_primary_name(settings.primary_name)
+        used = set(self._command_defaults) - {name}
         for other, other_defaults in self._command_defaults.items():
             if other != name:
                 used.update(other_defaults.aliases)
                 used.update(self._command_settings[other].aliases)
-                used.update(self._persisted_command_overrides.get(other, CommandSettingsOverride()).apply(other_defaults).aliases)
+                used.add(self._command_settings[other].primary_name)
+                saved = self._persisted_command_overrides.get(other, CommandSettingsOverride()).apply(other_defaults)
+                used.update(saved.aliases)
+                used.add(saved.primary_name)
         if self._custom_commands is not None:
             used.update(alias for command in self._custom_commands.list() for alias in (command.name, *command.aliases))
-        if any(alias in used for alias in settings.aliases):
+        if settings.primary_name in used:
+            if not loading:
+                raise ValueError("Command name or alias already exists.")
+            logging.getLogger(__name__).warning("Ignoring colliding primary name for command=%s", name)
+            settings = replace(settings, primary_name=defaults.primary_name)
+        if any(alias in used or alias == settings.primary_name for alias in settings.aliases):
             if not loading:
                 raise ValueError("Command name or alias already exists.")
             logging.getLogger(__name__).warning("Ignoring colliding aliases for command=%s", name)
@@ -228,6 +242,7 @@ class RuntimeState:
         permission: Permission | None = None,
         aliases: object = None,
         display_name: object = None,
+        primary_name: object = None,
         burst_interval_ms: int | None = None,
         burst_max_count: int | None = None,
         stream_availability: str | None = None,
@@ -240,6 +255,7 @@ class RuntimeState:
                 permission=current.permission if permission is None else permission,
                 aliases=current.aliases if aliases is None else validate_command_aliases(aliases),
                 display_name=current.display_name if display_name is None else validate_display_name(display_name),
+                primary_name=current.primary_name if primary_name is None else validate_primary_name(primary_name),
                 burst_interval_ms=current.burst_interval_ms if burst_interval_ms is None else burst_interval_ms,
                 burst_max_count=current.burst_max_count if burst_max_count is None else burst_max_count,
                 stream_availability=current.stream_availability if stream_availability is None else stream_availability,
@@ -262,6 +278,7 @@ class RuntimeState:
         permission: Permission,
         aliases: object = None,
         display_name: object = None,
+        primary_name: object = None,
         burst_interval_ms: int | None = None,
         burst_max_count: int | None = None,
         stream_availability: str | None = None,
@@ -274,6 +291,7 @@ class RuntimeState:
                 permission=permission,
                 aliases=current.aliases if aliases is None else validate_command_aliases(aliases),
                 display_name=current.display_name if display_name is None else validate_display_name(display_name),
+                primary_name=current.primary_name if primary_name is None else validate_primary_name(primary_name),
                 burst_interval_ms=current.burst_interval_ms if burst_interval_ms is None else burst_interval_ms,
                 burst_max_count=current.burst_max_count if burst_max_count is None else burst_max_count,
                 stream_availability=current.stream_availability if stream_availability is None else stream_availability,

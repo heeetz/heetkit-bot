@@ -65,6 +65,8 @@ async def test_command_help_tracks_custom_edits_builtin_aliases_removal_and_rest
     registry, state, custom, _, bridge, dispatcher, services = setup_commands(tmp_path)
     for name in ("commands", "help"):
         state.apply_command_settings(name, cooldown=CooldownPolicy())
+    state.apply_command_settings("commands", primary_name="catalog", aliases=["commands"])
+    state.apply_command_settings("help", primary_name="guide", aliases=["help"])
 
     async def listing():
         response = AsyncMock()
@@ -78,20 +80,20 @@ async def test_command_help_tracks_custom_edits_builtin_aliases_removal_and_rest
     assert "!erase" not in initial
     command = custom.save(custom_payload(aliases=["offer"]))
     added = await listing()
-    assert "!promo" in added and "!offer" in added
-    assert added.count("!promo") == added.count("!offer") == 1
+    assert "!promo" in added and "!offer" not in added
+    assert added.count("!promo") == 1
     command = custom.save({**command.to_json(), "name": "news", "aliases": ["updates"]})
     renamed = await listing()
-    assert "!news" in renamed and "!updates" in renamed
+    assert "!news" in renamed and "!updates" not in renamed
     assert "!promo" not in renamed and "!offer" not in renamed
     command = custom.save({**command.to_json(), "enabled": False})
     assert "!news" not in await listing()
     command = custom.save({**command.to_json(), "enabled": True})
-    assert "!updates" in await listing()
+    assert "!news" in await listing()
 
     state.apply_command_settings("weather", aliases=["forecast"], display_name="Weather in UI")
     applied = await listing()
-    assert "!forecast <city>" in applied
+    assert "!weather <city>" in applied and "!forecast" not in applied
     assert "Weather in UI" not in applied  # UI labels do not rename chat commands.
     state.apply_command_settings("weather", aliases=["conditions"])
     assert "!forecast" not in await listing()
@@ -107,7 +109,7 @@ async def test_command_help_tracks_custom_edits_builtin_aliases_removal_and_rest
 
     restarted = setup_commands(tmp_path)
     saved_entries = restarted[0].help_entries(restarted[1], restarted[2])
-    assert "!news" in saved_entries and "!updates" in saved_entries
+    assert "!news" in saved_entries and "!updates" not in saved_entries
     assert not any(entry.startswith(("!weather", "!conditions", "!ping")) for entry in saved_entries)
     assert bridge.restore_builtin_command("weather") == {"ok": True}
     restored = await listing()
@@ -124,6 +126,8 @@ async def test_command_help_pages_preserve_utf8_limits_permissions_and_output_li
     services.settings.command_prefix = "?"
     for name in ("commands", "help"):
         state.apply_command_settings(name, cooldown=CooldownPolicy())
+    state.apply_command_settings("commands", primary_name="catalog", aliases=["commands"])
+    state.apply_command_settings("help", primary_name="guide", aliases=["help"])
     for index in range(12):
         custom.save(custom_payload(name=f"{index}雪" + "😀" * 35, aliases=[f"alias{index}"]))
     expected = registry.help_entries(state, custom, "?")
@@ -145,11 +149,17 @@ async def test_command_help_pages_preserve_utf8_limits_permissions_and_output_li
         observed.extend(part.split(" ", 1)[0] for part in body.split("?")[1:])
         if " | Next:" not in text:
             break
-        assert text.endswith(f"?commands {page + 1}")
+        assert text.endswith(f"?catalog {page + 1}")
         page += 1
         assert page <= len(expected)
     assert page > 1
     assert observed == [entry.split(" ", 1)[0][1:] for entry in expected]
+    response.reset_mock()
+    await dispatcher.dispatch(chat("?commands nonsense", response, is_moderator=True), services)
+    assert response.await_args.args[0] == "Usage: ?catalog [page]"
+    response.reset_mock()
+    await dispatcher.dispatch(chat("?guide nonsense", response), services)
+    assert response.await_args.args[0] == "Usage: ?guide [page]"
 
     # Public !help uses the same entries; ordinary help requests still acquire
     # the shared limiter per message rather than bypassing it with a burst.
@@ -189,6 +199,137 @@ async def test_editor_aliases_dispatch_original_handler_and_share_cooldown(tmp_p
     entry = next(command for command in bridge.get_commands()["commands"] if command["name"] == "ping")
     assert entry["name"] == "ping" and entry["display_name"] == "Connection check"
     assert entry["response_pool"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("server", [False, True], ids=["desktop", "server"])
+async def test_primary_rename_preserves_id_handler_cooldown_aliases_and_saved_state(tmp_path, server):
+    registry, state, custom, _, bridge, dispatcher, services = setup_commands(tmp_path)
+    state.server_runtime = server
+    original = registry.get("ping")
+    assert bridge.save_command_settings("ping", True, 30, 0, "MODERATOR",
+        {"primary_name": "!CHECK", "aliases": ["pong"], "display_name": "Connection"})["ok"]
+    metadata = next(item for item in bridge.get_commands()["commands"] if item["name"] == "ping")
+    assert metadata["primary_name"] == "check"
+    assert metadata["help_text"] == "!check"
+    assert metadata["default_settings"]["primary_name"] == "ping"
+    response = AsyncMock()
+    assert not await dispatcher.dispatch(chat("!ping", response, is_moderator=True), services)
+    await dispatcher.dispatch(chat("!check", response), services)
+    response.assert_not_awaited()
+    await dispatcher.dispatch(chat("!check", response, is_moderator=True), services)
+    await dispatcher.dispatch(chat("!pong", response, is_moderator=True), services)
+    assert response.await_count == 1
+    # Another rename cannot reset the same stable command's cooldown.
+    state.apply_command_settings("ping", primary_name="verify", aliases=["ping", "pong"])
+    await dispatcher.dispatch(chat("!verify", response, is_moderator=True), services)
+    await dispatcher.dispatch(chat("!ping", response, is_moderator=True), services)
+    assert response.await_count == 1
+    assert registry.get("ping") is original
+    assert state.resolve_command_alias("ping") == "ping"
+    entries = registry.help_entries(state, custom)
+    assert "!verify" in entries and "!check" not in entries and "!pong" not in entries and "!ping" not in entries
+    assert setup_commands(tmp_path)[1].get_command_settings("ping").primary_name == "check"
+    assert bridge.reset_command_settings("ping")["ok"]
+    assert state.get_command_settings("ping") == original.default_settings
+    assert setup_commands(tmp_path)[1].get_command_settings("ping").primary_name == "ping"
+
+
+@pytest.mark.parametrize("name", ["", "   ", "two words", "bad{name}", "x" * 41, 123, None,
+    "TG", "ERASE", "weather", "PROMO", "HI", "otheralias", "savedname", "savedalias", "ownalias"])
+def test_primary_namespace_validation_is_atomic_for_apply_and_save(tmp_path, name):
+    _, state, custom, _, bridge, _, _ = setup_commands(tmp_path)
+    custom.save(custom_payload(aliases=["hi"]))
+    assert bridge.save_command_settings("weather", True, 0, 0, "USER",
+        {"primary_name": "savedname", "aliases": ["savedalias"]})["ok"]
+    state.apply_command_settings("weather", primary_name="conditions", aliases=["otheralias"])
+    assert bridge.save_command_settings("ping", True, 5, 7, "MODERATOR", {"aliases": ["ownalias"]})["ok"]
+    before = state.get_command_settings("ping")
+    path = tmp_path / "command_settings.json"
+    saved = path.read_bytes()
+    for action in (bridge.apply_command_settings, bridge.save_command_settings):
+        assert not action("ping", False, 9, 10, "VIP", {"primary_name": name})["ok"]
+        assert state.get_command_settings("ping") == before
+        assert path.read_bytes() == saved
+
+
+def test_custom_collisions_and_factory_restoration_reserve_saved_and_runtime_primary_names(tmp_path):
+    _, state, custom, fun, bridge, _, _ = setup_commands(tmp_path)
+    custom.save(custom_payload())
+    assert bridge.save_command_settings("tg", True, 2, 5, "MODERATOR", {"primary_name": "community"})["ok"]
+    state.apply_command_settings("tg", primary_name="sessioncommunity")
+    for name in ("COMMUNITY", "sessioncommunity", "tg"):
+        with pytest.raises(ValueError, match="already exists"):
+            custom.save(custom_payload(name=name))
+    bridge.remove_builtin_command("tg")
+    assert bridge.restore_builtin_command("tg")["ok"]
+    assert state.get_command_settings("tg").primary_name == "tg"
+    assert custom.save(custom_payload(name="community"))
+    bridge.save_command_settings("fate", True, 0, 0, "USER", {"primary_name": "destiny"})
+    assert bridge.reset_all_builtin_commands()["ok"]
+    assert state.get_command_settings("fate").primary_name == "fate"
+    assert len(custom.list()) == 2
+    assert fun.tg_message
+
+
+def test_failed_primary_save_and_startup_conflict_preserve_file_and_other_settings(tmp_path, monkeypatch):
+    _, state, custom, _, bridge, _, _ = setup_commands(tmp_path)
+    custom.save(custom_payload(name="conditions"))
+    path = tmp_path / "command_settings.json"
+    original = b'{"weather":{"primary_name":"conditions","aliases":["climate"],"permission":"VIP"}}'
+    path.write_bytes(original)
+    restarted = setup_commands(tmp_path)[1]
+    assert restarted.get_command_settings("weather").primary_name == "weather"
+    assert restarted.get_command_settings("weather").aliases == ("climate",)
+    assert restarted.get_command_settings("weather").permission == Permission.VIP
+    assert path.read_bytes() == original
+    before = state.get_command_settings("weather")
+    def fail(*args, **kwargs):
+        raise OSError("Synthetic write failure")
+    monkeypatch.setattr("app.runtime_state.save_command_overrides", fail)
+    assert not bridge.save_command_settings("weather", True, 0, 0, "USER", {"primary_name": "climate"})["ok"]
+    assert state.get_command_settings("weather") == before
+    assert path.read_bytes() == original
+
+
+@pytest.mark.asyncio
+async def test_renamed_ai_and_hidden_admin_keep_privacy_and_authority(tmp_path):
+    registry, state, custom, _, bridge, dispatcher, services = setup_commands(tmp_path)
+    assert bridge.save_command_settings("ask", True, 0, 0, "USER",
+        {"primary_name": "question", "aliases": ["ask"]})["ok"]
+    assert bridge.save_command_settings("erase", True, 0, 0, "BROADCASTER",
+        {"primary_name": "forget", "aliases": ["erase"]})["ok"]
+    services.ai_user_blocks = SimpleNamespace(is_blocked=lambda *_: True, remember_observed_id=lambda *_: None)
+    response = AsyncMock()
+    for trigger in ("question", "ask"):
+        message = chat(f"!{trigger} Private question", response)
+        assert dispatcher.is_ai_command(message)
+        assert dispatcher.is_ai_request_blocked(message, services)
+        await dispatcher.dispatch(message, services)
+    services.ai.generate_reply.assert_not_awaited()
+    response.assert_not_awaited()
+    services.memory = SimpleNamespace(erase_for_user=AsyncMock())
+    await dispatcher.dispatch(chat("!forget @target", response, is_moderator=True), services)
+    services.memory.erase_for_user.assert_not_awaited()
+    await dispatcher.dispatch(chat("!forget @target", response, is_broadcaster=True), services)
+    services.memory.erase_for_user.assert_awaited_once_with("target-id")
+    assert "!question <question>" in registry.help_entries(state, custom)
+    assert not any(entry.startswith(("!forget", "!erase", "!ask")) for entry in registry.help_entries(state, custom))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command,arguments,usage,permission", [
+    ("weather", "", " <city>", "USER"), ("fate", "extra", "", "USER"),
+    ("tg", "bad", " [1-10] (default: 1)", "MODERATOR"), ("uptime", "extra", "", "MODERATOR")])
+async def test_renamed_usage_uses_current_primary_even_when_invoked_by_alias(tmp_path, command, arguments, usage, permission):
+    _, _, _, _, bridge, dispatcher, services = setup_commands(tmp_path)
+    services.settings.command_prefix = "?"
+    dispatcher._command_prefix = "?"
+    assert bridge.save_command_settings(command, True, 0, 0, permission,
+        {"primary_name": "renamed", "aliases": [command]})["ok"]
+    response = AsyncMock()
+    await dispatcher.dispatch(chat(f"?{command} {arguments}", response, is_moderator=True), services)
+    assert response.await_args.args[0] == f"Usage: ?renamed{usage}"
 
 
 @pytest.mark.asyncio
@@ -308,14 +449,14 @@ def test_privileged_permissions_rejected_at_editor_and_clamped_on_restart(tmp_pa
 
 
 @pytest.mark.parametrize("name", ["ask", "erase"])
-def test_protected_identity_and_dynamic_templates_cannot_be_overridden(tmp_path, name):
+def test_administrative_and_ai_names_keep_dynamic_templates_and_authority(tmp_path, name):
     _, _, _, _, bridge, _, _ = setup_commands(tmp_path)
     permission = "BROADCASTER" if name == "erase" else "USER"
     for options in ({"aliases": ["override"]}, {"display_name": "A static template"}):
-        assert bridge.save_command_settings(name, True, 0, 0, permission, options)["ok"] is False
+        assert bridge.save_command_settings(name, True, 0, 0, permission, options)["ok"] is True
     assert bridge.save_command_responses(name, ["Static text"])["ok"] is False
     metadata = next(command for command in bridge.get_commands()["commands"] if command["name"] == name)
-    assert metadata["identity_editable"] is False
+    assert metadata["identity_editable"] is True
     assert metadata["response_pool"] is None
 
 

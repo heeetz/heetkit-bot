@@ -45,10 +45,10 @@ export default function BlockedAIUsers({ active, onOpenAsk }: { active: boolean;
     <div className="section-heading ai-access-heading">
       <div>
         <h2>AI access</h2>
-        <HelpTip label="AI access">Blocking only affects !ask requests. It does not ban a Twitch user or delete their messages.</HelpTip>
+        <HelpTip label="AI access">Blocking only affects AI command requests, including all aliases. It does not ban a Twitch user or delete their messages.</HelpTip>
       </div>
     </div>
-    <p className="section-copy">Silently ignore these users' !ask requests.</p>
+    <p className="section-copy">Silently ignore these users' AI command requests.</p>
     <form className="ai-user-block-form" onSubmit={(event) => { event.preventDefault(); void changeBlock(username) }}>
       <label className="form-field">Twitch username
         <input value={username} disabled={busy || users === null} autoComplete="off" placeholder="username or @username" onChange={(event) => { setUsername(event.target.value); setError(''); setNotice('') }} />
@@ -64,7 +64,7 @@ export default function BlockedAIUsers({ active, onOpenAsk }: { active: boolean;
     <div className="ai-access-footer">
       {users === null ? <p className="muted">Blocked users are unavailable until loaded.</p>
         : users.length === 0 && <p className="muted">No blocked AI users.</p>}
-      {onOpenAsk && <div className="ai-access-actions"><button className="secondary" onClick={onOpenAsk}>Edit !ask access and cooldowns</button></div>}
+      {onOpenAsk && <div className="ai-access-actions"><button className="secondary" onClick={onOpenAsk}>Edit AI command access and cooldowns</button></div>}
     </div>
   </article>
 }

@@ -378,8 +378,8 @@ POST writes persist and apply immediately unless stated otherwise.
 | POST `configuration/import` | The same `archive_base64`, `preview_token` and `confirmed: true`; saves/applies only after revalidation against the preview and unchanged destination |
 | POST `bot/start`, `bot/stop` | `{}`; policy-aware connect/disconnect intent, `changed` and current `operation`; completion is asynchronous |
 | POST `bot/mode` | `mode`: `always_on`, `stream_only`, `manual` or `disabled`; persist and reconcile without process restart |
-| GET `commands` | Built-ins, effective/default settings, aliases, permissions, cooldowns and response pools |
-| POST `commands/save` | `command_name`, `enabled`, `per_user_seconds`, `global_seconds`, `permission`; optional `options` with `aliases`, `display_name`, `burst_interval_ms`, `burst_max_count` |
+| GET `commands` | Built-ins with stable `name` IDs, effective/default `primary_name` triggers, aliases, permissions, cooldowns and response pools |
+| POST `commands/save` | Stable `command_name` ID, `enabled`, `per_user_seconds`, `global_seconds`, `permission`; optional `options` with `primary_name`, `aliases`, `display_name`, `burst_interval_ms`, `burst_max_count` |
 | POST `commands/reset`, `commands/remove`, `commands/restore` | `command_name`; factory administrative permission floors remain enforced |
 | POST `commands/apply` / `commands/reset-all` | Same arguments as Save but session-only / `{}` to restore all factory settings/responses, never custom commands |
 | POST `commands/responses/save` | `name` (`fate` or `tg`), `responses` (list of text) |

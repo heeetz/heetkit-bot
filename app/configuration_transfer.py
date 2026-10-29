@@ -225,7 +225,9 @@ class ConfigurationTransfer:
         _fields(payload["commands"], self.state.runtime_toggleable_commands)
         commands = {}
         for name, value in payload["commands"].items():
-            fields = set(CommandSettings.__dataclass_fields__) - {"stream_availability"}
+            fields = set(CommandSettings.__dataclass_fields__) - {"stream_availability", "primary_name"}
+            if isinstance(value, dict) and "primary_name" in value:
+                fields.add("primary_name")
             if isinstance(value, dict) and "stream_availability" in value:
                 fields.add("stream_availability")
             _fields(value, fields)
@@ -234,7 +236,8 @@ class ConfigurationTransfer:
             # Same finite/nonnegative and administrative bounds as management edits.
             _, policy, permission = ApplicationManagement._parse_command_settings(
                 value["enabled"], cooldown["per_user_seconds"], cooldown["global_seconds"], value["permission"])
-            commands[name] = CommandSettings(**{"stream_availability": self.state.get_command_settings(name).stream_availability,
+            commands[name] = CommandSettings(**{"primary_name": name,
+                                                 "stream_availability": self.state.get_command_settings(name).stream_availability,
                                                  **value, "cooldown": policy, "permission": permission,
                                                  "aliases": tuple(_list(value["aliases"], 10))})
         customs = {}
