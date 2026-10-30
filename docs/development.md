@@ -283,6 +283,34 @@ reported as `unattributed`. These sampled, rate-limited notices count duplicate
 decisions, not lost commands. The extra origin metadata shares the replay cache's
 count/TTL bounds and never records chat text or raw notification/subscription IDs.
 
+### Daily aggregate collection
+
+`app/analytics.py` subscribes to structured event values before log projection;
+it never parses logs, consumes ingress or persists correlation IDs. Transient invocation
+state in `app/commands/outcomes.py` publishes one known attempt/start/terminal result;
+handlers explicitly mark silent completion, skips or failures, while awaited shared
+sends report delivery. Returning normally or emitting `command.complete` alone cannot
+establish success. Provider adapters normalize available numeric usage; the shared AI
+pipeline owns logical requests and fallback. Playground and channel scopes are separate.
+
+Application startup/shutdown owns `services.analytics`. Its separate SQLite file uses
+short background batch transactions, a 50 ms SQLite busy timeout, bounded dimensions,
+daily expiry and indexed `(channel, day)` reads. Commands only enqueue, never await
+an aggregate write or scan. Privacy request epochs guard buffered work and an awaited
+writer barrier ensures an old batch finishes before opt-out completes. Dashboard code
+can use `await services.analytics.snapshot(channel_id, days)`,
+`await services.analytics.configure(enabled)` and `await services.analytics.reset()`;
+future transports must apply the existing management authentication boundary. Reset
+and enable changes invalidate older request scopes. `users.retained_count(channel_id=...)`
+returns current retained presence, not historical uniques. These backend methods do not
+add a panel, HTTP route or new permission in this change.
+
+Focused checks: `test_analytics.py`, `test_command_analytics.py`, `test_ai_usage.py`,
+the affected dispatch/send/provider/privacy/lifecycle cases, and announcement delivery
+cases. The synthetic workload and query-plan assertions measure enqueue latency,
+writer lock waits, overload accounting and indexed reads/expiry without live accounts.
+See [daily aggregates and limits](data-and-privacy.md#daily-local-aggregates).
+
 ### Validation by impact
 
 For ordinary prose changes, review content, internal links/anchors and `git diff --check`;

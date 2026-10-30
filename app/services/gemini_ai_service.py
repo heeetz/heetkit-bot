@@ -15,6 +15,7 @@ from app.config.ai_capabilities import native_thinking_parameters, validate_mode
 from app.services.ai_provider import (
     AIGenerationRequest, AIProviderCapabilities, AIProviderResponse, AIProviderSettings,
     AISource, source_metadata,
+    normalized_usage,
 )
 from app.utils.logging import operator_event, operator_event_scope
 
@@ -203,24 +204,20 @@ class GeminiProvider:
                 started = time.monotonic()
                 operator_event(logger, "ai.request_start", "attempt")
                 outcome = "provider_failure"
-                usage = {}
+                usage = {"usage_incomplete": True}
                 try:
                     response = await request(model)
                     # Only aggregate usage counts; never serialize provider payloads
                     # or thought/reasoning parts, even when the SDK exposes them.
-                    metadata = getattr(response, "usage_metadata", None)
-                    for field, attribute in (("input_tokens", "prompt_token_count"),
-                                             ("output_tokens", "candidates_token_count"),
-                                             ("total_tokens", "total_token_count")):
-                        value = getattr(metadata, attribute, None)
-                        if type(value) is int and 0 <= value <= 2**63 - 1:
-                            usage[field] = value
+                    usage = normalized_usage("gemini", response)
                     outcome = "generated"
                     return response, model
                 except asyncio.CancelledError:
                     outcome = "cancelled"
                     raise
                 except Exception as error:
+                    # Some SDK failures report numeric usage even without an answer.
+                    usage = normalized_usage("gemini", error)
                     if (options.single_attempt or attempt != 1 or getattr(error, "code", None) != 404
                             or fallback_model == selected_model):
                         raise
@@ -266,6 +263,7 @@ class GeminiProvider:
             async with self._provider_client(options.api_key) as client:
                 async with asyncio.timeout(GEMINI_REQUEST_TIMEOUT_SECONDS):
                     response, _ = await self._request_with_model_fallback(request_model, options)
+            usage = normalized_usage("gemini", response)
 
             candidates = getattr(response, "candidates", None) or []
             grounding_metadata = [
@@ -315,7 +313,7 @@ class GeminiProvider:
                 for candidate in candidates
             )
             if safety_blocked:
-                return AIProviderResponse(safety_blocked=True)
+                return AIProviderResponse(safety_blocked=True, **usage)
             # Never trust a convenience accessor to decide which parts are thoughts.
             # Candidates are the provider's canonical final-answer surface.
             text = ""
@@ -323,7 +321,7 @@ class GeminiProvider:
                 candidate = candidates[0]
                 finish = str(getattr(candidate, "finish_reason", "")).rsplit(".", 1)[-1]
                 if finish in {"MAX_TOKENS", "MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL", "OTHER"}:
-                    return AIProviderResponse(status="api_error")
+                    return AIProviderResponse(status="api_error", **usage)
                 parts = getattr(getattr(candidate, "content", None), "parts", None) or []
                 text = "".join(part.text for part in parts
                                if not getattr(part, "thought", False)
@@ -333,7 +331,7 @@ class GeminiProvider:
                 value = getattr(response, "text", None)
                 text = value if isinstance(value, str) else ""
             if not text.strip():
-                return AIProviderResponse(status="api_error")
+                return AIProviderResponse(status="api_error", **usage)
             sources: dict[str, AISource] = {}
             attribution_required = False
             for metadata in grounding_metadata:
@@ -352,6 +350,7 @@ class GeminiProvider:
                 # Google requires a Suggestions display for grounded responses; URL
                 # citations alone are insufficient for a plain-text chat transport.
                 attribution_required=search_used,
+                **usage,
             )
         except asyncio.CancelledError:
             raise

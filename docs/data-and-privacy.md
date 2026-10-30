@@ -110,6 +110,77 @@ files taking priority. The old profile is retained. Alternate profiles do not im
 the old default profile. If migration fails, keep both profiles backed up and resolve
 the reported conflict with the application stopped.
 
+## Daily local aggregates
+
+Both hosts collect the same backend counters in a separate profile-local file beside
+the personal database, named `<database-name>.analytics.sqlite3`. Rows contain only
+UTC calendar day, stable channel ID, bounded stable command ID or provider/model,
+metric and numeric value. They contain no viewer ID/login, arguments, ordinary chat
+bodies, prompts/replies, exceptions, provider payloads, reasoning or request/event IDs.
+The profile is implicit in the file location. Rows expire after 60 UTC calendar days,
+including cleanup while collection is disabled; reads exclude expired days immediately.
+Nothing is uploaded. This file is excluded from portable configuration presets.
+
+Only resolved built-in/custom commands count as attempts; aliases and renames share
+their stable ID. Unknown commands belonging to other bots and message reactions are
+excluded. Attempts, execution starts and terminal results are distinct. Permission,
+cooldown, availability, filtering and other precheck skips are not execution errors.
+An ordinary handler return is incomplete unless it explicitly completes work or
+confirms delivery. A Burst has one attempt and one terminal result: all sends confirmed
+means success; mixed delivery is partial, ambiguous delivery is uncertain, and definite
+failure is an error. A recovered provider failure need not fail its command.
+
+AI logical requests and each provider/model attempt, success/error and fallback are
+separate. Available numeric usage from failed attempts and tool continuations is
+included. Missing counts are unknown, never zero; reported-count counters distinguish
+partial token totals. Input includes cached/tool-input tokens and output includes
+reasoning tokens; those breakdowns are subsets and are not added twice. Latency uses
+a fixed bounded histogram. Playground has its own scope, separate from channels and
+without viewer memory. Optional saved AI exchanges remain a separate personal store.
+
+Eligible observed-input counters cover accepted current-session human messages only,
+after ingress/privacy/filter checks, without saving bodies. Scheduled announcements
+have separate attempted/sent/failed/uncertain totals. Connection duration is split at
+UTC midnight, with start/reconnect/error counters. Process coverage, data-start,
+last-start/write, disabled transitions and unclean-start metadata expose observation
+limits. Downtime and disconnected periods are not measured audience activity.
+“Observed users in this channel” means the **current** non-expired, non-suppressed
+presence-row count. Last-seen timestamps cannot establish historical daily or 7/30-day
+unique audiences; no daily identity ledger or historical unique chart is created.
+
+Collection uses a bounded 4,096-item transient buffer and batches of at most 256.
+Overflow, rejected excess dimensions and failed writes surface as drops/write gaps.
+Writes and scans run off the command loop against the separate file, so they do not
+hold personal-storage locks. This is not exactly-once accounting across crashes.
+Opt-outs invalidate queued and late request work, including after withdrawal; their
+usage is omitted even though fresh provider calls may still incur charges. Already
+committed anonymous totals have no per-viewer contribution ledger. Small channel,
+command or model buckets may still become personal when linked to other information:
+keep them private, assess requests in context and reset the aggregate collection when
+necessary rather than attempting to reconstruct an individual's contributions.
+
+The shared backend supports persistent collection disable/enable and whole-profile
+aggregate reset. Panel controls are not available yet. A stopped operator can also
+retire the aggregate collection by removing only its identified analytics SQLite file
+and matching `-wal`/`-shm` sidecars; startup creates an empty collection. This does not
+erase personal presence/history, credentials or settings. Review copied profiles and
+backups separately; restoring an old aggregate file restores its old totals.
+
+Spend is a **known USD subtotal**, never an invoice or provider balance. The dated
+2026-10-30 snapshot covers standard paid text rates for GPT-4.1 mini (including its
+2025-04-14 snapshot), Gemini 2.5 Flash and Flash-Lite; other models show missing prices.
+Reported cached-input counts use their supported discounted rate; reasoning is already
+included in output. Standard OpenAI search calls include the known tool fee, with
+unresolved search-content billing marked incomplete. Missing usage/cache breakdowns,
+Gemini tier/project search allowances and unsupported charges remain incomplete.
+DeepSeek rates are unavailable in this snapshot because its current time/holiday
+schedule and retired aliases are not resolved here. No rates are scraped at runtime,
+no balance-based spend is inferred and no billing credentials are requested.
+Rate sources: [OpenAI model](https://developers.openai.com/api/docs/models/gpt-4.1-mini),
+[OpenAI tools](https://developers.openai.com/api/docs/pricing),
+[Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing),
+[DeepSeek pricing](https://api-docs.deepseek.com/quick_start/pricing/).
+
 ## Credentials and local data
 
 Within the profile, `config/` holds JSON settings, commands, personalities, AI blocks

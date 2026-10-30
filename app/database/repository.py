@@ -69,6 +69,9 @@ class UserRepository:
         # Invalidate captured work permanently, including after withdrawal.
         self.policy.privacy_epochs[twitch_user_id] = self.policy.privacy_epochs.get(twitch_user_id, 0) + 1
         self._suppressed_ids.add(twitch_user_id)
+        analytics = getattr(self, "analytics", None)
+        if analytics is not None:
+            await analytics.privacy_barrier()
         async with self.policy.lock, self._session_factory() as session:
             self._suppressed_ids.add(twitch_user_id)
             statement = sqlite_insert(PrivacyOptOut).values(twitch_user_id=twitch_user_id,
@@ -154,6 +157,14 @@ class UserRepository:
             if exclude_user_ids:
                 statement = statement.where(User.twitch_user_id.not_in(exclude_user_ids))
             return list((await session.scalars(statement)).all())
+
+    async def retained_count(self, *, channel_id: str) -> int:
+        """Current retained presence only; never reconstruct historical uniques."""
+        async with self._session_factory() as session:
+            return int(await session.scalar(select(func.count()).select_from(User).where(
+                User.channel_id == channel_id,
+                User.last_seen_at > utcnow() - timedelta(days=USER_RETENTION_DAYS),
+                storage_allowed(User.twitch_user_id))) or 0)
 
 
 class AIMemoryRepository:

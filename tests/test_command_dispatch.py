@@ -158,15 +158,20 @@ async def test_ping_cooldown_is_enforced_per_user(
         record for record in caplog.records if hasattr(record, "event_kind")
     ]
     assert [record.event_kind for record in semantic_records] == [
+        "command.attempt",
         "command.input",
+        "command.start",
         "command.invoke",
         "chat.send",
         "chat.outgoing",
         "command.complete",
+        "command.terminal",
+        "command.attempt",
         "command.input",
         "command.cooldown",
+        "command.terminal",
     ]
-    cooldown_record = semantic_records[-1]
+    cooldown_record = next(record for record in semantic_records if record.event_kind == "command.cooldown")
     assert cooldown_record.event_command == "ping"
     assert cooldown_record.event_username == "viewer"
     assert cooldown_record.event_retry_after_seconds > 0

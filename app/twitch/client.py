@@ -34,6 +34,7 @@ from app.twitch.message_correlation import ChatMessageCorrelation
 from app.twitch.sending import ChatSendSession, ChatSessionClosedError
 from app.utils.text import parse_command
 from app.utils.logging import privacy_log_scope, operator_event_scope, operator_event, event_metadata
+from app.analytics import analytics_scope_for
 
 
 class TwitchConnectionError(RuntimeError):
@@ -196,13 +197,15 @@ async def process_twitch_message(
                 logger.error("Could not check storage opt-out: %s", type(error).__name__)
         def suppress_logs():
             return opted_out or getattr(services.users, "logs_suppressed", lambda _: False)(incoming.author.twitch_user_id)
-        with privacy_log_scope(suppress_logs):
+        with privacy_log_scope(suppress_logs), analytics_scope_for(services, incoming):
             try:
                 scope = getattr(dispatcher, "event_scope", None)
                 with (scope(incoming) if scope else operator_event_scope(
                         channel=incoming.channel, username=incoming.author.username,
                         input_message_id=incoming.message_id)):
-                    await _process_incoming_message(incoming, services, dispatcher, logger)
+                    outcome_scope = getattr(dispatcher, "outcome_scope", None)
+                    with outcome_scope(incoming) if outcome_scope else nullcontext():
+                        await _process_incoming_message(incoming, services, dispatcher, logger)
             except Exception:
                 if not suppress_logs():
                     raise
@@ -229,6 +232,7 @@ async def _process_incoming_message(
 
     # Check if message should be filtered out
     if not services.filter_manager.filter_message(incoming.content):
+        getattr(dispatcher, "skip_outcome", lambda _: None)("filters")
         operator_event(logger, "chat.filtered", "filters", inherit_context=False,
                        source="filter", reason="content_filter")
         return
@@ -241,6 +245,7 @@ async def _process_incoming_message(
     is_ai = getattr(dispatcher, "is_ai_command", lambda _: parsed is not None and parsed[0] == "ask")
     if parsed is not None and is_ai(incoming) and policy is not None:
         if policy.check(parsed[1]) == PolicyDecision.IGNORE:
+            getattr(dispatcher, "skip_outcome", lambda _: None)("filters")
             operator_event(logger, "command.outcome", "filters", reason="protected_policy")
             return
 
@@ -371,6 +376,11 @@ class TwitchChatBot(commands.Bot):
                        event_count=count + 1)
 
     def _set_connection_state(self, state: TwitchConnectionState) -> None:
+        analytics = getattr(self._services, "analytics", None)
+        if analytics is not None and state in {"failed", "auth_required"}:
+            runtime = getattr(self._services, "runtime_state", None)
+            if runtime is None or runtime.twitch_connection_state != state:
+                analytics.record("connection.errors", channel_id=self._settings.twitch_channel_user_id)
         if self._services.twitch is not None:
             self._services.twitch.set_chat_ready(self, state == "connected" and not self._closing_requested)
         runtime_state = getattr(self._services, "runtime_state", None)

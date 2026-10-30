@@ -91,9 +91,11 @@ def register_social_commands(registry: CommandRegistry) -> None:
                 context.message.author.twitch_user_id,
             ) if context.services.twitch is not None else None
         except Exception:
+            context.fail("followage_unavailable")
             context.logger.exception("Could not retrieve Twitch followage")
             return
         if followed_at is None:
+            context.skip("followage_unavailable")
             return
         username = context.message.author.username.lstrip("@")
         await context.reply(f"@{username} has been following this channel for {_format_followage(followed_at)}.")
@@ -110,9 +112,11 @@ def register_social_commands(registry: CommandRegistry) -> None:
         try:
             user = await context.services.users.get_by_username(username, channel_id=context.message.channel_id)
         except Exception:
+            context.fail("presence_unavailable")
             context.logger.exception("Could not retrieve last seen user")
             return
         if user is None or user.last_seen_at is None:
+            context.skip("no_retained_user")
             return
         await context.reply(
             f"@{user.username.lstrip('@')} was last seen {_format_seen(user.last_seen_at)} ago."

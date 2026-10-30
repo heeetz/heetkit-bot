@@ -232,8 +232,10 @@ class SharedAIService:
         setup = effective_ai_setup(self.settings)
         generation = AIGenerationDetails(provider.name, setup.primary.model,
                                          setup.primary.thinking, search_enabled=setup.primary.search)
+        operator_event(logger, "ai.logical_start", "request")
 
         def finish(reply: AIReply) -> AIReply:
+            operator_event(logger, "ai.logical_finish", reply.status)
             return replace(reply, generation=generation)
 
         if len(prompt.strip()) > setup.max_question_length:
@@ -338,6 +340,9 @@ class SharedAIService:
                         if blocked is not None:
                             return finish(blocked)
                     return finish(AIReply(final_text, True))
+            except asyncio.CancelledError:
+                operator_event(logger, "ai.logical_finish", "cancelled")
+                raise
             except Exception as error:
                 # Providers return safe statuses; also contain unexpected failures.
                 with operator_event_scope(requested_model=options.model if options is not None else None):

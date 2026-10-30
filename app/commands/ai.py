@@ -12,14 +12,17 @@ def register_ai_commands(registry: CommandRegistry) -> None:
     def ask_pre_check(context, arguments: str) -> bool:
         clean_args = arguments.strip()
         if not clean_args:
+            context.skip("invalid_arguments")
             operator_event(context.logger, "command.outcome", "invalid_arguments")
             return False
         from app.config.ai_setup import effective_ai_setup
         if len(clean_args) > effective_ai_setup(getattr(context.services, "settings", None)).max_question_length:
+            context.skip("invalid_arguments")
             operator_event(context.logger, "command.outcome", "invalid_arguments", reason="question_too_long")
             return False
         policy_decision = context.services.ai_request_policy.check(clean_args)
         if policy_decision == PolicyDecision.IGNORE:
+            context.skip("filters")
             operator_event(context.logger, "command.outcome", "filters", reason="protected_policy")
             return False
         return True
@@ -64,6 +67,11 @@ def register_ai_commands(registry: CommandRegistry) -> None:
             stream_category=stream_category,
         )
         status = getattr(reply, "status", "success" if reply.is_available else "api_error")
+        if not reply.is_available or not reply.text:
+            if status in {"output_blocked", "provider_unavailable", "question_too_long"}:
+                context.skip("filters" if status == "output_blocked" else "ai_unavailable" if status == "provider_unavailable" else "invalid_arguments")
+            else:
+                context.fail("provider_failure")
         operator_event(context.logger, "ai.result",
                        "generated" if reply.is_available and reply.text else
                        "filters" if status == "output_blocked" else
@@ -79,6 +87,7 @@ def register_ai_commands(registry: CommandRegistry) -> None:
             except UnicodeError:
                 valid_encoding = False
             if len(outgoing) > 500 or not valid_encoding:
+                context.fail("outgoing_envelope")
                 operator_event(context.logger, "ai.result", "provider_failure", reason="outgoing_envelope")
                 return
             delivered = await context.reply(outgoing)
@@ -105,11 +114,16 @@ def register_ai_commands(registry: CommandRegistry) -> None:
     async def erase_memory(context, arguments: str) -> None:
         parts = arguments.strip().split(maxsplit=1)
         if not parts:
+            context.skip("invalid_arguments")
             return
         target_username = parts[0].lstrip("@")
         if not target_username:
+            context.skip("invalid_arguments")
             return
 
         user = await context.services.users.get_by_username(target_username, channel_id=context.message.channel_id)
         if user is not None:
             await context.services.memory.erase_for_user(user.twitch_user_id, channel_id=context.message.channel_id)
+            context.complete()
+        else:
+            context.skip("no_retained_user")

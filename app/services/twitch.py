@@ -13,6 +13,7 @@ from app.ai_user_blocks import verified_user_id
 from app.twitch.message_correlation import ChatMessageCorrelation
 from app.twitch.sending import ChatSender, ChatSendSession, ChatSessionClosedError
 from app.utils.output_limiter import OutputLimiter
+from app.utils.logging import event_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ class TwitchAPIService:
         self._chat_stopping = False
         self.human_messages = 0
         self.on_chat_session_changed: Callable[[], None] | None = None
+        self.analytics = None
 
     @property
     def chat_connected(self) -> bool:
@@ -68,6 +70,7 @@ class TwitchAPIService:
                 and message.author.twitch_user_id != self._token_user_id
                 and not message.is_outgoing and not message.author.is_bot):
             self.human_messages += 1
+            event_metadata("activity.observed")
 
     async def get_broadcaster_live(self, settings: Settings) -> bool:
         """Get Streams using TwitchIO's app authentication, even without chat.
@@ -111,6 +114,8 @@ class TwitchAPIService:
 
     def suspend_chat(self) -> None:
         """Invalidate captured senders synchronously, before lifecycle work yields."""
+        if self.analytics is not None and self._channel_user_id:
+            self.analytics.connection(self._channel_user_id, False)
         self._send_session.invalidate()
         for task in self._send_session.tasks:
             self._retiring_sends.add(task)
@@ -124,6 +129,8 @@ class TwitchAPIService:
         if ready and not self._chat_stopping:
             if not self._send_session.active:
                 self._send_session = ChatSendSession(active=True)
+                if self.analytics is not None and self._channel_user_id:
+                    self.analytics.connection(self._channel_user_id, True)
                 self.human_messages = 0
                 if self.on_chat_session_changed is not None:
                     self.on_chat_session_changed()

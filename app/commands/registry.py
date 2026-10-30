@@ -22,6 +22,8 @@ from app.utils.output_limiter import OutputLimiter
 from app.utils.text import normalize_command_name, parse_command
 from app.utils.logging import event_metadata, operator_event, operator_event_scope
 from app.twitch.sending import ChatSender, ChatSessionClosedError
+from app.commands.outcomes import (invocation_scope, skip_outcome, fail_outcome,
+                                   complete_outcome, start_outcome)
 
 
 CommandHandler = Callable[["CommandContext", str], Awaitable[None]]
@@ -68,6 +70,16 @@ class CommandContext:
     output_limiter: OutputLimiter | None = None
     burst_interval_ms: int = 0
     burst_max_count: int = TG_DEFAULT_MAX_COUNT
+
+    def complete(self) -> None:
+        """Explicit completion for an operation that intentionally has no reply."""
+        complete_outcome()
+
+    def fail(self, reason: str) -> None:
+        fail_outcome(reason)
+
+    def skip(self, reason: str) -> None:
+        skip_outcome(reason)
 
     def invocation(self, command_id: str) -> str:
         state = getattr(self.services, "runtime_state", None)
@@ -269,7 +281,23 @@ class CommandDispatcher:
         )
 
     def _outcome(self, outcome: str, **context) -> None:
+        if outcome == "handler_failed":
+            fail_outcome(outcome)
+        elif outcome != "unknown_command":
+            skip_outcome(outcome)
         operator_event(self._logger, "command.outcome", outcome, **context)
+
+    @staticmethod
+    def skip_outcome(reason: str) -> None:
+        skip_outcome(reason)
+
+    def outcome_scope(self, message: IncomingChatMessage):
+        parsed = parse_command(message.content, self._command_prefix)
+        definition = self._builtin_definition(parsed[0]) if parsed else None
+        custom = (self._custom_commands.get_by_name(parsed[0])
+                  if parsed and definition is None and self._custom_commands else None)
+        command_id = (definition.name if definition else f"custom:{custom.id}" if custom else None)
+        return invocation_scope(message, None if message.is_outgoing else command_id, self._logger)
 
     def is_ai_command(self, message: IncomingChatMessage) -> bool:
         parsed = parse_command(message.content, self._command_prefix)
@@ -298,6 +326,7 @@ class CommandDispatcher:
         except (ValueError, OSError):
             self._logger.warning("Could not persist observed AI block account ID; request remains blocked")
         operator_event(self._logger, "ai_user_blocked", "ai_user_blocked", reason="ai_user_blocked")
+        skip_outcome("ai_user_blocked")
         return True
 
     def is_command_restricted(self, message: IncomingChatMessage, services: ApplicationServices) -> bool:
@@ -396,11 +425,15 @@ class CommandDispatcher:
         if message.is_outgoing:
             return False
         storage_scope = getattr(getattr(services, "users", None), "storage_scope", None)
-        with (storage_scope(message.author.twitch_user_id) if storage_scope else nullcontext()), self.event_scope(message):
+        from app.analytics import checked_analytics_scope_for
+        analytics_scope = await checked_analytics_scope_for(services, message)
+        with ((storage_scope(message.author.twitch_user_id) if storage_scope else nullcontext()),
+              analytics_scope, self.event_scope(message), self.outcome_scope(message)):
             try:
                 return await self._dispatch(message, services)
             except asyncio.CancelledError:
-                self._outcome("cancelled")
+                fail_outcome("cancelled")
+                operator_event(self._logger, "command.outcome", "cancelled")
                 raise
 
     async def _dispatch(self, message: IncomingChatMessage, services: ApplicationServices) -> bool:
@@ -531,6 +564,7 @@ class CommandDispatcher:
                     policy=settings.cooldown,
                 )
                 if not cooldown.allowed:
+                    skip_outcome("cooldown")
                     self._logger.info(
                         "Command cooldown rejected command=%s user=%s "
                         "retry_after_seconds=%.2f",
@@ -542,6 +576,7 @@ class CommandDispatcher:
                     )
                     return True
 
+            start_outcome(self._logger)
             self._logger.info(
                 "Executing command name=%s user=%s",
                 definition.name,
@@ -562,6 +597,7 @@ class CommandDispatcher:
             operator_event(self._logger, "command.complete", "handler_completed")
             return True
         except Exception as error:
+            fail_outcome("handler_failed")
             self._logger.error("Command dispatch failed: %s", type(error).__name__,
                                extra=event_metadata("command.outcome", outcome="handler_failed",
                                                     error_type=type(error).__name__,

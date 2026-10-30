@@ -16,6 +16,7 @@ from app.config.ai_capabilities import native_thinking_parameters, validate_mode
 from app.services.ai_provider import (
     AIGenerationRequest, AIProviderCapabilities, AIProviderResponse, AIProviderSettings,
     AISource, source_metadata,
+    attempt_usage, report_usage, report_search_request,
 )
 from app.utils.logging import operator_event, operator_event_scope
 
@@ -192,6 +193,7 @@ class DeepSeekProvider:
         tool_calls = tool_bytes = 0
         for round_index in range(DEEPSEEK_MAX_TOOL_ROUNDS + 1):
             status, result = await self._http_json("POST", "/chat/completions", key, json=payload)
+            report_usage("deepseek", result)
             if status >= 400:
                 if round_index:
                     raise _SearchError("Search continuation failed; no fresh answer was established.")
@@ -260,6 +262,7 @@ class DeepSeekProvider:
             else:
                 raise ValueError("Unknown tool.")
             async with asyncio.timeout(DEEPSEEK_TOOL_TIMEOUT_SECONDS):
+                report_search_request()
                 status, result = await self._http_json(
                     "POST", path, key, json=body, transport_timeout=DEEPSEEK_TOOL_TIMEOUT_SECONDS,
                 )
@@ -301,6 +304,7 @@ class DeepSeekProvider:
         except ValueError:
             return AIProviderResponse(status="configuration_error")
         assert options.api_key is not None
+        usage = None
         try:
             async with self._operation():
                 async with asyncio.timeout(DEEPSEEK_REQUEST_TIMEOUT_SECONDS):
@@ -310,24 +314,17 @@ class DeepSeekProvider:
                         if not options.single_attempt:
                             context.update(requested_provider=self.name, requested_model=options.model,
                                            attempt=attempt, fallback=attempt > 1)
-                        with operator_event_scope(**context):
+                        with operator_event_scope(**context), attempt_usage() as usage:
                             started = time.monotonic()
                             operator_event(logger, "ai.request_start", "attempt")
                             outcome = "provider_failure"
-                            usage: dict[str, int] = {}
                             try:
                                 validate_model_options("deepseek", model, options.thinking, request.use_search)
                                 result, sources, search_used = await self._generate_model(
                                     request, model, options.api_key, options.thinking,
                                 )
-                                usage_data = result.get("usage")
-                                if isinstance(usage_data, dict):
-                                    for source, target in (("prompt_tokens", "input_tokens"),
-                                                           ("completion_tokens", "output_tokens"),
-                                                           ("total_tokens", "total_tokens")):
-                                        count = usage_data.get(source)
-                                        if type(count) is int and 0 <= count <= 2**63 - 1:
-                                            usage[target] = count
+                                if not usage.rounds:
+                                    report_usage("deepseek", result)
                                 choices = result.get("choices")
                                 choice = choices[0] if isinstance(choices, list) and choices else None
                                 message = choice.get("message") if isinstance(choice, dict) else None
@@ -335,9 +332,10 @@ class DeepSeekProvider:
                                 finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
                                 if finish_reason != "stop" or not isinstance(content, str) or not content.strip():
                                     outcome = "invalid_response"
-                                    return AIProviderResponse(status="api_error")
+                                    return AIProviderResponse(status="api_error", **usage.metadata())
                                 outcome = "generated"
-                                return AIProviderResponse(text=content, sources=sources, search_used=search_used)
+                                return AIProviderResponse(text=content, sources=sources, search_used=search_used,
+                                                          **usage.metadata())
                             except asyncio.CancelledError:
                                 outcome = "cancelled"
                                 raise
@@ -349,7 +347,7 @@ class DeepSeekProvider:
                                 raise
                             finally:
                                 operator_event(logger, "ai.request_finish", outcome,
-                                               duration_seconds=round(time.monotonic() - started, 3), **usage)
+                                               duration_seconds=round(time.monotonic() - started, 3), **usage.metadata())
             return AIProviderResponse(status="api_error")
         except asyncio.CancelledError:
             raise
@@ -361,4 +359,4 @@ class DeepSeekProvider:
                 status = "model_unavailable"
             else:
                 status = "timeout" if isinstance(error, (TimeoutError, httpx.TimeoutException)) else "api_error"
-            return AIProviderResponse(status=status)
+            return AIProviderResponse(status=status, **(usage.metadata() if usage is not None else {}))

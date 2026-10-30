@@ -23,6 +23,7 @@ from app.services.ai_provider import (
     AIProviderSettings,
     AISource,
     source_metadata,
+    attempt_usage, normalized_usage, report_usage,
 )
 from app.utils.logging import operator_event, operator_event_scope
 
@@ -307,15 +308,19 @@ class OpenAIProvider:
             payload["max_tool_calls"] = OPENAI_MAX_TOOL_CALLS
             payload["tool_choice"] = "required"
         status, result = await self._http_json("POST", "/responses", options.api_key, json=payload)
+        report_usage("openai", result)
         if status >= 400:
             raise _ProviderHTTPError(status, self._response_error_is_model_missing(result))
         if not isinstance(result, dict):
             return AIProviderResponse(status="api_error")
         metadata = {
-            "input_tokens": self._usage_count(result, "input_tokens"),
-            "output_tokens": self._usage_count(result, "output_tokens"),
+            **normalized_usage("openai", result),
             "effective_model": self._effective_model(result, model),
         }
+        output = result.get("output")
+        if isinstance(output, list):
+            metadata["search_requests"] = sum(isinstance(item, dict) and item.get("type") == "web_search_call"
+                                               for item in output[:100])
         try:
             text, sources, searched, safety_blocked = self._parse_response(
                 result, search_requested=request.use_search,
@@ -355,7 +360,7 @@ class OpenAIProvider:
         try:
             async with self._operation():
                 context = {"provider": self.name, "model": options.model}
-                with operator_event_scope(**context):
+                with operator_event_scope(**context), attempt_usage() as attempt:
                     started = time.monotonic()
                     operator_event(logger, "ai.request_start", "attempt")
                     outcome = "provider_failure"
@@ -364,10 +369,12 @@ class OpenAIProvider:
                         result = await self._generate_model(request, options.model, options)
                         outcome = (result.status if result.status != "success" else
                                    "safety_blocked" if result.safety_blocked else "generated")
-                        if result.input_tokens is not None:
-                            usage["input_tokens"] = result.input_tokens
-                        if result.output_tokens is not None:
-                            usage["output_tokens"] = result.output_tokens
+                        if not attempt.rounds:
+                            attempt.add({key: getattr(result, key) for key in (
+                                "input_tokens", "output_tokens", "total_tokens", "cached_input_tokens",
+                                "reasoning_tokens", "usage_incomplete")})
+                        if result.search_requests is not None:
+                            attempt.values["search_requests"] = result.search_requests
                         if result.effective_model is not None:
                             usage["model"] = result.effective_model
                         return result
@@ -390,7 +397,8 @@ class OpenAIProvider:
                         return AIProviderResponse(status="api_error")
                     finally:
                         operator_event(logger, "ai.request_finish", outcome,
-                                       duration_seconds=round(time.monotonic() - started, 3), **usage)
+                                       duration_seconds=round(time.monotonic() - started, 3),
+                                       **attempt.metadata(), **usage)
         except asyncio.CancelledError:
             raise
         except RuntimeError:

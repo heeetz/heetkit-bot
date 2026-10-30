@@ -33,7 +33,8 @@ EVENT_CONTEXT_ATTRIBUTES = {
         "request_id", "event_id", "response_id", "input_message_id", "message_id",
         "command_id", "invoked_name", "source", "outcome", "reason",
         "requested_provider", "requested_model", "attempt", "fallback",
-        "input_tokens", "output_tokens", "total_tokens", "error_type", "stage",
+        "input_tokens", "output_tokens", "total_tokens", "cached_input_tokens", "tool_input_tokens",
+        "reasoning_tokens", "search_requests", "usage_incomplete", "error_type", "stage",
         "client_instance", "current_client", "send_active", "send_session_ref", "connection_state", "socket_ref",
         "active_socket_ref", "transport_ref", "sdk_socket_count", "sdk_reconnect_count", "event_count",
         "duplicate_origin", "duplicate_delivery", "duplicate_age_seconds",
@@ -58,6 +59,9 @@ def operator_event_scope(**context):
 
 def event_metadata(kind: str, *, inherit_context: bool = True, **context) -> dict:
     values = {**(_operator_context.get() if inherit_context else {}), **context, "event_id": uuid4().hex}
+    if not _private_logs_suppressed():
+        from app.analytics import observe
+        observe(kind, values)
     return {"event_kind": kind, **{
         f"event_{key}": _bounded_text(value, 512) if isinstance(value, str) else value
         for key, value in values.items()

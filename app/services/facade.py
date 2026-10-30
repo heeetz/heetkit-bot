@@ -29,3 +29,4 @@ class ApplicationServices:
     ai_user_blocks: AIUserBlocklist | None = None
     custom_commands: CustomCommandStore | None = None
     command_restrictions: CommandRestrictionStore | None = None
+    analytics: object | None = None

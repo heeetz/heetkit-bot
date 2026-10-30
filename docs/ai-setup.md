@@ -349,13 +349,17 @@ and [commands](commands.md) for filters, permissions and cooldowns.
 ## Generation diagnostics
 
 Semantic AI events link to the command request and identify requested and effective
-provider/model, attempt number, fallback use and elapsed time. When Gemini returns
-aggregate input/output/total token counts, those counts are included. Missing usage
-is left absent. Events exclude keys, prompts, response payloads and reasoning content;
+provider/model, attempt number, fallback use and elapsed time. All adapters normalize
+reported numeric usage, including failed/fallback attempts and tool continuations.
+Cached input and reasoning are subsets of inclusive input/output totals; missing usage
+stays unknown. Events exclude keys, prompts, response payloads and reasoning content;
 storage opt-outs suppress these request diagnostics along with command/send events.
 Generation and handler completion are separate from confirmed Twitch delivery. A failed
 or uncertain send is not saved as delivered AI memory. Existing Desktop diagnostics and
 Server lifecycle-log visibility remain as described in [data and privacy](data-and-privacy.md).
+Separate [daily local aggregates](data-and-privacy.md#daily-local-aggregates) retain
+bounded usage/latency counters and incomplete dated spend estimates, without saved
+exchanges or provider payloads. Playground usage is separate from channel usage.
 
 ## Free Tier and billing
 

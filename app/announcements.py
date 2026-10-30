@@ -245,6 +245,11 @@ class AnnouncementScheduler:
                         "live_only": "live", "offline_only": "offline"}[item.stream_availability]:
                     status.last_outcome = "skipped_stream"
                     continue
+                analytics = getattr(self.twitch, "analytics", None)
+                channel_id = getattr(self.settings, "twitch_channel_user_id", "")
+                if analytics is not None:
+                    analytics.record("announcement.attempts", channel_id=channel_id, dimension=item.delivery_mode)
+                sender = None
                 try:
                     sender = self.twitch.announcement_sender() if item.delivery_mode == "highlighted" else self.twitch.chat_sender()
                     self._sending_id = item.id
@@ -268,6 +273,11 @@ class AnnouncementScheduler:
                     status.last_outcome = "failed"
                     logger.warning("Scheduled chat send failed; waiting for the next interval.")
                 finally:
+                    if analytics is not None:
+                        outcome = getattr(sender, "last_outcome", None)
+                        terminal = ("sent" if outcome == "confirmed_send" else
+                                    "uncertain" if outcome == "uncertain_send" else "failed")
+                        analytics.record("announcement." + terminal, channel_id=channel_id, dimension=item.delivery_mode)
                     self._send = None
                     self._sending_id = None
 

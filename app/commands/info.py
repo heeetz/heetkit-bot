@@ -61,6 +61,7 @@ def register_weather_commands(registry: CommandRegistry) -> None:
         try:
             report = await context.services.weather.get_current_weather(arguments)
         except WeatherServiceError:
+            context.fail("weather_unavailable")
             language = weather_language_for_query(arguments)
             unavailable = {
                 "en": "weather is currently unavailable",
@@ -70,6 +71,7 @@ def register_weather_commands(registry: CommandRegistry) -> None:
             await context.reply(f"@{username}, {unavailable}.")
             return
         if report is None:
+            context.skip("city_not_found")
             language = weather_language_for_query(arguments)
             not_found = {
                 "en": "could not find that city",

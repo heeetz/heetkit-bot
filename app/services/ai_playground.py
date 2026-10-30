@@ -9,6 +9,7 @@ from app.config.ai import AI_REQUEST_TIMEOUT_SECONDS
 from app.config.ai_setup import effective_ai_setup
 from app.services.ai_request_policy import PolicyDecision
 from app.utils.logging import get_logger
+from app.analytics import analytics_scope
 
 
 class AIPlayground:
@@ -40,7 +41,8 @@ class AIPlayground:
         self.request_id = uuid4().hex
         self.owner = owner
         self.cancel_requested = False
-        self.task = asyncio.create_task(self._run(prompt.strip()))
+        with analytics_scope(getattr(self.services, "analytics", None), "playground"):
+            self.task = asyncio.create_task(self._run(prompt.strip()))
         if expires_at is not None:
             self._expiry = asyncio.get_running_loop().call_later(
                 max(0, expires_at - time.monotonic()), self.revoke, owner,

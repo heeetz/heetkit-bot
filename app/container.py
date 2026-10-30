@@ -20,6 +20,7 @@ from app.fun_settings import FunSettingsStore
 from app.config.settings import Settings
 from app.database.database import Database
 from app.database.repository import AIMemoryRepository, UserRepository
+from app.analytics import Analytics
 from app.services.facade import ApplicationServices
 from app.services.memory import AIMemoryService
 from app.services.weather import OpenMeteoWeatherService
@@ -56,6 +57,8 @@ class Application:
 
     async def startup(self) -> None:
         await self.database.initialize()
+        if getattr(self.services, "analytics", None) is not None:
+            await self.services.analytics.start()
         # Optional filter files should not prevent the rest of the app from starting.
         try:
             from app.services.filter_loader import load_filters_from_directory
@@ -83,7 +86,11 @@ class Application:
             try:
                 await self.http_client.aclose()
             finally:
-                await self.database.close()
+                try:
+                    if getattr(self.services, "analytics", None) is not None:
+                        await self.services.analytics.close()
+                finally:
+                    await self.database.close()
 
 
 def build_application(settings: Settings) -> Application:
@@ -92,10 +99,13 @@ def build_application(settings: Settings) -> Application:
                         context_limit=settings.ai_context_max_entries)
     http_client = httpx.AsyncClient(timeout=httpx.Timeout(8.0))
     user_repository = UserRepository(database.session_factory)
+    analytics = Analytics(database.path.with_name(database.path.name + ".analytics.sqlite3") if database.path else None)
+    user_repository.analytics = analytics
     memory_repository = AIMemoryRepository(database.session_factory)
     filter_manager = FilterManager()
     ai_request_policy = AIRequestPolicy()
     twitch_api = TwitchAPIService()
+    twitch_api.analytics = analytics
     memory = AIMemoryService(memory_repository)
     runtime_state = RuntimeState(
         command_settings_path=paths.command_settings,
@@ -133,6 +143,7 @@ def build_application(settings: Settings) -> Application:
         ai_user_blocks=AIUserBlocklist(paths.config / "ai_user_blocks.json"),
         custom_commands=custom_commands,
         command_restrictions=CommandRestrictionStore(paths.config / "command_restrictions.json"),
+        analytics=analytics,
     )
     services.command_restrictions.migrate_ai_blocks(services.ai_user_blocks, settings.twitch_channel_user_id)
     message_triggers = MessageTriggerStore(paths.message_triggers)

@@ -66,6 +66,30 @@ async def test_full_interval_no_backlog_restart_and_random_choice(rig):
     assert snapshot["next_run_at"] == "1970-01-01T00:11:00+00:00"
     await r.scheduler.tick()
     assert r.responder.await_count == 1
+
+
+@pytest.mark.parametrize("delivery,terminal", [(True, "sent"), (False, "failed"), (None, "uncertain"), ("timeout", "uncertain")])
+async def test_aggregate_announcement_attempt_has_one_delivery_outcome(rig, tmp_path, delivery, terminal):
+    from app.analytics import Analytics
+    analytics = Analytics(tmp_path / "synthetic.analytics.sqlite3")
+    await analytics.start()
+    r = rig
+    r.scheduler.settings.twitch_channel_user_id = "200"
+    r.twitch.analytics = analytics
+    if delivery == "timeout":
+        r.responder.side_effect = TimeoutError()
+    else:
+        r.responder.return_value = SimpleNamespace(sent=delivery) if delivery is not None else None
+    try:
+        r.now[0] = 60
+        await r.scheduler.tick()
+        while analytics.queue:
+            await analytics.flush()
+        values = {row["metric"]: row["value"] for row in (await analytics.snapshot("200"))["rows"]}
+        assert values == {"announcement.attempts": 1, "announcement." + terminal: 1}
+    finally:
+        r.twitch.analytics = None
+        await analytics.close()
     # A fresh scheduler loads configuration only, no deadlines/delivery/activity.
     restarted = AnnouncementScheduler(AnnouncementStore(r.store._path), r.twitch, SimpleNamespace(), r.state,
                                       clock=lambda: r.now[0])

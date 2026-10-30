@@ -29,6 +29,40 @@ async def turns():
         await asyncio.sleep(0)
 
 
+async def test_aggregate_ingress_replays_unknown_commands_and_activity(sandbox, tmp_path):
+    from app.analytics import Analytics
+    analytics = Analytics(tmp_path / "synthetic.analytics.sqlite3")
+    await analytics.start()
+    s = sandbox
+    s.services.analytics = analytics
+    s.twitch.analytics = analytics
+    try:
+        await s.ingress("!ping", "known", uid="300")
+        await s.ingress("!ping", "known", uid="300")
+        await s.ingress("!elo otherbot", "unknown", uid="301")
+        await s.ingress("ordinary private text", "chat", uid="302")
+        @s.dispatcher._registry.command("ask", requires_ai=True)
+        async def ask(context, _):
+            raise AssertionError("Protected input must not execute")
+        s.state.configure_commands(s.dispatcher._registry.definitions())
+        from app.services.ai_request_policy import PolicyDecision
+        s.services.ai_request_policy = NS(check=lambda _: PolicyDecision.IGNORE)
+        await s.ingress("!ask ignored", "protected", uid="303")
+        while analytics.queue:
+            await analytics.flush()
+        result = (await analytics.snapshot("200"))["rows"]
+        counts = {}
+        for row in result:
+            counts[row["metric"]] = counts.get(row["metric"], 0) + row["value"]
+        assert counts["command.attempts"] == 2
+        assert counts["command.starts"] == counts["command.success"] == counts["command.skipped"] == 1
+        assert counts["activity.observed"] == 3
+        assert "private" not in str(result)
+    finally:
+        s.twitch.analytics = None
+        await analytics.close()
+
+
 class Sandbox:
     def __init__(self, path, monkeypatch):
         self.now = asyncio.get_running_loop().time()

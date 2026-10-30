@@ -10,6 +10,7 @@ from app.command_settings import validate_burst_interval, validate_burst_max_cou
 from app.twitch.message_correlation import send_error_outcome
 from app.utils.logging import operator_event, operator_event_scope, send_outcome
 from app.utils.output_limiter import OutputLimiter
+from app.commands.outcomes import plan_sends, send_started, send_finished, skip_outcome
 
 
 class ChatSessionClosedError(RuntimeError):
@@ -62,6 +63,7 @@ class ChatSender:
         self._output_limiter = output_limiter
         self._session = session
         self._context = context
+        self.last_outcome: str | None = None
 
     async def _run(self, operation: Callable[[], Awaitable]):
         with operator_event_scope(**self._context) if self._context is not None else nullcontext():
@@ -70,8 +72,12 @@ class ChatSender:
             return await self._session.run(operation)
 
     async def reply(self, content: str) -> bool:
+        self.last_outcome = None
+        plan_sends(1)
         async def send() -> bool:
             if self._output_limiter is not None and not self._output_limiter.try_acquire():
+                self.last_outcome = "limiter_skip"
+                skip_outcome("output_limiter")
                 operator_event(self._logger, "chat.outgoing", "limiter_skip", response_id=uuid4().hex)
                 return False
             result = await self._send_response(content)
@@ -81,23 +87,30 @@ class ChatSender:
 
     async def _send_response(self, content: str) -> object:
         with operator_event_scope(response_id=uuid4().hex):
+            send_started()
             operator_event(self._logger, "chat.send", "attempt")
             try:
                 result = await self._responder(content)
             except BaseException as error:
+                self.last_outcome = send_error_outcome(error)
+                send_finished(send_error_outcome(error))
                 operator_event(self._logger, "chat.outgoing", send_error_outcome(error), text=content,
                                error_type=type(error).__name__, stage="transport_send")
                 raise
             message_id = getattr(result, "id", None)
+            self.last_outcome = send_outcome(result)
+            send_finished(send_outcome(result))
             operator_event(self._logger, "chat.outgoing", send_outcome(result),
                            message_id=message_id if isinstance(message_id, str) else None, text=content)
             return result
 
     async def reply_burst(self, content: str, count: int, interval_ms: int, maximum: int) -> list[object]:
+        self.last_outcome = None
         maximum = validate_burst_max_count(maximum)
         if type(count) is not int or not 1 <= count <= maximum:
             raise ValueError(f"Burst repeat count must be an integer from 1 to {maximum}.")
         interval = validate_burst_interval(interval_ms)
+        plan_sends(count)
 
         async def batch() -> list[object]:
             async def send(index: int) -> object:
