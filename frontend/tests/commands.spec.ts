@@ -102,7 +102,9 @@ test('command restriction removal cannot be undone by a late list response', asy
   await panel.getByRole('button', { name: 'Save restriction' }).click()
   await expect(panel.getByText('sampleviewer', { exact: true })).toBeVisible()
   await page.evaluate(async () => {
-    const api = Reflect.get(window, 'pywebview').api
+    const bridge = Reflect.get(window, 'pywebview')
+    if (!bridge) throw new Error('Synthetic command bridge is unavailable.')
+    const api = bridge.api
     const previous = await api.get_command_restrictions()
     api.get_command_restrictions = () => new Promise((resolve) => Reflect.set(window, 'resolveStaleRestrictions', () => resolve(previous)))
   })
