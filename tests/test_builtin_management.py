@@ -449,7 +449,7 @@ def test_startup_conflict_keeps_existing_custom_command_and_recovers_original_ov
     restarted_custom.save({**command.to_json(), "enabled": False})
 
 
-@pytest.mark.parametrize("name,permission", [("tg", "USER"), ("tg", "VIP"), ("erase", "MODERATOR")])
+@pytest.mark.parametrize("name,permission", [("tg", "USER"), ("tg", "VIP"), ("erase", "USER"), ("erase", "SUBSCRIBER"), ("erase", "VIP")])
 def test_privileged_permissions_rejected_at_editor_and_clamped_on_restart(tmp_path, name, permission):
     registry, state, _, _, bridge, _, _ = setup_commands(tmp_path)
     assert bridge.save_command_settings(name, True, 0, 0, permission)["ok"] is False
@@ -458,6 +458,25 @@ def test_privileged_permissions_rejected_at_editor_and_clamped_on_restart(tmp_pa
     restarted = setup_commands(tmp_path)
     assert restarted[1].get_command_settings(name).permission == registry.get(name).minimum_permission
     assert state.get_command_settings(name).permission >= registry.get(name).minimum_permission
+
+
+async def test_erase_moderator_setting_keeps_default_reset_hidden_and_channel_scope(tmp_path):
+    registry, state, _, _, bridge, dispatcher, services = setup_commands(tmp_path)
+    assert registry.get("erase").minimum_permission == Permission.MODERATOR
+    assert state.get_command_settings("erase").permission == Permission.BROADCASTER
+    services.memory = SimpleNamespace(erase_for_user=AsyncMock())
+    respond = AsyncMock()
+    assert bridge.save_command_settings("erase", True, 0, 0, "MODERATOR")["ok"]
+    assert setup_commands(tmp_path)[1].get_command_settings("erase").permission == Permission.MODERATOR
+    await dispatcher.dispatch(chat("!erase @target", respond, is_moderator=True), services)
+    services.memory.erase_for_user.assert_awaited_once_with("target-id", channel_id="100")
+    services.users.get_by_username.assert_awaited_once_with("target", channel_id="100")
+    assert not any(entry.startswith("!erase") for entry in registry.help_entries(state))
+    bridge.reset_command_settings("erase")
+    assert state.get_command_settings("erase").permission == Permission.BROADCASTER
+    bridge.save_command_settings("erase", True, 0, 0, "MODERATOR")
+    bridge.reset_all_builtin_commands()
+    assert state.get_command_settings("erase").permission == Permission.BROADCASTER
 
 
 @pytest.mark.parametrize("name", ["ask", "erase"])

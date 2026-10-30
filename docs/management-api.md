@@ -408,11 +408,14 @@ POST writes persist and apply immediately unless stated otherwise.
 | POST `filters/save` | `payload` object containing `words`, `phrases`, `patterns` lists |
 | POST `filters/apply` | Same as filters Save, session-only |
 | POST `filters/test` | `text`, `source` (`active` or `draft`), `payload` (`null` for active; filter object for draft) |
-| GET `blocked-users` | AI-blocked usernames and whether a verified ID is recorded |
-| POST `blocked-users/block`, `blocked-users/unblock` | `username` |
+| GET `blocked-users` | Compatibility view of migrated legacy AI rules; manage all access rules through `command-restrictions` |
+| POST `blocked-users/block`, `blocked-users/unblock` | Legacy `username` compatibility operations; creation migrates into visible channel AI restrictions |
 | GET `command-restrictions` | Private authenticated list, configured numeric `channel_id`, and current stable command IDs/labels |
-| POST `command-restrictions/save` | `data`: `username`, `command_ids` (empty means all), `expires_at` (UTC-offset ISO date or null), `note`; optional `id` edits an existing rule while preserving account/channel identity |
+| POST `command-restrictions/save` | `data`: `username`, `command_ids` (empty means all), `expires_at` (UTC-offset ISO date or null), `note`; optional `scope` (`channel` default or `global_ai`, which requires exactly `["ask"]`), optional `id` edits while preserving identity/scope; unresolved legacy edits retry verification |
 | POST `command-restrictions/remove` | `restriction_id`; immediate removal, with other rules/global AI blocks still effective |
+| POST `privacy/opt-outs/list` | Optional `query` (stored username, up to 100 characters), `offset` (nonnegative integer), `limit` (1-100, default 50). Returns bounded `users`, `total`, `offset`, `limit`; each user has internal `twitch_user_id`, nullable stored `username` and nullable UTC `opted_out_at`. |
+| POST `privacy/opt-outs/add` | `username`; verifies identity and applies profile-wide deletion/suppression using the self-service operation. Repeated adds preserve the original timestamp. |
+| POST `privacy/opt-outs/withdraw` | `twitch_user_id`, `confirmed: true`; allows future storage without restoring history or permitting old in-flight work to save. |
 | GET / POST `triggers` | GET: ordinary-message reactions. POST: complete `triggers` list, at most 100 unique IDs |
 | POST `logs/recent` | Optional integer `after_id` (default 0), `limit` (1–200, default 100); allowlisted operator activity plus `next_after_id` advancing across excluded entries; authentication required |
 | GET `diagnostics` | Process uptime, desired session state and settings/restart boundaries |

@@ -99,7 +99,7 @@ def register_ai_commands(registry: CommandRegistry) -> None:
     @registry.command(
         "erase",
         required_permission=Permission.BROADCASTER,
-        minimum_permission=Permission.BROADCASTER,
+        minimum_permission=Permission.MODERATOR,
         hidden=True,
     )
     async def erase_memory(context, arguments: str) -> None:

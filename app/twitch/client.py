@@ -6,7 +6,7 @@ import json
 import os
 import secrets
 import tempfile
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from collections.abc import Callable
 import hashlib
@@ -169,43 +169,45 @@ async def process_twitch_message(
         logger.exception("Could not map incoming Twitch chat message")
         return
 
-    prefix = getattr(getattr(services, "settings", None), "command_prefix", "!")
-    parsed = parse_command(incoming.content, prefix)
-    if parsed is not None and parsed[0] == PRIVACY_COMMAND:
-        # Replay reservation and echo correlation have already run. No personal
-        # scope, command diagnostics, filters, block rules or cooldowns precede this.
-        with privacy_log_scope(True):
-            try:
-                await services.users.opt_out(incoming.author.twitch_user_id)
-                await CommandContext(incoming, services, logger).reply("Local data storage disabled. Fresh AI requests still reach the provider.")
-            except Exception as error:
-                logger.error("Privacy request failed: %s", type(error).__name__)
-                await CommandContext(incoming, services, logger).reply("Privacy request could not complete. Contact the bot operator.")
-        return
+    storage_scope = getattr(services.users, "storage_scope", None)
+    with storage_scope(incoming.author.twitch_user_id) if storage_scope else nullcontext():
+        prefix = getattr(getattr(services, "settings", None), "command_prefix", "!")
+        parsed = parse_command(incoming.content, prefix)
+        if parsed is not None and parsed[0] == PRIVACY_COMMAND:
+            # Replay reservation and echo correlation have already run. No personal
+            # scope, command diagnostics, filters, block rules or cooldowns precede this.
+            with privacy_log_scope(True):
+                try:
+                    await services.users.opt_out(incoming.author.twitch_user_id, username=incoming.author.username)
+                    await CommandContext(incoming, services, logger).reply("Local data storage disabled. Fresh AI requests still reach the provider.")
+                except Exception as error:
+                    logger.error("Privacy request failed: %s", type(error).__name__)
+                    await CommandContext(incoming, services, logger).reply("Privacy request could not complete. Contact the bot operator.")
+            return
 
-    opted_out = False
-    privacy_check = getattr(services.users, "is_storage_opted_out", None)
-    if privacy_check is not None:
-        try:
-            opted_out = await privacy_check(incoming.author.twitch_user_id)
-        except Exception as error:
-            # Keep commands working, but fail closed for personal diagnostics.
-            opted_out = True
-            logger.error("Could not check storage opt-out: %s", type(error).__name__)
-    def suppress_logs():
-        return opted_out or getattr(services.users, "logs_suppressed", lambda _: False)(incoming.author.twitch_user_id)
-    with privacy_log_scope(suppress_logs):
-        try:
-            scope = getattr(dispatcher, "event_scope", None)
-            with (scope(incoming) if scope else operator_event_scope(
-                    channel=incoming.channel, username=incoming.author.username,
-                    input_message_id=incoming.message_id)):
-                await _process_incoming_message(incoming, services, dispatcher, logger)
-        except Exception:
-            if not suppress_logs():
-                raise
-            # An outer transport exception logger must not expose private input.
-            logger.error("Unexpected opted-out chat processing failure")
+        opted_out = False
+        privacy_check = getattr(services.users, "is_storage_opted_out", None)
+        if privacy_check is not None:
+            try:
+                opted_out = await privacy_check(incoming.author.twitch_user_id)
+            except Exception as error:
+                # Keep commands working, but fail closed for personal diagnostics.
+                opted_out = True
+                logger.error("Could not check storage opt-out: %s", type(error).__name__)
+        def suppress_logs():
+            return opted_out or getattr(services.users, "logs_suppressed", lambda _: False)(incoming.author.twitch_user_id)
+        with privacy_log_scope(suppress_logs):
+            try:
+                scope = getattr(dispatcher, "event_scope", None)
+                with (scope(incoming) if scope else operator_event_scope(
+                        channel=incoming.channel, username=incoming.author.username,
+                        input_message_id=incoming.message_id)):
+                    await _process_incoming_message(incoming, services, dispatcher, logger)
+            except Exception:
+                if not suppress_logs():
+                    raise
+                # An outer transport exception logger must not expose private input.
+                logger.error("Unexpected opted-out chat processing failure")
 
 
 async def _process_incoming_message(

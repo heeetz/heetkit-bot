@@ -105,6 +105,14 @@ class ApplicationManagement:
         settings.ai_context_max_entries = context
 
     def get_blocked_ai_users(self) -> dict[str, object]:
+        services = self._backend.application.services
+        if getattr(services, "command_restrictions", None) is not None:
+            result = self.get_command_restrictions()
+            if not result["ok"]:
+                return result
+            return {"ok": True, "users": [{"username": row["username"],
+                "has_user_id": row["twitch_user_id"] is not None}
+                for row in result["restrictions"] if row["legacy_ai"]]}
         store = self._backend.application.services.ai_user_blocks
         return {"ok": True, "users": [
             {"username": user.username, "has_user_id": user.twitch_user_id is not None}
@@ -124,10 +132,13 @@ class ApplicationManagement:
     def get_command_restrictions(self) -> dict[str, object]:
         try:
             services = self._backend.application.services
+            if getattr(services, "ai_user_blocks", None) is not None:
+                services.command_restrictions.migrate_ai_blocks(services.ai_user_blocks, services.settings.twitch_channel_user_id)
             return {"ok": True,
                 "channel_id": verified_user_id(services.settings.twitch_channel_user_id),
                 "commands": self._restriction_commands(),
-                "restrictions": [{**asdict(rule), "command_ids": list(rule.command_ids)}
+                "restrictions": [{**asdict(rule), "command_ids": list(rule.command_ids),
+                                  "identity_state": "verified" if rule.twitch_user_id else "unresolved"}
                                  for rule in services.command_restrictions.list()]}
         except (OSError, ValueError):
             return {"ok": False, "error": "Could not load private restrictions. Check the profile policy file."}
@@ -135,29 +146,31 @@ class ApplicationManagement:
     async def _save_command_restriction(self, data: object) -> dict[str, object]:
         try:
             fields = {"username", "command_ids", "expires_at", "note"}
-            if not isinstance(data, dict) or set(data) not in (fields, fields | {"id"}):
+            if not isinstance(data, dict) or not fields <= set(data) or set(data) - fields - {"id", "scope"}:
                 raise ValueError("Unexpected or missing restriction fields.")
             username = normalize_ai_username(data["username"])
             services = self._backend.application.services
             channel_id = verified_user_id(services.settings.twitch_channel_user_id)
             store = services.command_restrictions
+            scope = data.get("scope", "channel")
+            if scope not in ("channel", "global_ai"):
+                raise ValueError("Select channel scope or global AI questions scope.")
             if "id" in data:
                 old = store.get(data["id"])
                 channel_id, user_id = old.channel_id, old.twitch_user_id
+                scope = data.get("scope", old.scope)
+                if old.twitch_user_id is None:
+                    user_id = await self._resolve_management_user(username, channel_id)
             else:
-                if channel_id is None:
+                if channel_id is None and scope == "channel":
                     raise ValueError("Configure a verified numeric Twitch channel ID before adding restrictions.")
-                user_id = None
-                if services.twitch is not None:
-                    user_id = verified_user_id(await services.twitch.resolve_user_id(username))
-                if user_id is None:
-                    observed = await services.users.get_by_username(username, channel_id=channel_id)
-                    user_id = verified_user_id(getattr(observed, "twitch_user_id", None))
-                if user_id is None:
-                    raise ValueError("Could not resolve this login to a verified Twitch user ID. Connect Twitch or wait for this user to chat, then retry. No restriction was saved.")
-                if channel_id != services.settings.twitch_channel_user_id:
+                configured_channel = channel_id
+                user_id = await self._resolve_management_user(username, channel_id)
+                if configured_channel != verified_user_id(services.settings.twitch_channel_user_id):
                     raise ValueError("The configured channel changed during lookup. Refresh and retry.")
-            store.save({**data, "username": username}, channel_id=channel_id, user_id=user_id,
+                if scope == "global_ai":
+                    channel_id = None
+            store.save({**data, "username": username, "scope": scope}, channel_id=channel_id, user_id=user_id,
                        valid_command_ids={command["id"] for command in self._restriction_commands()})
         except ValueError as error:
             return {"ok": False, "error": str(error)}
@@ -165,6 +178,53 @@ class ApplicationManagement:
             self._logger.warning("Could not save command restriction error_type=%s", type(error).__name__)
             return {"ok": False, "error": "Could not save the private restriction. Check the profile storage and identity lookup, then retry."}
         return self.get_command_restrictions()
+
+    async def _resolve_management_user(self, username, channel_id):
+        services = self._backend.application.services
+        user_id = None
+        if services.twitch is not None:
+            user_id = verified_user_id(await services.twitch.resolve_user_id(username))
+        if user_id is None and channel_id is not None:
+            observed = await services.users.get_by_username(username, channel_id=channel_id)
+            user_id = verified_user_id(getattr(observed, "twitch_user_id", None))
+        if user_id is None:
+            raise ValueError("Could not resolve this login to a verified Twitch user ID. Connect Twitch or wait for this user to chat, then retry. No change was saved.")
+        return user_id
+
+    async def _get_opt_outs(self, query="", offset=0, limit=50) -> dict[str, object]:
+        try:
+            users, total = await self._backend.application.services.users.list_opt_outs(query, offset, limit)
+            return {"ok": True, "users": [{"twitch_user_id": row.twitch_user_id,
+                "username": row.username, "opted_out_at": row.opted_out_at.isoformat() if row.opted_out_at else None}
+                for row in users], "total": total, "offset": offset, "limit": limit}
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except Exception:
+            return {"ok": False, "error": "Could not load opt-outs. Check profile storage and retry."}
+
+    async def _add_opt_out(self, username: object) -> dict[str, object]:
+        try:
+            username = normalize_ai_username(username)
+            services = self._backend.application.services
+            channel = verified_user_id(services.settings.twitch_channel_user_id)
+            user_id = await self._resolve_management_user(username, channel)
+            await services.users.opt_out(user_id, username=username)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except Exception:
+            return {"ok": False, "error": "Opt-out could not complete. Refresh and retry; inspect private recovery copies before restoring."}
+        return await self._get_opt_outs()
+
+    async def _withdraw_opt_out(self, twitch_user_id: object, confirmed: object) -> dict[str, object]:
+        try:
+            if confirmed is not True or verified_user_id(twitch_user_id) is None:
+                raise ValueError("Confirm that future data storage becomes allowed for this verified Twitch account.")
+            await self._backend.application.services.users.withdraw_opt_out(twitch_user_id)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except Exception:
+            return {"ok": False, "error": "Withdrawal could not complete. Refresh and retry; inspect private recovery copies before restoring."}
+        return await self._get_opt_outs()
 
     def remove_command_restriction(self, restriction_id: object) -> dict[str, object]:
         try:
@@ -188,10 +248,22 @@ class ApplicationManagement:
             except Exception as error:
                 self._logger.warning("Could not look up observed AI block user error_type=%s", type(error).__name__)
         services.ai_user_blocks.block(username, user_id)
+        if getattr(services, "command_restrictions", None) is not None:
+            services.command_restrictions.migrate_ai_blocks(services.ai_user_blocks, services.settings.twitch_channel_user_id)
 
     def unblock_ai_user(self, username: object) -> dict[str, object]:
         try:
-            self._backend.application.services.ai_user_blocks.unblock(username)
+            username = normalize_ai_username(username)
+            services = self._backend.application.services
+            if getattr(services, "command_restrictions", None) is not None:
+                self.get_command_restrictions()
+                found = [rule for rule in services.command_restrictions.list() if rule.legacy_ai and rule.username == username]
+                if not found:
+                    raise ValueError("This Twitch user is not blocked.")
+                for rule in found:
+                    services.command_restrictions.remove(rule.id)
+            else:
+                services.ai_user_blocks.unblock(username)
         except ValueError as error:
             return {"ok": False, "error": str(error)}
         except OSError:

@@ -49,10 +49,11 @@ storage for your authenticated Twitch account. Extra text never selects another 
 The request runs before normal command restrictions, filters and cooldowns, and
 deletes your presence and AI history across all channels in that profile. It prevents
 future identifying writes, including pending AI results and renamed accounts.
-It retains only your Twitch ID as a suppression record until the
-verified viewer withdraws the opt-out or the operator retires the profile. It does
+It retains your Twitch ID plus available verified/stored username and the actual
+opt-out date (unknown for historical entries) as a suppression record until the
+operator confirms withdrawal or retires the profile. It does
 not disable chat commands, Twitch processing or fresh AI provider requests. Ask the
-operator to also use **AI → AI access** if you want your `!ask` requests ignored.
+operator to also use **Commands → User restrictions** if you want your `!ask` requests ignored.
 Opted-out requests are excluded from HeetKit's session log buffer and configured
 console handlers, including later diagnostics from requests already in progress;
 earlier logs need operator handling. Access blocks/notes and other safety configuration
@@ -124,12 +125,13 @@ use `data/heetkit.db`; Twitch authorization uses `auth/twitchio_tokens.json`.
   Windows relies on the private directory's inherited ACLs. This provides access
   control, not encryption at rest. Protect the host, volume and backups separately.
 - The local database contains channel IDs, Twitch user IDs, usernames, first/last-seen timestamps,
-  successful AI exchanges when memory is enabled, and minimal storage opt-out IDs.
+  successful AI exchanges when memory is enabled, and storage opt-out IDs with nullable
+  stored Twitch usernames and actual opt-out timestamps.
   `users`, `ai_memory_entries` and `privacy_opt_outs` are separate tables; the latter
   is profile-wide and exempt from age/count expiry. Schema/migration metadata records
   the database version, explicit legacy mapping and aggregate exclusion counts.
-- Blocked AI users are saved as normalized logins and, when available, verified
-  Twitch account IDs in this profile's `config/ai_user_blocks.json`.
+- Legacy `config/ai_user_blocks.json` entries move into private command restrictions.
+  The old active list is emptied only after the destination is durably saved.
 - Settings, personality prompts, profile instructions, custom replies, filters and
   recovery copies can contain private community information.
 - Desktop and authenticated Server Logs share an operator activity feed: command
@@ -209,13 +211,25 @@ cannot be overwritten through the browser. HeetKit does not load `.env` files. S
 
 ## Private command restrictions
 
-`config/command_restrictions.json` is a separate version-1 private policy store in the
+`config/command_restrictions.json` is a separate version-2 private policy store in the
 active profile. It stores numeric user/channel IDs, a creation-time login label, stable
 command IDs, absolute UTC expiry (or permanent), and an optional 200-character note.
-There is no SQLite schema change for this policy: installations on the legacy database
-still use the explicit, versioned channel-mapping upgrade described below.
+Version-1 rules load with channel scope and upgrade on the next save, preserving notes,
+expiry and identities. This policy remains separate from SQLite privacy suppression.
 
-Rules enforce access only within their saved channel/profile. Expired rules stop matching
+Rules enforce access within their saved channel/profile, except explicit global AI-only
+rules, which cover stable `ask` identity across profile channels. Legacy AI blocks migrate
+to permanent channel `ask` rules using deterministic IDs, making interrupted moves
+repeatable without duplicate rules or loss of existing notes. Username-only blocks remain
+explicit unresolved rows; login compatibility denies AI until verified through authenticated
+Twitch lookup/recent observation or matching authenticated chat identity. Once bound, only
+the numeric ID matches, protecting against login reuse. Missing configured channel is a
+visible pending state retaining old profile-wide AI protection until configuration permits
+binding. Operators can inspect, retry verification and remove these rows in User restrictions.
+Old portable archives' AI blocks merge through this migration during the existing import
+transaction; existing private rules are preserved. Consolidated rules are never exported.
+
+Expired rules stop matching
 at the expiry boundary even before physical cleanup. Startup, management reads and saved
 changes remove expired entries and their notes from the active file; removing a rule
 takes effect immediately after a successful save. No queued request is replayed.
@@ -275,7 +289,8 @@ downloads** opens the official release page in your browser; browser privacy set
 apply there. See [update checking](release-process.md#check-for-updates).
 
 Turning memory off stops using and saving exchanges for subsequent requests; existing
-exchanges remain until expiry or deletion. The broadcaster-only `!erase <username>` command deletes
+exchanges remain until expiry or deletion. The `!erase <username>` command (Broadcaster
+by default, configurable down to Moderator) deletes
 stored AI memory for a known user. It does not remove that user's activity record.
 See [commands](commands.md) and [AI setup](ai-setup.md).
 
@@ -416,7 +431,7 @@ Server to save the same versioned ZIP (Desktop opens a native Save dialog; the
 browser downloads it). It contains the currently applied
 built-in command settings and response pools, custom commands, personality prompts
 and selection, profile instructions, AI memory/model/language preferences, filters,
-AI account blocks, message triggers and saved ordinary-chat announcements. Applied session-only edits are included;
+message triggers and saved ordinary-chat announcements. Applied session-only edits are included;
 unfinished editor drafts are not. Import saves these values on the destination.
 
 Built-in settings include their primary chat names and aliases, keyed by stable
@@ -452,9 +467,10 @@ Provider/API keys, OAuth tokens, management credentials, SQLite history and stor
 opt-outs, machine paths, Twitch identity/channel/presets, headless operation mode,
 desktop startup/window preferences and operator cooldown-bypass policy are excluded and preserved on the
 destination. Set up authorization and secrets separately. Text you enter in prompts,
-commands or filters can still be private, and AI blocks include usernames/account
-IDs: review and protect the ZIP before sharing it. Personal command restrictions and
-their private notes are excluded and remain unchanged on the destination. This is portable configuration,
+commands or filters can still be private: review and protect the ZIP before sharing it.
+Legacy archives can include AI blocks with usernames/account IDs; these merge into
+the destination's private channel restrictions. New consolidated restrictions and
+their private notes are excluded; existing destination rules are preserved. This is portable configuration,
 not a full private profile backup or an account migration.
 
 AI transfer includes the selected provider and separate primary/fallback choices for
@@ -487,7 +503,16 @@ copies according to your retention/deletion policy; they are not automatically r
 ### Versioned database upgrade and recovery
 
 Desktop and Server run the same versioned SQLite upgrade before Twitch, requests or
-cleanup workers start. Fresh databases start at schema version 1. Existing unversioned
+cleanup workers start. Fresh databases start at schema version 2. Version 1 upgrades
+transactionally by adding nullable opt-out username/date metadata, without changing
+existing suppression IDs or inventing historical dates. A verified `schema-1.sqlite3`
+snapshot supports recovery under the same seven-day/privacy rules as schema 0.
+New chat/operator opt-outs store authenticated/resolved usernames and actual UTC dates;
+repeated requests preserve the original date, including unknown historical dates.
+The management list formats dates in the operator's local time and marks unavailable
+historical usernames honestly. Confirmed withdrawal permits only future storage;
+captured requests retain invalidated storage/log tickets after withdrawal.
+Existing unversioned
 presence/AI tables require an explicit mapping for their unscoped rows; the selected
 startup channel is never used as a guess. **Desktop** opens a one-time confirmation
 form only when recognized legacy history needs a mapping and the input file is absent.
@@ -525,7 +550,7 @@ This recovery copy has a **seven-day acceptance window**, fixed from creation an
 never extended by startup, use or a privacy request. Startup/hourly cleanup removes
 it at expiry (catch-up after downtime); do not restore/use an expired snapshot.
 The same cleanup also handles an expired verified snapshot when retrying an interrupted
-upgrade. Only the owned, manifest-verified `schema-0.sqlite3` and `schema-0.json` are
+upgrade. Only the owned, manifest-verified `schema-0`/`schema-1` SQLite/JSON pairs are
 removed; unrelated files and unverifiable copies are retained for operator review.
 `!optout` and the offline privacy tool scrub applicable personal rows in that copy;
 opt-out preserves suppression, deletion alone adds no suppression, and verified

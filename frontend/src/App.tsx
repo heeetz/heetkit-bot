@@ -37,9 +37,9 @@ type Section = (typeof sections)[number]
 const subsections: Partial<Record<Section, { label: string; targetId: string }[]>> = {
   Commands: [
     { label: 'Your commands', targetId: 'custom-commands' },
-    { label: 'User restrictions', targetId: 'command-restrictions' },
     { label: 'Announcements', targetId: 'announcements' },
     { label: 'Built-in commands', targetId: 'builtin-commands' },
+    { label: 'User restrictions', targetId: 'command-restrictions' },
     { label: 'Removed commands', targetId: 'removed-commands' },
     { label: 'Administrative commands', targetId: 'administrative-commands' },
     { label: 'Advanced: reset all built-ins', targetId: 'advanced-command-reset' },
@@ -58,7 +58,6 @@ const subsections: Partial<Record<Section, { label: string; targetId: string }[]
     { label: 'Profile instructions', targetId: 'ai-profile-instructions' },
     { label: 'Shared instructions', targetId: 'ai-shared-instructions' },
     { label: 'Response language', targetId: 'ai-language' },
-    { label: 'AI access', targetId: 'ai-blocked-users' },
   ],
   Settings: [
     { label: 'Desktop behavior', targetId: 'desktop-settings' },
@@ -774,7 +773,7 @@ function ManagementApp() {
           )}
           <div hidden={section !== 'Commands'}><CommandsPage active={section === 'Commands'} revealCommand={navigationTarget?.id === 'command-editor-ask' ? 'ask' : undefined} onAIEnabledChanged={synchronizeAIEnabled} /></div>
           <div hidden={section !== 'Filters'}><FiltersPage active={section === 'Filters'} /></div>
-          <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} onOpenPlayground={() => navigate('AI', 'ai-playground')} onOpenAsk={() => navigate('Commands', 'command-editor-ask')} onAIEnabledChanged={synchronizeAIEnabled} /></div>
+          <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} onOpenPlayground={() => navigate('AI', 'ai-playground')} onAIEnabledChanged={synchronizeAIEnabled} /></div>
           {section === 'Logs' && <LogsPage />}
           <div hidden={section !== 'Settings'}><SettingsPage active={section === 'Settings'} status={status} /></div>
           {section === 'About' && <AboutPage />}

@@ -73,7 +73,7 @@ def test_verified_adoption_preserves_fields_dates_scope_suppression_and_counts(t
     if scoped:
         assert users[1][1] == "222"
     assert read(path, "SELECT request_text, created_at FROM ai_memory_entries WHERE channel_id='512901888' ORDER BY id") == [("question-1", stamp(1)), ("question-2", stamp(2))]
-    assert read(path, "SELECT * FROM privacy_opt_outs") == [("999",)]
+    assert read(path, "SELECT * FROM privacy_opt_outs") == [("999", None, None)]
     assert read(path, "PRAGMA user_version") == [(migrations.SCHEMA_VERSION,)]
     folder, backup, manifest = migrations._recovery_paths(path)
     metadata = json.loads(manifest.read_text())

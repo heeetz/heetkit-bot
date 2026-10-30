@@ -180,7 +180,7 @@ validation and generation testing.
 ## Choose how the bot replies
 
 Open **AI**. AI setup comes first; existing State, Playground, Personality,
-Profile instructions, Shared instructions, Response language and AI access sections
+Profile instructions, Shared instructions and Response language sections
 remain available.
 Sidebar shortcuts scroll to each section. Collapsing editors retains their drafts;
 Enter/Space operates disclosure headers. State shows AI command/memory preferences,
@@ -229,8 +229,9 @@ model access or quota.
    on **Dashboard**, **AI** or **Commands** saves immediately and survives restarts;
    all three views stay synchronized. A save failure keeps the previous value and shows
    an error. Other drafts, permissions and cooldowns still need their own Save/Apply.
-   Permissions, cooldowns and filters still apply. Use **AI access** to open the existing
-   `!ask` editor in Commands when you need to change its permission or cooldowns.
+   Permissions, cooldowns and filters still apply. Open the existing `!ask` editor in
+   **Commands** when you need to change its permission or cooldowns. Manage individual
+   account access through **User restrictions** on that page.
 
 ## Test locally with AI Playground
 
@@ -272,37 +273,20 @@ subsequent requests. Full responses pass the output checks before the saved
 answer character limit is applied, using any global filter changes active when
 the response arrives. Existing profiles continue to use Gemini without migration.
 
-## Blocked AI users
+## AI question access
 
-Open **AI → AI access**. Enter a **Twitch username** and select
-**Block user**. An optional `@` and surrounding whitespace are accepted; names are
-case-insensitive. Empty, duplicate or invalid login names are rejected. Select
-**Unblock** beside an entry to restore access. Changes apply immediately, save for
-the selected profile and survive a restart; the user does not need to be online.
-Blocking and unblocking also work while the bot is stopped. If a change fails,
-feedback beside the form explains the next action; the entered username and previous
-list remain available. A timed-out block requests cancellation. Check **Logs** and
-reopen the AI page to refresh the saved list before retrying, since work that already
-finished saving may complete after the deadline.
+Manage per-account AI access in **Commands > User restrictions**. Select the current
+`!ask` command for channel scope, or choose **Block AI questions across all channels
+in this profile**. Stable command/account IDs preserve enforcement across aliases and
+renames. Rules combine; removing one does not override another active rule.
 
-The footer's **Edit !ask access and cooldowns** opens the command's existing settings.
-Use the help beside **AI access** for the distinction between AI blocking and Twitch bans.
-
-When available, HeetKit resolves the account ID through its existing Twitch connection
-or previously observed chatter records. Otherwise it keeps the normalized login and
-captures a verified account ID on the first matching blocked request. ID-based blocks
-follow the account after a rename and do not block another account merely using its
-old login or display name. An unresolved login remains a username fallback until
-a verified ID becomes available.
-
-Blocked `!ask` requests, including aliases, are silently ignored before AI cooldowns,
-conversation memory, Gemini calls or prompt-text logging. A minimal `ai_user_blocked`
-event may appear in Logs. Other commands and ordinary chat are unaffected, and the
-local **AI Playground** remains available to the owner. This list does not ban users
-from Twitch chat, delete Twitch messages or erase existing activity or AI memory. Use the
-broadcaster-only `!erase <username>` command to delete stored AI memory for a known user;
-it does not delete the user's activity record. AI blocking, Twitch moderation and data
-deletion are separate actions.
+The former AI Access list migrates to permanent channel `!ask` rules. Unresolved
+legacy names stay visible and removable with safe login compatibility until identity
+can be verified. See [User restrictions](commands.md#user-restrictions) for migration
+and scope details. Playground remains unchanged and independent of chat access rules.
+Access restrictions do not erase history or ban users on Twitch. Use `!erase` for
+channel AI-memory deletion, or Administrative commands' **!optout** card for profile-wide
+storage opt-out/deletion and confirmed withdrawal.
 
 ## Response language
 

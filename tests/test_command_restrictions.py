@@ -68,7 +68,7 @@ def test_persistence_expiry_boundaries_downtime_cleanup_and_profile_isolation(tm
     assert restarted.list() == ()
     assert NOTE not in path.read_text()
     assert not list(tmp_path.glob("*.recovery"))
-    assert json.loads(path.read_text()) == {"version": 1, "restrictions": []}
+    assert json.loads(path.read_text()) == {"version": 2, "restrictions": []}
 
 
 @pytest.mark.parametrize("changes", [
@@ -92,7 +92,7 @@ def test_reject_invalid_inputs_without_mutation(tmp_path, clock, changes):
     assert store._path.read_bytes() == original
 
 
-@pytest.mark.parametrize("payload", ["{", '{"version":2,"restrictions":[]}',
+@pytest.mark.parametrize("payload", ["{", '{"version":3,"restrictions":[]}',
     '{"version":true,"restrictions":[]}', '{"version":1,"restrictions":[{}]}',
     '{"version":1,"version":1,"restrictions":[]}', '{"version":1,"restrictions":[],"unknown":1}'])
 def test_invalid_policy_refuses_startup_without_overwrite_or_private_error(tmp_path, payload):
@@ -322,7 +322,7 @@ async def test_optout_precedes_all_rules_and_global_ai_block_still_wins(core):
         chatter=SimpleNamespace(id="123", name="viewer", subscriber=False, vip=False, moderator=False,
                                 broadcaster=False), respond=AsyncMock())
     await process_twitch_message(incoming, services, dispatcher, dispatcher._logger)
-    services.users.opt_out.assert_awaited_once_with("123")
+    services.users.opt_out.assert_awaited_once_with("123", username="viewer")
     incoming.respond.assert_awaited_once()
     assert buffer.recent() == []
     assert rules.list() == (rule,)

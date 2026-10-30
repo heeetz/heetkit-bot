@@ -6,11 +6,11 @@ import json
 import os
 import re
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import RLock
-from uuid import uuid4
+from uuid import uuid4, uuid5, NAMESPACE_URL
 
 from app.ai_user_blocks import normalize_ai_username, verified_user_id
 from app.settings_recovery import preserve_settings_recovery
@@ -41,12 +41,14 @@ def expiry(value: object) -> datetime | None:
 @dataclass(frozen=True, slots=True)
 class CommandRestriction:
     id: str
-    channel_id: str
-    twitch_user_id: str
+    channel_id: str | None
+    twitch_user_id: str | None
     username: str
     command_ids: tuple[str, ...]
     expires_at: str | None
     note: str
+    scope: str = "channel"
+    legacy_ai: bool = False
 
     def active(self, now: datetime) -> bool:
         end = expiry(self.expires_at)
@@ -55,17 +57,24 @@ class CommandRestriction:
 
 def parse_restriction(raw: object) -> CommandRestriction:
     fields = {"id", "channel_id", "twitch_user_id", "username", "command_ids", "expires_at", "note"}
-    if not isinstance(raw, dict) or set(raw) != fields:
+    if not isinstance(raw, dict) or not fields <= set(raw) or set(raw) - fields - {"scope", "legacy_ai"}:
         raise ValueError("Unexpected or missing restriction fields.")
+    scope, legacy = raw.get("scope", "channel"), raw.get("legacy_ai", False)
+    if scope not in ("channel", "global_ai") or type(legacy) is not bool:
+        raise ValueError("Select channel scope or global AI questions scope.")
     if not isinstance(raw["id"], str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,40}", raw["id"]):
         raise ValueError("Invalid restriction ID.")
-    if any(verified_user_id(raw[key]) is None for key in ("channel_id", "twitch_user_id")):
+    if (verified_user_id(raw["twitch_user_id"]) is None and not (legacy and raw["twitch_user_id"] is None)
+            or scope == "channel" and verified_user_id(raw["channel_id"]) is None and not (legacy and raw["channel_id"] is None)
+            or scope == "global_ai" and raw["channel_id"] is not None):
         raise ValueError("Restrictions require verified numeric user and channel IDs.")
     ids = raw["command_ids"]
     if (not isinstance(ids, (list, tuple)) or len(ids) > 200
             or any(not isinstance(key, str) or not re.fullmatch(r"(?:custom:)?[a-zA-Z0-9_-]{1,64}", key)
                    or key == "optout" for key in ids) or len(set(ids)) != len(ids)):
         raise ValueError("Select valid, distinct command IDs. The optout command cannot be restricted.")
+    if (scope == "global_ai" or legacy) and list(ids) != ["ask"]:
+        raise ValueError("Global AI scope and migrated AI blocks apply only to AI questions (!ask).")
     note = raw["note"]
     if not isinstance(note, str) or len(note) > 200 or any(ord(char) < 32 or ord(char) == 127 for char in note):
         raise ValueError("Private notes must be one line of at most 200 characters.")
@@ -75,7 +84,7 @@ def parse_restriction(raw: object) -> CommandRestriction:
         raise ValueError("Private notes must contain valid Unicode.") from None
     end = expiry(raw["expires_at"])
     return CommandRestriction(raw["id"], raw["channel_id"], raw["twitch_user_id"],
-        normalize_ai_username(raw["username"]), tuple(ids), end.isoformat() if end else None, note)
+        normalize_ai_username(raw["username"]), tuple(ids), end.isoformat() if end else None, note, scope, legacy)
 
 
 def _unique_object(pairs):
@@ -105,10 +114,12 @@ class CommandRestrictionStore:
                 raise ValueError
             payload = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object)
             if (not isinstance(payload, dict) or set(payload) != {"version", "restrictions"}
-                    or type(payload["version"]) is not int or payload["version"] != 1
+                    or type(payload["version"]) is not int or payload["version"] not in (1, 2)
                     or not isinstance(payload["restrictions"], list) or len(payload["restrictions"]) > MAX_RULES):
                 raise ValueError
             rules = tuple(parse_restriction(row) for row in payload["restrictions"])
+            if payload["version"] == 1 and any(set(row) & {"scope", "legacy_ai"} for row in payload["restrictions"]):
+                raise ValueError
             if len({rule.id for rule in rules}) != len(rules):
                 raise ValueError
             self._rules = rules
@@ -125,12 +136,21 @@ class CommandRestrictionStore:
                 self._save(active)
             return active
 
-    def match(self, channel_id: str, user_id: str, command_id: str) -> CommandRestriction | None:
+    def match(self, channel_id: str, user_id: str, command_id: str, username: str = "") -> CommandRestriction | None:
         with self._lock:
             now = utcnow()
-            matches = [rule for rule in self._rules if rule.channel_id == channel_id
-                and rule.twitch_user_id == user_id and (not rule.command_ids or command_id in rule.command_ids)
+            matches = [rule for rule in self._rules if (rule.scope == "global_ai" or rule.channel_id is None or rule.channel_id == channel_id)
+                and (rule.twitch_user_id == user_id or rule.twitch_user_id is None and rule.username == username.lower())
+                and (not rule.command_ids or command_id in rule.command_ids)
                 and rule.active(now)]
+            # Only authenticated chat identity can upgrade a legacy login fallback.
+            if verified_user_id(user_id) and any(rule.twitch_user_id is None for rule in matches):
+                updated = tuple(replace(rule, twitch_user_id=user_id) if rule in matches and rule.twitch_user_id is None else rule
+                                for rule in self._rules)
+                try:
+                    self._save(updated)
+                except (OSError, ValueError):
+                    pass  # Compatibility matching still denies this request.
             # Report the widest remaining lifetime, including overlapping rules.
             return max(matches, key=lambda rule: expiry(rule.expires_at) or datetime.max.replace(tzinfo=timezone.utc), default=None)
 
@@ -144,9 +164,13 @@ class CommandRestrictionStore:
     def save(self, data: dict, *, channel_id: str, user_id: str, valid_command_ids: set[str]) -> None:
         with self._lock:
             old = self.get(data["id"]) if "id" in data else None
-            rule = parse_restriction({**data, "id": old.id if old else uuid4().hex,
+            scope = data.get("scope", old.scope if old else "channel")
+            if old and scope != old.scope:
+                raise ValueError("Scope cannot be edited; remove the rule and add the intended scope.")
+            rule = parse_restriction({**data, "id": old.id if old else uuid4().hex, "scope": scope,
+                "legacy_ai": old.legacy_ai if old else False,
                 "channel_id": old.channel_id if old else channel_id,
-                "twitch_user_id": old.twitch_user_id if old else user_id})
+                "twitch_user_id": (old.twitch_user_id or user_id) if old else user_id})
             if old and rule.username != old.username:
                 raise ValueError("Account identity cannot be edited; remove the rule and resolve a new user.")
             if set(rule.command_ids) - valid_command_ids - (set(old.command_ids) if old else set()):
@@ -160,6 +184,31 @@ class CommandRestrictionStore:
                 raise ValueError("At most 1000 active restrictions are supported.")
             self._save((*active, rule))
 
+    def migrate_ai_blocks(self, blocks, channel_id):
+        """Durable destination first; deterministic IDs make interrupted moves repeatable."""
+        with self._lock:
+            users = blocks.list()
+            rules = self.migrated_ai_rules(users, channel_id)
+            if rules != self._rules:
+                self._save(rules)
+            for user in users:
+                blocks.unblock(user.username)
+
+    def migrated_ai_rules(self, users, channel_id):
+        with self._lock:
+            channel_id = verified_user_id(channel_id)
+            rules = tuple(replace(rule, channel_id=channel_id) if rule.legacy_ai and rule.channel_id is None
+                          and rule.scope == "channel" and channel_id else rule for rule in self._rules)
+            for user in users:
+                identity = "id:" + user.twitch_user_id if user.twitch_user_id else "login:" + user.username
+                identifier = uuid5(NAMESPACE_URL, "heetkit:legacy-ai:" + identity).hex
+                if not any(rule.id == identifier for rule in rules):
+                    rules = (*rules, CommandRestriction(identifier, channel_id, user.twitch_user_id,
+                        user.username, ("ask",), None, "", legacy_ai=True))
+            if len(rules) > MAX_RULES:
+                raise ValueError("Migrating AI blocks exceeds the private restriction limit; preserve and repair policy before starting.")
+            return rules
+
     def remove(self, identifier: object) -> None:
         with self._lock:
             self.get(identifier)
@@ -167,7 +216,7 @@ class CommandRestrictionStore:
 
     def _save(self, rules: tuple[CommandRestriction, ...]) -> None:
         def payload(rows):
-            return {"version": 1, "restrictions": [{**asdict(row), "command_ids": list(row.command_ids)} for row in rows]}
+            return {"version": 2, "restrictions": [{**asdict(row), "command_ids": list(row.command_ids)} for row in rows]}
         encoded = json.dumps(payload(rules), ensure_ascii=True, allow_nan=False, indent=2) + "\n"
         if len(encoded.encode("utf-8")) > MAX_FILE_BYTES:
             raise ValueError("Private restriction policy exceeds its storage limit.")
@@ -180,7 +229,15 @@ class CommandRestrictionStore:
                 output.write(encoded)
                 output.flush()
                 os.fsync(output.fileno())
-            preserve_settings_recovery(self._path, payload(self._rules), version=1)
+            recovered = payload(self._rules)
+            # Version 1 has no scope/legacy fields; represent the loaded source
+            # exactly during the non-lossy in-place version upgrade.
+            if self._path.exists():
+                original = json.loads(self._path.read_text(encoding="utf-8"))
+                if original.get("version") == 1:
+                    recovered = {"version": 1, "restrictions": [{key: value for key, value in row.items()
+                        if key not in {"scope", "legacy_ai"}} for row in recovered["restrictions"]]}
+            preserve_settings_recovery(self._path, recovered, version=(1, 2))
             temporary.replace(self._path)
             self._rules = rules
         finally:

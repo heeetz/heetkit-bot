@@ -227,14 +227,14 @@ async def test_self_optout_runs_once_after_replay_and_outgoing_echo_validation()
         request.id, request.chatter.id = "privacy-request", "123"
         await bot.event_message(request)
         await bot.event_message(request)
-        users.opt_out.assert_awaited_once_with("123")
+        users.opt_out.assert_awaited_once_with("123", username="viewer")
         echo = FakeTwitchMessage("!optout")
         echo.id, echo.chatter.id = "privacy-echo", settings.twitch_bot_user_id
         async def accepted(_):
             return SimpleNamespace(id="privacy-echo", sent=True)
         await services.twitch.chat_messages.send(settings.twitch_bot_user_id, "100", accepted, "!optout")
         await bot.event_message(echo)
-        users.opt_out.assert_awaited_once_with("123")
+        users.opt_out.assert_awaited_once_with("123", username="viewer")
         dispatcher.dispatch.assert_not_awaited()
     finally:
         await bot.close(save_tokens=False)

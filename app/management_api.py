@@ -185,6 +185,9 @@ READS = {
     "/v1/command-restrictions": "get_command_restrictions",
 }
 WRITES = {
+    "/v1/privacy/opt-outs/list": "_get_opt_outs",
+    "/v1/privacy/opt-outs/add": "_add_opt_out",
+    "/v1/privacy/opt-outs/withdraw": "_withdraw_opt_out",
     "/v1/configuration/export": "export_configuration",
     "/v1/configuration/preview": "preview_configuration_import",
     "/v1/configuration/import": "apply_configuration_import",
@@ -553,7 +556,7 @@ class ManagementAPI:
             # Domain validators remain authoritative; never echo their exception
             # text (some legacy validators interpolate supplied values).
             if result.get("ok") is False:
-                if path in {"/v1/ai/setup", "/v1/command-restrictions",
+                if path.startswith("/v1/privacy/opt-outs/") or path in {"/v1/ai/setup", "/v1/command-restrictions",
                             "/v1/command-restrictions/save", "/v1/command-restrictions/remove"}:
                     return result
                 return {"ok": False, "error": "Operation rejected; check input, profile storage and current state."}

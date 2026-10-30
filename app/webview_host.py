@@ -110,6 +110,7 @@ FRONTEND_OPERATIONS = (
     "get_setup_guide", "save_setup_guide",
     "get_blocked_ai_users", "block_ai_user", "unblock_ai_user",
     "get_command_restrictions", "save_command_restriction", "remove_command_restriction",
+    "get_opt_outs", "add_opt_out", "withdraw_opt_out",
     "get_ai_language_settings", "update_ai_language_settings",
     "replace_credential", "remove_credential", "test_credential", "start_bot", "stop_bot",
     "open_external_link",
@@ -596,6 +597,22 @@ class WebUIBridge(ApplicationManagement):
             return {"ok": False, "error": "Saving the restriction timed out or was cancelled. Refresh the list before retrying."}
         except (ValueError, OSError, RuntimeError):
             return {"ok": False, "error": "Could not save the private restriction. Check the profile policy file."}
+
+    def _privacy_operation(self, operation, *args):
+        try:
+            return self._wait_for_backend(operation(*args), operation="privacy_management",
+                                          timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS)
+        except (BridgeOperationTimedOut, FutureCancelledError, ValueError, OSError, RuntimeError):
+            return {"ok": False, "error": "Privacy management could not complete. Refresh the list before retrying."}
+
+    def get_opt_outs(self, query="", offset=0, limit=50):
+        return self._privacy_operation(self._get_opt_outs, query, offset, limit)
+
+    def add_opt_out(self, username):
+        return self._privacy_operation(self._add_opt_out, username)
+
+    def withdraw_opt_out(self, twitch_user_id, confirmed):
+        return self._privacy_operation(self._withdraw_opt_out, twitch_user_id, confirmed)
 
 
     def get_profile_info(self) -> dict[str, str]:

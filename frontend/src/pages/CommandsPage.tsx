@@ -19,6 +19,7 @@ import AccordionHeader from '../components/AccordionHeader'
 import HelpTip from '../components/HelpTip'
 import AnnouncementsPanel from '../components/AnnouncementsPanel'
 import CommandRestrictions from '../components/CommandRestrictions'
+import OptOutManagement from '../components/OptOutManagement'
 
 interface CommandDraft {
   primaryName: string
@@ -219,7 +220,7 @@ function canEditIdentity(command: CommandInfo): boolean {
 }
 
 function commandPermissions(data: CommandsResponse, command: CommandInfo): string[] {
-  const minimum = command.minimum_permission ?? (command.name === 'tg' ? 'MODERATOR' : command.name === 'erase' ? 'BROADCASTER' : 'USER')
+  const minimum = command.minimum_permission ?? (command.name === 'tg' ? 'MODERATOR' : command.name === 'erase' ? 'MODERATOR' : 'USER')
   const levels = ['USER', 'SUBSCRIBER', 'VIP', 'MODERATOR', 'BROADCASTER']
   return data.permissions.filter((permission) => levels.indexOf(permission) >= levels.indexOf(minimum))
 }
@@ -259,7 +260,10 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     const sidebar = editor?.closest('.app-shell')?.querySelector('.sidebar')
     editor?.closest('main')?.style.setProperty('--sidebar-height', `${sidebar?.getBoundingClientRect().height ?? 0}px`)
     editor?.scrollIntoView({ block: 'start', inline: 'nearest' })
-    editor?.querySelector<HTMLElement>('input:not([type="checkbox"]):not(:disabled), [role="combobox"]:not(:disabled), textarea:not(:disabled)')?.focus({ preventScroll: true })
+    const initialField = editor?.classList.contains('command-card')
+      ? editor.querySelector<HTMLElement>('.command-fields [role="combobox"]:not(:disabled)')
+      : editor?.querySelector<HTMLElement>('input:not([type="checkbox"]):not(:disabled), [role="combobox"]:not(:disabled), textarea:not(:disabled)')
+    initialField?.focus({ preventScroll: true })
   }, [active, focusTarget])
 
   useEffect(() => {
@@ -730,8 +734,40 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     const expanded = Boolean(expandedCommands[command.name])
     const busy = busyCommand !== ''
     const detailsId = `command-details-${command.name}`
+    const compact = !isBrowserMode() || command.name === 'erase'
+    const aliasField = canEditIdentity(command) && <div className="form-field command-aliases">
+      <div className="custom-field-label"><label htmlFor={`aliases-${command.name}`}>Aliases, separated by commas</label>{compact && <HelpTip label="Built-in aliases">Optional alternate chat names, without {data.command_prefix}. For example question, q. Aliases keep this command's identity and access rules.</HelpTip>}</div>
+      <input id={`aliases-${command.name}`} disabled={busy} value={draft.aliases} onChange={(event) => updateDraft(command.name, { aliases: event.target.value })} placeholder={compact ? 'e.g. question, q' : 'Optional alternate commands'} />
+    </div>
+    const displayField = canEditIdentity(command) && <div className="form-field command-display-label">
+      <div className="custom-field-label"><label htmlFor={`display-name-${command.name}`}>Name in UI</label>{compact && <HelpTip label="Name in UI">Optional display label; public help uses the primary chat name.</HelpTip>}</div>
+      <input id={`display-name-${command.name}`} disabled={busy} value={draft.displayName} maxLength={80} onChange={(event) => updateDraft(command.name, { displayName: event.target.value })} placeholder={compact ? 'e.g. AI questions' : 'Optional label'} />
+      {!compact && <span className="custom-field-hint">Optional display label; public help uses the primary chat name.</span>}
+    </div>
+    const identityFields = <div className="command-identity-fields">
+      <div className="form-field">
+        <div className="custom-field-label"><label htmlFor={`primary-name-${command.name}`}>Primary chat name</label><HelpTip label="Primary chat name">Use one word of up to 40 characters, without {data.command_prefix}. Renaming keeps this command’s behavior, permission and cooldowns. The old name stops working unless kept as an alias. Reset settings restores the factory name. Factory names remain reserved for restoration.</HelpTip></div>
+        <input id={`primary-name-${command.name}`} disabled={busy} value={draft.primaryName} maxLength={40} onChange={(event) => updateDraft(command.name, { primaryName: event.target.value })} />
+      </div>
+      {compact ? <>{displayField}{aliasField}</> : <>{aliasField}{displayField}</>}
+    </div>
+    const settingsFields = <div className="command-fields">
+      <div className="form-field">
+        <div className="custom-field-label"><label htmlFor={`permission-${command.name}`}>Permission</label>{compact && <HelpTip label="Built-in permission">Minimum chat role allowed to invoke this command. {command.minimum_permission && command.minimum_permission !== 'USER' ? `Minimum permission: ${command.minimum_permission.toLowerCase()}.` : ''}</HelpTip>}</div>
+        <Select id={`permission-${command.name}`} disabled={busy} value={draft.permission} onChange={(value) => updateDraft(command.name, { permission: value })} options={commandPermissions(data, command).map((permission) => ({ value: permission, label: permission.toLowerCase() }))} />
+      </div>
+      {isBrowserMode() && <label>Stream availability<Select value={draft.streamAvailability} aria-label="Stream availability" disabled={busy} onChange={(value) => updateDraft(command.name, { streamAvailability: value as StreamAvailability })} options={streamAvailabilityOptions} /></label>}
+      <div className="form-field">
+        <div className="custom-field-label"><label htmlFor={`per-user-${command.name}`}>Per-user cooldown</label>{compact && <HelpTip label="Built-in per-user cooldown">Seconds before the same viewer can use this command again. Zero disables this cooldown.</HelpTip>}</div>
+        <span className="number-with-unit"><input id={`per-user-${command.name}`} disabled={busy} className={perUserValid ? '' : 'invalid'} type="number" min="0" step="0.5" value={draft.perUserSeconds} onChange={(event) => updateDraft(command.name, { perUserSeconds: event.target.value })} /><span>sec</span></span>
+      </div>
+      <div className="form-field">
+        <div className="custom-field-label"><label htmlFor={`global-${command.name}`}>Global cooldown</label>{compact && <HelpTip label="Built-in global cooldown">Seconds between invocations by any viewers. Zero disables this cooldown.</HelpTip>}</div>
+        <span className="number-with-unit"><input id={`global-${command.name}`} disabled={busy} className={globalValid ? '' : 'invalid'} type="number" min="0" step="0.5" value={draft.globalSeconds} onChange={(event) => updateDraft(command.name, { globalSeconds: event.target.value })} /><span>sec</span></span>
+      </div>
+    </div>
     return (
-      <article className={`command-card ${dirty ? 'dirty' : ''}`} key={command.name} id={`command-editor-${command.name}`}>
+      <article className={`command-card ${compact ? 'command-compact' : ''} ${dirty ? 'dirty' : ''}`} key={command.name} id={`command-editor-${command.name}`}>
         <AccordionHeader
           title={(<span className="command-summary-title">
               <strong>{data.command_prefix}{primaryName}</strong>
@@ -752,7 +788,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
               <span>Cooldown: {draft.perUserSeconds}s / {draft.globalSeconds}s</span>
               {command.aliases.length > 0 && <span>Aliases: {command.aliases.map((alias) => `${data.command_prefix}${alias}`).join(', ')}</span>}
             </span>)}
-          help={command.help_text || 'Permission is the minimum chat role. Per-user cooldown limits one viewer; global cooldown limits all viewers.'}
+          help={compact ? <>{command.help_text || 'Permission is the minimum chat role. Per-user cooldown limits one viewer; global cooldown limits all viewers.'}{!responsePool && <p>This command uses its built-in behavior; no response type or text template is selectable.</p>}{command.name === 'ask' && <p>Enabled state is saved immediately and shared with Dashboard and AI. Save applies only your other settings edits.</p>}</> : command.help_text || 'Permission is the minimum chat role. Per-user cooldown limits one viewer; global cooldown limits all viewers.'}
           helpLabel={`${data.command_prefix}${primaryName}`}
           expanded={expanded} contentId={detailsId}
           ariaLabel={`${expanded ? 'Collapse' : 'Edit'} ${data.command_prefix}${primaryName}`}
@@ -772,71 +808,25 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           >
             <span>{draft.enabled ? 'Enabled' : 'Disabled'}</span>
           </Switch>
-          <div className="command-fields">
-            <label>
-              Permission
-              <Select
-                disabled={Boolean(busy)}
-                value={draft.permission}
-                onChange={(value) => updateDraft(command.name, { permission: value })}
-                options={commandPermissions(data, command).map((permission) => ({ value: permission, label: permission.toLowerCase() }))}
-              />
-            </label>
-            {isBrowserMode() && <label>
-              Stream availability
-              <Select
-                value={draft.streamAvailability}
-                aria-label="Stream availability"
-                disabled={Boolean(busy)}
-                onChange={(value) => updateDraft(command.name, { streamAvailability: value as StreamAvailability })}
-                options={streamAvailabilityOptions}
-              />
-            </label>}
-            <label>
-              Per-user cooldown
-              <span className="number-with-unit">
-                <input disabled={busy} className={perUserValid ? '' : 'invalid'} type="number" min="0" step="0.5" value={draft.perUserSeconds} onChange={(event) => updateDraft(command.name, { perUserSeconds: event.target.value })} />
-                <span>sec</span>
-              </span>
-            </label>
-            <label>
-              Global cooldown
-              <span className="number-with-unit">
-                <input disabled={busy} className={globalValid ? '' : 'invalid'} type="number" min="0" step="0.5" value={draft.globalSeconds} onChange={(event) => updateDraft(command.name, { globalSeconds: event.target.value })} />
-                <span>sec</span>
-              </span>
-            </label>
-          </div>
-          {command.name === 'ask' && <p className="setting-effect">Enabled state is saved immediately and shared with Dashboard and AI. Save applies only your other settings edits.</p>}
-          <div className="command-identity-fields">
-            <div className="form-field">
-              <div className="custom-field-label"><label htmlFor={`primary-name-${command.name}`}>Primary chat name</label><HelpTip label="Primary chat name">Use one word of up to 40 characters, without {data.command_prefix}. Renaming keeps this command’s behavior, permission and cooldowns. The old name stops working unless kept as an alias. Reset settings restores the factory name. Factory names remain reserved for restoration.</HelpTip></div>
-              <input id={`primary-name-${command.name}`} disabled={busy} value={draft.primaryName} maxLength={40} onChange={(event) => updateDraft(command.name, { primaryName: event.target.value })} />
-            </div>
-            {canEditIdentity(command) && <label className="form-field">Aliases, separated by commas
-              <input disabled={busy} value={draft.aliases} onChange={(event) => updateDraft(command.name, { aliases: event.target.value })} placeholder="Optional alternate commands" />
-            </label>}
-            {canEditIdentity(command) && <label className="form-field">Name in UI
-              <input disabled={busy} value={draft.displayName} maxLength={80} onChange={(event) => updateDraft(command.name, { displayName: event.target.value })} placeholder="Optional label" />
-              <span className="custom-field-hint">Optional display label; public help uses the primary chat name.</span>
-            </label>}
-          </div>
+          {compact ? <>{identityFields}{settingsFields}</> : <>{settingsFields}{command.name === 'ask' && <p className="setting-effect">Enabled state is saved immediately and shared with Dashboard and AI. Save applies only your other settings edits.</p>}{identityFields}</>}
           {command.name === 'tg' && <div className="command-burst-controls">
-            <label className="form-field command-burst-interval">Burst interval (ms)
-              <input disabled={busy} type="number" min="0" max="1000" step="1" aria-invalid={!intervalValid} className={intervalValid ? '' : 'invalid'} value={draft.burstIntervalMs} onChange={(event) => updateDraft(command.name, { burstIntervalMs: event.target.value })} />
-              <span className="custom-field-hint">0–1000 ms between request starts; 0 sends concurrently.</span>
-            </label>
-            <label className="form-field command-burst-max-count">Maximum repeat count
-              <input disabled={busy} type="number" min="1" max="20" step="1" aria-invalid={!maxCountValid} className={maxCountValid ? '' : 'invalid'} value={draft.burstMaxCount} onChange={(event) => updateDraft(command.name, { burstMaxCount: event.target.value })} />
-              <span className="custom-field-hint">Default {data.command_prefix}{primaryName} sends 1. Use 1–{maxCount}; e.g. {data.command_prefix}{primaryName} {maxCount} sends {maxCount} copies.</span>
-            </label>
+            <div className="form-field command-burst-interval">
+              <div className="custom-field-label"><label htmlFor="tg-burst-interval">Burst interval (ms)</label>{compact && <HelpTip label="Tg Burst interval">0 to 1000 ms between request starts; 0 sends concurrently.</HelpTip>}</div>
+              <input id="tg-burst-interval" disabled={busy} type="number" min="0" max="1000" step="1" aria-invalid={!intervalValid} className={intervalValid ? '' : 'invalid'} value={draft.burstIntervalMs} onChange={(event) => updateDraft(command.name, { burstIntervalMs: event.target.value })} />
+              {!compact && <span className="custom-field-hint">0–1000 ms between request starts; 0 sends concurrently.</span>}
+            </div>
+            <div className="form-field command-burst-max-count">
+              <div className="custom-field-label"><label htmlFor="tg-burst-max-count">Maximum repeat count</label>{compact && <HelpTip label="Tg repeat count">Default {data.command_prefix}{primaryName} sends 1. Use 1 to {maxCount}; e.g. {data.command_prefix}{primaryName} {maxCount} sends {maxCount} copies.</HelpTip>}</div>
+              <input id="tg-burst-max-count" disabled={busy} type="number" min="1" max="20" step="1" aria-invalid={!maxCountValid} className={maxCountValid ? '' : 'invalid'} value={draft.burstMaxCount} onChange={(event) => updateDraft(command.name, { burstMaxCount: event.target.value })} />
+              {!compact && <span className="custom-field-hint">Default {data.command_prefix}{primaryName} sends 1. Use 1–{maxCount}; e.g. {data.command_prefix}{primaryName} {maxCount} sends {maxCount} copies.</span>}
+            </div>
           </div>}
-          {command.hidden && <p className="command-behavior-note">Hidden administrative command; broadcaster permission is required.</p>}
-          {!responsePool && <div className="command-behavior-note command-dynamic-note">
+          {command.hidden && !compact && <p className="command-behavior-note">Hidden administrative command; minimum {command.minimum_permission?.toLowerCase()} permission is required.</p>}
+          {!compact && !responsePool && <div className="command-behavior-note command-dynamic-note">
             <span>Dynamic response</span>
             <HelpTip label="Dynamic response">This command generates its response from its built-in behavior and cannot be edited as a text template. Enabled state, permission and cooldowns still apply.</HelpTip>
           </div>}
-          {(command.minimum_permission && command.minimum_permission !== 'USER') && <p className="command-behavior-note">Minimum permission: {command.minimum_permission.toLowerCase()}.</p>}
+          {(!compact && command.minimum_permission && command.minimum_permission !== 'USER') && <p className="command-behavior-note">Minimum permission: {command.minimum_permission.toLowerCase()}.</p>}
           {!command.available && <p className="command-unavailable"><strong>Unavailable:</strong> {command.unavailable_reason ?? 'The optional AI provider is not configured. Add a key to enable AI features.'}</p>}
           {!command.hidden && responsePool && responseDraft !== null && <div className="command-response-editor">
             <div className="custom-response-heading">
@@ -1038,10 +1028,6 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         </div>
       )}
     </section>
-    <CommandRestrictions active={active} commands={[
-      ...(data?.commands.filter((command) => !command.removed).map((command) => ({ id: command.name, label: `!${command.primary_name ?? command.name}` })) ?? []),
-      ...(customData?.commands.map((command) => ({ id: `custom:${command.id}`, label: `!${command.name}` })) ?? []),
-    ]} />
     <AnnouncementsPanel active={active} />
     <section className="card command-editor-card" id="builtin-commands">
       <div className="section-heading">
@@ -1056,6 +1042,10 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           {data.commands.filter((command) => !command.hidden && !command.removed).map(renderBuiltin)}
         </div>
       )}
+    <CommandRestrictions active={active} commands={[
+      ...(data?.commands.filter((command) => !command.removed).map((command) => ({ id: command.name, label: `!${command.primary_name ?? command.name}` })) ?? []),
+      ...(customData?.commands.map((command) => ({ id: `custom:${command.id}`, label: `!${command.name}` })) ?? []),
+    ]} />
       {data && <details className="factory-commands removed-commands" id="removed-commands">
         <summary>Removed commands ({data.commands.filter((command) => !command.hidden && command.removed).length})</summary>
         <p className="section-copy">Restore defaults and enable replaces a removed command’s settings with defaults, including primary chat names, access, cooldowns and aliases. Previous custom settings are not recovered; its saved text is kept.</p>
@@ -1070,7 +1060,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       {data && <details className="factory-commands administrative-commands" id="administrative-commands">
         <summary>Administrative commands</summary>
         <p className="section-copy">Administrative commands stay hidden from public help and retain their minimum permissions and implementations.</p>
-        <div className="command-list">{data.commands.filter((command) => command.hidden).map(renderBuiltin)}</div>
+        <div className="command-list">{data.commands.filter((command) => command.hidden).map(renderBuiltin)}<OptOutManagement active={active} /></div>
         {!data.commands.some((command) => command.hidden) && <p className="muted">No administrative commands.</p>}
       </details>}
       {data && <details className="factory-commands advanced-command-reset" id="advanced-command-reset">

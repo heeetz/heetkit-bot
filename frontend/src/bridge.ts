@@ -173,12 +173,27 @@ export interface CustomCommandsResponse {
 
 export interface CommandRestriction {
   id: string
-  channel_id: string
-  twitch_user_id: string
+  channel_id: string | null
+  twitch_user_id: string | null
+  scope?: 'channel' | 'global_ai'
+  identity_state?: 'verified' | 'unresolved'
   username: string
   command_ids: string[]
   expires_at: string | null
   note: string
+}
+
+export interface OptOutUser {
+  twitch_user_id: string
+  username: string | null
+  opted_out_at: string | null
+}
+
+export interface OptOutsResponse extends ActionResult {
+  users: OptOutUser[]
+  total: number
+  offset: number
+  limit: number
 }
 
 export interface CommandRestrictionChoice {
@@ -193,6 +208,7 @@ export interface CommandRestrictionsResponse extends ActionResult {
 }
 
 export interface CommandRestrictionInput {
+  scope?: 'channel' | 'global_ai'
   id?: string
   username: string
   command_ids: string[]
@@ -532,6 +548,9 @@ export interface PythonApi {
   check_for_updates(): Promise<UpdateCheckResponse>
   get_commands(): Promise<CommandsResponse>
   get_custom_commands(): Promise<CustomCommandsResponse>
+  get_opt_outs(query?: string, offset?: number, limit?: number): Promise<OptOutsResponse>
+  add_opt_out(username: string): Promise<OptOutsResponse>
+  withdraw_opt_out(twitchUserId: string, confirmed: boolean): Promise<OptOutsResponse>
   get_command_restrictions(): Promise<CommandRestrictionsResponse>
   save_command_restriction(data: CommandRestrictionInput): Promise<CommandRestrictionsResponse>
   remove_command_restriction(restrictionId: string): Promise<CommandRestrictionsResponse>

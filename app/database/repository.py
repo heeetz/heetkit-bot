@@ -1,6 +1,8 @@
 """Channel-scoped personal storage; suppression always spans the whole profile."""
 
 from datetime import datetime, timedelta
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 from sqlalchemy import case, delete, exists, func, insert, literal, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -9,6 +11,14 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.config.privacy import AI_HISTORY_RETENTION_DAYS, USER_RETENTION_DAYS, validate_memory_limits
 from app.database.models import AIMemoryEntry, PrivacyOptOut, User, utcnow
 from app.database.migrations import maintain_recovery, run_sqlite_work
+
+_storage_ticket = ContextVar("storage_ticket", default=None)
+
+
+def ticket_current(policy, user_id, epoch):
+    ticket = _storage_ticket.get()
+    return (epoch == policy.privacy_epochs.get(user_id, 0)
+            and (ticket is None or ticket[:2] != (id(policy), user_id) or ticket[2] == epoch))
 
 
 def storage_allowed(twitch_user_id: str):
@@ -23,32 +33,80 @@ class UserRepository:
     def __init__(self, session_factory: async_sessionmaker) -> None:
         self._session_factory = session_factory
         self._suppressed_ids: set[str] = set()
+        self.policy = session_factory.kw["info"]["memory_policy"]
+
+    @contextmanager
+    def storage_scope(self, user_id):
+        current = _storage_ticket.get()
+        epoch = -1 if user_id in self._suppressed_ids else self.policy.privacy_epochs.get(user_id, 0)
+        token = _storage_ticket.set(current if current and current[:2] == (id(self.policy), user_id)
+                                   else (id(self.policy), user_id, epoch))
+        try:
+            yield
+        finally:
+            _storage_ticket.reset(token)
 
     def logs_suppressed(self, twitch_user_id: str) -> bool:
         """Synchronous signal for requests already awaiting a provider/send."""
-        return twitch_user_id in self._suppressed_ids
+        return (twitch_user_id in self._suppressed_ids
+                or not ticket_current(self.policy, twitch_user_id, self.policy.privacy_epochs.get(twitch_user_id, 0)))
 
     async def is_storage_opted_out(self, twitch_user_id: str) -> bool:
         async with self._session_factory() as session:
             suppressed = await session.get(PrivacyOptOut, twitch_user_id) is not None
         if suppressed:
             self._suppressed_ids.add(twitch_user_id)
+            if _storage_ticket.get() is not None:
+                _storage_ticket.set((id(self.policy), twitch_user_id, -1))
         return suppressed or self.logs_suppressed(twitch_user_id)
 
-    async def opt_out(self, twitch_user_id: str) -> None:
+    async def opt_out(self, twitch_user_id: str, username: str | None = None) -> None:
         if not twitch_user_id.isascii() or not twitch_user_id.isdigit() or not 1 <= len(twitch_user_id) <= 32:
             raise ValueError("Opt-out requires the authenticated Twitch account ID.")
-        # Fail closed for diagnostics even if persistence later needs operator help.
+        if username is not None:
+            from app.ai_user_blocks import normalize_ai_username
+            username = normalize_ai_username(username)
+        # Invalidate captured work permanently, including after withdrawal.
+        self.policy.privacy_epochs[twitch_user_id] = self.policy.privacy_epochs.get(twitch_user_id, 0) + 1
         self._suppressed_ids.add(twitch_user_id)
-        async with self._session_factory() as session:
-            await session.execute(sqlite_insert(PrivacyOptOut).values(twitch_user_id=twitch_user_id).on_conflict_do_nothing())
+        async with self.policy.lock, self._session_factory() as session:
+            self._suppressed_ids.add(twitch_user_id)
+            statement = sqlite_insert(PrivacyOptOut).values(twitch_user_id=twitch_user_id,
+                username=username, opted_out_at=utcnow())
+            # Repeated requests keep the original date, including unknown history.
+            statement = statement.on_conflict_do_update(index_elements=[PrivacyOptOut.twitch_user_id],
+                set_={"username": func.coalesce(statement.excluded.username, PrivacyOptOut.username)})
+            await session.execute(statement)
             await session.execute(delete(User).where(User.twitch_user_id == twitch_user_id))
             await session.execute(delete(AIMemoryEntry).where(AIMemoryEntry.twitch_user_id == twitch_user_id))
             await session.commit()
+            await self._update_recovery(suppressed=(twitch_user_id,))
+
+    async def _update_recovery(self, *, suppressed=(), withdrawn=()):
         path = self._session_factory.kw["info"]["database_path"]
         if path is not None:
             async with self._session_factory.kw["info"]["recovery_lock"]:
-                await run_sqlite_work(maintain_recovery, path, (twitch_user_id,))
+                await run_sqlite_work(maintain_recovery, path, suppressed, withdrawn=withdrawn)
+
+    async def withdraw_opt_out(self, twitch_user_id: str) -> None:
+        async with self.policy.lock, self._session_factory() as session:
+            if await session.get(PrivacyOptOut, twitch_user_id) is None:
+                raise ValueError("This opt-out no longer exists. Refresh the list.")
+            # A recovery failure leaves current suppression intact and retryable.
+            await self._update_recovery(withdrawn=(twitch_user_id,))
+            await session.execute(delete(PrivacyOptOut).where(PrivacyOptOut.twitch_user_id == twitch_user_id))
+            await session.commit()
+            self._suppressed_ids.discard(twitch_user_id)
+
+    async def list_opt_outs(self, query="", offset=0, limit=50):
+        if not isinstance(query, str) or len(query) > 100 or type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("Use a bounded search and page size from 1 to 100.")
+        async with self._session_factory() as session:
+            condition = func.coalesce(PrivacyOptOut.username, "").contains(query.strip(), autoescape=True)
+            total = await session.scalar(select(func.count()).select_from(PrivacyOptOut).where(condition))
+            rows = list((await session.scalars(select(PrivacyOptOut).where(condition)
+                .order_by(PrivacyOptOut.opted_out_at.desc(), PrivacyOptOut.twitch_user_id).offset(offset).limit(limit))).all())
+            return rows, total
 
     async def get_by_twitch_user_id(self, twitch_user_id: str, *, channel_id: str) -> User | None:
         async with self._session_factory() as session:
@@ -60,8 +118,11 @@ class UserRepository:
                           *, channel_id: str) -> User | None:
         if not valid_channel_id(channel_id):
             return None
+        epoch = self.policy.privacy_epochs.get(twitch_user_id, 0)
         current_time = seen_at or utcnow()
-        async with self._session_factory() as session:
+        async with self.policy.lock, self._session_factory() as session:
+            if not ticket_current(self.policy, twitch_user_id, epoch):
+                return None
             statement = sqlite_insert(User).from_select(
                 ["channel_id", "twitch_user_id", "username", "created_at", "last_seen_at"],
                 select(literal(channel_id), literal(twitch_user_id), literal(username),
@@ -134,7 +195,10 @@ class AIMemoryRepository:
     async def append(self, twitch_user_id: str, request_text: str, response_text: str, *, channel_id: str) -> None:
         if not valid_channel_id(channel_id):
             return
+        epoch = self.policy.privacy_epochs.get(twitch_user_id, 0)
         async with self.policy.lock, self._session_factory() as session:
+            if not ticket_current(self.policy, twitch_user_id, epoch):
+                return
             await session.execute(insert(AIMemoryEntry).from_select(
                 ["channel_id", "twitch_user_id", "request_text", "response_text", "created_at"],
                 select(literal(channel_id), literal(twitch_user_id), literal(request_text), literal(response_text),

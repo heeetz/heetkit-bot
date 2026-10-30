@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
-import type { AIPlaygroundResult, AnnouncementInfo, AnnouncementInput, CommandInfo, CustomCommandInfo, FilterInput, LogEntry } from '../src/bridge'
+import type { AIPlaygroundResult, AnnouncementInfo, AnnouncementInput, CommandInfo, CommandRestriction, CustomCommandInfo, FilterInput, LogEntry, OptOutUser } from '../src/bridge'
 import { selectOption } from './select-helpers'
 
 const adminToken = 'a'.repeat(43)
@@ -30,7 +30,8 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
   let profile = 'Saved instructions'
   let prompt = 'Neutral prompt'
   let customCommands: CustomCommandInfo[] = []
-  let commandRestrictions: { id: string; channel_id: string; twitch_user_id: string; username: string; command_ids: string[]; expires_at: string | null; note: string }[] = []
+  let commandRestrictions: CommandRestriction[] = []
+  let optouts: OptOutUser[] = []
   let announcements: AnnouncementInfo[] = []
   let enabled = true
   let playgroundPending = false
@@ -48,6 +49,8 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     default_settings: { primary_name: 'ping', enabled: true, permission: 'EVERYONE', stream_availability: 'anytime', cooldown: { per_user_seconds: 1, global_seconds: 0 } },
     saved: true, has_saved_override: false,
   }
+  const erase: CommandInfo = { ...structuredClone(command), name: 'erase', primary_name: 'erase', permission: 'BROADCASTER', minimum_permission: 'MODERATOR', hidden: true, response_pool: null,
+    default_settings: { ...structuredClone(command.default_settings), primary_name: 'erase', permission: 'BROADCASTER' } }
   let operation = {
     mode: 'always_on' as const, desired_running: true, pending: false,
     stream_status: 'live' as const, last_known_stream_status: 'live' as const,
@@ -142,7 +145,7 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     if (path === '/v1/ai/enabled') enabled = body!.enabled as boolean
     if (path === '/v1/ai/models') result = { ok: true, settings: aiProvider }
     if (path === '/v1/ai/language') result = { ok: true, settings: { mode: 'auto', allowed_languages: ['en'], fallback_language: 'en' }, languages: [{ code: 'en', label: 'English' }], active_policy: 'Auto' }
-    if (path === '/v1/commands') result = { command_prefix: '!', permissions: ['EVERYONE', 'MODERATOR'], commands: [command] }
+    if (path === '/v1/commands') result = { command_prefix: '!', permissions: ['USER', 'MODERATOR', 'BROADCASTER'], commands: page.url().includes('privacyLayout') ? [command, erase] : [command] }
     if (path === '/v1/commands/save' || path === '/v1/commands/apply') {
       command.cooldown.per_user_seconds = body!.per_user_seconds as number
       const options = body!.options as { primary_name?: string; stream_availability?: CommandInfo['stream_availability'] } | undefined
@@ -153,16 +156,16 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     if (path === '/v1/commands/reset') Object.assign(command, structuredClone(command.default_settings), { has_saved_override: false })
     if (path === '/v1/commands/responses/save' || path === '/v1/commands/responses/apply') command.response_pool!.responses = body!.responses as string[]
     if (path === '/v1/custom-commands') result = { command_prefix: '!', permissions: ['EVERYONE', 'MODERATOR'], variables: ['sender'], commands: customCommands }
-    if (path === '/v1/command-restrictions') result = { ok: true, channel_id: '200', commands: [{ id: 'ping', label: '!ping' }], restrictions: commandRestrictions }
+    if (path === '/v1/command-restrictions') result = { ok: true, channel_id: '200', commands: [{ id: 'ping', label: '!ping' }, { id: 'ask', label: '!ask' }], restrictions: commandRestrictions }
     if (path === '/v1/command-restrictions/save') {
-      const data = body!.data as { id?: string; username: string; command_ids: string[]; expires_at: string | null; note: string }
-      const row = { id: data.id ?? 'http-restriction', channel_id: '200', twitch_user_id: '1234', username: data.id ? 'httpviewer' : data.username, command_ids: data.command_ids, expires_at: data.expires_at, note: data.note }
+      const data = body!.data as { id?: string; username: string; command_ids: string[]; expires_at: string | null; note: string; scope?: 'channel' | 'global_ai' }
+      const row = { scope: data.scope, id: data.id ?? 'http-restriction', channel_id: '200', twitch_user_id: '1234', username: data.id ? 'httpviewer' : data.username, command_ids: data.command_ids, expires_at: data.expires_at, note: data.note }
       commandRestrictions = [...commandRestrictions.filter((item) => item.id !== row.id), row]
-      result = { ok: true, channel_id: '200', commands: [{ id: 'ping', label: '!ping' }], restrictions: commandRestrictions }
+      result = { ok: true, channel_id: '200', commands: [{ id: 'ping', label: '!ping' }, { id: 'ask', label: '!ask' }], restrictions: commandRestrictions }
     }
     if (path === '/v1/command-restrictions/remove') {
       commandRestrictions = commandRestrictions.filter((item) => item.id !== body!.restriction_id)
-      result = { ok: true, channel_id: '200', commands: [{ id: 'ping', label: '!ping' }], restrictions: commandRestrictions }
+      result = { ok: true, channel_id: '200', commands: [{ id: 'ping', label: '!ping' }, { id: 'ask', label: '!ask' }], restrictions: commandRestrictions }
     }
     if (path === '/v1/custom-commands/save') customCommands = [{ ...(body!.command as CustomCommandInfo), id: 'saved-command' }]
     if (path === '/v1/announcements') {
@@ -177,6 +180,9 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     if (path === '/v1/ai/instructions/save' || path === '/v1/ai/instructions/apply') profile = body!.prompt as string
     if (path === '/v1/personalities/save' || path === '/v1/personalities/apply') prompt = body!.prompt as string
     if (path === '/v1/personalities') result = { active_personality: 'neutral', active_personality_saved: true, personalities: [{ name: 'neutral', prompt, built_in_prompt: 'Neutral prompt', is_builtin: true, prompt_saved: true, has_saved_override: false }], profile_instructions: profile, profile_instructions_saved: true, protected_shared_instructions: 'Protected policy' }
+    if (path === '/v1/privacy/opt-outs/add') optouts.push({ twitch_user_id: '1234', username: String(body!.username), opted_out_at: new Date().toISOString() })
+    if (path === '/v1/privacy/opt-outs/withdraw') optouts = optouts.filter((user) => user.twitch_user_id !== body!.twitch_user_id)
+    if (path.startsWith('/v1/privacy/opt-outs/')) result = { ok: true, users: optouts, total: optouts.length, offset: 0, limit: 50 }
     if (path === '/v1/blocked-users') result = { ok: true, users: [] }
     if (path === '/v1/logs/recent') result = { ok: true, entries: logs.filter((entry) => entry.id > Number(body?.after_id ?? 0)), next_after_id: 99 }
     if (path === '/v1/about') result = { application_name: 'HeetKit', application_subtitle: 'Twitch bot controls', version: '1.3.0', author: 'heeetz', license_name: 'Apache-2.0' }
@@ -546,12 +552,12 @@ for (const width of [1280, 900, 390, 320]) {
     await expect(availability).toBeFocused()
     await expect(availability).toHaveAttribute('data-value', 'offline_only')
     const availabilityBounds = await availability.boundingBox()
-    const cooldownBounds = await command.getByLabel('Per-user cooldown').boundingBox()
+    const cooldownBounds = await command.getByLabel('Per-user cooldown', { exact: true }).boundingBox()
     expect(availabilityBounds!.x).toBeGreaterThanOrEqual(0)
     expect(availabilityBounds!.x + availabilityBounds!.width).toBeLessThanOrEqual(width)
     expect(Math.abs(availabilityBounds!.width - cooldownBounds!.width)).toBeLessThanOrEqual(2)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
-    await command.getByLabel('Per-user cooldown').fill('7')
+    await command.getByLabel('Per-user cooldown', { exact: true }).fill('7')
     await command.getByLabel('Primary chat name', { exact: true }).fill('servercheck')
     await command.getByRole('button', { name: 'Save command', exact: true }).click()
     await expect.poll(() => api.calls.find((call) => call.path === '/v1/commands/save')?.body?.per_user_seconds).toBe(7)
@@ -973,3 +979,51 @@ test('browser Settings sidebar exposes available sections and opens their accord
   await expect(submenu).not.toContainText('Gemini API key')
   await expect(page.locator('#credential-settings')).toHaveCount(0)
 })
+
+for (const width of [1280, 320]) {
+  test(`Server preserves ordinary editors and consolidates erase/privacy at ${width}px`, async ({ page }) => {
+    const api = await server(page)
+    await page.setViewportSize({ width, height: 1000 })
+    await page.goto('/tests/browser.fixture.html?privacyLayout')
+    await login(page)
+    await page.getByRole('navigation').getByRole('button', { name: 'Commands', exact: true }).click()
+    const ping = page.locator('#command-editor-ping')
+    await ping.getByRole('button', { name: 'Edit !ping', exact: true }).click()
+    await expect(ping).not.toHaveClass(/command-compact/)
+    expect((await ping.getByLabel('Permission', { exact: true }).boundingBox())!.y).toBeLessThan((await ping.getByLabel('Primary chat name', { exact: true }).boundingBox())!.y)
+    await expect(ping.getByRole('combobox', { name: 'Stream availability' })).toBeVisible()
+    await expect(ping.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('Pong')
+    await page.locator('#administrative-commands > summary').click()
+    const erase = page.locator('#command-editor-erase')
+    await erase.getByRole('button', { name: 'Edit !erase', exact: true }).click()
+    await expect(erase).toHaveClass(/command-compact/)
+    expect((await erase.getByLabel('Primary chat name', { exact: true }).boundingBox())!.y).toBeLessThan((await erase.getByLabel('Permission', { exact: true }).boundingBox())!.y)
+    await erase.getByLabel('Permission', { exact: true }).click()
+    await expect(page.getByRole('option').locator('span:first-child')).toHaveText(['moderator', 'broadcaster'])
+    await page.keyboard.press('Escape')
+    await expect(erase.getByRole('combobox', { name: 'Response type' })).toHaveCount(0)
+    const panel = page.locator('#optout-management')
+    await panel.getByRole('button', { name: 'Manage !optout', exact: true }).click()
+    await expect(panel).toContainText('No opted-out users.')
+    await panel.getByLabel('Twitch username', { exact: true }).fill('httpviewer')
+    await panel.getByRole('button', { name: 'Add', exact: true }).click()
+    await expect(panel.locator('tbody')).toContainText('httpviewer')
+    await panel.getByRole('button', { name: 'Withdraw opt-out 1 for httpviewer' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click()
+    await expect(panel).toContainText('No opted-out users.')
+    const privacyCalls = api.calls.filter((call) => call.path.startsWith('/v1/privacy/opt-outs/'))
+    expect(privacyCalls.length).toBeGreaterThanOrEqual(3)
+    expect(privacyCalls.every((call) => call.method === 'POST' && call.authorization === `Bearer ${sessionToken}`)).toBe(true)
+    await page.locator('#administrative-commands').screenshot({ path: `node_modules/.tmp/consolidation-server-administration-${width}.png` })
+    const restrictions = page.locator('#command-restrictions')
+    await restrictions.getByRole('button', { name: 'Add restriction' }).click()
+    await restrictions.getByLabel('Twitch username').fill('httpviewer')
+    await restrictions.getByLabel('Block AI questions across all channels in this profile').check()
+    await restrictions.getByRole('button', { name: 'Save restriction' }).click()
+    await expect(restrictions).toContainText('Global AI: all profile channels')
+    await restrictions.screenshot({ path: `node_modules/.tmp/consolidation-server-restrictions-${width}.png` })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    await page.getByRole('navigation').getByRole('button', { name: 'AI', exact: true }).click()
+    await expect(page.locator('#ai-blocked-users')).toHaveCount(0)
+  })
+}

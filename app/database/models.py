@@ -60,3 +60,5 @@ class PrivacyOptOut(Base):
     __tablename__ = "privacy_opt_outs"
 
     twitch_user_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    opted_out_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)

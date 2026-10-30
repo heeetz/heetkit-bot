@@ -97,7 +97,7 @@ for (const width of [1280, 390]) {
 
   })
 
-  test(`AI setup location and !ask editor links retain drafts at ${width}px`, async ({ page }) => {
+  test(`AI setup location and Commands navigation retain drafts at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
     await openAI(page)
     const profile = page.locator('#ai-profile-instructions')
@@ -112,15 +112,17 @@ for (const width of [1280, 390]) {
     await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Playground', exact: true }).click()
     await expect(page.locator('#ai-playground')).toBeInViewport()
     await expect(profile.locator('textarea')).toHaveValue('Keep profile draft')
-    await page.getByRole('button', { name: 'Edit AI command access and cooldowns' }).click()
+    await settingsNav.getByRole('button', { name: 'Commands', exact: true }).click()
     const ask = page.locator('#command-editor-ask')
+    await ask.getByRole('button', { name: 'Edit !ask', exact: true }).click()
     await expect(ask).toBeInViewport()
     await expect(ask.getByRole('button', { name: 'Collapse !ask', exact: true })).toBeVisible()
-    await ask.getByLabel('Per-user cooldown').fill('9')
+    await ask.getByLabel('Per-user cooldown', { exact: true }).fill('9')
     await page.getByRole('button', { name: 'AI', exact: true }).click()
     await expect(profile.locator('textarea')).toHaveValue('Keep profile draft')
-    await page.getByRole('button', { name: 'Edit AI command access and cooldowns' }).click()
-    await expect(ask.getByLabel('Per-user cooldown')).toHaveValue('9')
+    await settingsNav.getByRole('button', { name: 'Commands', exact: true }).click()
+    await ask.scrollIntoViewIfNeeded()
+    await expect(ask.getByLabel('Per-user cooldown', { exact: true })).toHaveValue('9')
   })
 }
 
@@ -155,11 +157,13 @@ test('AI scope and memory/access explanations remain available while stopped', a
   await page.getByRole('button', { name: 'Help: Conversation memory', exact: true }).click()
   await expect(page.getByRole('tooltip')).toContainText('previously stored data is retained')
   await expect(page.getByRole('tooltip')).toContainText('up to five successful exchanges per viewer')
-  await expect(page.getByRole('tooltip')).toContainText('broadcaster-only memory erasure command')
+  await expect(page.getByRole('tooltip')).toContainText('can be set to Moderator')
   await page.keyboard.press('Escape')
-  await page.getByRole('button', { name: 'Help: AI access', exact: true }).click()
-  await expect(page.getByRole('tooltip')).toContainText('does not ban a Twitch user or delete their messages')
+  await page.getByRole('navigation').getByRole('button', { name: 'Commands', exact: true }).click()
+  await page.getByRole('button', { name: 'Help: User command restrictions', exact: true }).click()
+  await expect(page.getByRole('tooltip')).toContainText('not Twitch bans or timeouts')
   await page.keyboard.press('Escape')
+  await page.getByRole('navigation').getByRole('button', { name: 'AI', exact: true }).click()
   expect(await testPrompt(page)).toMatchObject({ personality: 'neutral' })
 })
 
@@ -174,7 +178,7 @@ test('draft choices fit the supported 320px layout', async ({ page }) => {
   await page.screenshot({ path: 'node_modules/.tmp/a4-draft-choice-320.png', fullPage: true })
 })
 
-test('the !ask access link reaches recovery when the command is removed', async ({ page }) => {
+test('Commands navigation reaches recovery when Ask is removed', async ({ page }) => {
   await openAI(page)
   await page.evaluate(() => {
     const api = window.pywebview!.api
@@ -185,7 +189,8 @@ test('the !ask access link reaches recovery when the command is removed', async 
       return response
     }
   })
-  await page.getByRole('button', { name: 'Edit AI command access and cooldowns' }).click()
+  await page.getByRole('navigation').getByRole('button', { name: 'Commands', exact: true }).click()
+  await page.getByRole('navigation').getByRole('button', { name: 'Removed commands', exact: true }).click()
   const ask = page.locator('#command-editor-ask')
   await expect(ask).toBeInViewport()
   await expect(ask).toContainText('Removed')

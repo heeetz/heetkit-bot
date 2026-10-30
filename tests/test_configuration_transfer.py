@@ -279,7 +279,7 @@ async def test_desktop_export_server_preview_import_round_trip_and_restart(profi
     server._configuration_transfer = target
     result = await server.apply_configuration_import(encoded, preview["preview_token"], True)
     assert result["ok"]
-    assert target.snapshot() == source.snapshot()
+    assert target.snapshot() == {**source.snapshot(), "blocked_users": []}
     assert target.settings.snapshot().twitch.channel == "keepchannel"
     assert target.settings.snapshot().startup.auto_start_bot
     assert target.settings.snapshot().startup.operation_mode == "disabled"
@@ -288,7 +288,8 @@ async def test_desktop_export_server_preview_import_round_trip_and_restart(profi
     assert target.app.settings.gemini_api_key == "destination-secret"
     assert tokens.read_bytes() == b"private OAuth sentinel"
     assert tokens.parent.parent.joinpath("history.db").read_bytes() == b"private history sentinel"
-    assert target.blocks.is_blocked("12345", "renamed")
+    assert not target.blocks.list()
+    assert target.restrictions.match(target.app.settings.twitch_channel_user_id, "12345", "ask", "renamed")
     assert target.custom.get_by_name("greeting").name == "hello"
     assert not target.app.services.filter_manager.evaluate_message("blockedword").allowed
     backup = next((target.config / "import-backups").iterdir())
@@ -308,13 +309,13 @@ async def test_desktop_export_server_preview_import_round_trip_and_restart(profi
         assert replacement.services.runtime_state.profile_instructions == "Profile instructions."
         assert replacement.services.runtime_state.get_command_settings("fate").aliases == ("destiny",)
         assert replacement.services.runtime_state.get_command_settings("fate").primary_name == "fortune"
-        assert replacement.services.ai_user_blocks.is_blocked("12345", "renamed")
+        assert replacement.services.command_restrictions.match(target.app.settings.twitch_channel_user_id, "12345", "ask", "renamed")
         assert replacement.dispatcher._message_triggers.list()[0].id == "hello"
         assert not AppSettingsStore(target.settings._path).snapshot().ai.memory_enabled
     finally:
         await replacement.shutdown()
     # Reverse transport uses the same format too.
-    assert unpack_configuration(target.export()["archive_base64"])[0] == payload
+    assert unpack_configuration(target.export()["archive_base64"])[0] == {**payload, "blocked_users": []}
 
 
 async def test_import_rejects_thirty_one_random_templates_without_writes(profiles):

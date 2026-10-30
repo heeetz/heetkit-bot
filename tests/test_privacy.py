@@ -456,8 +456,8 @@ async def test_optout_precedes_filters_bans_cooldowns_and_never_targets_argument
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("opt_out", [False, True])
-async def test_pending_ai_keeps_original_channel_and_optout_guards_late_logs_writes(opt_out):
+@pytest.mark.parametrize("opt_out,withdraw", [(False, False), (True, False), (True, True)])
+async def test_pending_ai_keeps_original_channel_and_optout_guards_late_logs_writes(opt_out, withdraw):
     from app.utils.logging import OperatorActivityHandler, operator_event
     database = Database("sqlite+aiosqlite:///:memory:")
     await database.initialize()
@@ -484,6 +484,8 @@ async def test_pending_ai_keeps_original_channel_and_optout_guards_late_logs_wri
         settings.twitch_channel_user_id = "200"
         if opt_out:
             await process_twitch_message(twitch_message("!optout", channel_id="200"), services, dispatcher, logger)
+            if withdraw:
+                await users.withdraw_opt_out("123")
         previous_logs = buffer.activity()["entries"]
         release.set()
         await pending
@@ -491,6 +493,9 @@ async def test_pending_ai_keeps_original_channel_and_optout_guards_late_logs_wri
         assert len(await memory.get_recent("123", channel_id="100")) == (0 if opt_out else 1)
         if opt_out:
             assert buffer.activity()["entries"] == previous_logs
+            assert await stored(database, User) == []
+            assert await stored(database, AIMemoryEntry) == []
+        if opt_out and not withdraw:
             await users.upsert_seen("123", "renamed", channel_id="100")
             await memory.save_exchange("123", "late", "answer", channel_id="200")
             assert await stored(database, User) == []

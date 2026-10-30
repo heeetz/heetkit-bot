@@ -6,9 +6,9 @@ desktop or authenticated browser control panel. Examples below use the default `
 Select **Commands**, **Filters**, **AI** or, on Desktop, **Settings** in the sidebar
 to reveal subsection shortcuts. A shortcut opens the relevant section and scrolls to
 it; selecting another page replaces the shortcuts. Commands follow **Your commands →
-User restrictions → Announcements → Built-in commands → Removed commands → Administrative commands →
+Announcements → Built-in commands → User restrictions → Removed commands → Administrative commands →
 Advanced: reset all built-ins**. AI follows **State → Playground → Personalities → Profile instructions →
-Response language → Models → AI access → Built-in restrictions**. Conversation memory
+Response language → Models → Built-in restrictions**. Conversation memory
 is a panel in **State**, not a separate shortcut. Browser mode omits Playground and
 Settings subsection shortcuts; see [browser capabilities](management-api.md#browser-panel).
 Filters includes **Filter Tester** followed by its rule categories. Dashboard, Logs
@@ -32,9 +32,22 @@ remaining time; the backend saves an absolute UTC expiry and honors it after dow
 Search the central list by login, numeric user/channel ID, command or private note.
 Edit a rule or remove it immediately. Other active rules and global AI blocks still apply.
 
+Select **Block AI questions across all channels in this profile** for a global rule
+covering only the stable `!ask` command, including renamed triggers and aliases.
+Other selected/all-command rules remain channel-scoped. The editor and saved list
+identify scope; overlapping rules combine, so removing a channel rule does not
+override a global AI rule. Scope and verified identity are fixed when editing.
+
+Previous AI Access entries migrate to permanent `!ask` rules in the configured channel.
+Unresolved legacy logins stay visible with compatibility blocking; **Verify / edit**
+and **Save restriction** retry verification, or **Remove** deletes the rule.
+If no verified channel is configured, a visible pending-channel rule keeps the old
+profile-wide AI protection until a configured channel can be bound. New restrictions
+require verified identity; migration never treats a login as a numeric ID.
+
 The backend must resolve the login through Twitch or recent channel observations to
-a numeric Twitch user ID; unresolved names cannot be saved. Configure a numeric channel
-ID first. Rules belong to that channel within this installation's profile. User IDs,
+a numeric Twitch user ID; new unresolved names cannot be saved. Configure a numeric channel
+ID before adding channel rules. Global AI rules apply throughout this installation's profile. User IDs,
 built-in factory IDs and persistent custom IDs survive account/command renames,
 aliases and reconnects. The displayed login records the resolved name at creation;
 the numeric ID is authoritative. Editing keeps the original account/channel identity.
@@ -126,7 +139,7 @@ users when enabled. Disabled or removed commands also stay out of public help.
 | --- | --- | --- |
 | `!ask <question>` | AI reply using the active personality and optional memory. | User |
 | `!commands [page]` | List public command help entries. | Moderator |
-| `!erase <username>` | Delete stored AI memory for a known user; hidden from help. | Broadcaster |
+| `!erase <username>` | Delete stored AI memory for a known user in this channel; hidden from help. | Broadcaster by default; minimum Moderator |
 | `!followage` | Show how long the invoking user has followed the channel. | User |
 | `!fate` | Return a random configured prediction. | User |
 | `!help [page]` | List public command help entries. | User |
@@ -212,7 +225,7 @@ profiles and archives keep their factory triggers and existing settings.
 
 The permission order is User → Subscriber → VIP → Moderator → Broadcaster; higher
 roles also satisfy lower requirements. `!tg` requires at least Moderator and `!erase`
-requires Broadcaster. Hidden commands appear in the separate **Administrative
+also requires at least Moderator, with Broadcaster retained as its default. Hidden commands appear in the separate **Administrative
 commands** section and stay hidden after renaming, with their permission floors
 and dynamic implementations intact. Naming edits do not create a text template editor.
 
@@ -221,16 +234,25 @@ All three views share the same saved value, which survives restarts; no extra Co
 Save is needed. If saving fails, the previous enabled state stays active and an error
 is shown. Toggling `!ask` keeps other drafts and does not save permissions, cooldowns,
 messages or AI editor changes. Use **Save** for those settings as usual. A removed
-`!ask` must first be restored from **Removed commands**. **AI → AI access** links to
-this existing `!ask` editor for permission and cooldown changes.
+`!ask` must first be restored from **Removed commands**. Its existing editor owns
+permission and cooldown changes; **User restrictions** owns per-account access.
 
-`!erase` is restricted to the broadcaster and accepts a known username in the current
+`!erase` allows a configured Moderator or Broadcaster permission and accepts a known username in the current
 channel. It deletes only that viewer's stored AI conversation memory in that channel.
 It does not remove presence, Twitch
 messages or an AI block, and blocking a user from `!ask` does not erase their existing
 memory or ban them from Twitch chat.
 For deletion of both activity and AI history, or a persistent local-storage opt-out,
 follow the operator's [manual privacy-request procedure](data-and-privacy.md#manual-privacy-requests).
+
+The independent **!optout** card is directly below `!erase` in **Administrative commands**.
+Adding a verified Twitch username erases stored presence and AI history across the
+profile and suppresses future storage, using the same operation as self-service chat.
+The bounded searchable list shows row numbers, stored usernames and local dates;
+historical missing names/dates are marked unavailable/unknown. **Withdraw** requires
+confirmation that future storage becomes allowed. It restores no erased data and
+does not replay old input or allow previously suppressed in-flight work to save later.
+Chat opt-outs appear on refresh; factory command resets preserve this list and restrictions.
 
 - **Save** immediately applies the settings and keeps them across restarts.
 - **Reset settings** removes this command's saved settings override and restores the

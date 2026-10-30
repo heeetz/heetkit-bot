@@ -134,6 +134,7 @@ def build_application(settings: Settings) -> Application:
         custom_commands=custom_commands,
         command_restrictions=CommandRestrictionStore(paths.config / "command_restrictions.json"),
     )
+    services.command_restrictions.migrate_ai_blocks(services.ai_user_blocks, settings.twitch_channel_user_id)
     message_triggers = MessageTriggerStore(paths.message_triggers)
     dispatcher = CommandDispatcher(
         registry=registry,

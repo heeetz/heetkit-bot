@@ -6,6 +6,7 @@ recovery copies receive the same privacy request under their original expiry.
 """
 
 import argparse
+from datetime import datetime, timezone
 from contextlib import closing
 from pathlib import Path
 import sqlite3
@@ -28,7 +29,8 @@ def apply_request(database_path: Path, user_id: str, action: str) -> None:
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not {"users", "ai_memory_entries", "privacy_opt_outs"} <= tables:
             raise ValueError("Expected an initialized HeetKit privacy-enabled database.")
-        if connection.execute("PRAGMA user_version").fetchone()[0] not in (0, SCHEMA_VERSION):
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        if version not in (0, 1, SCHEMA_VERSION):
             raise ValueError("Use a privacy tool compatible with this database version.")
         connection.execute("PRAGMA secure_delete = ON")
         with connection:
@@ -36,9 +38,11 @@ def apply_request(database_path: Path, user_id: str, action: str) -> None:
             if action == "opt-in":
                 connection.execute("DELETE FROM privacy_opt_outs WHERE twitch_user_id = ?", (user_id,))
             elif action == "opt-out":
-                connection.execute(
-                    "INSERT OR IGNORE INTO privacy_opt_outs (twitch_user_id) VALUES (?)", (user_id,),
-                )
+                if version >= 2:
+                    connection.execute("INSERT OR IGNORE INTO privacy_opt_outs (twitch_user_id, opted_out_at) VALUES (?, ?)",
+                        (user_id, datetime.now(timezone.utc).replace(tzinfo=None).isoformat(" ")))
+                else:
+                    connection.execute("INSERT OR IGNORE INTO privacy_opt_outs (twitch_user_id) VALUES (?)", (user_id,))
             if action != "opt-in":
                 connection.execute("DELETE FROM ai_memory_entries WHERE twitch_user_id = ?", (user_id,))
                 connection.execute("DELETE FROM users WHERE twitch_user_id = ?", (user_id,))

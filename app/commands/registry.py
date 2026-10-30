@@ -324,7 +324,7 @@ class CommandDispatcher:
         store = getattr(services, "command_restrictions", None)
         if store is None:
             return False
-        rule = store.match(message.channel_id, message.author.twitch_user_id, command_id)
+        rule = store.match(message.channel_id, message.author.twitch_user_id, command_id, message.author.username)
         if rule is None:
             return False
         end = expiry(rule.expires_at)
@@ -395,7 +395,8 @@ class CommandDispatcher:
     async def dispatch(self, message: IncomingChatMessage, services: ApplicationServices) -> bool:
         if message.is_outgoing:
             return False
-        with self.event_scope(message):
+        storage_scope = getattr(getattr(services, "users", None), "storage_scope", None)
+        with (storage_scope(message.author.twitch_user_id) if storage_scope else nullcontext()), self.event_scope(message):
             try:
                 return await self._dispatch(message, services)
             except asyncio.CancelledError:

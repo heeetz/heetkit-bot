@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client'
 import App from '../src/App'
-import type { AnnouncementInfo, AnnouncementInput, CommandInfo, CommandRestriction, CommandRestrictionInput, CommandSettingsMetadata, CustomCommandInfo, CustomCommandInput, waitForBridge } from '../src/bridge'
+import type { AnnouncementInfo, AnnouncementInput, CommandInfo, CommandRestriction, CommandRestrictionInput, CommandSettingsMetadata, CustomCommandInfo, CustomCommandInput, OptOutUser, waitForBridge } from '../src/bridge'
 import CommandsPage from '../src/pages/CommandsPage'
 import '../src/styles.css'
 
@@ -25,12 +25,13 @@ const commands: CommandInfo[] = ['fate', 'ping', 'tg'].map((name) => ({
 }))
 if (new URLSearchParams(window.location.search).has('extended')) {
   for (const name of ['ask', 'weather', 'erase']) {
-    const minimum = name === 'erase' ? 'BROADCASTER' : 'USER'
+    const minimum = name === 'erase' ? 'MODERATOR' : 'USER'
     commands.push({
       name, ...structuredClone(defaults), primary_name: name, permission: minimum, available: true,
       unavailable_reason: null, hidden: name === 'erase', identity_editable: true,
       minimum_permission: minimum, response_pool: null,
-      default_settings: { ...structuredClone(defaults), primary_name: name, permission: minimum }, saved: true, has_saved_override: false,
+      ...(name === 'erase' ? { permission: 'BROADCASTER' } : {}),
+      default_settings: { ...structuredClone(defaults), primary_name: name, permission: name === 'erase' ? 'BROADCASTER' : minimum }, saved: true, has_saved_override: false,
     })
   }
 }
@@ -43,7 +44,16 @@ let customCommands: CustomCommandInfo[] = [{
   id: 'synthetic-hello', name: 'hello', enabled: true, responses: ['Hello, {sender}!', 'Welcome, {target}!'],
   permission: 'USER', per_user_seconds: 2, global_seconds: 5, aliases: ['hi'], response_mode: 'random',
 }]
-let restrictions: CommandRestriction[] = []
+if (new URLSearchParams(window.location.search).has('manyCommands')) {
+  customCommands.push(...Array.from({ length: 35 }, (_, index) => ({ ...structuredClone(customCommands[0]), id: `growth-${index}`, name: `long_custom_command_name_${index}` })))
+}
+let restrictions: CommandRestriction[] = new URLSearchParams(window.location.search).has('legacyRestriction') ? [{ id: 'legacy-ask', channel_id: '42', twitch_user_id: null, username: 'legacyviewer', command_ids: ['ask'], expires_at: null, note: 'Preserved operator note', scope: 'channel', identity_state: 'unresolved' }] : []
+let optOuts: OptOutUser[] = new URLSearchParams(window.location.search).has('manyOptouts') ? Array.from({ length: 105 }, (_, index) => ({ twitch_user_id: String(10000 + index), username: index === 0 ? null : `viewer_${index}`, opted_out_at: index === 0 ? null : '2026-10-29T12:00:00Z' })) : []
+Object.assign(window, { addChatOptout: () => { optOuts.push({ twitch_user_id: '555', username: 'chatviewer', opted_out_at: new Date().toISOString() }) } })
+const optOutResponse = (query = '', offset = 0, limit = 50) => {
+  const users = optOuts.filter((user) => (user.username ?? '').includes(query))
+  return { ok: true, users: structuredClone(users.slice(offset, offset + limit)), total: users.length, offset, limit }
+}
 let restrictionLoadFailed = false
 const commandCalls: unknown[][] = []
 Object.assign(window, { commandCalls })
@@ -134,6 +144,24 @@ window.pywebview = { api: {
     command_prefix: '!', permissions: ['USER', 'MODERATOR', 'BROADCASTER'],
     variables: ['sender', 'target', 'args', ...Array.from({ length: 9 }, (_, index) => `arg${index + 1}`), 'random_user'], commands: structuredClone(customCommands),
   }),
+  get_opt_outs: async (query = '', offset = 0, limit = 50) => {
+    if (new URLSearchParams(window.location.search).has('optoutListError')) return { ok: false, error: 'Synthetic privacy list failure.' }
+    return optOutResponse(query, offset, limit)
+  },
+  add_opt_out: async (input: string) => {
+    commandCalls.push(['add_opt_out', input])
+    if (new URLSearchParams(window.location.search).has('optoutError')) return { ok: false, error: 'Synthetic identity resolution failure.' }
+    const username = input.trim().replace(/^@/, '').toLowerCase()
+    if (!/^[a-z0-9_]{1,25}$/.test(username)) return { ok: false, error: 'Invalid Twitch username.' }
+    if (optOuts.some((user) => user.username === username)) return { ok: false, error: 'This account is already opted out.' }
+    optOuts.push({ twitch_user_id: '1234', username, opted_out_at: new Date().toISOString() })
+    return optOutResponse()
+  },
+  withdraw_opt_out: async (id: string, confirmed: boolean) => {
+    commandCalls.push(['withdraw_opt_out', id, confirmed])
+    optOuts = optOuts.filter((user) => user.twitch_user_id !== id)
+    return optOutResponse()
+  },
   get_command_restrictions: async () => {
     if (new URLSearchParams(window.location.search).has('restrictionLoadError') && !restrictionLoadFailed) {
       restrictionLoadFailed = true
@@ -148,7 +176,7 @@ window.pywebview = { api: {
     commandCalls.push(['save_command_restriction', structuredClone(data)])
     if (new URLSearchParams(window.location.search).has('restrictionError')) return { ok: false, error: 'Synthetic identity resolution failure.' }
     const item: CommandRestriction = { id: data.id ?? 'restriction-1', channel_id: '42', twitch_user_id: '1234', username: data.id ? restrictions.find((row) => row.id === data.id)?.username ?? 'viewer' : data.username,
-      command_ids: [...data.command_ids], expires_at: data.expires_at, note: data.note }
+      scope: data.scope ?? 'channel', identity_state: 'verified', command_ids: [...data.command_ids], expires_at: data.expires_at, note: data.note }
     restrictions = [...restrictions.filter((row) => row.id !== item.id), item]
     return { ok: true, channel_id: new URLSearchParams(window.location.search).has('noChannel') ? null : '42', commands: [
       ...commands.filter((command) => !command.removed).map((command) => ({ id: command.name, label: `!${command.primary_name ?? command.name}` })),

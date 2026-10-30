@@ -14,7 +14,6 @@ import FeedbackToast from '../components/FeedbackToast'
 import Switch from '../components/Switch'
 import AIPlayground from '../components/AIPlayground'
 import AISetupPanel from '../components/AISetupPanel'
-import BlockedAIUsers from '../components/BlockedAIUsers'
 import Accordion from '../components/Accordion'
 import HelpTip from '../components/HelpTip'
 import { Select } from '../components/Select'
@@ -22,7 +21,6 @@ import { Select } from '../components/Select'
 interface AIPageProps {
   active: boolean
   onOpenPlayground: () => void
-  onOpenAsk: () => void
   onAIEnabledChanged?: (enabled: boolean) => void
 }
 
@@ -47,7 +45,7 @@ function languageSettingsLabel(
   return `Limited — ${allowed}; fallback ${labelFor(settings.fallback_language)}.`
 }
 
-export default function AIPage({ active, onOpenPlayground, onOpenAsk, onAIEnabledChanged }: AIPageProps) {
+export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }: AIPageProps) {
   const [status, setStatus] = useState<AIStatus | null>(null)
   const [data, setData] = useState<PersonalitiesResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -517,7 +515,7 @@ export default function AIPage({ active, onOpenPlayground, onOpenAsk, onAIEnable
         <article className="card ai-state-panel" id="ai-memory">
           <div className="ai-state-heading">
             <h2>Conversation memory</h2>
-            <HelpTip label="Conversation memory">Saved immediately. Turning memory off stops subsequent use and storage; previously stored data is retained. The AI command uses up to five successful exchanges per viewer. Playground never reads or stores viewer memory. The broadcaster-only memory erasure command in the Commands page’s Administrative commands section clears AI memory for a known viewer; it does not delete chat or activity records.</HelpTip>
+            <HelpTip label="Conversation memory">Saved immediately. Turning memory off stops subsequent use and storage; previously stored data is retained. The AI command uses up to five successful exchanges per viewer. Playground never reads or stores viewer memory. The memory erasure command in Commands' Administrative commands clears AI memory for a known viewer in the invoking channel. It defaults to Broadcaster permission and can be set to Moderator; it does not delete chat or activity records.</HelpTip>
           </div>
           <Switch className="settings-toggle" checked={status?.memory_enabled ?? false} disabled={!status || Boolean(busy)} ariaLabel="Enable conversation memory" onCheckedChange={(enabled) => void changeToggle('memory', enabled)}>
             <span>{status ? status.memory_enabled ? 'Enabled' : 'Disabled' : 'Loading…'}</span>
@@ -794,7 +792,6 @@ export default function AIPage({ active, onOpenPlayground, onOpenAsk, onAIEnable
           </div>
         )}
       </Accordion>
-      <BlockedAIUsers active={active} onOpenAsk={onOpenAsk} />
     </section>
   )
 }

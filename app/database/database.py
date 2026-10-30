@@ -24,6 +24,7 @@ class MemoryPolicy:
     stored: int = AI_HISTORY_MAX_ENTRIES
     context: int = AI_CONTEXT_MAX_ENTRIES
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    privacy_epochs: dict[str, int] = field(default_factory=dict)
 
 
 class Database:

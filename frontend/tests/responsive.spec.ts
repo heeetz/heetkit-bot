@@ -320,12 +320,7 @@ for (const width of [1440, 1180, 900, 390, 320]) {
     await expect(page.getByRole('tooltip')).toContainText('Prompt guidance cannot perfectly guarantee')
     await page.keyboard.press('Escape')
 
-    const access = page.locator('#ai-blocked-users')
-    const settings = access.getByRole('button', { name: 'Edit AI command access and cooldowns' })
-    await expect(access.locator('.ai-access-footer')).toContainText('No blocked AI users.')
-    expect((await settings.boundingBox())!.y).toBeGreaterThanOrEqual((await access.getByLabel('Twitch username').boundingBox())!.y + 40)
-    await expectNoHorizontalOverflow(page)
-    if (width === 1180) await access.screenshot({ path: 'node_modules/.tmp/ui-ai-access-1180.png' })
+    await expect(page.locator('#ai-blocked-users')).toHaveCount(0)
 
     await nav.getByRole('button', { name: 'AI', exact: true }).click()
     await nav.getByRole('button', { name: 'AI setup', exact: true }).click()

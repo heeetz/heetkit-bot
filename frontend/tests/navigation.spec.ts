@@ -40,7 +40,7 @@ test('the selected top-level page alone expands its submenu, and repeated clicks
 
 const destinations = [
   { section: 'Commands', children: [
-    ['Your commands', 'custom-commands'], ['User restrictions', 'command-restrictions'], ['Announcements', 'announcements'], ['Built-in commands', 'builtin-commands'],
+    ['Your commands', 'custom-commands'], ['Announcements', 'announcements'], ['Built-in commands', 'builtin-commands'], ['User restrictions', 'command-restrictions'],
     ['Removed commands', 'removed-commands'], ['Administrative commands', 'administrative-commands'],
     ['Advanced: reset all built-ins', 'advanced-command-reset'],
   ] },
@@ -52,7 +52,6 @@ const destinations = [
     ['AI setup', 'ai-models'], ['State', 'ai-runtime'], ['Playground', 'ai-playground'],
     ['Personalities', 'ai-personalities'], ['Profile instructions', 'ai-profile-instructions'],
     ['Shared instructions', 'ai-shared-instructions'], ['Response language', 'ai-language'],
-    ['AI access', 'ai-blocked-users'],
   ] },
   { section: 'Settings', children: [
     ['Desktop behavior', 'desktop-settings'],
@@ -225,11 +224,12 @@ for (const width of [1280, 1080, 900, 760, 390, 320]) {
     await expect(nav.getByRole('button', { name: 'Conversation memory', exact: true })).toHaveCount(0)
     await nav.getByRole('button', { name: 'State', exact: true }).click()
     await expect(page.locator('#ai-memory')).toBeInViewport()
-    await nav.getByRole('button', { name: 'AI access', exact: true }).click()
-    await expect(page.locator('#ai-blocked-users')).toBeInViewport()
+    await nav.getByRole('button', { name: 'Commands', exact: true }).click()
+    await nav.getByRole('button', { name: 'User restrictions', exact: true }).click()
+    await expect(page.locator('#command-restrictions')).toBeInViewport()
     if (width < 761) {
       const sidebarBounds = (await page.locator('.sidebar').boundingBox())!
-      await expect.poll(async () => (await page.locator('#ai-blocked-users').boundingBox())!.y).toBeGreaterThanOrEqual(sidebarBounds.y + sidebarBounds.height)
+      await expect.poll(async () => (await page.locator('#command-restrictions').boundingBox())!.y).toBeGreaterThanOrEqual(sidebarBounds.y + sidebarBounds.height)
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
   })

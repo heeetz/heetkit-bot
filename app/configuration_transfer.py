@@ -177,6 +177,7 @@ class ConfigurationTransfer:
         self.custom = application.custom_commands
         self.fun = application.fun_settings
         self.blocks = application.services.ai_user_blocks
+        self.restrictions = application.services.command_restrictions
         self.triggers = application.dispatcher._message_triggers
         self.announcements = application.announcements
         self.config = app_settings._path.parent
@@ -186,7 +187,7 @@ class ConfigurationTransfer:
     def locked(self):
         with ExitStack() as stack:
             for lock in (self.state.command_namespace_lock, self.settings._lock, self.fun._lock,
-                         self.blocks._lock, self.triggers._lock, self.announcements._lock):
+                         self.restrictions._lock, self.blocks._lock, self.triggers._lock, self.announcements._lock):
                 stack.enter_context(lock)
             yield
 
@@ -350,7 +351,7 @@ class ConfigurationTransfer:
     def paths(self):
         return [self.state._command_settings_path, self.custom._path, self.state._personality_settings_path,
                 self.fun.path, self.settings._path, self.blocks._path, self.triggers._path, self.announcements._path,
-                *(self.config / "filters" / name for name in FILTER_NAMES)]
+                *(self.config / "filters" / name for name in FILTER_NAMES), self.restrictions._path]
 
     def originals(self):
         originals = {}
@@ -494,7 +495,7 @@ class ConfigurationTransfer:
             {name: value.to_json() for name, value in overrides.items() if not value.is_empty},
             {"version": 2, "commands": [item.to_json() for item in parsed.customs.values()]},
             parsed.personality, fun_payload, app_payload,
-            self.blocks._payload(parsed.users),
+            self.blocks._payload(()),
             {"version": 1, "triggers": [asdict(item) for item in parsed.triggers]},
             {"version": 1, "announcements": [item.to_json() for item in parsed.announcements]},
         ]
@@ -504,8 +505,11 @@ class ConfigurationTransfer:
             preserve_settings_recovery(path, None, version={1: (1, 2), 3: 1, 4: 1, 5: 1, 6: 1, 7: 1}.get(index),
                                        allow_legacy=index == 4, encoding="utf-8-sig" if index == 6 else "utf-8")
         files = dict(zip(self.paths()[:8], map(_encode, values)))
-        for path, rules in zip(self.paths()[8:], (parsed.filters[0], parsed.filters[1], [rule.pattern for rule in parsed.filters[2]])):
+        for path, rules in zip(self.paths()[8:11], (parsed.filters[0], parsed.filters[1], [rule.pattern for rule in parsed.filters[2]])):
             files[path] = "".join(f"{rule}\n" for rule in rules).encode("utf-8")
+        migrated_rules = self.restrictions.migrated_ai_rules(parsed.users, self.app.settings.twitch_channel_user_id)
+        if migrated_rules != self.restrictions._rules:
+            files[self.restrictions._path] = _encode({"version": 2, "restrictions": [asdict(rule) for rule in migrated_rules]})
         backup_root = self.config / "import-backups"
         if backup_root.is_symlink() or (hasattr(backup_root, "is_junction") and backup_root.is_junction()):
             raise ValueError("Linked backup directories are not supported.")
@@ -520,7 +524,7 @@ class ConfigurationTransfer:
         staged, replaced = {}, []
         # Publication is last. Capture just owned configuration attributes so an
         # unexpected publication failure can also restore active unsaved settings.
-        owners = (state, self.custom, self.fun, self.settings, self.blocks, self.triggers, self.announcements,
+        owners = (state, self.custom, self.fun, self.settings, self.blocks, self.restrictions, self.triggers, self.announcements,
                   self.app.services.filter_manager)
         snapshots = [(owner, dict(vars(owner))) for owner in owners]
         old_effective = (self.app.settings.gemini_model, self.app.settings.gemini_fallback_model,
@@ -536,6 +540,8 @@ class ConfigurationTransfer:
                 os.replace(temporary, path)
                 replaced.append(path)
             self.publish(parsed, overrides, replace(old_app, ai=new_ai), fun_payload)
+            self.blocks._users = ()
+            self.restrictions._rules = migrated_rules
         except BaseException:
             rollback_failed = False
             for path in reversed(replaced):

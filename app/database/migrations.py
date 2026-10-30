@@ -17,12 +17,12 @@ import re
 import secrets
 import sqlite3
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 RECOVERY_DAYS = 7
 TABLE_COLUMNS = {
     "users": ("id", "channel_id", "twitch_user_id", "username", "created_at", "last_seen_at"),
     "ai_memory_entries": ("id", "channel_id", "twitch_user_id", "request_text", "response_text", "created_at"),
-    "privacy_opt_outs": ("twitch_user_id",),
+    "privacy_opt_outs": ("twitch_user_id", "username", "opted_out_at"),
     "schema_metadata": ("name", "value"),
 }
 SCHEMA_SQL = (
@@ -35,7 +35,7 @@ SCHEMA_SQL = (
     "twitch_user_id VARCHAR(32) NOT NULL, request_text VARCHAR(500) NOT NULL, "
     "response_text VARCHAR(500) NOT NULL, created_at DATETIME NOT NULL)",
     "CREATE INDEX ix_ai_memory_scope_time ON ai_memory_entries(channel_id, twitch_user_id, created_at, id)",
-    "CREATE TABLE privacy_opt_outs (twitch_user_id VARCHAR(32) NOT NULL PRIMARY KEY)",
+    "CREATE TABLE privacy_opt_outs (twitch_user_id VARCHAR(32) NOT NULL PRIMARY KEY, username VARCHAR(64), opted_out_at DATETIME)",
     "CREATE TABLE schema_metadata (name TEXT NOT NULL PRIMARY KEY, value TEXT NOT NULL)",
 )
 
@@ -103,16 +103,16 @@ def _private_json(path, payload):
         os.fsync(stream.fileno())
 
 
-def _recovery_paths(path):
+def _recovery_paths(path, version=0):
     folder = path.parent / (path.name + ".recovery")
     if folder.is_symlink() or folder.is_junction() or (folder.exists() and folder.resolve() != folder.absolute()):
         raise DatabaseMigrationError("Unsafe database recovery directory; startup stopped.")
-    return folder, folder / "schema-0.sqlite3", folder / "schema-0.json"
+    return folder, folder / f"schema-{version}.sqlite3", folder / f"schema-{version}.json"
 
 
-def _backup(path, connection, now):
+def _backup(path, connection, now, version=0):
     maintain_recovery(path, now=now)
-    folder, target, manifest = _recovery_paths(path)
+    folder, target, manifest = _recovery_paths(path, version)
     folder.mkdir(mode=0o700, exist_ok=True)
     if target.is_symlink() or manifest.is_symlink():
         raise DatabaseMigrationError("Unsafe database recovery file; startup stopped.")
@@ -211,8 +211,9 @@ def _validate_current(connection):
         definition = connection.execute(f'PRAGMA table_info("{table}")').fetchall()
         expected_types = {"id": "INTEGER", "channel_id": "VARCHAR(32)", "twitch_user_id": "VARCHAR(32)",
                           "username": "VARCHAR(64)", "request_text": "VARCHAR(500)", "response_text": "VARCHAR(500)",
-                          "created_at": "DATETIME", "last_seen_at": "DATETIME", "name": "TEXT", "value": "TEXT"}
-        if (any(not column[3] or column[2].upper() != expected_types[column[1]] for column in definition)
+                          "created_at": "DATETIME", "last_seen_at": "DATETIME", "opted_out_at": "DATETIME", "name": "TEXT", "value": "TEXT"}
+        optional = {"username", "opted_out_at"} if table == "privacy_opt_outs" else set()
+        if (any((not column[3] and column[1] not in optional) or column[2].upper() != expected_types[column[1]] for column in definition)
                 or [column[1] for column in definition if column[5]] != [definition[0][1]]):
             raise DatabaseMigrationError("Invalid database field constraints; startup stopped.")
     if connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type IN ('trigger','view')").fetchone()[0]:
@@ -297,7 +298,7 @@ def _upgrade(connection, path, tables, stored_limit, now):
     for table in tables:
         connection.execute(f'DROP TABLE "{table}"')
     _create(connection)
-    connection.executemany("INSERT INTO privacy_opt_outs VALUES (?)", [(value,) for value in sorted(suppressed)])
+    connection.executemany("INSERT INTO privacy_opt_outs (twitch_user_id) VALUES (?)", [(value,) for value in sorted(suppressed)])
     for name, values in kept.items():
         columns = TABLE_COLUMNS[name]
         expected = sorted(tuple(row[column] for column in columns) for row in values)
@@ -328,6 +329,16 @@ def initialize_schema(path: Path, stored_limit: int, *, now=None, before_commit=
                 report = None
                 if version == SCHEMA_VERSION:
                     _validate_current(connection)
+                elif version == 1:
+                    expected = {**TABLE_COLUMNS, "privacy_opt_outs": ("twitch_user_id",)}
+                    if tables != expected or connection.execute("SELECT value FROM schema_metadata WHERE name='schema_version'").fetchone() != ('1',):
+                        raise DatabaseMigrationError("Unsupported version-1 database schema; startup stopped.")
+                    _backup(path, connection, now, version=1)
+                    connection.execute("ALTER TABLE privacy_opt_outs ADD COLUMN username VARCHAR(64)")
+                    connection.execute("ALTER TABLE privacy_opt_outs ADD COLUMN opted_out_at DATETIME")
+                    connection.execute("UPDATE schema_metadata SET value=? WHERE name='schema_version'", (str(SCHEMA_VERSION),))
+                    connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+                    report = {"opt_out_metadata": "upgraded; historical names and dates remain unknown"}
                 elif version != 0:
                     raise DatabaseMigrationError("Unsupported database version; use a compatible application.")
                 elif not tables:
@@ -336,7 +347,7 @@ def initialize_schema(path: Path, stored_limit: int, *, now=None, before_commit=
                     if set(tables) - {"users", "ai_memory_entries", "privacy_opt_outs"} or not {"users", "ai_memory_entries"} <= tables.keys():
                         raise DatabaseMigrationError("Unrecognized legacy database; startup stopped.")
                     for name, columns in tables.items():
-                        expected = TABLE_COLUMNS[name]
+                        expected = ("twitch_user_id",) if name == "privacy_opt_outs" else TABLE_COLUMNS[name]
                         if set(columns) not in (set(expected), set(expected) - {"channel_id"}):
                             raise DatabaseMigrationError("Unrecognized legacy columns; startup stopped.")
                     report = _upgrade(connection, path, tables, stored_limit, now)
@@ -356,9 +367,14 @@ def initialize_schema(path: Path, stored_limit: int, *, now=None, before_commit=
 
 
 def maintain_recovery(path: Path, suppressed=(), *, deleted=(), withdrawn=(), now=None):
+    for version in (0, 1):
+        _maintain_recovery(path, suppressed, deleted=deleted, withdrawn=withdrawn, now=now, version=version)
+
+
+def _maintain_recovery(path: Path, suppressed=(), *, deleted=(), withdrawn=(), now=None, version=0):
     """Expire only our fixed recovery files; scrub known deletions before restore."""
     now = now or datetime.now(timezone.utc)
-    folder, target, manifest = _recovery_paths(path.resolve())
+    folder, target, manifest = _recovery_paths(path.resolve(), version)
     if not target.exists() and not manifest.exists():
         return
     if target.is_symlink() or manifest.is_symlink():
@@ -400,7 +416,7 @@ def maintain_recovery(path: Path, suppressed=(), *, deleted=(), withdrawn=(), no
                     backup.execute("BEGIN IMMEDIATE")
                     backup.execute("CREATE TABLE IF NOT EXISTS privacy_opt_outs (twitch_user_id VARCHAR(32) PRIMARY KEY)")
                     for user_id in suppressed:
-                        backup.execute("INSERT OR IGNORE INTO privacy_opt_outs VALUES (?)", (user_id,))
+                        backup.execute("INSERT OR IGNORE INTO privacy_opt_outs (twitch_user_id) VALUES (?)", (user_id,))
                     for user_id in withdrawn:
                         backup.execute("DELETE FROM privacy_opt_outs WHERE twitch_user_id=?", (user_id,))
                     for user_id in set(suppressed) | set(deleted):

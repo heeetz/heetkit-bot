@@ -174,6 +174,56 @@ async def test_command_restrictions_authenticated_identity_errors_private_notes_
     assert app.services.command_restrictions.match("200", "123", "ask") is None
 
 
+async def test_optout_authenticated_management_shared_storage_and_chat_updates(api, monkeypatch):
+    server, call = api
+    services = server.runtime.application.services
+    for path, data in (("list", {}), ("add", {"username": "viewer"}),
+                       ("withdraw", {"twitch_user_id": "123", "confirmed": True})):
+        assert (await call("POST", "/v1/privacy/opt-outs/" + path, json=data,
+                           headers={"Authorization": ""}))[0] == 401
+    assert not (await call("POST", "/v1/privacy/opt-outs/add", json={"username": "unknown"}))[1]["ok"]
+    monkeypatch.setattr(services.twitch, "resolve_user_id", AsyncMock(return_value="123"))
+    added = (await call("POST", "/v1/privacy/opt-outs/add", json={"username": "viewer"}))[1]
+    assert added["ok"] and added["users"][0]["username"] == "viewer"
+    assert await services.users.is_storage_opted_out("123")
+    # Chat uses the same repository; a fresh management read sees its update.
+    await services.users.opt_out("456", username="chatviewer")
+    listing = (await call("POST", "/v1/privacy/opt-outs/list", json={"query": "chat", "limit": 1}))[1]
+    assert listing["total"] == 1 and listing["users"][0]["twitch_user_id"] == "456"
+    for invalid in ({"limit": 1000}, {"offset": -1}, {"query": []}):
+        assert (await call("POST", "/v1/privacy/opt-outs/list", json=invalid))[0] == 400
+    assert (await call("POST", "/v1/privacy/opt-outs/withdraw",
+                       json={"twitch_user_id": "123", "confirmed": False}))[0] == 400
+    assert (await call("POST", "/v1/privacy/opt-outs/withdraw",
+                       json={"twitch_user_id": "123", "confirmed": True}))[1]["ok"]
+    assert not await services.users.is_storage_opted_out("123")
+
+
+async def test_global_ai_scope_and_legacy_management_no_invisible_blocks(api, monkeypatch):
+    server, call = api
+    app = server.runtime.application
+    services = app.services
+    services.ai_user_blocks.block("unresolved")
+    listing = (await call("GET", "/v1/command-restrictions"))[1]
+    row = listing["restrictions"][0]
+    assert row["identity_state"] == "unresolved" and row["twitch_user_id"] is None
+    assert row["channel_id"] == "200" and not services.ai_user_blocks.list()
+    raw = {"username": "viewer", "scope": "global_ai", "command_ids": ["ask"], "expires_at": None, "note": "private"}
+    monkeypatch.setattr(services.twitch, "resolve_user_id", AsyncMock(return_value="123"))
+    saved = (await call("POST", "/v1/command-restrictions/save", json={"data": raw}))[1]
+    assert saved["ok"] and services.command_restrictions.match("999", "123", "ask")
+    assert not services.command_restrictions.match("999", "123", "commands")
+    assert not (await call("POST", "/v1/command-restrictions/save", json={"data": {**raw, "command_ids": []}}))[1]["ok"]
+    retry = {key: row[key] for key in ("id", "username", "command_ids", "expires_at", "note", "scope")}
+    assert (await call("POST", "/v1/command-restrictions/save", json={"data": retry}))[1]["ok"]
+    assert services.command_restrictions.get(row["id"]).twitch_user_id == "123"
+    # Factory reset preserves restrictions and opt-outs.
+    await services.users.opt_out("456", username="other")
+    assert (await call("POST", "/v1/commands/reset-all", json={}))[1]["ok"]
+    assert len(services.command_restrictions.list()) == 2
+    assert await services.users.is_storage_opted_out("456")
+
+
 async def test_ai_setup_save_reload_validation_and_guide_use_authenticated_shared_operations(api):
     server, call = api
     status, result, _ = await call("GET", "/v1/ai/setup")
@@ -545,7 +595,8 @@ async def test_management_applies_and_persists_existing_stores(api):
         assert clone.custom_commands.get_by_name("salute").responses == ("Hi {sender}",)
         assert clone.fun_settings.snapshot("fate")["responses"] == ["Synthetic fate"]
         assert not clone.services.filter_manager.filter_message("syntheticblocked")
-        assert clone.services.ai_user_blocks.is_blocked("", "syntheticviewer")
+        assert clone.services.command_restrictions.match("200", "123", "ask", "syntheticviewer")
+        assert not clone.services.ai_user_blocks.list()
         assert clone.dispatcher._message_triggers.list()[0].id == "hello"
     finally:
         await clone.shutdown()

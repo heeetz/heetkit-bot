@@ -13,7 +13,7 @@ for (const width of [1280, 390, 320]) {
     await page.goto('/tests/commands.fixture.html?shell')
     await page.getByRole('navigation').getByRole('button', { name: 'Commands', exact: true }).click()
     const editor = page.locator('.custom-command-editor')
-    const builtin = page.locator('#builtin-commands')
+    const builtin = page.locator('#builtin-commands > .command-list')
     const before = await builtin.innerHTML()
     for (const action of ['create', 'edit']) {
       if (action === 'create') await page.getByRole('button', { name: 'New command', exact: true }).click()
