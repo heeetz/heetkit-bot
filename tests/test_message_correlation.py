@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import math
 from types import SimpleNamespace
 
 import pytest
@@ -164,9 +165,10 @@ async def test_sdk_rejection_is_failed_without_quarantine_or_private_error_text(
 
 
 @pytest.mark.asyncio
-async def test_pause_drops_are_sanitized_aggregated_and_expire_without_new_input(monkeypatch, caplog):
+@pytest.mark.parametrize("initial_time", [0.0, 930.7916665])
+async def test_pause_drops_are_sanitized_aggregated_and_expire_without_new_input(monkeypatch, caplog, initial_time):
     loop = asyncio.get_running_loop()
-    now = [loop.time()]
+    now = [initial_time]
     monkeypatch.setattr(loop, "time", lambda: now[0])
     correlation = ChatMessageCorrelation(clock=lambda: now[0])
     buffer, handler, logger = correlation_activity()
@@ -187,10 +189,13 @@ async def test_pause_drops_are_sanitized_aggregated_and_expire_without_new_input
         now[0] += 5
         assert await correlation.is_outgoing("PRIVATE-account", "PRIVATE-channel", ("another",))
         assert buffer.activity()["entries"][-1]["context"]["drop_count"] == 101
-        now[0] += 594.9
+        deadline = correlation.uncertain_until[("PRIVATE-account", "PRIVATE-channel")]
+        # The old +=594.9; +=.1 sequence could stop one ULP before the deadline.
+        # Exercise an early callback and then the exact stored boundary instead.
+        now[0] = math.nextafter(deadline, -math.inf)
         await event_loop_turns()
         assert correlation.uncertain_until
-        now[0] += .1
+        now[0] = deadline
         await event_loop_turns()
         assert not correlation.uncertain_until  # Timer, without another ingress event.
         recovered = buffer.activity()["entries"][-1]["context"]

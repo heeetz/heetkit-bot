@@ -42,6 +42,8 @@ def workflow(name):
     (["docs/releases/v1.4.1.md"], (False, False, True)),
     (["app/version.py"], (True, False, True)),
     (["Dockerfile"], (True, False, False)),
+    ([".dockerignore"], (True, False, True)),
+    (["frontend/src/pages/analytics.css"], (False, True, True)),
     (["scripts/build_windows.py"], (True, False, True)),
     (["frontend/tests/browser-server.spec.ts", "app/config/settings.py"], (True, True, False)),
 ])
@@ -241,6 +243,21 @@ def test_full_records_evidence_only_after_required_gate_succeeds():
 
 def test_actual_machine_inputs_parse():
     ci_checks.check_inputs()
+
+
+def test_missing_container_page_stylesheet_allowlist_fails_before_build(tmp_path):
+    asset = tmp_path / "frontend/src/pages/analytics.css"
+    asset.parent.mkdir(parents=True)
+    asset.write_text("/* synthetic stylesheet */")
+    rules = (ROOT / ".dockerignore").read_text(encoding="utf-8")
+    (tmp_path / ".dockerignore").write_text(rules.replace("!frontend/src/pages/analytics.css\n", ""))
+    with pytest.raises(ValueError, match="Missing required container stylesheet input"):
+        ci_checks.check_container_stylesheet_input(tmp_path)
+    (tmp_path / ".dockerignore").write_text(rules)
+    ci_checks.check_container_stylesheet_input(tmp_path)
+    asset.unlink()
+    with pytest.raises(ValueError, match="Missing required container stylesheet input"):
+        ci_checks.check_container_stylesheet_input(tmp_path)
 
 
 @pytest.mark.parametrize("content", ["- invalid mapping", "name: missing triggers"])

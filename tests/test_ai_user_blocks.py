@@ -112,7 +112,11 @@ async def test_blocked_requests_and_aliases_never_reach_ai_memory_cooldowns_or_r
     dispatcher._cooldowns.check_and_record.assert_not_called()
     incoming.respond.assert_not_awaited()
     assert "A private question" not in caplog.text
-    assert [record.event_reason for record in caplog.records if hasattr(record, "event_reason")] == ["ai_user_blocked"]
+    blocked = [record for record in caplog.records if getattr(record, "event_kind", None) == "ai_user_blocked"]
+    assert [record.event_reason for record in blocked] == ["ai_user_blocked"]
+    terminal = [record for record in caplog.records if getattr(record, "event_kind", None) == "command.terminal"]
+    assert [(record.event_outcome, record.event_reason) for record in terminal] == [("skipped", "ai_user_blocked")]
+    assert not any(getattr(record, "event_kind", None) == "command.start" for record in caplog.records)
 
 
 async def test_unblocking_is_immediate_and_ignored_request_did_not_consume_global_cooldown(tmp_path):

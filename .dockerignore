@@ -65,6 +65,7 @@ frontend/src/components/**
 !frontend/src/pages/
 frontend/src/pages/**
 !frontend/src/pages/*.tsx
+!frontend/src/pages/analytics.css
 !frontend/public/
 frontend/public/**
 !frontend/public/icon.png

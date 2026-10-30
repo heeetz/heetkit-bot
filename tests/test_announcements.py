@@ -5,7 +5,7 @@ import json
 from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
@@ -419,7 +419,8 @@ async def test_real_ingress_counts_only_current_eligible_unique_human_events(rig
         ai_request_policy=SimpleNamespace(check=lambda args: PolicyDecision.IGNORE))
     dispatcher = SimpleNamespace(dispatch=AsyncMock(), is_ai_command=lambda incoming: incoming.content.startswith("!ask"))
     bot = SimpleNamespace(bot_id="100", _services=services, _dispatcher=dispatcher,
-        _chat_messages=r.twitch.chat_messages, _logger=logging.getLogger(__name__))
+        _chat_messages=r.twitch.chat_messages, _logger=logging.getLogger(__name__),
+        _closing_requested=False, _diagnostic_id="synthetic-current-client", _connection_event=Mock())
     # The fake bot identity must be the bound client for captured-session lookup.
     r.twitch.bind(bot, "200", "100", channel_name="channel")
     r.twitch.set_chat_ready(bot, True)
@@ -438,4 +439,14 @@ async def test_real_ingress_counts_only_current_eligible_unique_human_events(rig
     r.twitch.stop_chat()
     await TwitchChatBot.event_message(bot, message("stopped"))
     assert r.twitch.human_messages == 1
+    bot._connection_event.assert_called_once_with("inactive_session_ingress")
+    bot._connection_event.reset_mock()
+    bot._closing_requested = True
+    await TwitchChatBot.event_message(bot, message("closing"))
+    bot._connection_event.assert_called_once_with("closed_client_ingress")
+    assert r.twitch.human_messages == 1
+    bot._closing_requested = False
     await r.twitch.unbind(bot)
+    await TwitchChatBot.event_message(bot, message("retired"))
+    bot._connection_event.assert_called_with("replaced_client_ingress")
+    assert r.twitch.human_messages == 1

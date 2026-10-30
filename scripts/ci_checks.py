@@ -46,7 +46,7 @@ def select_checks(paths: list[str]) -> dict[str, bool]:
         ),
         "inputs": orchestration or any(
             p.startswith(("docs/releases/", "scripts/", "packaging/"))
-            or p in ("app/version.py", "pyproject.toml")
+            or p in ("app/version.py", "pyproject.toml", ".dockerignore", "frontend/src/pages/analytics.css")
             or p.startswith(".github/") and p.endswith((".yml", ".yaml"))
             for p in paths
         ),
@@ -107,7 +107,17 @@ def check_inputs(root: Path = ROOT) -> None:
         notes = path.read_text(encoding="utf-8")
         if not notes.splitlines() or notes.splitlines()[0].strip() != f"# HeetKit {path.stem}" or len(notes.strip()) < 100:
             raise ValueError(f"Invalid curated release notes: {path.name}")
-    summary("Workflow/issue YAML and curated release inputs passed.")
+    check_container_stylesheet_input(root)
+    summary("Workflow/issue YAML, curated release and container stylesheet inputs passed.")
+
+
+def check_container_stylesheet_input(root: Path = ROOT) -> None:
+    # This page stylesheet is an explicit exception to the private-data deny-all
+    # context. Require its narrow entry rather than broadening the page allowlist.
+    asset = "frontend/src/pages/analytics.css"
+    rules = (root / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    if not (root / asset).is_file() or "!" + asset not in rules:
+        raise ValueError(f"Missing required container stylesheet input: {asset}")
 
 
 def check_results(results: dict, selected: dict[str, bool] | None = None) -> bool:
