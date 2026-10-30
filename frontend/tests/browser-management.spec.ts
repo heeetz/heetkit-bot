@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import type { AIPlaygroundResult, AnnouncementInfo, AnnouncementInput, CommandInfo, CommandRestriction, CustomCommandInfo, FilterInput, LogEntry, OptOutUser } from '../src/bridge'
 import { selectOption } from './select-helpers'
+import { analyticsFlow, mockAnalytics } from './analytics-helpers'
 
 const adminToken = 'a'.repeat(43)
 const sessionToken = 's'.repeat(43)
@@ -91,6 +92,7 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
         : { ok: true, status: playgroundStatus, text: playgroundGeneration.provider === 'OpenAI' ? 'Fresh fact https://example.test/facts' : 'Synthetic server answer <b>plain text</b>', generation: playgroundGeneration }
     }
     if (path === '/v1/snapshot') result = { status, ai_status: ai() }
+    if (path === '/v1/ai/memory/limits') result = { ok: true, stored: 100, context: 5 }
     if (path === '/v1/status') result = { ...status, operation }
     if (path === '/v1/bot/mode') {
       operation = { ...operation, mode: body!.mode as 'always_on' | 'stream_only' | 'manual' | 'disabled', pending: false }
@@ -196,6 +198,15 @@ async function login(page: Page) {
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible()
 }
+
+for (const width of [1280, 320]) test(`Analytics Server windows, charts, privacy controls, balance and memory at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 })
+  await server(page)
+  const mock = await mockAnalytics(page)
+  await page.goto('/tests/browser.fixture.html')
+  await login(page)
+  await analyticsFlow(page, mock, width, 'server')
+})
 
 test('Server OpenAI controls and Playground preserve native options, usage and clickable sources', async ({ page }) => {
   const api = await server(page)

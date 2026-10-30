@@ -42,6 +42,23 @@ back to React or exported. See [management credentials](management-api.md#reques
 `AI_PROVIDER`, `GEMINI_MODEL`, `DEEPSEEK_MODEL`, `OPENAI_MODEL` and their fallback counterparts remain
 unsaved process defaults until profile selections override them.
 
+## Conversation memory and account balance
+
+**AI → Conversation memory** contains separate stored-pair N (1–500, default 100)
+and model-context M (1–50, default 5, no greater than N) controls on both hosts.
+One pair is a question plus its successful answer, scoped per viewer/channel. Save
+memory limits persists both counts and immediately prunes older stored pairs when
+N decreases. Stored pairs also expire after 60 days; the smaller count/age limit wins.
+The memory switch saves immediately and stops subsequent use/storage when disabled.
+Playground never uses personal memory.
+
+**Analytics → Provider balance** optionally refreshes the account-wide DeepSeek
+balance with currency and last-updated time. Refreshes use the existing secure key,
+bounded timeouts and a 60-second minimum cache interval. Failed refreshes show stale
+last-known values or unavailable. Gemini/OpenAI balances are unavailable; this never
+prevents AI generation. Account balance and channel spend estimates are separate.
+See [DeepSeek's balance API](https://api-docs.deepseek.com/api/get-user-balance/).
+
 ## Thinking, search and fallback boundaries
 
 OpenAI uses the Responses API. Its economical preset is `gpt-6-luna`; the independent

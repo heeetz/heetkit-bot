@@ -16,6 +16,7 @@ import AIPlayground from '../components/AIPlayground'
 import AISetupPanel from '../components/AISetupPanel'
 import Accordion from '../components/Accordion'
 import HelpTip from '../components/HelpTip'
+import AIMemoryLimits from '../components/AIMemoryLimits'
 import { Select } from '../components/Select'
 
 interface AIPageProps {
@@ -515,11 +516,12 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
         <article className="card ai-state-panel" id="ai-memory">
           <div className="ai-state-heading">
             <h2>Conversation memory</h2>
-            <HelpTip label="Conversation memory">Saved immediately. Turning memory off stops subsequent use and storage; previously stored data is retained. The AI command uses up to five successful exchanges per viewer. Playground never reads or stores viewer memory. The memory erasure command in Commands' Administrative commands clears AI memory for a known viewer in the invoking channel. It defaults to Broadcaster permission and can be set to Moderator; it does not delete chat or activity records.</HelpTip>
+            <HelpTip label="Conversation memory">The switch saves immediately. Turning memory off stops use and storage; previously stored pairs remain subject to count limits and 60-day expiry. Playground never reads or stores viewer memory. The erasure command in Administrative commands clears AI memory for a known viewer in that channel.</HelpTip>
           </div>
           <Switch className="settings-toggle" checked={status?.memory_enabled ?? false} disabled={!status || Boolean(busy)} ariaLabel="Enable conversation memory" onCheckedChange={(enabled) => void changeToggle('memory', enabled)}>
             <span>{status ? status.memory_enabled ? 'Enabled' : 'Disabled' : 'Loading…'}</span>
           </Switch>
+          <AIMemoryLimits active={active} />
         </article>
         <article className="card ai-state-panel">
           <div className="ai-state-heading ai-gemini-heading">

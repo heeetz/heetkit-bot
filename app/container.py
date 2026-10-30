@@ -47,6 +47,7 @@ class Application:
     fun_settings: FunSettingsStore | None = None
     announcements: AnnouncementStore | None = None
     ai_playground: AIPlayground = field(init=False)
+    ai_balance: object | None = field(init=False, default=None)
     announcement_scheduler: AnnouncementScheduler | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
@@ -79,7 +80,11 @@ class Application:
                     if self.announcement_scheduler is not None:
                         await self.announcement_scheduler.close()
                 finally:
-                    await self.ai_playground.close()
+                    try:
+                        await self.ai_playground.close()
+                    finally:
+                        if self.ai_balance is not None:
+                            await self.ai_balance.aclose()
             finally:
                 await self.ai_service.aclose()
         finally:

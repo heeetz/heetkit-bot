@@ -18,6 +18,7 @@ import {
 } from './bridge'
 import CommandsPage from './pages/CommandsPage'
 import AIPage from './pages/AIPage'
+import AnalyticsPage from './pages/AnalyticsPage'
 import FiltersPage from './pages/FiltersPage'
 import SettingsPage from './pages/SettingsPage'
 import AboutPage from './pages/AboutPage'
@@ -31,7 +32,7 @@ import DesktopStartup from './components/DesktopStartup'
 import Confirmation from './components/Confirmation'
 import './styles.css'
 
-const sections = ['Dashboard', 'Commands', 'Filters', 'AI', 'Logs', 'Settings', 'About'] as const
+const sections = ['Dashboard', 'Commands', 'Filters', 'AI', 'Logs', 'Analytics', 'Settings', 'About'] as const
 type Section = (typeof sections)[number]
 
 const subsections: Partial<Record<Section, { label: string; targetId: string }[]>> = {
@@ -53,6 +54,7 @@ const subsections: Partial<Record<Section, { label: string; targetId: string }[]
   AI: [
     { label: 'AI setup', targetId: 'ai-models' },
     { label: 'State', targetId: 'ai-runtime' },
+    { label: 'Conversation memory', targetId: 'ai-memory' },
     { label: 'Playground', targetId: 'ai-playground' },
     { label: 'Personalities', targetId: 'ai-personalities' },
     { label: 'Profile instructions', targetId: 'ai-profile-instructions' },
@@ -464,7 +466,7 @@ function LogsPage() {
         <div><p className="label">OPERATOR ACTIVITY</p><h2>Recent activity</h2></div>
         <span className="read-only-badge">{entries.length} / 500</span>
       </div>
-      <p className="log-policy">Commands and permitted reply text stay in memory, up to 500 events / 1 MiB. Ordinary chat is excluded. AI memory has its separate 90-day retention. Only confirmed send means delivery; uncertain sends are not retried automatically. Clear view affects this display only. Export creates a private copy with its own retention.</p>
+      <p className="log-policy">Commands and permitted reply text stay in memory, up to 500 events / 1 MiB. Ordinary chat is excluded. AI memory has its separate count limits and 60-day retention. Only confirmed send means delivery; uncertain sends are not retried automatically. Clear view affects this display only. Export creates a private copy with its own retention.</p>
       <div className="log-toolbar">
         <label>
           Level
@@ -775,6 +777,7 @@ function ManagementApp() {
           <div hidden={section !== 'Filters'}><FiltersPage active={section === 'Filters'} /></div>
           <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} onOpenPlayground={() => navigate('AI', 'ai-playground')} onAIEnabledChanged={synchronizeAIEnabled} /></div>
           {section === 'Logs' && <LogsPage />}
+          {section === 'Analytics' && <AnalyticsPage />}
           <div hidden={section !== 'Settings'}><SettingsPage active={section === 'Settings'} status={status} /></div>
           {section === 'About' && <AboutPage />}
         </div>

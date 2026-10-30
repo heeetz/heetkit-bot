@@ -49,7 +49,7 @@ const destinations = [
     ['Blocked phrases', 'filters-phrases'], ['Regex patterns', 'filters-patterns'],
   ] },
   { section: 'AI', children: [
-    ['AI setup', 'ai-models'], ['State', 'ai-runtime'], ['Playground', 'ai-playground'],
+    ['AI setup', 'ai-models'], ['State', 'ai-runtime'], ['Conversation memory', 'ai-memory'], ['Playground', 'ai-playground'],
     ['Personalities', 'ai-personalities'], ['Profile instructions', 'ai-profile-instructions'],
     ['Shared instructions', 'ai-shared-instructions'], ['Response language', 'ai-language'],
   ] },

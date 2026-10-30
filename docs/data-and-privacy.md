@@ -159,8 +159,15 @@ command or model buckets may still become personal when linked to other informat
 keep them private, assess requests in context and reset the aggregate collection when
 necessary rather than attempting to reconstruct an individual's contributions.
 
-The shared backend supports persistent collection disable/enable and whole-profile
-aggregate reset. Panel controls are not available yet. A stopped operator can also
+Open **Analytics** between Logs and Settings on either host for Today / 7 / 30 / 60
+UTC calendar-day totals, one selectable trend and command/provider breakdowns. The
+retained-user card is a current channel snapshot; it is never a historical curve.
+Data start, observation coverage, disconnected/disabled periods, dropped updates and
+unknown usage/pricing identify incomplete windows. Playground usage is excluded.
+The page is restricted to private authenticated management, with no public leaderboard.
+**Collect analytics** persists immediately; **Reset all profile analytics** requires
+confirmation and clears all channels and Playground, including pending updates.
+A stopped operator can also
 retire the aggregate collection by removing only its identified analytics SQLite file
 and matching `-wal`/`-shm` sidecars; startup creates an empty collection. This does not
 erase personal presence/history, credentials or settings. Review copied profiles and

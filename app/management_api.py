@@ -170,6 +170,7 @@ def load_management_token() -> str:
 # Explicit transport contract. These operations cannot traverse Python attributes,
 # credentials, local paths, desktop actions, provider clients or the pywebview bridge.
 READS = {
+    "/v1/ai/memory/limits": "get_ai_memory_limits",
     "/v1/status": "get_app_status",
     "/v1/commands": "get_commands",
     "/v1/custom-commands": "get_custom_commands",
@@ -185,6 +186,11 @@ READS = {
     "/v1/command-restrictions": "get_command_restrictions",
 }
 WRITES = {
+    "/v1/analytics/query": "_get_analytics",
+    "/v1/analytics/configure": "_configure_analytics",
+    "/v1/analytics/reset": "_reset_analytics",
+    "/v1/ai/balance": "_get_ai_balance",
+    "/v1/ai/memory/limits": "_save_ai_memory_limits",
     "/v1/privacy/opt-outs/list": "_get_opt_outs",
     "/v1/privacy/opt-outs/add": "_add_opt_out",
     "/v1/privacy/opt-outs/withdraw": "_withdraw_opt_out",

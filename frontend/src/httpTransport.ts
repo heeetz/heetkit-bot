@@ -143,6 +143,12 @@ export const browserApi: PythonApi = {
   save_announcements: (announcements) => write('/v1/announcements', { announcements }),
   get_filters: () => read('/v1/filters'),
   get_ai_status: () => read('/v1/ai'),
+  get_analytics: (days = 7) => write('/v1/analytics/query', { days }),
+  configure_analytics: (enabled) => write('/v1/analytics/configure', { enabled }),
+  reset_analytics: (confirmed) => write('/v1/analytics/reset', { confirmed }),
+  get_ai_balance: (provider, refresh = false) => write('/v1/ai/balance', { provider, refresh }),
+  get_ai_memory_limits: () => read('/v1/ai/memory/limits'),
+  save_ai_memory_limits: (stored, context) => write('/v1/ai/memory/limits', { stored, context }),
   get_blocked_ai_users: () => read('/v1/blocked-users'),
   block_ai_user: async (username) => {
     const result = await write('/v1/blocked-users/block', { username })

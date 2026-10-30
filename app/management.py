@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from datetime import timedelta, timezone
 from dataclasses import asdict
 from types import SimpleNamespace
 
@@ -95,7 +96,7 @@ class ApplicationManagement:
         self._backend.application.services.runtime_state.set_ai_memory_enabled(enabled)
 
     async def _save_ai_memory_limits(self, stored: object, context: object) -> None:
-        """Backend seam for count settings; presentation is separate work."""
+        """Persist and prune count settings on the shared backend loop."""
         if self._app_settings is None:
             raise RuntimeError("Profile settings are not configured.")
         await self._backend.application.database.configure_memory_limits(stored, context,
@@ -103,6 +104,74 @@ class ApplicationManagement:
         settings = self._backend.application.settings
         settings.ai_history_max_entries = stored
         settings.ai_context_max_entries = context
+
+    def get_ai_memory_limits(self) -> dict[str, object]:
+        settings = self._backend.application.settings
+        return {"ok": True, "stored": settings.ai_history_max_entries,
+                "context": settings.ai_context_max_entries}
+
+    async def _get_ai_balance(self, provider: str, refresh: bool = False) -> dict[str, object]:
+        from app.services.ai_balance import AIBalance
+        provider = validate_ai_provider(provider)
+        if type(refresh) is not bool:
+            raise ValueError("Refresh must be a boolean.")
+        # Owned by the application, independent of chat/provider request slots.
+        app = self._backend.application
+        if app.ai_balance is None:
+            app.ai_balance = AIBalance()
+        secret = getattr(app.settings, provider + "_api_key", None)
+        return await app.ai_balance.get(provider, secret.get_secret_value() if secret else None, refresh=refresh)
+
+    async def _get_analytics(self, days: int = 7) -> dict[str, object]:
+        if type(days) is not int or days not in (1, 7, 30, 60):
+            raise ValueError("Select Today, 7, 30 or 60 UTC calendar days.")
+        app = self._backend.application
+        collector = app.services.analytics
+        channel = verified_user_id(app.settings.twitch_channel_user_id)
+        snapshot = await collector.snapshot(channel or "", days)
+        coverage = await collector.snapshot("profile", days)
+        now = collector.clock().astimezone(timezone.utc)
+        start = now.date() - timedelta(days=days - 1)
+        series = { (start + timedelta(days=i)).isoformat(): {"metrics": {}, "coverage_seconds": 0} for i in range(days) }
+        totals, commands, providers = {}, {}, {}
+        for row in snapshot["rows"]:
+            if row["day"] not in series:
+                continue
+            metric, value = row["metric"], row["value"]
+            totals[metric] = totals.get(metric, 0) + value
+            daily = series[row["day"]]["metrics"]
+            daily[metric] = daily.get(metric, 0) + value
+            target = commands if metric.startswith("command.") else providers if metric.startswith("ai.") and row["dimension"] else None
+            if target is not None:
+                item = target.setdefault(row["dimension"], {})
+                item[metric] = item.get(metric, 0) + value
+        for row in coverage["rows"]:
+            if row["day"] in series and row["metric"] == "coverage.seconds":
+                series[row["day"]]["coverage_seconds"] += row["value"]
+        retained = None
+        if channel:
+            try:
+                retained = await app.services.users.retained_count(channel_id=channel)
+            except Exception:
+                pass  # Missing personal-store coverage must never become a false zero.
+        return {"ok": True, "days": days, "start": start.isoformat(), "end": now.date().isoformat(),
+                "as_of": now.isoformat(), "channel_id": channel,
+                "connected": bool(app.services.twitch.chat_connected),
+                "retained_users": retained, "totals": totals,
+                "series": [{"day": day, **values} for day, values in series.items()],
+                "commands": [{"name": name, "metrics": values} for name, values in sorted(commands.items())],
+                "providers": [{"name": name, "metrics": values} for name, values in sorted(providers.items())],
+                **{key: snapshot[key] for key in ("metadata", "enabled", "available", "pending", "dropped", "write_failures", "price_checked", "price_basis")}}
+
+    async def _configure_analytics(self, enabled: bool) -> dict[str, object]:
+        await self._backend.application.services.analytics.configure(enabled)
+        return {"ok": True}
+
+    async def _reset_analytics(self, confirmed: bool) -> dict[str, object]:
+        if confirmed is not True:
+            raise ValueError("Confirm clearing all profile analytics.")
+        await self._backend.application.services.analytics.reset()
+        return {"ok": True}
 
     def get_blocked_ai_users(self) -> dict[str, object]:
         services = self._backend.application.services

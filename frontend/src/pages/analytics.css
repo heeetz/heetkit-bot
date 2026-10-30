@@ -1,0 +1,27 @@
+.analytics-layout { display: grid; gap: var(--space-4); }
+.analytics-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-3); }
+.analytics-toolbar label { min-width: 160px; }
+.analytics-cards, .analytics-breakdowns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.analytics-layout .card { min-width: 0; }
+.analytics-layout h2 { font-size: 18px; margin-bottom: 8px; }
+.analytics-layout p { margin: 8px 0; overflow-wrap: anywhere; }
+.analytics-layout label:not(.switch-control), .memory-limits label { display: grid; gap: 6px; }
+.analytics-layout .select { max-width: 100%; }
+.analytics-chart { display: block; width: 100%; height: 215px; margin: 12px 0; }
+.analytics-chart text { fill: var(--muted); font-size: 13px; }
+.chart-axis { stroke: var(--separator); }
+.chart-value { stroke: var(--success); stroke-width: 2; }
+.chart-point { fill: var(--success); }
+.analytics-table { overflow-x: auto; max-width: 100%; }
+.analytics-table table { width: 100%; min-width: 450px; border-collapse: collapse; }
+.analytics-table th, .analytics-table td { padding: 8px; text-align: left; border-bottom: 1px solid var(--separator); }
+.analytics-table th { overflow-wrap: anywhere; }
+.analytics-table thead th { white-space: nowrap; }
+.analytics-table caption { text-align: left; color: var(--muted); padding: 8px; }
+.analytics-layout summary { cursor: pointer; }
+.memory-limits { display: grid; gap: 10px; width: 100%; margin-top: 12px; }
+.memory-limits input { width: 100%; min-width: 0; }
+.memory-limits .editor-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 700px) {
+  .analytics-cards, .analytics-breakdowns { grid-template-columns: minmax(0, 1fr); }
+}

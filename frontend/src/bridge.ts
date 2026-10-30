@@ -505,6 +505,35 @@ export interface LogEntry {
   text_truncated?: boolean
 }
 
+export interface AnalyticsResponse extends ActionResult {
+  days: number
+  start: string
+  end: string
+  as_of: string
+  channel_id: string | null
+  connected: boolean
+  retained_users: number | null
+  enabled: boolean
+  available: boolean
+  pending: number
+  dropped: number
+  write_failures: number
+  metadata: Record<string, string>
+  price_checked: string
+  price_basis: string
+  totals: Record<string, number>
+  series: { day: string; metrics: Record<string, number>; coverage_seconds: number }[]
+  commands: { name: string; metrics: Record<string, number> }[]
+  providers: { name: string; metrics: Record<string, number> }[]
+}
+
+export interface AIBalanceResponse extends ActionResult {
+  provider: string
+  state: 'available' | 'stale' | 'unavailable'
+  updated_at: string | null
+  balances: { currency: string; total_balance: string; granted_balance: string; topped_up_balance: string }[]
+}
+
 export interface LogsResponse {
   entries: LogEntry[]
   next_after_id?: number
@@ -558,6 +587,12 @@ export interface PythonApi {
   save_announcements(announcements: AnnouncementInput[]): Promise<ActionResult>
   get_filters(): Promise<FiltersResponse>
   get_ai_status(): Promise<AIStatus>
+  get_analytics(days?: number): Promise<AnalyticsResponse>
+  configure_analytics(enabled: boolean): Promise<ActionResult>
+  reset_analytics(confirmed: boolean): Promise<ActionResult>
+  get_ai_balance(provider: string, refresh?: boolean): Promise<AIBalanceResponse>
+  get_ai_memory_limits(): Promise<ActionResult & { stored: number; context: number }>
+  save_ai_memory_limits(stored: number, context: number): Promise<ActionResult>
   get_blocked_ai_users(): Promise<AIUserBlocksResponse>
   block_ai_user(username: string): Promise<AIUserBlocksResponse>
   unblock_ai_user(username: string): Promise<AIUserBlocksResponse>

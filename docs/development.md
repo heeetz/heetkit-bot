@@ -300,10 +300,14 @@ an aggregate write or scan. Privacy request epochs guard buffered work and an aw
 writer barrier ensures an old batch finishes before opt-out completes. Dashboard code
 can use `await services.analytics.snapshot(channel_id, days)`,
 `await services.analytics.configure(enabled)` and `await services.analytics.reset()`;
-future transports must apply the existing management authentication boundary. Reset
+both host adapters expose them through the existing private management boundary. Reset
 and enable changes invalidate older request scopes. `users.retained_count(channel_id=...)`
-returns current retained presence, not historical uniques. These backend methods do not
-add a panel, HTTP route or new permission in this change.
+returns current retained presence, not historical uniques. `ApplicationManagement`
+assembles bounded daily series and dimension breakdowns for the React Analytics page;
+callers cannot select an arbitrary channel. Missing personal-store reads remain unknown.
+AI memory count controls reuse the database's transactional prune/persist operation.
+Optional `services/ai_balance.py` uses a separate on-demand bounded query/cache and
+never occupies the chat request slot or persists provider credentials.
 
 Focused checks: `test_analytics.py`, `test_command_analytics.py`, `test_ai_usage.py`,
 the affected dispatch/send/provider/privacy/lifecycle cases, and announcement delivery

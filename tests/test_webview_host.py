@@ -55,6 +55,48 @@ def complete_bridge_coroutine(coroutine) -> Future:
     return future
 
 
+def test_analytics_and_memory_desktop_adapters_share_backend_operations(tmp_path):
+    from unittest.mock import AsyncMock
+    from app.analytics import Analytics
+    from app.config.privacy import validate_memory_limits
+    from app.config.profile_settings import apply_ai_app_settings
+    store = AppSettingsStore(tmp_path / "settings.json")
+    settings = Settings()
+    settings = apply_ai_app_settings(settings, store.snapshot())
+    collector = Analytics(None)
+
+    async def configure(stored, context, *, persist):
+        validate_memory_limits(stored, context)
+        persist()
+
+    app = SimpleNamespace(settings=settings, ai_balance=None,
+        database=SimpleNamespace(configure_memory_limits=configure), services=SimpleNamespace(
+            analytics=collector, users=SimpleNamespace(retained_count=AsyncMock(return_value=9)),
+            twitch=SimpleNamespace(chat_connected=False)))
+    bridge = WebUIBridge(SimpleNamespace(application=app, submit=complete_bridge_coroutine), app_settings=store)
+    assert {"get_analytics", "configure_analytics", "reset_analytics", "get_ai_balance", "get_ai_memory_limits", "save_ai_memory_limits"} <= set(FRONTEND_OPERATIONS)
+    asyncio.run(asyncio.to_thread(collector._initialize))
+    try:
+        assert bridge.get_ai_memory_limits() == {"ok": True, "stored": 100, "context": 5}
+        assert bridge.save_ai_memory_limits(3, 2)["ok"]
+        assert bridge.get_ai_memory_limits() == {"ok": True, "stored": 3, "context": 2}
+        assert store.snapshot().ai.history_max_entries == 3
+        assert not bridge.save_ai_memory_limits(1, 2)["ok"]
+        assert not bridge.save_ai_memory_limits(True, 1)["ok"]
+        assert not bridge.get_analytics(2)["ok"]
+        result = bridge.get_analytics(7)
+        assert result["ok"] and len(result["series"]) == 7
+        assert result["retained_users"] is None and result["channel_id"] is None
+        assert bridge.configure_analytics(False)["ok"]
+        assert not bridge.configure_analytics("false")["ok"]
+        assert not bridge.reset_analytics(False)["ok"]
+        assert bridge.reset_analytics(True)["ok"]
+        assert bridge.get_ai_balance("gemini")["state"] == "unavailable"
+        assert bridge.get_ai_balance("deepseek")["state"] == "unavailable"
+    finally:
+        asyncio.run(collector.close())
+
+
 def test_desktop_announcements_use_shared_saved_settings_and_backend_status(tmp_path):
     from app.announcements import AnnouncementScheduler, AnnouncementStore
     from app.services.twitch import TwitchAPIService

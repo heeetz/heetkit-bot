@@ -92,6 +92,8 @@ FRONTEND_OPERATIONS = (
     "export_configuration", "preview_configuration_import", "apply_configuration_import",
     "get_app_status", "get_about_info", "check_for_updates", "get_commands", "get_custom_commands",
     "get_announcements", "save_announcements",
+    "get_analytics", "configure_analytics", "reset_analytics", "get_ai_balance",
+    "get_ai_memory_limits", "save_ai_memory_limits",
     "get_filters", "get_ai_status", "get_personalities", "get_recent_logs",
     "start_ai_playground", "get_ai_playground_result", "cancel_ai_playground",
     "apply_command_settings", "save_command_settings", "reset_command_settings",
@@ -773,6 +775,31 @@ class WebUIBridge(ApplicationManagement):
 
     def cancel_ai_playground(self, request_id: object) -> dict[str, object]:
         return self._playground_operation(self._cancel_ai_playground(request_id), "cancel_ai_playground")
+
+    def _analytics_operation(self, coroutine, operation: str) -> dict[str, object]:
+        try:
+            result = self._wait_for_backend(coroutine, operation=operation,
+                                            timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS)
+            return result if isinstance(result, dict) else {"ok": True}
+        except ValueError:
+            return {"ok": False, "error": "Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N)."}
+        except Exception:
+            return {"ok": False, "error": "Management operation unavailable. Check profile storage and retry."}
+
+    def get_analytics(self, days: int = 7) -> dict[str, object]:
+        return self._analytics_operation(self._get_analytics(days), "get_analytics")
+
+    def configure_analytics(self, enabled: bool) -> dict[str, object]:
+        return self._analytics_operation(self._configure_analytics(enabled), "configure_analytics")
+
+    def reset_analytics(self, confirmed: bool) -> dict[str, object]:
+        return self._analytics_operation(self._reset_analytics(confirmed), "reset_analytics")
+
+    def get_ai_balance(self, provider: str, refresh: bool = False) -> dict[str, object]:
+        return self._analytics_operation(self._get_ai_balance(provider, refresh), "get_ai_balance")
+
+    def save_ai_memory_limits(self, stored: object, context: object) -> dict[str, object]:
+        return self._analytics_operation(self._save_ai_memory_limits(stored, context), "save_ai_memory_limits")
 
     def set_ai_memory_enabled(self, enabled: object) -> dict[str, object]:
         try:

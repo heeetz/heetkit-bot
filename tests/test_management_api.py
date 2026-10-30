@@ -128,6 +128,67 @@ async def test_announcements_authenticated_settings_status_and_shared_monitor(ap
     assert (await call("POST", "/v1/announcements", json={"announcements": []}))[1]["ok"]
 
 
+async def test_analytics_private_scoped_windows_controls_and_memory_limits(api):
+    server, call = api
+    app = server.runtime.application
+    collector = app.services.analytics
+    for path, payload in (("/v1/analytics/query", {"days": 7}), ("/v1/analytics/configure", {"enabled": False}),
+                          ("/v1/analytics/reset", {"confirmed": True}), ("/v1/ai/memory/limits", {"stored": 10, "context": 2}),
+                          ("/v1/ai/balance", {"provider": "deepseek", "refresh": True})):
+        assert (await call("POST", path, json=payload, headers={"Authorization": ""}))[0] == 401
+        assert (await call("POST", path, json=payload, headers={"Origin": "https://evil.test"}))[0] == 403
+    assert (await call("GET", "/v1/ai/memory/limits", headers={"Authorization": ""}))[0] == 401
+    collector.record("command.attempts", channel_id="200", dimension="ping", value=4)
+    collector.record("command.success", channel_id="200", dimension="ping", value=1)
+    collector.record("command.skipped", channel_id="200", dimension="ping", value=3)
+    collector.record("ai.attempts", channel_id="playground", dimension="deepseek/test", value=99)
+    collector.record("command.attempts", channel_id="201", dimension="other", value=77)
+    await collector.flush()
+    for days in (1, 7, 30, 60):
+        status, result, _ = await call("POST", "/v1/analytics/query", json={"days": days})
+        assert status == 200 and result["ok"] and len(result["series"]) == days
+        assert result["totals"]["command.attempts"] == 4
+        assert result["totals"]["command.skipped"] == 3
+        assert "ai.attempts" not in result["totals"]
+        assert result["retained_users"] == 0 and result["channel_id"] == "200"
+        assert not result["connected"] and "data_start" in result["metadata"]
+    for payload in ({"days": True}, {"days": 2}, {"days": "7"}, {"channel_id": "201"}, {"days": 7, "extra": 1}):
+        assert (await call("POST", "/v1/analytics/query", json=payload))[0] == 400
+    for stored, context in ((0, 1), (501, 1), (10, 51), (5, 6), (True, 1), (10, "2")):
+        assert (await call("POST", "/v1/ai/memory/limits", json={"stored": stored, "context": context}))[0] == 400
+    assert (await call("POST", "/v1/ai/memory/limits", json={"stored": 10, "context": 2}))[1]["ok"]
+    assert (await call("GET", "/v1/ai/memory/limits"))[1] == {"ok": True, "stored": 10, "context": 2}
+    saved = AppSettingsStore(RuntimePaths.default().app_settings).snapshot().ai
+    assert (saved.history_max_entries, saved.context_max_entries) == (10, 2)
+    assert (await call("POST", "/v1/analytics/configure", json={"enabled": False}))[1]["ok"]
+    assert not (await call("POST", "/v1/analytics/query", json={}))[1]["enabled"]
+    assert (await call("POST", "/v1/analytics/reset", json={"confirmed": False}))[0] == 400
+    assert (await call("POST", "/v1/analytics/reset", json={"confirmed": True}))[1]["ok"]
+    assert (await call("POST", "/v1/analytics/query", json={}))[1]["totals"] == {}
+    assert (await collector.snapshot("playground"))["rows"] == []
+    assert (await call("POST", "/v1/analytics/configure", json={"enabled": "false"}))[0] == 400
+    assert (await call("POST", "/v1/analytics/configure", json={"enabled": True}))[1]["ok"]
+    app.services.users.retained_count = AsyncMock(side_effect=OSError("private path"))
+    app.settings.twitch_channel_user_id = ""
+    missing = (await call("POST", "/v1/analytics/query", json={}))[1]
+    assert missing["channel_id"] is None and missing["retained_users"] is None
+
+
+async def test_balance_shared_service_secure_key_and_mocked_refresh(api, monkeypatch):
+    from pydantic import SecretStr
+    server, call = api
+    app = server.runtime.application
+    app.settings.deepseek_api_key = SecretStr("balance-key-private-sentinel")
+    get = AsyncMock(return_value={"ok": True, "provider": "deepseek", "state": "available", "balances": [
+        {"currency": "USD", "total_balance": "12.30", "granted_balance": "0", "topped_up_balance": "12.30"}], "updated_at": "2026-10-30T10:00:00Z"})
+    monkeypatch.setattr("app.services.ai_balance.AIBalance.get", get)
+    result = (await call("POST", "/v1/ai/balance", json={"provider": "deepseek", "refresh": True}))[1]
+    assert result["state"] == "available" and "sentinel" not in json.dumps(result)
+    get.assert_awaited_once_with("deepseek", "balance-key-private-sentinel", refresh=True)
+    for payload in ({"provider": "invalid"}, {"provider": "deepseek", "refresh": 1}, {"provider": "deepseek", "key": "injected"}):
+        assert (await call("POST", "/v1/ai/balance", json=payload))[0] == 400
+
+
 async def test_command_restrictions_authenticated_identity_errors_private_notes_and_immediate_removal(api, monkeypatch):
     server, call = api
     app = server.runtime.application
