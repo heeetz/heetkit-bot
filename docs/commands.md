@@ -6,7 +6,7 @@ desktop or authenticated browser control panel. Examples below use the default `
 Select **Commands**, **Filters**, **AI** or, on Desktop, **Settings** in the sidebar
 to reveal subsection shortcuts. A shortcut opens the relevant section and scrolls to
 it; selecting another page replaces the shortcuts. Commands follow **Your commands →
-Announcements → Built-in commands → Removed commands → Administrative commands →
+User restrictions → Announcements → Built-in commands → Removed commands → Administrative commands →
 Advanced: reset all built-ins**. AI follows **State → Playground → Personalities → Profile instructions →
 Response language → Models → AI access → Built-in restrictions**. Conversation memory
 is a panel in **State**, not a separate shortcut. Browser mode omits Playground and
@@ -21,6 +21,38 @@ closes the help; using help in a header does not open or close that section.
 Mouse-opened help closes shortly after the pointer leaves both the button and its
 text. Keyboard-opened help stays available until focus moves away or Escape is pressed.
 Setup steps, errors, unsaved changes and reset/delete consequences remain visible.
+
+## User restrictions
+
+On Desktop or the authenticated Server panel, open **Commands > User restrictions**.
+Add a Twitch username, select built-in/custom commands or **All commands**, and choose
+permanent access restriction, a preset/custom duration or a local expiry date/time.
+Durations range from one minute to 366 days. The list shows the local expiry and
+remaining time; the backend saves an absolute UTC expiry and honors it after downtime.
+Search the central list by login, numeric user/channel ID, command or private note.
+Edit a rule or remove it immediately. Other active rules and global AI blocks still apply.
+
+The backend must resolve the login through Twitch or recent channel observations to
+a numeric Twitch user ID; unresolved names cannot be saved. Configure a numeric channel
+ID first. Rules belong to that channel within this installation's profile. User IDs,
+built-in factory IDs and persistent custom IDs survive account/command renames,
+aliases and reconnects. The displayed login records the resolved name at creation;
+the numeric ID is authoritative. Editing keeps the original account/channel identity.
+Deleted custom-command selections retain their ID for explicit removal; recreating a
+custom command creates a new ID. All-command rules cover future commands and matched
+ordinary-message reactions, while ordinary chat remains unaffected.
+
+Restricted requests are silent and stop before command handlers, cooldown reservation,
+AI/memory work or outgoing capacity use. Logs show only a sanitized restriction reason
+and remaining time; a permanent restriction has no remaining-time value. Existing
+privacy log suppression still applies. Self-only `!optout` remains available even under
+an all-command restriction. These controls do not create Twitch bans or timeouts.
+
+Optional private notes are one line of up to 200 characters. They are visible only in
+authenticated management, never chat, provider requests or public command help.
+Restrictions and notes stay out of portable configuration exports, and imports preserve
+the destination's rules. A stopped whole-profile copy includes them; see
+[private local policy](data-and-privacy.md#private-command-restrictions).
 
 ## Scheduled announcements
 

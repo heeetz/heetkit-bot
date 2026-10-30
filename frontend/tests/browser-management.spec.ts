@@ -30,6 +30,7 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
   let profile = 'Saved instructions'
   let prompt = 'Neutral prompt'
   let customCommands: CustomCommandInfo[] = []
+  let commandRestrictions: { id: string; channel_id: string; twitch_user_id: string; username: string; command_ids: string[]; expires_at: string | null; note: string }[] = []
   let announcements: AnnouncementInfo[] = []
   let enabled = true
   let playgroundPending = false
@@ -152,6 +153,17 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     if (path === '/v1/commands/reset') Object.assign(command, structuredClone(command.default_settings), { has_saved_override: false })
     if (path === '/v1/commands/responses/save' || path === '/v1/commands/responses/apply') command.response_pool!.responses = body!.responses as string[]
     if (path === '/v1/custom-commands') result = { command_prefix: '!', permissions: ['EVERYONE', 'MODERATOR'], variables: ['sender'], commands: customCommands }
+    if (path === '/v1/command-restrictions') result = { ok: true, channel_id: '200', commands: [{ id: 'ping', label: '!ping' }], restrictions: commandRestrictions }
+    if (path === '/v1/command-restrictions/save') {
+      const data = body!.data as { id?: string; username: string; command_ids: string[]; expires_at: string | null; note: string }
+      const row = { id: data.id ?? 'http-restriction', channel_id: '200', twitch_user_id: '1234', username: data.id ? 'httpviewer' : data.username, command_ids: data.command_ids, expires_at: data.expires_at, note: data.note }
+      commandRestrictions = [...commandRestrictions.filter((item) => item.id !== row.id), row]
+      result = { ok: true, channel_id: '200', commands: [{ id: 'ping', label: '!ping' }], restrictions: commandRestrictions }
+    }
+    if (path === '/v1/command-restrictions/remove') {
+      commandRestrictions = commandRestrictions.filter((item) => item.id !== body!.restriction_id)
+      result = { ok: true, channel_id: '200', commands: [{ id: 'ping', label: '!ping' }], restrictions: commandRestrictions }
+    }
     if (path === '/v1/custom-commands/save') customCommands = [{ ...(body!.command as CustomCommandInfo), id: 'saved-command' }]
     if (path === '/v1/announcements') {
       if (request.method() === 'POST') announcements = (body!.announcements as AnnouncementInput[]).map((item, index) => ({
@@ -205,6 +217,28 @@ test('Server OpenAI controls and Playground preserve native options, usage and c
   await expect(playground.getByRole('link', { name: 'https://example.test/facts' })).toHaveAttribute('href', 'https://example.test/facts')
   await page.screenshot({ path: 'node_modules/.tmp/task11-openai-server-390.png', fullPage: true })
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+})
+
+test('Server restrictions use the authenticated management endpoints and exact payloads', async ({ page }) => {
+  const api = await server(page)
+  await page.goto('/tests/browser.fixture.html')
+  await login(page)
+  await page.getByRole('button', { name: 'Commands', exact: true }).click()
+  const panel = page.locator('#command-restrictions')
+  await expect(panel.getByText('No active user restrictions.')).toBeVisible()
+  await expect(panel).toContainText('New restrictions apply to configured channel ID 200.')
+  expect(api.calls.some((call) => call.path === '/v1/command-restrictions' && call.method === 'GET')).toBe(true)
+  await panel.getByRole('button', { name: 'Add restriction' }).click()
+  await panel.getByLabel('Twitch username').fill('httpviewer')
+  await panel.getByRole('button', { name: 'Save restriction' }).click()
+  await expect(panel.getByText('httpviewer', { exact: true })).toBeVisible()
+  expect(api.calls.find((call) => call.path === '/v1/command-restrictions/save')?.body).toEqual({ data: {
+    username: 'httpviewer', command_ids: [], expires_at: null, note: '',
+  } })
+  await panel.getByRole('button', { name: 'Remove' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('button', { name: 'Confirm' }).click()
+  expect(api.calls.find((call) => call.path === '/v1/command-restrictions/remove')?.body).toEqual({ restriction_id: 'http-restriction' })
 })
 
 for (const width of [1280, 390, 320]) {

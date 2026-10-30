@@ -111,6 +111,70 @@ class ApplicationManagement:
             for user in store.list()
         ]}
 
+    def _restriction_commands(self) -> list[dict[str, str]]:
+        app = self._backend.application
+        prefix = app.settings.command_prefix
+        with app.services.runtime_state.command_namespace_lock:
+            return [{"id": definition.name,
+                     "label": prefix + app.services.runtime_state.get_command_settings(definition.name).primary_name}
+                    for definition in app.registry.definitions()] + [
+                {"id": f"custom:{command.id}", "label": prefix + command.name}
+                for command in app.custom_commands.list()]
+
+    def get_command_restrictions(self) -> dict[str, object]:
+        try:
+            services = self._backend.application.services
+            return {"ok": True,
+                "channel_id": verified_user_id(services.settings.twitch_channel_user_id),
+                "commands": self._restriction_commands(),
+                "restrictions": [{**asdict(rule), "command_ids": list(rule.command_ids)}
+                                 for rule in services.command_restrictions.list()]}
+        except (OSError, ValueError):
+            return {"ok": False, "error": "Could not load private restrictions. Check the profile policy file."}
+
+    async def _save_command_restriction(self, data: object) -> dict[str, object]:
+        try:
+            fields = {"username", "command_ids", "expires_at", "note"}
+            if not isinstance(data, dict) or set(data) not in (fields, fields | {"id"}):
+                raise ValueError("Unexpected or missing restriction fields.")
+            username = normalize_ai_username(data["username"])
+            services = self._backend.application.services
+            channel_id = verified_user_id(services.settings.twitch_channel_user_id)
+            store = services.command_restrictions
+            if "id" in data:
+                old = store.get(data["id"])
+                channel_id, user_id = old.channel_id, old.twitch_user_id
+            else:
+                if channel_id is None:
+                    raise ValueError("Configure a verified numeric Twitch channel ID before adding restrictions.")
+                user_id = None
+                if services.twitch is not None:
+                    user_id = verified_user_id(await services.twitch.resolve_user_id(username))
+                if user_id is None:
+                    observed = await services.users.get_by_username(username, channel_id=channel_id)
+                    user_id = verified_user_id(getattr(observed, "twitch_user_id", None))
+                if user_id is None:
+                    raise ValueError("Could not resolve this login to a verified Twitch user ID. Connect Twitch or wait for this user to chat, then retry. No restriction was saved.")
+                if channel_id != services.settings.twitch_channel_user_id:
+                    raise ValueError("The configured channel changed during lookup. Refresh and retry.")
+            store.save({**data, "username": username}, channel_id=channel_id, user_id=user_id,
+                       valid_command_ids={command["id"] for command in self._restriction_commands()})
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except Exception as error:
+            self._logger.warning("Could not save command restriction error_type=%s", type(error).__name__)
+            return {"ok": False, "error": "Could not save the private restriction. Check the profile storage and identity lookup, then retry."}
+        return self.get_command_restrictions()
+
+    def remove_command_restriction(self, restriction_id: object) -> dict[str, object]:
+        try:
+            self._backend.application.services.command_restrictions.remove(restriction_id)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except OSError:
+            return {"ok": False, "error": "Could not remove the private restriction. Check the profile storage and retry."}
+        return self.get_command_restrictions()
+
     async def _block_ai_user(self, username: object) -> None:
         username = normalize_ai_username(username)
         services = self._backend.application.services

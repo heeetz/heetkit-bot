@@ -207,6 +207,31 @@ cannot be overwritten through the browser. HeetKit does not load `.env` files. S
 [development configuration](development.md#advanced-process-configuration) and
 [server secret provisioning](docker.md#prepare-private-storage-and-authorization).
 
+## Private command restrictions
+
+`config/command_restrictions.json` is a separate version-1 private policy store in the
+active profile. It stores numeric user/channel IDs, a creation-time login label, stable
+command IDs, absolute UTC expiry (or permanent), and an optional 200-character note.
+There is no SQLite schema change for this policy: installations on the legacy database
+still use the explicit, versioned channel-mapping upgrade described below.
+
+Rules enforce access only within their saved channel/profile. Expired rules stop matching
+at the expiry boundary even before physical cleanup. Startup, management reads and saved
+changes remove expired entries and their notes from the active file; removing a rule
+takes effect immediately after a successful save. No queued request is replayed.
+Malformed/unsupported policy stops startup without dropping rules or overwriting the
+file; back up and repair it while stopped. Saves are atomic and publish only after
+replacement succeeds. Limits are 1000 active rules and 1 MiB of policy data.
+
+Private notes never enter chat, AI requests, public help or portable command presets.
+Portable configuration export omits all personal command restrictions; imports preserve
+the destination's policy and reject an injected restriction section. A stopped whole-profile
+backup or move includes this file and retains its numeric channel scopes. Treat it and
+any manually retained/recovery copies as private operator policy. Expiry/removal cannot
+erase external copies. Self-service data opt-out does not remove access rules/notes;
+operators manage those separately. Existing profile-wide storage/log suppression and
+self-only `!optout` access remain in force.
+
 ## AI processing and memory
 
 Twitch AI requests send the chatter's prompt, protected shared instructions, profile
@@ -428,7 +453,8 @@ opt-outs, machine paths, Twitch identity/channel/presets, headless operation mod
 desktop startup/window preferences and operator cooldown-bypass policy are excluded and preserved on the
 destination. Set up authorization and secrets separately. Text you enter in prompts,
 commands or filters can still be private, and AI blocks include usernames/account
-IDs: review and protect the ZIP before sharing it. This is portable configuration,
+IDs: review and protect the ZIP before sharing it. Personal command restrictions and
+their private notes are excluded and remain unchanged on the destination. This is portable configuration,
 not a full private profile backup or an account migration.
 
 AI transfer includes the selected provider and separate primary/fallback choices for

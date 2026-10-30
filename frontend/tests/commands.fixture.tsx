@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client'
 import App from '../src/App'
-import type { AnnouncementInfo, AnnouncementInput, CommandInfo, CommandSettingsMetadata, CustomCommandInfo, CustomCommandInput, waitForBridge } from '../src/bridge'
+import type { AnnouncementInfo, AnnouncementInput, CommandInfo, CommandRestriction, CommandRestrictionInput, CommandSettingsMetadata, CustomCommandInfo, CustomCommandInput, waitForBridge } from '../src/bridge'
 import CommandsPage from '../src/pages/CommandsPage'
 import '../src/styles.css'
 
@@ -43,6 +43,8 @@ let customCommands: CustomCommandInfo[] = [{
   id: 'synthetic-hello', name: 'hello', enabled: true, responses: ['Hello, {sender}!', 'Welcome, {target}!'],
   permission: 'USER', per_user_seconds: 2, global_seconds: 5, aliases: ['hi'], response_mode: 'random',
 }]
+let restrictions: CommandRestriction[] = []
+let restrictionLoadFailed = false
 const commandCalls: unknown[][] = []
 Object.assign(window, { commandCalls })
 let announcements: AnnouncementInfo[] = new URLSearchParams(window.location.search).has('announcements') ? [{
@@ -132,6 +134,35 @@ window.pywebview = { api: {
     command_prefix: '!', permissions: ['USER', 'MODERATOR', 'BROADCASTER'],
     variables: ['sender', 'target', 'args', ...Array.from({ length: 9 }, (_, index) => `arg${index + 1}`), 'random_user'], commands: structuredClone(customCommands),
   }),
+  get_command_restrictions: async () => {
+    if (new URLSearchParams(window.location.search).has('restrictionLoadError') && !restrictionLoadFailed) {
+      restrictionLoadFailed = true
+      return { ok: false, error: 'Synthetic restriction list failure.' }
+    }
+    return { ok: true, channel_id: new URLSearchParams(window.location.search).has('noChannel') ? null : '42', commands: [
+      ...commands.filter((command) => !command.removed).map((command) => ({ id: command.name, label: `!${command.primary_name ?? command.name}` })),
+      ...customCommands.map((command) => ({ id: `custom:${command.id}`, label: `!${command.name}` })),
+    ], restrictions: structuredClone(restrictions) }
+  },
+  save_command_restriction: async (data: CommandRestrictionInput) => {
+    commandCalls.push(['save_command_restriction', structuredClone(data)])
+    if (new URLSearchParams(window.location.search).has('restrictionError')) return { ok: false, error: 'Synthetic identity resolution failure.' }
+    const item: CommandRestriction = { id: data.id ?? 'restriction-1', channel_id: '42', twitch_user_id: '1234', username: data.id ? restrictions.find((row) => row.id === data.id)?.username ?? 'viewer' : data.username,
+      command_ids: [...data.command_ids], expires_at: data.expires_at, note: data.note }
+    restrictions = [...restrictions.filter((row) => row.id !== item.id), item]
+    return { ok: true, channel_id: new URLSearchParams(window.location.search).has('noChannel') ? null : '42', commands: [
+      ...commands.filter((command) => !command.removed).map((command) => ({ id: command.name, label: `!${command.primary_name ?? command.name}` })),
+      ...customCommands.map((command) => ({ id: `custom:${command.id}`, label: `!${command.name}` })),
+    ], restrictions: structuredClone(restrictions) }
+  },
+  remove_command_restriction: async (id: string) => {
+    commandCalls.push(['remove_command_restriction', id])
+    restrictions = restrictions.filter((item) => item.id !== id)
+    return { ok: true, channel_id: new URLSearchParams(window.location.search).has('noChannel') ? null : '42', commands: [
+      ...commands.filter((command) => !command.removed).map((command) => ({ id: command.name, label: `!${command.primary_name ?? command.name}` })),
+      ...customCommands.map((command) => ({ id: `custom:${command.id}`, label: `!${command.name}` })),
+    ], restrictions: structuredClone(restrictions) }
+  },
   apply_command_settings: async (name: string, enabled: boolean, perUser: number, global: number, permission: string, metadata?: CommandSettingsMetadata) => settingsAction('apply', name, enabled, perUser, global, permission, metadata),
   save_command_settings: async (name: string, enabled: boolean, perUser: number, global: number, permission: string, metadata?: CommandSettingsMetadata) => settingsAction('save', name, enabled, perUser, global, permission, metadata),
   reset_command_settings: async (name: string) => settingsAction('reset', name),

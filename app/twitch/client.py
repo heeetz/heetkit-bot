@@ -215,6 +215,12 @@ async def _process_incoming_message(
     logger: logging.Logger,
 ) -> None:
 
+    # Privacy and replay/echo checks already ran. Restrict before input logging,
+    # user writes, filters, cooldowns, providers and outgoing capacity.
+    if (getattr(services, "command_restrictions", None) is not None
+            and dispatcher.is_command_restricted(incoming, services)):
+        return
+
     # Reject blocked Ask accounts before filters, content logging, user writes or AI work.
     if getattr(services, "ai_user_blocks", None) is not None and dispatcher.is_ai_request_blocked(incoming, services):
         return

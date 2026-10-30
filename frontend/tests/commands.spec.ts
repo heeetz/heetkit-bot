@@ -18,6 +18,140 @@ async function respondToConfirmation(page: Page, choice: 'Confirm' | 'Cancel') {
   await expect(dialog).toHaveCount(0)
 }
 
+for (const width of [1280, 390, 320]) {
+test(`command restrictions add verified usernames, edit fixed identity, search and remove at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 })
+  await page.goto('/tests/commands.fixture.html')
+  const panel = page.locator('#command-restrictions')
+  await expect(panel.getByText('No active user restrictions.')).toBeVisible()
+  await panel.getByRole('button', { name: 'Add restriction' }).click()
+  await panel.getByLabel('Twitch username').fill('@sampleviewer')
+  await panel.getByLabel('All commands, including ordinary-message reactions').check()
+  await selectOption(panel.getByLabel('Expiry'), 'permanent')
+  await panel.getByLabel('Private note').fill('Operator-only note')
+  await panel.screenshot({ path: `node_modules/.tmp/task16-restriction-editor-${width}.png` })
+  await panel.getByRole('button', { name: 'Save restriction' }).click()
+  await expect(panel.getByText('sampleviewer', { exact: true })).toBeVisible()
+  await expect(panel.getByText('All commands, including ordinary-message reactions', { exact: true })).toBeVisible()
+  let savedCall = (await calls(page)).find((call: unknown[]) => call[0] === 'save_command_restriction') as unknown[]
+  expect(savedCall[1]).toMatchObject({ username: 'sampleviewer', command_ids: [], expires_at: null, note: 'Operator-only note' })
+  await panel.getByRole('button', { name: 'Edit' }).click()
+  await expect(panel.getByText(/Verified identity and channel scope are fixed/)).toBeVisible()
+  await expect(panel.getByLabel('Twitch username')).toHaveCount(0)
+  await panel.getByLabel('All commands, including ordinary-message reactions').uncheck()
+  await panel.getByLabel('!ping').check()
+  await panel.getByRole('button', { name: 'Save restriction' }).click()
+  savedCall = (await calls(page)).filter((call: unknown[]) => call[0] === 'save_command_restriction').at(-1) as unknown[]
+  expect(savedCall[1]).toMatchObject({ id: 'restriction-1', username: 'sampleviewer', command_ids: ['ping'] })
+  await panel.getByLabel('Search restrictions').fill('no match')
+  await expect(panel.getByText('No restrictions match this search.')).toBeVisible()
+  await panel.getByLabel('Search restrictions').fill('operator-only')
+  await panel.screenshot({ path: `node_modules/.tmp/task16-restriction-list-${width}.png` })
+  await panel.getByRole('button', { name: 'Remove' }).click()
+  await respondToConfirmation(page, 'Confirm')
+  await panel.getByLabel('Search restrictions').fill('')
+  await expect(panel.getByText('No active user restrictions.')).toBeVisible()
+  expect((await calls(page)).some((call: unknown[]) => call[0] === 'remove_command_restriction' && call[1] === 'restriction-1')).toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+})
+}
+
+test('command restriction durations and local expiry save absolute UTC dates', async ({ page }) => {
+  await page.goto('/tests/commands.fixture.html')
+  const panel = page.locator('#command-restrictions')
+  await panel.getByRole('button', { name: 'Add restriction' }).click()
+  await panel.getByLabel('Twitch username').fill('sampleviewer')
+  await selectOption(panel.getByLabel('Expiry', { exact: true }), 'duration')
+  await selectOption(panel.getByLabel('Duration', { exact: true }), 'custom')
+  await panel.getByLabel('Custom duration in seconds').fill('30')
+  await panel.getByRole('button', { name: 'Save restriction' }).click()
+  await expect(panel.getByRole('alert')).toContainText('Choose a duration from 1 minute')
+  await panel.getByLabel('Custom duration in seconds').fill('3600')
+  const before = Date.now()
+  await panel.getByRole('button', { name: 'Save restriction' }).click()
+  await expect(panel.getByText('sampleviewer', { exact: true })).toBeVisible()
+  const saved = (await calls(page)).find((call: unknown[]) => call[0] === 'save_command_restriction')[1]
+  expect(new Date(saved.expires_at).getTime()).toBeGreaterThanOrEqual(before + 3600_000)
+  expect(saved.expires_at).toMatch(/Z$/)
+  await expect(panel.locator('time')).toHaveAttribute('dateTime', saved.expires_at)
+  await panel.getByRole('button', { name: 'Edit', exact: true }).click()
+  await panel.getByLabel('Private note').fill('Edited note, same expiry')
+  await panel.getByRole('button', { name: 'Save restriction' }).click()
+  await expect(panel.getByText('sampleviewer', { exact: true })).toBeVisible()
+  const noteEdit = (await calls(page)).filter((call: unknown[]) => call[0] === 'save_command_restriction').at(-1)[1]
+  expect(noteEdit.expires_at).toBe(saved.expires_at)
+  await panel.getByRole('button', { name: 'Edit', exact: true }).click()
+  await panel.getByLabel('Expires at (your local time)').fill('2030-01-01T12:00')
+  await panel.getByRole('button', { name: 'Save restriction' }).click()
+  await expect(panel.getByRole('alert')).toContainText('no more than 366 days')
+  const local = new Date(Date.now() + 86400_000)
+  const localValue = `${local.getFullYear()}-${String(local.getMonth()+1).padStart(2, '0')}-${String(local.getDate()).padStart(2, '0')}T12:00`
+  await panel.getByLabel('Expires at (your local time)').fill(localValue)
+  await panel.getByRole('button', { name: 'Save restriction' }).click()
+  await expect(panel.getByText('sampleviewer', { exact: true })).toBeVisible()
+  const edited = (await calls(page)).filter((call: unknown[]) => call[0] === 'save_command_restriction').at(-1)[1]
+  expect(edited.expires_at).toBe(new Date(localValue).toISOString())
+})
+
+test('command restriction removal cannot be undone by a late list response', async ({ page }) => {
+  await page.clock.install()
+  await page.goto('/tests/commands.fixture.html')
+  const panel = page.locator('#command-restrictions')
+  await panel.getByRole('button', { name: 'Add restriction' }).click()
+  await panel.getByLabel('Twitch username').fill('sampleviewer')
+  await panel.getByRole('button', { name: 'Save restriction' }).click()
+  await expect(panel.getByText('sampleviewer', { exact: true })).toBeVisible()
+  await page.evaluate(async () => {
+    const api = Reflect.get(window, 'pywebview').api
+    const previous = await api.get_command_restrictions()
+    api.get_command_restrictions = () => new Promise((resolve) => Reflect.set(window, 'resolveStaleRestrictions', () => resolve(previous)))
+  })
+  await page.clock.fastForward(31_000)
+  await expect.poll(() => page.evaluate(() => typeof Reflect.get(window, 'resolveStaleRestrictions'))).toBe('function')
+  await panel.getByRole('button', { name: 'Remove', exact: true }).click()
+  await respondToConfirmation(page, 'Confirm')
+  await expect(panel.getByText('No active user restrictions.')).toBeVisible()
+  await page.evaluate(() => Reflect.get(window, 'resolveStaleRestrictions')())
+  await expect(panel.getByText('No active user restrictions.')).toBeVisible()
+})
+
+test('an empty selected-command scope cannot be saved as an all-command restriction', async ({ page }) => {
+  await page.goto('/tests/commands.fixture.html')
+  const panel = page.locator('#command-restrictions')
+  await panel.getByRole('button', { name: 'Add restriction' }).click()
+  await panel.getByLabel('Twitch username').fill('sampleviewer')
+  await panel.getByLabel('All commands, including ordinary-message reactions').uncheck()
+  await panel.getByRole('button', { name: 'Save restriction' }).click()
+  await expect(page.getByRole('alert')).toContainText('Choose at least one command or select all commands.')
+  expect((await calls(page)).some((call: unknown[]) => call[0] === 'save_command_restriction')).toBe(false)
+})
+
+test('new restrictions require a verified configured channel scope', async ({ page }) => {
+  await page.goto('/tests/commands.fixture.html?noChannel')
+  const panel = page.locator('#command-restrictions')
+  await expect(panel).toContainText('Configure a verified numeric target channel in Settings')
+  await expect(panel.getByRole('button', { name: 'Add restriction' })).toBeDisabled()
+})
+
+test('command restriction identity failures remain visible and preserve the draft', async ({ page }) => {
+  await page.goto('/tests/commands.fixture.html?restrictionError')
+  const panel = page.locator('#command-restrictions')
+  await panel.getByRole('button', { name: 'Add restriction' }).click()
+  await panel.getByLabel('Twitch username').fill('unknownviewer')
+  await panel.getByRole('button', { name: 'Save restriction' }).click()
+  await expect(page.getByRole('alert')).toContainText('Synthetic identity resolution failure.')
+  await expect(panel.getByLabel('Twitch username')).toHaveValue('unknownviewer')
+})
+
+test('command restriction list load errors offer a working retry', async ({ page }) => {
+  await page.goto('/tests/commands.fixture.html?restrictionLoadError')
+  const panel = page.locator('#command-restrictions')
+  await expect(page.getByRole('alert')).toContainText('Synthetic restriction list failure.')
+  await panel.getByRole('button', { name: 'Retry' }).click()
+  await expect(panel.getByText('No active user restrictions.')).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+})
+
 for (const width of [1280, 400]) {
   test(`primary chat names preserve drafts, report conflicts and restore factory naming at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 })

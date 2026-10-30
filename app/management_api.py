@@ -182,6 +182,7 @@ READS = {
     "/v1/ai/language": "get_ai_language_settings",
     "/v1/personalities": "get_personalities",
     "/v1/blocked-users": "get_blocked_ai_users",
+    "/v1/command-restrictions": "get_command_restrictions",
 }
 WRITES = {
     "/v1/configuration/export": "export_configuration",
@@ -217,6 +218,8 @@ WRITES = {
     "/v1/ai/instructions/reset": "reset_profile_instructions",
     "/v1/blocked-users/block": "_block_ai_user",
     "/v1/blocked-users/unblock": "unblock_ai_user",
+    "/v1/command-restrictions/save": "_save_command_restriction",
+    "/v1/command-restrictions/remove": "remove_command_restriction",
 }
 
 
@@ -550,7 +553,8 @@ class ManagementAPI:
             # Domain validators remain authoritative; never echo their exception
             # text (some legacy validators interpolate supplied values).
             if result.get("ok") is False:
-                if path == "/v1/ai/setup":
+                if path in {"/v1/ai/setup", "/v1/command-restrictions",
+                            "/v1/command-restrictions/save", "/v1/command-restrictions/remove"}:
                     return result
                 return {"ok": False, "error": "Operation rejected; check input, profile storage and current state."}
             if method == "POST":

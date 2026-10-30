@@ -1,4 +1,4 @@
-import type { ActionResult, CommandSettingsMetadata, PythonApi } from './bridge'
+import type { ActionResult, CommandRestrictionsResponse, CommandSettingsMetadata, PythonApi } from './bridge'
 
 type SessionState = { authenticated: boolean; message: string }
 let sessionToken = ''
@@ -133,6 +133,9 @@ export const browserApi: PythonApi = {
   get_about_info: () => read('/v1/about'),
   get_commands: () => read('/v1/commands'),
   get_custom_commands: () => read('/v1/custom-commands'),
+  get_command_restrictions: () => read<CommandRestrictionsResponse>('/v1/command-restrictions'),
+  save_command_restriction: (data) => write<CommandRestrictionsResponse>('/v1/command-restrictions/save', { data }),
+  remove_command_restriction: (restriction_id) => write<CommandRestrictionsResponse>('/v1/command-restrictions/remove', { restriction_id }),
   get_announcements: () => read('/v1/announcements'),
   save_announcements: (announcements) => write('/v1/announcements', { announcements }),
   get_filters: () => read('/v1/filters'),

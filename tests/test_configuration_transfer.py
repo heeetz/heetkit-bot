@@ -712,3 +712,27 @@ async def test_server_export_transfers_explicit_anytime_and_restrictions(profile
     target.state.server_runtime = False
     target.apply(encoded, target.preview(encoded)["preview_token"], True)
     assert target.state.command_stream_available("live_only")
+
+
+async def test_personal_command_restrictions_and_notes_never_transfer(profiles):
+    source, target = profiles("restricted-desktop"), profiles("restricted-server")
+    def restrict(transfer, note, user_id):
+        store = transfer.app.services.command_restrictions
+        store.save({"username": "viewer", "command_ids": ["ask"], "expires_at": None, "note": note},
+                   channel_id="200", user_id=user_id, valid_command_ids={"ask"})
+        return store._path.read_bytes()
+    restrict(source, "SOURCE PRIVATE NOTE", "123")
+    original = restrict(target, "DESTINATION PRIVATE NOTE", "456")
+    encoded = source.export()["archive_base64"]
+    payload, _, _ = unpack_configuration(encoded)
+    assert "SOURCE PRIVATE NOTE" not in json.dumps(payload)
+    assert "command_restrictions" not in payload
+    preview = target.preview(encoded)
+    assert any("private notes" in value for value in preview["preserved"])
+    target.apply(encoded, preview["preview_token"], True)
+    assert target.app.services.command_restrictions._path.read_bytes() == original
+    assert target.app.services.command_restrictions.match("200", "456", "ask")
+    payload["command_restrictions"] = [{"note": "INJECTED NOTE"}]
+    with pytest.raises(ValueError):
+        target.preview(pack_configuration(payload))
+    assert target.app.services.command_restrictions._path.read_bytes() == original

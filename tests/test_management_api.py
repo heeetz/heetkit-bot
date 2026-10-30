@@ -8,7 +8,7 @@ import socket
 import ssl
 import time
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import aiohttp
 import pytest
@@ -126,6 +126,52 @@ async def test_announcements_authenticated_settings_status_and_shared_monitor(ap
     assert (await call("POST", "/v1/announcements", json={"announcements": large}))[1]["ok"]
     assert len((await call("GET", "/v1/announcements"))[1]["announcements"]) == 6
     assert (await call("POST", "/v1/announcements", json={"announcements": []}))[1]["ok"]
+
+
+async def test_command_restrictions_authenticated_identity_errors_private_notes_and_immediate_removal(api, monkeypatch):
+    server, call = api
+    app = server.runtime.application
+    assert (await call("GET", "/v1/command-restrictions", headers={"Authorization": ""}))[0] == 401
+    raw = {"username": "viewer", "command_ids": ["ask"], "expires_at": None, "note": "PRIVATE RESTRICTION NOTE"}
+    assert (await call("POST", "/v1/command-restrictions/save", json={"data": raw},
+                       headers={"Authorization": ""}))[0] == 401
+    unresolved = (await call("POST", "/v1/command-restrictions/save", json={"data": raw}))[1]
+    assert not unresolved["ok"] and "verified Twitch user ID" in unresolved["error"]
+    monkeypatch.setattr(app.services.twitch, "resolve_user_id", AsyncMock(return_value="123"))
+    # Every factory command stays selectable, even hidden/admin/disabled/removed.
+    app.services.runtime_state.remove_builtin_command("fate")
+    app.services.runtime_state.apply_command_settings("ask", primary_name="question")
+    result = (await call("POST", "/v1/command-restrictions/save", json={"data": raw}))[1]
+    assert result["ok"]
+    assert {row["id"] for row in result["commands"]} == {row.name for row in app.registry.definitions()}
+    assert {"ask", "tg", "erase", "seen", "commands", "help", "fate"} <= {row["id"] for row in result["commands"]}
+    assert next(row["label"] for row in result["commands"] if row["id"] == "ask") == "!question"
+    rule = result["restrictions"][0]
+    assert rule["channel_id"] == "200" and rule["twitch_user_id"] == "123"
+    assert rule["note"] == raw["note"]
+    assert app.services.command_restrictions.match("200", "123", "ask")
+    for changes in ({"note": "x" * 201}, {"command_ids": ["optout"]}, {"twitch_user_id": "456"}):
+        invalid = (await call("POST", "/v1/command-restrictions/save", json={"data": {**raw, **changes}}))[1]
+        assert not invalid["ok"]
+        assert raw["note"] not in json.dumps(invalid)
+    updated = (await call("POST", "/v1/command-restrictions/save",
+                         json={"data": {**raw, "id": rule["id"], "command_ids": []}}))[1]
+    assert updated["ok"] and app.services.command_restrictions.match("200", "123", "commands")
+    from app.twitch.events import IncomingChatMessage, ChatAuthor
+    cooldown = Mock()
+    monkeypatch.setattr(app.dispatcher._cooldowns, "check_and_record", cooldown)
+    for definition in app.registry.definitions():
+        name = app.services.runtime_state.get_command_settings(definition.name).primary_name
+        incoming = IncomingChatMessage("channel", "!" + name, ChatAuthor("123", "renamed"),
+                                       AsyncMock(), channel_id="200")
+        assert await app.dispatcher.dispatch(incoming, app.services)
+        incoming.respond.assert_not_awaited()
+    cooldown.assert_not_called()
+    assert (await call("GET", "/v1/command-restrictions"))[1] == updated
+    assert raw["note"] not in json.dumps((await call("POST", "/v1/logs/recent", json={}))[1])
+    removed = (await call("POST", "/v1/command-restrictions/remove", json={"restriction_id": rule["id"]}))[1]
+    assert removed["ok"] and removed["restrictions"] == []
+    assert app.services.command_restrictions.match("200", "123", "ask") is None
 
 
 async def test_ai_setup_save_reload_validation_and_guide_use_authenticated_shared_operations(api):

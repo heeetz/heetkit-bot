@@ -109,6 +109,7 @@ FRONTEND_OPERATIONS = (
     "get_ai_setup", "save_ai_setup",
     "get_setup_guide", "save_setup_guide",
     "get_blocked_ai_users", "block_ai_user", "unblock_ai_user",
+    "get_command_restrictions", "save_command_restriction", "remove_command_restriction",
     "get_ai_language_settings", "update_ai_language_settings",
     "replace_credential", "remove_credential", "test_credential", "start_bot", "stop_bot",
     "open_external_link",
@@ -586,6 +587,15 @@ class WebUIBridge(ApplicationManagement):
             self._logger.exception("Could not save AI user block")
             return {"ok": False, "error": "Could not save AI user block. Check the profile file and try again."}
         return self.get_blocked_ai_users()
+
+    def save_command_restriction(self, data: object) -> dict[str, object]:
+        try:
+            return self._wait_for_backend(self._save_command_restriction(data),
+                operation="save_command_restriction", timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS)
+        except (BridgeOperationTimedOut, FutureCancelledError):
+            return {"ok": False, "error": "Saving the restriction timed out or was cancelled. Refresh the list before retrying."}
+        except (ValueError, OSError, RuntimeError):
+            return {"ok": False, "error": "Could not save the private restriction. Check the profile policy file."}
 
 
     def get_profile_info(self) -> dict[str, str]:

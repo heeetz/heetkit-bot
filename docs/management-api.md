@@ -410,6 +410,9 @@ POST writes persist and apply immediately unless stated otherwise.
 | POST `filters/test` | `text`, `source` (`active` or `draft`), `payload` (`null` for active; filter object for draft) |
 | GET `blocked-users` | AI-blocked usernames and whether a verified ID is recorded |
 | POST `blocked-users/block`, `blocked-users/unblock` | `username` |
+| GET `command-restrictions` | Private authenticated list, configured numeric `channel_id`, and current stable command IDs/labels |
+| POST `command-restrictions/save` | `data`: `username`, `command_ids` (empty means all), `expires_at` (UTC-offset ISO date or null), `note`; optional `id` edits an existing rule while preserving account/channel identity |
+| POST `command-restrictions/remove` | `restriction_id`; immediate removal, with other rules/global AI blocks still effective |
 | GET / POST `triggers` | GET: ordinary-message reactions. POST: complete `triggers` list, at most 100 unique IDs |
 | POST `logs/recent` | Optional integer `after_id` (default 0), `limit` (1–200, default 100); allowlisted operator activity plus `next_after_id` advancing across excluded entries; authentication required |
 | GET `diagnostics` | Process uptime, desired session state and settings/restart boundaries |

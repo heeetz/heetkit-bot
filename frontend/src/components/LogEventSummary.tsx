@@ -41,6 +41,9 @@ const contextLabels: Record<string, string> = {
   command: 'command',
   channel: 'channel',
   retry_after_seconds: 'retry',
+  remaining_seconds: 'remaining',
+  reason: 'reason',
+  outcome: 'outcome',
   duration_seconds: 'duration',
   model: 'model',
   provider: 'provider',
@@ -125,6 +128,9 @@ const selfDescribingFields = new Set([
   'command',
   'channel',
   'retry_after_seconds',
+  'remaining_seconds',
+  'reason',
+  'outcome',
   'duration_seconds',
   'model',
 ])
@@ -168,6 +174,9 @@ function formatContextValue(key: string, value: LogContextValue) {
     return prefixedValue(value, '#')
   }
   if (key === 'retry_after_seconds') {
+    return formatSeconds(value, ' remaining')
+  }
+  if (key === 'remaining_seconds') {
     return formatSeconds(value, ' remaining')
   }
   if (key === 'duration_seconds') {

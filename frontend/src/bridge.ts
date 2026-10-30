@@ -171,6 +171,35 @@ export interface CustomCommandsResponse {
   commands: CustomCommandInfo[]
 }
 
+export interface CommandRestriction {
+  id: string
+  channel_id: string
+  twitch_user_id: string
+  username: string
+  command_ids: string[]
+  expires_at: string | null
+  note: string
+}
+
+export interface CommandRestrictionChoice {
+  id: string
+  label: string
+}
+
+export interface CommandRestrictionsResponse extends ActionResult {
+  channel_id: string | null
+  commands: CommandRestrictionChoice[]
+  restrictions: CommandRestriction[]
+}
+
+export interface CommandRestrictionInput {
+  id?: string
+  username: string
+  command_ids: string[]
+  expires_at: string | null
+  note: string
+}
+
 export type FilterCategoryName = 'words' | 'phrases' | 'patterns'
 
 export interface FilterEntry {
@@ -503,6 +532,9 @@ export interface PythonApi {
   check_for_updates(): Promise<UpdateCheckResponse>
   get_commands(): Promise<CommandsResponse>
   get_custom_commands(): Promise<CustomCommandsResponse>
+  get_command_restrictions(): Promise<CommandRestrictionsResponse>
+  save_command_restriction(data: CommandRestrictionInput): Promise<CommandRestrictionsResponse>
+  remove_command_restriction(restrictionId: string): Promise<CommandRestrictionsResponse>
   get_announcements(): Promise<AnnouncementsResponse>
   save_announcements(announcements: AnnouncementInput[]): Promise<ActionResult>
   get_filters(): Promise<FiltersResponse>

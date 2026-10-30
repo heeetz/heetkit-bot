@@ -12,6 +12,7 @@ from app.runtime_state import RuntimeState
 from app.services.twitch import TwitchAPIService
 from app.ai_user_blocks import AIUserBlocklist
 from app.custom_commands import CustomCommandStore
+from app.command_restrictions import CommandRestrictionStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,3 +28,4 @@ class ApplicationServices:
     twitch: TwitchAPIService | None = None
     ai_user_blocks: AIUserBlocklist | None = None
     custom_commands: CustomCommandStore | None = None
+    command_restrictions: CommandRestrictionStore | None = None

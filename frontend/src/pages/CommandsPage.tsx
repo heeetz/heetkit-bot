@@ -18,6 +18,7 @@ import Switch from '../components/Switch'
 import AccordionHeader from '../components/AccordionHeader'
 import HelpTip from '../components/HelpTip'
 import AnnouncementsPanel from '../components/AnnouncementsPanel'
+import CommandRestrictions from '../components/CommandRestrictions'
 
 interface CommandDraft {
   primaryName: string
@@ -1037,6 +1038,10 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         </div>
       )}
     </section>
+    <CommandRestrictions active={active} commands={[
+      ...(data?.commands.filter((command) => !command.removed).map((command) => ({ id: command.name, label: `!${command.primary_name ?? command.name}` })) ?? []),
+      ...(customData?.commands.map((command) => ({ id: `custom:${command.id}`, label: `!${command.name}` })) ?? []),
+    ]} />
     <AnnouncementsPanel active={active} />
     <section className="card command-editor-card" id="builtin-commands">
       <div className="section-heading">

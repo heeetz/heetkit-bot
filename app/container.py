@@ -13,6 +13,7 @@ from app.commands.registry import CommandDispatcher, CommandRegistry
 from app.custom_commands import CustomCommandStore
 from app.announcements import AnnouncementStore, AnnouncementScheduler
 from app.ai_user_blocks import AIUserBlocklist
+from app.command_restrictions import CommandRestrictionStore
 from app.message_triggers import MessageTriggerStore
 from app.runtime_paths import RuntimePaths
 from app.fun_settings import FunSettingsStore
@@ -131,6 +132,7 @@ def build_application(settings: Settings) -> Application:
         twitch=twitch_api,
         ai_user_blocks=AIUserBlocklist(paths.config / "ai_user_blocks.json"),
         custom_commands=custom_commands,
+        command_restrictions=CommandRestrictionStore(paths.config / "command_restrictions.json"),
     )
     message_triggers = MessageTriggerStore(paths.message_triggers)
     dispatcher = CommandDispatcher(

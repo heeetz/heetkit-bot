@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from contextlib import nullcontext
 
 from app.command_settings import CommandSettings
+from app.command_restrictions import expiry, utcnow
 from app.config.commands import TG_DEFAULT_MAX_COUNT
 from app.config.privacy import PRIVACY_COMMAND
 from app.custom_commands import CustomCommand, CustomCommandStore, render_response
@@ -299,6 +300,38 @@ class CommandDispatcher:
         operator_event(self._logger, "ai_user_blocked", "ai_user_blocked", reason="ai_user_blocked")
         return True
 
+    def is_command_restricted(self, message: IncomingChatMessage, services: ApplicationServices) -> bool:
+        """Shared ingress/dispatch guard; no note or message text enters diagnostics."""
+        store = getattr(services, "command_restrictions", None)
+        if store is None or message.is_outgoing:
+            return False
+        parsed = parse_command(message.content, self._command_prefix)
+        if parsed and parsed[0] == PRIVACY_COMMAND:
+            return False
+        definition = self._builtin_definition(parsed[0]) if parsed else None
+        custom = (self._custom_commands.get_by_name(parsed[0])
+                  if parsed and definition is None and self._custom_commands else None)
+        if parsed and definition is None and custom is None:
+            return False
+        if not parsed and (self._message_triggers is None or not any(
+                trigger.enabled and trigger.matches(message.content) for trigger in self._message_triggers.list())):
+            return False
+        command_id = definition.name if definition else f"custom:{custom.id}" if custom else ""
+        # All-command restrictions also cover ordinary-message reactions.
+        return self._command_id_restricted(message, services, command_id)
+
+    def _command_id_restricted(self, message: IncomingChatMessage, services: ApplicationServices, command_id: str) -> bool:
+        store = getattr(services, "command_restrictions", None)
+        if store is None:
+            return False
+        rule = store.match(message.channel_id, message.author.twitch_user_id, command_id)
+        if rule is None:
+            return False
+        end = expiry(rule.expires_at)
+        remaining = max(0, round((end - utcnow()).total_seconds(), 2)) if end else None
+        self._outcome("restricted", reason="personal_command_restriction", remaining_seconds=remaining)
+        return True
+
     async def _dispatch_trigger(self, message: IncomingChatMessage, services: ApplicationServices) -> bool:
         if self._message_triggers is None or message.is_outgoing:
             return False
@@ -308,6 +341,8 @@ class CommandDispatcher:
             if random.random() >= trigger.probability:
                 continue
             with operator_event_scope(command_id=f"trigger:{trigger.id}", source="announcement"):
+                if self._command_id_restricted(message, services, f"trigger:{trigger.id}"):
+                    return True
                 operator_event(self._logger, "command.input", "received")
                 cooldown = self._cooldowns.check_and_record(
                     command_name=f"trigger:{trigger.id}",
@@ -372,6 +407,8 @@ class CommandDispatcher:
             # Keep the transport-neutral boundary safe as well as Twitch ingress.
             if message.is_outgoing:
                 return False
+            if self.is_command_restricted(message, services):
+                return True
             if self.is_ai_request_blocked(message, services):
                 return True
             parsed_command = parse_command(message.content, self._command_prefix)
@@ -402,6 +439,10 @@ class CommandDispatcher:
                     else self._runtime_state.get_command_settings(definition.name)
                 )
             cooldown_key = f"custom:{custom.id}" if custom is not None else definition.name
+            # Recheck the captured identity, even if a native namespace edit raced
+            # the early ingress/dispatch lookup. Never gate by a mutable trigger.
+            if self._command_id_restricted(message, services, cooldown_key):
+                return True
 
             command_output_limiter = (
                 None if definition.name == "tg" or (custom is not None and custom.response_mode == "burst") else self._output_limiter
