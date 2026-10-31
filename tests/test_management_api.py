@@ -873,7 +873,93 @@ async def test_process_restarts_honor_modes_with_management_available(monkeypatc
     assert len(sessions) == (2 if mode in {"manual", "always_on"} else 0)
 
 
-async def test_terminal_twitch_failure_leaves_browser_management_alive(monkeypatch, unused_tcp_port):
+def _shutdown_task_frames(task):
+    """Bounded await locations only: never task names, source lines or frame locals."""
+    frames = []
+    current = task.get_coro()
+    for _ in range(16):
+        code = getattr(current, "cr_code", None)
+        frame = getattr(current, "cr_frame", None)
+        if code is not None:
+            frames.append((code.co_name, frame.f_lineno if frame is not None else None))
+        current = getattr(current, "cr_await", None)
+        if current is None:
+            break
+    return frames
+
+
+@pytest.fixture
+def shutdown_diagnostics(monkeypatch):
+    """Retain phase durations and sample pending awaits before timeout cancellation."""
+    from app.analytics import Analytics
+    from app.container import Application
+    from app.database.database import Database
+    from app.operation_policy import OperationPolicy
+
+    phases, applications = [], []
+    build = headless.build_application
+    def capture(value):
+        application = build(value)
+        applications.append(application)
+        return application
+    monkeypatch.setattr(headless, "build_application", capture)
+    for owner, method in ((OperationPolicy, "close"), (BotRuntime, "stop_bot"),
+                          (BotRuntime, "shutdown"), (Application, "shutdown"),
+                          (Analytics, "close"), (Analytics, "flush"), (Database, "close")):
+        def wrap(original, label):
+            async def measured(*args, **kwargs):
+                start = time.perf_counter()
+                phases.append((label, "enter"))
+                try:
+                    return await original(*args, **kwargs)
+                finally:
+                    phases.append((label, round(time.perf_counter() - start, 6)))
+            return measured
+        monkeypatch.setattr(owner, method, wrap(getattr(owner, method), owner.__name__ + "." + method))
+    cancel = headless._cancel_task
+    async def capture_before_cancel(task, **kwargs):
+        if getattr(task.get_coro(), "__name__", None) == "shutdown" and not task.done():
+            tasks = [task, *(item for item in asyncio.all_tasks() if item is not task and not item.done())]
+            pending = [_shutdown_task_frames(item) for item in tasks[:32]]
+            logging.getLogger(__name__).warning("Shutdown deadline diagnostics: phases=%s pending=%s",
+                phases[-32:], pending[:32])
+        return await cancel(task, **kwargs)
+    monkeypatch.setattr(headless, "_cancel_task", capture_before_cancel)
+    return applications
+
+
+async def test_shutdown_diagnostics_capture_before_cancellation(shutdown_diagnostics, caplog):
+    entered = asyncio.Event()
+    async def shutdown():
+        private_payload = "PRIVATE-SHUTDOWN-SENTINEL"
+        entered.set()
+        await asyncio.Event().wait()
+        return private_payload
+    task = asyncio.create_task(shutdown(), name="PRIVATE-TASK-SENTINEL")
+    await entered.wait()
+    assert await headless._cancel_task(task)
+    assert task.cancelled()
+    assert "Shutdown deadline diagnostics" in caplog.text and "shutdown" in caplog.text
+    assert "PRIVATE" not in caplog.text
+
+
+async def test_shutdown_task_locations_exclude_private_locals_and_task_names():
+    async def waiting():
+        private_payload = "PRIVATE-DIAGNOSTIC-SENTINEL"
+        await asyncio.Event().wait()
+        return private_payload
+    task = asyncio.create_task(waiting(), name="PRIVATE-TASK-SENTINEL")
+    try:
+        await asyncio.sleep(0)
+        locations = _shutdown_task_frames(task)
+        assert locations and len(locations) <= 16
+        assert "PRIVATE" not in str(locations)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_terminal_twitch_failure_leaves_browser_management_alive(monkeypatch, unused_tcp_port, shutdown_diagnostics):
     value = settings()
     stop = asyncio.Event()
     failed = asyncio.Event()
@@ -899,6 +985,10 @@ async def test_terminal_twitch_failure_leaves_browser_management_alive(monkeypat
     finally:
         stop.set()
         assert await asyncio.wait_for(worker, 5) == 0
+    application = shutdown_diagnostics[0]
+    assert application.database._retention_task is None
+    assert application.services.analytics._connection is None
+    assert application.services.analytics._task.done()
 
 
 def test_private_bind_token_files_and_secret_safe_configuration(tmp_path, monkeypatch):
