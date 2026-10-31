@@ -250,7 +250,7 @@ test('Server restrictions use the authenticated management endpoints and exact p
   await panel.getByRole('button', { name: 'Save restriction' }).click()
   await expect(panel.getByText('httpviewer', { exact: true })).toBeVisible()
   expect(api.calls.find((call) => call.path === '/v1/command-restrictions/save')?.body).toEqual({ data: {
-    username: 'httpviewer', command_ids: [], expires_at: null, note: '',
+    username: 'httpviewer', command_ids: [], expires_at: null, note: '', scope: 'channel',
   } })
   await panel.getByRole('button', { name: 'Remove' }).click()
   const dialog = page.getByRole('dialog')
@@ -536,7 +536,7 @@ for (const width of [1280, 900, 390, 320]) {
     const command = page.locator('.command-card').first()
     await command.getByRole('button', { name: 'Edit !ping', exact: true }).click()
     const enabled = command.locator('.command-enabled-toggle')
-    const settings = command.locator('.command-fields > label')
+    const settings = command.locator('.command-fields > .form-field, .command-fields > label')
     await expect(settings).toHaveCount(4)
     await expect(settings).toHaveText([/Permission/, /Stream availability/, /Per-user cooldown/, /Global cooldown/])
     const enabledBounds = (await enabled.boundingBox())!

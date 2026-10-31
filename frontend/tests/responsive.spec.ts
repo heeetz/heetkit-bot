@@ -259,7 +259,7 @@ test('the desktop menu scrolls independently at minimum height and keyboard help
   await nav.evaluate((element) => { element.scrollTop = element.scrollHeight })
   expect(await nav.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
   expect((await brand.boundingBox())!.y).toBeCloseTo(brandBefore.y, 0)
-  await expect(nav.getByRole('button', { name: 'AI access', exact: true })).toBeInViewport()
+  await expect(nav.getByRole('button', { name: 'About', exact: true })).toBeInViewport()
 
   await nav.getByRole('button', { name: 'Profile instructions', exact: true }).click()
   const card = page.locator('#ai-profile-instructions')

@@ -47,7 +47,7 @@ nav button:hover, nav button.active { color: var(--text); background: var(--hove
 .sidebar-subnav button.active { color: var(--text); background: #302656; }
 .sidebar nav button:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .commands-layout > [id], .filters-layout > [id], .ai-layout > [id] { scroll-margin-top: 24px; }
-.command-card, .custom-command-editor { scroll-margin-top: 24px; }
+.command-card, .custom-command-editor, .restriction-panel { scroll-margin-top: 24px; }
 main { min-width: 0; height: 100vh; padding: var(--space-6); overflow-y: auto; }
 .page-content { width: min(100%, 1280px); min-width: 0; margin-inline: auto; container: page-content / inline-size; }
 header { margin-bottom: 28px; }
@@ -695,7 +695,7 @@ td { color: var(--text); }
   .about-details { grid-template-columns: 1fr; }
   .about-link-list { align-items: stretch; flex-direction: column; }
   .about-link-list button { text-align: left; }
-  .commands-layout > [id], .command-card, .custom-command-editor, .filters-layout > [id], .ai-layout > [id], .settings-page[id] { scroll-margin-top: calc(var(--sidebar-height, 146px) + 24px); }
+  .commands-layout > [id], .command-card, .custom-command-editor, .restriction-panel, .filters-layout > [id], .ai-layout > [id], .settings-page[id] { scroll-margin-top: calc(var(--sidebar-height, 146px) + 24px); }
   .ai-layout > .feedback-toast, .commands-layout > .feedback-toast, .settings-layout > .feedback-toast { top: 72px; }
   .editor-footer { align-items: flex-start; flex-direction: column; }
 }
