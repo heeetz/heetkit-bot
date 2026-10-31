@@ -1,9 +1,11 @@
 # Private management API
 
-The headless runtime has an optional HTTP API for one administrator managing one
-bot. It reuses the desktop's application operations, command namespace, validation,
-configuration stores and active runtime. The same listener serves the existing
-React interface for browsers and an explicit JSON API for native clients.
+Server uses the same bot core and settings as Desktop. Its optional private HTTP
+listener serves the browser panel and a JSON API for one administrator.
+
+For ordinary use, start with [Browser panel](#browser-panel) and
+[Twitch setup](twitch-setup.md#server-browser-setup). The remaining sections are the
+administrator/API reference: keep the authentication, proxy and request limits intact.
 
 ## Enable private access
 
@@ -211,57 +213,33 @@ separate operator-controlled deployment work.
 
 ## Browser panel
 
-Open [the local panel](http://127.0.0.1:8765/) after enabling management. Source
-installs need `npm ci` and `npm run build` in `frontend/` first; installed packages
-use their staged frontend. The Docker image builds the same React source itself.
-A missing build returns a safe 503 message without affecting native API access.
-The desktop continues to use its normal pywebview bridge and build process.
+Open the local panel after enabling management. Source installs need `npm ci` and
+`npm run build` in `frontend/`; Docker compiles the same UI during its image build.
+Missing assets return a safe 503 without disabling the API.
 
-Enter the management token in the password field. It is exchanged for a random
-session token held only in this tab's memory. Neither token is stored in browser
-storage, cookies or URLs. Sessions expire after one hour without automatic renewal;
-reload requires signing in again. Sign out clears the interface and drafts immediately
-and revokes the session on the server when reachable. At most eight sessions exist;
-another login replaces the oldest when full. Restart invalidates every session;
-rotating the administrator token still requires restart. A disconnected sign-out
-clears local access, but its unreachable server session lasts until expiry/restart.
+Sign in with the management token. The panel exchanges it for a tab-only session:
+no tokens in URLs, cookies or browser storage. Sessions expire after one hour;
+reload requires sign-in. At most eight sessions exist. Restart invalidates them all.
+Sign out clears local drafts immediately and revokes the server session when reachable.
 
-Unrelated cookies from other services on the same local host do not prevent loading
-or signing in, including in Firefox. The server ignores cookies on both asset and
-API requests; they never authenticate a request or select a session. The panel's
-API fetches omit cookies, and HeetKit never sets or clears another service's cookies.
-The normal bounded-header limits still apply.
+Use loopback HTTP (or an SSH tunnel), or the explicitly configured private HTTPS
+proxy. Private-LAN plain HTTP cannot sign in. The page calls only its own origin;
+there is no CORS access. Keep management private and retain exact Host/proxy checks.
+Cookies from other services are ignored and never authenticate HeetKit requests.
 
-Use loopback HTTP (including an SSH tunnel) or HTTPS. Plain HTTP to a private LAN
-address cannot sign in. Browser requests must use the exact same origin as the page;
-there is no CORS access or remote-server address field. An existing private HTTPS
-proxy must preserve the exact configured Host including port. The corresponding
-`https://IP:port` origin is accepted; forwarded headers do not establish trust.
-DNS hostname authorities remain unsupported. Do not expose this service publicly.
+The panel shares Desktop's Commands, filters/tester, AI/Playground, Analytics, Logs
+and settings operations. Apply is session-only; Save persists. Stopping the bot does
+not close management. Native folders/tray/update actions remain Desktop-only.
 
-Commands, response pools, custom commands, filters/tester, personalities, instructions,
-AI enablement/memory/language/models, blocked users, Dashboard and operator activity
-reuse the existing pages and server operations. Apply retains the existing session-only
-meaning; Save persists and applies. Bot stop/start keeps the panel available.
-Settings supports [first-run Twitch setup and saved channel presets](twitch-setup.md#server-browser-setup),
-explicit channel switching and credential creation, replacement, testing and removal. It shows
-presence/source and last validation status, never stored values. Gemini is optional.
-Saving, renaming, selecting or deleting a preset does not change the bot target or
-connection. Switch applies a stored target through controlled session shutdown,
-preserving credentials, authorization and mode. An already-running Manual session
-resumes; a stopped one stays stopped. Automatic modes reconcile the new target.
-Native folders/tray actions and desktop update checks are unavailable in browser mode.
-AI Playground and ordinary project links are available.
+[Server Twitch setup](twitch-setup.md#server-browser-setup) supports first-run consent,
+private credential changes and saved channels. Saving a preset does not switch the
+active channel; explicit Switch stops the old session and preserves authorization
+and operation mode. [Configuration transfer](data-and-privacy.md#portable-configuration-transfer)
+previews changes before import and excludes credentials, history and deployment policy.
 
-Settings also supports [portable configuration export/import](data-and-privacy.md#portable-configuration-transfer)
-using the same ZIP as Desktop, with upload, preview and explicit confirmation.
-Imported configuration applies live; secrets, authorization, history and deployment
-settings remain local to the destination.
-
-Browser status/AI share one snapshot every five seconds; logs refresh every five
-seconds only while open. Hidden tabs pause polling. Requests do not overlap within
-each polling loop. Errors identify unavailable servers or expired sessions; a 401
-clears access and returns to sign-in. Mutations are never automatically retried.
+Status/AI poll every five seconds; Logs polls only while open. Hidden tabs pause
+polling. Requests do not overlap within a polling loop. A 401 returns to sign-in;
+failed mutations are never automatically retried.
 
 ## Docker opt-in
 

@@ -30,8 +30,8 @@ The defaults are the last **100 stored exchanges (N)** and **5 model-context exc
 than N. Writes, startup and saved limit changes enforce the count cap; retrieval
 never expands it. Limits are backend settings in `config/app_settings.json` under
 `ai.history_max_entries` and `ai.context_max_entries`; stop the application before
-manual edits. Invalid limits stop startup. There are no count controls in the panel
-yet. The memory toggle still stops subsequent memory reads/writes.
+manual edits. Invalid limits stop startup. Use **AI > Conversation memory** to save these limits in the panel.
+The memory toggle stops subsequent memory reads/writes.
 
 Expiry uses UTC elapsed time. Expired records are excluded from lookups immediately;
 physical database cleanup runs at application startup and hourly while the application
@@ -112,180 +112,82 @@ the reported conflict with the application stopped.
 
 ## Daily local aggregates
 
-Both hosts collect the same backend counters in a separate profile-local file beside
-the personal database, named `<database-name>.analytics.sqlite3`. Rows contain only
-UTC calendar day, stable channel ID, bounded stable command ID or provider/model,
-metric and numeric value. They contain no viewer ID/login, arguments, ordinary chat
-bodies, prompts/replies, exceptions, provider payloads, reasoning or request/event IDs.
-The profile is implicit in the file location. Rows expire after 60 UTC calendar days,
-including cleanup while collection is disabled; reads exclude expired days immediately.
-Nothing is uploaded. This file is excluded from portable configuration presets.
+**Analytics** on either host shows Today / 7 / 30 / 60 UTC calendar-day totals,
+trends and command/provider breakdowns for the configured channel. Its retained-user
+card is a current snapshot, not historical daily unique viewers. Playground usage is
+separate and excluded from channel totals.
 
-Only resolved built-in/custom commands count as attempts; aliases and renames share
-their stable ID. Unknown commands belonging to other bots and message reactions are
-excluded. Attempts, execution starts and terminal results are distinct. Permission,
-cooldown, availability, filtering and other precheck skips are not execution errors.
-An ordinary handler return is incomplete unless it explicitly completes work or
-confirms delivery. A Burst has one attempt and one terminal result: all sends confirmed
-means success; mixed delivery is partial, ambiguous delivery is uncertain, and definite
-failure is an error. A recovered provider failure need not fail its command.
+The separate `<database-name>.analytics.sqlite3` file holds daily counters, channel IDs,
+bounded command/provider/model dimensions and observation metadata. It contains no
+viewer identities, chat bodies, prompts/replies, provider payloads or request IDs.
+Rows expire after 60 UTC calendar days, even when collection is disabled. Nothing is
+uploaded, and this file is excluded from portable configuration exports.
 
-AI logical requests and each provider/model attempt, success/error and fallback are
-separate. Available numeric usage from failed attempts and tool continuations is
-included. Missing counts are unknown, never zero; reported-count counters distinguish
-partial token totals. Input includes cached/tool-input tokens and output includes
-reasoning tokens; those breakdowns are subsets and are not added twice. Latency uses
-a fixed bounded histogram. Playground has its own scope, separate from channels and
-without viewer memory. Optional saved AI exchanges remain a separate personal store.
+Attempts, execution starts and terminal outcomes are different facts. Skips are not
+execution errors; generated text is not confirmed delivery. Missing usage is unknown,
+not zero. Cached/reasoning token breakdowns are subsets, not extra totals to add twice.
+Spend is a dated **known USD subtotal**, never an invoice or account balance. The page
+marks missing usage/pricing, disabled/disconnected periods, drops and incomplete windows.
+It does not infer audience activity during downtime or reconstruct historical users.
 
-Eligible observed-input counters cover accepted current-session human messages only,
-after ingress/privacy/filter checks, without saving bodies. Scheduled announcements
-have separate attempted/sent/failed/uncertain totals. Connection duration is split at
-UTC midnight, with start/reconnect/error counters. Process coverage, data-start,
-last-start/write, disabled transitions and unclean-start metadata expose observation
-limits. Downtime and disconnected periods are not measured audience activity.
-“Observed users in this channel” means the **current** non-expired, non-suppressed
-presence-row count. Last-seen timestamps cannot establish historical daily or 7/30-day
-unique audiences; no daily identity ledger or historical unique chart is created.
+Updates are buffered and written in bounded batches off the command loop. Crashes,
+full buffers and write failures can lose updates; coverage is not exactly-once billing.
+Opt-outs exclude pending/late identifying work and usage, but fresh provider calls may
+still cost money. Anonymous totals have no per-viewer contribution ledger. Small buckets
+can still identify someone when combined with other information: keep them private and
+reset the collection if necessary when handling a request.
 
-Collection uses a bounded 4,096-item transient buffer and batches of at most 256.
-Overflow, rejected excess dimensions and failed writes surface as drops/write gaps.
-Writes and scans run off the command loop against the separate file, so they do not
-hold personal-storage locks. This is not exactly-once accounting across crashes.
-Opt-outs invalidate queued and late request work, including after withdrawal; their
-usage is omitted even though fresh provider calls may still incur charges. Already
-committed anonymous totals have no per-viewer contribution ledger. Small channel,
-command or model buckets may still become personal when linked to other information:
-keep them private, assess requests in context and reset the aggregate collection when
-necessary rather than attempting to reconstruct an individual's contributions.
+**Collect analytics** saves immediately. **Reset all profile analytics** requires
+confirmation and clears every channel plus Playground, including pending updates.
+It does not erase personal history, opt-outs, credentials or settings. Backups need
+separate review: restoring an old aggregate file restores its old totals.
 
-Open **Analytics** between Logs and Settings on either host for Today / 7 / 30 / 60
-UTC calendar-day totals, one selectable trend and command/provider breakdowns. The
-retained-user card is a current channel snapshot; it is never a historical curve.
-Data start, observation coverage, disconnected/disabled periods, dropped updates and
-unknown usage/pricing identify incomplete windows. Playground usage is excluded.
-The page is restricted to private authenticated management, with no public leaderboard.
-**Collect analytics** persists immediately; **Reset all profile analytics** requires
-confirmation and clears all channels and Playground, including pending updates.
-A stopped operator can also
-retire the aggregate collection by removing only its identified analytics SQLite file
-and matching `-wal`/`-shm` sidecars; startup creates an empty collection. This does not
-erase personal presence/history, credentials or settings. Review copied profiles and
-backups separately; restoring an old aggregate file restores its old totals.
-
-Spend is a **known USD subtotal**, never an invoice or provider balance. The dated
-2026-10-30 snapshot covers standard paid text rates for GPT-4.1 mini (including its
-2025-04-14 snapshot), Gemini 2.5 Flash and Flash-Lite; other models show missing prices.
-Reported cached-input counts use their supported discounted rate; reasoning is already
-included in output. Standard OpenAI search calls include the known tool fee, with
-unresolved search-content billing marked incomplete. Missing usage/cache breakdowns,
-Gemini tier/project search allowances and unsupported charges remain incomplete.
-DeepSeek rates are unavailable in this snapshot because its current time/holiday
-schedule and retired aliases are not resolved here. No rates are scraped at runtime,
-no balance-based spend is inferred and no billing credentials are requested.
-Rate sources: [OpenAI model](https://developers.openai.com/api/docs/models/gpt-4.1-mini),
-[OpenAI tools](https://developers.openai.com/api/docs/pricing),
-[Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing),
-[DeepSeek pricing](https://api-docs.deepseek.com/quick_start/pricing/).
+The operator may also remove only the identified analytics file and its matching
+`-wal`/`-shm` sidecars with the whole application stopped. Startup creates an empty store.
+Do not delete the personal database to reset Analytics; that would also lose opt-outs.
 
 ## Credentials and local data
 
-Within the profile, `config/` holds JSON settings, commands, personalities, AI blocks
-and reactions, plus editable filter text in `config/filters/`. Activity and AI memory
-use `data/heetkit.db`; Twitch authorization uses `auth/twitchio_tokens.json`.
+| Location | What it contains |
+| --- | --- |
+| `config/` | Settings, commands, personalities, instructions, restrictions and filters |
+| `data/heetkit.db` | Channel-scoped presence/AI history, profile-wide opt-outs and migration metadata |
+| `auth/twitchio_tokens.json` | Twitch access/refresh tokens |
+| `auth/server_credentials.json` | Server browser-managed secrets and provider keys |
+| OS keyring | Desktop client secret/provider keys; separate from profile backups |
 
-- On Desktop, provider keys and Twitch client secrets use the OS keyring
-  (Windows Credential Manager on Windows). They are separate from profile backups.
-- Twitch access and refresh tokens are stored in the profile's `auth/` directory.
-- Server browser-managed client secrets and provider keys are stored in
-  `auth/server_credentials.json` within the persistent profile. Atomic replacement
-  uses private staging files (0600) and an owner-only auth directory (0700) on Linux;
-  Windows relies on the private directory's inherited ACLs. This provides access
-  control, not encryption at rest. Protect the host, volume and backups separately.
-- The local database contains channel IDs, Twitch user IDs, usernames, first/last-seen timestamps,
-  successful AI exchanges when memory is enabled, and storage opt-out IDs with nullable
-  stored Twitch usernames and actual opt-out timestamps.
-  `users`, `ai_memory_entries` and `privacy_opt_outs` are separate tables; the latter
-  is profile-wide and exempt from age/count expiry. Schema/migration metadata records
-  the database version, explicit legacy mapping and aggregate exclusion counts.
-- Legacy `config/ai_user_blocks.json` entries move into private command restrictions.
-  The old active list is emptied only after the destination is durably saved.
-- Settings, personality prompts, profile instructions, custom replies, filters and
-  recovery copies can contain private community information.
-- Desktop and authenticated Server Logs share an operator activity feed: command
-  inputs/outcomes, permitted reply attempts and fixed lifecycle events. Ordinary chat
-  text is excluded, including text that activates a message trigger; eligible normal
-  chat still updates last-seen. Profile filters, ignored AI input, AI account blocks and
-  storage opt-outs run before personal text capture. Provider payloads, reasoning,
-  raw exception prose and rejected AI output are excluded. Reply text is the exact
-  attempted send, including any mention, with confirmed/failed/uncertain delivery
-  shown separately. Text over 4 KiB is explicitly marked as a truncated excerpt.
-  The feed is separate from 60-day AI memory and does not add database copies.
-  Desktop source launches also write console diagnostics; Headless stderr/Docker logs
-  retain their separate lifecycle-only policy. Captured console/service/container
-  logs need their own access and retention policy. HeetKit creates no application
-  log files. Clear view affects this display, leaving the backend buffer and stored
-  last-seen/AI memory intact. Filters apply to the currently retained display only.
-  Event details link retained input, AI and send events by request ID; an evicted event
-  cannot be recovered there. A confirmed export saves only a snapshot of the filtered
-  view as JSON, including personal text/identities. Review before sharing; exported
-  files are outside HeetKit retention and require separate deletion. Desktop uses
-  a native Save dialog and rejects selected events that have already expired from
-  the backend buffer; Server uses a browser download of the confirmed snapshot.
-- Cooldowns temporarily use account IDs in memory, and stream-category lookup has a
-  90-second memory cache. Frontend drafts, Playground results and up to 500 displayed
-  log entries live in React memory, capped at 1 MiB serialized UTF-8. The backend log buffer also holds at most 500
-  entries, with a 1 MiB serialized UTF-8 budget and a 16 KiB per-entry ceiling,
-  until displaced or process exit. Text fields are bounded; oversized entries are
-  omitted. No application use of localStorage,
-  sessionStorage, IndexedDB or cookies was found. The embedded browser and an external
-  browser used for OAuth or links may maintain their own engine data.
-  Opted-out requests suppress application diagnostics for that asynchronous request,
-  including its command replies/errors, while other viewers' diagnostics continue.
-  External logging integrations and already captured output require operator review.
-- Semantic command events carry transient request/event IDs, canonical built-in or
-  stable custom/trigger identity, channel, invocation name and command/announcement
-  source. Each attempted response has its own ID and, when returned, a Twitch message
-  ID. Echoes and repeated Twitch input IDs do not count as new invocations. Correlation
-  caches retain at most 2,048 IDs each for ten minutes, with a 256-byte bound on each
-  identity component. These IDs are not added to the database.
-  Decisions distinguish disabled commands, permission/availability/filter rejections,
-  unavailable AI, cooldown remaining time and output-limiter skips. Cooldown rejections
-  remain silent in chat. Handler completion and generated AI text do not establish
-  delivery: sends report confirmed, failed or uncertain. Only a transport-confirmed
-  AI reply can be saved as a delivered memory exchange. Missing results, timeouts or
-  network failures can leave delivery uncertain; definitive API/SDK rejections fail.
-  Correlation diagnostics show pending-send waits, replay/echo/quarantine drops and
-  remaining pause time without viewer names, chat text, Twitch IDs or inherited
-  request context. Repeated wait/drop decisions are limited to one event per reason and
-  account/channel every five seconds; quarantine expiry reports the total drops
-  even without new chat. Another uncertain send can extend the existing pause.
-  Filter rejection is visible without rejected text or input context, subject to
-  the same storage opt-out and privacy-check suppression as other request events.
-  These events stay in the operator feed; Headless stderr remains lifecycle-only.
-  Failed command outcomes include the exception class and a fixed operation stage
-  (for example, `ChatSessionClosedError` at `send_session`); transport failures carry
-  their class at `transport_send`. Exception messages, tracebacks and provider
-  payloads are excluded, and opted-out requests retain diagnostic suppression.
-  Connection lifecycle records use opaque client/socket/send-session references,
-  ownership flags and bounded counters. Their strict scalar/enum projection is
-  shared by the authenticated feed and fixed Headless lifecycle stream, preserving
-  evidence beyond the feed's eviction window without SDK/HTTP debug logging.
-  Duplicate notices classify SDK dispatch, notification, subscription and transport
-  relationships using opaque metadata under the existing replay-cache count/TTL;
-  raw Twitch IDs and message text are excluded. Counts are duplicate decisions,
-  not evidence that commands were lost.
-- AI blocks, connection presets, optional cooldown-exception IDs and private text in
-  settings/recovery copies are operator-managed configuration, with no automatic
-  60-day expiry. Credentials and settings are not removed by personal-data cleanup.
-  Review them separately when handling a privacy request.
+These files and their recovery copies are private. Linux Server credential writes use
+owner-only directories/private files, but are **not encryption at rest**. Protect the
+host, volume and backups. Desktop keyring values take priority over intentional process
+environment fallbacks. Server nonempty environment/`_FILE` credentials take priority over
+browser-managed values and cannot be replaced through the panel. HeetKit does not load
+`.env` files. See [process configuration](development.md#advanced-process-configuration).
 
-Desktop can use intentional process environment credential fallbacks; stored keyring
-values take priority. Headless uses nonempty private environment or `_FILE` inputs
-ahead of browser-managed credentials, without reading the keyring. External values
-cannot be overwritten through the browser. HeetKit does not load `.env` files. See
-[development configuration](development.md#advanced-process-configuration) and
-[server secret provisioning](docker.md#prepare-private-storage-and-authorization).
+Logs on Desktop and authenticated Server show permitted command input/reply attempts,
+outcomes and fixed lifecycle events. Ordinary chat text, provider payloads, reasoning,
+rejected AI output and raw exception prose are excluded. Opt-outs suppress later
+request diagnostics too; already captured logs need separate operator handling.
+
+The live feed is memory-only: at most 500 entries / 1 MiB, with bounded text/excerpt
+markers. Clear view clears the display, not the backend buffer or saved history.
+Confirmed export creates a private JSON snapshot outside automatic retention; review
+it before sharing and delete it separately. Console/service/Docker logs also need
+an operator retention policy. HeetKit creates no application log files.
+
+Temporary cooldown/correlation state uses bounded account/message-ID caches, not a
+chat archive. Correlation tracks replay/echo/uncertain-send decisions and automatically
+reports pause expiry. Sanitized client/socket/session references and readiness flags
+help diagnosis without raw Twitch IDs or chat text. Duplicate counts alone do not
+prove lost commands. Only a transport-confirmed AI reply becomes delivered memory.
+
+Browser/native UI drafts and Playground results stay in memory. The app does not use
+cookies, localStorage, sessionStorage or IndexedDB for its application state; browser
+engines and external OAuth pages may keep their own data. Close the UI to clear drafts.
+
+Credentials, saved channels, access rules, notes and custom text do not receive the
+personal database's 60-day expiry. Review these, old profiles, exports and recovery
+copies separately when handling privacy requests. Portable configuration excludes
+credentials, authorization, personal history, opt-outs and private access policy.
 
 ## Private command restrictions
 
@@ -326,54 +228,39 @@ self-only `!optout` access remain in force.
 
 ## AI processing and memory
 
-Twitch AI requests send the chatter's prompt, protected shared instructions, profile
-instructions and the selected personality prompt to the selected provider (Google
-Gemini by default, or the direct DeepSeek API), with the current stream
-category when available. When memory is enabled, up to M recent unexpired successful
-exchanges (default five) for that chatter in that channel are included too. Switching
-channels never moves a pending exchange into the new channel's history. Gemini requests needing current information may use Google
-Search grounding; DeepSeek search is not enabled. Credential **Test** and **Discover
-models** contact the chosen provider. Provider terms and data handling apply; see the live
-[Gemini pricing and data-use information](https://ai.google.dev/gemini-api/docs/pricing).
-The transport does not attach the viewer's Twitch ID or username as a separate
-provider identity field, but prompts, history and operator instructions can themselves
-identify people. The selected provider receives its API key and ordinary connection information.
-DeepSeek thinking is explicitly disabled; only final answer text is exposed by the
-adapter. See [DeepSeek backend setup](ai-setup.md#deepseek-backend-configuration).
-Local expiry/deletion does not send a provider deletion request.
+AI chat sends the current question, shared/profile/personality instructions and
+available stream category to the selected Gemini, DeepSeek or OpenAI provider. If
+memory is enabled, up to M recent successful exchanges for that viewer/channel are
+included. A configured cross-provider fallback may receive the same permitted context
+only after explicit consent. Search can also send context to the provider's tools.
 
-Twitch receives OAuth/refresh requests, authorized bot/channel IDs, category,
-followage and account-lookup requests, and outgoing messages. Incoming chat is
-received through Twitch EventSub. Permissions, VIP/moderator/subscriber flags and
-followage results are used transiently rather than saved as viewer profiles.
+HeetKit does not attach a separate Twitch viewer-ID/username identity field, but the
+text itself can identify people. The provider receives its key and ordinary network
+connection information. Provider retention/terms are independent of local deletion.
+OpenAI requests use `store: false` and no server conversation history; that is not a
+promise about every provider's retention. Thinking/tool continuations are not saved
+as chat or memory. Required source attribution is preserved or the answer is withheld.
+See [AI setup](ai-setup.md#thinking-search-and-fallback-boundaries).
 
-The Desktop-only **AI Playground** makes real requests to the selected provider with the same instructions
-and output checks, but sends no viewer memory or stream category and writes no chat activity or AI
-memory. Prompts and results are not saved as test cases. **Filter Tester** runs locally
-without contacting Twitch or an AI provider. See [AI setup](ai-setup.md#test-locally-with-ai-playground)
-and [filter testing](commands.md#test-filters-locally).
+Playground works on Desktop and authenticated Server. It makes real provider requests
+with the applied instructions/filters, but no viewer memory, stream category or chat
+activity; results are not saved as test cases. It consumes provider quota and proves
+no Twitch delivery. Filter Tester runs locally without a provider request.
 
-The `!weather` command sends the supplied place query to Open-Meteo's geocoding
-service, then sends the returned coordinates to its forecast service.
+Twitch receives authorization/refresh, account/channel/category/follower lookups and
+outgoing messages; incoming chat arrives through EventSub. Role/follower checks are
+transient, not a stored viewer-role profile. Weather sends the place query to
+Open-Meteo geocoding, then coordinates to its forecast service. Desktop's manual
+update check contacts GitHub's public release API without profile/chat credentials.
 
-On Desktop, **About → Updates → Check for updates** contacts GitHub's public release
-API only when clicked.
-It sends a standard request for HeetKit's latest stable release, without GitHub
-authentication, chat content, profile paths or provider credentials. The version
-comparison happens locally, check results are not saved to the profile, and saved
-settings and profile data remain unchanged. GitHub
-receives ordinary connection information such as your IP address. **Open release /
-downloads** opens the official release page in your browser; browser privacy settings
-apply there. See [update checking](release-process.md#check-for-updates).
+Turning memory off stops subsequent reads/writes, while older pairs remain subject
+to count limits, 60-day expiry and deletion. `!erase <username>` clears a known
+viewer's AI memory in the current channel; it does not remove presence or suppress
+future storage. Use `!optout` or the operator privacy procedure for that broader scope.
 
-Turning memory off stops using and saving exchanges for subsequent requests; existing
-exchanges remain until expiry or deletion. The `!erase <username>` command (Broadcaster
-by default, configurable down to Moderator) deletes
-stored AI memory for a known user. It does not remove that user's activity record.
-See [commands](commands.md) and [AI setup](ai-setup.md).
-
-Do not put secrets or private information into AI prompts or chat sent to Google.
-Avoid sharing profile folders, database files, tokens, recovery copies or unredacted logs.
+Do not put secrets or unnecessary personal information in prompts, instructions or
+chat. Keep profile folders, databases, tokens, recovery copies and unredacted logs
+private. Local deletion does not send a Twitch/provider deletion request.
 
 ## Manual privacy requests
 

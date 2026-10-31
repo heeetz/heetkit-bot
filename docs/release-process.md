@@ -20,24 +20,14 @@ outputs without rebuilding; it cannot select a moving branch tip or a latest run
 
 ## Check for updates
 
-In **About → Updates**, choose **Check for updates** to compare the running version
-with the latest stable public release. The card shows the current and latest versions,
-the release title/date and a short preview of its notes. Only a greater stable
-`major.minor.patch` version is offered as an update; an equal or older stable release
-does not prompt a downgrade. A running beta can discover its final stable version.
-Drafts and prereleases are excluded from update results.
+Use **About > Updates > Check for updates** to compare with the latest public stable
+release. Only a newer stable version is offered; drafts/prereleases are excluded.
+The check is manual, uses GitHub's public API and does not change settings or install
+anything. Offline/rate-limit errors leave the rest of the app usable.
 
-The check uses GitHub's public API without signing in. If offline, temporarily limited
-by GitHub, or unable to read a valid release response, the card reports the problem
-and lets you retry while the rest of HeetKit remains usable. **Open release / downloads**
-opens the official stable release page in your default browser, including when a check
-fails. It provides the full notes and installer/portable downloads.
-
-Checks run only when requested and leave saved settings and profiles unchanged.
-HeetKit does not download or launch an installer, replace its executable, or check
-automatically at startup. To install an update, download the installer from the release
-page, quit HeetKit fully using **tray Exit**, then run setup. Existing settings are
-retained; see the upgrade and retention guidance below.
+Open the official release page, download the installer or ZIP, and quit Desktop fully
+with **tray Exit** before updating. Existing profiles are retained. Server updates
+are a separate operation described in the [Docker guide](docker.md#backup-restore-and-updates).
 
 ## Build inputs and version
 

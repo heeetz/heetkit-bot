@@ -183,105 +183,36 @@ management API integration tests and frontend configuration-transfer tests.
 
 ### Twitch connection ownership
 
-[`TwitchChatBot`](../app/twitch/client.py) adapts TwitchIO authorization, chat
-subscriptions/events and connection-state reporting. TwitchIO owns token validation/
-refresh, EventSub reconnect/backoff and resubscription. Application code serializes
-atomic private token-cache writes, retains rotations and untouched records after
-partial loading, and flushes before shutdown clears the managed cache.
+One `BotRuntime` owns one Twitch session. TwitchIO owns socket recovery and token
+refresh; the application must not add a competing reconnect loop.
 
-Desktop authorization uses explicit, expiring single-use OAuth state and the local
-callback. Headless disables that desktop listener and supports preauthorized profile
-state or authenticated ServerSetup through the same TwitchIO exchange/cache lifecycle.
-Server's default localhost callback shares the management port; the explicitly
-configured private HTTPS callback uses the same fixed routes and expiring
-session-bound attempt. Desktop retains port 4343. Network/TLS setup remains external. See
-[remote management](management-api.md#private-remote-https).
-ServerSetup's temporary HTTP client selects the verified managed bot token for API
-lookups without starting chat, subscriptions or the Desktop adapter. Setup commits
-the existing atomic token cache once; temporary-client cleanup never retries that
-write. Its integration tests in `tests/test_server_setup.py` run real TwitchIO OAuth,
-token validation/refresh, user models, persistence and cleanup against local mocked
-HTTP endpoints. [Safe operation diagnostics](management-api.md#twitch-authorization-diagnostics)
-separate failures without rendering provider errors or OAuth values.
-Its supervisor observes authorization loss, terminal failures and unexpected session
-completion; it does not add a competing reconnect loop. A cache file, live process or
-socket welcome alone does not prove chat delivery. [Docker health](docker.md#run-and-inspect)
-reports recent supervision of connection or intentional idle state; live refresh/reconnect and cloud recovery
-need their own acceptance evidence.
+- `BotRuntime` owns startup, stop and shutdown. Its lifecycle lock prevents another
+  start from racing an active close/token flush. Observation tasks shield the session
+  from cancellation so graceful shutdown can persist tokens first.
+- `TwitchAPIService` binds a client/account/channel to a captured `ChatSendSession`.
+  Readiness is distinct from a running process. A retired sender never follows a new
+  connection; stop/loss/channel switch invalidates it. An already submitted HTTP send
+  may still arrive, so uncertain delivery is never automatically retried.
+- `TwitchChatBot.event_message` checks current ownership before reserving a replay ID.
+  Closing/retired readers cannot consume an active client's copy. The adapter drains
+  SDK reconnect tasks when closing; socket-close handling distinguishes active,
+  unwelcomed and superseded sockets.
+- All reply paths share `ChatSender`: normal output uses one five-second limiter;
+  explicit Bursts have bounded counts/spacing. Only `sent=True` confirms delivery
+  and permits saving a delivered AI exchange.
+- Correlation uses bounded message-ID caches, not text matching. Ambiguous sends pause
+  that sending account's input to prevent loops; other accounts continue. Timers end
+  the pause without new ingress and preserve request privacy suppression.
 
-Commands, custom replies, triggers and independent chat sends share
-[`ChatSender`](../app/twitch/sending.py) for output limits, per-send activity and
-delivery results. Ordinary output shares one application-owned five-second limiter;
-explicit bounded Bursts retain their existing bypass and spacing. Only `sent=True`
-reports confirmed delivery. Failed, uncertain and limiter-skipped sends retain their
-existing meanings, including the AI memory gate.
+Inspect `app/bot_runtime.py`, `app/services/twitch.py`, `app/twitch/client.py`,
+`sending.py` and `message_correlation.py`. Focused coverage lives in the matching
+runtime/client/service, lifecycle, chat-sending and correlation tests.
 
-Non-command producers capture `services.twitch.chat_sender()` before awaiting their
-work, then await its `reply(content)`. This uses the bound TwitchIO client and managed
-bot user token to send ordinary chat to the captured channel, without an incoming
-message, extra OAuth flow or message queue. The producer must retain that sender
-through delays; acquiring a new one later deliberately selects the current connection.
-[`AnnouncementScheduler`](../app/announcements.py) is the application-owned producer
-for saved Regular and Highlighted schedules on both hosts. Highlighted captures
-`services.twitch.announcement_sender()`, using the same session and limiter with an
-explicit managed bot user token and the channel accent color. The SDK's successful
-204 response has no message ID; the adapter marks it accepted without ordinary
-message-ID correlation or uncertainty quarantine. Announcements arrive as separate
-ChatNotification events, outside the bot's ChatMessage-only subscription. HTTP failures
-never fall back to ordinary sends. New consent includes `moderator:manage:announcements`;
-base chat grants remain valid, and Settings supports explicit permission renewal.
-It starts with application startup
-and drains on shutdown; connection changes synchronously reset its ephemeral
-deadlines/activity and cancel pending output. It owns one serial send worker and
-bounded Desktop stream polling. Server uses the existing OperationPolicy monitor,
-including its expiry and unknown-state rules. Saved collections live in
-`config/announcements.json`, participate in portable replacement/rollback and use
-the existing atomic-save/recovery rules. See [announcement behavior](commands.md#scheduled-announcements)
-and [`test_announcements.py`](../tests/test_announcements.py).
-The optional `delivery_mode` field defaults to `regular` when reading old collections
-or portable archives; newly saved records always include it. Runtime outcomes remain transient.
-
-Each connection owns its in-flight sends and Burst timers. Stop, connection loss,
-authorization failure and channel replacement invalidate captured senders and cancel
-outstanding output. Close drains cancellation before TwitchIO/token cleanup; a recovered
-connection creates a new send session. Late command/AI results and captured independent
-senders cannot follow it to the recovered connection or a different channel. Stop takes
-effect before the runtime yields, including against late ready events. An HTTP request
-already in flight may have reached Twitch; cancellation cannot retract that message.
-Once a socket has welcomed the active connection, close events from other session
-IDs or unwelcomed reconnect candidates do not invalidate its senders. The SDK can
-emit a close event for a candidate whose connection failed before it acquired an ID.
-Actual active-socket loss still invalidates captured work until recovery welcomes a
-new session. This distinction applies equally to built-in and custom Single/Burst
-commands; see [`test_command_lifecycle.py`](../tests/test_command_lifecycle.py).
-Retired or closing clients are rejected before reserving IDs in the application-wide
-replay cache. Close cancels and drains SDK reconnect tasks before and after SDK
-teardown so an already pending connection attempt cannot outlive its client.
-This does not create another reconnect loop or bypass stale send-session guards.
-
-Bounded socket lifecycle diagnostics carry opaque per-process client, socket and
-send-session references, current ownership, active state and registered SDK socket/
-reconnect-task counts. Repeated ignored/stale-ingress notices are limited to one
-per reason/client every 30 seconds with cumulative counts. These sanitized fields
-also enter the fixed Headless lifecycle stream; SDK/HTTP debug logging stays off.
-SDK socket counts describe registered objects, not proof of open network connections.
-
-All Twitch sends pass through the same adapter ID correlation implementation.
-TwitchIO `respond()` returns `SentMessage.id`/`sent`; EventSub provides `id` and shared
-chat `source_id`. Application-owned bounded ten-minute caches survive session rebinding.
-Same-account ingress waits for already-pending sends before checking IDs; unrelated
-accounts do not wait. Uncertain sends fail closed for that sending account and channel
-for the cache lifetime, without matching text. Neutral dispatch/reactions use the
-explicit outgoing flag rather than account identity. Permissions and privacy checks
-still apply to manually authored messages.
-Replay diagnostics compare the first and repeated arrival's opaque origin and age.
-`same_dispatch` identifies multiple callbacks from one SDK dispatch;
-`same_notification` identifies repeated notification metadata across dispatches;
-`different_subscriptions` identifies overlapping subscription delivery for one chat
-ID. Transport references come from SDK listener task context; absent metadata is
-reported as `unattributed`. These sampled, rate-limited notices count duplicate
-decisions, not lost commands. The extra origin metadata shares the replay cache's
-count/TTL bounds and never records chat text or raw notification/subscription IDs.
+Sanitized socket/session references and ownership/readiness flags help diagnose
+natural failures without raw Twitch IDs, chat text or SDK/HTTP debug logs. Duplicate
+notices distinguish dispatch/notification/subscription relationships; their counts
+alone prove neither lost commands nor ownership by another host. A healthy start,
+welcome event or saved token cache does not establish successful chat delivery.
 
 ### Daily aggregate collection
 

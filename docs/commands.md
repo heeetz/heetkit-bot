@@ -24,110 +24,50 @@ Setup steps, errors, unsaved changes and reset/delete consequences remain visibl
 
 ## User restrictions
 
-On Desktop or the authenticated Server panel, open **Commands > User restrictions**.
-Add a Twitch username, select built-in/custom commands or **All commands**, and choose
-permanent access restriction, a preset/custom duration or a local expiry date/time.
-Durations range from one minute to 366 days. The list shows the local expiry and
-remaining time; the backend saves an absolute UTC expiry and honors it after downtime.
-Search the central list by login, numeric user/channel ID, command or private note.
-Edit a rule or remove it immediately. Other active rules and global AI blocks still apply.
+Open **Commands > User restrictions** on either host. Add a Twitch username, choose
+commands (or All commands), and set a permanent restriction or an expiry. HeetKit
+must verify the account's numeric ID; an unresolved new name cannot be saved.
+Rules use stable account/command IDs, so renames and aliases do not bypass them.
 
-Select **Block AI questions across all channels in this profile** for a global rule
-covering only the stable `!ask` command, including renamed triggers and aliases.
-Other selected/all-command rules remain channel-scoped. The editor and saved list
-identify scope; overlapping rules combine, so removing a channel rule does not
-override a global AI rule. Scope and verified identity are fixed when editing.
+Ordinary rules apply to the configured channel. **Block AI questions across all
+channels in this profile** blocks only AI questions throughout the profile.
+Overlapping rules all apply; removing one does not remove another. Scope and account
+identity stay fixed when editing. Use a new rule to change them.
 
-Previous AI Access entries migrate to permanent `!ask` rules in the configured channel.
-Unresolved legacy logins stay visible with compatibility blocking; **Verify / edit**
-and **Save restriction** retry verification, or **Remove** deletes the rule.
-If no verified channel is configured, a visible pending-channel rule keeps the old
-profile-wide AI protection until a configured channel can be bound. New restrictions
-require verified identity; migration never treats a login as a numeric ID.
+Search by account, channel, command or private note. Notes are optional, limited to
+200 characters and never sent to chat or AI providers. Expiry continues during
+downtime. Edit/remove takes effect immediately. Previous AI Access entries migrate
+into visible rules; unresolved legacy entries retain compatibility blocking until
+verified or removed.
 
-The backend must resolve the login through Twitch or recent channel observations to
-a numeric Twitch user ID; new unresolved names cannot be saved. Configure a numeric channel
-ID before adding channel rules. Global AI rules apply throughout this installation's profile. User IDs,
-built-in factory IDs and persistent custom IDs survive account/command renames,
-aliases and reconnects. The displayed login records the resolved name at creation;
-the numeric ID is authoritative. Editing keeps the original account/channel identity.
-Deleted custom-command selections retain their ID for explicit removal; recreating a
-custom command creates a new ID. All-command rules cover future commands and matched
-ordinary-message reactions, while ordinary chat remains unaffected.
-
-Restricted requests are silent and stop before command handlers, cooldown reservation,
-AI/memory work or outgoing capacity use. Logs show only a sanitized restriction reason
-and remaining time; a permanent restriction has no remaining-time value. Existing
-privacy log suppression still applies. Self-only `!optout` remains available even under
-an all-command restriction. These controls do not create Twitch bans or timeouts.
-
-Optional private notes are one line of up to 200 characters. They are visible only in
-authenticated management, never chat, provider requests or public command help.
-Restrictions and notes stay out of portable configuration exports, and imports preserve
-the destination's rules. A stopped whole-profile copy includes them; see
-[private local policy](data-and-privacy.md#private-command-restrictions).
+Restricted requests are silent and stop before handlers, cooldowns or AI/memory work.
+These are local access controls, not Twitch bans or timeouts. Self-only `!optout`
+remains available. Rules/notes are excluded from portable configuration; whole-profile
+backups include them. See [private policy](data-and-privacy.md#private-command-restrictions).
 
 ## Scheduled announcements
 
-Open **Commands → Announcements** on Desktop or the authenticated Server panel.
-Create up to 50 named schedules. Saved rows show **Edit**, **Disable** (or **Enable**)
-and **Delete**, like Custom commands. Enable/Disable and confirmed deletion take
-effect immediately. **Save announcements** and **Cancel** appear only while creating
-or editing; Cancel discards that draft. An empty saved collection shows no editor/footer.
-New drafts show dimmed examples for the name and message; these placeholders are not saved text.
+Open **Commands > Announcements**. Save up to 50 schedules with an interval of
+60-86400 seconds, optional minimum observed messages, and a live/offline condition.
+Single sends one saved line; Random chooses from 1-30 lines. Each line is at most
+450 UTF-8 bytes and is sent literally, without command variables.
 
-Each schedule sends one message every 60–86400 seconds while chat
-is connected. Single uses one message; Random chooses one of 1–30 saved lines on
-each attempt. Each line allows up to 450 UTF-8 bytes. Text is sent literally,
-without command variables. **Announcement type** selects **Highlighted**
-or **Regular message**. New schedules default to Highlighted; existing schedules and
-older imported schedules retain Regular. Highlighted uses Twitch's Announcement API
-with the channel's accent color. Both types share the five-second output limiter with ordinary replies.
-Coincident schedules give never/least-recently delivered messages first use of
-that limiter; skipped or unconfirmed messages wait until their next interval.
+Choose **Regular message** or **Highlighted**. New schedules default to Highlighted;
+older schedules retain Regular. Highlighted needs broadcaster/moderator access and
+`moderator:manage:announcements` consent. Renew Twitch authorization if needed;
+ordinary chat authorization alone is insufficient. See [Twitch setup](twitch-setup.md).
 
-Startup, reconnect, channel switch and saved edits start a full interval. Nothing
-is sent immediately to catch up. Only one announcement send runs at a time;
-stop/loss/switch cancels pending work and old senders cannot follow a new channel.
-An already submitted request may still arrive at Twitch.
+Enable/disable and confirmed deletion apply immediately. Save/Cancel concerns only
+the schedule draft. Startup, reconnect, channel switch and edits start a fresh full
+interval: nothing is sent immediately to catch up. Only one announcement send runs
+at once, sharing the normal five-second output limiter. Skipped/unconfirmed attempts
+wait for their next interval. Stop or connection loss cancels pending work, although
+an already submitted Twitch request may still arrive.
 
-The editor places Name and its enabled switch, **Interval (s)**, **Trigger after**,
-**Works when:** and **Message selection** beside the message on wider screens, with
-**Announcement type** directly below **Works when:** at the same width;
-narrow screens stack these controls above the message. Help lives in the (?) controls.
-
-Highlighted sending requires the configured sending account to be the broadcaster
-or a moderator, with the `moderator:manage:announcements` OAuth permission. New
-authorization requests include this permission; old chat authorization remains usable
-for Regular messages. To add the permission, use **Settings → Twitch connection →
-Renew Twitch authorization** while connected on Desktop, or **Connect Twitch** on
-Server, and sign in as the configured bot account. Granting a scope does not grant
-moderator status. Authorization and permission failures remain visible on the row;
-there is no automatic fallback to Regular. During Twitch Shared Chat, highlighted
-announcements sent with this user authorization reach all participating channels.
-See Twitch's [Announcement API](https://dev.twitch.tv/docs/api/reference/#send-chat-announcement).
-
-**Trigger after** sets a minimum of 0–1000 eligible incoming messages, checked at
-each interval rather than triggering an immediate send. Each schedule counts accepted chat since its interval began;
-every scheduled check starts a fresh activity window, including activity/stream
-skips and failures. Earlier quiet windows cannot accumulate toward a later send.
-Own-account messages, bot-marked messages, outgoing echoes, replayed events,
-filtered messages and ignored AI input do not count. Other automation without a
-bot marker cannot be distinguished from human chat. Counts are transient; message
-bodies and chatter identities are not saved for this feature.
-
-**Works when:** controls stream availability on both hosts. Anytime allows unknown stream state;
-Live only and Offline only require a fresh matching observation. Failed checks
-and observations 135 seconds old are unknown, so restricted sends pause. Server
-reuses its operation-policy monitor; Desktop polls at most once per minute while
-connected with an enabled restricted schedule. Connection modes still determine
-whether Server is connected at all.
-
-The (?) beside each announcement's name shows the next check, last confirmed send,
-last outcome and current eligible count. Failures, unconfirmed/cancelled delivery and
-unavailable stream states also remain visible on the row. A check may skip for activity or stream availability. Unconfirmed
-delivery (including limiter skips), failure and cancellation never trigger immediate
-retries. Status is recent session evidence, not a persisted delivery history.
+Counters include only eligible, unique human messages observed by the active session.
+Self/bot-marked messages, duplicates and filtered/ignored input do not satisfy the
+activity threshold. Unmarked automation can count as human. The saved list shows status and last outcome;
+unknown live status does not authorize a live-only/offline-only send.
 
 ## Built-in commands
 
@@ -150,7 +90,7 @@ users when enabled. Disabled or removed commands also stay out of public help.
 | `!uptime` | Show how long the current HeetKit session has been running. | Moderator |
 | `!weather <city>` | Current weather with English, Russian or Ukrainian localization. | User |
 
-`!ask` requires a key for the selected Gemini or DeepSeek provider. See
+`!ask` requires a key for the selected Gemini, DeepSeek or OpenAI provider. See
 [AI setup](ai-setup.md). Other commands work without AI. `!uptime` measures the bot
 session, rather than the stream's uptime.
 
