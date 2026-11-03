@@ -405,14 +405,20 @@ async def test_duplicate_callbacks_in_one_sdk_dispatch_have_a_distinct_diagnosti
 
 async def test_repeated_retired_ingress_diagnostics_are_rate_limited(sandbox, monkeypatch):
     s = sandbox
-    monkeypatch.setattr('app.twitch.client.monotonic', lambda: s.now)
+    # Keep the exact boundary independent of the event loop's fractional uptime.
+    now = 1000.0
+    monkeypatch.setattr('app.twitch.client.monotonic', lambda: now)
     await s.bot.close(save_tokens=False)
     for i in range(20):
         await s.bot.event_message(s.event('!tg', 'retired-' + str(i)))
     entries = [e for e in s.buffer.activity()['entries'] if e['context'].get('reason') == 'closed_client_ingress']
     assert len(entries) == 1 and entries[0]['context']['event_count'] == 1
-    s.now += 30
+    now += 29
+    await s.bot.event_message(s.event('!tg', 'retired-before-boundary'))
+    entries = [e for e in s.buffer.activity()['entries'] if e['context'].get('reason') == 'closed_client_ingress']
+    assert len(entries) == 1
+    now += 1
     await s.bot.event_message(s.event('!tg', 'retired-later'))
     entries = [e for e in s.buffer.activity()['entries'] if e['context'].get('reason') == 'closed_client_ingress']
-    assert len(entries) == 2 and entries[-1]['context']['event_count'] == 21
+    assert len(entries) == 2 and entries[-1]['context']['event_count'] == 22
     assert not s.twitch.chat_messages.seen
