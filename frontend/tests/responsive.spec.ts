@@ -95,11 +95,17 @@ test('column and form thresholds handle fractional CSS content widths', async ({
   }
   await page.getByRole('navigation').getByRole('button', { name: 'AI', exact: true }).click()
   await expect(page.locator('.ai-layout')).toHaveAttribute('aria-busy', 'false')
-  for (const [width, columns] of [[1000, 4], [999.5, 2], [480, 2], [479.5, 1]]) {
+  for (const [width, columns] of [[1000, 2], [999.5, 2], [480, 2], [479.5, 1]]) {
     await page.locator('.page-content').evaluate((element, width) => {
       element.style.width = `${width}px`
     }, width)
     expect(await gridColumns(page.locator('#ai-runtime'), ':scope > .ai-state-panel')).toBe(columns)
+    if (columns === 2) {
+      const panels = await page.locator('#ai-runtime > .ai-state-panel').all()
+      const provider = (await panels[0].boundingBox())!
+      const memory = (await panels[1].boundingBox())!
+      expect(memory.width / provider.width).toBeCloseTo(2, 1)
+    }
     await expectNoHorizontalOverflow(page)
   }
   const language = page.locator('#ai-language')
@@ -129,9 +135,10 @@ for (const viewport of viewports) {
     await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'AI', exact: true }).click()
     const ai = page.locator('.ai-layout')
     await expect(ai).toHaveAttribute('aria-busy', 'false')
-    await expect(page.locator('#ai-runtime .ai-state-panel')).toHaveCount(4)
+    await expect(page.locator('#ai-runtime .ai-state-panel')).toHaveCount(2)
+    await expect(page.locator('#ai-runtime').getByRole('heading')).toHaveText(['AI provider', 'Conversation memory'])
     expect(await gridColumns(page.locator('#ai-runtime'), ':scope > .ai-state-panel'))
-      .toBe(expectedColumns(viewport.width, contentWidth, 1000))
+      .toBe(viewport.width <= 760 || contentWidth < 480 ? 1 : 2)
     if (viewport.aiAvailable) {
       await expect(page.locator('#ai-runtime')).toContainText('Configured for requests')
     } else {
