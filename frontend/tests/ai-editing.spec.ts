@@ -211,13 +211,13 @@ for (const width of [1280, 900, 761, 390, 320]) {
     await page.getByRole('button', { name: 'AI', exact: true }).click()
     await expect(page.locator('.ai-layout')).toHaveAttribute('aria-busy', 'false')
     const state = page.locator('#ai-runtime')
-    await expect(state.getByRole('heading')).toHaveText(['AI command', 'Conversation memory', 'AI provider', 'Active personality'])
-    await expect(state.locator('.ai-state-panel')).toHaveCount(4)
+    await expect(state.getByRole('heading')).toHaveText(['AI provider', 'Conversation memory'])
+    await expect(state.locator('.ai-state-panel')).toHaveCount(2)
     const panels = await state.locator('.ai-state-panel').all()
     const panelBoxes = await Promise.all(panels.map(async (panel) => (await panel.boundingBox())!))
     const contentWidth = (await page.locator('.page-content').boundingBox())!.width
-    const columns = width <= 760 || contentWidth < 480 ? 1 : contentWidth < 1000 ? 2 : 4
-    expect(new Set(panelBoxes.map((box) => box.y)).size).toBe(4 / columns)
+    const columns = width <= 760 || contentWidth < 480 ? 1 : 2
+    expect(new Set(panelBoxes.map((box) => box.y)).size).toBe(2 / columns)
     for (const panel of panels) {
       expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy()
     }

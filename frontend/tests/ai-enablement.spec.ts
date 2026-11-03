@@ -14,7 +14,7 @@ async function toggleOn(page: Page, entry: string) {
 }
 
 for (const width of [1280, 390]) {
-  for (const entry of ['Dashboard', 'AI', 'Commands']) {
+  for (const entry of ['Dashboard', 'Commands']) {
     test(`${entry} saves Ask immediately and synchronizes all views at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 })
       await page.goto('/tests/fixture.html?askToggle')
@@ -29,7 +29,10 @@ for (const width of [1280, 390]) {
           const edit = page.getByRole('button', { name: 'Edit !ask', exact: true })
           if (await edit.isVisible()) await edit.click()
         }
-        await expect(page.getByRole('checkbox', { name: view === 'Commands' ? 'Enable !ask' : 'Enable AI command', exact: true })).toBeChecked()
+        if (view === 'AI') {
+          await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).toHaveCount(0)
+          await expect(page.locator('.ai-runtime-values')).toContainText('Enabled')
+        } else await expect(page.getByRole('checkbox', { name: view === 'Commands' ? 'Enable !ask' : 'Enable AI command', exact: true })).toBeChecked()
       }
       expect(await page.evaluate(() => Reflect.get(window, 'aiCalls'))).toEqual([['set_ai_enabled', true]])
       // A browser reload exercises presentation startup; Python tests cover a real state reload.
@@ -39,7 +42,7 @@ for (const width of [1280, 390]) {
   }
 }
 
-for (const entry of ['Dashboard', 'AI', 'Commands']) {
+for (const entry of ['Dashboard', 'Commands']) {
   test(`${entry} reports a save failure and retains the saved value`, async ({ page }) => {
     await page.goto('/tests/fixture.html?askToggle&askSaveError')
     const toggle = await toggleOn(page, entry)
@@ -53,7 +56,10 @@ for (const entry of ['Dashboard', 'AI', 'Commands']) {
         const edit = page.getByRole('button', { name: 'Edit !ask', exact: true })
         if (await edit.isVisible()) await edit.click()
       }
-      await expect(page.getByRole('checkbox', { name: view === 'Commands' ? 'Enable !ask' : 'Enable AI command', exact: true })).not.toBeChecked()
+      if (view === 'AI') {
+        await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).toHaveCount(0)
+        await expect(page.locator('.ai-runtime-values')).toContainText('Disabled')
+      } else await expect(page.getByRole('checkbox', { name: view === 'Commands' ? 'Enable !ask' : 'Enable AI command', exact: true })).not.toBeChecked()
     }
     await page.reload()
     await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).not.toBeChecked()
@@ -85,10 +91,11 @@ test('Ask toggles preserve unrelated drafts and keep permissions/cooldowns expli
   const personality = page.locator('#ai-personalities')
   await personality.locator('.accordion-trigger').click()
   await personality.locator('textarea').fill('Keep this personality draft')
-  await page.getByRole('checkbox', { name: 'Enable AI command', exact: true }).press('Space')
-  await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).not.toBeChecked()
+  await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).toHaveCount(0)
   await expect(personality.locator('textarea')).toHaveValue('Keep this personality draft')
   await navigate(page, 'Dashboard')
+  await page.getByRole('checkbox', { name: 'Enable AI command', exact: true }).press('Space')
+  await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).not.toBeChecked()
   await page.getByRole('checkbox', { name: 'Enable AI command', exact: true }).press('Space')
   await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).toBeChecked()
   await navigate(page, 'Commands')

@@ -87,6 +87,8 @@ def test_analytics_and_memory_desktop_adapters_share_backend_operations(tmp_path
         result = bridge.get_analytics(7)
         assert result["ok"] and len(result["series"]) == 7
         assert result["retained_users"] is None and result["channel_id"] is None
+        hourly = bridge.get_analytics(1)
+        assert hourly["resolution"] == "hour" and len(hourly["series"]) == 24
         assert bridge.configure_analytics(False)["ok"]
         assert not bridge.configure_analytics("false")["ok"]
         assert not bridge.reset_analytics(False)["ok"]
@@ -1345,6 +1347,7 @@ def test_bridge_gets_ai_state_without_exposing_personality_prompts() -> None:
         "active_personality": "neutral",
         "available_personalities": ["neutral", "vas"],
         "model": "gemini-test",
+        "provider": "Google Gemini",
     }
 
 

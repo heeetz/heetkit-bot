@@ -146,7 +146,7 @@ async def test_analytics_private_scoped_windows_controls_and_memory_limits(api):
     await collector.flush()
     for days in (1, 7, 30, 60):
         status, result, _ = await call("POST", "/v1/analytics/query", json={"days": days})
-        assert status == 200 and result["ok"] and len(result["series"]) == days
+        assert status == 200 and result["ok"] and len(result["series"]) == (24 if days == 1 else days)
         assert result["totals"]["command.attempts"] == 4
         assert result["totals"]["command.skipped"] == 3
         assert "ai.attempts" not in result["totals"]
@@ -172,6 +172,41 @@ async def test_analytics_private_scoped_windows_controls_and_memory_limits(api):
     app.settings.twitch_channel_user_id = ""
     missing = (await call("POST", "/v1/analytics/query", json={}))[1]
     assert missing["channel_id"] is None and missing["retained_users"] is None
+
+
+async def test_analytics_current_names_preserve_stable_history_and_daily_only_totals(api):
+    server, call = api
+    app = server.runtime.application
+    collector = app.services.analytics
+    collector.clock = lambda: datetime(2026, 11, 3, 12, 30, tzinfo=timezone.utc)
+    app.settings.command_prefix = "$"
+    custom = app.custom_commands.save({"name": "oldname", "enabled": True, "responses": ["Synthetic"],
+        "permission": "USER", "per_user_seconds": 0, "global_seconds": 0, "aliases": []})
+    stable = "custom:" + custom.id
+    collector.record("command.attempts", channel_id="200", dimension=stable, value=2)
+    collector.record("command.attempts", channel_id="200", dimension="ping", value=3)
+    collector.record("command.attempts", channel_id="200", dimension="other")
+    await collector.flush()
+    # Simulate preserved data from before hourly collection, never distribute it.
+    with collector._lock, collector._connection:
+        collector._connection.execute("INSERT INTO daily VALUES (?,?,?,?,?)", ("2026-11-03", "200", "custom:deleted", "command.attempts", 5))
+    _, first, _ = await call("POST", "/v1/analytics/query", json={"days": 1})
+    assert first["resolution"] == "hour" and len(first["series"]) == 24
+    assert first["totals"]["command.attempts"] == 11
+    assert sum(row["metrics"].get("command.attempts", 0) for row in first["series"]) == 6
+    labels = {row["name"]: row["label"] for row in first["commands"]}
+    assert labels == {stable: "$oldname", "ping": "$ping", "custom:deleted": "Deleted or unavailable command", "other": "Other commands (collection limit)"}
+    app.custom_commands.save({"id": custom.id, "name": "renamed", "enabled": True, "responses": ["Synthetic"], "permission": "USER", "per_user_seconds": 0, "global_seconds": 0, "aliases": []})
+    app.services.runtime_state.apply_command_settings("ping", primary_name="pong")
+    collector.record("command.attempts", channel_id="200", dimension=stable, value=1)
+    await collector.flush()
+    _, renamed, _ = await call("POST", "/v1/analytics/query", json={"days": 7})
+    commands = {row["name"]: row for row in renamed["commands"]}
+    assert commands[stable]["label"] == "$renamed" and commands[stable]["metrics"]["command.attempts"] == 3
+    assert commands["ping"]["label"] == "$pong"
+    app.custom_commands.delete(custom.id)
+    _, deleted, _ = await call("POST", "/v1/analytics/query", json={"days": 7})
+    assert next(row for row in deleted["commands"] if row["name"] == stable)["label"] == "Deleted or unavailable command"
 
 
 async def test_balance_shared_service_secure_key_and_mocked_refresh(api, monkeypatch):

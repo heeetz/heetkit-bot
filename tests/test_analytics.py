@@ -234,6 +234,7 @@ async def test_midnight_retention_and_connection_time_split(collector):
     await collector.flush()
     con = sqlite3.connect(collector.path)
     assert con.execute("SELECT COUNT(*) FROM daily").fetchone()[0] == 0
+    assert con.execute("SELECT COUNT(*) FROM hourly").fetchone()[0] == 0
     con.close()
 
 
@@ -328,3 +329,236 @@ def test_pricing_unknowns_dates_cache_and_reasoning_subsets():
     assert estimate("openai", "gpt-4.1-mini", {"output_tokens": 30}, now) == (pytest.approx(.000048), True)
     assert estimate("openai", "gpt-4.1-mini", {**usage, "search_requests": 1}, now)[1]
     assert estimate("openai", "gpt-4.1-mini", {**usage, "search_requests": 1}, now)[0] == pytest.approx(.010064)
+
+
+@pytest.mark.asyncio
+async def test_hourly_observations_and_coverage_split_at_utc_hours_and_midnight(collector):
+    collector.test_time[0] = datetime(2026, 10, 30, 23, 59, 59, tzinfo=timezone.utc)
+    collector.connection("200", True)
+    collector.record("command.attempts", channel_id="200", dimension="ask")
+    collector.test_time[0] += timedelta(seconds=2)
+    collector.connection("200", False)
+    collector.record("command.attempts", channel_id="200", dimension="ask", value=2)
+    collector._checkpoint_coverage()
+    await rows(collector)
+    today = await collector.snapshot("200", 1)
+    assert today["resolution"] == "hour"
+    assert totals(today["rows"])["command.attempts"] == 2
+    assert totals(today["hourly_rows"])["command.attempts"] == 2
+    assert {row["day"] for row in today["hourly_rows"]} == {"2026-10-31T00:00:00+00:00"}
+    assert totals(today["hourly_rows"])["connection.seconds"] == 1
+    profile = await collector.snapshot("profile", 1)
+    assert totals(profile["hourly_rows"]) == {"coverage.seconds": 1, "users.coverage_seconds": 1}
+    weekly = await collector.snapshot("200", 7)
+    assert weekly["resolution"] == "day" and weekly["hourly_rows"] == []
+    assert totals(weekly["rows"])["command.attempts"] == 3
+    assert totals(weekly["rows"])["connection.seconds"] == 2
+    # A non-UTC clock still selects UTC calendar dates/hours.
+    collector.test_time[0] = datetime(2026, 10, 31, 5, 30, 1, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+    assert (await collector.snapshot("200", 1))["hourly_rows"] == today["hourly_rows"]
+
+
+@pytest.mark.asyncio
+async def test_snapshot_captures_one_utc_window_before_offloop_read(collector, monkeypatch):
+    before_midnight = collector.clock()
+    collector.record("command.attempts", channel_id="200", at=before_midnight)
+    collector.record("command.attempts", channel_id="200", value=2, at=before_midnight + timedelta(seconds=2))
+    await rows(collector)
+    original_to_thread = asyncio.to_thread
+    async def cross_midnight(function, *args, **kwargs):
+        collector.test_time[0] = before_midnight + timedelta(seconds=2)
+        return await original_to_thread(function, *args, **kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(asyncio, "to_thread", cross_midnight)
+        captured = await collector.snapshot("200", 1)
+    assert totals(captured["rows"]) == totals(captured["hourly_rows"]) == {"command.attempts": 1}
+    assert {r["day"] for r in captured["rows"]} == {"2026-10-30"}
+    # Both management reads can request the same captured boundary after midnight.
+    explicit = await collector.snapshot("200", 1, as_of=before_midnight)
+    assert explicit["rows"] == captured["rows"]
+    assert explicit["hourly_rows"] == captured["hourly_rows"]
+    current = await collector.snapshot("200", 1)
+    assert totals(current["rows"]) == totals(current["hourly_rows"]) == {"command.attempts": 2}
+
+
+@pytest.mark.asyncio
+async def test_hourly_coverage_does_not_bridge_disabled_gaps(collector):
+    collector.test_time[0] = datetime(2026, 10, 31, 0, tzinfo=timezone.utc)
+    collector._coverage_at = collector.clock()
+    collector.connection("200", True)
+    collector.test_time[0] += timedelta(hours=1)
+    collector._checkpoint_coverage()
+    collector._checkpoint_connection("200", collector.clock())
+    await rows(collector)
+    await collector.configure(False)
+    collector.test_time[0] += timedelta(hours=2)
+    collector._checkpoint_coverage()
+    collector._checkpoint_connection("200", collector.clock())
+    await collector.configure(True)
+    collector.test_time[0] += timedelta(minutes=30)
+    collector._checkpoint_coverage()
+    collector._checkpoint_connection("200", collector.clock())
+    await rows(collector)
+    profile = await collector.snapshot("profile", 1)
+    coverage = {r["day"]: r["value"] for r in profile["hourly_rows"] if r["metric"] == "coverage.seconds"}
+    assert coverage == {"2026-10-31T00:00:00+00:00": 3600, "2026-10-31T03:00:00+00:00": 1800}
+    assert totals((await collector.snapshot("200", 1))["hourly_rows"])["connection.seconds"] == 5400
+
+
+@pytest.mark.asyncio
+async def test_daily_only_upgrade_is_repeatable_and_never_backfills_hours(tmp_path):
+    path = tmp_path / "old.analytics.sqlite3"
+    now = [datetime(2026, 10, 31, 12, tzinfo=timezone.utc)]
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE daily (day TEXT NOT NULL, channel TEXT NOT NULL, dimension TEXT NOT NULL, metric TEXT NOT NULL, value REAL NOT NULL, PRIMARY KEY(channel,day,dimension,metric)) WITHOUT ROWID")
+    con.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY,value TEXT NOT NULL)")
+    con.execute("INSERT INTO metadata VALUES ('data_start','2026-10-01T00:00:00+00:00')")
+    con.execute("INSERT INTO daily VALUES ('2026-10-31','200','ask','command.attempts',7)")
+    con.execute("INSERT INTO daily VALUES ('2026-10-31','profile','','coverage.seconds',3600)")
+    con.commit()
+    con.close()
+    for restart in range(2):
+        analytics = Analytics(path, clock=lambda: now[0])
+        await analytics.start()
+        try:
+            snapshot = await analytics.snapshot("200", 1)
+            assert totals(snapshot["rows"])["command.attempts"] == 7 + restart
+            assert totals(snapshot["hourly_rows"]).get("command.attempts", 0) == restart
+            assert snapshot["metadata"]["data_start"] == "2026-10-01T00:00:00+00:00"
+            assert snapshot["metadata"]["hourly_start"] == snapshot["metadata"]["new_users_start"] == "2026-10-31T12:00:00+00:00"
+            if restart == 0:
+                analytics.record("command.attempts", channel_id="200", dimension="ask")
+                await rows(analytics)
+        finally:
+            await analytics.close()
+    con = sqlite3.connect(path)
+    assert {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")} == {"daily", "hourly", "metadata"}
+    con.close()
+
+
+@pytest.mark.asyncio
+async def test_new_users_concurrent_first_messages_replay_rename_and_channel_isolation(collector, tmp_path):
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'personal.sqlite3'}")
+    await database.initialize()
+    users = UserRepository(database.session_factory)
+    users.analytics = collector
+    try:
+        await asyncio.gather(*(users.upsert_seen("300", "synthetic", channel_id="200") for _ in range(20)))
+        await users.upsert_seen("300", "renamed", channel_id="200")
+        await users.upsert_seen("300", "renamed", channel_id="201")
+        assert totals(await rows(collector))["users.new"] == 1
+        assert totals(await rows(collector, "201"))["users.new"] == 1
+        await users.upsert_seen("301", "different", channel_id="200")
+        assert totals(await rows(collector))["users.new"] == 2
+    finally:
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_new_users_expired_presence_counts_again_without_historical_backfill(collector, tmp_path):
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'personal.sqlite3'}")
+    await database.initialize()
+    users = UserRepository(database.session_factory)
+    try:
+        await users.upsert_seen("300", "expired", datetime.now(timezone.utc) - timedelta(days=61), channel_id="200")
+        await users.upsert_seen("301", "retained", channel_id="200")
+        users.analytics = collector
+        assert "users.new" not in totals(await rows(collector))
+        await users.upsert_seen("300", "returned", channel_id="200")
+        await users.upsert_seen("301", "returned", channel_id="200")
+        assert totals(await rows(collector))["users.new"] == 1
+    finally:
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_new_users_optout_pending_epoch_and_collection_generation_guards(collector, tmp_path):
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'personal.sqlite3'}")
+    await database.initialize()
+    users = UserRepository(database.session_factory)
+    users.analytics = collector
+    try:
+        await users.upsert_seen("300", "queued", channel_id="200")
+        await users.opt_out("300")
+        await users.withdraw_opt_out("300")
+        assert await rows(collector) == []
+        with users.storage_scope("300"):
+            await users.opt_out("300")
+            await users.withdraw_opt_out("300")
+            assert await users.upsert_seen("300", "stale", channel_id="200") is None
+        await users.opt_out("301")
+        fresh_users = UserRepository(database.session_factory)
+        fresh_users.analytics = collector
+        assert await fresh_users.upsert_seen("301", "suppressed", channel_id="200") is None
+        assert await rows(collector) == []
+        for operation in (collector.reset, lambda: collector.configure(False)):
+            async with users.policy.lock:
+                pending = asyncio.create_task(users.upsert_seen("302", "pending", channel_id="200"))
+                await asyncio.sleep(0)
+                await operation()
+            await pending
+            assert await rows(collector) == []
+        await collector.configure(True)
+        # A presence retained while disabled is not backfilled on re-enable.
+        await users.upsert_seen("302", "returned", channel_id="200")
+        await users.upsert_seen("303", "new", channel_id="200")
+        assert totals(await rows(collector))["users.new"] == 1
+    finally:
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_new_users_failed_commit_does_not_count(collector, tmp_path, monkeypatch):
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from unittest.mock import AsyncMock
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'personal.sqlite3'}")
+    await database.initialize()
+    users = UserRepository(database.session_factory)
+    users.analytics = collector
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(AsyncSession, "commit", AsyncMock(side_effect=OSError("synthetic failure")))
+            with pytest.raises(OSError):
+                await users.upsert_seen("300", "uncommitted", channel_id="200")
+        assert await rows(collector) == []
+        await users.upsert_seen("300", "committed", channel_id="200")
+        assert totals(await rows(collector))["users.new"] == 1
+    finally:
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_new_users_optout_during_commit_cannot_leave_a_queued_contribution(collector, tmp_path, monkeypatch):
+    from sqlalchemy.ext.asyncio import AsyncSession
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'personal.sqlite3'}")
+    await database.initialize()
+    users = UserRepository(database.session_factory)
+    users.analytics = collector
+    entered, release = asyncio.Event(), asyncio.Event()
+    original_commit = AsyncSession.commit
+    async def delayed_commit(session):
+        entered.set()
+        await release.wait()
+        await original_commit(session)
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(AsyncSession, "commit", delayed_commit)
+            pending = asyncio.create_task(users.upsert_seen("300", "synthetic", channel_id="200"))
+            await asyncio.wait_for(entered.wait(), 3)
+            optout = asyncio.create_task(users.opt_out("300"))
+            await asyncio.sleep(0)
+            assert users.policy.privacy_epochs["300"] == 1
+            release.set()
+            await asyncio.wait_for(asyncio.gather(pending, optout), 3)
+        assert await rows(collector) == []
+        await users.withdraw_opt_out("300")
+        await users.upsert_seen("300", "new_eligible_observation", channel_id="200")
+        assert totals(await rows(collector))["users.new"] == 1
+        collector.test_time[0] += timedelta(seconds=1)
+        await collector.reset()
+        snapshot = await collector.snapshot("200", 1)
+        assert snapshot["rows"] == snapshot["hourly_rows"] == []
+        assert snapshot["metadata"]["hourly_start"] == snapshot["metadata"]["new_users_start"] == collector.clock().isoformat()
+    finally:
+        release.set()
+        await database.close()

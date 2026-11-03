@@ -128,38 +128,45 @@ class ApplicationManagement:
         app = self._backend.application
         collector = app.services.analytics
         channel = verified_user_id(app.settings.twitch_channel_user_id)
-        snapshot = await collector.snapshot(channel or "", days)
-        coverage = await collector.snapshot("profile", days)
         now = collector.clock().astimezone(timezone.utc)
+        snapshot = await collector.snapshot(channel or "", days, as_of=now)
+        coverage = await collector.snapshot("profile", days, as_of=now)
         start = now.date() - timedelta(days=days - 1)
-        series = { (start + timedelta(days=i)).isoformat(): {"metrics": {}, "coverage_seconds": 0} for i in range(days) }
+        resolution = "hour" if days == 1 else "day"
+        buckets = [(now.replace(hour=i, minute=0, second=0, microsecond=0)).isoformat() for i in range(24)] if days == 1 else [(start + timedelta(days=i)).isoformat() for i in range(days)]
+        series = {bucket: {"metrics": {}, "coverage_seconds": 0, "new_users_coverage_seconds": 0} for bucket in buckets}
         totals, commands, providers = {}, {}, {}
+        # Totals always use daily rows, including preserved pre-upgrade data.
         for row in snapshot["rows"]:
-            if row["day"] not in series:
-                continue
             metric, value = row["metric"], row["value"]
             totals[metric] = totals.get(metric, 0) + value
-            daily = series[row["day"]]["metrics"]
-            daily[metric] = daily.get(metric, 0) + value
             target = commands if metric.startswith("command.") else providers if metric.startswith("ai.") and row["dimension"] else None
             if target is not None:
                 item = target.setdefault(row["dimension"], {})
                 item[metric] = item.get(metric, 0) + value
-        for row in coverage["rows"]:
-            if row["day"] in series and row["metric"] == "coverage.seconds":
-                series[row["day"]]["coverage_seconds"] += row["value"]
+        for row in snapshot.get("hourly_rows", []) if days == 1 else snapshot["rows"]:
+            if row["day"] in series:
+                metrics = series[row["day"]]["metrics"]
+                metrics[row["metric"]] = metrics.get(row["metric"], 0) + row["value"]
+        for row in coverage.get("hourly_rows", []) if days == 1 else coverage["rows"]:
+            if row["day"] in series:
+                field = {"coverage.seconds": "coverage_seconds", "users.coverage_seconds": "new_users_coverage_seconds"}.get(row["metric"])
+                if field:
+                    series[row["day"]][field] += row["value"]
+        names = {row["id"]: row["label"] for row in self._restriction_commands()} if commands else {}
+        names.setdefault("other", "Other commands (collection limit)")
         retained = None
         if channel:
             try:
                 retained = await app.services.users.retained_count(channel_id=channel)
             except Exception:
                 pass  # Missing personal-store coverage must never become a false zero.
-        return {"ok": True, "days": days, "start": start.isoformat(), "end": now.date().isoformat(),
+        return {"ok": True, "days": days, "resolution": resolution, "start": start.isoformat(), "end": now.date().isoformat(),
                 "as_of": now.isoformat(), "channel_id": channel,
                 "connected": bool(app.services.twitch.chat_connected),
                 "retained_users": retained, "totals": totals,
                 "series": [{"day": day, **values} for day, values in series.items()],
-                "commands": [{"name": name, "metrics": values} for name, values in sorted(commands.items())],
+                "commands": [{"name": name, "label": names.get(name, "Deleted or unavailable command"), "metrics": values} for name, values in sorted(commands.items())],
                 "providers": [{"name": name, "metrics": values} for name, values in sorted(providers.items())],
                 **{key: snapshot[key] for key in ("metadata", "enabled", "available", "pending", "dropped", "write_failures", "price_checked", "price_basis")}}
 
@@ -745,6 +752,7 @@ class ApplicationManagement:
             "enabled": runtime_state.ai_enabled,
             "available": bool(getattr(getattr(application.services, "ai", None), "is_available", False)),
             "memory_enabled": runtime_state.ai_memory_enabled,
+            "provider": AI_PROVIDERS[application.settings.ai_setup.primary.provider if getattr(application.settings, "ai_setup", None) is not None else application.settings.ai_provider],
             "active_personality": runtime_state.active_ai_personality,
             "available_personalities": list(runtime_state.available_personalities),
             "model": (application.settings.ai_setup.primary.model if getattr(application.settings, "ai_setup", None) is not None

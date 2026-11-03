@@ -1,27 +1,45 @@
 .analytics-layout { display: grid; gap: var(--space-4); }
 .analytics-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-3); }
 .analytics-toolbar label { min-width: 160px; }
-.analytics-cards, .analytics-breakdowns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.analytics-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
+.analytics-breakdowns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: var(--space-4); }
 .analytics-layout .card { min-width: 0; }
-.analytics-layout h2 { font-size: 18px; margin-bottom: 8px; }
+.analytics-layout h2 { font-size: 16px; margin: 0 0 8px; }
+.analytics-layout h3 { font-size: 14px; margin: 8px 0; }
 .analytics-layout p { margin: 8px 0; overflow-wrap: anywhere; }
-.analytics-layout label:not(.switch-control), .memory-limits label { display: grid; gap: 6px; }
+.analytics-layout label:not(.switch-control) { display: grid; gap: 6px; }
 .analytics-layout .select { max-width: 100%; }
-.analytics-chart { display: block; width: 100%; height: 215px; margin: 12px 0; }
+.analytics-summary { padding: 12px 14px; }
+.analytics-summary .ai-state-heading { align-items: start; min-height: 36px; margin-bottom: 4px; }
+.analytics-summary .ai-state-heading h2 { margin: 4px 0 0; font-size: 14px; }
+.analytics-primary { display: inline-block; font-size: 22px; line-height: 1.3; overflow-wrap: anywhere; }
+.analytics-summary p { font-size: 13px; }
+.balance-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.balance-controls .select-trigger { flex: 1 1 110px; width: auto; min-width: 0; }
+.balance-controls button.secondary { padding: 7px 8px; font-size: 12px; }
+.analytics-trend-select { max-width: 360px; }
+.analytics-chart { display: block; width: 100%; height: 215px; margin: 0 0 12px; }
 .analytics-chart text { fill: var(--muted); font-size: 13px; }
 .chart-axis { stroke: var(--separator); }
 .chart-value { stroke: var(--success); stroke-width: 2; }
 .chart-point { fill: var(--success); }
-.analytics-table { overflow-x: auto; max-width: 100%; }
-.analytics-table table { width: 100%; min-width: 450px; border-collapse: collapse; }
-.analytics-table th, .analytics-table td { padding: 8px; text-align: left; border-bottom: 1px solid var(--separator); }
-.analytics-table th { overflow-wrap: anywhere; }
-.analytics-table thead th { white-space: nowrap; }
+.analytics-values { margin-top: 12px; }
+.analytics-table { overflow: auto; max-width: 100%; }
+.analytics-table:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.analytics-table table { width: 100%; min-width: 450px; border-collapse: separate; border-spacing: 0; }
+.analytics-table th, .analytics-table td { padding: 8px; text-align: right; border-bottom: 1px solid var(--separator); }
+.analytics-table th:first-child { text-align: left; }
+.analytics-table tbody th { overflow-wrap: anywhere; max-width: 240px; }
+.analytics-table thead th { white-space: nowrap; position: sticky; top: 0; z-index: 1; background: var(--panel); }
 .analytics-table caption { text-align: left; color: var(--muted); padding: 8px; }
+.analytics-command-table { max-height: 276px; }
+.analytics-command-table tbody th { height: 46px; white-space: nowrap; }
+.analytics-command-name { display: inline-block; max-width: 140px; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.analytics-command-table .help-tip { vertical-align: middle; }
 .analytics-layout summary { cursor: pointer; }
-.memory-limits { display: grid; gap: 10px; width: 100%; margin-top: 12px; }
-.memory-limits input { width: 100%; min-width: 0; }
-.memory-limits .editor-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-@media (max-width: 700px) {
-  .analytics-cards, .analytics-breakdowns { grid-template-columns: minmax(0, 1fr); }
-}
+.analytics-coverage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1.3fr); gap: var(--space-6); }
+.analytics-coverage .ai-state-heading { margin-bottom: 4px; }
+.analytics-operations button { margin-top: 8px; }
+@container page-content (width < 900px) { .analytics-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container page-content (width < 700px) { .analytics-breakdowns, .analytics-coverage { grid-template-columns: minmax(0, 1fr); } }
+@container page-content (width < 450px) { .analytics-cards { grid-template-columns: minmax(0, 1fr); } }

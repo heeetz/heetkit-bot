@@ -34,7 +34,7 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
   let commandRestrictions: CommandRestriction[] = []
   let optouts: OptOutUser[] = []
   let announcements: AnnouncementInfo[] = []
-  let enabled = true
+  let enabled = true, memoryEnabled = false
   let playgroundPending = false
   let playgroundCancelled = false
   let playgroundReadDelay = 0
@@ -59,7 +59,7 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     ...operationOverrides,
   }
   const status = { running: true, twitch_connected: true, twitch_connection_state: 'connected' as const, uptime_seconds: 10, channel: 'synthetic_channel', account: 'synthetic_bot', ...statusOverrides, operation }
-  const ai = () => ({ enabled, available: aiConfigured, memory_enabled: false, active_personality: 'neutral', available_personalities: ['neutral'], model: 'test-model' })
+  const ai = () => ({ provider: 'Google Gemini', enabled, available: aiConfigured, memory_enabled: memoryEnabled, active_personality: 'neutral', available_personalities: ['neutral'], model: 'test-model' })
   const aiProvider = { provider: 'Gemini', selected_model: 'test-model', fallback_model: 'test-fallback', presets: [], credential: null }
   let aiSetup = { primary: { provider: 'gemini', model: 'gemini-2.5-flash', thinking: 'default', search: false },
     fallback: null, cross_provider_acknowledged: false, max_question_length: 300, max_answer_length: 220,
@@ -145,6 +145,7 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     }
     if (path === '/v1/ai') result = ai()
     if (path === '/v1/ai/enabled') enabled = body!.enabled as boolean
+    if (path === '/v1/ai/memory') memoryEnabled = body!.enabled as boolean
     if (path === '/v1/ai/models') result = { ok: true, settings: aiProvider }
     if (path === '/v1/ai/language') result = { ok: true, settings: { mode: 'auto', allowed_languages: ['en'], fallback_language: 'en' }, languages: [{ code: 'en', label: 'English' }], active_policy: 'Auto' }
     if (path === '/v1/commands') result = { command_prefix: '!', permissions: ['USER', 'MODERATOR', 'BROADCASTER'], commands: page.url().includes('privacyLayout') ? [command, erase] : [command] }

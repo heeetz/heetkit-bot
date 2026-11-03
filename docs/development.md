@@ -234,9 +234,19 @@ can use `await services.analytics.snapshot(channel_id, days)`,
 both host adapters expose them through the existing private management boundary. Reset
 and enable changes invalidate older request scopes. `users.retained_count(channel_id=...)`
 returns current retained presence, not historical uniques. `ApplicationManagement`
-assembles bounded daily series and dimension breakdowns for the React Analytics page;
+assembles hourly Today or daily longer-range series and current-name dimension breakdowns
+for the React Analytics page;
 callers cannot select an arbitrary channel. Missing personal-store reads remain unknown.
 AI memory count controls reuse the database's transactional prune/persist operation.
+The additive `hourly` table mirrors new writes; daily rows alone supply totals, so
+representations are never added together. Schema/index creation is repeatable and
+`hourly_start`/`new_users_start` metadata identifies prospective coverage. Snapshot
+`as_of` binds both channel and coverage reads to one UTC window; `hourly_rows` is
+returned for Today alongside authoritative daily `rows`. The presence repository
+enqueues `users.new` only after an eligible commit, serialized by the existing privacy
+lock and guarded by captured collection/privacy generations. Profile
+`users.coverage_seconds` distinguishes new-user collection from pre-upgrade coverage.
+No user IDs enter the aggregate store.
 Optional `services/ai_balance.py` uses a separate on-demand bounded query/cache and
 never occupies the chat request slot or persists provider credentials.
 

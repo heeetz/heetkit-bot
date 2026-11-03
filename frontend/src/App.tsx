@@ -730,7 +730,7 @@ function ManagementApp() {
         <div className="brand"><img className="brand-mark" src="./icon.png" alt="" /><div><strong>HeetKit</strong><small>Twitch bot controls</small></div></div>
         <nav aria-label="Main navigation">
           {sections.map((item) => (
-            <div className="nav-section" key={item}>
+            <div className={`nav-section${item === 'About' ? ' nav-about' : ''}`} key={item}>
               <button
                 type="button"
                 className={section === item ? 'active' : ''}

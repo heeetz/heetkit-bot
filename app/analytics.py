@@ -1,4 +1,4 @@
-"""Private, bounded daily aggregates. No event or viewer ledger is persisted.
+"""Private, bounded UTC aggregates. No event or viewer ledger is persisted.
 
 Collection never awaits storage. A single background writer uses a separate SQLite
 file and short transactions; readers and maintenance run off the application loop.
@@ -97,7 +97,7 @@ class Analytics:
         self._generation = 0
         self._connected = {}
         self._ever_connected = set()
-        self._coverage_at = clock()
+        self._coverage_at = clock().astimezone(timezone.utc)
 
     async def start(self):
         if self._task is not None:
@@ -120,6 +120,9 @@ class Analytics:
                 con.execute("PRAGMA journal_mode=WAL")
                 con.execute("CREATE TABLE IF NOT EXISTS daily (day TEXT NOT NULL, channel TEXT NOT NULL, dimension TEXT NOT NULL, metric TEXT NOT NULL, value REAL NOT NULL, PRIMARY KEY(channel, day, dimension, metric)) WITHOUT ROWID")
                 con.execute("CREATE INDEX IF NOT EXISTS daily_expiry ON daily(day)")
+                # Additive, repeatable upgrade: never infer hours from old daily totals.
+                con.execute("CREATE TABLE IF NOT EXISTS hourly (day TEXT NOT NULL, channel TEXT NOT NULL, dimension TEXT NOT NULL, metric TEXT NOT NULL, value REAL NOT NULL, PRIMARY KEY(channel, day, dimension, metric)) WITHOUT ROWID")
+                con.execute("CREATE INDEX IF NOT EXISTS hourly_expiry ON hourly(day)")
                 con.execute("CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
                 meta = dict(con.execute("SELECT key,value FROM metadata"))
                 self.enabled = meta.get("enabled", "1") == "1"
@@ -128,6 +131,8 @@ class Analytics:
                 if meta.get("clean_shutdown") == "0":
                     con.execute("INSERT INTO metadata VALUES ('unclean_starts', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(int(meta.get("unclean_starts", "0")) + 1),))
                 con.execute("INSERT OR IGNORE INTO metadata VALUES ('data_start', ?)", (self.clock().isoformat(),))
+                for key in ("hourly_start", "new_users_start"):
+                    con.execute("INSERT OR IGNORE INTO metadata VALUES (?, ?)", (key, self.clock().isoformat()))
                 con.execute("INSERT INTO metadata VALUES ('clean_shutdown','0') ON CONFLICT(key) DO UPDATE SET value='0'")
                 con.execute("INSERT INTO metadata VALUES ('last_start',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (self.clock().isoformat(),))
                 con.commit()
@@ -151,7 +156,8 @@ class Analytics:
         if len(self.queue) >= self.capacity:
             self.dropped += 1
             return
-        self.queue.append(((at or self.clock()).astimezone(timezone.utc).date().isoformat(), channel_id, dimension,
+        bucket = (at or self.clock()).astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0).isoformat()
+        self.queue.append((bucket, channel_id, dimension,
                            metric, value, allowed, self._generation))
 
     def observe(self, kind, values, *, channel_id, allowed):
@@ -200,13 +206,13 @@ class Analytics:
                 cost, incomplete = estimate(provider, model, values, self.clock())
                 if cost is not None:
                     add("ai.estimated_usd", cost, dimension)
-                if (provider, model) not in RATES or self.clock().date().isoformat() < PRICE_CHECKED:
+                if (provider, model) not in RATES or self.clock().astimezone(timezone.utc).date().isoformat() < PRICE_CHECKED:
                     add("ai.price_missing", dimension=dimension)
                 if incomplete:
                     add("ai.estimate_incomplete", dimension=dimension)
 
     def connection(self, channel_id, ready):
-        now = self.clock()
+        now = self.clock().astimezone(timezone.utc)
         if ready and channel_id not in self._connected:
             self.record("connection.starts", channel_id=channel_id)
             if channel_id in self._ever_connected:
@@ -220,10 +226,10 @@ class Analytics:
             del self._connected[channel_id]
 
     def _checkpoint_connection(self, channel, now):
-        start = self._connected[channel]
+        oldest = datetime.combine(now.date() - timedelta(days=RETENTION_DAYS - 1), datetime.min.time(), timezone.utc)
+        start = max(self._connected[channel], oldest)
         while start < now:
-            midnight = datetime.combine(start.date() + timedelta(days=1), datetime.min.time(), timezone.utc)
-            end = min(midnight, now)
+            end = min(start.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1), now)
             self.record("connection.seconds", channel_id=channel, value=(end - start).total_seconds(), at=start)
             start = end
         self._connected[channel] = now
@@ -233,7 +239,7 @@ class Analytics:
             await asyncio.sleep(1)
             self._checkpoint_coverage()
             for channel in tuple(self._connected):
-                self._checkpoint_connection(channel, self.clock())
+                self._checkpoint_connection(channel, self.clock().astimezone(timezone.utc))
             # Drain a bounded backlog in short batches, yielding between writes.
             for _ in range((self.capacity + self.batch_size - 1) // self.batch_size):
                 await self.flush()
@@ -241,11 +247,14 @@ class Analytics:
                     break
 
     def _checkpoint_coverage(self):
-        now = self.clock()
-        start = self._coverage_at
+        now = self.clock().astimezone(timezone.utc)
+        oldest = datetime.combine(now.date() - timedelta(days=RETENTION_DAYS - 1), datetime.min.time(), timezone.utc)
+        start = max(self._coverage_at, oldest)
         while start < now:
-            end = min(datetime.combine(start.date() + timedelta(days=1), datetime.min.time(), timezone.utc), now)
+            end = min(start.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1), now)
             self.record("coverage.seconds", value=(end - start).total_seconds(), at=start)
+            # Separately marks prospective collection of newly retained observations.
+            self.record("users.coverage_seconds", value=(end - start).total_seconds(), at=start)
             start = end
         self._coverage_at = now
 
@@ -282,12 +291,15 @@ class Analytics:
             con = self._connection
             try:
                 con.execute("BEGIN IMMEDIATE")
-                cutoff = (self.clock().date() - timedelta(days=RETENTION_DAYS - 1)).isoformat()
+                cutoff = (self.clock().astimezone(timezone.utc).date() - timedelta(days=RETENTION_DAYS - 1)).isoformat()
                 con.execute("DELETE FROM daily WHERE day < ?", (cutoff,))
+                con.execute("DELETE FROM hourly WHERE day < ?", (cutoff,))
                 rows = Counter()
+                hourly = Counter()
                 dimensions = {}
                 channels = {r[0] for r in con.execute("SELECT DISTINCT channel FROM daily")}
-                for day, channel, dimension, metric, value, allowed, generation in batch:
+                for bucket, channel, dimension, metric, value, allowed, generation in batch:
+                    day = bucket[:10]
                     if generation != self._generation or not self.enabled or not allowed() or day < cutoff:
                         continue
                     # Bound channel/model/custom-command churn, including across restarts.
@@ -304,7 +316,9 @@ class Analytics:
                         self.dropped += 1
                     known.add(dimension)
                     rows[day, channel, dimension, metric] += value
+                    hourly[bucket, channel, dimension, metric] += value
                 con.executemany("INSERT INTO daily VALUES (?,?,?,?,?) ON CONFLICT(channel,day,dimension,metric) DO UPDATE SET value=value+excluded.value", [(*key, value) for key, value in rows.items()])
+                con.executemany("INSERT INTO hourly VALUES (?,?,?,?,?) ON CONFLICT(channel,day,dimension,metric) DO UPDATE SET value=value+excluded.value", [(*key, value) for key, value in hourly.items()])
                 for key, value in {"dropped": self.dropped, "write_failures": self.write_failures, "last_write": self.clock().isoformat()}.items():
                     con.execute("INSERT INTO metadata VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, str(value)))
                 con.commit()
@@ -324,6 +338,8 @@ class Analytics:
         self.enabled = enabled
         self._generation += 1
         self.queue.clear()
+        self._coverage_at = self.clock().astimezone(timezone.utc)
+        self._connected = {key: self.clock().astimezone(timezone.utc) for key in self._connected}
         await self.privacy_barrier()
         await asyncio.to_thread(self._set_metadata, "enabled", "1" if enabled else "0")
         await asyncio.to_thread(self._set_metadata, "last_enabled" if enabled else "last_disabled", self.clock().isoformat())
@@ -339,28 +355,37 @@ class Analytics:
         def clear():
             with self._lock, self._connection:
                 self._connection.execute("DELETE FROM daily")
-                self._connection.execute("DELETE FROM metadata WHERE key IN ('data_start','last_write','unclean_starts','dropped','write_failures')")
-                self._connection.execute("INSERT INTO metadata VALUES ('data_start',?)", (self.clock().isoformat(),))
+                self._connection.execute("DELETE FROM hourly")
+                self._connection.execute("DELETE FROM metadata WHERE key IN ('data_start','hourly_start','new_users_start','last_write','unclean_starts','dropped','write_failures')")
+                for key in ("data_start", "hourly_start", "new_users_start"):
+                    self._connection.execute("INSERT INTO metadata VALUES (?,?)", (key, self.clock().isoformat()))
         await asyncio.to_thread(clear)
         self.dropped = self.write_failures = 0
-        self._connected = {key: self.clock() for key in self._connected}
-        self._coverage_at = self.clock()
+        self._connected = {key: self.clock().astimezone(timezone.utc) for key in self._connected}
+        self._coverage_at = self.clock().astimezone(timezone.utc)
 
-    async def snapshot(self, channel_id, days=60):
+    async def snapshot(self, channel_id, days=60, *, as_of=None):
         if type(days) is not int or not 1 <= days <= RETENTION_DAYS:
             raise ValueError("Use 1 to 60 UTC calendar days.")
+        now = (as_of or self.clock()).astimezone(timezone.utc)
+        cutoff = (now.date() - timedelta(days=days - 1)).isoformat()
+        tomorrow = (now.date() + timedelta(days=1)).isoformat()
         def read():
             with self._lock:
-                cutoff = (self.clock().date() - timedelta(days=days - 1)).isoformat()
                 rows = [dict(zip(("day", "dimension", "metric", "value"), row)) for row in self._connection.execute(
-                    "SELECT day,dimension,metric,value FROM daily WHERE channel=? AND day>=? ORDER BY day", (channel_id, cutoff))]
-                return rows, dict(self._connection.execute("SELECT key,value FROM metadata"))
+                    "SELECT day,dimension,metric,value FROM daily WHERE channel=? AND day>=? AND day<? ORDER BY day",
+                    (channel_id, cutoff, tomorrow))]
+                hours = [dict(zip(("day", "dimension", "metric", "value"), row)) for row in self._connection.execute(
+                    "SELECT day,dimension,metric,value FROM hourly WHERE channel=? AND day>=? AND day<? ORDER BY day",
+                    (channel_id, cutoff, tomorrow))] if days == 1 else []
+                return rows, hours, dict(self._connection.execute("SELECT key,value FROM metadata"))
         try:
-            rows, metadata = await asyncio.to_thread(read)
+            rows, hours, metadata = await asyncio.to_thread(read)
         except Exception:
-            rows, metadata = [], {}
+            rows, hours, metadata = [], [], {}
             self.available = False
-        return {"rows": rows, "metadata": metadata, "enabled": self.enabled, "available": self.available,
+        return {"rows": rows, "hourly_rows": hours, "resolution": "hour" if days == 1 else "day",
+                "metadata": metadata, "enabled": self.enabled, "available": self.available,
                 "pending": len(self.queue), "dropped": self.dropped, "write_failures": self.write_failures,
                 "write_seconds": self.write_seconds, "lock_wait_seconds": self.lock_wait_seconds,
                 "price_checked": PRICE_CHECKED, "price_basis": "standard paid text; known subtotal; not an invoice",

@@ -48,7 +48,7 @@ let status: AppStatus = {
 let aiStatus = {
   enabled: query.has('askToggle') ? JSON.parse(sessionStorage.getItem('askEnabled') ?? 'false') as boolean : false,
   available: query.has('aiAvailable'), memory_enabled: false,
-  active_personality: 'neutral', available_personalities: ['neutral'], model: query.has('a4Models') ? 'synthetic-primary' : query.has('aiAvailable') ? 'synthetic-model' : '',
+  active_personality: 'neutral', available_personalities: ['neutral'], provider: 'Google Gemini', model: query.has('a4Models') ? 'synthetic-primary' : query.has('aiAvailable') ? 'synthetic-model' : '',
 }
 let personalities: PersonalitiesResponse = {
   active_personality: 'neutral',

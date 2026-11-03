@@ -262,6 +262,7 @@ export type FilterTestResult =
   })
 
 export interface AIStatus {
+  provider?: string
   enabled: boolean
   available: boolean
   memory_enabled: boolean
@@ -507,6 +508,7 @@ export interface LogEntry {
 
 export interface AnalyticsResponse extends ActionResult {
   days: number
+  resolution: 'hour' | 'day'
   start: string
   end: string
   as_of: string
@@ -522,8 +524,8 @@ export interface AnalyticsResponse extends ActionResult {
   price_checked: string
   price_basis: string
   totals: Record<string, number>
-  series: { day: string; metrics: Record<string, number>; coverage_seconds: number }[]
-  commands: { name: string; metrics: Record<string, number> }[]
+  series: { day: string; metrics: Record<string, number>; coverage_seconds: number; new_users_coverage_seconds: number }[]
+  commands: { name: string; label: string; metrics: Record<string, number> }[]
   providers: { name: string; metrics: Record<string, number> }[]
 }
 

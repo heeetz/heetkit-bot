@@ -38,11 +38,13 @@ export default function AIMemoryLimits({ active }: { active: boolean }) {
     })()
   }}>
     <div className="ai-state-heading"><strong>Exchange limits</strong><HelpTip label="Exchange limits">One pair means one question and its successful answer. N caps stored pairs per viewer per channel; M caps pairs sent as model context. The count cap and 60-day expiry both apply. Saving a lower N immediately prunes older pairs, including recovery copies. Turning memory off stops use and storage; these saved limits still apply when re-enabled.</HelpTip></div>
+    <div className="memory-limit-fields">
     <label className="form-field">Stored pairs (N)<input type="number" min="1" max="500" step="1" value={stored} disabled={!saved || busy} onChange={(e) => { setStored(e.target.value); setNotice('') }} /></label>
     <label className="form-field">Context pairs (M)<input type="number" min="1" max="50" step="1" value={context} disabled={!saved || busy} onChange={(e) => { setContext(e.target.value); setNotice('') }} /></label>
-    {saved && !valid && <p className="inline-error" role="alert">N must be 1–500; M must be 1–50 and no greater than N.</p>}
-    <p className="muted">Saving a lower N permanently removes older pairs. Stored pairs also expire after 60 days.</p>
     <div className="editor-actions"><button className="primary" disabled={!dirty || !valid || busy}>Save memory limits</button><button type="button" className="secondary" disabled={!dirty || busy} onClick={() => { setStored(String(saved![0])); setContext(String(saved![1])); setError(''); setNotice('') }}>Cancel</button></div>
+    </div>
+    {saved && !valid && <p className="inline-error" role="alert">N must be 1–500; M must be 1–50 and no greater than N.</p>}
+    <p className="muted">Saving a lower N permanently removes older pairs.</p>
     {error && <p role="alert" className="inline-error">{error}</p>}{notice && <p role="status">{notice}</p>}
   </form>
 }

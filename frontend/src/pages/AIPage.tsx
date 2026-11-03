@@ -500,18 +500,19 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
       <div className="ai-status-grid" id="ai-runtime">
         <article className="card ai-state-panel">
           <div className="ai-state-heading">
-            <h2>AI command</h2>
-            <HelpTip label="AI command">Saved immediately across restarts. Dashboard, AI and Commands share this AI command setting. If the provider is unavailable, the enabled preference is retained; add a usable API key to enable replies.</HelpTip>
+            <h2>AI provider</h2>
+            <div className="ai-state-actions">
+              <HelpTip label="AI provider">{isBrowserMode() ? 'AI is optional. Connect and test provider keys in AI setup above.' : 'AI is optional. Use AI setup above for saved providers and per-model controls. Test generation separately in Playground.'} The command preference is managed in Dashboard or Commands.</HelpTip>
+              <button className="secondary" disabled={loading} aria-label="Manage AI setup" onClick={() => { const element = document.getElementById('ai-models'); element?.dispatchEvent(new CustomEvent('accordion:open')); element?.scrollIntoView({ block: 'start' }) }}>Manage</button>
+            </div>
           </div>
-          <Switch
-            className="settings-toggle"
-            checked={status?.enabled ?? false}
-            disabled={!status || Boolean(busy)}
-            ariaLabel="Enable AI command"
-            onCheckedChange={(enabled) => void changeToggle('enabled', enabled)}
-          >
-            <span>{status ? status.enabled ? 'Enabled' : 'Disabled' : 'Loading…'}</span>
-          </Switch>
+          <dl className="ai-runtime-values">
+            <dt>Provider</dt><dd>{status?.provider || 'Unavailable'}</dd>
+            <dt>Active model</dt><dd>{status ? status.model || 'Not selected' : 'Loading…'}</dd>
+            <dt>Configuration</dt><dd>{status ? status.available ? 'Configured for requests' : 'Unavailable' : 'Loading…'}</dd>
+            <dt>AI command</dt><dd>{status ? status.enabled ? 'Enabled' : 'Disabled' : 'Loading…'}</dd>
+            <dt>Active personality</dt><dd>{data ? data.active_personality || 'Not selected' : 'Loading…'}</dd>
+          </dl>
         </article>
         <article className="card ai-state-panel" id="ai-memory">
           <div className="ai-state-heading">
@@ -522,22 +523,6 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
             <span>{status ? status.memory_enabled ? 'Enabled' : 'Disabled' : 'Loading…'}</span>
           </Switch>
           <AIMemoryLimits active={active} />
-        </article>
-        <article className="card ai-state-panel">
-          <div className="ai-state-heading ai-gemini-heading">
-            <h2>AI provider</h2>
-            <div className="ai-state-actions">
-              <HelpTip label="Gemini">{isBrowserMode() ? 'AI is optional. Connect and test provider keys in AI setup above.' : 'AI is optional. Use AI setup above for saved providers and per-model controls. Test generation separately in Playground.'}</HelpTip>
-              <button className="secondary" disabled={loading} aria-label="Manage AI setup" onClick={() => { const element = document.getElementById('ai-models'); element?.dispatchEvent(new CustomEvent('accordion:open')); element?.scrollIntoView({ block: 'start' }) }}>Manage</button>
-            </div>
-          </div>
-          <span className="ai-availability">{status ? status.available ? 'Configured for requests' : 'Unavailable' : 'Loading…'}</span>
-          <span className="ai-model-label">Active model</span>
-          <strong>{status ? status.model || 'Not selected' : 'Loading…'}</strong>
-        </article>
-        <article className="card ai-state-panel">
-          <div className="ai-state-heading"><h2>Active personality</h2></div>
-          <strong>{data ? data.active_personality || 'Not selected' : 'Loading…'}</strong>
         </article>
       </div>
       <AIPlayground active={active} personality={data?.active_personality ?? ''} hasDrafts={hasDrafts} />

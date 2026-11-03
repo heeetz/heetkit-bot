@@ -112,12 +112,15 @@ the reported conflict with the application stopped.
 
 ## Daily local aggregates
 
-**Analytics** on either host shows Today / 7 / 30 / 60 UTC calendar-day totals,
-trends and command/provider breakdowns for the configured channel. Its retained-user
+**Analytics** on either host shows Today / 7 / 30 / 60 UTC calendar-day totals
+and command/provider breakdowns for the configured channel. Today trends use genuine
+UTC hourly observations; longer ranges use daily buckets. Hourly collection starts
+with the updated collector: older daily totals remain intact but have no invented
+hourly history. Future hours and missing coverage are gaps, distinct from observed zero. Its retained-user
 card is a current snapshot, not historical daily unique viewers. Playground usage is
 separate and excluded from channel totals.
 
-The separate `<database-name>.analytics.sqlite3` file holds daily counters, channel IDs,
+The separate `<database-name>.analytics.sqlite3` file holds daily and hourly counters, channel IDs,
 bounded command/provider/model dimensions and observation metadata. It contains no
 viewer identities, chat bodies, prompts/replies, provider payloads or request IDs.
 Rows expire after 60 UTC calendar days, even when collection is disabled. Nothing is
@@ -129,6 +132,14 @@ not zero. Cached/reasoning token breakdowns are subsets, not extra totals to add
 Spend is a dated **known USD subtotal**, never an invoice or account balance. The page
 marks missing usage/pricing, disabled/disconnected periods, drops and incomplete windows.
 It does not infer audience activity during downtime or reconstruct historical users.
+
+**Newly observed users** counts creation of a retained presence record per channel
+after successful eligible persistence. This is newly observed in the bot's database,
+not Twitch's first-time-chatter flag or lifetime unique viewers. A viewer may count
+again after their old presence expires. Collection is prospective, with no historical
+backfill and no viewer/event identity ledger. Command breakdown labels use current
+configured names and prefix while totals remain keyed by stable IDs; deleted commands
+retain their rows with an unavailable-name label.
 
 Updates are buffered and written in bounded batches off the command loop. Crashes,
 full buffers and write failures can lose updates; coverage is not exactly-once billing.

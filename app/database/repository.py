@@ -122,10 +122,15 @@ class UserRepository:
         if not valid_channel_id(channel_id):
             return None
         epoch = self.policy.privacy_epochs.get(twitch_user_id, 0)
+        analytics = getattr(self, "analytics", None)
+        generation = analytics._generation if analytics is not None else None
         current_time = seen_at or utcnow()
         async with self.policy.lock, self._session_factory() as session:
             if not ticket_current(self.policy, twitch_user_id, epoch):
                 return None
+            previous_seen = await session.scalar(select(User.last_seen_at).where(
+                User.channel_id == channel_id, User.twitch_user_id == twitch_user_id))
+            new_observation = previous_seen is None or previous_seen <= current_time - timedelta(days=USER_RETENTION_DAYS)
             statement = sqlite_insert(User).from_select(
                 ["channel_id", "twitch_user_id", "username", "created_at", "last_seen_at"],
                 select(literal(channel_id), literal(twitch_user_id), literal(username),
@@ -137,8 +142,20 @@ class UserRepository:
                 set_={"username": username, "created_at": case(
                     (User.last_seen_at <= current_time - timedelta(days=USER_RETENTION_DAYS), current_time), else_=User.created_at),
                     "last_seen_at": current_time}, where=storage_allowed(twitch_user_id))
-            await session.execute(statement)
+            result = await session.execute(statement)
             await session.commit()
+            if new_observation and result.rowcount and analytics is not None:
+                # Enqueue only after persistence succeeds. The shared policy lock
+                # serializes concurrent first messages; no viewer/event ledger is
+                # added to the aggregate store. Capture epochs before any await so
+                # reset, disable/re-enable and opt-out cannot resurrect late work.
+                try:
+                    analytics.record("users.new", channel_id=channel_id, allowed=lambda:
+                        generation == analytics._generation
+                        and epoch == self.policy.privacy_epochs.get(twitch_user_id, 0)
+                        and twitch_user_id not in self._suppressed_ids)
+                except Exception:
+                    analytics.dropped += 1
             return await session.scalar(select(User).where(User.channel_id == channel_id,
                 User.twitch_user_id == twitch_user_id, storage_allowed(twitch_user_id)))
 

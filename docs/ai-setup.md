@@ -26,6 +26,10 @@ in configuration exports. See [credential storage](data-and-privacy.md#credentia
 
 ## Conversation memory and account balance
 
+The AI State cards show the current provider, model, configuration availability,
+command state and personality beside conversation memory. Manage opens AI setup.
+Change the AI command enabled preference from Dashboard or Commands.
+
 In **AI > Conversation memory**:
 
 - The switch immediately enables/disables subsequent memory use and storage.
@@ -37,7 +41,7 @@ In **AI > Conversation memory**:
 A pair is a question and its successfully delivered answer. Playground never uses
 viewer memory. See [privacy and opt-outs](data-and-privacy.md#privacy-notice-for-viewers).
 
-**Analytics > Provider balance** can refresh the account-wide DeepSeek balance.
+**Analytics > Provider balance** (the fourth summary card) can refresh the account-wide DeepSeek balance.
 It is cached for at least 60 seconds; failures show stale or unavailable values.
 Gemini/OpenAI balance is unavailable. Balance is separate from channel spend estimates
 and does not control generation.
