@@ -411,6 +411,22 @@ async def test_weather_location_clarification_is_not_provider_failure(reason, ex
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('query,fragment', [
+    ('Springfield', 'multiple cities match'), ('Спрингфилд', 'найдено несколько городов'),
+    ('Спрінгфілд', 'знайдено кілька міст'),
+])
+async def test_weather_ambiguity_includes_distinguishable_options(query, fragment):
+    registry = CommandRegistry()
+    register_weather_commands(registry)
+    options = ('Springfield, Missouri, US', 'Springfield, Illinois, US')
+    weather = FakeWeatherService(error=WeatherLocationError('ambiguous', options=options))
+    transport = FakeChatTransport('!weather ' + query)
+    await build_dispatcher(registry).dispatch(transport.message, cast(ApplicationServices, SimpleNamespace(weather=weather)))
+    assert len(transport.replies) == 1 and fragment in transport.replies[0]
+    assert '; '.join(options) in transport.replies[0]
+
+
+@pytest.mark.asyncio
 async def test_weather_unicode_name_and_qualifier_survive_renaming_aliases_and_cooldown(tmp_path):
     registry = CommandRegistry()
     register_weather_commands(registry)
@@ -424,7 +440,7 @@ async def test_weather_unicode_name_and_qualifier_survive_renaming_aliases_and_c
     message = FakeChatTransport("!погода\tЛуцьк\u00a0,\tУкраїна")
     await dispatcher.dispatch(message.message, services)
     assert weather.queries == ["Луцьк\u00a0,\tУкраїна"]
-    assert message.replies == ["@viewer, Луцьк, Волинська область, Україна: +12°C, ясно, вітер 8 км/год."]
+    assert message.replies == ["@viewer, Луцьк: +12°C, ясно, вітер 8 км/год."]
     alias = FakeChatTransport("!weather Луцьк")
     await dispatcher.dispatch(alias.message, services)
     assert not alias.replies and len(weather.queries) == 1

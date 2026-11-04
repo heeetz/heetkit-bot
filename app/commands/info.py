@@ -68,6 +68,8 @@ def register_weather_commands(registry: CommandRegistry) -> None:
                 "ru": "найдено несколько городов; уточните страну/регион" if error.reason == "ambiguous" else "укажите город, страну или город, регион, страну",
                 "uk": "знайдено кілька міст; уточніть країну/регіон" if error.reason == "ambiguous" else "вкажіть місто, країну або місто, регіон, країну",
             }[language]
+            if error.options:
+                clarification += ": " + "; ".join(error.options)
             await context.reply(f"@{username}, {clarification}.")
             return
         except WeatherServiceError as error:

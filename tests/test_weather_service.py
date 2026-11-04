@@ -1,6 +1,7 @@
 """Mocked regressions informed by real public Open-Meteo geocoding comparisons."""
 import asyncio
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -105,12 +106,102 @@ async def test_odessa_other_locale_is_checked_even_after_an_exact_russian_match(
 
 
 @pytest.mark.asyncio
-async def test_ambiguous_same_name_cities_are_not_resolved_by_population():
+async def test_comparable_same_name_cities_remain_ambiguous():
     with pytest.raises(WeatherLocationError, match='ambiguous'):
         await lookup('Springfield', lambda r: {'results': [
             place('Springfield', ident=1, country='US', region='Missouri', population=200000),
             place('Springfield', ident=2, country='US', region='Illinois', population=100000),
         ]})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('query,ident,language', [
+    ('Київ', 703448, 'uk'), ('Киев', 703448, 'ru'), ('Kyiv', 703448, 'en'),
+    # The public index does not return Ukraine's capital for this alias.
+    ('Kiev', 827619, 'en'),
+    ('Луцьк', 702569, 'uk'), ('Луцк', 702569, 'ru'), ('Lutsk', 702569, 'en'),
+    ('Paris', 2988507, 'en'),
+])
+async def test_verified_public_multilingual_candidates(query, ident, language):
+    evidence = json.loads((Path(__file__).parent / 'fixtures/weather_geocoding.json').read_text(encoding='utf-8'))
+    def geocode(request):
+        # Reverse provider ordering to prove selection is independent of it.
+        candidates = evidence[query][request.url.params['language']]
+        return {'results': list(reversed(candidates))}
+    report, requests = await lookup(query, geocode)
+    expected = next(p for p in evidence[query][language] if p['id'] == ident)
+    assert report and report.city == expected['name'] and report.language == language
+    assert requests[-1].url.params['latitude'] == str(expected['latitude'])
+    assert requests[-1].url.params['longitude'] == str(expected['longitude'])
+    assert len(requests) == 4
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('reverse', [False, True])
+async def test_real_springfields_offer_three_distinguishable_options(reverse):
+    evidence = json.loads((Path(__file__).parent / 'fixtures/weather_geocoding.json').read_text(encoding='utf-8'))
+    def geocode(request):
+        candidates = evidence['Springfield'][request.url.params['language']]
+        return {'results': list(reversed(candidates)) if reverse else candidates}
+    with pytest.raises(WeatherLocationError) as caught:
+        await lookup('Springfield', geocode)
+    assert caught.value.reason == 'ambiguous'
+    assert caught.value.options == (
+        'Springfield, Missouri, US', 'Springfield, Massachusetts, US', 'Springfield, Illinois, US')
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('population,rival,feature,other_feature,dominant', [
+    (2_952_301, 108, 'PPLC', 'PPL', True),
+    (None, None, 'PPLC', 'PPL', True),
+    (None, 2_000_000, 'PPLC', 'PPL', False),
+    (2_952_301, None, 'PPLC', 'PPLA', False),
+    (None, None, 'PPLC', 'PPLC', False),
+    (200_000, None, 'PPLA', 'PPL', False),
+    (None, None, 'PPL', 'PPL', False),
+    (200_000, 100_000, 'PPLA', 'PPL', False),
+    (10_000, 100, 'PPL', 'PPL', False),
+    (1_000_000, 50_000, 'PPL', 'PPLA', True),
+])
+async def test_population_and_prominence_require_clear_evidence(population, rival, feature, other_feature, dominant):
+    candidates = [place('Capital', ident=1, feature=feature, **({'population': population} if population is not None else {})),
+                  place('Capital', ident=2, feature=other_feature, **({'population': rival} if rival is not None else {}))]
+    if dominant:
+        report, _ = await lookup('Capital', lambda r: {'results': candidates})
+        assert report is not None
+    else:
+        with pytest.raises(WeatherLocationError) as caught:
+            await lookup('Capital', lambda r: {'results': candidates})
+        assert len(set(caught.value.options)) == 2  # IDs distinguish identical labels/coordinates.
+
+
+@pytest.mark.asyncio
+async def test_localized_representations_use_identity_and_optional_metadata():
+    def geocode(r):
+        if r.url.params['language'] == 'en':
+            return {'results': [place('Capital', ident=1, feature='PPLA'), place('Capital', ident=2, population=100)]}
+        return {'results': [place('Столиця', ident=1, feature='PPLA', population=1_000_000)]}
+    report, _ = await lookup('Capital', geocode)
+    assert report and report.city == 'Capital' and report.language == 'en'
+
+
+@pytest.mark.asyncio
+async def test_same_id_with_conflicting_coordinates_is_provider_failure():
+    def geocode(r):
+        return {'results': [place('Capital' if r.url.params['language'] == 'en' else 'Столиця',
+                                  latitude=50 if r.url.params['language'] == 'en' else 51)]}
+    with pytest.raises(WeatherServiceError) as caught:
+        await lookup('Capital', geocode)
+    assert caught.value.reason == 'invalid_response'
+
+
+@pytest.mark.asyncio
+async def test_country_filter_excludes_dominant_capital_elsewhere():
+    report, requests = await lookup('Paris, Texas, US', lambda r: {'results': [
+        place('Paris', ident=2988507, country='FR', feature='PPLC', population=2_138_551),
+        place('Paris', ident=4717560, country='US', region='Texas', population=24_782)]})
+    assert report and report.region == 'Texas' and report.country == 'United States'
+    assert all(r.url.params['countryCode'] == 'US' for r in requests[:3])
 
 
 @pytest.mark.asyncio
@@ -271,6 +362,6 @@ async def test_whole_operation_deadline_and_external_cancellation(monkeypatch, d
             await OpenMeteoWeatherService(client).get_current_weather('Луцьк')
 
 
-def test_success_labels_city_region_country_and_resolved_language():
+def test_success_labels_only_city_and_resolved_language():
     report = WeatherReport('Луцьк', 17.2, 'overcast', 14, country='Україна', region='Волинська область', language='uk')
-    assert format_weather_response(report, 'Луцьк') == 'Луцьк, Волинська область, Україна: +17.2°C, хмарно, вітер 14 км/год.'
+    assert format_weather_response(report, 'Луцьк') == 'Луцьк: +17.2°C, хмарно, вітер 14 км/год.'

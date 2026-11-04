@@ -128,21 +128,27 @@ Use `!weather Луцьк`, `!weather Lutsk, Ukraine`, or
 `!weather Springfield, Illinois, US`. Renamed triggers and aliases use the same
 lookup. Ordinary spaces and tabs are normalized; accents and Unicode city names
 are preserved.
-Results include the city, region and country. A successful Cyrillic lookup uses
+Successful replies show only the city and concise weather. A Cyrillic lookup uses
 the matching Ukrainian/Russian spelling for its response language; shared Cyrillic
 letters alone cannot reliably identify the user's language.
 
 HeetKit compares Ukrainian, Russian and English geocoding results from Open-Meteo.
 It accepts matching populated-place names, not arbitrary fuzzy or airport results.
-If several places match, add a country and, when needed, a region. Population does
-not decide an ambiguous lookup. For three-part locations the final country is
+It selects a clearly dominant city using population and settlement prominence.
+Comparable cities or insufficient evidence produce up to three city/region/country
+options; add a country and, when needed, a region to choose. Missing population is
+not treated as zero. Localized representations are combined only by provider ID.
+For three-part locations the final country is
 enforced separately, because the provider ignores a third comma component. A
 two-letter final country code avoids ambiguity; two-part qualifiers otherwise
 follow [Open-Meteo's country/admin1 rules](https://open-meteo.com/en/docs/geocoding-api).
 
 The lookup does not translate arbitrary names or guess historical transliterations.
 Use a current full spelling if an alias is absent from the provider's index
-(for example, `Kyiv` rather than `Kiev`). Partial regions, street addresses and more
+(for example, the verified provider results for `Київ`, `Киев` and `Kyiv` include
+Ukraine's capital, but `Kiev` currently returns a small Russian namesake instead).
+Explicit qualifiers always constrain selection, even if a larger city exists elsewhere.
+Partial regions, street addresses and more
 than three comma-separated components are unsupported. Only the returned candidates
 are compared; this is not an exhaustive gazetteer search.
 

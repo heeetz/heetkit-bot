@@ -1,0 +1,2107 @@
+{
+  "Київ": {
+    "uk": [
+      {
+        "id": 703448,
+        "name": "Київ",
+        "latitude": 50.45466,
+        "longitude": 30.5238,
+        "feature_code": "PPLC",
+        "country_code": "UA",
+        "population": 2952301,
+        "country": "Україна",
+        "admin1": "Місто Київ"
+      },
+      {
+        "id": 704213,
+        "name": "Київ",
+        "latitude": 47.86401,
+        "longitude": 31.02245,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "population": 108,
+        "country": "Україна",
+        "admin1": "Миколаївська область"
+      },
+      {
+        "id": 5689962,
+        "name": "Київ",
+        "latitude": 47.8575,
+        "longitude": -100.51153,
+        "feature_code": "PPL",
+        "country_code": "US",
+        "population": 14,
+        "country": "США",
+        "admin1": "Північна Дакота"
+      },
+      {
+        "id": 705712,
+        "name": "Київське",
+        "latitude": 47.33772,
+        "longitude": 32.62253,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "population": 121,
+        "country": "Україна",
+        "admin1": "Миколаївська область"
+      },
+      {
+        "id": 705711,
+        "name": "Київське",
+        "latitude": 47.49644,
+        "longitude": 32.02136,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "population": 52,
+        "country": "Україна",
+        "admin1": "Миколаївська область"
+      },
+      {
+        "id": 700711,
+        "name": "Київське",
+        "latitude": 51.69736,
+        "longitude": 33.3451,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "population": 76,
+        "country": "Україна",
+        "admin1": "Сумська Область"
+      },
+      {
+        "id": 13680589,
+        "name": "Київський район",
+        "latitude": 50.04475,
+        "longitude": 36.28883,
+        "feature_code": "PPLX",
+        "country_code": "UA",
+        "population": 182900,
+        "country": "Україна",
+        "admin1": "Харківська Область"
+      },
+      {
+        "id": 13561145,
+        "name": "Київський район",
+        "latitude": 48.04646,
+        "longitude": 37.77571,
+        "feature_code": "PPLX",
+        "country_code": "UA",
+        "population": 139177,
+        "country": "Україна",
+        "admin1": "Донецька Область"
+      },
+      {
+        "id": 13561778,
+        "name": "Київський район",
+        "latitude": 49.60902,
+        "longitude": 34.52933,
+        "feature_code": "PPLX",
+        "country_code": "UA",
+        "population": 110600,
+        "country": "Україна",
+        "admin1": "Полтавська область"
+      },
+      {
+        "id": 13645652,
+        "name": "Київський квартал",
+        "latitude": 51.52019,
+        "longitude": 30.75008,
+        "feature_code": "PPLX",
+        "country_code": "UA",
+        "population": 1800,
+        "country": "Україна",
+        "admin1": "Київська область"
+      }
+    ],
+    "ru": [],
+    "en": []
+  },
+  "Киев": {
+    "uk": [
+      {
+        "id": 827619,
+        "name": "Kiev",
+        "latitude": 59.5987,
+        "longitude": 55.2078,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "population": 1,
+        "country": "Росія",
+        "admin1": "Пермський край"
+      },
+      {
+        "id": 547912,
+        "name": "Kiyevka",
+        "latitude": 50.7818,
+        "longitude": 48.4515,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Росія",
+        "admin1": "Саратовська область"
+      },
+      {
+        "id": 1503237,
+        "name": "Kiyevka",
+        "latitude": 54.3948,
+        "longitude": 62.8789,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Росія",
+        "admin1": "Челябінська область"
+      },
+      {
+        "id": 1539107,
+        "name": "Kiyevskiy Yëgan",
+        "latitude": 59.7675,
+        "longitude": 80.40333,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Росія",
+        "admin1": "Томська область"
+      }
+    ],
+    "ru": [
+      {
+        "id": 703448,
+        "name": "Киев",
+        "latitude": 50.45466,
+        "longitude": 30.5238,
+        "feature_code": "PPLC",
+        "country_code": "UA",
+        "population": 2952301,
+        "country": "Украина",
+        "admin1": "Киев"
+      },
+      {
+        "id": 704213,
+        "name": "Киев",
+        "latitude": 47.86401,
+        "longitude": 31.02245,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "population": 108,
+        "country": "Украина",
+        "admin1": "Николаевская область"
+      },
+      {
+        "id": 5689962,
+        "name": "Киев",
+        "latitude": 47.8575,
+        "longitude": -100.51153,
+        "feature_code": "PPL",
+        "country_code": "US",
+        "population": 14,
+        "country": "США",
+        "admin1": "Северная Дакота"
+      },
+      {
+        "id": 827619,
+        "name": "Kiyev",
+        "latitude": 59.5987,
+        "longitude": 55.2078,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "population": 1,
+        "country": "Россия",
+        "admin1": "Пермский край"
+      },
+      {
+        "id": 547910,
+        "name": "Киево",
+        "latitude": 54.88599,
+        "longitude": 36.6687,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Россия",
+        "admin1": "Калужская Область"
+      },
+      {
+        "id": 547907,
+        "name": "Киево",
+        "latitude": 58.39843,
+        "longitude": 39.9275,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Россия",
+        "admin1": "Ярославская Область"
+      },
+      {
+        "id": 547908,
+        "name": "Киево",
+        "latitude": 56.90694,
+        "longitude": 29.53221,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Россия",
+        "admin1": "Псковская Область"
+      },
+      {
+        "id": 547909,
+        "name": "Киёво",
+        "latitude": 56.01667,
+        "longitude": 37.5,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Россия",
+        "admin1": "Московская область"
+      },
+      {
+        "id": 811302,
+        "name": "Киево",
+        "latitude": 55.24139,
+        "longitude": 33.97861,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Россия",
+        "admin1": "Смоленская Область"
+      },
+      {
+        "id": 1503233,
+        "name": "Киева",
+        "latitude": 56.78681,
+        "longitude": 65.96286,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Россия",
+        "admin1": "Тюмень"
+      }
+    ],
+    "en": [
+      {
+        "id": 827619,
+        "name": "Kiev",
+        "latitude": 59.5987,
+        "longitude": 55.2078,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "population": 1,
+        "country": "Russia",
+        "admin1": "Perm Krai"
+      },
+      {
+        "id": 547912,
+        "name": "Kiyevka",
+        "latitude": 50.7818,
+        "longitude": 48.4515,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Russia",
+        "admin1": "Saratov Oblast"
+      },
+      {
+        "id": 1503237,
+        "name": "Kiyevka",
+        "latitude": 54.3948,
+        "longitude": 62.8789,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Russia",
+        "admin1": "Chelyabinsk Oblast"
+      },
+      {
+        "id": 1539107,
+        "name": "Kiyevskiy",
+        "latitude": 59.7675,
+        "longitude": 80.40333,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Russia",
+        "admin1": "Tomsk Oblast"
+      }
+    ]
+  },
+  "Kyiv": {
+    "uk": [
+      {
+        "id": 703448,
+        "name": "Київ",
+        "latitude": 50.45466,
+        "longitude": 30.5238,
+        "feature_code": "PPLC",
+        "country_code": "UA",
+        "population": 2952301,
+        "country": "Україна",
+        "admin1": "Місто Київ"
+      },
+      {
+        "id": 13680589,
+        "name": "Київський район",
+        "latitude": 50.04475,
+        "longitude": 36.28883,
+        "feature_code": "PPLX",
+        "country_code": "UA",
+        "population": 182900,
+        "country": "Україна",
+        "admin1": "Харківська Область"
+      },
+      {
+        "id": 704213,
+        "name": "Київ",
+        "latitude": 47.86401,
+        "longitude": 31.02245,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "population": 108,
+        "country": "Україна",
+        "admin1": "Миколаївська область"
+      },
+      {
+        "id": 13561145,
+        "name": "Київський район",
+        "latitude": 48.04646,
+        "longitude": 37.77571,
+        "feature_code": "PPLX",
+        "country_code": "UA",
+        "population": 139177,
+        "country": "Україна",
+        "admin1": "Донецька Область"
+      },
+      {
+        "id": 11566495,
+        "name": "Kyyivka",
+        "latitude": 46.2169,
+        "longitude": 32.52971,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "population": 325,
+        "country": "Україна",
+        "admin1": "Херсонська область"
+      },
+      {
+        "id": 13561778,
+        "name": "Київський район",
+        "latitude": 49.60902,
+        "longitude": 34.52933,
+        "feature_code": "PPLX",
+        "country_code": "UA",
+        "population": 110600,
+        "country": "Україна",
+        "admin1": "Полтавська область"
+      },
+      {
+        "id": 700711,
+        "name": "Київське",
+        "latitude": 51.69736,
+        "longitude": 33.3451,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "population": 76,
+        "country": "Україна",
+        "admin1": "Сумська Область"
+      },
+      {
+        "id": 8630638,
+        "name": "Kyyivs’ke",
+        "latitude": 50.32939,
+        "longitude": 33.90911,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "population": 34,
+        "country": "Україна",
+        "admin1": "Полтавська область"
+      },
+      {
+        "id": 705710,
+        "name": "Kiyivs’ke",
+        "latitude": 48.13373,
+        "longitude": 35.59268,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "country": "Україна",
+        "admin1": "Дніпропетровська область"
+      },
+      {
+        "id": 705718,
+        "name": "Kyyivets’",
+        "latitude": 49.43189,
+        "longitude": 24.03682,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "country": "Україна",
+        "admin1": "Львівська Область"
+      }
+    ],
+    "ru": [
+      {
+        "id": 703448,
+        "name": "Киев",
+        "latitude": 50.45466,
+        "longitude": 30.5238,
+        "feature_code": "PPLC",
+        "country_code": "UA",
+        "population": 2952301,
+        "country": "Украина",
+        "admin1": "Киев"
+      },
+      {
+        "id": 13680589,
+        "name": "Кийвский",
+        "latitude": 50.04475,
+        "longitude": 36.28883,
+        "feature_code": "PPLX",
+        "country_code": "UA",
+        "population": 182900,
+        "country": "Украина",
+        "admin1": "Харьковская область"
+      },
+      {
+        "id": 704213,
+        "name": "Киев",
+        "latitude": 47.86401,
+        "longitude": 31.02245,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "population": 108,
+        "country": "Украина",
+        "admin1": "Николаевская область"
+      },
+      {
+        "id": 13561145,
+        "name": "Кийвский",
+        "latitude": 48.04646,
+        "longitude": 37.77571,
+        "feature_code": "PPLX",
+        "country_code": "UA",
+        "population": 139177,
+        "country": "Украина",
+        "admin1": "Донецкая область"
+      },
+      {
+        "id": 11566495,
+        "name": "Киевка",
+        "latitude": 46.2169,
+        "longitude": 32.52971,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "population": 325,
+        "country": "Украина",
+        "admin1": "Херсонская область"
+      },
+      {
+        "id": 13561778,
+        "name": "Кийвский",
+        "latitude": 49.60902,
+        "longitude": 34.52933,
+        "feature_code": "PPLX",
+        "country_code": "UA",
+        "population": 110600,
+        "country": "Украина",
+        "admin1": "Полтавская область"
+      },
+      {
+        "id": 700711,
+        "name": "Кыивске",
+        "latitude": 51.69736,
+        "longitude": 33.3451,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "population": 76,
+        "country": "Украина",
+        "admin1": "Сумская область"
+      },
+      {
+        "id": 8630638,
+        "name": "Кыивске",
+        "latitude": 50.32939,
+        "longitude": 33.90911,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "population": 34,
+        "country": "Украина",
+        "admin1": "Полтавская область"
+      },
+      {
+        "id": 705710,
+        "name": "Кыивске",
+        "latitude": 48.13373,
+        "longitude": 35.59268,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "country": "Украина",
+        "admin1": "Днепропетровская область"
+      },
+      {
+        "id": 705718,
+        "name": "Киевец",
+        "latitude": 49.43189,
+        "longitude": 24.03682,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "country": "Украина",
+        "admin1": "Львовская область"
+      }
+    ],
+    "en": [
+      {
+        "id": 703448,
+        "name": "Kyiv",
+        "latitude": 50.45466,
+        "longitude": 30.5238,
+        "feature_code": "PPLC",
+        "country_code": "UA",
+        "population": 2952301,
+        "country": "Ukraine",
+        "admin1": "Kyiv City"
+      },
+      {
+        "id": 13680589,
+        "name": "Kyivskyi",
+        "latitude": 50.04475,
+        "longitude": 36.28883,
+        "feature_code": "PPLX",
+        "country_code": "UA",
+        "population": 182900,
+        "country": "Ukraine",
+        "admin1": "Kharkiv Oblast"
+      },
+      {
+        "id": 704213,
+        "name": "Kyiv",
+        "latitude": 47.86401,
+        "longitude": 31.02245,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "population": 108,
+        "country": "Ukraine",
+        "admin1": "Mykolaiv Oblast"
+      },
+      {
+        "id": 13561145,
+        "name": "Kyivskyi",
+        "latitude": 48.04646,
+        "longitude": 37.77571,
+        "feature_code": "PPLX",
+        "country_code": "UA",
+        "population": 139177,
+        "country": "Ukraine",
+        "admin1": "Donetsk Oblast"
+      },
+      {
+        "id": 11566495,
+        "name": "Kyivka",
+        "latitude": 46.2169,
+        "longitude": 32.52971,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "population": 325,
+        "country": "Ukraine",
+        "admin1": "Kherson Oblast"
+      },
+      {
+        "id": 13561778,
+        "name": "Kyivskyi",
+        "latitude": 49.60902,
+        "longitude": 34.52933,
+        "feature_code": "PPLX",
+        "country_code": "UA",
+        "population": 110600,
+        "country": "Ukraine",
+        "admin1": "Poltava Oblast"
+      },
+      {
+        "id": 700711,
+        "name": "Kyivske",
+        "latitude": 51.69736,
+        "longitude": 33.3451,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "population": 76,
+        "country": "Ukraine",
+        "admin1": "Sumy"
+      },
+      {
+        "id": 8630638,
+        "name": "Kyivske",
+        "latitude": 50.32939,
+        "longitude": 33.90911,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "population": 34,
+        "country": "Ukraine",
+        "admin1": "Poltava Oblast"
+      },
+      {
+        "id": 705710,
+        "name": "Kyivske",
+        "latitude": 48.13373,
+        "longitude": 35.59268,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "country": "Ukraine",
+        "admin1": "Dnipropetrovsk Oblast"
+      },
+      {
+        "id": 705718,
+        "name": "Kyivets",
+        "latitude": 49.43189,
+        "longitude": 24.03682,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "country": "Ukraine",
+        "admin1": "Lviv Oblast"
+      }
+    ]
+  },
+  "Kiev": {
+    "uk": [
+      {
+        "id": 827619,
+        "name": "Kiev",
+        "latitude": 59.5987,
+        "longitude": 55.2078,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "population": 1,
+        "country": "Росія",
+        "admin1": "Пермський край"
+      },
+      {
+        "id": 2022008,
+        "name": "Kiyevka",
+        "latitude": 42.90666,
+        "longitude": 133.69867,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Росія",
+        "admin1": "Приморський край"
+      },
+      {
+        "id": 2890943,
+        "name": "Kieve",
+        "latitude": 53.27456,
+        "longitude": 12.59377,
+        "feature_code": "PPL",
+        "country_code": "DE",
+        "population": 164,
+        "country": "Німеччина",
+        "admin1": "Мекленбург-Передня Померанія"
+      },
+      {
+        "id": 2124120,
+        "name": "Krevo",
+        "latitude": 53.13333,
+        "longitude": 141.86667,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Росія",
+        "admin1": "Сахалінська область"
+      },
+      {
+        "id": 2794461,
+        "name": "Kievit",
+        "latitude": 51.05201,
+        "longitude": 4.74993,
+        "feature_code": "PPL",
+        "country_code": "BE",
+        "country": "Бельгія",
+        "admin1": "Фламандський регіон"
+      },
+      {
+        "id": 2757449,
+        "name": "De Kieviet",
+        "latitude": 52.12333,
+        "longitude": 4.35839,
+        "feature_code": "PPL",
+        "country_code": "NL",
+        "population": 1300,
+        "country": "Нідерланди",
+        "admin1": "Південна Голландія"
+      },
+      {
+        "id": 730369,
+        "name": "Kievtsi",
+        "latitude": 42.9,
+        "longitude": 25.28333,
+        "feature_code": "PPLX",
+        "country_code": "BG",
+        "country": "Болгарія",
+        "admin1": "Габровська область"
+      },
+      {
+        "id": 11304973,
+        "name": "Kievinė",
+        "latitude": 54.44401,
+        "longitude": 23.35016,
+        "feature_code": "PPL",
+        "country_code": "LT",
+        "country": "Литва",
+        "admin1": "Маріямпольський повіт"
+      },
+      {
+        "id": 2752857,
+        "name": "Kievit",
+        "latitude": 51.43168,
+        "longitude": 5.56048,
+        "feature_code": "PPLX",
+        "country_code": "NL",
+        "country": "Нідерланди",
+        "admin1": "Північний Брабант"
+      },
+      {
+        "id": 6697077,
+        "name": "Kievskiy",
+        "latitude": 55.42999,
+        "longitude": 36.8666,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "population": 9700,
+        "country": "Росія",
+        "admin1": "Московська область"
+      }
+    ],
+    "ru": [
+      {
+        "id": 827619,
+        "name": "Kiyev",
+        "latitude": 59.5987,
+        "longitude": 55.2078,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "population": 1,
+        "country": "Россия",
+        "admin1": "Пермский край"
+      },
+      {
+        "id": 2022008,
+        "name": "Киевка",
+        "latitude": 42.90666,
+        "longitude": 133.69867,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Россия",
+        "admin1": "Приморский Край"
+      },
+      {
+        "id": 2890943,
+        "name": "Kieve",
+        "latitude": 53.27456,
+        "longitude": 12.59377,
+        "feature_code": "PPL",
+        "country_code": "DE",
+        "population": 164,
+        "country": "Германия",
+        "admin1": "Мекленбург — Передняя Померания"
+      },
+      {
+        "id": 2124120,
+        "name": "Крево",
+        "latitude": 53.13333,
+        "longitude": 141.86667,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Россия",
+        "admin1": "Сахалин"
+      },
+      {
+        "id": 2794461,
+        "name": "Kievit",
+        "latitude": 51.05201,
+        "longitude": 4.74993,
+        "feature_code": "PPL",
+        "country_code": "BE",
+        "country": "Бельгия",
+        "admin1": "Фламандский регион"
+      },
+      {
+        "id": 2757449,
+        "name": "De Kieviet",
+        "latitude": 52.12333,
+        "longitude": 4.35839,
+        "feature_code": "PPL",
+        "country_code": "NL",
+        "population": 1300,
+        "country": "Нидерланды",
+        "admin1": "Южная Голландия"
+      },
+      {
+        "id": 730369,
+        "name": "Kievtsi",
+        "latitude": 42.9,
+        "longitude": 25.28333,
+        "feature_code": "PPLX",
+        "country_code": "BG",
+        "country": "Болгария",
+        "admin1": "Габровская область"
+      },
+      {
+        "id": 11304973,
+        "name": "Кевине",
+        "latitude": 54.44401,
+        "longitude": 23.35016,
+        "feature_code": "PPL",
+        "country_code": "LT",
+        "country": "Литва",
+        "admin1": "Мариямпольский уезд"
+      },
+      {
+        "id": 2752857,
+        "name": "Kievit",
+        "latitude": 51.43168,
+        "longitude": 5.56048,
+        "feature_code": "PPLX",
+        "country_code": "NL",
+        "country": "Нидерланды",
+        "admin1": "Северный Брабант"
+      },
+      {
+        "id": 6697077,
+        "name": "Киевский",
+        "latitude": 55.42999,
+        "longitude": 36.8666,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "population": 9700,
+        "country": "Россия",
+        "admin1": "Московская область"
+      }
+    ],
+    "en": [
+      {
+        "id": 827619,
+        "name": "Kiev",
+        "latitude": 59.5987,
+        "longitude": 55.2078,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "population": 1,
+        "country": "Russia",
+        "admin1": "Perm Krai"
+      },
+      {
+        "id": 2022008,
+        "name": "Kiyevka",
+        "latitude": 42.90666,
+        "longitude": 133.69867,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Russia",
+        "admin1": "Primorskiy (Maritime) Kray"
+      },
+      {
+        "id": 2890943,
+        "name": "Kieve",
+        "latitude": 53.27456,
+        "longitude": 12.59377,
+        "feature_code": "PPL",
+        "country_code": "DE",
+        "population": 164,
+        "country": "Germany",
+        "admin1": "Mecklenburg-Vorpommern"
+      },
+      {
+        "id": 2124120,
+        "name": "Krevo",
+        "latitude": 53.13333,
+        "longitude": 141.86667,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Russia",
+        "admin1": "Sakhalin Oblast"
+      },
+      {
+        "id": 2794461,
+        "name": "Kievit",
+        "latitude": 51.05201,
+        "longitude": 4.74993,
+        "feature_code": "PPL",
+        "country_code": "BE",
+        "country": "Belgium",
+        "admin1": "Flanders"
+      },
+      {
+        "id": 2757449,
+        "name": "De Kieviet",
+        "latitude": 52.12333,
+        "longitude": 4.35839,
+        "feature_code": "PPL",
+        "country_code": "NL",
+        "population": 1300,
+        "country": "The Netherlands",
+        "admin1": "South Holland"
+      },
+      {
+        "id": 730369,
+        "name": "Kievtsi",
+        "latitude": 42.9,
+        "longitude": 25.28333,
+        "feature_code": "PPLX",
+        "country_code": "BG",
+        "country": "Bulgaria",
+        "admin1": "Gabrovo"
+      },
+      {
+        "id": 11304973,
+        "name": "Kievinė",
+        "latitude": 54.44401,
+        "longitude": 23.35016,
+        "feature_code": "PPL",
+        "country_code": "LT",
+        "country": "Lithuania",
+        "admin1": "Marijampolė County"
+      },
+      {
+        "id": 2752857,
+        "name": "Kievit",
+        "latitude": 51.43168,
+        "longitude": 5.56048,
+        "feature_code": "PPLX",
+        "country_code": "NL",
+        "country": "The Netherlands",
+        "admin1": "North Brabant"
+      },
+      {
+        "id": 6697077,
+        "name": "Kievskiy",
+        "latitude": 55.42999,
+        "longitude": 36.8666,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "population": 9700,
+        "country": "Russia",
+        "admin1": "Moscow Oblast"
+      }
+    ]
+  },
+  "Луцьк": {
+    "uk": [
+      {
+        "id": 702569,
+        "name": "Луцьк",
+        "latitude": 50.75784,
+        "longitude": 25.35024,
+        "feature_code": "PPLA",
+        "country_code": "UA",
+        "population": 215986,
+        "country": "Україна",
+        "admin1": "Волинська Область"
+      }
+    ],
+    "ru": [],
+    "en": []
+  },
+  "Луцк": {
+    "uk": [],
+    "ru": [
+      {
+        "id": 702569,
+        "name": "Луцк",
+        "latitude": 50.75784,
+        "longitude": 25.35024,
+        "feature_code": "PPLA",
+        "country_code": "UA",
+        "population": 215986,
+        "country": "Украина",
+        "admin1": "Волынская область"
+      },
+      {
+        "id": 702568,
+        "name": "Луцка",
+        "latitude": 50.31667,
+        "longitude": 24.01667,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "country": "Украина",
+        "admin1": "Львовская область"
+      },
+      {
+        "id": 533157,
+        "name": "Луцкое",
+        "latitude": 55.2706,
+        "longitude": 47.6257,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Россия",
+        "admin1": "Чувашия"
+      },
+      {
+        "id": 8075299,
+        "name": "Луцковляны",
+        "latitude": 53.44143,
+        "longitude": 23.93604,
+        "feature_code": "PPL",
+        "country_code": "BY",
+        "country": "Беларусь",
+        "admin1": "Гродненская Область"
+      },
+      {
+        "id": 625802,
+        "name": "Луцк-Мосарский",
+        "latitude": 55.2173,
+        "longitude": 27.40799,
+        "feature_code": "PPL",
+        "country_code": "BY",
+        "country": "Беларусь",
+        "admin1": "Витебская Область"
+      },
+      {
+        "id": 625803,
+        "name": "Луцк-Козловский",
+        "latitude": 55.20059,
+        "longitude": 27.37928,
+        "feature_code": "PPL",
+        "country_code": "BY",
+        "country": "Беларусь",
+        "admin1": "Витебская Область"
+      }
+    ],
+    "en": []
+  },
+  "Lutsk": {
+    "uk": [
+      {
+        "id": 702569,
+        "name": "Луцьк",
+        "latitude": 50.75784,
+        "longitude": 25.35024,
+        "feature_code": "PPLA",
+        "country_code": "UA",
+        "population": 215986,
+        "country": "Україна",
+        "admin1": "Волинська Область"
+      },
+      {
+        "id": 11269957,
+        "name": "Lutsk",
+        "latitude": 50.78944,
+        "longitude": 25.34806,
+        "feature_code": "AIRP",
+        "country_code": "UA",
+        "country": "Україна",
+        "admin1": "Волинська Область"
+      },
+      {
+        "id": 702568,
+        "name": "Lutska",
+        "latitude": 50.31667,
+        "longitude": 24.01667,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "country": "Україна",
+        "admin1": "Львівська Область"
+      },
+      {
+        "id": 8148992,
+        "name": "Lutski",
+        "latitude": 52.9715,
+        "longitude": 29.9596,
+        "feature_code": "PPL",
+        "country_code": "BY",
+        "country": "Білорусь",
+        "admin1": "Гомєльська область"
+      },
+      {
+        "id": 533156,
+        "name": "Lutskoye",
+        "latitude": 55.75,
+        "longitude": 37.26667,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Росія",
+        "admin1": "Московська область"
+      },
+      {
+        "id": 533157,
+        "name": "Lutskoye",
+        "latitude": 55.2706,
+        "longitude": 47.6257,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Росія",
+        "admin1": "Чуваська Республіка"
+      },
+      {
+        "id": 9164824,
+        "name": "Lutskaret",
+        "latitude": 69.46136,
+        "longitude": 17.38,
+        "feature_code": "PASS",
+        "country_code": "NO",
+        "country": "Норвегія",
+        "admin1": "Трумс"
+      },
+      {
+        "id": 8075299,
+        "name": "Lutskawlyany",
+        "latitude": 53.44143,
+        "longitude": 23.93604,
+        "feature_code": "PPL",
+        "country_code": "BY",
+        "country": "Білорусь",
+        "admin1": "Grodno Oblast"
+      },
+      {
+        "id": 8075489,
+        "name": "Lutskovlyany",
+        "latitude": 53.4426,
+        "longitude": 23.9391,
+        "feature_code": "PPL",
+        "country_code": "BY",
+        "country": "Білорусь",
+        "admin1": "Grodno Oblast"
+      },
+      {
+        "id": 625802,
+        "name": "Lutsk-Mosarskiy",
+        "latitude": 55.2173,
+        "longitude": 27.40799,
+        "feature_code": "PPL",
+        "country_code": "BY",
+        "country": "Білорусь",
+        "admin1": "Вітебська область"
+      }
+    ],
+    "ru": [
+      {
+        "id": 702569,
+        "name": "Луцк",
+        "latitude": 50.75784,
+        "longitude": 25.35024,
+        "feature_code": "PPLA",
+        "country_code": "UA",
+        "population": 215986,
+        "country": "Украина",
+        "admin1": "Волынская область"
+      },
+      {
+        "id": 11269957,
+        "name": "Lutsk",
+        "latitude": 50.78944,
+        "longitude": 25.34806,
+        "feature_code": "AIRP",
+        "country_code": "UA",
+        "country": "Украина",
+        "admin1": "Волынская область"
+      },
+      {
+        "id": 702568,
+        "name": "Луцка",
+        "latitude": 50.31667,
+        "longitude": 24.01667,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "country": "Украина",
+        "admin1": "Львовская область"
+      },
+      {
+        "id": 8148992,
+        "name": "Posëlok Lukskiy",
+        "latitude": 52.9715,
+        "longitude": 29.9596,
+        "feature_code": "PPL",
+        "country_code": "BY",
+        "country": "Беларусь",
+        "admin1": "Gomelskaya Oblast"
+      },
+      {
+        "id": 533156,
+        "name": "Лутское",
+        "latitude": 55.75,
+        "longitude": 37.26667,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Россия",
+        "admin1": "Московская область"
+      },
+      {
+        "id": 533157,
+        "name": "Луцкое",
+        "latitude": 55.2706,
+        "longitude": 47.6257,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Россия",
+        "admin1": "Чувашия"
+      },
+      {
+        "id": 9164824,
+        "name": "Lutskaret",
+        "latitude": 69.46136,
+        "longitude": 17.38,
+        "feature_code": "PASS",
+        "country_code": "NO",
+        "country": "Норвегия",
+        "admin1": "Тромс"
+      },
+      {
+        "id": 8075299,
+        "name": "Луцковляны",
+        "latitude": 53.44143,
+        "longitude": 23.93604,
+        "feature_code": "PPL",
+        "country_code": "BY",
+        "country": "Беларусь",
+        "admin1": "Гродненская Область"
+      },
+      {
+        "id": 8075489,
+        "name": "Lutskovlyany",
+        "latitude": 53.4426,
+        "longitude": 23.9391,
+        "feature_code": "PPL",
+        "country_code": "BY",
+        "country": "Беларусь",
+        "admin1": "Гродненская Область"
+      },
+      {
+        "id": 625802,
+        "name": "Луцк-Мосарский",
+        "latitude": 55.2173,
+        "longitude": 27.40799,
+        "feature_code": "PPL",
+        "country_code": "BY",
+        "country": "Беларусь",
+        "admin1": "Витебская Область"
+      }
+    ],
+    "en": [
+      {
+        "id": 702569,
+        "name": "Lutsk",
+        "latitude": 50.75784,
+        "longitude": 25.35024,
+        "feature_code": "PPLA",
+        "country_code": "UA",
+        "population": 215986,
+        "country": "Ukraine",
+        "admin1": "Volyn Oblast"
+      },
+      {
+        "id": 11269957,
+        "name": "Lutsk",
+        "latitude": 50.78944,
+        "longitude": 25.34806,
+        "feature_code": "AIRP",
+        "country_code": "UA",
+        "country": "Ukraine",
+        "admin1": "Volyn Oblast"
+      },
+      {
+        "id": 702568,
+        "name": "Lutska",
+        "latitude": 50.31667,
+        "longitude": 24.01667,
+        "feature_code": "PPL",
+        "country_code": "UA",
+        "country": "Ukraine",
+        "admin1": "Lviv Oblast"
+      },
+      {
+        "id": 8148992,
+        "name": "Lutski",
+        "latitude": 52.9715,
+        "longitude": 29.9596,
+        "feature_code": "PPL",
+        "country_code": "BY",
+        "country": "Belarus",
+        "admin1": "Homyel’ Voblasc’"
+      },
+      {
+        "id": 533156,
+        "name": "Lutskoye",
+        "latitude": 55.75,
+        "longitude": 37.26667,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Russia",
+        "admin1": "Moscow Oblast"
+      },
+      {
+        "id": 533157,
+        "name": "Lutskoye",
+        "latitude": 55.2706,
+        "longitude": 47.6257,
+        "feature_code": "PPL",
+        "country_code": "RU",
+        "country": "Russia",
+        "admin1": "Chuvash Republic"
+      },
+      {
+        "id": 9164824,
+        "name": "Lutskaret",
+        "latitude": 69.46136,
+        "longitude": 17.38,
+        "feature_code": "PASS",
+        "country_code": "NO",
+        "country": "Norway",
+        "admin1": "Troms"
+      },
+      {
+        "id": 8075299,
+        "name": "Lutskawlyany",
+        "latitude": 53.44143,
+        "longitude": 23.93604,
+        "feature_code": "PPL",
+        "country_code": "BY",
+        "country": "Belarus",
+        "admin1": "Grodnenskaya"
+      },
+      {
+        "id": 8075489,
+        "name": "Lutskovlyany",
+        "latitude": 53.4426,
+        "longitude": 23.9391,
+        "feature_code": "PPL",
+        "country_code": "BY",
+        "country": "Belarus",
+        "admin1": "Grodnenskaya"
+      },
+      {
+        "id": 625802,
+        "name": "Lutsk-Mosarskiy",
+        "latitude": 55.2173,
+        "longitude": 27.40799,
+        "feature_code": "PPL",
+        "country_code": "BY",
+        "country": "Belarus",
+        "admin1": "Vitebsk"
+      }
+    ]
+  },
+  "Paris": {
+    "uk": [
+      {
+        "id": 2988507,
+        "name": "Париж",
+        "latitude": 48.85341,
+        "longitude": 2.3488,
+        "feature_code": "PPLC",
+        "country_code": "FR",
+        "population": 2138551,
+        "country": "Франція",
+        "admin1": "Іль-де-Франс"
+      },
+      {
+        "id": 4717560,
+        "name": "Париж",
+        "latitude": 33.66094,
+        "longitude": -95.55551,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 24782,
+        "country": "США",
+        "admin1": "Техас"
+      },
+      {
+        "id": 4647963,
+        "name": "Paris",
+        "latitude": 36.302,
+        "longitude": -88.32671,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 10150,
+        "country": "США",
+        "admin1": "Теннессі"
+      },
+      {
+        "id": 4303602,
+        "name": "Paris",
+        "latitude": 38.2098,
+        "longitude": -84.25299,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 9870,
+        "country": "США",
+        "admin1": "Кентуккі"
+      },
+      {
+        "id": 4246659,
+        "name": "Paris",
+        "latitude": 39.61115,
+        "longitude": -87.69614,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 8432,
+        "country": "США",
+        "admin1": "Іллінойс"
+      },
+      {
+        "id": 4974617,
+        "name": "Paris",
+        "latitude": 44.25979,
+        "longitude": -70.50062,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 5073,
+        "country": "США",
+        "admin1": "Мен"
+      },
+      {
+        "id": 4402452,
+        "name": "Paris",
+        "latitude": 39.48087,
+        "longitude": -92.00128,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 1176,
+        "country": "США",
+        "admin1": "Міссурі"
+      },
+      {
+        "id": 5603240,
+        "name": "Paris",
+        "latitude": 42.22715,
+        "longitude": -111.40104,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 506,
+        "country": "США",
+        "admin1": "Айдахо"
+      },
+      {
+        "id": 4125402,
+        "name": "Перис",
+        "latitude": 35.29203,
+        "longitude": -93.72992,
+        "feature_code": "PPL",
+        "country_code": "US",
+        "population": 3443,
+        "country": "США",
+        "admin1": "Арканзас"
+      },
+      {
+        "id": 3703358,
+        "name": "París",
+        "latitude": 8.05267,
+        "longitude": -80.55379,
+        "feature_code": "PPLA3",
+        "country_code": "PA",
+        "population": 894,
+        "country": "Панама",
+        "admin1": "Еррера"
+      }
+    ],
+    "ru": [
+      {
+        "id": 2988507,
+        "name": "Париж",
+        "latitude": 48.85341,
+        "longitude": 2.3488,
+        "feature_code": "PPLC",
+        "country_code": "FR",
+        "population": 2138551,
+        "country": "Франция",
+        "admin1": "Иль-де-Франс"
+      },
+      {
+        "id": 4717560,
+        "name": "Париж",
+        "latitude": 33.66094,
+        "longitude": -95.55551,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 24782,
+        "country": "США",
+        "admin1": "Техас"
+      },
+      {
+        "id": 4647963,
+        "name": "Париж",
+        "latitude": 36.302,
+        "longitude": -88.32671,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 10150,
+        "country": "США",
+        "admin1": "Теннесси"
+      },
+      {
+        "id": 4303602,
+        "name": "Париж",
+        "latitude": 38.2098,
+        "longitude": -84.25299,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 9870,
+        "country": "США",
+        "admin1": "Кентукки"
+      },
+      {
+        "id": 4246659,
+        "name": "Париж",
+        "latitude": 39.61115,
+        "longitude": -87.69614,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 8432,
+        "country": "США",
+        "admin1": "Иллинойс"
+      },
+      {
+        "id": 4974617,
+        "name": "Париж",
+        "latitude": 44.25979,
+        "longitude": -70.50062,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 5073,
+        "country": "США",
+        "admin1": "Мэн"
+      },
+      {
+        "id": 4402452,
+        "name": "Париж",
+        "latitude": 39.48087,
+        "longitude": -92.00128,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 1176,
+        "country": "США",
+        "admin1": "Миссури"
+      },
+      {
+        "id": 5603240,
+        "name": "Париж",
+        "latitude": 42.22715,
+        "longitude": -111.40104,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 506,
+        "country": "США",
+        "admin1": "Айдахо"
+      },
+      {
+        "id": 4125402,
+        "name": "Париж",
+        "latitude": 35.29203,
+        "longitude": -93.72992,
+        "feature_code": "PPL",
+        "country_code": "US",
+        "population": 3443,
+        "country": "США",
+        "admin1": "Арканзас"
+      },
+      {
+        "id": 3703358,
+        "name": "París",
+        "latitude": 8.05267,
+        "longitude": -80.55379,
+        "feature_code": "PPLA3",
+        "country_code": "PA",
+        "population": 894,
+        "country": "Панама",
+        "admin1": "Эррера"
+      }
+    ],
+    "en": [
+      {
+        "id": 2988507,
+        "name": "Paris",
+        "latitude": 48.85341,
+        "longitude": 2.3488,
+        "feature_code": "PPLC",
+        "country_code": "FR",
+        "population": 2138551,
+        "country": "France",
+        "admin1": "Île-de-France Region"
+      },
+      {
+        "id": 4717560,
+        "name": "Paris",
+        "latitude": 33.66094,
+        "longitude": -95.55551,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 24782,
+        "country": "United States",
+        "admin1": "Texas"
+      },
+      {
+        "id": 4647963,
+        "name": "Paris",
+        "latitude": 36.302,
+        "longitude": -88.32671,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 10150,
+        "country": "United States",
+        "admin1": "Tennessee"
+      },
+      {
+        "id": 4303602,
+        "name": "Paris",
+        "latitude": 38.2098,
+        "longitude": -84.25299,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 9870,
+        "country": "United States",
+        "admin1": "Kentucky"
+      },
+      {
+        "id": 4246659,
+        "name": "Paris",
+        "latitude": 39.61115,
+        "longitude": -87.69614,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 8432,
+        "country": "United States",
+        "admin1": "Illinois"
+      },
+      {
+        "id": 4974617,
+        "name": "Paris",
+        "latitude": 44.25979,
+        "longitude": -70.50062,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 5073,
+        "country": "United States",
+        "admin1": "Maine"
+      },
+      {
+        "id": 4402452,
+        "name": "Paris",
+        "latitude": 39.48087,
+        "longitude": -92.00128,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 1176,
+        "country": "United States",
+        "admin1": "Missouri"
+      },
+      {
+        "id": 5603240,
+        "name": "Paris",
+        "latitude": 42.22715,
+        "longitude": -111.40104,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 506,
+        "country": "United States",
+        "admin1": "Idaho"
+      },
+      {
+        "id": 4125402,
+        "name": "Paris",
+        "latitude": 35.29203,
+        "longitude": -93.72992,
+        "feature_code": "PPL",
+        "country_code": "US",
+        "population": 3443,
+        "country": "United States",
+        "admin1": "Arkansas"
+      },
+      {
+        "id": 3703358,
+        "name": "París",
+        "latitude": 8.05267,
+        "longitude": -80.55379,
+        "feature_code": "PPLA3",
+        "country_code": "PA",
+        "population": 894,
+        "country": "Panama",
+        "admin1": "Herrera Province"
+      }
+    ]
+  },
+  "Springfield": {
+    "uk": [
+      {
+        "id": 4409896,
+        "name": "Спрингфілд",
+        "latitude": 37.21533,
+        "longitude": -93.29824,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 170188,
+        "country": "США",
+        "admin1": "Міссурі"
+      },
+      {
+        "id": 4250542,
+        "name": "Спрингфілд",
+        "latitude": 39.80172,
+        "longitude": -89.64371,
+        "feature_code": "PPLA",
+        "country_code": "US",
+        "population": 114394,
+        "country": "США",
+        "admin1": "Іллінойс"
+      },
+      {
+        "id": 4951788,
+        "name": "Спрингфілд",
+        "latitude": 42.10148,
+        "longitude": -72.58981,
+        "feature_code": "PPL",
+        "country_code": "US",
+        "population": 154341,
+        "country": "США",
+        "admin1": "Массачусетс"
+      },
+      {
+        "id": 4525353,
+        "name": "Спрінгфілд",
+        "latitude": 39.92423,
+        "longitude": -83.80882,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 59680,
+        "country": "США",
+        "admin1": "Огайо"
+      },
+      {
+        "id": 4659557,
+        "name": "Спрінгфілд",
+        "latitude": 36.50921,
+        "longitude": -86.885,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 16808,
+        "country": "США",
+        "admin1": "Теннессі"
+      },
+      {
+        "id": 4309329,
+        "name": "Спрінґфілд",
+        "latitude": 37.68534,
+        "longitude": -85.22218,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 3055,
+        "country": "США",
+        "admin1": "Кентуккі"
+      },
+      {
+        "id": 4224162,
+        "name": "Спрінгфілд",
+        "latitude": 32.37241,
+        "longitude": -81.3115,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 2889,
+        "country": "США",
+        "admin1": "Джорджія"
+      },
+      {
+        "id": 5440032,
+        "name": "Спринґфілд",
+        "latitude": 37.40835,
+        "longitude": -102.61436,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 1396,
+        "country": "США",
+        "admin1": "Колорадо"
+      },
+      {
+        "id": 5754005,
+        "name": "Спрінгфілд",
+        "latitude": 44.04624,
+        "longitude": -123.02203,
+        "feature_code": "PPL",
+        "country_code": "US",
+        "population": 60870,
+        "country": "США",
+        "admin1": "Орегон"
+      },
+      {
+        "id": 4787117,
+        "name": "Спрінгфілд",
+        "latitude": 38.78928,
+        "longitude": -77.1872,
+        "feature_code": "PPL",
+        "country_code": "US",
+        "population": 30484,
+        "country": "США",
+        "admin1": "Вірджинія"
+      }
+    ],
+    "ru": [
+      {
+        "id": 4409896,
+        "name": "Спрингфилд",
+        "latitude": 37.21533,
+        "longitude": -93.29824,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 170188,
+        "country": "США",
+        "admin1": "Миссури"
+      },
+      {
+        "id": 4250542,
+        "name": "Спрингфилд",
+        "latitude": 39.80172,
+        "longitude": -89.64371,
+        "feature_code": "PPLA",
+        "country_code": "US",
+        "population": 114394,
+        "country": "США",
+        "admin1": "Иллинойс"
+      },
+      {
+        "id": 4951788,
+        "name": "Спрингфилд",
+        "latitude": 42.10148,
+        "longitude": -72.58981,
+        "feature_code": "PPL",
+        "country_code": "US",
+        "population": 154341,
+        "country": "США",
+        "admin1": "Массачусетс"
+      },
+      {
+        "id": 4525353,
+        "name": "Спрингфилд",
+        "latitude": 39.92423,
+        "longitude": -83.80882,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 59680,
+        "country": "США",
+        "admin1": "Огайо"
+      },
+      {
+        "id": 4659557,
+        "name": "Спрингфилд",
+        "latitude": 36.50921,
+        "longitude": -86.885,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 16808,
+        "country": "США",
+        "admin1": "Теннесси"
+      },
+      {
+        "id": 4309329,
+        "name": "Спрингфилд",
+        "latitude": 37.68534,
+        "longitude": -85.22218,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 3055,
+        "country": "США",
+        "admin1": "Кентукки"
+      },
+      {
+        "id": 4224162,
+        "name": "Спрингфилд",
+        "latitude": 32.37241,
+        "longitude": -81.3115,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 2889,
+        "country": "США",
+        "admin1": "Джорджия"
+      },
+      {
+        "id": 5440032,
+        "name": "Спрингфилд",
+        "latitude": 37.40835,
+        "longitude": -102.61436,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 1396,
+        "country": "США",
+        "admin1": "Колорадо"
+      },
+      {
+        "id": 5754005,
+        "name": "Спрингфилд",
+        "latitude": 44.04624,
+        "longitude": -123.02203,
+        "feature_code": "PPL",
+        "country_code": "US",
+        "population": 60870,
+        "country": "США",
+        "admin1": "Орегон"
+      },
+      {
+        "id": 4787117,
+        "name": "Спрингфилд",
+        "latitude": 38.78928,
+        "longitude": -77.1872,
+        "feature_code": "PPL",
+        "country_code": "US",
+        "population": 30484,
+        "country": "США",
+        "admin1": "Вирджиния"
+      }
+    ],
+    "en": [
+      {
+        "id": 4409896,
+        "name": "Springfield",
+        "latitude": 37.21533,
+        "longitude": -93.29824,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 170188,
+        "country": "United States",
+        "admin1": "Missouri"
+      },
+      {
+        "id": 4250542,
+        "name": "Springfield",
+        "latitude": 39.80172,
+        "longitude": -89.64371,
+        "feature_code": "PPLA",
+        "country_code": "US",
+        "population": 114394,
+        "country": "United States",
+        "admin1": "Illinois"
+      },
+      {
+        "id": 4951788,
+        "name": "Springfield",
+        "latitude": 42.10148,
+        "longitude": -72.58981,
+        "feature_code": "PPL",
+        "country_code": "US",
+        "population": 154341,
+        "country": "United States",
+        "admin1": "Massachusetts"
+      },
+      {
+        "id": 4525353,
+        "name": "Springfield",
+        "latitude": 39.92423,
+        "longitude": -83.80882,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 59680,
+        "country": "United States",
+        "admin1": "Ohio"
+      },
+      {
+        "id": 4659557,
+        "name": "Springfield",
+        "latitude": 36.50921,
+        "longitude": -86.885,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 16808,
+        "country": "United States",
+        "admin1": "Tennessee"
+      },
+      {
+        "id": 4309329,
+        "name": "Springfield",
+        "latitude": 37.68534,
+        "longitude": -85.22218,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 3055,
+        "country": "United States",
+        "admin1": "Kentucky"
+      },
+      {
+        "id": 4224162,
+        "name": "Springfield",
+        "latitude": 32.37241,
+        "longitude": -81.3115,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 2889,
+        "country": "United States",
+        "admin1": "Georgia"
+      },
+      {
+        "id": 5440032,
+        "name": "Springfield",
+        "latitude": 37.40835,
+        "longitude": -102.61436,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 1396,
+        "country": "United States",
+        "admin1": "Colorado"
+      },
+      {
+        "id": 5754005,
+        "name": "Springfield",
+        "latitude": 44.04624,
+        "longitude": -123.02203,
+        "feature_code": "PPL",
+        "country_code": "US",
+        "population": 60870,
+        "country": "United States",
+        "admin1": "Oregon"
+      },
+      {
+        "id": 4787117,
+        "name": "Springfield",
+        "latitude": 38.78928,
+        "longitude": -77.1872,
+        "feature_code": "PPL",
+        "country_code": "US",
+        "population": 30484,
+        "country": "United States",
+        "admin1": "Virginia"
+      }
+    ]
+  },
+  "Одеса": {
+    "uk": [
+      {
+        "id": 698740,
+        "name": "Одеса",
+        "latitude": 46.48572,
+        "longitude": 30.74383,
+        "feature_code": "PPLA",
+        "country_code": "UA",
+        "population": 1010537,
+        "country": "Україна",
+        "admin1": "Одеська Область"
+      },
+      {
+        "id": 5527554,
+        "name": "Одеса",
+        "latitude": 31.84568,
+        "longitude": -102.36764,
+        "feature_code": "PPLA2",
+        "country_code": "US",
+        "population": 114428,
+        "country": "США",
+        "admin1": "Техас"
+      },
+      {
+        "id": 4401659,
+        "name": "Одеса",
+        "latitude": 38.99917,
+        "longitude": -93.95356,
+        "feature_code": "PPL",
+        "country_code": "US",
+        "population": 5178,
+        "country": "США",
+        "admin1": "Міссурі"
+      },
+      {
+        "id": 4143946,
+        "name": "Одеса",
+        "latitude": 39.45733,
+        "longitude": -75.66132,
+        "feature_code": "PPL",
+        "country_code": "US",
+        "population": 374,
+        "country": "США",
+        "admin1": "Делавер"
+      },
+      {
+        "id": 5040047,
+        "name": "Одеса",
+        "latitude": 45.25969,
+        "longitude": -96.32894,
+        "feature_code": "PPL",
+        "country_code": "US",
+        "population": 129,
+        "country": "США",
+        "admin1": "Міннесота"
+      }
+    ],
+    "ru": [
+      {
+        "id": 11300817,
+        "name": "Одеса",
+        "latitude": 54.50491,
+        "longitude": 24.82078,
+        "feature_code": "PPL",
+        "country_code": "LT",
+        "country": "Литва",
+        "admin1": "Вильнюсский уезд"
+      }
+    ],
+    "en": []
+  }
+}
