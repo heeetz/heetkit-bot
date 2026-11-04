@@ -21,7 +21,7 @@ from app.services.ai_request_policy import AIRequestPolicy
 from app.services.facade import ApplicationServices
 from app.services.filter_manager import FilterManager
 from app.services.ai_service import SharedAIService
-from app.services.weather import WeatherServiceError
+from app.services.weather import WeatherLocationError, WeatherServiceError
 from app.runtime_state import RuntimeState
 from app.twitch.client import process_twitch_message
 from app.twitch.events import ChatAuthor, IncomingChatMessage
@@ -379,6 +379,55 @@ async def test_weather_sends_friendly_message_when_provider_is_unavailable() -> 
     )
 
     assert transport.replies == ["@viewer, weather is currently unavailable."]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason,expected", [
+    ("timeout", "weather request timed out"),
+    ("rate_limited", "weather provider rate limit reached"),
+    ("invalid_response", "weather provider returned an invalid response"),
+])
+async def test_weather_technical_errors_are_distinct_and_never_echo_provider_details(reason, expected):
+    registry = CommandRegistry()
+    register_weather_commands(registry)
+    weather = FakeWeatherService(error=WeatherServiceError("private query/provider payload", reason=reason))
+    transport = FakeChatTransport("!weather Lutsk")
+    await build_dispatcher(registry).dispatch(transport.message, cast(ApplicationServices, SimpleNamespace(weather=weather)))
+    assert transport.replies == [f"@viewer, {expected}; try again later."]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason,expected", [
+    ("ambiguous", "multiple cities match; add a country/region"),
+    ("invalid_query", "use city, country or city, region, country"),
+])
+async def test_weather_location_clarification_is_not_provider_failure(reason, expected):
+    registry = CommandRegistry()
+    register_weather_commands(registry)
+    weather = FakeWeatherService(error=WeatherLocationError(reason))
+    transport = FakeChatTransport("!weather Springfield")
+    await build_dispatcher(registry).dispatch(transport.message, cast(ApplicationServices, SimpleNamespace(weather=weather)))
+    assert transport.replies == [f"@viewer, {expected}."]
+
+
+@pytest.mark.asyncio
+async def test_weather_unicode_name_and_qualifier_survive_renaming_aliases_and_cooldown(tmp_path):
+    registry = CommandRegistry()
+    register_weather_commands(registry)
+    state = RuntimeState(command_settings_path=tmp_path / "weather-command.json")
+    state.configure_commands(registry.definitions())
+    state.apply_command_settings("weather", primary_name="погода", aliases=["weather"])
+    weather = FakeWeatherService(report=WeatherReport(
+        "Луцьк", 12, "clear", 8, country="Україна", region="Волинська область", language="uk"))
+    services = cast(ApplicationServices, SimpleNamespace(weather=weather, runtime_state=state))
+    dispatcher = build_dispatcher(registry, runtime_state=state, cooldowns=CooldownManager(clock=lambda: 1000.0))
+    message = FakeChatTransport("!погода\tЛуцьк\u00a0,\tУкраїна")
+    await dispatcher.dispatch(message.message, services)
+    assert weather.queries == ["Луцьк\u00a0,\tУкраїна"]
+    assert message.replies == ["@viewer, Луцьк, Волинська область, Україна: +12°C, ясно, вітер 8 км/год."]
+    alias = FakeChatTransport("!weather Луцьк")
+    await dispatcher.dispatch(alias.message, services)
+    assert not alias.replies and len(weather.queries) == 1
 
 
 def test_application_registers_phase_two_commands() -> None:

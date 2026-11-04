@@ -122,6 +122,38 @@ If a response's HTTP result is lost or lacks an ID, delivery is uncertain. HeetK
 logs this and pauses input from that sending account for up to ten minutes to avoid
 loops; other accounts continue normally. Explicitly rejected sends do not cause this pause.
 
+### Weather locations
+
+Use `!weather Луцьк`, `!weather Lutsk, Ukraine`, or
+`!weather Springfield, Illinois, US`. Renamed triggers and aliases use the same
+lookup. Ordinary spaces and tabs are normalized; accents and Unicode city names
+are preserved.
+Results include the city, region and country. A successful Cyrillic lookup uses
+the matching Ukrainian/Russian spelling for its response language; shared Cyrillic
+letters alone cannot reliably identify the user's language.
+
+HeetKit compares Ukrainian, Russian and English geocoding results from Open-Meteo.
+It accepts matching populated-place names, not arbitrary fuzzy or airport results.
+If several places match, add a country and, when needed, a region. Population does
+not decide an ambiguous lookup. For three-part locations the final country is
+enforced separately, because the provider ignores a third comma component. A
+two-letter final country code avoids ambiguity; two-part qualifiers otherwise
+follow [Open-Meteo's country/admin1 rules](https://open-meteo.com/en/docs/geocoding-api).
+
+The lookup does not translate arbitrary names or guess historical transliterations.
+Use a current full spelling if an alias is absent from the provider's index
+(for example, `Kyiv` rather than `Kiev`). Partial regions, street addresses and more
+than three comma-separated components are unsupported. Only the returned candidates
+are compared; this is not an exhaustive gazetteer search.
+
+Most lookups make three geocoding requests and one forecast request. A mixed-language
+country qualifier may require exact country resolution and a constrained retry:
+at most nine geocoding requests plus one forecast, ten results per search, two
+seconds per HTTP operation and a twelve-second overall deadline. No fallback
+provider or persistent location cache is used. Clean empty results mean city not
+found; ambiguity asks for clarification. Timeout, rate limiting, malformed responses
+and provider failures produce separate error replies rather than city not found.
+
 ## Permissions, cooldowns and responses
 
 The Server browser command editor includes **Stream availability** for built-in

@@ -57,6 +57,9 @@ class WeatherReport:
     temperature_celsius: float
     condition: str
     wind_speed_kmh: float
+    country: str = ""
+    region: str = ""
+    language: Literal["en", "ru", "uk"] | None = None
 
 
 class WeatherService(Protocol):

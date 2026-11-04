@@ -1,7 +1,9 @@
 """Current weather lookup through Open-Meteo's public APIs."""
 
+import asyncio
+import math
 import re
-from difflib import SequenceMatcher
+import unicodedata
 from typing import Literal
 
 import httpx
@@ -12,6 +14,18 @@ from app.utils.text import normalize_text
 
 class WeatherServiceError(RuntimeError):
     """The weather provider could not complete a request."""
+
+    def __init__(self, message: str, *, reason: str = "provider_failure") -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+class WeatherLocationError(ValueError):
+    """The location needs clarification, rather than another provider request."""
+
+    def __init__(self, reason: Literal["invalid_query", "ambiguous"]) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 WeatherLanguage = Literal["en", "ru", "uk"]
@@ -59,11 +73,13 @@ LOCALIZED_CONDITIONS: dict[str, dict[WeatherLanguage, str]] = {
 
 _CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
 _UKRAINIAN_RE = re.compile(r"[іїєґІЇЄҐ]")
-_LOCATION_TOKEN_RE = re.compile(r"[\w]+", re.UNICODE)
+_REQUEST_TIMEOUT_SECONDS = 2.0
+_LOOKUP_TIMEOUT_SECONDS = 12.0
+_RESULT_LIMIT = 10
 
 
 def weather_language_for_query(query: str) -> WeatherLanguage:
-    """Detect the response language from the query's script and spelling."""
+    """Presentation hint only: shared Cyrillic spelling cannot identify a language."""
 
     if _UKRAINIAN_RE.search(query):
         return "uk"
@@ -78,42 +94,31 @@ def geocoding_language_for_query(query: str) -> WeatherLanguage:
     return weather_language_for_query(query)
 
 
-def _other_geocoding_language(language: WeatherLanguage) -> WeatherLanguage:
-    return "en" if language in {"ru", "uk"} else "ru"
+def _languages(query: str) -> tuple[WeatherLanguage, ...]:
+    preferred = geocoding_language_for_query(query)
+    return (preferred, *(lang for lang in ("uk", "ru", "en") if lang != preferred))
 
 
-def _location_tokens(value: str) -> set[str]:
-    return {token.casefold() for token in _LOCATION_TOKEN_RE.findall(value)}
+def _location_key(value: str) -> str:
+    # Compare accents/apostrophe typography without transliterating or deleting letters.
+    value = normalize_text(value).casefold().translate(str.maketrans("’ʼ‐‑", "''--"))
+    folded = []
+    latin = False
+    for character in unicodedata.normalize("NFD", value):
+        if not unicodedata.combining(character):
+            latin = "LATIN" in unicodedata.name(character, "")
+        if not (latin and unicodedata.combining(character)):
+            folded.append(character)
+    return unicodedata.normalize("NFC", "".join(folded))
 
 
-def _location_match_score(query: str, location: dict) -> tuple[int, int]:
-    query_normalized = normalize_text(query).casefold()
-    query_tokens = _location_tokens(query)
-    name = normalize_text(str(location.get("name", "")))
-    name_tokens = _location_tokens(name)
-    candidate_text = " ".join(
-        str(location.get(field, ""))
-        for field in ("name", "country", "country_code", "admin1", "admin2")
-    )
-    candidate_tokens = _location_tokens(candidate_text)
-
-    score = sum(5 for token in query_tokens if token in name_tokens)
-    score += sum(2 for token in query_tokens if token in candidate_tokens and token not in name_tokens)
-    if name_tokens and query_tokens:
-        score += round(
-            8
-            * max(
-                SequenceMatcher(None, name.casefold(), token).ratio()
-                for token in query_tokens
-            )
-        )
-    if name.casefold() == query_normalized:
-        score += 20
-    if query_tokens and query_tokens <= candidate_tokens:
-        score += 10
-
-    population = int(location.get("population") or 0)
-    return score, population
+def _number(value: object, minimum: float = -math.inf, maximum: float = math.inf) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("Expected a provider number")
+    number = float(value)
+    if not math.isfinite(number) or not minimum <= number <= maximum:
+        raise ValueError("Invalid provider number")
+    return number
 
 
 def _localized_condition(condition: str, language: WeatherLanguage) -> str:
@@ -123,15 +128,17 @@ def _localized_condition(condition: str, language: WeatherLanguage) -> str:
 def format_weather_response(report: WeatherReport, query: str) -> str:
     """Format the concise weather response in the query's language."""
 
-    language = weather_language_for_query(query)
+    language = report.language or weather_language_for_query(query)
     condition = _localized_condition(report.condition, language)
+    labels = list(dict.fromkeys(part for part in (report.city, report.region, report.country) if part))
+    location = ", ".join(labels)
     if language == "en":
-        return f"{report.city}: {report.temperature_celsius:g}°C, {condition}, wind {report.wind_speed_kmh:g} km/h."
+        return f"{location}: {report.temperature_celsius:g}°C, {condition}, wind {report.wind_speed_kmh:g} km/h."
 
     wind_unit = "км/ч" if language == "ru" else "км/год"
     wind_label = "ветер" if language == "ru" else "вітер"
     return (
-        f"{report.city}: {report.temperature_celsius:+g}°C, "
+        f"{location}: {report.temperature_celsius:+g}°C, "
         f"{condition}, {wind_label} {report.wind_speed_kmh:g} {wind_unit}."
     )
 
@@ -145,41 +152,122 @@ class OpenMeteoWeatherService:
 
     async def get_current_weather(self, city: str) -> WeatherReport | None:
         query = normalize_text(city)
+        parts = [part.strip() for part in query.split(",")]
+        if len(query) > 200 or len(parts) > 3 or any(not part for part in parts) or len(parts[0]) < 2:
+            raise WeatherLocationError("invalid_query")
         try:
-            preferred_language = geocoding_language_for_query(query)
-            location = await self._geocode(query, preferred_language)
-            if location is None:
-                location = await self._geocode(query, _other_geocoding_language(preferred_language))
-            if location is None:
-                return None
-            weather_response = await self._http_client.get(
-                self.forecast_url,
-                params={
-                    "latitude": location["latitude"],
-                    "longitude": location["longitude"],
+            async with asyncio.timeout(_LOOKUP_TIMEOUT_SECONDS):
+                matches = await self._find_city(parts)
+                if not matches:
+                    return None
+                if len(matches) != 1:
+                    raise WeatherLocationError("ambiguous")
+                location, language = next(iter(matches.values()))
+                payload = await self._get_json(self.forecast_url, {
+                    "latitude": location["latitude"], "longitude": location["longitude"],
                     "current": "temperature_2m,weather_code,wind_speed_10m",
-                    "temperature_unit": "celsius",
-                    "wind_speed_unit": "kmh",
-                },
-            )
-            weather_response.raise_for_status()
-            current = weather_response.json()["current"]
-            return WeatherReport(
-                city=location["name"],
-                temperature_celsius=float(current["temperature_2m"]),
-                condition=WMO_CONDITIONS.get(int(current["weather_code"]), "unknown conditions"),
-                wind_speed_kmh=float(current["wind_speed_10m"]),
-            )
-        except (httpx.HTTPError, KeyError, TypeError, ValueError) as error:
+                    "temperature_unit": "celsius", "wind_speed_unit": "kmh",
+                })
+                current = payload["current"]
+                code = current["weather_code"]
+                if isinstance(code, bool) or not isinstance(code, int):
+                    raise ValueError("Invalid weather code")
+                return WeatherReport(
+                    city=normalize_text(location["name"]),
+                    temperature_celsius=_number(current["temperature_2m"]),
+                    condition=WMO_CONDITIONS.get(code, "unknown conditions"),
+                    wind_speed_kmh=_number(current["wind_speed_10m"], 0),
+                    country=normalize_text(location.get("country") or location["country_code"]),
+                    region=normalize_text(location.get("admin1", "")), language=language,
+                )
+        except WeatherLocationError:
+            raise
+        except (TimeoutError, httpx.TimeoutException) as error:
+            raise WeatherServiceError("Weather request timed out.", reason="timeout") from error
+        except httpx.HTTPStatusError as error:
+            reason = "rate_limited" if error.response.status_code == 429 else "provider_failure"
+            raise WeatherServiceError("Weather provider request failed.", reason=reason) from error
+        except httpx.HTTPError as error:
             raise WeatherServiceError("Weather provider request failed.") from error
+        except (KeyError, TypeError, ValueError, OverflowError) as error:
+            raise WeatherServiceError("Invalid weather provider response.", reason="invalid_response") from error
 
-    async def _geocode(self, query: str, language: WeatherLanguage) -> dict | None:
-        geocoding_response = await self._http_client.get(
-            self.geocoding_url,
-            params={"name": query, "count": 10, "language": language, "format": "json"},
-        )
-        geocoding_response.raise_for_status()
-        results = geocoding_response.json().get("results", [])
-        if not results:
-            return None
-        return max(results, key=lambda location: _location_match_score(query, location))
+    async def _get_json(self, url: str, params: dict) -> dict:
+        async with asyncio.timeout(_REQUEST_TIMEOUT_SECONDS):
+            response = await self._http_client.get(
+                url, params=params, timeout=_REQUEST_TIMEOUT_SECONDS, follow_redirects=False,
+            )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict) or not isinstance(payload.get("error", False), bool):
+            raise ValueError("Invalid provider object")
+        if payload.get("error"):
+            raise WeatherServiceError("Weather provider reported a failure.")
+        return payload
+
+    async def _matches(self, query: str, name: str, *, country: str | None = None,
+                       countries: bool = False) -> dict[int, tuple[dict, WeatherLanguage]]:
+        matches: dict[int, tuple[dict, WeatherLanguage]] = {}
+        # Public probes show locale-dependent search, not query translation. Always
+        # inspect all three: e.g. Одеса/ru can return a different place from Одеса/uk.
+        for language in _languages(name):
+            params = {"name": query, "count": _RESULT_LIMIT, "language": language, "format": "json"}
+            if country:
+                params["countryCode"] = country
+            payload = await self._get_json(self.geocoding_url, params)
+            if "results" not in payload:
+                # Open-Meteo omits results on an empty search, retaining generationtime_ms.
+                _number(payload["generationtime_ms"], 0)
+                results = []
+            else:
+                results = payload["results"]
+            if not isinstance(results, list) or len(results) > _RESULT_LIMIT:
+                raise ValueError("Invalid geocoding results")
+            for location in results:
+                if not isinstance(location, dict):
+                    raise ValueError("Invalid geocoding candidate")
+                ident, label, feature, code = (location[field] for field in ("id", "name", "feature_code", "country_code"))
+                if (isinstance(ident, bool) or not isinstance(ident, int) or ident <= 0
+                        or not isinstance(label, str) or not label.strip()
+                        or not isinstance(feature, str) or not feature or not isinstance(code, str)
+                        or not re.fullmatch(r"[A-Z]{2}", code)):
+                    raise ValueError("Invalid geocoding candidate")
+                _number(location["latitude"], -90, 90)
+                _number(location["longitude"], -180, 180)
+                for field in ("country", "admin1"):
+                    if field in location and not isinstance(location[field], str):
+                        raise ValueError("Invalid geocoding label")
+                eligible = feature == "PCLI" if countries else feature.startswith("PPL")
+                if (eligible and _location_key(label) == _location_key(name)
+                        and (country is None or code == country)):
+                    if ident in matches and any(location[k] != matches[ident][0][k]
+                                                for k in ("latitude", "longitude", "country_code")):
+                        raise ValueError("Inconsistent geocoding identity")
+                    matches.setdefault(ident, (location, language))
+        return matches
+
+    async def _country_code(self, name: str) -> str | None:
+        if re.fullmatch(r"[a-zA-Z]{2}", name):
+            return name.upper()
+        matches = await self._matches(name, name, countries=True)
+        if len(matches) > 1:
+            raise WeatherLocationError("ambiguous")
+        return next(iter(matches.values()))[0]["country_code"] if matches else None
+
+    async def _find_city(self, parts: list[str]) -> dict[int, tuple[dict, WeatherLanguage]]:
+        city = parts[0]
+        if len(parts) == 3:
+            # The API ignores a third comma component. Resolve it separately and
+            # constrain the city+region query, never silently discard a country.
+            country = await self._country_code(parts[2])
+            return await self._matches(", ".join(parts[:2]), city, country=country) if country else {}
+        matches = await self._matches(", ".join(parts), city)
+        if not matches and len(parts) == 2 and len(parts[1]) > 2:
+            # Mixed-language country qualifiers can fail the provider's localized
+            # qualifier index. Only rewrite after exact country-entity resolution;
+            # otherwise retain the original region/country interpretation above.
+            country = await self._country_code(parts[1])
+            if country:
+                matches = await self._matches(city, city, country=country)
+        # At most 9 geocoding requests + 1 forecast; the outer deadline covers all.
+        return matches
