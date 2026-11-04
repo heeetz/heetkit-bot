@@ -183,8 +183,11 @@ management API integration tests and frontend configuration-transfer tests.
 
 ### Twitch connection ownership
 
-One `BotRuntime` owns one Twitch session. TwitchIO owns socket recovery and token
-refresh; the application must not add a competing reconnect loop.
+One `BotRuntime` owns one desired-running Twitch session on both hosts. TwitchIO
+owns protocol recovery and token refresh. The shared `run_twitch_bot` supervisor
+allows SDK recovery first, then retires an unusable client before creating another.
+Always On and explicitly running Manual recover even when the broadcaster is offline;
+only Stream Only's confirmed stream transitions change that intent.
 
 - `BotRuntime` owns startup, stop and shutdown. Its lifecycle lock prevents another
   start from racing an active close/token flush. Observation tasks shield the session
@@ -204,9 +207,48 @@ refresh; the application must not add a competing reconnect loop.
   that sending account's input to prevent loops; other accounts continue. Timers end
   the pause without new ingress and preserve request privacy suppression.
 
+Recovery timing and readiness (verified against installed TwitchIO 3.3.2):
+
+- Poll protocol health once per second. A usable session requires a live SDK reader,
+  completed connection/subscription restoration, the configured chat subscription,
+  a validated bot token with `user:write:chat`, and a current send owner. Welcome
+  alone never establishes Connected. SDK keepalives/notifications provide liveness;
+  chat inactivity, an offline stream and channel traffic volume do not.
+- Allow 120 seconds of continuous unusability for startup or SDK recovery. The SDK
+  caps its reconnect backoff at 90 seconds, waits 11 seconds for welcome and allows
+  a five-second keepalive tolerance; the remaining time allows subscription completion.
+  A brief welcome does not reset the deadline. Desktop awaiting explicit OAuth is
+  an actionable authorization state, exempt from automatic replacement.
+- After a failed attempt, retire ingress, invalidate sends, cancel startup, drain
+  command handlers, OAuth/refresh work and SDK recovery/readers, then flush tokens
+  and close. Cleanup has a 15-second bound. Failure blocks replacements and further
+  starts until application restart; it must remain Failed even after Disconnect.
+- Fresh attempts use exponential delays of 5, 10, 20, 40, 80, then 120 seconds,
+  each jittered to 50-100% of that delay. HTTP 429 waits at least 120 seconds because
+  this SDK discards HTTP response rate-limit headers. Retained websocket-handshake
+  Retry-After/reset headers can extend that wait. Five continuously healthy minutes
+  reset the failure exponent. Attempts continue while running is desired; each SDK
+  window, cleanup and backoff is bounded. Stop interrupts backoff immediately.
+- Server-requested `reconnect_url` migration keeps the old socket until welcome on
+  the new URL and transfers subscriptions without recreating them. `OwnedWebsocket`
+  retains startup/handover candidates so cancellation cannot orphan them. Unexpected
+  loss uses SDK resubscription; missing/failed subscriptions cannot become Connected.
+  A deadline replacement always creates its required chat subscription afresh.
+- Lifecycle network/timeout/408/429/5xx failures retry. Invalid authorization,
+  access/configuration rejections and private storage failures need operator action.
+  SDK command-handler errors and unrelated error logs do not disable running intent.
+  The status API and Dashboard expose bounded recovery reason, attempt, elapsed
+  seconds and retry countdown. Neither raw exceptions nor chat/token payloads enter
+  these diagnostics. Replay protection and uncertain-send quarantine survive replacement;
+  previously attempted commands/sends are never queued for automatic replay.
+
+The protocol distinguishes [unexpected loss, keepalive liveness and reconnect handover](https://dev.twitch.tv/docs/eventsub/handling-websocket-events/).
+A reproduced delayed-close/readiness race and stalled recovery explain possible
+failure paths; they do not establish the cause of a historical live incident.
+
 Inspect `app/bot_runtime.py`, `app/services/twitch.py`, `app/twitch/client.py`,
-`sending.py` and `message_correlation.py`. Focused coverage lives in the matching
-runtime/client/service, lifecycle, chat-sending and correlation tests.
+`socket.py`, `sending.py` and `message_correlation.py`. Focused coverage lives in the matching
+runtime/client/service, `test_twitch_recovery.py`, lifecycle, chat-sending and correlation tests.
 
 Sanitized socket/session references and ownership/readiness flags help diagnose
 natural failures without raw Twitch IDs, chat text or SDK/HTTP debug logs. Duplicate
@@ -472,8 +514,9 @@ New headless POSIX files use umask `077`; token staging files are created with `
 before secret bytes are written. Windows inherits the private directory's ACLs.
 
 SIGINT/SIGTERM request graceful cleanup of Twitch, AI/HTTP and SQLite resources,
-including after partial startup. Startup defaults to 60 seconds and graceful shutdown
-to 20 seconds; `--startup-timeout` and `--shutdown-timeout` accept 0–300 seconds
+including after partial startup. The host startup gate defaults to 60 seconds; an active
+shared Twitch recovery remains supervised beyond that gate without clearing running
+intent. Graceful shutdown defaults to 20 seconds; `--startup-timeout` and `--shutdown-timeout` accept 0–300 seconds
 (exclusive of zero). A missed shutdown deadline cancels work, attempts application
 cleanup, and returns failure, with up to three additional seconds of cancellation
 grace. Diagnostics go to stderr and show lifecycle/failure guidance; headless suppresses

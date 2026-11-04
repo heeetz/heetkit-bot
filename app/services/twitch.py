@@ -59,6 +59,10 @@ class TwitchAPIService:
     def chat_connected(self) -> bool:
         return self._client is not None and self._send_session.active
 
+    @property
+    def chat_stopping(self) -> bool:
+        return self._chat_stopping
+
     def record_human_message(self, message) -> None:
         """Count accepted, current-session ingress, never our own output/echo.
 

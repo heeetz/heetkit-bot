@@ -187,12 +187,21 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
   const automaticOperation = operation?.mode === 'always_on' || operation?.mode === 'stream_only'
   const browserManaged = Boolean(operation)
   const lifecycleBusy = Boolean(busy) || Boolean(operation?.pending)
+  const recovery = status?.twitch_recovery
+  const recoveryCause = recovery?.cause === 'rate_limited' ? ' Twitch rate limit.'
+    : recovery?.cause === 'service_unavailable' ? ' Twitch service unavailable.'
+    : recovery?.cause === 'protocol_deadline' ? ' Session recovery timed out.'
+    : recovery?.cause === 'network_failure' ? ' Network unavailable.' : ''
+  const recoveryHint = recovery
+    ? `Recovery: ${recovery.reason === 'retry_wait' ? 'waiting to retry' : recovery.reason === 'sdk_recovery' ? 'restoring session' : 'connecting'}.${recoveryCause} Attempt ${recovery.attempt}, ${recovery.elapsed_seconds}s elapsed.${recovery.next_retry_seconds == null ? '' : ` Next retry in ${recovery.next_retry_seconds}s.`}`
+    : ''
   const connectionHint = !status || !setup || needsTwitchSetup || pendingRestart
     ? ''
     : connectionState === 'auth_required'
       ? isBrowserMode()
         ? operation?.mode === 'disabled' ? 'Bot operation is disabled. Choose another mode after authorizing the configured bot account.' : 'Authorize the configured bot account on the server, then use the selected operation mode to connect.'
         : status.running ? 'Sign in as the configured bot account.' : 'Start Bot again to authorize Twitch.'
+      : recoveryHint ? recoveryHint
       : connectionState === 'connecting'
         ? 'Waiting for Twitch…'
         : connectionState === 'reconnecting'

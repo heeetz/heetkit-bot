@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
-import type { AIPlaygroundResult, AnnouncementInfo, AnnouncementInput, CommandInfo, CommandRestriction, CustomCommandInfo, FilterInput, LogEntry, OptOutUser } from '../src/bridge'
+import type { AppStatus, AIPlaygroundResult, AnnouncementInfo, AnnouncementInput, CommandInfo, CommandRestriction, CustomCommandInfo, FilterInput, LogEntry, OptOutUser } from '../src/bridge'
 import { selectOption } from './select-helpers'
 import { analyticsFlow, mockAnalytics } from './analytics-helpers'
 
@@ -17,6 +17,7 @@ type OperationOverrides = Partial<{
   error: null | 'connection_failed'
 }>
 type StatusOverrides = Partial<{
+  twitch_recovery: AppStatus['twitch_recovery']
   running: boolean
   twitch_connected: boolean
   twitch_connection_state: 'stopped' | 'connecting' | 'connected' | 'reconnecting' | 'auth_required' | 'failed'
@@ -1037,5 +1038,22 @@ for (const width of [1280, 320]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
     await page.getByRole('navigation').getByRole('button', { name: 'AI', exact: true }).click()
     await expect(page.locator('#ai-blocked-users')).toHaveCount(0)
+  })
+}
+
+
+for (const width of [1280, 320]) {
+  test(`browser recovery progress preserves offline Always On controls at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await server(page, { mode: 'always_on', stream_status: 'offline', last_known_stream_status: 'offline' }, {
+      running: true, twitch_connected: false, twitch_connection_state: 'reconnecting',
+      twitch_recovery: { reason: 'retry_wait', attempt: 4, elapsed_seconds: 156, next_retry_seconds: 20 },
+    })
+    await page.goto('/tests/browser.fixture.html')
+    await login(page)
+    await expect(page.locator('.dashboard-card').first()).toContainText('Recovery: waiting to retry. Attempt 4, 156s elapsed. Next retry in 20s.')
+    await expect(page.getByRole('button', { name: 'Switch to Manual & disconnect', exact: true })).toBeEnabled()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    await page.screenshot({ path: `node_modules/.tmp/recovery-server-${width}.png`, fullPage: true })
   })
 }

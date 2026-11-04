@@ -465,3 +465,24 @@ for (const fails of [false, true]) {
     expect(await page.evaluate(() => Reflect.get(window, 'aiCalls'))).toEqual([['set_ai_memory_enabled', true]])
   })
 }
+
+
+for (const width of [1280, 320]) {
+  test(`desktop recovery progress stays actionable at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/tests/fixture.html?configured&connection=reconnecting&cachedToken')
+    await page.evaluate(() => Reflect.get(window, 'setFixtureStatus')({
+      twitch_recovery: { reason: 'retry_wait', attempt: 4, elapsed_seconds: 156, next_retry_seconds: 20 },
+    }))
+    const card = page.locator('.dashboard-card').first()
+    await expect(card).toContainText('Recovery: waiting to retry. Attempt 4, 156s elapsed. Next retry in 20s.')
+    await expect(page.getByRole('button', { name: 'Stop Bot', exact: true })).toBeEnabled()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    await page.screenshot({ path: `node_modules/.tmp/recovery-desktop-${width}.png`, fullPage: true })
+    await page.evaluate(() => Reflect.get(window, 'setFixtureStatus')({
+      twitch_recovery: null, twitch_connection_state: 'connected', twitch_connected: true,
+    }))
+    await expect(card).not.toContainText('Recovery:')
+    await expect(card).toContainText('Connected')
+  })
+}

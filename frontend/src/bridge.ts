@@ -2,6 +2,7 @@ export interface AppStatus {
   running: boolean
   twitch_connected: boolean
   twitch_connection_state: TwitchConnectionState
+  twitch_recovery?: { reason: string; cause?: string; attempt: number; elapsed_seconds: number; next_retry_seconds: number | null } | null
   uptime_seconds: number
   channel: string
   account: string

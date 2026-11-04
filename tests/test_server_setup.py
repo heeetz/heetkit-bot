@@ -1080,7 +1080,7 @@ async def test_real_twitchio_cleanup_failure_does_not_mask_primary_failure(api, 
     monkeypatch.setattr(ManagedHTTPClient, "cleanup", fail_after_cleanup)
     status, result = await call("/v1/twitch/authorization/complete", {"callback_url": callback})
     assert status == 400
-    assert "operation=client_cleanup exception=RuntimeError http_status=none" in caplog.text
+    assert "operation=client_cleanup exception=TwitchCleanupError http_status=none" in caplog.text
     if lookup_fails:
         assert "operation=user_lookup exception=HTTPException http_status=403" in caplog.text
         assert "user_lookup" in result["error"]

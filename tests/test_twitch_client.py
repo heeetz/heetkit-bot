@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock
 import pytest
 from twitchio.exceptions import HTTPException, InvalidTokenException
 
+from twitch_fakes import established_socket
+
 from app.commands.registry import CommandDispatcher
 from app.config.settings import Settings, TwitchConfigurationError
 from app.services.facade import ApplicationServices
@@ -222,6 +224,8 @@ async def test_self_optout_runs_once_after_replay_and_outgoing_echo_validation()
     services = SimpleNamespace(users=users, settings=settings, twitch=TwitchAPIService())
     dispatcher = SimpleNamespace(dispatch=AsyncMock())
     bot = TwitchChatBot(settings, settings.primary_account, services, dispatcher, logging.getLogger(__name__))
+    if getattr(services, "twitch", None) is not None:
+        services.twitch.set_chat_ready(bot, True)
     try:
         request = FakeTwitchMessage("!optout")
         request.id, request.chatter.id = "privacy-request", "123"
@@ -392,6 +396,8 @@ async def test_commands_response_echo_cannot_invoke_ask_or_consume_viewer_cooldo
     )
     dispatcher = CommandDispatcher(registry, CooldownManager(), logging.getLogger(__name__), "!", runtime_state=state)
     bot = TwitchChatBot(settings, settings.primary_account, services, dispatcher, logging.getLogger(__name__))
+    if getattr(services, "twitch", None) is not None:
+        services.twitch.set_chat_ready(bot, True)
     request = FakeTwitchMessage("!commands")
     request.id = "viewer-commands"
     if same_account:
@@ -472,6 +478,8 @@ async def test_duplicate_tg_delivery_does_not_start_a_second_burst(tmp_path, arg
                                filter_manager=AllowingFilterManager(), settings=settings)
     dispatcher = CommandDispatcher(registry, CooldownManager(), logging.getLogger(__name__), "!", runtime_state=state)
     bot = TwitchChatBot(settings, settings.primary_account, services, dispatcher, logging.getLogger(__name__))
+    if getattr(services, "twitch", None) is not None:
+        services.twitch.set_chat_ready(bot, True)
     raw = FakeTwitchMessage(f"!tg {arguments}")
     raw.id = "same-chat-message"
     try:
@@ -493,6 +501,8 @@ async def test_chat_delivery_cache_is_bounded_and_does_not_match_message_text(mo
     services = SimpleNamespace(twitch=None, users=RecordingUserRepository(), filter_manager=AllowingFilterManager())
     dispatcher = ReplyingDispatcher()
     bot = TwitchChatBot(settings, settings.primary_account, services, dispatcher, logging.getLogger(__name__))
+    if getattr(services, "twitch", None) is not None:
+        services.twitch.set_chat_ready(bot, True)
     bot._chat_messages.limit = 2
     try:
         for identifier in ("one", "two", "three", "three"):
@@ -553,6 +563,7 @@ async def test_direct_twitch_start_requires_credentials_before_creating_client(m
 @pytest.mark.asyncio
 async def test_run_twitch_bot_loads_and_saves_managed_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
+    stop = asyncio.Event()
 
     class FakeBot:
         def __init__(self, **kwargs) -> None:
@@ -560,6 +571,7 @@ async def test_run_twitch_bot_loads_and_saves_managed_tokens(monkeypatch: pytest
 
         async def start(self, **kwargs) -> None:
             calls.append(("start", (), kwargs))
+            stop.set()
 
         async def close(self, **kwargs) -> None:
             calls.append(("close", (), kwargs))
@@ -571,7 +583,7 @@ async def test_run_twitch_bot_loads_and_saves_managed_tokens(monkeypatch: pytest
         settings=settings,
         services=cast(ApplicationServices, object()),
         dispatcher=cast(CommandDispatcher, object()),
-        logger=logging.getLogger("tests.twitch"),
+        logger=logging.getLogger("tests.twitch"), stop_event=stop,
     )
 
     assert calls[1] == (
@@ -631,6 +643,7 @@ async def test_websocket_loss_and_welcome_update_connection_state(
     bot._http._tokens["100"] = cast(object, {})
 
     with caplog.at_level(logging.INFO, logger="tests.twitch.connection"):
+        first = established_socket(bot, "first")
         await bot.event_websocket_welcome(SimpleNamespace(id="first"))
         await bot.event_ready()
         assert state.twitch_connection_state == "connected"
@@ -641,6 +654,8 @@ async def test_websocket_loss_and_welcome_update_connection_state(
         assert state.twitch_connection_state == "reconnecting"
         assert state.twitch_connected is False
 
+        await first.close()
+        established_socket(bot, "second")
         await bot.event_websocket_welcome(SimpleNamespace(id="second"))
         assert state.twitch_connection_state == "connected"
         await bot.event_websocket_closed(
@@ -771,7 +786,7 @@ async def test_oauth_callback_accepts_the_configured_bot_account(monkeypatch: py
 
     async def add_token(token: str, refresh: str) -> SimpleNamespace:
         calls.append("add")
-        return SimpleNamespace(user_id="100")
+        return SimpleNamespace(user_id="100", scopes=CHAT_SCOPES.selected)
 
     async def save_tokens() -> None:
         calls.append("save")
@@ -783,7 +798,7 @@ async def test_oauth_callback_accepts_the_configured_bot_account(monkeypatch: py
     monkeypatch.setattr(bot, "save_tokens", save_tokens)
     monkeypatch.setattr(bot, "_subscribe_to_chat", subscribe)
     if renewal:
-        bot._services.twitch = SimpleNamespace(chat_connected=True, set_chat_ready=lambda *args: None,
+        bot._services.twitch = SimpleNamespace(chat_stopping=False, chat_connected=True, set_chat_ready=lambda *args: None,
                                               chat_session=lambda _: SimpleNamespace(active=True, diagnostic_ref="a"*16))
 
     await bot.event_oauth_authorized(

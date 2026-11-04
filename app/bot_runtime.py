@@ -7,7 +7,7 @@ import logging
 from contextlib import suppress
 
 from app.container import Application
-from app.twitch.client import run_twitch_bot
+from app.twitch.client import run_twitch_bot, TwitchCleanupError
 
 
 class BotRuntime:
@@ -25,6 +25,7 @@ class BotRuntime:
         self._started = False
         self._stop_requested = False
         self._shutdown = False
+        self._cleanup_failed = False
         self.generation = 0
         self.start_guard = None
 
@@ -47,6 +48,8 @@ class BotRuntime:
             return self._start_bot_locked()
 
     def _start_bot_locked(self) -> bool:
+        if self._cleanup_failed:
+            raise TwitchCleanupError("Previous Twitch cleanup failed; restart the application before reconnecting.")
         if self._shutdown:
             raise RuntimeError("Application has already shut down.")
         if not self._started:
@@ -84,9 +87,12 @@ class BotRuntime:
                 stop_event=stop_event,
                 **options,
             )
+        except TwitchCleanupError:
+            self._cleanup_failed = True
+            raise
         finally:
             self.application.services.runtime_state.set_bot_running(False)
-            if stop_event.is_set():
+            if stop_event.is_set() and not self._cleanup_failed:
                 self.application.services.runtime_state.set_twitch_connection_state("stopped")
 
     def request_stop(self) -> None:
@@ -121,6 +127,8 @@ class BotRuntime:
             else:
                 with suppress(Exception):
                     await asyncio.shield(task)
+            if self._cleanup_failed:
+                raise TwitchCleanupError("Twitch cleanup failed; restart the application before reconnecting.")
         return True
 
     async def wait_until_stopped(self) -> None:

@@ -79,6 +79,7 @@ class RuntimeState:
         self._profile_instructions = personality_settings.profile_instructions
         self._bot_running = False
         self._twitch_connection_state: TwitchConnectionState = "stopped"
+        self._twitch_recovery: dict | None = None
         self._started_at: float | None = None
         self._uptime_started_at = monotonic()
 
@@ -638,6 +639,15 @@ class RuntimeState:
     def set_twitch_connection_state(self, state: TwitchConnectionState) -> None:
         with self._lock:
             self._twitch_connection_state = state
+
+    @property
+    def twitch_recovery(self) -> dict | None:
+        with self._lock:
+            return dict(self._twitch_recovery) if self._twitch_recovery else None
+
+    def set_twitch_recovery(self, progress: dict | None) -> None:
+        with self._lock:
+            self._twitch_recovery = dict(progress) if progress else None
 
     def elapsed_seconds(self) -> int:
         with self._lock:

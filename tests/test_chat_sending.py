@@ -1,3 +1,4 @@
+from twitch_fakes import established_socket
 """Non-command output shares delivery, echo protection and connection ownership."""
 
 import asyncio
@@ -312,6 +313,7 @@ async def test_noncommand_echo_waits_for_pending_send_and_never_dispatches_or_tr
 
     bot._http.post_chat_message = post
     bot._http._tokens["100"] = {}
+    established_socket(bot)
     await bot.event_ready()
     sending = asyncio.create_task(service.chat_sender().reply("!ping"))
     await asyncio.wait_for(entered.wait(), 2)
@@ -357,12 +359,15 @@ async def test_bot_reconnect_and_close_invalidate_captured_sender():
     bot = TwitchChatBot(settings, settings.primary_account, services, object(), logging.getLogger(__name__))
     bot._http._tokens["100"] = {}
     try:
+        first = established_socket(bot, "first")
         await bot.event_websocket_welcome(SimpleNamespace(id="first"))
         await bot.event_ready()
         old = service.chat_sender()
         await bot.event_websocket_closed(SimpleNamespace(socket=SimpleNamespace(session_id="first")))
         with pytest.raises(ChatSessionClosedError):
             await old.reply("stale")
+        await first.close()
+        established_socket(bot, "second")
         await bot.event_websocket_welcome(SimpleNamespace(id="second"))
         recovered = service.chat_sender()
         # An old socket's close cannot invalidate the recovered connection.

@@ -151,6 +151,63 @@ async def test_stream_confirmation_unknown_retention_and_recovery(rig):
     assert calls.maximum == 1
 
 
+@pytest.mark.parametrize("mode", ["always_on", "manual", "stream_only"])
+async def test_live_to_offline_during_recovery_respects_operating_intent(rig, mode):
+    policy, runtime, calls, state, _ = rig
+    registry = CommandRegistry()
+
+    @registry.command("restricted")
+    async def restricted(context, arguments):
+        pass
+
+    state.configure_commands(registry.definitions())
+    state.apply_command_settings("restricted", stream_availability="live_only")
+    calls.live = True
+    policy.set_mode(mode)
+    if mode == "manual":
+        policy.connect()
+    await eventually(lambda: calls.starts == 1 and policy.confirmed_stream_status() == "live")
+    state.set_twitch_connection_state("reconnecting")
+    calls.live = False
+    await eventually(lambda: policy.confirmed_stream_status() == "offline")
+    if mode == "stream_only":
+        await eventually(lambda: not runtime.bot_active)
+        assert not policy.desired_running
+    else:
+        assert policy.desired_running and runtime.bot_active
+        assert state.twitch_connection_state == "reconnecting"
+        assert calls.starts == 1
+    assert calls.maximum == 1 and policy.error is None
+
+
+@pytest.mark.parametrize("action", ["disconnect", "disabled", "setup", "shutdown"])
+async def test_recovery_backoff_is_stopped_by_policy_without_late_restart(rig, action):
+    policy, runtime, calls, state, _ = rig
+    policy.connect()
+    await eventually(lambda: calls.starts == 1)
+    state.set_twitch_connection_state("reconnecting")
+    calls.stop_gate = asyncio.Event()
+    if action == "disconnect":
+        policy.disconnect()
+    elif action == "disabled":
+        policy.set_mode("disabled")
+    elif action == "setup":
+        operation = asyncio.create_task(policy.suspend_for_setup())
+    else:
+        operation = asyncio.create_task(policy.close())
+    await eventually(lambda: not policy.desired_running)
+    assert calls.starts == 1
+    calls.stop_gate.set()
+    if action in {"setup", "shutdown"}:
+        await operation
+    await eventually(lambda: not runtime.bot_active)
+    # The shared session's stale completion cannot reassert policy intent.
+    policy._wake.set()
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert calls.starts == 1 and not policy.desired_running
+
+
 async def test_monitor_failures_back_off_and_do_not_prove_offline(rig, caplog):
     policy, runtime, calls, _, _ = rig
     calls.live = RuntimeError("private-provider-sentinel")

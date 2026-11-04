@@ -9,6 +9,8 @@ import pytest_asyncio
 from twitchio.eventsub.websockets import Websocket
 from twitchio.exceptions import WebsocketConnectionException
 
+from twitch_fakes import established_socket
+
 from app.commands.fun import register_fun_commands
 from app.commands.registry import CommandDispatcher, CommandRegistry
 from app.config.settings import Settings
@@ -103,9 +105,8 @@ class Sandbox:
         monkeypatch.setattr(self.bot._http, 'request', AsyncMock(side_effect=AssertionError('Network forbidden')))
 
     async def welcome(self, identifier):
-        socket = Websocket(client=self.bot, token_for='100', http=self.bot._http)
+        socket = established_socket(self.bot, identifier)
         # A mocked transport listener; the SDK welcome handler and dispatch are real.
-        socket._listen_task = asyncio.create_task(asyncio.Event().wait())
         self.sockets.append(socket)
         await socket._process_welcome(dict(payload=dict(session=dict(id=identifier,
             keepalive_timeout_seconds=30, connected_at='2026-10-28T00:00:00Z'))))
@@ -182,12 +183,7 @@ async def test_real_loss_then_welcome_recovers_every_command_and_preserves_old_s
     await turns()
     assert s.state.twitch_connection_state == 'reconnecting' and not original.active
     await s.ingress(command, 'during-loss')
-    assert 'handler_failed' in s.outcomes('during-loss') and not s.sent
-    failure = next(e for e in s.buffer.activity()['entries']
-                   if e['context'].get('input_message_id') == 'during-loss'
-                   and e['context'].get('outcome') == 'handler_failed')
-    assert failure['context']['error_type'] == 'ChatSessionClosedError'
-    assert failure['context']['stage'] == 'send_session'
+    assert s.outcomes('during-loss') == [] and not s.sent
     await s.welcome('recovered')
     assert s.state.twitch_connection_state == 'connected'
     assert not original.active and s.twitch.chat_session(s.bot) is not original
@@ -308,6 +304,7 @@ async def test_retired_ingress_cannot_reserve_the_current_clients_message_id(san
     old = s.bot
     current = TwitchChatBot(old._settings, old._account, s.services, s.dispatcher, s.logger)
     current._http._tokens['100'] = {}
+    established_socket(current)
     await current.event_ready()
     try:
         if retired:
@@ -356,6 +353,7 @@ async def test_duplicate_diagnostics_keep_sdk_transport_origin_without_raw_ids(s
     async def deliver():
         s.bot.dispatch('message', s.event('!tg', 'PRIVATE-event'))
     for origin in ('PRIVATE-socket-one', 'PRIVATE-socket-one', 'PRIVATE-socket-two'):
+        s.bot._active_socket_id = origin  # Simulate a completed handover before each delivery.
         await asyncio.create_task(deliver(), name='EventsubWebsocketListener: ' + origin)
         await turns()
         s.now += 6

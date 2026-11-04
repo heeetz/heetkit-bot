@@ -84,7 +84,12 @@ The current connection model expects the sending account to be a moderator in th
 target channel, unless it is the broadcaster. Grant that role through Twitch, then
 use **Start Bot** and **Authorize Twitch** as the configured sending account.
 
-Wait for **Connected**, not just Running. Reconnecting means the connection was lost;
+Wait for **Connected**, not just Running. Connected requires a usable subscribed chat
+session and send readiness. Reconnecting shows recovery progress and any retry delay;
+normal SDK recovery is followed by bounded fresh-client recovery if it stalls.
+Offline streams do not stop Always On or running Manual chat connections.
+See [recovery timing](development.md#twitch-connection-ownership).
+
 Authorization required needs renewed consent. A token cache alone does not establish
 valid authorization or successful delivery. Check Logs and account/channel/callback
 settings if connection fails. Stop other instances using the same account or callback.

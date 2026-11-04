@@ -139,8 +139,9 @@ class OperationPolicy:
     def connection_failed(self) -> None:
         if self.error is None:
             self.error = "connection_failed"
-            # Keep the saved policy and management alive, but do not race TwitchIO
-            # with another retry loop or repeat a terminal auth/storage failure.
+            # Called only after the shared supervisor reports a terminal failure.
+            # Transient outages keep that task and desired-running intent alive;
+            # this policy must not compete with its recovery or repeat auth/storage failures.
             self.desired_running = False
             self._schedule()
             logger.error("Twitch connection needs administrator attention.",

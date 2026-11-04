@@ -364,7 +364,7 @@ def test_backend_host_timeout_uses_bounded_degraded_shutdown(
 
 def test_bridge_reads_shared_runtime_status() -> None:
     runtime_state = SimpleNamespace(
-        status=lambda: (True, 42), twitch_connected=True, twitch_connection_state="connected"
+        status=lambda: (True, 42), twitch_connected=True, twitch_connection_state="connected", twitch_recovery=None
     )
     application = SimpleNamespace(
         services=SimpleNamespace(runtime_state=runtime_state),
@@ -378,6 +378,7 @@ def test_bridge_reads_shared_runtime_status() -> None:
         "running": True,
         "twitch_connected": True,
         "twitch_connection_state": "connected",
+        "twitch_recovery": None,
         "uptime_seconds": 42,
         "channel": "channel",
         "account": "bot",

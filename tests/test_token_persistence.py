@@ -149,8 +149,11 @@ async def test_rejected_cached_token_reaches_authorization_required(tmp_path, mo
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["library", "removed", "listener"])
-async def test_headless_disables_callback_and_surfaces_background_failure(tmp_path, monkeypatch, caplog, failure):
+async def test_headless_disables_callback_and_distinguishes_handler_errors_from_revocation(tmp_path, monkeypatch, caplog, failure):
+    from twitch_fakes import established_socket
     bot = bot_at(tmp_path)
+    established_socket(bot)
+    monkeypatch.setattr("app.twitch.client.RECOVERY_POLL", .001)
     services = bot._services
     services.runtime_state.set_bot_running(True)
     stop = asyncio.Event()
@@ -168,6 +171,7 @@ async def test_headless_disables_callback_and_surfaces_background_failure(tmp_pa
         twitch_client_id="synthetic", twitch_client_secret="synthetic", twitch_bot_user_id="100", twitch_bot_username="testbot", twitch_channel="testchannel", twitch_channel_user_id="200"),
         services, object(), logging.getLogger(__name__), stop, headless=True))
     await started.wait()
+    assert bot.refresh_readiness()
     if failure == "library":
         logging.getLogger("twitchio.eventsub.websockets").error("Unable to resubscribe private token-chat sentinel", exc_info=ValueError("secret"))
     elif failure == "listener":
@@ -175,7 +179,11 @@ async def test_headless_disables_callback_and_surfaces_background_failure(tmp_pa
     else:
         bot._http._tokens.clear()
         await asyncio.sleep(0.25)
-    assert services.runtime_state.twitch_connection_state == ("auth_required" if failure == "removed" else "failed")
+    assert services.runtime_state.twitch_connection_state == ("auth_required" if failure == "removed" else "connected")
     assert "private token-chat sentinel" not in caplog.text
     stop.set()
-    await task
+    if failure == "removed":
+        with pytest.raises(TwitchConnectionError):
+            await task
+    else:
+        await task

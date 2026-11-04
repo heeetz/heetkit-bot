@@ -421,6 +421,10 @@ async def test_real_ingress_counts_only_current_eligible_unique_human_events(rig
     bot = SimpleNamespace(bot_id="100", _services=services, _dispatcher=dispatcher,
         _chat_messages=r.twitch.chat_messages, _logger=logging.getLogger(__name__),
         _closing_requested=False, _diagnostic_id="synthetic-current-client", _connection_event=Mock())
+    from types import MethodType
+    bot._retired = False
+    bot._ingress_tasks = set()
+    bot._handle_message = MethodType(TwitchChatBot._handle_message, bot)
     # The fake bot identity must be the bound client for captured-session lookup.
     r.twitch.bind(bot, "200", "100", channel_name="channel")
     r.twitch.set_chat_ready(bot, True)

@@ -138,6 +138,82 @@ async def test_connected_service_outlives_startup_deadline(monkeypatch, in_memor
 
 
 @pytest.mark.asyncio
+async def test_shared_recovery_outlives_host_startup_deadline(monkeypatch, in_memory_application):
+    stop, started = asyncio.Event(), asyncio.Event()
+    state = in_memory_application.services.runtime_state
+    clock = [0.0]
+    observations = []
+    # Advance only the host's deadline clock; asyncio task scheduling stays real.
+    monkeypatch.setattr(headless, "asyncio", SimpleNamespace(
+        **{name: getattr(asyncio, name) for name in dir(asyncio) if name != "get_running_loop"},
+        get_running_loop=lambda: SimpleNamespace(time=lambda: clock[0])))
+
+    async def session(**kwargs):
+        state.set_twitch_recovery({"reason": "network", "attempt": 2})
+        state.set_twitch_connection_state("reconnecting")
+        started.set()
+        await kwargs["stop_event"].wait()
+
+    class Health:
+        def update(self, value):
+            observations.append(value)
+            if value == "reconnecting":
+                if clock[0]:
+                    stop.set()
+                clock[0] = 100.0
+
+    monkeypatch.setattr("app.bot_runtime.run_twitch_bot", session)
+    result = await asyncio.wait_for(headless.run_headless(
+        in_memory_application.settings, AppSettings(), stop,
+        startup_timeout=1, shutdown_timeout=1, health=Health()), 3)
+    assert started.is_set() and result == 0
+    assert observations.count("reconnecting") >= 2
+
+
+@pytest.mark.asyncio
+async def test_outer_startup_timeout_does_not_cancel_active_shared_recovery(monkeypatch, in_memory_application):
+    stop, started = asyncio.Event(), asyncio.Event()
+    state = in_memory_application.services.runtime_state
+    original_wait = asyncio.wait
+    timed_out = False
+
+    async def session(**kwargs):
+        state.set_twitch_recovery({"reason": "startup", "attempt": 1})
+        started.set()
+        await kwargs["stop_event"].wait()
+
+    async def wait(tasks, *, timeout=None, return_when=asyncio.ALL_COMPLETED):
+        nonlocal timed_out
+        if timeout == 0.25 and not timed_out:
+            await started.wait()
+            timed_out = True
+            stop.set()
+            return set(), set(tasks)
+        return await original_wait(tasks, timeout=timeout, return_when=return_when)
+
+    monkeypatch.setattr("app.bot_runtime.run_twitch_bot", session)
+    monkeypatch.setattr(headless, "asyncio", SimpleNamespace(
+        **{name: getattr(asyncio, name) for name in dir(asyncio) if name != "wait"}, wait=wait))
+    assert await headless.run_headless(in_memory_application.settings, AppSettings(), stop,
+        startup_timeout=0.25, shutdown_timeout=1) == 0
+    assert timed_out
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("terminal", ["auth_required", "failed"])
+async def test_shared_recovery_marker_never_hides_terminal_failure(monkeypatch, terminal, in_memory_application):
+    async def session(**kwargs):
+        state = kwargs["services"].runtime_state
+        state.set_twitch_recovery({"reason": "startup", "attempt": 1})
+        state.set_twitch_connection_state(terminal)
+        await kwargs["stop_event"].wait()
+
+    monkeypatch.setattr("app.bot_runtime.run_twitch_bot", session)
+    assert await headless.run_headless(in_memory_application.settings, AppSettings(), asyncio.Event(),
+        startup_timeout=1, shutdown_timeout=1) == 1
+
+
+@pytest.mark.asyncio
 async def test_shutdown_session_failure_returns_nonzero_and_closes_database(monkeypatch):
     stop = asyncio.Event()
     applications = []

@@ -391,6 +391,7 @@ class ApplicationManagement:
             "running": running,
             "twitch_connected": runtime_state.twitch_connected,
             "twitch_connection_state": runtime_state.twitch_connection_state,
+            "twitch_recovery": runtime_state.twitch_recovery,
             "uptime_seconds": uptime,
             "channel": application.settings.twitch_channel,
             "account": application.settings.twitch_bot_username,

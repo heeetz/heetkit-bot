@@ -121,7 +121,7 @@ async def run_headless(
     management_config=None,
     credentials=None,
 ) -> int:
-    """Supervise the existing runtime; TwitchIO continues to own network retries."""
+    """Supervise the core; shared Twitch recovery owns connection deadlines."""
     application = build_application(settings)
     application.services.runtime_state.set_ai_memory_enabled(profile.ai.memory_enabled)
     runtime = BotRuntime(application, logging.getLogger("app.headless.twitch"), headless=True)
@@ -172,6 +172,12 @@ async def run_headless(
                     health.update("starting")
                     await asyncio.sleep(0.1)
                     continue
+                recovering = bool(getattr(state, "twitch_recovery", None))
+                if recovering:
+                    # Application startup has succeeded. A prolonged network
+                    # outage belongs to the shared recovery supervisor, not a
+                    # second host deadline that clears operating intent.
+                    ready.set()
                 health.update(state.twitch_connection_state)
                 failure = None
                 if state.twitch_connection_state == "auth_required":
@@ -186,7 +192,7 @@ async def run_headless(
                     connected = True
                     ready.set()
                     logger.info("Headless bot connected; waiting for SIGINT or SIGTERM.")
-                if not connected and asyncio.get_running_loop().time() >= deadline:
+                if not connected and not recovering and asyncio.get_running_loop().time() >= deadline:
                     failure = "Twitch startup timed out. Check authorization, configuration and network, then restart."
                 if failure is not None:
                     if management is None:
@@ -209,7 +215,12 @@ async def run_headless(
     try:
         done, _ = await asyncio.wait({worker, stop_waiter, ready_waiter}, timeout=startup_timeout, return_when=asyncio.FIRST_COMPLETED)
         if not done:
-            raise HeadlessError("Headless startup timed out. Check database, authorization and network, then restart.")
+            if runtime.bot_active and getattr(state, "twitch_recovery", None):
+                # The first observation may be delayed beyond a very short host
+                # startup timeout. Never interrupt an active shared recovery.
+                done, _ = await asyncio.wait({worker, stop_waiter}, return_when=asyncio.FIRST_COMPLETED)
+            else:
+                raise HeadlessError("Headless startup timed out. Check database, authorization and network, then restart.")
         if ready_waiter in done and stop_waiter not in done and worker not in done:
             done, _ = await asyncio.wait({worker, stop_waiter}, return_when=asyncio.FIRST_COMPLETED)
         if worker in done:
