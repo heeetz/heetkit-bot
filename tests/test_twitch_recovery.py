@@ -339,10 +339,21 @@ async def test_start_finally_save_failure_cannot_be_hidden_by_second_close(real_
             await bot.close()
     task = asyncio.create_task(start())
     await entered.wait()
-    with pytest.raises(lifecycle.TwitchCleanupError):
-        await lifecycle._retire_client(bot, task, logging.getLogger("tests.cleanup"))
-    with pytest.raises(lifecycle.TwitchCleanupError):
-        await bot.close()
+    loop = asyncio.get_running_loop()
+    previous = loop.get_exception_handler()
+    unhandled = []
+    loop.set_exception_handler(lambda loop, context: unhandled.append(context))
+    try:
+        with pytest.raises(lifecycle.TwitchCleanupError):
+            await lifecycle._retire_client(bot, task, logging.getLogger("tests.cleanup"))
+        with pytest.raises(lifecycle.TwitchCleanupError):
+            await bot.close()
+        import gc
+        gc.collect()
+        await asyncio.sleep(0)
+        assert not unhandled
+    finally:
+        loop.set_exception_handler(previous)
 
 
 async def test_server_migration_preserves_url_subscription_transfer_and_welcome_before_close(real_bot, monkeypatch):

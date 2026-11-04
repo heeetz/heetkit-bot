@@ -934,13 +934,15 @@ async def _retire_client(bot, start_task: asyncio.Task, logger) -> None:
             task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
         logger.error("Twitch cleanup deadline exceeded; replacement blocked", extra={"event_kind": "twitch.failed"})
         raise TwitchCleanupError("Twitch cleanup did not finish; restart the application before reconnecting.")
-    if not start_task.cancelled():
-        start_error = start_task.exception()
-        if isinstance(start_error, TwitchCleanupError):
-            raise start_error
+    # Retrieve both results before raising: SDK start's finally and our explicit
+    # close can both report the same failure. Neither may leak an unhandled task.
+    start_error = None if start_task.cancelled() else start_task.exception()
+    close_error = None if closing.cancelled() else closing.exception()
+    if isinstance(start_error, TwitchCleanupError):
+        raise start_error
     # Startup failure is classified by the caller. Cleanup failure is always
     # terminal, including persistence errors; never silently replace that client.
-    if not closing.cancelled() and closing.exception() is not None:
+    if closing.cancelled() or close_error is not None:
         raise TwitchCleanupError("Twitch client shutdown failed; check private token storage and restart.") from None
 
 
