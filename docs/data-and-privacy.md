@@ -139,7 +139,14 @@ not Twitch's first-time-chatter flag or lifetime unique viewers. A viewer may co
 again after their old presence expires. Collection is prospective, with no historical
 backfill and no viewer/event identity ledger. Command breakdown labels use current
 configured names and prefix while totals remain keyed by stable IDs; deleted commands
-retain their rows with an unavailable-name label.
+retain their rows with a distinguishable unavailable-name label containing the stable ID.
+The breakdown includes all current built-in and custom commands, even disabled or
+new commands with no recorded attempts, refreshed with each Analytics query. Aliases
+share one row. Rows sort by recorded attempts descending, then displayed name and
+stable ID. Zero means no recorded attempts in the selected range; collection gaps
+remain unknown, and unavailable storage or channel configuration is flagged separately.
+The full-width Collection & coverage card keeps warnings visible above its collapsed
+Collection details disclosure; diagnostics and detailed timestamps are inside it.
 
 Updates are buffered and written in bounded batches off the command loop. Crashes,
 full buffers and write failures can lose updates; coverage is not exactly-once billing.

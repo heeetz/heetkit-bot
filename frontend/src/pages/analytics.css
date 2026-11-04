@@ -33,13 +33,28 @@
 .analytics-table thead th { white-space: nowrap; position: sticky; top: 0; z-index: 1; background: var(--panel); }
 .analytics-table caption { text-align: left; color: var(--muted); padding: 8px; }
 .analytics-command-table { max-height: 276px; }
-.analytics-command-table tbody th { height: 46px; white-space: nowrap; }
+.analytics-command-table tbody th { height: 46px; }
 .analytics-command-name { display: inline-block; max-width: 140px; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.analytics-command-table .help-tip { vertical-align: middle; }
+.analytics-command-unavailable { white-space: normal; overflow-wrap: anywhere; }
 .analytics-layout summary { cursor: pointer; }
-.analytics-coverage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1.3fr); gap: var(--space-6); }
-.analytics-coverage .ai-state-heading { margin-bottom: 4px; }
-.analytics-operations button { margin-top: 8px; }
+.analytics-breakdowns > .card > .ai-state-heading { justify-content: flex-start; }
+.analytics-coverage { display: grid; gap: var(--space-4); }
+.analytics-coverage > .ai-state-heading { justify-content: flex-start; min-height: 0; margin: 0; }
+.analytics-coverage .ai-state-heading h2 { margin: 0; }
+.analytics-coverage-zones { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr); align-items: start; gap: var(--space-4); }
+.analytics-coverage-zones > section { min-width: 0; }
+.analytics-coverage-zones h3 { margin: 0 0 12px; }
+.analytics-coverage-zones p:last-child { margin-bottom: 0; }
+.analytics-operations { text-align: right; }
+.analytics-operations button { max-width: 100%; overflow-wrap: anywhere; }
+.analytics-coverage-status:empty { display: none; }
+.analytics-coverage-status p:first-child { margin-top: 0; }
+.analytics-coverage-status p:last-child { margin-bottom: 0; }
+.analytics-collection-details { border-top: 1px solid var(--separator); padding-top: var(--space-3); min-width: 0; }
+.analytics-collection-details dl { display: flex; flex-wrap: wrap; gap: 12px 24px; margin: 12px 0 0; }
+.analytics-collection-details dl > div { min-width: 0; }
+.analytics-collection-details dt { color: var(--muted); }
+.analytics-collection-details dd { margin: 4px 0 0; overflow-wrap: anywhere; }
 @container page-content (width < 900px) { .analytics-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@container page-content (width < 700px) { .analytics-breakdowns, .analytics-coverage { grid-template-columns: minmax(0, 1fr); } }
+@container page-content (width < 700px) { .analytics-breakdowns, .analytics-coverage-zones { grid-template-columns: minmax(0, 1fr); } .analytics-operations { text-align: left; } }
 @container page-content (width < 450px) { .analytics-cards { grid-template-columns: minmax(0, 1fr); } }

@@ -195,7 +195,7 @@ async def test_analytics_current_names_preserve_stable_history_and_daily_only_to
     assert first["totals"]["command.attempts"] == 11
     assert sum(row["metrics"].get("command.attempts", 0) for row in first["series"]) == 6
     labels = {row["name"]: row["label"] for row in first["commands"]}
-    assert labels == {stable: "$oldname", "ping": "$ping", "custom:deleted": "Deleted or unavailable command", "other": "Other commands (collection limit)"}
+    assert {key: labels[key] for key in (stable, "ping", "custom:deleted", "other")} == {stable: "$oldname", "ping": "$ping", "custom:deleted": "Deleted or unavailable command (custom:deleted)", "other": "Other commands (collection limit)"}
     app.custom_commands.save({"id": custom.id, "name": "renamed", "enabled": True, "responses": ["Synthetic"], "permission": "USER", "per_user_seconds": 0, "global_seconds": 0, "aliases": []})
     app.services.runtime_state.apply_command_settings("ping", primary_name="pong")
     collector.record("command.attempts", channel_id="200", dimension=stable, value=1)
@@ -206,7 +206,53 @@ async def test_analytics_current_names_preserve_stable_history_and_daily_only_to
     assert commands["ping"]["label"] == "$pong"
     app.custom_commands.delete(custom.id)
     _, deleted, _ = await call("POST", "/v1/analytics/query", json={"days": 7})
-    assert next(row for row in deleted["commands"] if row["name"] == stable)["label"] == "Deleted or unavailable command"
+    assert next(row for row in deleted["commands"] if row["name"] == stable)["label"] == f"Deleted or unavailable command ({stable})"
+
+
+async def test_analytics_inventory_refresh_disabled_aliases_range_and_popularity(api):
+    server, call = api
+    app = server.runtime.application
+    collector = app.services.analytics
+    collector.clock = lambda: datetime(2026, 11, 3, 12, 30, tzinfo=timezone.utc)
+    app.settings.command_prefix = "$"
+    app.services.runtime_state.apply_command_settings("ping", enabled=False, primary_name="zping", aliases=("pingalias",))
+
+    async def query(days=7):
+        return (await call("POST", "/v1/analytics/query", json={"days": days}))[1]
+
+    initial = await query()
+    assert {row["name"] for row in initial["commands"]} == {definition.name for definition in app.registry.definitions()}
+    assert all(row["metrics"] == {} for row in initial["commands"])
+    custom = app.custom_commands.save({"name": "alpha", "enabled": False, "responses": ["Synthetic"],
+        "permission": "USER", "per_user_seconds": 0, "global_seconds": 0, "aliases": ["aliasalpha"]})
+    stable = "custom:" + custom.id
+    refreshed = await query()
+    assert next(row for row in refreshed["commands"] if row["name"] == stable) == {"name": stable, "label": "$alpha", "metrics": {}}
+    collector.record("command.attempts", channel_id="200", dimension=stable, value=2)
+    collector.record("command.attempts", channel_id="200", dimension="ping", value=2)
+    collector.record("command.attempts", channel_id="200", dimension="custom:deleted", value=4)
+    collector.record("command.attempts", channel_id="200", dimension="custom:older-deleted", value=9,
+                     at=datetime(2026, 11, 1, tzinfo=timezone.utc))
+    collector.record("command.attempts", channel_id="201", dimension="ping", value=100)
+    await collector.flush()
+    for days in (1, 7):
+        result = await query(days)
+        rows = result["commands"]
+        assert len({row["name"] for row in rows}) == len(rows)
+        assert not any(row["label"] in ("$aliasalpha", "$pingalias") for row in rows)
+        active = [row["name"] for row in rows if row["metrics"].get("command.attempts", 0)]
+        assert active == (["custom:older-deleted"] if days == 7 else []) + ["custom:deleted", stable, "ping"]
+        assert rows == sorted(rows, key=lambda row: (-row["metrics"].get("command.attempts", 0), row["label"], row["name"]))
+        assert all(not row["metrics"] for row in rows[len(active):])
+    app.custom_commands.delete(custom.id)
+    deleted = await query()
+    assert next(row for row in deleted["commands"] if row["name"] == stable)["metrics"]["command.attempts"] == 2
+    # A new zero-activity inventory survives pause/reset without inventing observations.
+    await collector.configure(False)
+    await collector.reset()
+    result = await query()
+    assert result["totals"] == {} and not result["enabled"]
+    assert all(row["metrics"] == {} for row in result["commands"])
 
 
 async def test_balance_shared_service_secure_key_and_mocked_refresh(api, monkeypatch):

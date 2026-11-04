@@ -153,8 +153,13 @@ class ApplicationManagement:
                 field = {"coverage.seconds": "coverage_seconds", "users.coverage_seconds": "new_users_coverage_seconds"}.get(row["metric"])
                 if field:
                     series[row["day"]][field] += row["value"]
-        names = {row["id"]: row["label"] for row in self._restriction_commands()} if commands else {}
+        names = {row["id"]: row["label"] for row in self._restriction_commands()}
+        for command_id in names:
+            commands.setdefault(command_id, {})
         names.setdefault("other", "Other commands (collection limit)")
+        command_rows = [{"name": name, "label": names.get(name, f"Deleted or unavailable command ({name})"),
+                         "metrics": values} for name, values in commands.items()]
+        command_rows.sort(key=lambda row: (-row["metrics"].get("command.attempts", 0), row["label"], row["name"]))
         retained = None
         if channel:
             try:
@@ -166,7 +171,7 @@ class ApplicationManagement:
                 "connected": bool(app.services.twitch.chat_connected),
                 "retained_users": retained, "totals": totals,
                 "series": [{"day": day, **values} for day, values in series.items()],
-                "commands": [{"name": name, "label": names.get(name, "Deleted or unavailable command"), "metrics": values} for name, values in sorted(commands.items())],
+                "commands": command_rows,
                 "providers": [{"name": name, "metrics": values} for name, values in sorted(providers.items())],
                 **{key: snapshot[key] for key in ("metadata", "enabled", "available", "pending", "dropped", "write_failures", "price_checked", "price_basis")}}
 

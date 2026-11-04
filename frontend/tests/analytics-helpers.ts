@@ -2,6 +2,7 @@ import { expect, type Page } from '@playwright/test'
 
 export async function mockAnalytics(page: Page, desktop = false) {
   let enabled = true, empty = false, fail = false, unavailable = false, balanceState = 'available'
+  let inventoryChanged = false
   let limits = { stored: 100, context: 5 }
   const calls: { path: string; body: Record<string, unknown> }[] = []
   await page.route(/\/(v1|synthetic-analytics)\/(analytics\/|ai\/balance|ai\/memory\/limits)/, async (route) => {
@@ -23,7 +24,14 @@ export async function mockAnalytics(page: Page, desktop = false) {
       connected: false, retained_users: unavailable ? null : 42, enabled, available: !unavailable, pending: 2, dropped: 1, write_failures: 0,
       metadata: { data_start: '2026-10-28T12:00:00Z' }, price_checked: '2026-10-30', price_basis: 'known subtotal', totals: metrics,
       series: body.days === 1 ? Array.from({ length: 24 }, (_, hour) => ({ day: `2026-10-30T${String(hour).padStart(2, '0')}:00:00+00:00`, metrics: hour === 10 ? { ...metrics, 'users.new': 2 } : hour === 11 ? { 'connection.seconds': 3600 } : {}, coverage_seconds: hour === 10 || hour === 11 ? 3600 : 0, new_users_coverage_seconds: hour === 10 || hour === 11 ? 3600 : 0 })) : [{ day: '2026-10-24', metrics: {}, coverage_seconds: 0, new_users_coverage_seconds: 0 }, { day: '2026-10-30', metrics, coverage_seconds: 1800, new_users_coverage_seconds: 1800 }],
-      commands: empty ? [] : Array.from({ length: 15 }, (_, i) => ({ name: i ? `custom:synthetic-${i}` : 'ping', label: i === 14 ? 'Deleted or unavailable command' : i === 1 ? '!long-command-name-'.repeat(8) : i ? `!custom${i}` : '!ping', metrics })), providers: empty ? [] : [{ name: 'deepseek/test-model', metrics }] } })
+      commands: [...Array.from({ length: 15 }, (_, i) => ({
+        name: i ? `custom:synthetic-${i}` : 'ping',
+        label: i === 14 || (inventoryChanged && i === 3) ? `Deleted or unavailable command (custom:synthetic-${i})` : inventoryChanged && i === 2 ? '!renamed' : i === 1 ? '!long-command-name-'.repeat(8) : i === 13 ? '!disabled-zero' : i ? `!custom${i}` : '!ping',
+        metrics: empty || i === 13 ? {} : { ...metrics, 'command.attempts': i === 0 ? 8 : i <= 2 ? 4 : 1 },
+      })).filter((row) => !empty || !row.label.startsWith('Deleted or unavailable')),
+      ...(inventoryChanged ? [{ name: 'custom:new', label: '!new-command', metrics: {} }] : [])]
+        .sort((a, b) => ((b.metrics as Record<string, number>)['command.attempts'] || 0) - ((a.metrics as Record<string, number>)['command.attempts'] || 0) || a.label.localeCompare(b.label) || a.name.localeCompare(b.name)),
+      providers: empty ? [] : [{ name: 'deepseek/test-model', metrics }] } })
   })
   if (desktop) await page.evaluate(() => {
     const request = async (path: string, body?: object) => (await fetch(`/synthetic-analytics/${path}`, { method: body ? 'POST' : 'GET', ...(body ? { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } } : {}) })).json()
@@ -36,7 +44,7 @@ export async function mockAnalytics(page: Page, desktop = false) {
       save_ai_memory_limits: (stored: number, context: number) => request('ai/memory/limits', { stored, context }),
     })
   })
-  return { calls, setFail: (value: boolean) => { fail = value }, setUnavailable: () => { unavailable = true }, setBalance: (value: string) => { balanceState = value } }
+  return { calls, changeInventory: () => { inventoryChanged = true }, setFail: (value: boolean) => { fail = value }, setUnavailable: () => { unavailable = true }, setBalance: (value: string) => { balanceState = value } }
 }
 
 export async function analyticsFlow(page: Page, mock: Awaited<ReturnType<typeof mockAnalytics>>, width: number, host: string) {
@@ -70,13 +78,48 @@ export async function analyticsFlow(page: Page, mock: Awaited<ReturnType<typeof 
   await expect(commands.getByRole('row')).toHaveCount(16)
   await expect(commands).toContainText('!ping')
   expect(await commands.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+  if (width >= 1280) expect(await commands.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
   await commands.focus(); await commands.press('End')
-  expect(await commands.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+  await expect.poll(() => commands.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
   const headerTop = await commands.locator('thead').evaluate((el) => el.querySelector('th')!.getBoundingClientRect().top)
   expect(Math.abs(headerTop - (await commands.boundingBox())!.y)).toBeLessThan(2)
   await commands.evaluate((el) => { el.scrollTop = 0 })
   await page.locator('.analytics-cards').screenshot({ path: `node_modules/.tmp/analytics-cards-${host}-${width}.png` })
-  await expect(page.getByText(/Partial window/)).toBeVisible()
+  await expect(commands.getByRole('button')).toHaveCount(0)
+  await expect(commands.locator('tbody tr').first()).toContainText('!ping')
+  await expect(commands.locator('tbody tr').last()).toHaveText('!disabled-zero0000')
+  await page.getByRole('button', { name: 'Help: Commands breakdown', exact: true }).click()
+  await expect(page.getByText(/Zero means no recorded attempts/)).toBeVisible()
+  await page.keyboard.press('Escape')
+  mock.changeInventory()
+  await page.getByRole('button', { name: 'Refresh analytics', exact: true }).click()
+  await expect(commands.getByRole('row')).toHaveCount(17)
+  await expect(commands).toContainText('!renamed')
+  await expect(commands).toContainText('Deleted or unavailable command (custom:synthetic-3)')
+  await expect(commands.locator('tbody tr').last()).toHaveText('!new-command0000')
+  const coverage = page.locator('.analytics-coverage')
+  const details = coverage.locator('details')
+  await expect(details).not.toHaveAttribute('open', '')
+  await expect(coverage.getByText('Enabled', { exact: true })).toBeVisible()
+  await expect(coverage.getByText('Data since:', { exact: false })).toBeVisible()
+  await expect(coverage.getByText('Partial coverage', { exact: true })).toBeVisible()
+  await expect(coverage.getByText(/Possible data loss/)).toBeVisible()
+  await expect(coverage.getByRole('heading', { name: 'Data management' })).toBeVisible()
+  const zones = await coverage.locator('.analytics-coverage-zones > section').evaluateAll((items) => items.map((el) => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width } }))
+  if (width >= 1280) {
+    expect(zones.map((zone) => zone.y)).toEqual([zones[0].y, zones[0].y, zones[0].y])
+    expect(zones[1].width / zones[0].width).toBeCloseTo(2, 1)
+    const button = (await coverage.getByRole('button', { name: 'Reset all profile analytics', exact: true }).boundingBox())!
+    expect(Math.abs(button.x + button.width - zones[2].x - zones[2].width)).toBeLessThan(2)
+  } else {
+    expect(zones[0].y).toBeLessThan(zones[1].y)
+    expect(zones[1].y).toBeLessThan(zones[2].y)
+  }
+  await coverage.getByText('Collection details', { exact: true }).click()
+  await expect(details.getByText('Pending updates', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await details.screenshot({ path: `node_modules/.tmp/analytics-details-${host}-${width}.png` })
+  await coverage.getByText('Collection details', { exact: true }).click()
   await expect(page.getByText(/Disconnected —/)).toBeVisible()
   await expect(page.getByText(/Incomplete — unknown usage/)).toBeVisible()
   const windowSelect = page.getByLabel('UTC window', { exact: true })
@@ -107,7 +150,7 @@ export async function analyticsFlow(page: Page, mock: Awaited<ReturnType<typeof 
   await expect(page.getByText(/A viewer can count again/)).toBeVisible()
   await page.keyboard.press('Escape')
   await page.getByRole('checkbox', { name: 'Collect analytics' }).press('Space')
-  await expect(page.getByText(/Collection disabled/)).toBeVisible()
+  await expect(page.locator('.analytics-collection').getByText('Paused', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Refresh balance', exact: true }).click()
   await expect(page.getByText('USD 12.34', { exact: true })).toBeVisible()
   mock.setBalance('stale'); await page.getByRole('button', { name: 'Refresh balance', exact: true }).click()
@@ -125,6 +168,7 @@ export async function analyticsFlow(page: Page, mock: Awaited<ReturnType<typeof 
   await page.locator('.analytics-coverage').screenshot({ path: `node_modules/.tmp/analytics-coverage-${host}-${width}.png` })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.getByRole('button', { name: 'Reset all profile analytics', exact: true }).click()
+  await expect(page.getByRole('dialog')).toContainText('Permanently clear aggregate totals for every channel and Playground in this profile, including pending updates. Personal AI memory, presence and opt-outs are unchanged. Operator-managed backups are separate copies.')
   await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
   await page.keyboard.press('Escape'); await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.getByRole('button', { name: 'Reset all profile analytics', exact: true }).click()
@@ -135,6 +179,8 @@ export async function analyticsFlow(page: Page, mock: Awaited<ReturnType<typeof 
   mock.setFail(false); mock.setUnavailable(); await page.getByRole('button', { name: 'Refresh analytics', exact: true }).click()
   await expect(page.getByText(/No configured channel ID/)).toBeVisible()
   await expect(page.getByText(/Analytics storage unavailable/)).toBeVisible()
+  await expect(commands.locator('tbody tr').first().getByRole('cell', { name: 'Unavailable', exact: true })).toHaveCount(4)
+  await expect(details).not.toHaveAttribute('open', '')
   await page.getByLabel('Balance provider', { exact: true }).click(); await page.getByRole('option', { name: 'DeepSeek', exact: true }).click()
   mock.setBalance('available'); await page.getByRole('button', { name: 'Refresh balance', exact: true }).click()
   await expect(page.getByText('USD 12.34', { exact: true })).toBeVisible()

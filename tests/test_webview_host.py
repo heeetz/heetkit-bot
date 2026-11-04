@@ -70,7 +70,11 @@ def test_analytics_and_memory_desktop_adapters_share_backend_operations(tmp_path
         persist()
 
     app = SimpleNamespace(settings=settings, ai_balance=None,
+        registry=SimpleNamespace(definitions=lambda: [SimpleNamespace(name="ping")]),
+        custom_commands=SimpleNamespace(list=lambda: []),
         database=SimpleNamespace(configure_memory_limits=configure), services=SimpleNamespace(
+            runtime_state=SimpleNamespace(command_namespace_lock=threading.RLock(),
+                get_command_settings=lambda name: SimpleNamespace(primary_name=name)),
             analytics=collector, users=SimpleNamespace(retained_count=AsyncMock(return_value=9)),
             twitch=SimpleNamespace(chat_connected=False)))
     bridge = WebUIBridge(SimpleNamespace(application=app, submit=complete_bridge_coroutine), app_settings=store)
@@ -87,6 +91,7 @@ def test_analytics_and_memory_desktop_adapters_share_backend_operations(tmp_path
         result = bridge.get_analytics(7)
         assert result["ok"] and len(result["series"]) == 7
         assert result["retained_users"] is None and result["channel_id"] is None
+        assert result["commands"] == [{"name": "ping", "label": settings.command_prefix + "ping", "metrics": {}}]
         hourly = bridge.get_analytics(1)
         assert hourly["resolution"] == "hour" and len(hourly["series"]) == 24
         assert bridge.configure_analytics(False)["ok"]
