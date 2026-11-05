@@ -4,11 +4,14 @@ import asyncio
 import math
 import re
 import unicodedata
+from email.utils import parsedate_to_datetime
+from time import monotonic, time
 from typing import Literal
 
 import httpx
 
 from app.services.contracts import WeatherReport
+from app.services.weather_countries import COUNTRY_LABELS
 from app.utils.text import normalize_text
 
 
@@ -21,12 +24,11 @@ class WeatherServiceError(RuntimeError):
 
 
 class WeatherLocationError(ValueError):
-    """The location needs clarification, rather than another provider request."""
+    """A location query cannot produce a forecast."""
 
-    def __init__(self, reason: Literal["invalid_query", "ambiguous"], *, options: tuple[str, ...] = ()) -> None:
+    def __init__(self, reason: Literal["empty_query", "invalid_query", "qualifier_mismatch"]) -> None:
         super().__init__(reason)
         self.reason = reason
-        self.options = options
 
 
 WeatherLanguage = Literal["en", "ru", "uk"]
@@ -77,57 +79,7 @@ _UKRAINIAN_RE = re.compile(r"[іїєґІЇЄҐ]")
 _REQUEST_TIMEOUT_SECONDS = 2.0
 _LOOKUP_TIMEOUT_SECONDS = 12.0
 _RESULT_LIMIT = 10
-
-
-def _prominence(location: dict) -> int:
-    feature = location["feature_code"]
-    return {"PPLC": 4, "PPLA": 3, "PPLA2": 2, "PPLA3": 2, "PPLA4": 2,
-            "PPLA5": 2, "PPL": 1, "PPLG": 1}.get(feature, 0)
-
-
-def _dominates(city: dict, other: dict) -> bool:
-    population, rival = city.get("population"), other.get("population")
-    if population and rival is not None:
-        # A modest size difference (e.g. the various Springfields) is not enough.
-        return (population >= 50_000 and population >= 5 * max(rival, 1)
-                and (_prominence(city) >= _prominence(other) or population >= 10 * max(rival, 1)))
-    # Missing population is unknown, not zero. Only a national capital versus an
-    # ordinary settlement/section has strong independent prominence evidence.
-    return (city["feature_code"] == "PPLC" and _prominence(other) <= 1
-            and (population is None or population >= 50_000)
-            and (rival is None or rival <= 10_000))
-
-
-def _short_label(value: str, limit: int = 64) -> str:
-    value = normalize_text(value)
-    if len(value.encode("utf-8")) <= limit:
-        return value
-    return value.encode("utf-8")[:limit - 3].decode("utf-8", errors="ignore") + "…"
-
-
-def _clarification_options(matches: list[tuple[dict, "WeatherLanguage"]]) -> tuple[str, ...]:
-    # Country codes and bounded labels keep three useful options within chat limits.
-    locations = [item[0] for item in matches[:3]]
-    labels = [f"{_short_label(p['name'], 36)}, {_short_label(p.get('admin1', ''), 36)}, {p['country_code']}"
-              for p in locations]
-    duplicates = {label for label in labels if labels.count(label) > 1}
-    for index, place in enumerate(locations):
-        if labels[index] in duplicates:
-            # Same city/region labels still represent distinct GeoNames IDs.
-            labels[index] = (f"{_short_label(place['name'], 18)}, {_short_label(place.get('admin1', ''), 18)}, "
-                             f"{place['country_code']} (#{place['id']})")
-    return tuple(labels)
-
-
-def _select_city(matches: dict[int, tuple[dict, "WeatherLanguage"]]) -> tuple[dict, "WeatherLanguage"]:
-    ranked = sorted(matches.values(), key=lambda item: (
-        -(item[0].get("population") or 0), -_prominence(item[0]), item[0]["id"]))
-    if len(ranked) == 1:
-        return ranked[0]
-    for candidate in ranked:
-        if all(candidate is other or _dominates(candidate[0], other[0]) for other in ranked):
-            return candidate
-    raise WeatherLocationError("ambiguous", options=_clarification_options(ranked))
+_SETTLEMENTS = {"PPL", "PPLC", "PPLA", "PPLA2", "PPLA3", "PPLA4", "PPLA5", "PPLF", "PPLG", "PPLL", "PPLR"}
 
 
 def weather_language_for_query(query: str) -> WeatherLanguage:
@@ -164,6 +116,40 @@ def _location_key(value: str) -> str:
     return unicodedata.normalize("NFC", "".join(folded))
 
 
+_COUNTRY_CODES = {
+    _location_key(label.replace(" & ", " and ")): code
+    for code, labels in COUNTRY_LABELS.items()
+    for label in (code, *labels)
+}
+_COUNTRY_CODES.update({"usa": "US", "united states of america": "US", "czech republic": "CZ", "turkey": "TR"})
+_MAX_COUNTRY_WORDS = max(len(label.split()) for label in _COUNTRY_CODES)
+
+
+def _country_code(name: str) -> str | None:
+    return _COUNTRY_CODES.get(_location_key(name).replace(" & ", " and "))
+
+
+def _country_suffix(query: str) -> tuple[str, str] | None:
+    # Recognize only known suffixes, longest first. There are no remote split probes.
+    words = query.rsplit(" ", _MAX_COUNTRY_WORDS)
+    for start in range(1, len(words)):
+        if country := _country_code(" ".join(words[start:])):
+            return " ".join(words[:start]), country
+    return None
+
+
+def _retry_after(value: str) -> float:
+    value = value.strip()
+    try:
+        if value.isascii() and value.isdecimal():
+            delay = float(value)
+            return delay if math.isfinite(delay) else 0.0
+        date = parsedate_to_datetime(value)
+        return max(0.0, date.timestamp() - time()) if date.tzinfo is not None else 0.0
+    except (ValueError, TypeError, OverflowError, OSError):
+        return 0.0
+
+
 def _number(value: object, minimum: float = -math.inf, maximum: float = math.inf) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("Expected a provider number")
@@ -182,7 +168,7 @@ def format_weather_response(report: WeatherReport, query: str) -> str:
 
     language = report.language or weather_language_for_query(query)
     condition = _localized_condition(report.condition, language)
-    location = report.city
+    location = f"{report.city}, {report.country}" if report.country else report.city
     if language == "en":
         return f"{location}: {report.temperature_celsius:g}°C, {condition}, wind {report.wind_speed_kmh:g} km/h."
 
@@ -200,9 +186,13 @@ class OpenMeteoWeatherService:
 
     def __init__(self, http_client: httpx.AsyncClient) -> None:
         self._http_client = http_client
+        self._retry_until = 0.0
+        self._retry_reason = "rate_limited"
 
     async def get_current_weather(self, city: str) -> WeatherReport | None:
         query = normalize_text(city)
+        if not query:
+            raise WeatherLocationError("empty_query")
         parts = [part.strip() for part in query.split(",")]
         if len(query) > 200 or len(parts) > 3 or any(not part for part in parts) or len(parts[0]) < 2:
             raise WeatherLocationError("invalid_query")
@@ -211,7 +201,7 @@ class OpenMeteoWeatherService:
                 matches = await self._find_city(parts)
                 if not matches:
                     return None
-                location, language = _select_city(matches)
+                location, language = next(iter(matches.values()))
                 payload = await self._get_json(self.forecast_url, {
                     "latitude": location["latitude"], "longitude": location["longitude"],
                     "current": "temperature_2m,weather_code,wind_speed_10m",
@@ -242,10 +232,17 @@ class OpenMeteoWeatherService:
             raise WeatherServiceError("Invalid weather provider response.", reason="invalid_response") from error
 
     async def _get_json(self, url: str, params: dict) -> dict:
+        if monotonic() < self._retry_until:
+            raise WeatherServiceError("Weather provider asked clients to retry later.", reason=self._retry_reason)
         async with asyncio.timeout(_REQUEST_TIMEOUT_SECONDS):
             response = await self._http_client.get(
                 url, params=params, timeout=_REQUEST_TIMEOUT_SECONDS, follow_redirects=False,
             )
+        if response.status_code in {429, 503}:
+            delay = _retry_after(response.headers.get("Retry-After", ""))
+            if delay and (deadline := monotonic() + delay) > self._retry_until:
+                self._retry_until = deadline
+                self._retry_reason = "rate_limited" if response.status_code == 429 else "provider_failure"
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, dict) or not isinstance(payload.get("error", False), bool):
@@ -254,12 +251,12 @@ class OpenMeteoWeatherService:
             raise WeatherServiceError("Weather provider reported a failure.")
         return payload
 
-    async def _matches(self, query: str, name: str, *, country: str | None = None,
-                       countries: bool = False) -> dict[int, tuple[dict, WeatherLanguage]]:
+    async def _matches(self, name: str, *, country: str | None = None,
+                       region: str | None = None) -> dict[int, tuple[dict, WeatherLanguage]]:
         matches: dict[int, tuple[dict, WeatherLanguage]] = {}
-        variants: dict[int, list[tuple[dict, WeatherLanguage]]] = {}
-        # Public probes show locale-dependent search, not query translation. Always
-        # inspect all three: e.g. Одеса/ru can return a different place from Одеса/uk.
+        query = f"{name}, {region}" if region is not None else name
+        name_key = _location_key(name)
+        region_key = _location_key(region) if region is not None else None
         for language in _languages(name):
             params = {"name": query, "count": _RESULT_LIMIT, "language": language, "format": "json"}
             if country:
@@ -276,10 +273,15 @@ class OpenMeteoWeatherService:
             for location in results:
                 if not isinstance(location, dict):
                     raise ValueError("Invalid geocoding candidate")
-                ident, label, feature, code = (location[field] for field in ("id", "name", "feature_code", "country_code"))
+                feature = location["feature_code"]
+                if not isinstance(feature, str) or not feature:
+                    raise ValueError("Invalid geocoding feature code")
+                if feature not in _SETTLEMENTS:
+                    continue
+                ident, label, code = (location[field] for field in ("id", "name", "country_code"))
                 if (isinstance(ident, bool) or not isinstance(ident, int) or ident <= 0
                         or not isinstance(label, str) or not label.strip()
-                        or not isinstance(feature, str) or not feature or not isinstance(code, str)
+                        or not isinstance(code, str)
                         or not re.fullmatch(r"[A-Z]{2}", code)):
                     raise ValueError("Invalid geocoding candidate")
                 _number(location["latitude"], -90, 90)
@@ -287,46 +289,34 @@ class OpenMeteoWeatherService:
                 for field in ("country", "admin1"):
                     if field in location and not isinstance(location[field], str):
                         raise ValueError("Invalid geocoding label")
-                if "population" in location:
-                    _number(location["population"], 0)
-                eligible = feature == "PCLI" if countries else feature.startswith("PPL")
-                if eligible and (country is None or code == country):
-                    if ident in variants and any(location[k] != variants[ident][0][0][k]
-                                                 for k in ("latitude", "longitude", "country_code")):
-                        raise ValueError("Inconsistent geocoding identity")
-                    variants.setdefault(ident, []).append((location, language))
-                    if _location_key(label) == _location_key(name):
-                        matches.setdefault(ident, (location, language))
-        # Exact matching in any locale establishes identity. Other translations
-        # of that ID may supply omitted population; names alone never merge places.
-        for ident, (location, language) in matches.items():
-            populations = [p["population"] for p, _ in variants[ident] if "population" in p]
-            if populations:
-                matches[ident] = ({**location, "population": max(populations)}, language)
+                if (country is not None and code != country) or _location_key(label) != name_key:
+                    continue
+                if region_key is not None and _location_key(location.get("admin1", "")) != region_key:
+                    continue
+                if ident in matches and any(location[key] != matches[ident][0][key]
+                                            for key in ("latitude", "longitude", "country_code")):
+                    raise ValueError("Inconsistent geocoding identity")
+                matches.setdefault(ident, (location, language))
         return matches
-
-    async def _country_code(self, name: str) -> str | None:
-        if re.fullmatch(r"[a-zA-Z]{2}", name):
-            return name.upper()
-        matches = await self._matches(name, name, countries=True)
-        if len(matches) > 1:
-            raise WeatherLocationError("ambiguous", options=_clarification_options(list(matches.values())))
-        return next(iter(matches.values()))[0]["country_code"] if matches else None
 
     async def _find_city(self, parts: list[str]) -> dict[int, tuple[dict, WeatherLanguage]]:
         city = parts[0]
+        country = region = None
         if len(parts) == 3:
-            # The API ignores a third comma component. Resolve it separately and
-            # constrain the city+region query, never silently discard a country.
-            country = await self._country_code(parts[2])
-            return await self._matches(", ".join(parts[:2]), city, country=country) if country else {}
-        matches = await self._matches(", ".join(parts), city)
-        if not matches and len(parts) == 2 and len(parts[1]) > 2:
-            # Mixed-language country qualifiers can fail the provider's localized
-            # qualifier index. Only rewrite after exact country-entity resolution;
-            # otherwise retain the original region/country interpretation above.
-            country = await self._country_code(parts[1])
-            if country:
-                matches = await self._matches(city, city, country=country)
-        # At most 9 geocoding requests + 1 forecast; the outer deadline covers all.
+            region = parts[1]
+            country = _country_code(parts[2])
+            if country is None:
+                raise WeatherLocationError("qualifier_mismatch")
+        elif len(parts) == 2:
+            country = _country_code(parts[1])
+            region = parts[1] if country is None else None
+        else:
+            matches = await self._matches(city)
+            if matches or (suffix := _country_suffix(city)) is None:
+                return matches
+            city, country = suffix
+        # At most two city searches of three locales each, plus one forecast.
+        matches = await self._matches(city, country=country, region=region)
+        if not matches:
+            raise WeatherLocationError("qualifier_mismatch")
         return matches

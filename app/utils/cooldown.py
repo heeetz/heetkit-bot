@@ -48,6 +48,8 @@ class CooldownManager:
         command_name: str,
         user_id: str,
         policy: CooldownPolicy,
+        *,
+        defer_global: bool = False,
     ) -> CooldownResult:
         now = self._clock()
         command = self._commands.get(command_name)
@@ -67,11 +69,15 @@ class CooldownManager:
         if remaining > 0:
             return CooldownResult(allowed=False, retry_after=remaining)
 
-        if policy.global_seconds > 0:
+        if policy.global_seconds > 0 and not defer_global:
             self._record(global_key, now, policy)
         if policy.per_user_seconds > 0:
             self._record(user_key, now, policy)
         return CooldownResult(allowed=True)
+
+    def record_global(self, command_name: str, policy: CooldownPolicy) -> None:
+        if policy.global_seconds > 0:
+            self._record((command_name, None), self._clock(), policy)
 
     def _record(
         self, key: tuple[str, str | None], now: float, policy: CooldownPolicy,

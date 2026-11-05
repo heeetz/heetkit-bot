@@ -331,7 +331,7 @@ async def test_renamed_ai_and_hidden_admin_keep_privacy_and_authority(tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("command,arguments,usage,permission", [
-    ("weather", "", " <city>", "USER"), ("fate", "extra", "", "USER"),
+    ("fate", "extra", "", "USER"),
     ("tg", "bad", " [1-10] (default: 1)", "MODERATOR"), ("uptime", "extra", "", "MODERATOR")])
 async def test_renamed_usage_uses_current_primary_even_when_invoked_by_alias(tmp_path, command, arguments, usage, permission):
     _, _, _, _, bridge, dispatcher, services = setup_commands(tmp_path)

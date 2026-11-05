@@ -124,41 +124,36 @@ loops; other accounts continue normally. Explicitly rejected sends do not cause 
 
 ### Weather locations
 
-Use `!weather Луцьк`, `!weather Lutsk, Ukraine`, or
-`!weather Springfield, Illinois, US`. Renamed triggers and aliases use the same
-lookup. Ordinary spaces and tabs are normalized; accents and Unicode city names
-are preserved.
-Successful replies show only the city and concise weather. A Cyrillic lookup uses
-the matching Ukrainian/Russian spelling for its response language; shared Cyrillic
-letters alone cannot reliably identify the user's language.
+Use `!weather New York`, `!weather Київ, Україна`, `!weather London, Ontario`,
+or `!weather Los Angeles, California, US`. Extra spaces and case differences are
+ignored. Multiword and hyphenated city names keep their spelling. Configured aliases
+such as `!погода` share the same lookup and cooldowns.
 
-HeetKit compares Ukrainian, Russian and English geocoding results from Open-Meteo.
-It accepts matching populated-place names, not arbitrary fuzzy or airport results.
-It selects a clearly dominant city using population and settlement prominence.
-Comparable cities or insufficient evidence produce up to three city/region/country
-options; add a country and, when needed, a region to choose. Missing population is
-not treated as zero. Localized representations are combined only by provider ID.
-For three-part locations the final country is
-enforced separately, because the provider ignores a third comma component. A
-two-letter final country code avoids ambiguity; two-part qualifiers otherwise
-follow [Open-Meteo's country/admin1 rules](https://open-meteo.com/en/docs/geocoding-api).
+Country names in English, Ukrainian or Russian and two-letter country codes work
+with or without a comma. `Лондон Канада`, `Київ UA` and `London United Kingdom`
+first look for an exact city with the whole name, then use the longest known country
+suffix if needed. Use commas for regions. A known country in a two-part query is
+treated as a country, so `CA` means Canada. Use the three-part form for a region
+that shares a country name, such as `Atlanta, Georgia, US`. Use the region name
+returned by Open-Meteo in a language it supports for that city. A qualified lookup
+stays within its country and region constraints. [Open-Meteo geocoding rules](https://open-meteo.com/en/docs/geocoding-api)
 
-The lookup does not translate arbitrary names or guess historical transliterations.
-Use a current full spelling if an alias is absent from the provider's index
-(for example, the verified provider results for `Київ`, `Киев` and `Kyiv` include
-Ukraine's capital, but `Kiev` currently returns a small Russian namesake instead).
-Explicit qualifiers always constrain selection, even if a larger city exists elsewhere.
-Partial regions, street addresses and more
-than three comma-separated components are unsupported. Only the returned candidates
-are compared; this is not an exhaustive gazetteer search.
+The first eligible exact settlement in the preferred language and provider order
+wins. Repeated location IDs count once. Airports, districts and fuzzy matches are
+excluded. The reply shows the city, country and localized current conditions. Use
+the spelling that the provider indexes for your city. For example, `Київ`, `Киев`
+and `Kyiv` find the Ukrainian capital, while `Kiev` can find a different place.
 
-Most lookups make three geocoding requests and one forecast request. A mixed-language
-country qualifier may require exact country resolution and a constrained retry:
-at most nine geocoding requests plus one forecast, ten results per search, two
-seconds per HTTP operation and a twelve-second overall deadline. No fallback
-provider or persistent location cache is used. Clean empty results mean city not
-found; ambiguity asks for clarification. Timeout, rate limiting, malformed responses
-and provider failures produce separate error replies rather than city not found.
+An admitted request starts the **Per-user cooldown**, even if the city cannot be
+found. The **Global cooldown** starts when Twitch confirms the forecast was sent.
+One request per channel can run from lookup through send. Overlaps, invalid inputs,
+missing matches, provider errors and unsuccessful sends are silent in chat. Their
+reasons appear in the command outcomes. Provider `Retry-After` pauses weather
+requests independently of the command cooldowns.
+
+Each lookup is limited to six geocoding requests, ten results per search and one
+forecast request. Each HTTP operation has a two-second timeout and the lookup has
+a twelve-second deadline.
 
 ## Permissions, cooldowns and responses
 

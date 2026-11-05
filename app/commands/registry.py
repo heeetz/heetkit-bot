@@ -23,7 +23,7 @@ from app.utils.text import normalize_command_name, parse_command
 from app.utils.logging import event_metadata, operator_event, operator_event_scope
 from app.twitch.sending import ChatSender, ChatSessionClosedError
 from app.commands.outcomes import (invocation_scope, skip_outcome, fail_outcome,
-                                   complete_outcome, start_outcome)
+                                   complete_outcome, current_outcome, start_outcome)
 
 
 CommandHandler = Callable[["CommandContext", str], Awaitable[None]]
@@ -263,6 +263,7 @@ class CommandDispatcher:
         self._runtime_state = runtime_state
         self._custom_commands = custom_commands
         self._message_triggers = message_triggers
+        self._weather_in_flight: set[str] = set()
 
     def event_scope(self, message: IncomingChatMessage):
         parsed = parse_command(message.content, self._command_prefix)
@@ -473,6 +474,7 @@ class CommandDispatcher:
                     else self._runtime_state.get_command_settings(definition.name)
                 )
             cooldown_key = f"custom:{custom.id}" if custom is not None else definition.name
+            is_weather = custom is None and definition.name == "weather"
             # Recheck the captured identity, even if a native namespace edit raced
             # the early ingress/dispatch lookup. Never gate by a mutable trigger.
             if self._command_id_restricted(message, services, cooldown_key):
@@ -498,7 +500,9 @@ class CommandDispatcher:
                 from app.config.ai_setup import effective_ai_setup
                 maximum = effective_ai_setup(getattr(services, "settings", None)).max_question_length
             argument_length = len(arguments.strip()) if definition.requires_ai else len(arguments)
-            if argument_length > maximum:
+            # Weather validates inside its admitted request so invalid cities still
+            # consume the viewer's configured personal cooldown.
+            if argument_length > maximum and not is_weather:
                 self._outcome("invalid_arguments", reason="too_long")
                 return True
 
@@ -556,12 +560,21 @@ class CommandDispatcher:
                 if message.author.twitch_user_id == self._ai_cooldown_bypass_user_id:
                     should_skip_cooldown = True
 
+            weather_channel = None
+            if is_weather:
+                weather_channel = message.channel_id or message.channel.casefold()
+                if weather_channel in self._weather_in_flight:
+                    self._outcome("weather_in_flight")
+                    return True
+                cooldown_key = f"weather:{weather_channel}"
+
             # Only perform cooldown check if not bypassed
             if not should_skip_cooldown:
                 cooldown = self._cooldowns.check_and_record(
                     command_name=cooldown_key,
                     user_id=message.author.twitch_user_id,
                     policy=settings.cooldown,
+                    defer_global=is_weather,
                 )
                 if not cooldown.allowed:
                     skip_outcome("cooldown")
@@ -583,17 +596,24 @@ class CommandDispatcher:
                 message.author.username,
                 extra=event_metadata("command.invoke", outcome="executing"),
             )
-            await definition.handler(
-                CommandContext(
-                    message=message,
-                    services=services,
-                    logger=self._logger,
-                    output_limiter=command_output_limiter,
-                    burst_interval_ms=settings.burst_interval_ms,
-                    burst_max_count=settings.burst_max_count,
-                ),
-                arguments,
+            context = CommandContext(
+                message=message,
+                services=services,
+                logger=self._logger,
+                output_limiter=command_output_limiter,
+                burst_interval_ms=settings.burst_interval_ms,
+                burst_max_count=settings.burst_max_count,
             )
+            if weather_channel is not None:
+                self._weather_in_flight.add(weather_channel)
+            try:
+                await definition.handler(context, arguments)
+            finally:
+                if weather_channel is not None:
+                    self._weather_in_flight.remove(weather_channel)
+                    outcome = current_outcome()
+                    if outcome is not None and outcome.confirmed:
+                        self._cooldowns.record_global(cooldown_key, settings.cooldown)
             operator_event(self._logger, "command.complete", "handler_completed")
             return True
         except Exception as error:

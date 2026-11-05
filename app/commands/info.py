@@ -10,7 +10,8 @@ from app.config.commands import (
 from app.utils.cooldown import CooldownPolicy
 from app.utils.text import format_duration
 from app.twitch.permissions import Permission
-from app.services.weather import WeatherLocationError, WeatherServiceError, format_weather_response, weather_language_for_query
+from app.services.weather import WeatherLocationError, WeatherServiceError, format_weather_response
+from app.twitch.sending import ChatSessionClosedError
 
 
 HELP_MESSAGE_BYTES = 450
@@ -51,51 +52,32 @@ def register_weather_commands(registry: CommandRegistry) -> None:
         "weather",
         help_text="!weather <city>",
         cooldown=CooldownPolicy(global_seconds=WEATHER_COOLDOWN_SECONDS),
-        argument_validator=lambda arguments: bool(arguments),
     )
     async def weather(context, arguments: str) -> None:
         if not arguments:
-            await context.reply(f"Usage: {context.invocation('weather')} <city>")
+            context.skip("weather_empty_query")
             return
-        username = context.message.author.username.lstrip("@")
         try:
             report = await context.services.weather.get_current_weather(arguments)
         except WeatherLocationError as error:
-            context.skip("city_ambiguous" if error.reason == "ambiguous" else "invalid_location")
-            language = weather_language_for_query(arguments)
-            clarification = {
-                "en": "multiple cities match; add a country/region" if error.reason == "ambiguous" else "use city, country or city, region, country",
-                "ru": "найдено несколько городов; уточните страну/регион" if error.reason == "ambiguous" else "укажите город, страну или город, регион, страну",
-                "uk": "знайдено кілька міст; уточніть країну/регіон" if error.reason == "ambiguous" else "вкажіть місто, країну або місто, регіон, країну",
-            }[language]
-            if error.options:
-                clarification += ": " + "; ".join(error.options)
-            await context.reply(f"@{username}, {clarification}.")
+            reason = error.reason if error.reason in {"empty_query", "invalid_query", "qualifier_mismatch"} else "invalid_query"
+            context.skip(f"weather_{reason}")
             return
         except WeatherServiceError as error:
             reasons = {"timeout", "rate_limited", "invalid_response", "provider_failure"}
             reason = error.reason if error.reason in reasons else "provider_failure"
-            context.fail("weather_unavailable" if reason == "provider_failure" else f"weather_{reason}")
-            language = weather_language_for_query(arguments)
-            unavailable = {
-                "provider_failure": {"en": "weather is currently unavailable", "ru": "погода сейчас недоступна", "uk": "погода зараз недоступна"},
-                "timeout": {"en": "weather request timed out; try again later", "ru": "время ожидания погоды истекло; повторите позже", "uk": "час очікування погоди вичерпано; спробуйте пізніше"},
-                "rate_limited": {"en": "weather provider rate limit reached; try again later", "ru": "достигнут лимит запросов погоды; повторите позже", "uk": "досягнуто ліміту запитів погоди; спробуйте пізніше"},
-                "invalid_response": {"en": "weather provider returned an invalid response; try again later", "ru": "сервис погоды вернул некорректный ответ; повторите позже", "uk": "сервіс погоди повернув некоректну відповідь; спробуйте пізніше"},
-            }[reason][language]
-            await context.reply(f"@{username}, {unavailable}.")
+            context.fail(f"weather_{reason}")
             return
         if report is None:
             context.skip("city_not_found")
-            language = weather_language_for_query(arguments)
-            not_found = {
-                "en": "could not find that city",
-                "ru": "не смог найти такой город",
-                "uk": "не вдалося знайти це місто",
-            }[language]
-            await context.reply(f"@{username}, {not_found}.")
             return
-        await context.reply(f"@{username}, {format_weather_response(report, arguments)}")
+        username = context.message.author.username.lstrip("@")
+        try:
+            await context.reply(f"@{username}, {format_weather_response(report, arguments)}")
+        except ChatSessionClosedError:
+            context.skip("weather_send_session_closed")
+        except Exception:
+            context.fail("weather_send_failed")
 
 
 def register_info_commands(registry: CommandRegistry) -> None:

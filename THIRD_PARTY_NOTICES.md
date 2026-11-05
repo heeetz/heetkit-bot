@@ -15,6 +15,11 @@ from those packages are in [third_party_licenses/](third_party_licenses/). That 
 also includes Vite's license because its module-preload helper can enter generated JS.
 These notices do not relicense any dependency under the project's Apache license.
 
+Weather country qualifiers use English, Ukrainian and Russian territory names
+from [Unicode CLDR 48](https://github.com/unicode-org/cldr/tree/release-48).
+The derived [country table](app/services/weather_countries.py) carries the
+Unicode-3.0 copyright and permission notice.
+
 ## Windows v1.1.0 artifact review
 
 Reviewed on **2026-10-09** against the downloaded
