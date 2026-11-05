@@ -20,14 +20,23 @@ outputs without rebuilding; it cannot select a moving branch tip or a latest run
 
 ## Check for updates
 
-Use **About > Updates > Check for updates** to compare with the latest public stable
-release. Only a newer stable version is offered; drafts/prereleases are excluded.
-The check is manual, uses GitHub's public API and does not change settings or install
-anything. Offline/rate-limit errors leave the rest of the app usable.
+Check whether a newer stable Windows release is available. You need internet
+access. For Server, follow [Docker backup and updates](docker.md#backup-restore-and-updates).
 
-Open the official release page, download the installer or ZIP, and quit Desktop fully
-with **tray Exit** before updating. Existing profiles are retained. Server updates
-are a separate operation described in the [Docker guide](docker.md#backup-restore-and-updates).
+**In HeetKit:** **About > Check for updates** on Desktop.
+
+1. Open **About**.
+2. Select **Check for updates**. This checks GitHub for a stable release.
+3. If a newer version is available, select **Open release / downloads**.
+4. Download the installer or ZIP from the release page.
+5. Quit Desktop fully with **Exit** from the tray menu.
+6. Run the installer or extract the new portable ZIP.
+
+**Check:** Launch the updated copy. Check **Current version** in **About**
+and check that your existing profile settings are available.
+
+If GitHub is unavailable or rate limits the check, try **Check again** later.
+HeetKit offers only stable versions and leaves installation to you.
 
 ## Build inputs and version
 

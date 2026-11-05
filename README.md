@@ -1,5 +1,9 @@
 # HeetKit
 
+[![Download for Windows](https://img.shields.io/badge/Download%20for%20Windows-0078D4)](https://github.com/heeetz/heetkit-bot/releases/latest)
+[![Quick start](https://img.shields.io/badge/Quick%20start-2E7D32)](#getting-started)
+[![Linux / Docker](https://img.shields.io/badge/Linux%20%2F%20Docker-6741A5)](docs/docker.md)
+
 A configurable Twitch bot for interactive chat, with AI personalities, custom commands
 and a private control panel. Run it on **Windows Desktop** or as **HeetKit Server**
 on Linux/Docker. Both use the same bot core and settings model.

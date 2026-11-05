@@ -110,6 +110,29 @@ files taking priority. The old profile is retained. Alternate profiles do not im
 the old default profile. If migration fails, keep both profiles backed up and resolve
 the reported conflict with the application stopped.
 
+## View and manage Analytics
+
+Check command activity and AI usage for the configured channel. You need a
+configured channel and time with collection enabled to see activity totals.
+
+**In HeetKit:** **Analytics** on Desktop or Server.
+
+1. Open **Analytics**.
+2. Select **UTC window**. Use **Today** for hourly data or **7 days**,
+   **30 days** or **60 days** for daily data.
+3. Select a **Trend**.
+4. Select **Refresh analytics** if you need the latest snapshot.
+
+**Check:** Check the window and **Coverage** under **Collection & coverage**.
+Gaps mean data is missing. The **Retained users now** card shows current
+presence. **Known USD** shows estimated provider costs for known usage.
+
+To pause or resume future collection, use **Collect analytics**. It saves
+immediately. To erase the totals, select **Reset all profile analytics**.
+**Confirming permanently clears totals and pending updates for every channel
+and Playground in the profile.** Backups need separate review.
+See [daily local aggregates](#daily-local-aggregates) for what HeetKit counts.
+
 ## Daily local aggregates
 
 **Analytics** on either host shows Today / 7 / 30 / 60 UTC calendar-day totals
@@ -145,8 +168,6 @@ new commands with no recorded attempts, refreshed with each Analytics query. Ali
 share one row. Rows sort by recorded attempts descending, then displayed name and
 stable ID. Zero means no recorded attempts in the selected range; collection gaps
 remain unknown, and unavailable storage or channel configuration is flagged separately.
-The full-width Collection & coverage card keeps warnings visible above its collapsed
-Collection details disclosure; diagnostics and detailed timestamps are inside it.
 
 Updates are buffered and written in bounded batches off the command loop. Crashes,
 full buffers and write failures can lose updates; coverage is not exactly-once billing.
@@ -155,10 +176,8 @@ still cost money. Anonymous totals have no per-viewer contribution ledger. Small
 can still identify someone when combined with other information: keep them private and
 reset the collection if necessary when handling a request.
 
-**Collect analytics** saves immediately. **Reset all profile analytics** requires
-confirmation and clears every channel plus Playground, including pending updates.
-It does not erase personal history, opt-outs, credentials or settings. Backups need
-separate review: restoring an old aggregate file restores its old totals.
+Analytics totals and personal data have separate stores. Restoring an old
+aggregate file restores its old totals.
 
 The operator may also remove only the identified analytics file and its matching
 `-wal`/`-shm` sidecars with the whole application stopped. Startup creates an empty store.
@@ -206,6 +225,24 @@ Credentials, saved channels, access rules, notes and custom text do not receive 
 personal database's 60-day expiry. Review these, old profiles, exports and recovery
 copies separately when handling privacy requests. Portable configuration excludes
 credentials, authorization, personal history, opt-outs and private access policy.
+
+### Inspect and export activity
+
+Find a failed command, connection event or AI request. You need recent
+activity in the current session. On Server, sign in to the private panel first.
+
+**In HeetKit:** **Logs** on Desktop or Server.
+
+1. Open **Logs**.
+2. Filter by **Command**, **Outcome**, or another field.
+3. Expand **Event details** on the event you want to inspect.
+4. To save the filtered results, select **Export filtered…**.
+5. Review the export warning before you confirm. The JSON file can include
+   viewer names, command inputs and replies. It stays outside automatic retention.
+
+**Check:** Check the event's outcome and time. If you exported it, check the
+file privately before sharing any excerpt. **Clear view** clears the displayed
+list. The backend buffer remains available for its normal lifetime.
 
 ## Private command restrictions
 
@@ -279,6 +316,28 @@ future storage. Use `!optout` or the operator privacy procedure for that broader
 Do not put secrets or unnecessary personal information in prompts, instructions or
 chat. Keep profile folders, databases, tokens, recovery copies and unredacted logs
 private. Local deletion does not send a Twitch/provider deletion request.
+
+## Manage a storage opt-out in HeetKit
+
+Handle a verified viewer request to stop storing their identifying data. Verify
+control of the Twitch account before you act. A viewer can also send `!optout`
+in chat to act on their own account.
+
+**In HeetKit:** **Commands > Administrative commands > !optout** on Desktop or Server.
+
+1. Open **Commands**.
+2. Find **Administrative commands**.
+3. Expand **!optout**.
+4. Enter the verified account's **Twitch username**.
+5. Select **Add**. **This erases stored presence and AI history across the
+   profile and stops future identifying storage for this account.**
+
+**Check:** Find the account under **Opted-out users**. Use **Refresh** to
+check for a recent chat opt-out.
+
+For a verified withdrawal, select **Withdraw** beside the account and
+confirm. Future activity can be stored again. Erased history stays deleted.
+For other copies or a deletion without an opt-out, use the manual procedure below.
 
 ## Manual privacy requests
 
@@ -409,13 +468,34 @@ engineering assessment; instance-specific legal clearance remains open.
 
 ## Portable configuration transfer
 
-Use **Settings → Configuration transfer → Export Configuration** on Desktop or
-Server to save the same versioned ZIP (Desktop opens a native Save dialog; the
-browser downloads it). It contains the currently applied
-built-in command settings and response pools, custom commands, personality prompts
-and selection, profile instructions, AI memory/model/language preferences, filters,
-message triggers and saved ordinary-chat announcements. Applied session-only edits are included;
-unfinished editor drafts are not. Import saves these values on the destination.
+Copy applied settings to another HeetKit profile. You need access to both
+instances and a trusted ZIP from the source. Set up Twitch authorization and
+provider keys separately on the destination.
+
+**In HeetKit:** **Settings > Configuration transfer** on Desktop or Server.
+
+1. Open **Settings** on the source instance.
+2. Find **Configuration transfer**.
+3. Select **Export configuration**. On Desktop, choose where to save the ZIP.
+   On Server, the browser downloads it.
+4. Open **Settings** on the destination instance.
+5. Find **Configuration transfer**.
+6. Select **Choose ZIP to import**.
+7. Select the ZIP you exported.
+8. Check the sections, **Effects** and **Preserved** in **Import preview**.
+9. Select **Confirm import and reload**. Each included collection replaces
+   the destination collection. This can delete destination entries and
+   clears the old drafts.
+
+**Check:** Check the import result and reopen a feature you transferred, such
+as **Your commands**. Check its saved settings before testing it in chat.
+
+### What transfers
+
+The ZIP contains applied built-in and custom command settings, response pools,
+personalities, profile instructions, AI settings, filters, message triggers
+and announcements. It includes applied session-only edits. Unapplied drafts
+stay in the source editor.
 
 Built-in settings include their primary chat names and aliases, keyed by stable
 factory command IDs. Renaming does not change which implementation or permission
@@ -437,14 +517,10 @@ without an announcements section preserve the destination's schedules; an explic
 empty collection in a new ZIP removes them. Announcement activity uses only a
 transient count of eligible events, with no additional viewer/message archive.
 
-Select the ZIP in Settings on the other instance, review the included names/counts,
-replacement scope and preserved settings, then explicitly confirm the import.
-Each included collection replaces its destination collection, including deletions.
-The preview expires after ten minutes and must be repeated if the ZIP, active
-configuration or affected files change. A successful import refreshes the interface
-to discard old editor drafts. Subsequent bot processing uses the imported settings
-immediately; in-flight replies may finish using earlier values. None of the supported
-transfer settings requires reconnection or restart.
+The preview expires after ten minutes. Preview again if the ZIP, active
+configuration or affected files change. New requests use the imported
+settings immediately. In-progress replies may finish with earlier values.
+Imported settings apply without reconnection or restart.
 
 Provider/API keys, OAuth tokens, management credentials, SQLite history and storage
 opt-outs, machine paths, Twitch identity/channel/presets, headless operation mode,
@@ -457,8 +533,8 @@ their private notes are excluded; existing destination rules are preserved. This
 not a full private profile backup or an account migration.
 
 AI transfer includes the selected provider and separate primary/fallback choices for
-Gemini and DeepSeek. Legacy Gemini archives select Gemini explicitly and preserve
-the destination's DeepSeek choices. A model in the wrong provider's namespace is
+Gemini, DeepSeek and OpenAI. Legacy Gemini archives select Gemini explicitly
+and preserve the destination's DeepSeek and OpenAI choices. A model in the wrong provider's namespace is
 rejected rather than reinterpreted. No provider key is included.
 
 The ZIP is limited to 1 MiB and contains only `manifest.json` and
@@ -549,6 +625,20 @@ writers stopped. Preserve the current database first; account for post-upgrade w
 and reapply current deletions/suppression before any connection. Do not overwrite
 unrelated settings, credentials or token rotations with an old whole-profile copy.
 These steps describe a controlled recovery operation, not an automatic downgrade.
+
+### Existing prediction settings
+
+`!fate` replaces `!forecast`. The old name has no alias. At normal startup,
+HeetKit renames `forecast` to `fate` in `config/command_settings.json` and
+`forecasts` to `fates` in version-1 `config/fun_settings.json`. It preserves
+the saved settings, response text and unrelated JSON fields.
+
+If both keys exist, the complete new value wins, even if empty or invalid.
+Invalid settings use the normal default fallback. HeetKit saves an exact
+recovery copy beside each file before replacing it. `--check` skips the
+migration. HeetKit leaves malformed and unsupported files intact. If backup
+or replacement fails, HeetKit uses the renamed values for that session and
+keeps the original file. Stop HeetKit before correcting the reported problem.
 
 ### Whole-profile and settings copies
 

@@ -1,5 +1,66 @@
 # Linux Docker runtime
 
+## Start a private Server
+
+Run HeetKit on Linux and configure Twitch in a private browser panel. You need
+Docker Engine with Compose v2 on Linux amd64 or arm64, or Docker Desktop set to
+use Linux containers. Use a checkout of the HeetKit source version you want to
+run. For this fresh setup, use an empty profile volume and a new secrets directory.
+
+1. Open a Bash shell in the HeetKit checkout.
+2. On ARM64, run `export HEETKIT_PLATFORM=linux/arm64`. Keep that setting for
+   later Compose commands. The default platform is `linux/amd64`.
+3. Create the private directory and two empty secret files. You will save the
+   Twitch secret and any AI key in the panel.
+
+   ```bash
+   export HEETKIT_SECRETS_DIR="$HOME/.config/heetkit-secrets"
+   install -d -m 700 "$HEETKIT_SECRETS_DIR"
+   touch "$HEETKIT_SECRETS_DIR/twitch_client_secret" "$HEETKIT_SECRETS_DIR/gemini_api_key"
+   chmod 444 "$HEETKIT_SECRETS_DIR/twitch_client_secret" "$HEETKIT_SECRETS_DIR/gemini_api_key"
+   ```
+
+4. Create the administrator token file. This command requires Python 3 and
+   refuses to overwrite an existing token. Keep the value private.
+
+   ```bash
+   python3 - <<'PY'
+   import os, secrets
+   from pathlib import Path
+
+   path = Path(os.environ["HEETKIT_SECRETS_DIR"]) / "management_token"
+   fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+   with os.fdopen(fd, "w", encoding="ascii") as output:
+       output.write(secrets.token_urlsafe(32) + "\n")
+   PY
+   chmod 444 "$HEETKIT_SECRETS_DIR/management_token"
+   ```
+
+5. Start HeetKit with the private management overlay.
+
+   ```bash
+   docker compose -f compose.yaml -f compose.management.yaml up -d --build
+   ```
+
+6. Open `http://127.0.0.1:8765/` on the Docker host. From another computer,
+   use the [SSH tunnel](management-api.md#docker-opt-in) or configure
+   [private HTTPS](management-api.md#private-remote-https). Keep access private.
+7. Read `management_token` in a private editor.
+8. Paste the token into **Administrator token**.
+9. Select **Sign in**.
+10. Follow [Twitch setup](twitch-setup.md#save-the-details-in-heetkit) to save the
+    Twitch settings and connect the bot.
+
+**Check:** Check that **Dashboard** opens after sign-in. After Twitch setup, check
+**Twitch connection** and test a chat command. If the panel fails to open, use
+the same two Compose files with `ps` and `logs --tail 50 bot`.
+
+Keep both Compose files and the same project name in subsequent commands for
+this setup. See [backup and updates](#backup-restore-and-updates) before moving
+or replacing the profile volume.
+
+## Runtime and network reference
+
 HeetKit's container runs the shared [headless backend](development.md#headless-runtime)
 for one Twitch bot. By default it has no window, dashboard,
 HTTP listener, OAuth callback listener or published ports. An explicit
@@ -27,15 +88,9 @@ separate Dockerfile. Native validation covers AMD64 and ARM64.
 
 ## Prepare private storage and authorization
 
-For a **fresh browser-managed installation**, skip the Desktop/profile-copy steps
-below. Create the two secret files in step 3 but leave them empty, keep their stated
-permissions, generate a management token, and start with the
-[management overlay](management-api.md#docker-opt-in). Sign in and follow
-[Server browser setup](twitch-setup.md#server-browser-setup). The management token
-and private persistent volume are the only required host-side bootstrap state.
-The panel remains available while Twitch is unconfigured or Disabled. No Desktop
-installation or profile-file editing is required. The rest of this section describes
-the optional existing-profile/external-secret path; do not run two copied accounts.
+For a fresh profile, follow [Start a private Server](#start-a-private-server).
+Use this section to copy an existing profile or provision credentials on the host.
+Run only one bot instance for the account.
 
 Run the following examples from the repository root in a Linux Bash shell. They
 operate on the default Compose project `heetkit`; keep that project name stable.
@@ -79,7 +134,7 @@ operate on the default Compose project `heetkit`; keep that project name stable.
    DeepSeek use. The supplied Compose file retains its two existing secret mounts;
    a DeepSeek file needs an explicit private mount/environment override. Alternatively,
    save the DeepSeek key through authenticated credential operations when no external
-   key is provisioned. See [DeepSeek backend configuration](ai-setup.md#saved-connections-and-model-setup).
+   key is provisioned. See [AI provider setup](ai-setup.md#saved-connections-and-model-setup).
 
    OpenAI also accepts `OPENAI_API_KEY` or `OPENAI_API_KEY_FILE`, or a key saved through
    authenticated AI setup when no external key is provisioned. A secret file needs an
