@@ -330,6 +330,10 @@ starts when Twitch confirms it sent the forecast. Overlapping requests,
 invalid locations, missing matches and provider or delivery failures can be
 silent in chat. Check **Logs** for the outcome.
 
+Bot filters also check the formatted forecast, including its city and country.
+A match or regex timeout suppresses the reply and records the reason in
+**Activity** and its JSON export.
+
 ## Reactions to ordinary messages
 
 Make HeetKit reply to matching chat without a command prefix. This advanced

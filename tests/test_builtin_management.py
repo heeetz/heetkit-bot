@@ -17,6 +17,7 @@ from app.fun_settings import FATES, FunSettingsStore
 from app.runtime_state import RuntimeState
 from app.services.ai_request_policy import AIRequestPolicy
 from app.services.contracts import AIReply, WeatherReport
+from app.services.filter_manager import FilterManager
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownManager, CooldownPolicy
@@ -57,6 +58,7 @@ def setup_commands(root):
         ai=SimpleNamespace(is_available=True, generate_reply=AsyncMock(return_value=AIReply("An actual answer", True))),
         users=SimpleNamespace(get_by_username=AsyncMock(return_value=SimpleNamespace(twitch_user_id="target-id"))),
         weather=SimpleNamespace(get_current_weather=AsyncMock(return_value=WeatherReport("London", 15, "Clear", 4))),
+        filter_manager=FilterManager(),
         memory=None, custom_commands=custom, settings=SimpleNamespace(command_prefix="!"))
     application = SimpleNamespace(registry=registry, services=services, fun_settings=fun, custom_commands=custom,
                                   settings=SimpleNamespace(command_prefix="!"))

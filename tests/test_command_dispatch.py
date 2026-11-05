@@ -2,6 +2,7 @@
 
 import logging
 import asyncio
+import json
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import cast
@@ -28,6 +29,7 @@ from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.twitch.permissions import Permission
 from app.twitch.sending import ChatSendSession
 from app.utils.cooldown import CooldownManager, CooldownPolicy
+from app.utils.logging import OperatorActivityHandler, RecentLogBuffer
 from app.utils.output_limiter import OutputLimiter
 
 
@@ -95,6 +97,10 @@ class FakeWeatherService:
         if self.error is not None:
             raise self.error
         return self.report
+
+
+def weather_services(weather, **extra):
+    return cast(ApplicationServices, SimpleNamespace(weather=weather, filter_manager=FilterManager(), **extra))
 
 
 @pytest.mark.asyncio
@@ -321,7 +327,7 @@ async def test_weather_preserves_a_multiple_word_city() -> None:
     register_weather_commands(registry)
     weather = FakeWeatherService(report=None)
     transport = FakeChatTransport("!weather\tNew   York")
-    services = cast(ApplicationServices, SimpleNamespace(weather=weather))
+    services = weather_services(weather)
 
     await build_dispatcher(registry).dispatch(transport.message, services)
 
@@ -339,7 +345,7 @@ async def test_weather_forwards_a_cyrillic_city_name() -> None:
 
     await build_dispatcher(registry).dispatch(
         transport.message,
-        cast(ApplicationServices, SimpleNamespace(weather=weather)),
+        weather_services(weather),
     )
 
     assert weather.queries == ["Киев"]
@@ -358,7 +364,7 @@ async def test_weather_sends_current_conditions_for_a_found_city() -> None:
 
     await build_dispatcher(registry).dispatch(
         transport.message,
-        cast(ApplicationServices, SimpleNamespace(weather=weather)),
+        weather_services(weather),
     )
 
     assert weather.queries == ["London"]
@@ -373,7 +379,7 @@ async def test_weather_technical_errors_are_silent_with_distinct_sanitized_outco
     weather = FakeWeatherService(error=WeatherServiceError("private query/provider payload", reason=reason))
     transport = FakeChatTransport("!weather Lutsk")
     with caplog.at_level(logging.INFO):
-        await build_dispatcher(registry).dispatch(transport.message, cast(ApplicationServices, SimpleNamespace(weather=weather)))
+        await build_dispatcher(registry).dispatch(transport.message, weather_services(weather))
     assert transport.replies == []
     assert weather_terminal_reasons(caplog) == [f"weather_{reason}"]
     assert "private query/provider payload" not in caplog.text
@@ -392,7 +398,7 @@ async def test_weather_location_failures_are_silent_with_distinct_outcomes(query
     weather = FakeWeatherService(error=error)
     transport = FakeChatTransport(f"!weather {query}")
     with caplog.at_level(logging.INFO):
-        await build_dispatcher(registry).dispatch(transport.message, cast(ApplicationServices, SimpleNamespace(weather=weather)))
+        await build_dispatcher(registry).dispatch(transport.message, weather_services(weather))
     assert transport.replies == []
     assert weather_terminal_reasons(caplog) == [reason]
     if not query:
@@ -413,7 +419,7 @@ async def test_weather_unicode_name_and_qualifier_survive_renaming_aliases_and_c
     state.apply_command_settings("weather", primary_name="погода", aliases=["weather"])
     weather = FakeWeatherService(report=WeatherReport(
         "Луцьк", 12, "clear", 8, country="Україна", region="Волинська область", language="uk"))
-    services = cast(ApplicationServices, SimpleNamespace(weather=weather, runtime_state=state))
+    services = weather_services(weather, runtime_state=state)
     dispatcher = build_dispatcher(registry, runtime_state=state, cooldowns=CooldownManager(clock=lambda: 1000.0))
     message = FakeChatTransport("!погода\tЛуцьк\u00a0,\tУкраїна")
     await dispatcher.dispatch(message.message, services)
@@ -443,6 +449,97 @@ def weather_viewer(content, viewer, *, channel="123", responder=None, session=No
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("city,country,trigger,add_rule", [
+    ("Маради", "Нигер", "!weather", FilterManager.add_blocked_word),
+    ("Абуджа", "Нигерия", "!погода", FilterManager.add_blocked_phrase),
+])
+async def test_weather_filters_forecast_country_after_twitch_input_and_exports_reason(
+    city, country, trigger, add_rule, tmp_path, caplog,
+):
+    from app.webview_host import WebUIBridge
+
+    dispatcher = configured_weather_dispatcher(lambda: 100.0)
+    weather = FakeWeatherService(report=WeatherReport(city, 21, "clear", 5, country=country))
+    services = weather_services(weather, users=SimpleNamespace(upsert_seen=AsyncMock()))
+    add_rule(services.filter_manager, country)
+
+    async def receive(content, viewer):
+        transport = weather_viewer(content, viewer)
+        incoming = SimpleNamespace(text=content, respond=transport.respond,
+            broadcaster=SimpleNamespace(name="testchannel", id="123"),
+            chatter=SimpleNamespace(id=viewer, name=viewer, subscriber=False, vip=False,
+                                    moderator=False, broadcaster=False))
+        await process_twitch_message(incoming, services, dispatcher, logging.getLogger("tests.commands"))
+        return transport.replies
+
+    with caplog.at_level(logging.INFO):
+        assert await receive(f"{trigger} {city}", "alice") == []
+        assert weather.queries == [city]  # The city-only input reached the provider.
+        weather.report = WeatherReport("London", 14, "clear", 8, country="United Kingdom")
+        assert await receive("!погода London", "alice") == []  # Personal cooldown is still active.
+        assert await receive("!weather London", "bob") == [
+            "@bob, London, United Kingdom: 14°C, clear, wind 8 km/h.",
+        ]
+        assert await receive("!weather London", "carol") == []  # Bob's confirmed reply starts the global timer.
+    assert weather.queries == [city, "London"]
+    assert weather_terminal_reasons(caplog) == ["weather_output_blocked", "cooldown", "confirmed_delivery", "cooldown"]
+    assert country not in caplog.text
+
+    buffer = RecentLogBuffer()
+    handler = OperatorActivityHandler(buffer)
+    for record in caplog.records:
+        handler.emit(record)
+    activity = buffer.activity()["entries"]
+    blocked, = [entry for entry in activity if entry["context"].get("reason") == "weather_output_blocked"]
+    assert blocked["event_kind"] == "command.outcome" and blocked["text"] is None
+    destination = tmp_path / "activity.json"
+    bridge = WebUIBridge(SimpleNamespace(), log_buffer=buffer)
+    bridge._window = SimpleNamespace(create_file_dialog=lambda *args, **kwargs: (str(destination),))
+    assert bridge.export_activity([entry["id"] for entry in activity]) == {"ok": True, "saved": True}
+    exported = destination.read_text(encoding="utf-8")
+    assert country not in exported
+    assert json.loads(exported)["entries"] == activity
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("timed_out,reason", [
+    (False, "weather_output_blocked"), (True, "weather_output_filter_timeout"),
+])
+async def test_weather_checks_regex_added_during_lookup_before_send(timed_out, reason, monkeypatch, caplog):
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def lookup(_):
+        started.set()
+        await release.wait()
+        return WeatherReport("Маради", 21, "clear", 5, country="Нигер")
+
+    class TimedOutPattern:
+        def search(self, message, *, timeout):
+            raise TimeoutError
+
+    dispatcher = configured_weather_dispatcher(lambda: 100.0)
+    services = weather_services(SimpleNamespace(get_current_weather=lookup))
+    transport = weather_viewer("!погода Маради", "alice")
+    with caplog.at_level(logging.INFO):
+        task = asyncio.create_task(dispatcher.dispatch(transport.message, services))
+        await asyncio.wait_for(started.wait(), timeout=2)
+        if timed_out:
+            monkeypatch.setattr("app.services.filter_manager.compile_filter_pattern", lambda *args, **kwargs: TimedOutPattern())
+        services.filter_manager.add_blocked_pattern(r"^Маради,\s+Нигер\b")
+        release.set()
+        await task
+
+    assert transport.replies == []
+    assert weather_terminal_reasons(caplog) == [reason]
+    buffer = RecentLogBuffer()
+    handler = OperatorActivityHandler(buffer)
+    for record in caplog.records:
+        handler.emit(record)
+    event, = [entry for entry in buffer.activity()["entries"] if entry["context"].get("reason") == reason]
+    assert event["text"] is None and "Нигер" not in str(event)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("query,error", [
     ("", None), ("Unknown City", None), ("x" * 301, WeatherLocationError("invalid_query")),
     ("London", WeatherServiceError("timeout", reason="timeout")),
@@ -451,7 +548,7 @@ async def test_weather_failed_admission_uses_only_personal_cooldown(query, error
     now = 100.0
     dispatcher = configured_weather_dispatcher(lambda: now)
     weather = FakeWeatherService(error=error)
-    services = cast(ApplicationServices, SimpleNamespace(weather=weather))
+    services = weather_services(weather)
 
     async def request(viewer, text="!погода London"):
         message = weather_viewer(text, viewer)
@@ -495,7 +592,7 @@ async def test_weather_slot_covers_lookup_and_send_per_channel_and_global_starts
         await finish_send.wait()
         return SimpleNamespace(sent=True)
 
-    services = cast(ApplicationServices, SimpleNamespace(weather=SimpleNamespace(get_current_weather=lookup)))
+    services = weather_services(SimpleNamespace(get_current_weather=lookup))
     first = weather_viewer("!weather London", "alice", responder=send, session=ChatSendSession(active=True))
     overlap = weather_viewer("!погода Paris", "bob")
     other_channel = weather_viewer("!weather Paris", "bob", channel="456")
@@ -534,17 +631,17 @@ async def test_weather_cancellation_releases_slot_without_recording_global_coold
         await asyncio.Event().wait()
 
     weather = FakeWeatherService(report=report)
-    services = cast(ApplicationServices, SimpleNamespace(weather=weather))
+    services = weather_services(weather)
     first = weather_viewer("!weather London", "alice", responder=pending, session=ChatSendSession(active=True))
     if stage == "lookup":
-        services = cast(ApplicationServices, SimpleNamespace(weather=SimpleNamespace(get_current_weather=pending)))
+        services = weather_services(SimpleNamespace(get_current_weather=pending))
     task = asyncio.create_task(dispatcher.dispatch(first.message, services))
     await asyncio.wait_for(entered.wait(), timeout=2)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
     second = weather_viewer("!погода London", "bob")
-    await dispatcher.dispatch(second.message, cast(ApplicationServices, SimpleNamespace(weather=weather)))
+    await dispatcher.dispatch(second.message, weather_services(weather))
     assert len(second.replies) == 1
 
 
@@ -561,7 +658,7 @@ async def test_unsent_weather_reply_releases_slot_and_leaves_global_cooldown_unt
         assert limiter.try_acquire()
     dispatcher = configured_weather_dispatcher(lambda: now, limiter=limiter)
     weather = FakeWeatherService(report=WeatherReport("London", 14, "clear", 8, country="United Kingdom"))
-    services = cast(ApplicationServices, SimpleNamespace(weather=weather))
+    services = weather_services(weather)
     responder = AsyncMock(return_value=SimpleNamespace(sent=False) if kind == "rejected" else None,
                           side_effect=OSError("private transport payload") if kind == "exception" else None)
     first = weather_viewer("!weather London", "alice", responder=responder,
@@ -791,7 +888,7 @@ async def test_dispatcher_cooldown_manager_persists_across_dispatched_messages()
         command_prefix="!",
     )
     weather = FakeWeatherService(report=WeatherReport("London", 17.0, "overcast", 14.0))
-    services = cast(ApplicationServices, SimpleNamespace(weather=weather))
+    services = weather_services(weather)
 
     # Message 1 by user A at t=100.0 -> handled and executed
     msg1 = FakeChatTransport("!weather London")
@@ -1089,10 +1186,7 @@ async def test_bypass_user_bypasses_only_ask_cooldown() -> None:
     register_weather_commands(registry)
     ai = FakeAIService("AI Answer")
     weather = FakeWeatherService(report=WeatherReport("London", 17.0, "overcast", 14.0))
-    services = cast(
-        ApplicationServices,
-        SimpleNamespace(ai=ai, ai_request_policy=AIRequestPolicy(), weather=weather),
-    )
+    services = weather_services(weather, ai=ai, ai_request_policy=AIRequestPolicy())
     current_time = 100.0
     manager = CooldownManager(clock=lambda: current_time)
     dispatcher = CommandDispatcher(

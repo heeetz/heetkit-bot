@@ -8,6 +8,7 @@ from app.config.commands import (
     WEATHER_COOLDOWN_SECONDS,
 )
 from app.utils.cooldown import CooldownPolicy
+from app.utils.logging import operator_event
 from app.utils.text import format_duration
 from app.twitch.permissions import Permission
 from app.services.weather import WeatherLocationError, WeatherServiceError, format_weather_response
@@ -72,8 +73,15 @@ def register_weather_commands(registry: CommandRegistry) -> None:
             context.skip("city_not_found")
             return
         username = context.message.author.username.lstrip("@")
+        forecast = format_weather_response(report, arguments)
+        match = context.services.filter_manager.evaluate_message(forecast)
+        if not match.allowed:
+            reason = "weather_output_filter_timeout" if match.timed_out else "weather_output_blocked"
+            context.skip(reason)
+            operator_event(context.logger, "command.outcome", "filters", reason=reason)
+            return
         try:
-            await context.reply(f"@{username}, {format_weather_response(report, arguments)}")
+            await context.reply(f"@{username}, {forecast}")
         except ChatSessionClosedError:
             context.skip("weather_send_session_closed")
         except Exception:
