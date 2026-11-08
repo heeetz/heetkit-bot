@@ -105,8 +105,20 @@ export default function ChatReactions({ active }: { active: boolean }) {
         if (data && draft) void persist(data.triggers.filter((rule) => rule.id !== draft.id))
       }} />}
     {draft && data && <form ref={editor} className="custom-command-editor" id="chat-reaction-editor" onSubmit={save}>
-      <div className="section-heading"><h3>{position < 0 ? 'Add reaction' : 'Edit reaction'}</h3></div>
       <fieldset className="reaction-fields" disabled={busy}>
+        <div className="section-heading reaction-editor-heading">
+          <h3>{position < 0 ? 'Add reaction' : 'Edit reaction'}</h3>
+          {position >= 0 && <div className="row-actions reaction-order">
+            <div className="custom-field-label">
+              <span className="muted" aria-live="polite">Position {draft.position + 1} of {data.triggers.length}</span>
+              <HelpTip label="Reaction order">HeetKit checks reactions from top to bottom. The first eligible reaction responds. Move up checks this rule earlier. Move down checks it later. Save reaction applies the new order.</HelpTip>
+            </div>
+            <div className="row-actions">
+              <button type="button" className="secondary" disabled={draft.position === 0} onClick={() => update({ position: draft.position - 1 })}>Move up</button>
+              <button type="button" className="secondary" disabled={draft.position >= data.triggers.length - 1} onClick={() => update({ position: draft.position + 1 })}>Move down</button>
+            </div>
+          </div>}
+        </div>
         <Switch className="custom-command-enabled" checked={draft.enabled} ariaLabel="Enable chat reaction" onCheckedChange={(enabled) => update({ enabled })}>
           <span>{draft.enabled ? 'Enabled' : 'Disabled'}</span>
         </Switch>
@@ -139,11 +151,6 @@ export default function ChatReactions({ active }: { active: boolean }) {
           <textarea id="reaction-responses" className="custom-response-textarea" rows={4} required value={draft.responses} onChange={(event) => update({ responses: event.target.value })} />
         </div>
         <div className="command-editor-actions">
-          {position >= 0 && <div className="row-actions">
-            <span className="muted" aria-live="polite">Position {draft.position + 1} of {data.triggers.length}</span>
-            <button type="button" className="secondary" disabled={draft.position === 0} onClick={() => update({ position: draft.position - 1 })}>Move up</button>
-            <button type="button" className="secondary" disabled={draft.position >= data.triggers.length - 1} onClick={() => update({ position: draft.position + 1 })}>Move down</button>
-          </div>}
           <div className="command-action-footer">
             {position >= 0 && <button type="button" className="ghost destructive" onClick={() => setConfirmRemove(true)}>Remove reaction</button>}
             <div className="command-action-group">

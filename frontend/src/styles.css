@@ -325,6 +325,9 @@ td { color: var(--text); }
 .custom-command-enabled { margin-bottom: var(--space-4); }
 .custom-command-editor > .custom-response-field, .reaction-fields > .custom-response-field { margin-top: var(--space-4); }
 .reaction-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+.section-heading.reaction-editor-heading, .reaction-order { align-items: center; }
+.reaction-editor-heading { flex-wrap: wrap; }
+.reaction-order { justify-content: flex-start; }
 .reaction-case { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; grid-row: span 2; align-self: end; min-height: 38px; }
 .custom-editor-error, .custom-burst-restriction { margin: 0; font-size: 13px; line-height: 1.5; }
 .custom-editor-error { color: var(--error); margin-top: var(--space-4); }

@@ -365,8 +365,9 @@ Make HeetKit reply to matching chat without a command prefix.
 4. Enter one to ten response lines. HeetKit picks one at random.
 5. Select **Save reaction**. Changes apply immediately.
 
-Use **Edit** to change a rule. **Move up** and **Move down** change its
-position when you save. **Remove reaction** deletes the rule after confirmation.
+Use **Edit** to change a rule. **Move up** and **Move down** at the top of the
+editor change its position when you save. **Remove reaction** deletes the rule
+after confirmation.
 
 **Check:** With the bot connected, send matching text from a permitted account.
 HeetKit checks rules from top to bottom and sends at most one reaction per
