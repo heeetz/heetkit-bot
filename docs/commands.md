@@ -32,6 +32,8 @@ from an allowed account. Check that the bot replies with your Twitch name.
 
 ### Optional replies and settings
 
+- **Send as** controls how a Single or Random response appears in chat. See
+  [delivery options](#delivery-options).
 - **Random** picks one of 1–30 responses. Enter one response per non-empty
   line in **Responses**. Commas stay in the text.
 - **Burst** repeats one message. Set **Permission** to **moderator** or
@@ -88,6 +90,21 @@ Broadcaster. A higher role meets a lower requirement. Tg and Erase require
 at least Moderator. On Server, check [Stream availability](#server-command-availability)
 if an enabled command stays silent. Also check [filters](#filters) and
 [user restrictions](#user-restrictions).
+
+### Delivery options
+
+Use **Send as** for custom Single and Random commands and built-ins that send
+ordinary replies, including `!ask` and `!weather`.
+
+- **Chat message** sends ordinary chat text.
+- **Mention sender** adds one automatic `@username` for the viewer who ran the command.
+- **Reply to message** uses the Twitch thread for the invoking message. If its ID
+  is missing, HeetKit sends one ordinary chat message. If Twitch rejects the
+  reply, HeetKit records the failure without retrying in chat.
+
+Existing commands keep their prior delivery until you change the setting.
+Mentions written into templates and template variables still work. Burst and
+scheduled announcements use their own delivery paths.
 
 ### Command name rules
 
@@ -336,29 +353,27 @@ A match or regex timeout suppresses the reply and records the reason in
 
 ## Reactions to ordinary messages
 
-Make HeetKit reply to matching chat without a command prefix. This advanced
-task needs access to the active [profile](data-and-privacy.md#profiles).
-Back up the profile before editing its files.
+Make HeetKit reply to matching chat without a command prefix.
 
-**On the host:** Open `config/message_triggers.json` in the active profile.
+**In HeetKit:** **Commands > Chat reactions** on Desktop or Server.
 
-1. Stop HeetKit.
-2. Open `config/message_triggers.json` in a text editor.
-3. Add an entry to the `triggers` list. Use a unique `id`, `enabled`,
-   `match_mode` (`contains` or `exact`), `text`, `case_sensitive`,
-   `probability` (0–1), `cooldown_seconds` (0–86400), and one to ten
-   literal `responses`.
-4. Save the file as UTF-8.
-5. Start HeetKit.
+1. Select **New reaction** and enter **Match text**.
+2. Choose **Exact** for the whole message or **Contains** to match within it.
+   Turn on **Case sensitive** if uppercase and lowercase letters must match.
+3. Set **Probability (%)** and **Cooldown (seconds)**. A 100% probability
+   makes every match eligible. A zero cooldown allows consecutive matches.
+4. Enter one to ten response lines. HeetKit picks one at random.
+5. Select **Save reaction**. Changes apply immediately.
+
+Use **Edit** to change a rule. **Move up** and **Move down** change its
+position when you save. **Remove reaction** deletes the rule after confirmation.
 
 **Check:** With the bot connected, send matching text from a permitted account.
-For a test, use an enabled rule with probability 1 and cooldown 0. Keep its
-reply within 450 UTF-8 bytes.
+HeetKit checks rules from top to bottom and sends at most one reaction per
+message. Reactions skip command-prefixed messages and the bot’s own output.
 
-HeetKit checks rules in file order and sends at most one reaction per message.
-It skips command-prefixed messages, bot messages and invalid rules. If no
-reactions work, check **Logs** for a file or JSON error. HeetKit keeps the
-original file for you to correct. See
-[backups and recovery](data-and-privacy.md#backups-and-settings-recovery).
+Rules are stored in `config/message_triggers.json` in the active
+[profile](data-and-privacy.md#profiles). If the file is invalid, check **Logs** and
+see [backups and recovery](data-and-privacy.md#backups-and-settings-recovery).
 
 [Back to README](../README.md#documentation).

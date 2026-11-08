@@ -32,3 +32,4 @@ class IncomingChatMessage:
     message_id: str | None = None
     send_session: "ChatSendSession | None" = None
     channel_id: str = ""
+    respond_in_thread: ChatResponder | None = None

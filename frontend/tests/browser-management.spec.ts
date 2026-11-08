@@ -1,8 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
-import type { AppStatus, AIPlaygroundResult, AnnouncementInfo, AnnouncementInput, CommandInfo, CommandRestriction, CustomCommandInfo, FilterInput, LogEntry, OptOutUser } from '../src/bridge'
+import type { ChatReaction, CommandSettingsMetadata, AppStatus, AIPlaygroundResult, AnnouncementInfo, AnnouncementInput, CommandInfo, CommandRestriction, CustomCommandInfo, FilterInput, LogEntry, OptOutUser } from '../src/bridge'
 import { selectOption } from './select-helpers'
 import { analyticsFlow, mockAnalytics } from './analytics-helpers'
+import { reviewCommands, reviewTrend } from './command-review-helpers'
 
 const adminToken = 'a'.repeat(43)
 const sessionToken = 's'.repeat(43)
@@ -31,6 +32,8 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
   let filters: FilterInput = { words: ['synthetic'], phrases: [], patterns: [] }
   let profile = 'Saved instructions'
   let prompt = 'Neutral prompt'
+  let reactions: ChatReaction[] = []
+  let reactionRevision = 0
   let customCommands: CustomCommandInfo[] = []
   let commandRestrictions: CommandRestriction[] = []
   let optouts: OptOutUser[] = []
@@ -152,14 +155,15 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     if (path === '/v1/commands') result = { command_prefix: '!', permissions: ['USER', 'MODERATOR', 'BROADCASTER'], commands: page.url().includes('privacyLayout') ? [command, erase] : [command] }
     if (path === '/v1/commands/save' || path === '/v1/commands/apply') {
       command.cooldown.per_user_seconds = body!.per_user_seconds as number
-      const options = body!.options as { primary_name?: string; stream_availability?: CommandInfo['stream_availability'] } | undefined
+      const options = body!.options as CommandSettingsMetadata | undefined
+      if (options?.send_as) command.send_as = options.send_as
       if (options?.primary_name) command.primary_name = options.primary_name
       if (options?.stream_availability) command.stream_availability = options.stream_availability
       command.has_saved_override = true
     }
     if (path === '/v1/commands/reset') Object.assign(command, structuredClone(command.default_settings), { has_saved_override: false })
     if (path === '/v1/commands/responses/save' || path === '/v1/commands/responses/apply') command.response_pool!.responses = body!.responses as string[]
-    if (path === '/v1/custom-commands') result = { command_prefix: '!', permissions: ['EVERYONE', 'MODERATOR'], variables: ['sender'], commands: customCommands }
+    if (path === '/v1/custom-commands') result = { command_prefix: '!', permissions: ['EVERYONE', 'MODERATOR', 'USER'], variables: ['sender'], commands: customCommands }
     if (path === '/v1/command-restrictions') result = { ok: true, channel_id: '200', commands: [{ id: 'ping', label: '!ping' }, { id: 'ask', label: '!ask' }], restrictions: commandRestrictions }
     if (path === '/v1/command-restrictions/save') {
       const data = body!.data as { id?: string; username: string; command_ids: string[]; expires_at: string | null; note: string; scope?: 'channel' | 'global_ai' }
@@ -172,6 +176,14 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
       result = { ok: true, channel_id: '200', commands: [{ id: 'ping', label: '!ping' }, { id: 'ask', label: '!ask' }], restrictions: commandRestrictions }
     }
     if (path === '/v1/custom-commands/save') customCommands = [{ ...(body!.command as CustomCommandInfo), id: 'saved-command' }]
+    if (path === '/v1/triggers') {
+      if (request.method() === 'POST') {
+        if (body!.revision !== String(reactionRevision)) return route.fulfill({ json: { ok: false, error: 'Chat reactions changed.' } })
+        reactions = body!.triggers as ChatReaction[]
+        reactionRevision += 1
+      }
+      result = { ok: true, triggers: reactions, revision: String(reactionRevision) }
+    }
     if (path === '/v1/announcements') {
       if (request.method() === 'POST') announcements = (body!.announcements as AnnouncementInput[]).map((item, index) => ({
         ...item, id: item.id ?? `00000000-0000-0000-0000-${String(index + 1).padStart(12, '0')}`,
@@ -192,7 +204,7 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     if (path === '/v1/about') result = { application_name: 'HeetKit', application_subtitle: 'Twitch bot controls', version: '1.3.0', author: 'heeetz', license_name: 'Apache-2.0' }
     await route.fulfill({ json: result })
   })
-  return { calls, setPlayground: (pending: boolean, readDelay = 0, status = 'success', generation = playgroundGeneration) => { playgroundPending = pending; playgroundReadDelay = readDelay; playgroundStatus = status; playgroundGeneration = generation }, setLogs: (entries: LogEntry[]) => { logs = entries }, setTwitch: (values: Record<string, unknown>) => { Object.assign(twitch, values) }, expire: (value = true) => { expired = value }, fail: (path: string) => { fail = path }, setOperation: (values: OperationOverrides) => { operation = { ...operation, ...values }; status.operation = operation }, setOAuthBegin: (result: object) => { oauthBeginResult = result }, setOAuthComplete: (result: object) => { oauthCompleteResult = result } }
+  return { calls, setCommand: (values: Partial<CommandInfo>) => { Object.assign(command, values) }, setPlayground: (pending: boolean, readDelay = 0, status = 'success', generation = playgroundGeneration) => { playgroundPending = pending; playgroundReadDelay = readDelay; playgroundStatus = status; playgroundGeneration = generation }, setLogs: (entries: LogEntry[]) => { logs = entries }, setTwitch: (values: Record<string, unknown>) => { Object.assign(twitch, values) }, expire: (value = true) => { expired = value }, fail: (path: string) => { fail = path }, setOperation: (values: OperationOverrides) => { operation = { ...operation, ...values }; status.operation = operation }, setOAuthBegin: (result: object) => { oauthBeginResult = result }, setOAuthComplete: (result: object) => { oauthCompleteResult = result } }
 }
 
 async function login(page: Page) {
@@ -1057,3 +1069,18 @@ for (const width of [1280, 320]) {
     await page.screenshot({ path: `node_modules/.tmp/recovery-server-${width}.png`, fullPage: true })
   })
 }
+
+test.describe('Server design review', () => {
+  test.use({ hasTouch: true })
+  for (const width of [1600, 390]) test(`Commands and Analytics Server design review at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1200 })
+    const api = await server(page)
+    api.setCommand({ name: 'ask', primary_name: 'ask', aliases: ['question'], permission: 'USER',
+      cooldown: { per_user_seconds: 60, global_seconds: 40 }, default_send_as: 'mention', response_pool: null })
+    await mockAnalytics(page)
+    await page.goto('/tests/browser.fixture.html')
+    await login(page)
+    await reviewCommands(page, 'server', width)
+    await reviewTrend(page, 'server', width)
+  })
+})

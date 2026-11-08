@@ -45,6 +45,8 @@ class CommandDefinition:
     enabled_by_default: bool = True
     requires_ai: bool = False
     minimum_permission: Permission = Permission.USER
+    supports_send_as: bool = True
+    default_send_as: str = "chat"
 
     @property
     def identity_editable(self) -> bool:
@@ -70,6 +72,7 @@ class CommandContext:
     output_limiter: OutputLimiter | None = None
     burst_interval_ms: int = 0
     burst_max_count: int = TG_DEFAULT_MAX_COUNT
+    send_as: str | None = None
 
     def complete(self) -> None:
         """Explicit completion for an operation that intentionally has no reply."""
@@ -87,11 +90,21 @@ class CommandContext:
         prefix = getattr(getattr(self.services, "settings", None), "command_prefix", "!")
         return f"{prefix}{name}"
 
-    async def reply(self, content: str) -> bool:
-        return await self._sender().reply(content)
+    def reply_content(self, content: str, *, legacy_mention: bool = False, separator: str = " ") -> str:
+        if self.send_as == "mention" or (self.send_as is None and legacy_mention):
+            username = self.message.author.username.lstrip("@")
+            return f"@{username}{separator}{content}"
+        return content
 
-    def _sender(self) -> ChatSender:
-        return ChatSender(self.message.respond, self.logger, self.output_limiter, self.message.send_session)
+    async def reply(self, content: str, *, legacy_mention: bool = False, separator: str = " ") -> bool:
+        return await self.send_reply(self.reply_content(content, legacy_mention=legacy_mention, separator=separator))
+
+    async def send_reply(self, content: str) -> bool:
+        responder = self.message.respond_in_thread if self.send_as == "reply" and self.message.message_id else None
+        return await self._sender(responder).reply(content)
+
+    def _sender(self, responder=None) -> ChatSender:
+        return ChatSender(responder or self.message.respond, self.logger, self.output_limiter, self.message.send_session)
 
     async def reply_burst(
         self,
@@ -128,6 +141,8 @@ class CommandRegistry:
         hidden: bool = False,
         requires_ai: bool = False,
         minimum_permission: Permission = Permission.USER,
+        supports_send_as: bool = True,
+        default_send_as: str = "chat",
     ) -> Callable[[CommandHandler], CommandHandler]:
         def decorator(handler: CommandHandler) -> CommandHandler:
             self.register(
@@ -145,6 +160,8 @@ class CommandRegistry:
                     hidden=hidden,
                     requires_ai=requires_ai,
                     minimum_permission=minimum_permission,
+                    supports_send_as=supports_send_as,
+                    default_send_as=default_send_as,
                 )
             )
             return handler
@@ -178,6 +195,8 @@ class CommandRegistry:
             hidden=definition.hidden,
             requires_ai=definition.requires_ai,
             minimum_permission=definition.minimum_permission,
+            supports_send_as=definition.supports_send_as,
+            default_send_as=definition.default_send_as,
         )
         for command_name in normalized_names:
             self._commands[command_name] = normalized_definition
@@ -466,7 +485,7 @@ class CommandDispatcher:
                 definition = CommandDefinition(name=custom.name, handler=custom_handler)
                 permission = max(custom.permission, Permission.MODERATOR) if custom.response_mode == "burst" else custom.permission
                 settings = CommandSettings(enabled=custom.enabled, permission=permission, cooldown=custom.cooldown,
-                                           stream_availability=custom.stream_availability)
+                                           stream_availability=custom.stream_availability, send_as=custom.send_as)
             else:
                 settings = (
                     definition.default_settings
@@ -530,6 +549,7 @@ class CommandDispatcher:
                         output_limiter=command_output_limiter,
                         burst_interval_ms=settings.burst_interval_ms,
                         burst_max_count=settings.burst_max_count,
+                        send_as=settings.send_as,
                     ),
                     arguments,
                 )
@@ -546,6 +566,7 @@ class CommandDispatcher:
                         output_limiter=command_output_limiter,
                         burst_interval_ms=settings.burst_interval_ms,
                         burst_max_count=settings.burst_max_count,
+                        send_as=settings.send_as,
                     ),
                     arguments
                 ):
@@ -603,6 +624,7 @@ class CommandDispatcher:
                 output_limiter=command_output_limiter,
                 burst_interval_ms=settings.burst_interval_ms,
                 burst_max_count=settings.burst_max_count,
+                send_as=settings.send_as,
             )
             if weather_channel is not None:
                 self._weather_in_flight.add(weather_channel)

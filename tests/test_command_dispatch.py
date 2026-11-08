@@ -1422,3 +1422,69 @@ async def test_trigger_announcement_has_stable_source_identity(caplog):
     assert all(record.event_source == "announcement" and record.event_command_id == "trigger:hello"
                for record in events)
     assert [record.event_kind for record in events].count("command.input") == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["single", "random", "burst"])
+@pytest.mark.parametrize("send_as", ["chat", "mention", "reply"])
+async def test_custom_delivery_keeps_templates_and_burst_path(tmp_path, mode, send_as):
+    store = CustomCommandStore(tmp_path / "custom_commands.json", set())
+    store.save({"name": "hello", "enabled": True, "permission": "MODERATOR",
+                "response_mode": mode, "responses": ["Hi @{sender}, {target}!"],
+                "send_as": send_as, "per_user_seconds": 0, "global_seconds": 0, "aliases": [],
+                **({"burst_count": 2} if mode == "burst" else {})})
+    store = CustomCommandStore(tmp_path / "custom_commands.json", set())
+    assert store.list()[0].send_as == send_as
+    transport = FakeChatTransport("!hello Alice", is_moderator=True)
+    thread = AsyncMock(return_value=SimpleNamespace(id="thread-send", sent=True))
+    message = replace(transport.message, message_id="incoming", respond_in_thread=thread)
+    dispatcher = CommandDispatcher(CommandRegistry(), CooldownManager(), logging.getLogger(__name__), "!",
+                                   custom_commands=store)
+    assert await dispatcher.dispatch(message, SimpleNamespace())
+    rendered = "Hi @viewer, Alice!"
+    if mode == "burst":
+        assert transport.replies == [rendered, rendered]
+    elif send_as == "mention":
+        assert transport.replies == ["@viewer " + rendered]
+    elif send_as == "chat":
+        assert transport.replies == [rendered]
+    else:
+        assert transport.replies == []
+        thread.assert_awaited_once_with(rendered)
+        return
+    thread.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("send_as", ["chat", "mention", "reply"])
+async def test_builtin_delivery_persists_for_ask_and_weather(tmp_path, send_as):
+    registry = CommandRegistry()
+    register_ai_commands(registry)
+    register_weather_commands(registry)
+    path = tmp_path / "command_settings.json"
+    state = RuntimeState(command_settings_path=path)
+    state.configure_commands(registry.definitions())
+    for name in ("ask", "weather"):
+        assert state.get_command_settings(name).send_as is None
+        defaults = state.get_command_settings(name)
+        state.save_command_settings(name, send_as=send_as, enabled=defaults.enabled,
+                                    cooldown=defaults.cooldown, permission=defaults.permission)
+    state = RuntimeState(command_settings_path=path)
+    state.configure_commands(registry.definitions())
+    dispatcher = build_dispatcher(registry, runtime_state=state)
+    services = weather_services(FakeWeatherService(WeatherReport("London", 17.0, "overcast", 14.0)),
+                                ai=FakeAIService("Ask @alice."), ai_request_policy=AIRequestPolicy())
+    for content, expected, separator in (
+        ("!ask hello", "Ask @alice.", " "),
+        ("!weather London", "London: 17°C, overcast, wind 14 km/h.", ", "),
+    ):
+        transport = FakeChatTransport(content)
+        thread = AsyncMock(return_value=SimpleNamespace(id="thread-send", sent=True))
+        message = replace(transport.message, message_id="incoming", respond_in_thread=thread)
+        assert await dispatcher.dispatch(message, services)
+        if send_as == "reply":
+            thread.assert_awaited_once_with(expected)
+            assert transport.replies == []
+        else:
+            thread.assert_not_awaited()
+            assert transport.replies == [f"@viewer{separator}{expected}" if send_as == "mention" else expected]

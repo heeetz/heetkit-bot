@@ -8,6 +8,7 @@ import {
   type CustomCommandsResponse,
   type CustomResponseMode,
   type StreamAvailability,
+  type SendAs,
   isBrowserMode,
   waitForBridge,
 } from '../bridge'
@@ -18,6 +19,7 @@ import Switch from '../components/Switch'
 import AccordionHeader from '../components/AccordionHeader'
 import HelpTip from '../components/HelpTip'
 import AnnouncementsPanel from '../components/AnnouncementsPanel'
+import ChatReactions from '../components/ChatReactions'
 import CommandRestrictions from '../components/CommandRestrictions'
 import OptOutManagement from '../components/OptOutManagement'
 
@@ -33,6 +35,7 @@ interface CommandDraft {
   burstIntervalMs: string
   burstMaxCount: string
   streamAvailability: StreamAvailability
+  sendAs: SendAs
 }
 
 type Drafts = Record<string, CommandDraft>
@@ -52,6 +55,7 @@ interface CustomDraft {
   globalSeconds: string
   aliases: string
   streamAvailability: StreamAvailability
+  sendAs: SendAs
 }
 
 interface CommandsPageProps {
@@ -73,6 +77,26 @@ const streamAvailabilityOptions: { value: StreamAvailability; label: string }[] 
   { value: 'live_only', label: 'Live only' },
   { value: 'offline_only', label: 'Offline only' },
 ]
+
+const sendAsOptions: { value: SendAs; label: string }[] = [
+  { value: 'chat', label: 'Chat message' },
+  { value: 'mention', label: 'Mention sender' },
+  { value: 'reply', label: 'Reply to message' },
+]
+
+function SendAsField({ id, value, onChange, disabled }: { id: string; value: SendAs; onChange: (value: SendAs) => void; disabled?: boolean }) {
+  return <div className="form-field">
+    <div className="custom-field-label">
+      <label htmlFor={id}>Send as</label>
+      <HelpTip label="Send as">Chat message sends plain chat. Mention sender adds an @username. Reply to message uses Twitch’s reply thread. If the incoming message has no reply ID, it sends as plain chat.</HelpTip>
+    </div>
+    <Select id={id} value={value} onChange={(next) => onChange(next as SendAs)} options={sendAsOptions} disabled={disabled} />
+  </div>
+}
+
+function builtinSendAs(command: CommandInfo): SendAs {
+  return command.send_as ?? command.default_send_as ?? 'chat'
+}
 
 function streamAvailability(value: StreamAvailability | undefined): StreamAvailability {
   return value ?? 'anytime'
@@ -96,6 +120,7 @@ function draftFromCommand(command: CommandInfo): CommandDraft {
     burstIntervalMs: String(command.burst_interval_ms ?? 0),
     burstMaxCount: String(tgBurstMaxCount(command)),
     streamAvailability: streamAvailability(command.stream_availability),
+    sendAs: builtinSendAs(command),
   }
 }
 
@@ -131,6 +156,7 @@ function settingsDraftIsDirty(command: CommandInfo, draft: CommandDraft): boolea
     || parsedBurstInterval(draft.burstIntervalMs) !== (command.burst_interval_ms ?? 0)
     || (command.name === 'tg' && parsedBurstMaxCount(draft.burstMaxCount) !== tgBurstMaxCount(command))
     || draft.streamAvailability !== streamAvailability(command.stream_availability)
+    || draft.sendAs !== builtinSendAs(command)
 }
 
 function responseDraftIsDirty(command: CommandInfo, draft: CommandDraft): boolean {
@@ -161,6 +187,7 @@ function newCustomDraft(permission: string): CustomDraft {
     globalSeconds: '0',
     aliases: '',
     streamAvailability: 'anytime',
+    sendAs: 'chat',
   }
 }
 
@@ -180,6 +207,7 @@ function customDraftFromCommand(command: CustomCommandInfo): CustomDraft {
     globalSeconds: String(command.global_seconds),
     aliases: command.aliases.join(', '),
     streamAvailability: streamAvailability(command.stream_availability),
+    sendAs: command.send_as ?? 'chat',
   }
 }
 
@@ -426,6 +454,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     }
     const metadata = {
       primary_name: draft.primaryName,
+      ...(draft.sendAs !== builtinSendAs(command) ? { send_as: draft.sendAs } : {}),
       ...(canEditIdentity(command) ? { aliases: parseAliases(draft.aliases), display_name: draft.displayName } : {}),
       ...(command.name === 'tg' ? { burst_interval_ms: burstInterval!, burst_max_count: burstMaxCount! } : {}),
       ...(isBrowserMode() ? { stream_availability: draft.streamAvailability } : {}),
@@ -592,6 +621,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       global_seconds: globalSeconds,
       aliases: parseAliases(customDraft.aliases),
       response_mode: customDraft.responseMode,
+      send_as: customDraft.sendAs,
       ...(isBrowserMode() ? { stream_availability: customDraft.streamAvailability } : {}),
       ...(customDraft.responseMode === 'burst' ? { burst_count: burstCount!, burst_allow_override: customDraft.burstAllowOverride, burst_interval_ms: burstInterval! } : {}),
     }
@@ -630,6 +660,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         global_seconds: command.global_seconds,
         aliases: command.aliases,
         response_mode: command.response_mode,
+        send_as: command.send_as,
         ...(isBrowserMode() ? { stream_availability: streamAvailability(command.stream_availability) } : {}),
         ...(command.response_mode === 'burst' ? { burst_count: command.burst_count ?? 1, burst_allow_override: command.burst_allow_override ?? false, burst_interval_ms: command.burst_interval_ms ?? 0 } : {}),
       })
@@ -740,16 +771,18 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       <input id={`aliases-${command.name}`} disabled={busy} value={draft.aliases} onChange={(event) => updateDraft(command.name, { aliases: event.target.value })} placeholder={compact ? 'e.g. question, q' : 'Optional alternate commands'} />
     </div>
     const displayField = canEditIdentity(command) && <div className="form-field command-display-label">
-      <div className="custom-field-label"><label htmlFor={`display-name-${command.name}`}>Name in UI</label>{compact && <HelpTip label="Name in UI">Optional display label; public help uses the primary chat name.</HelpTip>}</div>
+      <div className="custom-field-label"><label htmlFor={`display-name-${command.name}`}>Name in UI</label><HelpTip label="Name in UI">Optional display label. Public help uses the primary chat name.</HelpTip></div>
       <input id={`display-name-${command.name}`} disabled={busy} value={draft.displayName} maxLength={80} onChange={(event) => updateDraft(command.name, { displayName: event.target.value })} placeholder={compact ? 'e.g. AI questions' : 'Optional label'} />
-      {!compact && <span className="custom-field-hint">Optional display label; public help uses the primary chat name.</span>}
     </div>
-    const identityFields = <div className="command-identity-fields">
+    const supportsSendAs = command.supports_send_as ?? !['tg', 'erase'].includes(command.name)
+    const identityFields = <div className={`command-identity-fields${supportsSendAs ? ' has-send-as' : ''}`}>
       <div className="form-field">
         <div className="custom-field-label"><label htmlFor={`primary-name-${command.name}`}>Primary chat name</label><HelpTip label="Primary chat name">Use one word of up to 40 characters, without {data.command_prefix}. Renaming keeps this command’s behavior, permission and cooldowns. The old name stops working unless kept as an alias. Reset settings restores the factory name. Factory names remain reserved for restoration.</HelpTip></div>
         <input id={`primary-name-${command.name}`} disabled={busy} value={draft.primaryName} maxLength={40} onChange={(event) => updateDraft(command.name, { primaryName: event.target.value })} />
       </div>
-      {compact ? <>{displayField}{aliasField}</> : <>{aliasField}{displayField}</>}
+      {supportsSendAs
+        ? <><SendAsField id={`send-as-${command.name}`} value={draft.sendAs} disabled={busy} onChange={(sendAs) => updateDraft(command.name, { sendAs })} />{displayField}{aliasField}</>
+        : compact ? <>{displayField}{aliasField}</> : <>{aliasField}{displayField}</>}
     </div>
     const settingsFields = <div className="command-fields">
       <div className="form-field">
@@ -808,7 +841,11 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           >
             <span>{draft.enabled ? 'Enabled' : 'Disabled'}</span>
           </Switch>
-          {compact ? <>{identityFields}{settingsFields}</> : <>{settingsFields}{command.name === 'ask' && <p className="setting-effect">Enabled state is saved immediately and shared with Dashboard and AI. Save applies only your other settings edits.</p>}{identityFields}</>}
+          {compact && !supportsSendAs ? <>{identityFields}{settingsFields}</> : <>
+            {settingsFields}
+            {!compact && command.name === 'ask' && <p className="setting-effect">Enabled state is saved immediately and shared with Dashboard and AI. Save applies only your other settings edits.</p>}
+            {identityFields}
+          </>}
           {command.name === 'tg' && <div className="command-burst-controls">
             <div className="form-field command-burst-interval">
               <div className="custom-field-label"><label htmlFor="tg-burst-interval">Burst interval (ms)</label>{compact && <HelpTip label="Tg Burst interval">0 to 1000 ms between request starts; 0 sends concurrently.</HelpTip>}</div>
@@ -896,6 +933,9 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
               {JSON.stringify(customDraft) !== JSON.stringify(customBaseline.current) && <span className="mini-badge dirty-badge">Unsaved changes</span>}
             </div>
           </div>
+          <Switch className="custom-command-enabled" checked={customDraft.enabled} ariaLabel="Enable custom command" onCheckedChange={(enabled) => updateCustomDraft({ enabled })}>
+            <span>{customDraft.enabled ? 'Enabled' : 'Disabled'}</span>
+          </Switch>
           <div className="custom-command-fields">
             <div className="form-field">
               <div className="custom-field-label"><label htmlFor="custom-name">Command name</label><HelpTip label="Command name">Use a single word of up to 40 characters, without {customData.command_prefix}. Names and aliases cannot conflict with another command.</HelpTip></div>
@@ -933,14 +973,13 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
               <input id="custom-global" type="number" min="0" step="0.5" aria-invalid={parsedCooldown(customDraft.globalSeconds) === null} value={customDraft.globalSeconds} onChange={(event) => updateCustomDraft({ globalSeconds: event.target.value })} />
             </div>
           </div>
-          <div className="custom-command-status">
-            <Switch checked={customDraft.enabled} ariaLabel="Enable custom command" onCheckedChange={(enabled) => updateCustomDraft({ enabled })}>
-              <span>{customDraft.enabled ? 'Enabled' : 'Disabled'}</span>
-            </Switch>
-            {isBrowserMode() && <label className="form-field">Stream availability
-              <Select value={customDraft.streamAvailability} aria-label="Stream availability" onChange={(value) => updateCustomDraft({ streamAvailability: value as StreamAvailability })} options={streamAvailabilityOptions} />
-            </label>}
-          </div>
+          {(isBrowserMode() || customDraft.responseMode !== 'burst') && <div className="custom-command-fields custom-command-settings">
+            {isBrowserMode() && <div className="form-field">
+              <label htmlFor="custom-stream">Stream availability</label>
+              <Select id="custom-stream" value={customDraft.streamAvailability} onChange={(value) => updateCustomDraft({ streamAvailability: value as StreamAvailability })} options={streamAvailabilityOptions} />
+            </div>}
+            {customDraft.responseMode !== 'burst' && <SendAsField id="custom-send-as" value={customDraft.sendAs} onChange={(sendAs) => updateCustomDraft({ sendAs })} />}
+          </div>}
           <div className="form-field custom-response-field">
             <div className="custom-field-label"><label htmlFor="custom-response">{customDraft.responseMode === 'random' ? 'Responses' : 'Message'}</label><HelpTip label="Custom response">Use template variables such as Hello, {'{sender}'}! Replies are limited to 450 UTF-8 bytes. Single and Burst use one line; Random uses one template per non-empty line.</HelpTip></div>
             <textarea ref={customResponse} id="custom-response" className="custom-response-textarea" rows={customDraft.responseMode === 'random' ? 7 : 4} value={customDraft.responseMode === 'random' ? customDraft.responses : customDraft.message} onChange={(event) => updateCustomDraft(customDraft.responseMode === 'random' ? { responses: event.target.value } : { message: event.target.value })} placeholder="Hello, {sender}!" />
@@ -1028,6 +1067,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         </div>
       )}
     </section>
+    <ChatReactions active={active} />
     <AnnouncementsPanel active={active} />
     <section className="card command-editor-card" id="builtin-commands">
       <div className="section-heading">

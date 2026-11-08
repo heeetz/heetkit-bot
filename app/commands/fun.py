@@ -52,6 +52,7 @@ def register_fun_commands(registry: CommandRegistry, fun_settings: FunSettingsSt
 
     @registry.command(
         "tg",
+        supports_send_as=False,
         help_text="!tg [1-20]",
         required_permission=Permission.MODERATOR,
         minimum_permission=Permission.MODERATOR,
@@ -68,6 +69,7 @@ def register_fun_commands(registry: CommandRegistry, fun_settings: FunSettingsSt
 
     @registry.command(
         "fate",
+        default_send_as="mention",
         help_text="!fate",
         cooldown=CooldownPolicy(global_seconds=FATE_COOLDOWN_SECONDS),
         argument_validator=lambda arguments: not arguments,
@@ -76,5 +78,4 @@ def register_fun_commands(registry: CommandRegistry, fun_settings: FunSettingsSt
         if arguments:
             await context.reply(f"Usage: {context.invocation('fate')}")
             return
-        username = context.message.author.username.lstrip("@")
-        await context.reply(f"@{username}, {random_fate(fun_settings.fates)}")
+        await context.reply(random_fate(fun_settings.fates), legacy_mention=True, separator=", ")

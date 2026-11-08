@@ -139,7 +139,8 @@ See [daily local aggregates](#daily-local-aggregates) for what HeetKit counts.
 and command/provider breakdowns for the configured channel. Today trends use genuine
 UTC hourly observations; longer ranges use daily buckets. Hourly collection starts
 with the updated collector: older daily totals remain intact but have no invented
-hourly history. Future hours and missing coverage are gaps, distinct from observed zero. Its retained-user
+hourly history. Hover or tap across the chart to see the selected metric and UTC bucket.
+The tooltip shows observed zeros as zero and gaps as unavailable. The retained-user
 card is a current snapshot, not historical daily unique viewers. Playground usage is
 separate and excluded from channel totals.
 

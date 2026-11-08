@@ -136,7 +136,7 @@ class RuntimeState:
             if validated != settings:
                 # Lossy input still gets an exact recovery copy at the next save.
                 changed = {key: getattr(validated, key) for key in (
-                    "enabled", "permission", "aliases", "display_name", "primary_name", "burst_interval_ms", "burst_max_count"
+                    "enabled", "permission", "aliases", "display_name", "primary_name", "burst_interval_ms", "burst_max_count", "send_as"
                 ) if getattr(validated, key) != getattr(settings, key)}
                 override = self._persisted_command_overrides.get(name, CommandSettingsOverride())
                 self._persisted_command_overrides[name] = replace(override, **changed)
@@ -176,6 +176,10 @@ class RuntimeState:
             if not loading:
                 raise ValueError("Only Tg supports a built-in Burst maximum repeat count.")
             settings = replace(settings, burst_max_count=defaults.burst_max_count)
+        if settings.send_as is not None and not getattr(definition, "supports_send_as", True):
+            if not loading:
+                raise ValueError("This command uses a fixed delivery mode.")
+            settings = replace(settings, send_as=None)
         if not getattr(definition, "identity_editable", True):
             if settings.aliases != defaults.aliases or settings.display_name != defaults.display_name:
                 if not loading:
@@ -247,6 +251,7 @@ class RuntimeState:
         burst_interval_ms: int | None = None,
         burst_max_count: int | None = None,
         stream_availability: str | None = None,
+        send_as: str | None = None,
     ) -> CommandSettings:
         with self._lock:
             current = self.get_command_settings(command_name)
@@ -260,6 +265,7 @@ class RuntimeState:
                 burst_interval_ms=current.burst_interval_ms if burst_interval_ms is None else burst_interval_ms,
                 burst_max_count=current.burst_max_count if burst_max_count is None else burst_max_count,
                 stream_availability=current.stream_availability if stream_availability is None else stream_availability,
+                send_as=current.send_as if send_as is None else send_as,
             )
             updated = self._validated_command_settings(command_name, updated)
             self._command_settings[command_name] = updated
@@ -283,6 +289,7 @@ class RuntimeState:
         burst_interval_ms: int | None = None,
         burst_max_count: int | None = None,
         stream_availability: str | None = None,
+        send_as: str | None = None,
     ) -> CommandSettings:
         with self._lock:
             current = self.get_command_settings(command_name)
@@ -296,6 +303,7 @@ class RuntimeState:
                 burst_interval_ms=current.burst_interval_ms if burst_interval_ms is None else burst_interval_ms,
                 burst_max_count=current.burst_max_count if burst_max_count is None else burst_max_count,
                 stream_availability=current.stream_availability if stream_availability is None else stream_availability,
+                send_as=current.send_as if send_as is None else send_as,
             )
             updated = self._validated_command_settings(command_name, updated)
             self._save_command_settings(command_name, updated)

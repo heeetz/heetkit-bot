@@ -80,6 +80,7 @@ def _format_seen(last_seen_at: datetime, now: datetime | None = None) -> str:
 def register_social_commands(registry: CommandRegistry) -> None:
     @registry.command(
         "followage",
+        default_send_as="mention",
         help_text="!followage",
         cooldown=CooldownPolicy(global_seconds=FOLLOWAGE_COOLDOWN_SECONDS),
         argument_validator=lambda arguments: not arguments.strip(),
@@ -97,8 +98,11 @@ def register_social_commands(registry: CommandRegistry) -> None:
         if followed_at is None:
             context.skip("followage_unavailable")
             return
-        username = context.message.author.username.lstrip("@")
-        await context.reply(f"@{username} has been following this channel for {_format_followage(followed_at)}.")
+        duration = _format_followage(followed_at)
+        if context.send_as in (None, "mention"):
+            await context.reply(f"has been following this channel for {duration}.", legacy_mention=True)
+        else:
+            await context.reply(f"Following this channel for {duration}.")
 
     @registry.command(
         "seen",

@@ -51,6 +51,7 @@ def command_help_page(entries: tuple[str, ...], invocation: str, arguments: str)
 def register_weather_commands(registry: CommandRegistry) -> None:
     @registry.command(
         "weather",
+        default_send_as="mention",
         help_text="!weather <city>",
         cooldown=CooldownPolicy(global_seconds=WEATHER_COOLDOWN_SECONDS),
     )
@@ -72,7 +73,6 @@ def register_weather_commands(registry: CommandRegistry) -> None:
         if report is None:
             context.skip("city_not_found")
             return
-        username = context.message.author.username.lstrip("@")
         forecast = format_weather_response(report, arguments)
         match = context.services.filter_manager.evaluate_message(forecast)
         if not match.allowed:
@@ -81,7 +81,7 @@ def register_weather_commands(registry: CommandRegistry) -> None:
             operator_event(context.logger, "command.outcome", "filters", reason=reason)
             return
         try:
-            await context.reply(f"@{username}, {forecast}")
+            await context.reply(forecast, legacy_mention=True, separator=", ")
         except ChatSessionClosedError:
             context.skip("weather_send_session_closed")
         except Exception:

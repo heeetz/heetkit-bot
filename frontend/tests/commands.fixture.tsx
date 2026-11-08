@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client'
 import App from '../src/App'
-import type { AnnouncementInfo, AnnouncementInput, CommandInfo, CommandRestriction, CommandRestrictionInput, CommandSettingsMetadata, CustomCommandInfo, CustomCommandInput, OptOutUser, waitForBridge } from '../src/bridge'
+import type { ChatReaction, AnnouncementInfo, AnnouncementInput, CommandInfo, CommandRestriction, CommandRestrictionInput, CommandSettingsMetadata, CustomCommandInfo, CustomCommandInput, OptOutUser, waitForBridge } from '../src/bridge'
 import CommandsPage from '../src/pages/CommandsPage'
 import '../src/styles.css'
 
@@ -29,6 +29,7 @@ if (new URLSearchParams(window.location.search).has('extended')) {
     commands.push({
       name, ...structuredClone(defaults), primary_name: name, permission: minimum, available: true,
       unavailable_reason: null, hidden: name === 'erase', identity_editable: true,
+      default_send_as: name === 'erase' ? 'chat' : 'mention',
       minimum_permission: minimum, response_pool: null,
       ...(name === 'erase' ? { permission: 'BROADCASTER' } : {}),
       default_settings: { ...structuredClone(defaults), primary_name: name, permission: name === 'erase' ? 'BROADCASTER' : minimum }, saved: true, has_saved_override: false,
@@ -40,6 +41,8 @@ if (new URLSearchParams(window.location.search).has('legacyBurstMax')) {
   const tg = commands.find((command) => command.name === 'tg')!
   delete tg.burst_max_count
 }
+let reactions: ChatReaction[] = []
+let reactionRevision = 0
 let customCommands: CustomCommandInfo[] = [{
   id: 'synthetic-hello', name: 'hello', enabled: true, responses: ['Hello, {sender}!', 'Welcome, {target}!'],
   permission: 'USER', per_user_seconds: 2, global_seconds: 5, aliases: ['hi'], response_mode: 'random',
@@ -123,6 +126,12 @@ window.pywebview = { api: {
   get_desktop_startup: async () => ({ state: 'ready' }),
   confirm_legacy_channel: async () => ({ ok: false }),
   cancel_desktop_startup: async () => ({ ok: true }),
+  get_message_triggers: async () => ({ ok: true, triggers: structuredClone(reactions), revision: String(reactionRevision) }),
+  save_message_triggers: async (triggers: ChatReaction[], revision: string) => {
+    if (revision !== String(reactionRevision)) return { ok: false, error: 'Chat reactions changed.' }
+    reactions = structuredClone(triggers)
+    return { ok: true, triggers, revision: String(++reactionRevision) }
+  },
   get_announcements: async () => ({ ok: true, announcements: structuredClone(announcements) }),
   save_announcements: async (input: AnnouncementInput[]) => {
     commandCalls.push(['save_announcements', structuredClone(input)])

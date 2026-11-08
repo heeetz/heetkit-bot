@@ -161,6 +161,7 @@ window.pywebview = { api: {
   },
   get_command_restrictions: async () => ({ ok: true, channel_id: '200', commands: toggleCommands.map((command) => ({ id: command.name, label: `!${command.primary_name ?? command.name}` })), restrictions: [] }),
   get_custom_commands: async () => ({ command_prefix: '!', permissions: ['USER'], variables: ['sender'], commands: [] }),
+  get_message_triggers: async () => ({ ok: true, triggers: [], revision: '0' }),
   get_announcements: async () => ({ ok: true, announcements: [] }),
   save_announcements: async () => ({ ok: true }),
   get_filters: async () => ({

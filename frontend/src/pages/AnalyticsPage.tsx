@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { type AnalyticsResponse, type AIBalanceResponse, waitForBridge } from '../bridge'
 import { Select } from '../components/Select'
 import Switch from '../components/Switch'
@@ -7,13 +7,13 @@ import Confirmation from '../components/Confirmation'
 import './analytics.css'
 
 const trends = [
-  { value: 'command.attempts', label: 'Command attempts' },
-  { value: 'command.success', label: 'Command successes' },
-  { value: 'command.error', label: 'Command errors' },
-  { value: 'users.new', label: 'Newly observed users' },
-  { value: 'ai.requests', label: 'AI requests' },
-  { value: 'ai.input_tokens', label: 'Reported input tokens' },
-  { value: 'ai.output_tokens', label: 'Reported output tokens' },
+  { value: 'command.attempts', label: 'Command attempts', unit: 'command attempt' },
+  { value: 'command.success', label: 'Command successes', unit: 'command success', plural: 'command successes' },
+  { value: 'command.error', label: 'Command errors', unit: 'command error' },
+  { value: 'users.new', label: 'Newly observed users', unit: 'newly observed user' },
+  { value: 'ai.requests', label: 'AI requests', unit: 'AI request' },
+  { value: 'ai.input_tokens', label: 'Reported input tokens', unit: 'reported input token' },
+  { value: 'ai.output_tokens', label: 'Reported output tokens', unit: 'reported output token' },
   { value: 'ai.estimated_usd', label: 'Known spend subtotal (USD)' },
 ]
 const count = (value = 0) => value.toLocaleString(undefined, { maximumFractionDigits: 0 })
@@ -34,12 +34,14 @@ function observed(row: Bucket, metric: string, data: AnalyticsResponse) {
 function Trend({ data, metric, selector }: { data: AnalyticsResponse; metric: string; selector: React.ReactNode }) {
   const chart = useRef<SVGSVGElement>(null)
   const [width, setWidth] = useState(760)
+  const [selected, setSelected] = useState<number | null>(null)
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) => setWidth(Math.max(180, entry.contentRect.width)))
     if (chart.current) observer.observe(chart.current)
     return () => observer.disconnect()
   }, [])
-  const label = trends.find((item) => item.value === metric)!.label
+  const trend = trends.find((item) => item.value === metric)!
+  const { label } = trend
   const hourly = data.resolution === 'hour'
   const known = data.series.map((row) => observed(row, metric, data))
   const maximum = Math.max(1, ...data.series.map((row) => row.metrics[metric] || 0))
@@ -53,17 +55,55 @@ function Trend({ data, metric, selector }: { data: AnalyticsResponse; metric: st
     const elapsed = Math.min(hourly ? 3600 : 86400, (Date.parse(data.as_of) - bucketStart(row)) / 1000)
     return seconds < elapsed - 5 ? 'Partial observation' : 'Observed'
   }
+  const bucket = selected === null ? undefined : data.series[selected]
+  const value = bucket?.metrics[metric] ?? 0
+  const tooltipValue = !trend.unit
+    ? `${value.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 12 })} USD estimated spend`
+    : `${count(value)} ${value === 1 ? trend.unit : trend.plural ?? `${trend.unit}s`}`
+  const selectPointer = (event: PointerEvent<SVGSVGElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const localX = (event.clientX - bounds.left) * width / bounds.width
+    const index = Math.round((localX - x(0)) / (width - 70) * (data.series.length - 1))
+    setSelected(Math.max(0, Math.min(data.series.length - 1, index)))
+  }
   return <>
-    <svg ref={chart} className="analytics-chart" viewBox={`0 0 ${width} 215`} role="img" aria-label={`${label} by UTC ${hourly ? 'hour' : 'day'}. Observed zeros are points; missing coverage and future hours are gaps. Values and coverage follow the trend selector.`}>
-      <line x1="35" y1="180" x2={width - 35} y2="180" className="chart-axis" />
-      <text x="35" y="18">{format(maximum)}</text>
-      <text x="8" y="184">0</text>
-      {data.series.map((row, index) => known[index] && <g key={row.day}>
-        {index > 0 && known[index - 1] && <line x1={x(index - 1)} y1={y(data.series[index - 1].metrics[metric] || 0)} x2={x(index)} y2={y(row.metrics[metric] || 0)} className="chart-value" />}
-        <circle cx={x(index)} cy={y(row.metrics[metric] || 0)} r="3" className="chart-point"><title>{row.day}: {format(row.metrics[metric])} UTC ({coverageState(row, index)})</title></circle>
-      </g>)}
-      <text x="0" y="205">{hourly ? '00:00 UTC' : data.start}</text><text x={width} y="205" textAnchor="end">{hourly ? '23:00 UTC' : data.end}</text>
-    </svg>
+    <div className="analytics-plot">
+      <svg ref={chart} className="analytics-chart" viewBox={`0 0 ${width} 215`} role="img" aria-label={`${label} by UTC ${hourly ? 'hour' : 'day'}. Observed zeros are points; missing coverage and future hours are gaps. Values and coverage follow the trend selector. Use the arrow keys to inspect values.`}
+        tabIndex={data.series.length ? 0 : undefined}
+        onPointerMove={(event) => { if (event.pointerType === 'mouse') selectPointer(event) }}
+        onPointerUp={(event) => { if (event.pointerType !== 'mouse') selectPointer(event) }}
+        onPointerLeave={(event) => { if (event.pointerType === 'mouse') setSelected(null) }}
+        onBlur={() => setSelected(null)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') setSelected(null)
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+            event.preventDefault()
+            const delta = event.key === 'ArrowLeft' ? -1 : 1
+            setSelected((index) => index === null ? (delta > 0 ? 0 : data.series.length - 1)
+              : Math.max(0, Math.min(data.series.length - 1, index + delta)))
+          }
+        }}>
+        <line x1="35" y1="180" x2={width - 35} y2="180" className="chart-axis" />
+        <text x="35" y="18">{format(maximum)}</text>
+        <text x="8" y="184">0</text>
+        {data.series.map((row, index) => known[index] && <g key={row.day}>
+          {index > 0 && known[index - 1] && <line x1={x(index - 1)} y1={y(data.series[index - 1].metrics[metric] || 0)} x2={x(index)} y2={y(row.metrics[metric] || 0)} className="chart-value" />}
+          <circle cx={x(index)} cy={y(row.metrics[metric] || 0)} r="3" className="chart-point" />
+        </g>)}
+        {bucket && selected !== null && <g>
+          <line x1={x(selected)} x2={x(selected)} y1="23" y2="180" className="chart-selection" />
+          {known[selected] && <circle cx={x(selected)} cy={y(value)} r="5" className="chart-point" />}
+        </g>}
+        <text x="0" y="205">{hourly ? '00:00 UTC' : data.start}</text><text x={width} y="205" textAnchor="end">{hourly ? '23:00 UTC' : data.end}</text>
+      </svg>
+      <div aria-live="polite">
+        {bucket && selected !== null && <div role="tooltip" className="chart-tooltip" style={{ '--bucket-position': `${x(selected) / width * 100}%`,
+            top: known[selected] && y(value) < 72 ? 68 : 8 } as React.CSSProperties}>
+          <strong>{known[selected] ? tooltipValue : `${label} unavailable`}</strong>
+          <span>{bucketLabel(bucket, hourly)}</span>
+        </div>}
+      </div>
+    </div>
     {selector}
     {metric === 'users.new' && <p className="muted">New retained presence records · prospective collection only <HelpTip label="Newly observed users">Newly observed in this channel in the bot’s retained database after successful eligible persistence. This is not Twitch’s first-time-chatter flag or lifetime unique viewers. A viewer can count again after their presence record expires. No historical backfill is invented.</HelpTip></p>}
     <details className="analytics-values"><summary>{hourly ? 'Hourly' : 'Daily'} values and coverage</summary><div className="analytics-table" tabIndex={0} role="region" aria-label="Trend values and coverage"><table><caption>{label} — UTC calendar {hourly ? 'hours' : 'days'}; observed values may cover only part of a bucket.</caption><thead><tr><th>{hourly ? 'Hour' : 'Day'}</th><th>Observed value</th><th>Coverage</th><th>App collection</th><th>Connected</th></tr></thead><tbody>{data.series.map((row, index) => <tr key={row.day}><th>{bucketLabel(row, hourly)}</th><td>{known[index] ? format(row.metrics[metric]) : 'Unknown'}</td><td>{coverageState(row, index)}</td><td>{Math.round(row.coverage_seconds / 60)} min</td><td>{Math.round((row.metrics['connection.seconds'] || 0) / 60)} min</td></tr>)}</tbody></table></div></details>
@@ -137,7 +177,7 @@ export default function AnalyticsPage() {
     {error && <p role="alert" className="inline-error">{error}</p>}
     {busy && !data && <p role="status">Loading analytics…</p>}
     {data && <article className="card analytics-trend">
-      <Trend data={data} metric={metric} selector={<label className="analytics-trend-select">Trend<Select aria-label="Trend" value={metric} onChange={setMetric} options={trends} /></label>} />
+      <Trend key={`${data.resolution}:${data.start}:${data.end}`} data={data} metric={metric} selector={<label className="analytics-trend-select">Trend<Select aria-label="Trend" value={metric} onChange={setMetric} options={trends} /></label>} />
       <p className="muted">{data.resolution === 'hour' ? `${data.end} · Hourly UTC observations. Earlier daily-only data has no hourly history.` : 'Daily UTC observations.'} Gaps are unknown; values reflect observed coverage.</p>
     </article>}
     <div className="analytics-cards">

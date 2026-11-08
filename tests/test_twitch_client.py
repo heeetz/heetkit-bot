@@ -866,3 +866,55 @@ async def test_oauth_callback_discards_broadcaster_authorization(monkeypatch: py
 
     assert removed_users == ["200"]
     await bot.close(save_tokens=False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("result", ["confirmed", "rejected", "missing_id"])
+async def test_twitch_native_command_reply_uses_invoking_id_and_existing_correlation(result, monkeypatch):
+    from twitchio.http import HTTPClient
+    from twitchio.user import PartialUser
+
+    from app.commands.registry import CommandRegistry
+    from app.twitch.message_correlation import ChatMessageCorrelation
+    from app.utils.cooldown import CooldownManager
+
+    raw = FakeTwitchMessage()
+    raw.id = None if result == "missing_id" else "invoking-id"
+    # Exercise the pinned TwitchIO send method through its outgoing HTTP route.
+    http = HTTPClient(client_id="synthetic")
+    request = AsyncMock(return_value={"data": [{
+        "message_id": "outgoing-id" if result == "confirmed" else "",
+        "is_sent": result == "confirmed",
+        "drop_reason": {"code": "automod_held", "message": "Synthetic rejection"} if result == "rejected" else None,
+    }]})
+    async def request_json(self, route):
+        return await request(route)
+
+    monkeypatch.setattr(HTTPClient, "request_json", request_json)
+    raw.broadcaster = PartialUser("100", "testchannel", http=http)
+    registry = CommandRegistry()
+
+    @registry.command("ping")
+    async def ping(context, arguments):
+        await context.reply("pong")
+
+    state = RuntimeState()
+    state.configure_commands(registry.definitions())
+    state.apply_command_settings("ping", send_as="reply")
+    logger = logging.getLogger(__name__)
+    dispatcher = CommandDispatcher(registry, CooldownManager(), logger, "!", runtime_state=state)
+    services = SimpleNamespace(settings=SimpleNamespace(twitch_bot_user_id="200"),
+                               users=RecordingUserRepository(), filter_manager=AllowingFilterManager())
+    correlation = ChatMessageCorrelation()
+    await process_twitch_message(raw, services, dispatcher, logger, correlation)
+    if result == "missing_id":
+        request.assert_not_awaited()
+        assert raw.responses == ["pong"]
+        return
+    request.assert_awaited_once()
+    assert request.call_args.args[0].json == {
+        "broadcaster_id": "100", "sender_id": "200", "message": "pong",
+        "reply_parent_message_id": "invoking-id",
+    }
+    assert raw.responses == []
+    assert await correlation.is_outgoing("200", "100", ("outgoing-id",)) == (result == "confirmed")

@@ -226,6 +226,7 @@ async def test_both_provider_choices_transfer_without_credentials_and_legacy_sta
 async def test_desktop_export_server_preview_import_round_trip_and_restart(profiles):
     source = profiles("desktop")
     seed(source)
+    source.state.apply_command_settings("fate", send_as="reply")
     # Exercise the actual desktop adapter: submit the shared coroutine through a
     # synthetic host, without opening a window or accessing keyrings/accounts.
     def submit(coroutine):
@@ -239,7 +240,7 @@ async def test_desktop_export_server_preview_import_round_trip_and_restart(profi
     bridge = WebUIBridge(type("Host", (), {"application": source.app, "submit": staticmethod(submit)})(), app_settings=source.settings)
     random_responses = [f"Random reply {index} to {{sender}}" for index in range(30)]
     assert bridge.save_custom_command({
-        "name": "randompool", "enabled": True, "response_mode": "random", "responses": random_responses,
+        "name": "randompool", "enabled": True, "response_mode": "random", "responses": random_responses, "send_as": "mention",
         "permission": "USER", "per_user_seconds": 0, "global_seconds": 0, "aliases": [],
     }) == {"ok": True}
     destination = source.config.parent / "portable.zip"
@@ -305,10 +306,12 @@ async def test_desktop_export_server_preview_import_round_trip_and_restart(profi
         assert replacement.custom_commands.get_by_name("greeting").responses == ("Hi {sender}!",)
         assert replacement.custom_commands.get_by_name("randompool").responses == tuple(random_responses)
         assert replacement.custom_commands.get_by_name("randompool").response_mode == "random"
+        assert replacement.custom_commands.get_by_name("randompool").send_as == "mention"
         assert replacement.services.runtime_state.active_ai_personality == "Portable"
         assert replacement.services.runtime_state.profile_instructions == "Profile instructions."
         assert replacement.services.runtime_state.get_command_settings("fate").aliases == ("destiny",)
         assert replacement.services.runtime_state.get_command_settings("fate").primary_name == "fortune"
+        assert replacement.services.runtime_state.get_command_settings("fate").send_as == "reply"
         assert replacement.services.command_restrictions.match(target.app.settings.twitch_channel_user_id, "12345", "ask", "renamed")
         assert replacement.dispatcher._message_triggers.list()[0].id == "hello"
         assert not AppSettingsStore(target.settings._path).snapshot().ai.memory_enabled

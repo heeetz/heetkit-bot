@@ -36,6 +36,12 @@ def validate_stream_availability(value: object) -> str:
     return value
 
 
+def validate_send_as(value: object) -> str:
+    if not isinstance(value, str) or value not in ("chat", "mention", "reply"):
+        raise ValueError("Send as must be Chat message, Mention sender or Reply to message.")
+    return value
+
+
 def validate_burst_max_count(value: object) -> int:
     if type(value) is not int or not 1 <= value <= BURST_HARD_MAX_COUNT:
         raise ValueError(f"Burst maximum repeat count must be an integer from 1 to {BURST_HARD_MAX_COUNT}.")
@@ -84,6 +90,7 @@ class CommandSettings:
     burst_max_count: int = TG_DEFAULT_MAX_COUNT
     stream_availability: str = "anytime"
     primary_name: str = ""
+    send_as: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.enabled) is not bool:
@@ -101,6 +108,8 @@ class CommandSettings:
         validate_burst_interval(self.burst_interval_ms)
         validate_burst_max_count(self.burst_max_count)
         validate_stream_availability(self.stream_availability)
+        if self.send_as is not None:
+            validate_send_as(self.send_as)
         if self.primary_name and validate_primary_name(self.primary_name) != self.primary_name:
             raise ValueError("Command name must be normalized.")
         if not isinstance(self.primary_name, str):
@@ -128,12 +137,13 @@ class CommandSettingsOverride:
     burst_max_count: int | None = None
     stream_availability: str | None = None
     primary_name: str | None = None
+    send_as: str | None = None
 
     @property
     def is_empty(self) -> bool:
         return all(value is None for value in (self.enabled, self.cooldown, self.permission,
                    self.aliases, self.display_name, self.removed, self.burst_interval_ms, self.burst_max_count,
-                   self.stream_availability, self.primary_name))
+                   self.stream_availability, self.primary_name, self.send_as))
 
     def apply(self, defaults: CommandSettings) -> CommandSettings:
         return CommandSettings(
@@ -147,6 +157,7 @@ class CommandSettingsOverride:
             burst_max_count=defaults.burst_max_count if self.burst_max_count is None else self.burst_max_count,
             stream_availability=defaults.stream_availability if self.stream_availability is None else self.stream_availability,
             primary_name=defaults.primary_name if self.primary_name is None else self.primary_name,
+            send_as=defaults.send_as if self.send_as is None else self.send_as,
         )
 
     @classmethod
@@ -166,6 +177,7 @@ class CommandSettingsOverride:
             burst_max_count=settings.burst_max_count if settings.burst_max_count != defaults.burst_max_count else None,
             stream_availability=settings.stream_availability if settings.stream_availability != defaults.stream_availability else None,
             primary_name=settings.primary_name if settings.primary_name != defaults.primary_name else None,
+            send_as=settings.send_as if settings.send_as != defaults.send_as else None,
         )
 
     def to_json(self) -> dict[str, object]:
@@ -181,7 +193,7 @@ class CommandSettingsOverride:
             result["permission"] = self.permission.name
         if self.aliases is not None:
             result["aliases"] = list(self.aliases)
-        for key in ("display_name", "removed", "burst_interval_ms", "burst_max_count", "stream_availability", "primary_name"):
+        for key in ("display_name", "removed", "burst_interval_ms", "burst_max_count", "stream_availability", "primary_name", "send_as"):
             value = getattr(self, key)
             if value is not None:
                 result[key] = value
@@ -302,7 +314,7 @@ def _parse_override(
                            ("aliases", validate_command_aliases), ("display_name", validate_display_name),
                            ("burst_interval_ms", validate_burst_interval),
                            ("burst_max_count", validate_burst_max_count),
-                           ("stream_availability", validate_stream_availability)):
+                           ("stream_availability", validate_stream_availability), ("send_as", validate_send_as)):
         if key in raw_override:
             try:
                 additional[key] = validator(raw_override[key])

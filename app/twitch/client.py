@@ -165,7 +165,7 @@ class DesktopOAuthAdapter(AiohttpAdapter):
         await super().close(*args, **kwargs)
 
 
-def to_incoming_chat_message(message: ChatMessage, respond=None, send_session=None) -> IncomingChatMessage:
+def to_incoming_chat_message(message: ChatMessage, respond=None, send_session=None, respond_in_thread=None) -> IncomingChatMessage:
     """Map a TwitchIO chat event to the transport-neutral command DTO."""
 
     return IncomingChatMessage(
@@ -184,6 +184,7 @@ def to_incoming_chat_message(message: ChatMessage, respond=None, send_session=No
         respond=respond or message.respond,
         message_id=getattr(message, "id", None),
         send_session=send_session,
+        respond_in_thread=respond_in_thread,
     )
 
 
@@ -206,7 +207,22 @@ async def process_twitch_message(
                 return
         async def respond(content):
             return await correlation.send(account, channel, message.respond, content)
-        incoming = to_incoming_chat_message(message, respond if correlation is not None else None, send_session)
+        parent_id = getattr(message, "id", None)
+
+        async def send_reply(content: str) -> object:
+            return await message.broadcaster.send_message(
+                sender=account, message=content.strip(), reply_to_message_id=parent_id,
+            )
+
+        async def respond_in_thread(content: str) -> object:
+            if correlation is None:
+                return await send_reply(content)
+            return await correlation.send(account, channel, send_reply, content)
+
+        incoming = to_incoming_chat_message(
+            message, respond if correlation is not None else None, send_session,
+            respond_in_thread if account and isinstance(parent_id, str) and parent_id.strip() else None,
+        )
     except (AttributeError, TypeError):
         logger.exception("Could not map incoming Twitch chat message")
         return

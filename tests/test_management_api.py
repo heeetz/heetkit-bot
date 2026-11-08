@@ -694,10 +694,10 @@ async def test_management_applies_and_persists_existing_stores(api):
         return body
     await save("/v1/commands/save", {"command_name": "ping", "enabled": False,
         "per_user_seconds": 7, "global_seconds": 3, "permission": "MODERATOR",
-        "options": {"aliases": ["latency"], "display_name": "Latency"}})
+        "options": {"aliases": ["latency"], "display_name": "Latency", "send_as": "reply"}})
     await save("/v1/commands/responses/save", {"name": "fate", "responses": ["Synthetic fate"]})
     custom = {"name": "greeting", "enabled": True, "responses": ["Hi {sender}"], "permission": "USER",
-              "per_user_seconds": 4, "global_seconds": 2, "aliases": ["salute"]}
+              "per_user_seconds": 4, "global_seconds": 2, "aliases": ["salute"], "send_as": "mention"}
     await save("/v1/custom-commands/save", {"command": custom})
     await save("/v1/ai/enabled", {"enabled": False})
     await save("/v1/ai/memory", {"enabled": False})
@@ -713,7 +713,16 @@ async def test_management_applies_and_persists_existing_stores(api):
     await save("/v1/blocked-users/block", {"username": "syntheticviewer"})
     trigger = {"id": "hello", "enabled": True, "match_mode": "exact", "text": "hello",
                "case_sensitive": False, "probability": 1, "cooldown_seconds": 10, "responses": ["Hi"]}
-    await save("/v1/triggers", {"triggers": [trigger]})
+    initial = await save("/v1/triggers", {"triggers": [trigger]})
+    status, loaded, _ = await call("GET", "/v1/triggers")
+    assert status == 200 and loaded == initial
+    # Editing one rule can resend a collection larger than the ordinary POST cap.
+    many = [trigger, *[{**trigger, "id": f"rule-{index}", "responses": ["x" * 450] * 10}
+                       for index in range(20)]]
+    updated = await save("/v1/triggers", {"triggers": many, "revision": initial["revision"]})
+    assert updated["triggers"] == many
+    status, stale, _ = await call("POST", "/v1/triggers", json={"triggers": [], "revision": initial["revision"]})
+    assert status == 400 and "changed" in stale["error"]
     assert server.runtime.application.services.runtime_state.active_ai_personality == "Synthetic"
     assert not server.runtime.application.services.runtime_state.ai_memory_enabled
     assert server.runtime.application.dispatcher._message_triggers.list()[0].matches("HELLO")
@@ -731,10 +740,12 @@ async def test_management_applies_and_persists_existing_stores(api):
         command = state.get_command_settings("ping")
         assert not command.enabled and command.aliases == ("latency",)
         assert command.permission.name == "MODERATOR" and command.cooldown.per_user_seconds == 7
+        assert command.send_as == "reply"
         assert not state.ai_enabled and not profile.ai.memory_enabled
         assert clone.settings.gemini_model == "gemini-synthetic-a"
         assert state.active_ai_personality == "Synthetic"
         assert clone.custom_commands.get_by_name("salute").responses == ("Hi {sender}",)
+        assert clone.custom_commands.get_by_name("salute").send_as == "mention"
         assert clone.fun_settings.snapshot("fate")["responses"] == ["Synthetic fate"]
         assert not clone.services.filter_manager.filter_message("syntheticblocked")
         assert clone.services.command_restrictions.match("200", "123", "ask", "syntheticviewer")

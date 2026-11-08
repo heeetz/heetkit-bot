@@ -92,6 +92,7 @@ FRONTEND_OPERATIONS = (
     "export_configuration", "preview_configuration_import", "apply_configuration_import",
     "get_app_status", "get_about_info", "check_for_updates", "get_commands", "get_custom_commands",
     "get_announcements", "save_announcements",
+    "get_message_triggers", "save_message_triggers",
     "get_analytics", "configure_analytics", "reset_analytics", "get_ai_balance",
     "get_ai_memory_limits", "save_ai_memory_limits",
     "get_filters", "get_ai_status", "get_personalities", "get_recent_logs",

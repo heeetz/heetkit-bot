@@ -52,14 +52,15 @@ async function request<T>(method: 'GET' | 'POST', path: string, token: string, p
     if (response.status >= 500) throw new Error('The server is unavailable. Check the connection and retry.')
     if (response.status === 429) throw new Error('Too many requests. Wait a moment and retry.')
     if (response.status === 403) throw new Error('The server refused this connection. Check the server access settings.')
+    const responseLimit = (path === '/v1/triggers' ? 3 : 2) * 1024 * 1024
     if (response.headers.get('Content-Type')?.split(';')[0].trim() !== 'application/json'
-      || Number(response.headers.get('Content-Length')) > 2 * 1024 * 1024) {
+      || Number(response.headers.get('Content-Length')) > responseLimit) {
       throw new Error('The server returned an invalid response. Retry after checking the server.')
     }
     let data: unknown
     try {
       const raw = await response.text()
-      if (raw.length > 2 * 1024 * 1024) throw new Error()
+      if (raw.length > responseLimit) throw new Error()
       data = JSON.parse(raw)
     } catch {
       throw new Error('The server returned an invalid response. Retry after checking the server.')
@@ -121,7 +122,7 @@ const commandPayload = (command_name: string, enabled: boolean, per_user_seconds
   command_name, enabled, per_user_seconds, global_seconds, permission,
   ...(options ? { options: { primary_name: options.primary_name, aliases: options.aliases, display_name: options.display_name,
     burst_interval_ms: options.burst_interval_ms, burst_max_count: options.burst_max_count,
-    stream_availability: options.stream_availability } } : {}),
+    send_as: options.send_as, stream_availability: options.stream_availability } } : {}),
 })
 
 // Fixed methods and named payloads only: no HTTP access to arbitrary bridge names.
@@ -139,6 +140,8 @@ export const browserApi: PythonApi = {
   get_command_restrictions: () => read<CommandRestrictionsResponse>('/v1/command-restrictions'),
   save_command_restriction: (data) => write<CommandRestrictionsResponse>('/v1/command-restrictions/save', { data }),
   remove_command_restriction: (restriction_id) => write<CommandRestrictionsResponse>('/v1/command-restrictions/remove', { restriction_id }),
+  get_message_triggers: () => read('/v1/triggers'),
+  save_message_triggers: (triggers, revision) => write('/v1/triggers', { triggers, revision }),
   get_announcements: () => read('/v1/announcements'),
   save_announcements: (announcements) => write('/v1/announcements', { announcements }),
   get_filters: () => read('/v1/filters'),
@@ -175,7 +178,7 @@ export const browserApi: PythonApi = {
     permission: command.permission, per_user_seconds: command.per_user_seconds, global_seconds: command.global_seconds,
     aliases: command.aliases, response_mode: command.response_mode, burst_count: command.burst_count,
     burst_allow_override: command.burst_allow_override, burst_interval_ms: command.burst_interval_ms,
-    stream_availability: command.stream_availability,
+    stream_availability: command.stream_availability, send_as: command.send_as,
   } }),
   delete_custom_command: (identifier) => write('/v1/custom-commands/delete', { identifier }),
   apply_filters: (payload) => write('/v1/filters/apply', { payload: { words: payload.words, phrases: payload.phrases, patterns: payload.patterns } }),

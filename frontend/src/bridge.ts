@@ -57,6 +57,9 @@ export interface CommandInfo {
   burst_max_count?: number
   minimum_permission?: string
   identity_editable?: boolean
+  supports_send_as?: boolean
+  send_as?: SendAs | null
+  default_send_as?: SendAs
   help_text?: string
   enabled: boolean
   available: boolean
@@ -104,6 +107,7 @@ export interface CommandSettingsMetadata {
   burst_interval_ms?: number
   burst_max_count?: number
   stream_availability?: StreamAvailability
+  send_as?: SendAs
 }
 
 export interface CommandsResponse {
@@ -111,6 +115,8 @@ export interface CommandsResponse {
   permissions: string[]
   commands: CommandInfo[]
 }
+
+export type SendAs = 'chat' | 'mention' | 'reply'
 
 export type CustomResponseMode = 'single' | 'random' | 'burst'
 
@@ -125,6 +131,7 @@ export interface CustomCommandInput {
   aliases: string[]
   stream_availability?: StreamAvailability
   response_mode?: CustomResponseMode
+  send_as?: SendAs
   burst_count?: number
   burst_allow_override?: boolean
   burst_interval_ms?: number
@@ -136,6 +143,22 @@ export interface CustomCommandInfo extends CustomCommandInput {
 }
 
 export type StreamAvailability = 'anytime' | 'live_only' | 'offline_only'
+
+export interface ChatReaction {
+  id: string
+  enabled: boolean
+  match_mode: 'exact' | 'contains'
+  text: string
+  case_sensitive: boolean
+  probability: number
+  cooldown_seconds: number
+  responses: string[]
+}
+
+export interface ChatReactionsResponse extends ActionResult {
+  triggers: ChatReaction[]
+  revision: string
+}
 
 export interface AnnouncementInput {
   id?: string | null
@@ -586,6 +609,8 @@ export interface PythonApi {
   get_command_restrictions(): Promise<CommandRestrictionsResponse>
   save_command_restriction(data: CommandRestrictionInput): Promise<CommandRestrictionsResponse>
   remove_command_restriction(restrictionId: string): Promise<CommandRestrictionsResponse>
+  get_message_triggers(): Promise<ChatReactionsResponse>
+  save_message_triggers(triggers: ChatReaction[], revision: string): Promise<ChatReactionsResponse>
   get_announcements(): Promise<AnnouncementsResponse>
   save_announcements(announcements: AnnouncementInput[]): Promise<ActionResult>
   get_filters(): Promise<FiltersResponse>

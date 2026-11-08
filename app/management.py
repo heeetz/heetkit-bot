@@ -18,6 +18,7 @@ from app.config.profile_settings import apply_ai_app_settings
 from app.config.personalities import AI_PERSONALITY_PROMPTS, build_protected_shared_instructions
 from app.container import Application
 from app.custom_commands import VARIABLES
+from app.message_triggers import trigger_revision
 from app.filter_settings import (get_filter_settings, validate_filter_input,
     save_filter_settings, apply_filter_settings, evaluate_filter_settings)
 from app.twitch.permissions import Permission
@@ -427,6 +428,9 @@ class ApplicationManagement:
                     "burst_max_count": settings.burst_max_count,
                     "minimum_permission": definition.minimum_permission.name,
                     "identity_editable": definition.identity_editable,
+                    "supports_send_as": definition.supports_send_as,
+                    "send_as": settings.send_as,
+                    "default_send_as": definition.default_send_as,
                     "help_text": f"{application.settings.command_prefix}{settings.primary_name}"
                     + (" " + definition.help_text.partition(" ")[2] if definition.help_text and " " in definition.help_text else ""),
                     "enabled": settings.enabled,
@@ -491,11 +495,28 @@ class ApplicationManagement:
             "commands": [
                 {**{key: value for key, value in command.to_json().items() if key != "stream_availability"},
                  **({"stream_availability": command.stream_availability} if server else {}),
-                 "response_mode": command.response_mode,
+                 "response_mode": command.response_mode, "send_as": command.send_as,
                  **({"burst_interval_ms": command.burst_interval_ms} if command.response_mode == "burst" else {})}
                 for command in application.custom_commands.list()
             ],
         }
+
+    @staticmethod
+    def _trigger_snapshot(triggers) -> dict[str, object]:
+        return {"ok": True, "triggers": [asdict(trigger) for trigger in triggers],
+                "revision": trigger_revision(triggers)}
+
+    def get_message_triggers(self) -> dict[str, object]:
+        return self._trigger_snapshot(self._backend.application.dispatcher._message_triggers.list())
+
+    def save_message_triggers(self, triggers: object, revision: str | None = None) -> dict[str, object]:
+        try:
+            saved = self._backend.application.dispatcher._message_triggers.save(triggers, revision=revision)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except OSError:
+            return {"ok": False, "error": "Could not save chat reactions. Check profile storage."}
+        return self._trigger_snapshot(saved)
 
     async def _get_announcements(self) -> dict[str, object]:
         scheduler = self._backend.application.announcement_scheduler
@@ -712,7 +733,7 @@ class ApplicationManagement:
     def _parse_command_options(self, options: object) -> dict[str, object]:
         if options is None:
             return {}
-        allowed = ("primary_name", "aliases", "display_name", "burst_interval_ms", "burst_max_count")
+        allowed = ("primary_name", "aliases", "display_name", "burst_interval_ms", "burst_max_count", "send_as")
         if self._backend.application.services.runtime_state.server_runtime:
             allowed += ("stream_availability",)
         if not isinstance(options, dict) or any(key not in allowed for key in options):

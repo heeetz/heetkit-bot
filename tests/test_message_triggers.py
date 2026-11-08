@@ -250,3 +250,17 @@ async def test_probability_and_disabled_trigger_do_not_send(tmp_path, monkeypatc
     message = IncomingChatMessage("channel", "вась", ChatAuthor("viewer-id", "viewer"), respond)
     assert not await dispatcher.dispatch(message, services)
     assert replies == []
+
+
+def test_editor_reorders_stable_ids_and_rejects_stale_collection(tmp_path):
+    from app.message_triggers import trigger_revision
+
+    path = tmp_path / "message_triggers.json"
+    store = MessageTriggerStore(path)
+    first, second = trigger(), trigger(id="next", text="second")
+    revision = trigger_revision(store.save([first, second]))
+    updated = store.save([second, {**first, "enabled": False}], revision=revision)
+    assert [(rule.id, rule.enabled) for rule in store.list()] == [("next", True), ("vas", False)]
+    with pytest.raises(ValueError, match="Chat reactions changed"):
+        store.save([first], revision=revision)
+    assert MessageTriggerStore(path).list() == updated

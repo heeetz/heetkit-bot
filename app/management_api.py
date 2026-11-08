@@ -15,7 +15,7 @@ import secrets
 import stat
 import time
 from collections import deque
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -34,6 +34,7 @@ from app.server_setup import ServerSetup
 
 
 MAX_BODY = 65536
+MAX_TRIGGERS_BODY = 3 * 1024 * 1024  # 100 rules with up to ten 450-byte lines and JSON escaping.
 MAX_AI_SETUP_BODY = 256 * 1024  # 20k Unicode instructions, including JSON escaping.
 REQUEST_SECONDS = 25
 CONNECTION_SECONDS = 35
@@ -175,6 +176,7 @@ READS = {
     "/v1/commands": "get_commands",
     "/v1/custom-commands": "get_custom_commands",
     "/v1/announcements": "_get_announcements",
+    "/v1/triggers": "get_message_triggers",
     "/v1/filters": "get_filters",
     "/v1/ai": "get_ai_status",
     "/v1/ai/models": "get_ai_provider_settings",
@@ -186,6 +188,7 @@ READS = {
     "/v1/command-restrictions": "get_command_restrictions",
 }
 WRITES = {
+    "/v1/triggers": "save_message_triggers",
     "/v1/analytics/query": "_get_analytics",
     "/v1/analytics/configure": "_configure_analytics",
     "/v1/analytics/reset": "_reset_analytics",
@@ -451,6 +454,8 @@ class ManagementAPI:
                         "/v1/configuration/preview", "/v1/configuration/import") else MAX_BODY
                     if request.path == "/v1/ai/setup":
                         maximum = MAX_AI_SETUP_BODY
+                    if request.path == "/v1/triggers":
+                        maximum = MAX_TRIGGERS_BODY
                     if request.path == "/v1/announcements":
                         maximum = 768 * 1024
                     if length is None or length < 2 or length > maximum:
@@ -562,7 +567,7 @@ class ManagementAPI:
             # Domain validators remain authoritative; never echo their exception
             # text (some legacy validators interpolate supplied values).
             if result.get("ok") is False:
-                if path.startswith("/v1/privacy/opt-outs/") or path in {"/v1/ai/setup", "/v1/command-restrictions",
+                if path.startswith("/v1/privacy/opt-outs/") or path in {"/v1/ai/setup", "/v1/triggers", "/v1/command-restrictions",
                             "/v1/command-restrictions/save", "/v1/command-restrictions/remove"}:
                     return result
                 return {"ok": False, "error": "Operation rejected; check input, profile storage and current state."}
@@ -623,13 +628,6 @@ class ManagementAPI:
             operation = self.service._test_filters
             inspect.signature(operation).bind(**payload)
             return await operation(**payload)
-        if path == "/v1/triggers":
-            store = self.runtime.application.dispatcher._message_triggers
-            if method == "POST":
-                if set(payload) != {"triggers"}:
-                    raise ValueError
-                store.save(payload["triggers"])
-            return {"ok": True, "triggers": [asdict(trigger) for trigger in store.list()]}
         if method == "POST" and path == "/v1/logs/recent":
             if set(payload) - {"after_id", "limit"}:
                 raise ValueError

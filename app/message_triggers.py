@@ -7,7 +7,8 @@ import logging
 import math
 import os
 import tempfile
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from hashlib import sha256
 from pathlib import Path
 from threading import RLock
 
@@ -103,6 +104,11 @@ def parse_message_trigger(raw: object) -> MessageTrigger:
     )
 
 
+def trigger_revision(triggers: tuple[MessageTrigger, ...]) -> str:
+    data = json.dumps([asdict(trigger) for trigger in triggers], sort_keys=True)
+    return sha256(data.encode("ascii")).hexdigest()
+
+
 class MessageTriggerStore:
     """Keep immutable trigger snapshots behind one lock; publish after atomic save."""
 
@@ -167,7 +173,7 @@ class MessageTriggerStore:
         with self._lock:
             return self._triggers
 
-    def save(self, payload: object) -> tuple[MessageTrigger, ...]:
+    def save(self, payload: object, *, revision: str | None = None) -> tuple[MessageTrigger, ...]:
         """Validate and atomically persist a complete trigger collection."""
         if not isinstance(payload, list):
             raise ValueError("Message triggers must be a list.")
@@ -175,6 +181,8 @@ class MessageTriggerStore:
             raise ValueError("Provide at most 100 message triggers.")
 
         with self._lock:
+            if revision is not None and revision != trigger_revision(self._triggers):
+                raise ValueError("Chat reactions changed. Reload them before saving.")
             parsed: list[MessageTrigger] = []
             used: set[str] = set()
             for raw in payload:
@@ -182,7 +190,7 @@ class MessageTriggerStore:
                     raise ValueError("Trigger must be an object.")
                 unknown = set(raw) - _TRIGGER_FIELDS
                 if unknown:
-                    raise ValueError(f"Unknown trigger field: {next(iter(unknown))!r}")
+                    raise ValueError("Unknown trigger field.")
                 trigger = parse_message_trigger(raw)
                 if trigger.id in used:
                     raise ValueError("Duplicate trigger ID")

@@ -33,6 +33,7 @@ def register_ai_commands(registry: CommandRegistry) -> None:
         cooldown=CooldownPolicy(per_user_seconds=0.0, global_seconds=ASK_COOLDOWN_SECONDS),
         pre_check=ask_pre_check,
         requires_ai=True,
+        default_send_as="mention",
     )
     async def ask(context, arguments: str) -> None:
         clean_args = arguments.strip()
@@ -78,9 +79,8 @@ def register_ai_commands(registry: CommandRegistry) -> None:
                        "ai_unavailable" if status == "provider_unavailable" else "provider_failure",
                        reason=status)
         if reply.is_available and reply.text:
-            username = context.message.author.username.lstrip("@")
-            # Twitch's envelope includes the mention; do not split or chop citations.
-            outgoing = f"@{username} {reply.text}"
+            # Validate the actual outgoing envelope without splitting or chopping citations.
+            outgoing = context.reply_content(reply.text, legacy_mention=True)
             try:
                 outgoing.encode("utf-8")
                 valid_encoding = True
@@ -90,7 +90,7 @@ def register_ai_commands(registry: CommandRegistry) -> None:
                 context.fail("outgoing_envelope")
                 operator_event(context.logger, "ai.result", "provider_failure", reason="outgoing_envelope")
                 return
-            delivered = await context.reply(outgoing)
+            delivered = await context.send_reply(outgoing)
             memory_still_enabled = memory_enabled and (
                 runtime_state is None or runtime_state.ai_memory_enabled
             )
@@ -107,6 +107,7 @@ def register_ai_commands(registry: CommandRegistry) -> None:
 
     @registry.command(
         "erase",
+        supports_send_as=False,
         required_permission=Permission.BROADCASTER,
         minimum_permission=Permission.MODERATOR,
         hidden=True,

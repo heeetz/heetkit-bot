@@ -16,7 +16,7 @@ from threading import RLock
 from uuid import UUID, uuid4
 
 from app.twitch.permissions import Permission
-from app.command_settings import validate_burst_interval, validate_stream_availability
+from app.command_settings import validate_burst_interval, validate_send_as, validate_stream_availability
 from app.settings_recovery import preserve_settings_recovery
 from app.utils.cooldown import CooldownPolicy
 from app.utils.text import normalize_command_name
@@ -44,6 +44,7 @@ class CustomCommand:
     burst_allow_override: bool = False
     burst_interval_ms: int = 0
     stream_availability: str = "anytime"
+    send_as: str = "chat"
 
     def to_json(self) -> dict[str, object]:
         result: dict[str, object] = {
@@ -63,6 +64,8 @@ class CustomCommand:
                 result["burst_interval_ms"] = self.burst_interval_ms
         if self.stream_availability != "anytime":
             result["stream_availability"] = self.stream_availability
+        if self.send_as != "chat":
+            result["send_as"] = self.send_as
         return result
 
 
@@ -154,6 +157,7 @@ def parse_custom_command(raw: object, *, command_id: str | None = None, legacy: 
         burst_allow_override=burst_allow_override,
         burst_interval_ms=burst_interval_ms,
         stream_availability=validate_stream_availability(raw.get("stream_availability", "anytime")),
+        send_as=validate_send_as(raw.get("send_as", "chat")),
     )
 
 
@@ -196,8 +200,9 @@ class CustomCommandStore:
             requested_id = raw.get("id")
             if requested_id is not None and requested_id not in self._commands:
                 raise ValueError("Unknown custom command ID.")
-            if requested_id is not None and "stream_availability" not in raw:
-                raw = {**raw, "stream_availability": self._commands[requested_id].stream_availability}
+            if requested_id is not None:
+                current = self._commands[requested_id]
+                raw = {"stream_availability": current.stream_availability, "send_as": current.send_as, **raw}
             command = parse_custom_command(raw, command_id=requested_id or str(uuid4()))
             updated = dict(self._commands)
             updated[command.id] = command

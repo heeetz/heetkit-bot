@@ -195,8 +195,9 @@ class ConfigurationTransfer:
         state = self.state
         words, phrases, patterns = self.app.services.filter_manager.snapshot()
         return {
-            "commands": {name: {**asdict(value), "permission": value.permission.name,
-                                   "aliases": list(value.aliases)}
+            "commands": {name: {**{key: item for key, item in asdict(value).items()
+                                   if key != "send_as" or item is not None},
+                                   "permission": value.permission.name, "aliases": list(value.aliases)}
                          for name in state.runtime_toggleable_commands
                          for value in (state.get_command_settings(name),)},
             "responses": {name: self.fun.snapshot(name)["responses"] for name in ("fate", "tg")},
@@ -227,11 +228,13 @@ class ConfigurationTransfer:
         _fields(payload["commands"], self.state.runtime_toggleable_commands)
         commands = {}
         for name, value in payload["commands"].items():
-            fields = set(CommandSettings.__dataclass_fields__) - {"stream_availability", "primary_name"}
+            fields = set(CommandSettings.__dataclass_fields__) - {"stream_availability", "primary_name", "send_as"}
             if isinstance(value, dict) and "primary_name" in value:
                 fields.add("primary_name")
             if isinstance(value, dict) and "stream_availability" in value:
                 fields.add("stream_availability")
+            if isinstance(value, dict) and "send_as" in value:
+                fields.add("send_as")
             _fields(value, fields)
             _fields(value["cooldown"], ("per_user_seconds", "global_seconds"))
             cooldown = value["cooldown"]
@@ -246,7 +249,7 @@ class ConfigurationTransfer:
         for raw in _list(payload["custom_commands"], 1000):
             if not isinstance(raw, dict) or set(raw) - {"id", "name", "enabled", "responses", "permission",
                     "per_user_seconds", "global_seconds", "aliases", "response_mode", "burst_count",
-                    "burst_allow_override", "burst_interval_ms", "stream_availability"}:
+                    "burst_allow_override", "burst_interval_ms", "stream_availability", "send_as"}:
                 raise ValueError("Unknown custom command fields.")
             if "stream_availability" not in raw:
                 # Desktop/older exports carry no Server policy. Preserve the

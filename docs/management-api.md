@@ -360,7 +360,7 @@ POST writes persist and apply immediately unless stated otherwise.
 | POST `configuration/import` | The same `archive_base64`, `preview_token` and `confirmed: true`; saves/applies only after revalidation against the preview and unchanged destination |
 | POST `bot/start`, `bot/stop` | `{}`; policy-aware connect/disconnect intent, `changed` and current `operation`; completion is asynchronous |
 | POST `bot/mode` | `mode`: `always_on`, `stream_only`, `manual` or `disabled`; persist and reconcile without process restart |
-| GET `commands` | Built-ins with stable `name` IDs, effective/default `primary_name` triggers, aliases, permissions, cooldowns and response pools |
+| GET `commands` | Built-ins with stable `name` IDs, effective/default `primary_name` triggers, aliases, permissions, cooldowns, delivery and response pools |
 | POST `commands/save` | Stable `command_name` ID, `enabled`, `per_user_seconds`, `global_seconds`, `permission`; optional `options` with `primary_name`, `aliases`, `display_name`, `burst_interval_ms`, `burst_max_count` |
 | POST `commands/reset`, `commands/remove`, `commands/restore` | `command_name`; factory administrative permission floors remain enforced |
 | POST `commands/apply` / `commands/reset-all` | Same arguments as Save but session-only / `{}` to restore all factory settings/responses, never custom commands |
@@ -398,7 +398,7 @@ POST writes persist and apply immediately unless stated otherwise.
 | POST `privacy/opt-outs/list` | Optional `query` (stored username, up to 100 characters), `offset` (nonnegative integer), `limit` (1-100, default 50). Returns bounded `users`, `total`, `offset`, `limit`; each user has internal `twitch_user_id`, nullable stored `username` and nullable UTC `opted_out_at`. |
 | POST `privacy/opt-outs/add` | `username`; verifies identity and applies profile-wide deletion/suppression using the self-service operation. Repeated adds preserve the original timestamp. |
 | POST `privacy/opt-outs/withdraw` | `twitch_user_id`, `confirmed: true`; allows future storage without restoring history or permitting old in-flight work to save. |
-| GET / POST `triggers` | GET: ordinary-message reactions. POST: complete `triggers` list, at most 100 unique IDs |
+| GET / POST `triggers` | GET returns the ordered reaction list and its `revision`. POST accepts the complete `triggers` list with at most 100 unique IDs. Supply the GET `revision` to reject stale edits. |
 | POST `logs/recent` | Optional integer `after_id` (default 0), `limit` (1–200, default 100); allowlisted operator activity plus `next_after_id` advancing across excluded entries; authentication required |
 | GET `diagnostics` | Process uptime, desired session state and settings/restart boundaries |
 
@@ -550,7 +550,8 @@ callback URL as sensitive, close its browser tab afterwards, and remove it from
 browser history when practical. Remote HTTPS callback automation is not supported.
 
 Limits are 64 KiB per JSON request, except AI setup allows 256 KiB for escaped Unicode
-instructions, announcements allow 768 KiB for their bounded message collections,
+instructions, announcements allow 768 KiB for their message collections, chat reactions
+allow 3 MiB for the full collection with JSON escaping,
 and configuration preview/import allow
 1,399,128 bytes for a base64-encoded ZIP of at most 1 MiB and its fixed arguments.
 Configuration export retains the 2 MiB response limit. Format version 1 requires
