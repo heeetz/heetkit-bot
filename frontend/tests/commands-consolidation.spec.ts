@@ -15,16 +15,22 @@ for (const width of [1280, 390, 320]) {
     const ask = page.locator('#command-editor-ask')
     await ask.getByRole('button', { name: 'Edit !ask', exact: true }).click()
     const primary = await bounds(ask.getByLabel('Primary chat name', { exact: true }))
+    const sendAs = await bounds(ask.getByLabel('Send as', { exact: true }))
     const display = await bounds(ask.getByLabel('Name in UI', { exact: true }))
     const aliases = await bounds(ask.getByLabel('Aliases, separated by commas', { exact: true }))
     const permission = await bounds(ask.getByLabel('Permission', { exact: true }))
-    expect(permission.y).toBeGreaterThan(aliases.y)
+    expect(primary.y).toBeGreaterThan(permission.y)
     await expect(ask.getByRole('combobox', { name: 'Response type' })).toHaveCount(0)
     if (width === 1280) {
-      expect(primary.y).toBe(display.y); expect(display.y).toBe(aliases.y)
-      expect(aliases.width / primary.width).toBeGreaterThan(1.8)
-    } else {
+      expect(primary.y).toBe(sendAs.y)
+      expect(display.y).toBe(aliases.y)
       expect(display.y).toBeGreaterThan(primary.y)
+      expect(sendAs.x).toBeGreaterThan(primary.x)
+      expect(aliases.x).toBe(sendAs.x)
+      expect(aliases.width).toBeCloseTo(primary.width, 0)
+    } else {
+      expect(sendAs.y).toBeGreaterThan(primary.y)
+      expect(display.y).toBeGreaterThan(sendAs.y)
       expect(aliases.y).toBeGreaterThan(display.y)
     }
     await ask.screenshot({ path: `node_modules/.tmp/consolidation-ask-${width}.png` })

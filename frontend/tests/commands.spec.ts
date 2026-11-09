@@ -215,7 +215,7 @@ test('creator and existing-command editor appear above the list with compact tem
   await expect(page.locator('.command-summary-title strong')).toHaveText(['!fate', '!ping', '!tg'])
   await page.getByRole('button', { name: 'New command', exact: true }).click()
   const editor = page.locator('.custom-command-editor')
-  const list = page.locator('.custom-command-list')
+  const list = page.locator('#custom-commands .custom-command-list')
   await expect(editor).toBeVisible()
   await expect(editor.getByLabel('Stream availability', { exact: true })).toHaveCount(0)
   await expect(editor.getByLabel('Response type', { exact: true })).toHaveAttribute('data-value', 'single')
@@ -257,6 +257,8 @@ test('new and existing custom commands save lines, commas, variables and setting
   await editor.getByLabel('Aliases, separated by commas', { exact: true }).fill('greeting, welcome')
   await selectOption(editor.getByRole('combobox', { name: 'Permission', exact: true }), 'MODERATOR')
   await selectOption(editor.getByLabel('Response type', { exact: true }), 'random')
+  const delivery = editor.getByRole('combobox', { name: 'Send as', exact: true })
+  await selectOption(delivery, 'mention')
   await editor.getByLabel('Per-user cooldown (seconds)', { exact: true }).fill('3')
   await editor.getByLabel('Global cooldown (seconds)', { exact: true }).fill('7')
   await editor.locator('textarea').fill('  Hello, {sender}!\n\n Welcome, {arg9}! \n  ')
@@ -265,11 +267,12 @@ test('new and existing custom commands save lines, commas, variables and setting
   expect((await calls(page))[0]).toEqual(['save_custom_command', {
     id: null, name: 'greet', enabled: true, responses: ['Hello, {sender}!', 'Welcome, {arg9}!'],
     permission: 'MODERATOR', per_user_seconds: 3, global_seconds: 7, aliases: ['greeting', 'welcome'],
-    response_mode: 'random',
+    response_mode: 'random', send_as: 'mention',
   }])
   const row = page.locator('.custom-command-row').filter({ has: page.getByText('!greet', { exact: true }) })
   await expect(row.getByText('Random response', { exact: true })).toBeVisible()
   await row.getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(delivery).toHaveAttribute('data-value', 'mention')
   await expect(editor.locator('textarea')).toHaveValue('Hello, {sender}!\nWelcome, {arg9}!')
   await editor.locator('textarea').fill('Updated, {args}!\n\nHi, {random_user}!')
   await editor.getByRole('button', { name: 'Save command', exact: true }).click()
@@ -277,7 +280,7 @@ test('new and existing custom commands save lines, commas, variables and setting
   expect((await calls(page))[1][1]).toMatchObject({
     id: 'synthetic-new', responses: ['Updated, {args}!', 'Hi, {random_user}!'],
     aliases: ['greeting', 'welcome'], permission: 'MODERATOR', per_user_seconds: 3, global_seconds: 7,
-    response_mode: 'random',
+    response_mode: 'random', send_as: 'mention',
   })
 })
 
