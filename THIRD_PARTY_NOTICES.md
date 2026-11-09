@@ -17,8 +17,9 @@ These notices do not relicense any dependency under the project's Apache license
 
 Weather country qualifiers use English, Ukrainian and Russian territory names
 from [Unicode CLDR 48](https://github.com/unicode-org/cldr/tree/release-48).
-The derived [country table](app/services/weather_countries.py) carries the
-Unicode-3.0 copyright and permission notice.
+The derived [country table](app/services/weather_countries.py) and the bundled
+[Unicode-3.0 notice](third_party_licenses/data/Unicode-CLDR-48-LICENSE.txt)
+carry the copyright and permission terms.
 
 ## Windows v1.1.0 artifact review
 
