@@ -602,6 +602,7 @@ export interface AIPlaygroundResult {
 
 export interface DesktopStartupStatus {
   state: 'starting' | 'mapping_required' | 'failed' | 'ready'
+  windows?: boolean
   suggested_channel?: string
   suggested_channel_id?: string
   error?: string | null

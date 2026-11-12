@@ -1,13 +1,16 @@
 """Exercise the actual publication step with synthetic artifacts and no GitHub calls."""
 
+import base64
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import textwrap
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 import pytest
 
 from app.version import VERSION
@@ -50,8 +53,9 @@ def publication(tmp_path, *, notes=None, tag=None, version=VERSION, prerelease="
     if tag is None:
         tag = f"v{version}"
     base = f"HeetKit-{version}-windows-x64"
-    artifacts = tmp_path / "release-artifacts"
-    artifacts.mkdir()
+    source = tmp_path / "release-source"
+    artifacts = source / "release-artifacts"
+    artifacts.mkdir(parents=True)
     hashes = {}
     for suffix in (".zip", "-setup.exe"):
         name = base + suffix
@@ -64,9 +68,24 @@ def publication(tmp_path, *, notes=None, tag=None, version=VERSION, prerelease="
         "installer_sha256": hashes["-setup.exe"],
     }), encoding="utf-8")
     if notes is not None:
-        path = tmp_path / f"docs/releases/v{version}.md"
+        path = source / f"docs/releases/v{version}.md"
         path.parent.mkdir(parents=True)
         path.write_text(notes, encoding="utf-8")
+    installer = artifacts / (base + "-setup.exe")
+    key = Ed25519PrivateKey.generate()
+    key_path = source / "app/resources/update-publisher.pub"
+    if change != "missing key":
+        key_path.parent.mkdir(parents=True)
+        key_path.write_text(key.public_key().public_bytes_raw().hex() + "\n", encoding="ascii")
+    manifest = json.dumps({
+        "version": version, "asset": installer.name, "size": installer.stat().st_size,
+        "sha256": "0" * 64 if change == "wrong signed hash" else hashes["-setup.exe"],
+    }).encode() + b"\r\n"
+    signature = key.sign(manifest)
+    if change == "wrong key":
+        signature = Ed25519PrivateKey.generate().sign(manifest)
+    if change == "changed manifest bytes":
+        manifest = manifest.replace(b"\r\n", b"\n")
     if change == "zip":
         (artifacts / (base + ".zip")).write_bytes(b"tampered")
     elif change == "installer":
@@ -82,13 +101,22 @@ def publication(tmp_path, *, notes=None, tag=None, version=VERSION, prerelease="
         (artifacts / (base + ".zip")).unlink()
     script = workflow_script("Verify downloads and publish the existing tag")
     # The local function captures the actual gh arguments; it never contacts GitHub.
-    harness = """$ErrorActionPreference = 'Stop'
+    interpreter = sys.executable.replace("'", "''")
+    harness = f"$ErrorActionPreference = 'Stop'\nfunction python {{ & '{interpreter}' @args }}\n" + """
 function gh { $args | ConvertTo-Json | Set-Content -LiteralPath 'gh-arguments.json'; $global:LASTEXITCODE = 0 }
 """ + f"$env:APP_VERSION = '{version}'\n$env:RELEASE_TAG = '{tag}'\n$env:PRERELEASE = '{prerelease}'\n" + script
     runner = tmp_path / "publish.ps1"
     runner.write_text(harness, encoding="utf-8")
     result = subprocess.run([SHELL, "-NoProfile", "-NonInteractive", "-File", str(runner)],
-                            cwd=tmp_path, capture_output=True, text=True, timeout=30)
+                            cwd=tmp_path, capture_output=True, text=True, timeout=30, env={
+                                **os.environ, "PYTHONPATH": str(ROOT),
+                                "INSTALLER_MANIFEST": base64.b64encode(manifest).decode("ascii"),
+                                "INSTALLER_SIGNATURE": "" if change == "missing signature"
+                                else base64.b64encode(signature).decode("ascii"),
+                            })
+    if result.returncode == 0:
+        assert installer.with_name(installer.name + ".manifest.json").read_bytes() == manifest
+        assert installer.with_name(installer.name + ".manifest.sig").read_bytes() == signature
     return result
 
 
@@ -103,7 +131,7 @@ def test_publication_uses_curated_tagged_notes_and_exact_verified_assets(tmp_pat
     result = publication(tmp_path, notes=notes, **metadata)
     assert result.returncode == 0, result.stderr
     args = json.loads((tmp_path / "gh-arguments.json").read_text(encoding="utf-8-sig"))
-    assert args[:6] == ["release", "create", f"v{version}", "--verify-tag", "--notes-file", f"docs/releases/v{version}.md"]
+    assert args[:6] == ["release", "create", f"v{version}", "--verify-tag", "--notes-file", f"release-source/docs/releases/v{version}.md"]
     assert "--generate-notes" not in args
     offset = 6
     if prerelease == "true":
@@ -112,8 +140,10 @@ def test_publication_uses_curated_tagged_notes_and_exact_verified_assets(tmp_pat
     else:
         assert "--prerelease" not in args
         assert "--latest=false" not in args
-    assert len(args[offset:]) == 5
-    assert {Path(path).name for path in args[offset:]} == {path.name for path in (tmp_path / "release-artifacts").iterdir()}
+    assert len(args[offset:]) == 7
+    assert {Path(path).name for path in args[offset:]} == {
+        path.name for path in (tmp_path / "release-source/release-artifacts").iterdir()
+    }
 
 
 @pytest.mark.parametrize("version,tag,event,reason", [
@@ -142,6 +172,21 @@ def test_manual_branch_candidate_has_no_tag_requirement(tmp_path):
 def test_invalid_artifacts_prevent_prerelease_publication(tmp_path, change, reason):
     notes = (ROOT / f"docs/releases/v{VERSION}.md").read_text(encoding="utf-8")
     result = publication(tmp_path, notes=notes, prerelease="true", change=change)
+    assert result.returncode != 0
+    assert reason in result.stderr
+    assert not (tmp_path / "gh-arguments.json").exists()
+
+
+@pytest.mark.parametrize("change,reason", [
+    ("missing key", "no valid pinned update publisher key"),
+    ("missing signature", "Missing or oversized installer signature"),
+    ("wrong key", "failed publisher verification"),
+    ("changed manifest bytes", "failed publisher verification"),
+    ("wrong signed hash", "failed size or SHA-256 verification"),
+])
+def test_invalid_signed_sidecars_prevent_publication(tmp_path, change, reason):
+    notes = (ROOT / f"docs/releases/v{VERSION}.md").read_text(encoding="utf-8")
+    result = publication(tmp_path, notes=notes, change=change)
     assert result.returncode != 0
     assert reason in result.stderr
     assert not (tmp_path / "gh-arguments.json").exists()

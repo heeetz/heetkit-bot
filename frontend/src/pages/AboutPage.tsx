@@ -1,18 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
-import { type AboutInfo, type DesktopUpdateProgress, type UpdateCheckResponse, isBrowserMode, waitForBridge } from '../bridge'
+import { type AboutInfo, type DesktopUpdateProgress, isBrowserMode, waitForBridge } from '../bridge'
 import HelpTip from '../components/HelpTip'
 import { confirmDesktopRestart } from '../desktopRestart'
+import type useUpdateCheck from '../useUpdateCheck'
 
 type ExternalDestination = 'repository' | 'license' | 'third_party_notices' | 'author_twitch' | 'releases'
 
-function AboutPage() {
+function AboutPage({ updates }: { updates: ReturnType<typeof useUpdateCheck> }) {
   const [about, setAbout] = useState<AboutInfo | null>(null)
   const [error, setError] = useState('')
   const [copyLabel, setCopyLabel] = useState('Copy')
   const [opening, setOpening] = useState<ExternalDestination | ''>('')
-  const [updateResult, setUpdateResult] = useState<UpdateCheckResponse | null>(null)
+  const { result: updateResult, error: checkError, busy: updateBusy, check } = updates
   const [updateError, setUpdateError] = useState('')
-  const [updateBusy, setUpdateBusy] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [progress, setProgress] = useState<DesktopUpdateProgress>({})
   const updateLock = useRef(false)
@@ -84,29 +84,13 @@ function AboutPage() {
 
   const checkForUpdates = async () => {
     if (updateLock.current) return
-    updateLock.current = true
-    setUpdateResult(null)
     setUpdateError('')
-    setUpdateBusy(true)
-    try {
-      const api = await waitForBridge()
-      const result = await api.check_for_updates()
-      if (!result.ok) {
-        setUpdateError(result.error ?? 'Could not check for updates.')
-        return
-      }
-      setUpdateResult(result)
-    } catch (reason) {
-      setUpdateError(reason instanceof Error ? reason.message : 'Could not check for updates.')
-    } finally {
-      updateLock.current = false
-      setUpdateBusy(false)
-    }
+    await check()
   }
 
   const installUpdate = async () => {
     const version = updateResult?.latest_version
-    if (updateLock.current || !version) return
+    if (updateLock.current || updateBusy || !version) return
     updateLock.current = true
     setInstalling(true)
     setProgress({})
@@ -162,17 +146,17 @@ function AboutPage() {
         <p className="about-disclaimer">Not affiliated with or endorsed by Twitch.</p>
       </article>
 
-      {!isBrowserMode() && <article className="card update-card">
+      {!isBrowserMode() && <article className="card update-card" id="desktop-updates" aria-labelledby="desktop-updates-title">
         <div className="section-heading update-heading">
           <div className="update-title">
-            <h2>Check for updates</h2>
-            <HelpTip label="Check for updates">HeetKit checks the latest stable release on request. Update &amp; restart downloads and verifies the installer before closing HeetKit. Open release / downloads is available for manual installation.</HelpTip>
+            <h2 id="desktop-updates-title">Check for updates</h2>
+            <HelpTip label="Check for updates">On Windows, HeetKit checks for the latest stable release after startup. You can also check manually. Update &amp; restart downloads and verifies the installer before closing HeetKit. Open release / downloads is available for manual installation.</HelpTip>
           </div>
         </div>
         <div className="update-toolbar">
           <div className="update-actions">
             <button className={updateResult?.automatic_update ? 'secondary' : 'primary'} onClick={() => void checkForUpdates()} disabled={updateBusy || installing}>
-              {updateBusy ? 'Checking…' : updateResult || updateError ? 'Check again' : 'Check for updates'}
+              {updateBusy ? 'Checking…' : updateResult || checkError ? 'Check again' : 'Check for updates'}
             </button>
             <button className="secondary" onClick={() => void openExternal('releases')} disabled={opening === 'releases'}>
               {opening === 'releases' ? 'Opening…' : 'Open release / downloads'}
@@ -205,7 +189,7 @@ function AboutPage() {
           {progress.phase === 'ready' ? 'Closing HeetKit to install the update…' : progress.phase === 'verifying' ? 'Verifying installer and preparing the restart…' : 'Downloading installer…'}
           {progress.phase === 'downloading' && <progress aria-label="Installer download" value={progress.downloaded} max={progress.total} />}
         </div>}
-        {updateError && <p className="inline-error update-error" role="alert">{updateError}</p>}
+        {(updateError || checkError) && <p className="inline-error update-error" role="alert">{updateError || checkError}</p>}
       </article>}
 
       <article className="card about-links-card">

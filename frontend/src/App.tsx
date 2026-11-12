@@ -31,6 +31,7 @@ import BrowserSession from './components/BrowserSession'
 import DesktopStartup from './components/DesktopStartup'
 import Confirmation from './components/Confirmation'
 import { restartDesktop } from './desktopRestart'
+import useUpdateCheck from './useUpdateCheck'
 import './styles.css'
 
 const sections = ['Dashboard', 'Commands', 'Filters', 'AI', 'Logs', 'Analytics', 'Settings', 'About'] as const
@@ -116,7 +117,7 @@ function formatCheckedAt(value: string | null): string {
   return Number.isNaN(date.getTime()) ? 'Unavailable' : date.toLocaleString()
 }
 
-function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuthorizeTwitch, onChangeBrowserMode, onNavigate, busy }: {
+function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuthorizeTwitch, onChangeBrowserMode, onNavigate, onOpenUpdate, busy }: {
   status: AppStatus | null
   aiStatus: AIStatus | null
   onChangeBotState: (shouldRun: boolean) => void
@@ -124,6 +125,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
   onAuthorizeTwitch: () => void
   onChangeBrowserMode: (mode: BrowserOperationMode) => void
   onNavigate: (section: Extract<Section, 'AI' | 'Settings' | 'Logs'>, targetId?: string) => void
+  onOpenUpdate?: () => void
   busy: string
 }) {
   const [setup, setSetup] = useState<DashboardSetup | null>(null)
@@ -244,13 +246,16 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
           </div>
         </div>
         {operation?.mode !== 'disabled' && (
-          <button
-            className={status?.running ? 'secondary' : 'primary'}
-            disabled={!status || lifecycleBusy || (!status.running && !automaticOperation && (pendingRestart || needsTwitchSetup))}
-            onClick={() => onChangeBotState(automaticOperation ? false : !status?.running)}
-          >
-            {busy === 'bot' ? 'Working…' : operation?.pending ? 'Reconciling…' : automaticOperation ? 'Switch to Manual & disconnect' : browserManaged ? status?.running ? 'Disconnect' : 'Connect' : status?.running ? 'Stop Bot' : 'Start Bot'}
-          </button>
+          <div className="dashboard-hero-actions">
+            {onOpenUpdate && <button type="button" className="secondary dashboard-update" onClick={onOpenUpdate}>Update available</button>}
+            <button
+              className={status?.running ? 'secondary' : 'primary'}
+              disabled={!status || lifecycleBusy || (!status.running && !automaticOperation && (pendingRestart || needsTwitchSetup))}
+              onClick={() => onChangeBotState(automaticOperation ? false : !status?.running)}
+            >
+              {busy === 'bot' ? 'Working…' : operation?.pending ? 'Reconciling…' : automaticOperation ? 'Switch to Manual & disconnect' : browserManaged ? status?.running ? 'Disconnect' : 'Connect' : status?.running ? 'Stop Bot' : 'Start Bot'}
+            </button>
+          </div>
         )}
       </article>
       {(needsTwitchSetup || pendingRestart || pendingReconnect || setupError) && (
@@ -569,7 +574,7 @@ function LogsPage() {
   )
 }
 
-function ManagementApp() {
+function ManagementApp({ windowsDesktop = false }: { windowsDesktop?: boolean }) {
   const [section, setSection] = useState<Section>('Dashboard')
   const [aboutVisited, setAboutVisited] = useState(false)
   const [navigationTarget, setNavigationTarget] = useState<{ id?: string } | null>(null)
@@ -579,6 +584,7 @@ function ManagementApp() {
   const [aiStatus, setAIStatus] = useState<AIStatus | null>(null)
   const [error, setError] = useState('')
   const [actionBusy, setActionBusy] = useState('')
+  const updates = useUpdateCheck(windowsDesktop)
 
   const navigate = (nextSection: Section, targetId?: string) => {
     if (nextSection === 'About') setAboutVisited(true)
@@ -802,6 +808,7 @@ function ManagementApp() {
               onAuthorizeTwitch={() => void authorizeTwitch()}
               onChangeBrowserMode={(mode) => void changeBrowserMode(mode)}
               onNavigate={navigate}
+              onOpenUpdate={windowsDesktop && updates.result?.update_available ? () => navigate('About', 'desktop-updates') : undefined}
             />
           )}
           <div hidden={section !== 'Commands'}><CommandsPage active={section === 'Commands'} revealCommand={navigationTarget?.id === 'command-editor-ask' ? 'ask' : undefined} onAIEnabledChanged={synchronizeAIEnabled} /></div>
@@ -810,7 +817,7 @@ function ManagementApp() {
           {section === 'Logs' && <LogsPage />}
           {section === 'Analytics' && <AnalyticsPage />}
           <div hidden={section !== 'Settings'}><SettingsPage active={section === 'Settings'} status={status} /></div>
-          {aboutVisited && <div hidden={section !== 'About'}><AboutPage /></div>}
+          {aboutVisited && <div hidden={section !== 'About'}><AboutPage updates={updates} /></div>}
         </div>
       </main>
     </div>
@@ -818,5 +825,7 @@ function ManagementApp() {
 }
 
 export default function App() {
-  return isBrowserMode() ? <BrowserSession><ManagementApp /></BrowserSession> : <DesktopStartup><ManagementApp /></DesktopStartup>
+  return isBrowserMode() ? <BrowserSession><ManagementApp /></BrowserSession> : (
+    <DesktopStartup>{(windows) => <ManagementApp windowsDesktop={windows} />}</DesktopStartup>
+  )
 }

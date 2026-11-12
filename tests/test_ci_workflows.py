@@ -213,22 +213,26 @@ def test_candidate_preserves_canonical_builds_without_publication():
 def test_publish_is_manual_and_only_publication_gets_write_permission():
     data = workflow("publish-release")
     assert set(data["on"]) == {"workflow_dispatch"}
-    assert set(data["on"]["workflow_dispatch"]["inputs"]) == {"sha", "tag", "candidate_run_id", "full_run_id"}
+    assert set(data["on"]["workflow_dispatch"]["inputs"]) == {
+        "sha", "tag", "candidate_run_id", "full_run_id", "installer_manifest", "installer_signature",
+    }
     assert all(i["required"] == "true" for i in data["on"]["workflow_dispatch"]["inputs"].values())
     job = data["jobs"]["publish-release"]
     assert job["if"] == "github.ref == 'refs/heads/main'"
     assert job["permissions"] == {"contents": "write", "actions": "read"}
     commands = "\n".join(s.get("run", "") for s in job["steps"])
     assert "python scripts/release_evidence.py verify" in commands
+    assert "python -m scripts.release_evidence verify-update" in commands
     assert "gh @releaseArgs @assets" in commands
-    for forbidden in ("build_windows.py", "build_installer.py", "npm", "pip install", "gh workflow run"):
+    for forbidden in ("build_windows.py", "build_installer.py", "npm", "gh workflow run"):
         assert forbidden not in commands
     checkout = [s for s in job["steps"] if s.get("uses", "").startswith("actions/checkout@")]
     assert [s["with"]["ref"] for s in checkout] == ["${{ github.sha }}", "${{ inputs.sha }}"]
     assert all(s["with"]["persist-credentials"] == "false" for s in checkout)
     gate, publish = job["steps"][-2:]
     assert gate["env"]["RELEASE_SHA"] == "${{ inputs.sha }}"
-    assert publish["working-directory"] == "release-source"
+    assert publish["env"]["INSTALLER_MANIFEST"] == "${{ inputs.installer_manifest }}"
+    assert publish["env"]["INSTALLER_SIGNATURE"] == "${{ inputs.installer_signature }}"
     assert "if" not in publish  # Default success gate: failed verification cannot publish.
 
 

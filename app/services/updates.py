@@ -20,6 +20,8 @@ RELEASE_DOWNLOAD_URL = "https://github.com/heeetz/heetkit-bot/releases/download"
 UPDATE_CHECK_TIMEOUT_SECONDS = 10.0
 MAX_RESPONSE_BYTES = 256 * 1024
 MAX_INSTALLER_BYTES = 512 * 1024 * 1024
+MAX_MANIFEST_BYTES = 4096
+SIGNATURE_BYTES = 64
 DOWNLOAD_TIMEOUT_SECONDS = 900
 PUBLISHER_KEY = Path(__file__).resolve().parents[1] / "resources" / "update-publisher.pub"
 _VERSION_RE = re.compile(r"v?(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
@@ -79,9 +81,9 @@ def select_installer(payload: dict, version: str) -> ReleaseAssets | None:
     return ReleaseAssets(version, tag, size, digest)
 
 
-def publisher_key() -> bytes | None:
+def publisher_key(path: Path | None = None) -> bytes | None:
     try:
-        with PUBLISHER_KEY.open("rb") as source:
+        with (path or PUBLISHER_KEY).open("rb") as source:
             raw = source.read(67)
         return bytes.fromhex(raw.decode("ascii")) if re.fullmatch(rb"[a-fA-F0-9]{64}(?:\r?\n)?", raw) else None
     except (OSError, ValueError):
@@ -137,8 +139,8 @@ async def authorize_installer(client: httpx.AsyncClient, assets: ReleaseAssets, 
     manifest, signature = bytearray(), bytearray()
     try:
         async with asyncio.timeout(10):
-            await _download(client, assets.url(".manifest.json"), 4096, manifest.extend)
-            await _download(client, assets.url(".manifest.sig"), 64, signature.extend)
+            await _download(client, assets.url(".manifest.json"), MAX_MANIFEST_BYTES, manifest.extend)
+            await _download(client, assets.url(".manifest.sig"), SIGNATURE_BYTES, signature.extend)
     except (TimeoutError, httpx.HTTPError) as error:
         raise UpdateCheckError("Could not download the signed release manifest.") from error
     return verify_manifest(assets, bytes(manifest), bytes(signature), key)

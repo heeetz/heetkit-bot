@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { StrictMode, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from '../src/App'
 import AboutPage from '../src/pages/AboutPage'
 import FeedbackToast from '../src/components/FeedbackToast'
 import SettingsPage from '../src/pages/SettingsPage'
+import useUpdateCheck from '../src/useUpdateCheck'
 import type {
   AILanguageInfo,
   AILanguageSettings,
@@ -125,7 +126,7 @@ const toggleCommands: CommandInfo[] = ['ask', 'ping'].map((name) => ({
   saved: true, has_saved_override: true,
 }))
 window.pywebview = { api: {
-  get_desktop_startup: async () => ({ state: startupState, suggested_channel: 'syntheticchannel',
+  get_desktop_startup: async () => ({ state: startupState, windows: !query.has('nonWindows'), suggested_channel: 'syntheticchannel',
     suggested_channel_id: query.has('noSuggestedChannel') ? '' : '200',
     error: startupState === 'failed' ? 'Recovery backup could not be verified. Keep the database and recovery copies; close HeetKit and review the recovery guide.' : null }),
   confirm_legacy_channel: async (channelId: string, confirmed: boolean) => {
@@ -579,8 +580,14 @@ function ToastFixture() {
   </>
 }
 
+function AboutFixture() {
+  const updates = useUpdateCheck()
+  return <main><div className="page-content"><AboutPage updates={updates} /></div></main>
+}
+
 createRoot(document.getElementById('root')!).render(
   query.has('toast') ? <ToastFixture />
-    : query.has('about') ? <main><div className="page-content"><AboutPage /></div></main>
-    : query.has('settings') ? <main><SettingsPage active status={status} /></main> : <App />,
+    : query.has('about') ? <AboutFixture />
+    : query.has('settings') ? <main><SettingsPage active status={status} /></main>
+    : query.has('strict') ? <StrictMode><App /></StrictMode> : <App />,
 )

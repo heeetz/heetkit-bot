@@ -25,8 +25,10 @@ access. For Server, follow [Docker backup and updates](docker.md#backup-restore-
 
 **In HeetKit:** **About > Check for updates** on Desktop.
 
-1. Open **About**.
-2. Select **Check for updates**. This checks GitHub for a stable release.
+1. Windows Desktop checks GitHub once after startup. If a newer stable release
+   is available, select **Update available** beside the bot controls to open the
+   update section in About.
+2. To check on demand, open **About** and select **Check for updates** or **Check again**.
 3. On an installed Windows x64 copy, select **Update & restart** when offered.
    HeetKit downloads and verifies the full installer while the app is open.
    If an editor has an unsaved draft, you can cancel the restart, save the draft,
@@ -76,11 +78,11 @@ On the signing machine, calculate the size and SHA-256 of the final, unchanged
 (without the `v`), `asset` (the exact installer filename), `size` (integer bytes)
 and `sha256` (lowercase hex). Sign those exact bytes with Ed25519, for example
 `openssl pkeyutl -sign -rawin -inkey <private-key> -in <manifest> -out <signature>`.
-Include the two files on the same stable release as the installer, with
+Publish the two files alongside the installer, with
 `.manifest.json` and `.manifest.sig` appended to the full installer filename. The
-signature is the raw 64-byte output. Releases without publisher verification are
-available for manual installation. Prepare and attach the verification files as
-part of a separately authorized publication.
+signature is the raw 64-byte output. Transfer only the manifest and detached
+signature to the release operator. Older releases without publisher verification
+are available for manual installation.
 
 ## Build inputs and version
 
@@ -238,9 +240,11 @@ GitHub CLI. It requires successful completed manual runs of the expected workflo
 from this repository's main branch and matching evidence from their current attempts.
 It downloads the original candidate by ID, verifies its archive SHA-256 against both
 the evidence and API digest, and copies only the five expected flat filenames.
-Publication then rechecks the portable/installer sidecars, installer traceability
-and exact-version curated notes. Existing canonical builder inspections, notice and
-private-content/profile-isolation checks still gate candidate creation.
+Publication rechecks the portable and installer checksums, installer traceability
+and exact-version curated notes. It uses the candidate source's embedded public key
+to verify the supplied manifest bytes and checks that the signed version, asset name,
+size and SHA-256 match the original installer. Existing canonical builder inspections,
+notice and private-content/profile-isolation checks still gate candidate creation.
 
 Missing, expired, ambiguous or changed artifacts, a different repository/ref/version/tag,
 a failed/incomplete run or stale attempt evidence stop publication. Status/attempts
@@ -254,24 +258,29 @@ is missing or a candidate rerun encounters an existing immutable artifact name.
 2. Write user-facing notes in `docs/releases/v<version>.md`, starting with
    `# HeetKit v<version>`. These versioned files are the canonical release-notes
    source; describe actual changes since the previous stable release.
-3. Commit and push the release-ready state to `main`. Wait for Quick, then manually
+3. Ensure the production publisher public key is in the source before building.
+   Commit and push the release-ready state to `main`. Wait for Quick, then manually
    run Full validation with that exact SHA. After it passes, run Build candidate with
    the same SHA. Verify the candidate artifacts and resolve the publication gates below.
+   Sign the exact verified installer manifest offline and retain both sidecars.
    These are separate owner-requested operations, not automatic task completion.
 4. Create the matching tag **at that verified SHA**, for example
    `git tag v1.4.1 <SHA>` for version `1.4.1`, then `git push origin v1.4.1`.
    This records traceability only; it starts no workflow.
 5. After artifact/manual acceptance, explicitly run **Actions > Publish > Run workflow**
-   from main with `sha`, `tag`, `candidate_run_id` and `full_run_id`. Publish verifies
-   the identified evidence and original candidate, then creates the release with all
-   five unchanged files and curated notes from that exact source commit.
+   from main with `sha`, `tag`, `candidate_run_id`, `full_run_id`, and Base64 of the
+   two sidecar files as `installer_manifest` and `installer_signature`. Publish verifies
+   the evidence, candidate and signature, then creates the release with the five
+   unchanged candidate files, both unchanged sidecars and the exact source's curated notes.
 
 Equivalent GitHub CLI commands (replace placeholders; each needs explicit owner scope):
 
 ```powershell
 gh workflow run full-validation.yml --ref main -f ref=<SHA>
 gh workflow run windows-build.yml --ref main -f ref=<SHA>
-gh workflow run publish-release.yml --ref main -f sha=<SHA> -f tag=v<VERSION> -f candidate_run_id=<CANDIDATE_RUN_ID> -f full_run_id=<FULL_RUN_ID>
+$manifestInput = [Convert]::ToBase64String([IO.File]::ReadAllBytes('<absolute path to installer.manifest.json>'))
+$signatureInput = [Convert]::ToBase64String([IO.File]::ReadAllBytes('<absolute path to installer.manifest.sig>'))
+gh workflow run publish-release.yml --ref main -f sha=<SHA> -f tag=v<VERSION> -f candidate_run_id=<CANDIDATE_RUN_ID> -f full_run_id=<FULL_RUN_ID> -f "installer_manifest=$manifestInput" -f "installer_signature=$signatureInput"
 ```
 
 Wait for each selected run to succeed and retain its ID before proceeding. Any new

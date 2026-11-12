@@ -6,6 +6,8 @@ GitHub access uses the runner's gh CLI/token. No build or release creation here.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -155,12 +157,51 @@ def verify(*, repository: str, sha: str, tag: str, version: str, candidate_run: 
     print(f"Verified {repository} {sha}: Full {full_run}, candidate {candidate_run}, artifact {artifact['id']}.")
 
 
+def decode_sidecar(value: str, limit: int, name: str) -> bytes:
+    require(0 < len(value) <= 4 * ((limit + 2) // 3), f"Missing or oversized {name} input")
+    try:
+        decoded = base64.b64decode(value, validate=True)
+    except binascii.Error as error:
+        raise ValueError(f"Invalid Base64 for {name}") from error
+    require(0 < len(decoded) <= limit, f"Missing or oversized {name} input")
+    return decoded
+
+
+def verify_update_sidecars(source: Path, version: str, manifest_input: str, signature_input: str) -> None:
+    # Full and candidate evidence recording only needs the standard library.
+    from app.services.updates import (
+        MAX_INSTALLER_BYTES, MAX_MANIFEST_BYTES, SIGNATURE_BYTES, ReleaseAssets,
+        publisher_key, verify_installer_file, verify_manifest,
+    )
+    from app.version import windows_version
+
+    windows_version(version)
+    key = publisher_key(source / "app/resources/update-publisher.pub")
+    require(key is not None, "Candidate source has no valid pinned update publisher key")
+    manifest = decode_sidecar(manifest_input, MAX_MANIFEST_BYTES, "installer manifest")
+    signature = decode_sidecar(signature_input, SIGNATURE_BYTES, "installer signature")
+    require(len(signature) == SIGNATURE_BYTES, "Expected a raw 64-byte installer signature")
+    installer = source / "release-artifacts" / f"HeetKit-{version}-windows-x64-setup.exe"
+    size = installer.stat().st_size
+    require(0 < size <= MAX_INSTALLER_BYTES, "Candidate installer is outside the updater size limit")
+    assets = ReleaseAssets(version, "v" + version, size, None)
+    update = verify_manifest(assets, manifest, signature, key)
+    verify_installer_file(installer, update)
+    for suffix, content in ((".manifest.json", manifest), (".manifest.sig", signature)):
+        with installer.with_name(installer.name + suffix).open("xb") as output:
+            output.write(content)
+    print("Verified the signed updater manifest against the original candidate installer.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("record-full", "record-candidate", "verify"))
+    parser.add_argument("mode", choices=("record-full", "record-candidate", "verify", "verify-update"))
     args = parser.parse_args()
     if args.mode.startswith("record-"):
         record(args.mode.removeprefix("record-"), Path("release-evidence.json"))
+    elif args.mode == "verify-update":
+        verify_update_sidecars(Path("release-source"), os.environ["APP_VERSION"],
+                               os.environ["INSTALLER_MANIFEST"], os.environ["INSTALLER_SIGNATURE"])
     else:
         require(os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch" and
                 os.environ["GITHUB_REF"] == "refs/heads/main", "Publish must be dispatched from main")

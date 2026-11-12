@@ -51,12 +51,39 @@ test('About does not check automatically and checks the latest stable release on
   expect(await page.evaluate(() => Reflect.get(window, 'opened'))).toContain('releases')
 })
 
-test('App navigation does not trigger an update check', async ({ page }) => {
-  await page.goto('/tests/fixture.html')
+test('Windows checks once under Strict Mode and About reuses the result', async ({ page }) => {
+  await page.goto('/tests/fixture.html?configured&strict&updateDelay=250')
+  await expect(page.getByRole('button', { name: 'Start Bot' })).toBeEnabled()
   await page.getByRole('button', { name: 'About', exact: true }).click()
-  await expect(page.locator('.update-card')).toBeVisible()
-  await page.waitForTimeout(100)
+  await expect(page.locator('.update-card')).toContainText('You are up to date')
+  await expect(page.getByRole('button', { name: 'Update available' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
+  await page.getByRole('button', { name: 'About', exact: true }).click()
+  await expect(page.locator('.update-card')).toContainText('You are up to date')
+  expect(await page.evaluate(() => Reflect.get(window, 'updateCalls'))).toEqual([['check_for_updates']])
+})
+
+test('Windows startup failures stay quiet and About can check manually', async ({ page }) => {
+  await page.goto('/tests/fixture.html?configured&updateSequence=reject,newer&updateDelay=200')
+  await page.getByRole('button', { name: 'About', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, 'updateCalls'))).toEqual([['check_for_updates']])
+  await expect(page.locator('.update-card').getByRole('alert')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Check for updates', exact: true }).click()
+  await expect(page.locator('.update-card')).toContainText('Update available')
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Update available' })).toBeVisible()
+})
+
+test('Other Desktop platforms keep manual checking', async ({ page }) => {
+  await page.goto('/tests/fixture.html?nonWindows&updateNewer')
+  await page.getByRole('button', { name: 'About', exact: true }).click()
+  const card = page.locator('.update-card')
+  await expect(card).toBeVisible()
   expect(await page.evaluate(() => Reflect.get(window, 'updateCalls'))).toEqual([])
+  await card.getByRole('button', { name: 'Check for updates', exact: true }).click()
+  await expect(card).toContainText('Update available')
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Update available' })).toHaveCount(0)
 })
 
 test('About shows the current and newer release states with plain-text notes', async ({ page }) => {
@@ -110,20 +137,27 @@ test('About clears stale results and exposes retry after a failed or rejected ch
 test('About update actions lead compact version boxes and wrap within their card', async ({ page }) => {
   for (const width of [1180, 900, 390, 320]) {
     await page.setViewportSize({ width, height: 800 })
-    await page.goto('/tests/fixture.html?configured&updateNewer')
-    await page.getByRole('navigation').getByRole('button', { name: 'About', exact: true }).click()
+    const running = width === 900 || width === 320
+    await page.goto(`/tests/fixture.html?configured&updateNewer${running ? '&connection=connected' : ''}`)
+    const update = page.getByRole('button', { name: 'Update available', exact: true })
+    await expect(update).toBeVisible()
+    const updateBox = (await update.boundingBox())!
+    const botBox = (await page.getByRole('button', { name: running ? 'Stop Bot' : 'Start Bot', exact: true }).boundingBox())!
+    expect(updateBox.x + updateBox.width).toBeLessThanOrEqual(botBox.x)
+    await update.click()
     const card = page.locator('.update-card')
-    const check = card.getByRole('button', { name: 'Check for updates', exact: true })
+    await expect(card.getByRole('heading', { name: 'Check for updates' })).toBeInViewport()
+    const check = card.getByRole('button', { name: 'Check again', exact: true })
     const downloads = card.getByRole('button', { name: 'Open release / downloads' })
     const version = card.locator('.update-summary > div').first()
-    if (width >= 900) {
+    if (width >= 1180) {
       const boxes = await Promise.all([check, downloads, version].map(async (item) => (await item.boundingBox())!))
       expect(boxes[0].x + boxes[0].width).toBeLessThanOrEqual(boxes[1].x)
       expect(boxes[1].x + boxes[1].width).toBeLessThanOrEqual(boxes[2].x)
       for (const box of boxes) expect(box.y + box.height / 2).toBeCloseTo(boxes[0].y + boxes[0].height / 2, 0)
     }
-    await check.click()
     await expect(card.locator('.update-summary > div')).toHaveCount(2)
+    expect(await page.evaluate(() => Reflect.get(window, 'updateCalls'))).toEqual([['check_for_updates']])
     for (const item of await card.locator('.update-summary > div, .update-actions button').all()) {
       const box = (await item.boundingBox())!
       const parent = (await card.boundingBox())!
@@ -190,7 +224,6 @@ test('update allows an editor draft to be saved before shutdown', async ({ page 
   const channel = page.getByLabel('Target channel login')
   await channel.fill('unsaved_channel')
   await page.getByRole('button', { name: 'About', exact: true }).click()
-  await page.getByRole('button', { name: 'Check for updates', exact: true }).click()
   page.once('dialog', async (dialog) => {
     expect(dialog.message()).toContain('Twitch connection')
     await dialog.dismiss()

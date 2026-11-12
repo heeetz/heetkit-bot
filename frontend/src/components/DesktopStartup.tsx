@@ -2,7 +2,7 @@ import { type FormEvent, type ReactNode, useEffect, useState } from 'react'
 import { type DesktopStartupStatus, waitForBridge } from '../bridge'
 import HelpTip from './HelpTip'
 
-export default function DesktopStartup({ children }: { children: ReactNode }) {
+export default function DesktopStartup({ children }: { children: (windows: boolean) => ReactNode }) {
   const [status, setStatus] = useState<DesktopStartupStatus>({ state: 'starting' })
   const [channelId, setChannelId] = useState('')
   const [confirmed, setConfirmed] = useState(false)
@@ -47,7 +47,7 @@ export default function DesktopStartup({ children }: { children: ReactNode }) {
     } catch { setError('Close the Desktop window to exit.') }
   }
 
-  if (status.state === 'ready') return children
+  if (status.state === 'ready') return children(status.windows === true)
   return <main className="browser-login desktop-startup">
     <section className="card" aria-labelledby="startup-title" aria-busy={busy}>
       <div className="brand"><strong>HeetKit</strong></div>

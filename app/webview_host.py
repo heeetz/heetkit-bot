@@ -447,7 +447,7 @@ class WebUIBridge(ApplicationManagement):
                 self._relaunch_ready = None
             except OSError:
                 self._logger.warning("Could not report Desktop relaunch readiness")
-        return status
+        return {**status, "windows": sys.platform == "win32"}
 
     def confirm_legacy_channel(self, channel_id: object, confirmed: object) -> dict[str, object]:
         try:
