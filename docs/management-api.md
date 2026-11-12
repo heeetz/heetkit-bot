@@ -417,9 +417,12 @@ cleanup finishes and rejects late output; shutdown revokes results and cancels w
 before provider clients close. Results stay in process memory only and are replaced
 by the next test or removed on session end. Provider error bodies, credentials, reasoning
 and tool payloads are never returned. OpenAI also reports its effective response model and
-bounded input/output token counts; unavailable usage is null. Search citations remain
-visible inline URLs and are clickable in the shared Playground. See [AI Playground](ai-setup.md#test-locally-with-ai-playground)
-for quota, saved/draft and attribution limits.
+bounded input/output token counts. Unavailable usage is null. `generation.search_enabled`
+is the saved setting for the selected model, `search_requested` indicates that search
+tools were offered, and `search_used` records provider evidence of tool use. Check `status`
+to distinguish an answer from a search failure or an answer withheld for attribution.
+OpenAI's inline citation URLs are clickable in the shared Playground. See
+[AI Playground](ai-setup.md#test-locally-with-ai-playground) for quota, settings and attribution limits.
 
 Each trigger has `id` (1–40 ASCII letters/digits/underscore/hyphen), boolean
 `enabled` and `case_sensitive`, `match_mode` (`exact` or `contains`), `text`

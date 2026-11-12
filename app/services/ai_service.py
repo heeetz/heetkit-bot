@@ -8,7 +8,7 @@ from re import Pattern
 
 import httpx
 
-from app.config.ai import AI_MAX_RESPONSE_LENGTH, AI_REQUEST_TIMEOUT_SECONDS
+from app.config.ai import AI_REQUEST_TIMEOUT_SECONDS
 from app.config.ai_setup import effective_ai_setup
 from app.config.personalities import (
     AI_PERSONALITY_PROMPTS,
@@ -23,22 +23,16 @@ from app.services.filter_manager import FilterManager
 from app.utils.logging import operator_event, operator_event_scope
 
 logger = logging.getLogger(__name__)
-_SEARCH_TRIGGER_PATTERN = re.compile(
-    r"(?:\b(?:current|currently|now|today|latest|recent|breaking|news|event|events|match|game|score|weather|price|prices|stock|stocks|exchange\s+rate|schedule|concert|release)\b|\b(?:сейчас|сегодня|текущ\w*|последн\w*|свеж\w*|новост\w*|событи\w*|матч|игр\w*|сч[её]т|погод\w*|курс|цен\w*|расписан\w*|концерт|выбор\w*|зараз|сьогодні|поточ\w*|останн\w*|свіж\w*|новин\w*|поді\w*|матч|(?:гра|гри|грою)\b|рахунок|погод\w*|курс|цін\w*|розклад|концерт|вибор\w*)\b|\b(?:who|what|where)\b.{0,60}\b(?:now|today|currently|latest)\b|\b(?:кто|что|где)\b.{0,60}\b(?:сейчас|сегодня|текущ\w*|последн\w*)\b|\b(?:хто|що|де)\b.{0,60}\b(?:зараз|сьогодні|поточ\w*|останн\w*)\b|\b(?:who\s+won|what\s+happened\s+to|кто\s+победил|что\s+произошло|хто\s+переміг|що\s+сталося)\b)",
+# Recognize common direct instructions for tool enforcement. The model decides
+# whether to search on every other prompt, including requests in other languages.
+_EXPLICIT_SEARCH_REQUEST = re.compile(
+    r"^(?:(?:please|(?:can|could|would)\s+you|можешь|можеш|пожалуйста|будь\s+ласка)[,\s]+)*"
+    r"(?:look\s+(?:up|[^.!?\n]{1,80}\s+up)|google|"
+    r"(?:web\s+)?search\s+(?:for|online|the\s+(?:web|internet))|"
+    r"(?:check|find)\s+[^.!?\n]{1,80}\s+(?:online|on\s+the\s+(?:web|internet))|"
+    r"погугли(?:ть|те)?|загугли(?:ть|те)?|пошукай(?:те)?|поищи(?:те)?|"
+    r"(?:найди|знайди|посмотри|подивись)\s+[^.!?\n]{0,80}(?:в|у)\s+(?:інтернеті|интернете))\b",
     re.IGNORECASE,
-)
-
-
-_SEARCH_ENTITY_CONTEXT_PATTERN = re.compile(
-    r"(?:\b(?:better|worse|best|worst|compare|comparison|versus|vs|ranking|ranked|top)\b|"
-    r"\b(?:лучше|хуже|лучший|худший|сравни|сравнение|рейтинг|топ)\b|"
-    r"(?:why\s+(?:was|were|did)\s+\S+\s+(?:banned|removed|cancelled|disappear|leave)|"
-    r"почему\s+\S+\s+(?:забанили|запретили|уш[её]л|исчез|отменили)))",
-    re.IGNORECASE,
-)
-_SEARCH_NAMED_OPINION_PATTERN = re.compile(
-    r"(?i:(?:what\s+do\s+you\s+think\s+about|что\s+ты\s+думаешь\s+о)\s+)"
-    r"(?:[A-Z][a-z0-9_-]{2,}|[А-ЯЁІЇЄҐ][а-яёіїєґ]{2,})",
 )
 
 
@@ -272,15 +266,16 @@ class SharedAIService:
                                                single_attempt=True) if fallback_provider else None
                     options = replace(options, single_attempt=True)
                 legacy_search = provider.capabilities.search if "injected" in self._providers else setup.primary.search
-                use_search = ((setup.primary.search if configured else legacy_search)
-                              and self._should_use_search(prompt))
+                use_search = setup.primary.search if configured else legacy_search
+                explicit_lookup = _EXPLICIT_SEARCH_REQUEST.match(prompt.strip()) is not None
                 generation = replace(generation, model=options.model, thinking=options.thinking,
-                                     search_enabled=setup.primary.search if configured else legacy_search,
+                                     search_enabled=use_search,
                                      search_requested=use_search)
                 request = AIGenerationRequest(
                     system_instruction=self._build_system_instruction(),
                     content=self._build_request_content(prompt, memory_context, stream_category),
                     use_search=use_search,
+                    search_required=use_search and explicit_lookup,
                 )
                 max_length = setup.max_answer_length
                 with operator_event_scope(requested_model=options.model, attempt=1, fallback=False):
@@ -289,20 +284,23 @@ class SharedAIService:
                         if response.status == "model_unavailable" and fallback_provider is not None:
                             if configured and setup.fallback.provider != setup.primary.provider and not setup.cross_provider_acknowledged:
                                 return finish(AIReply("", False, "configuration_error"))
-                            if configured and use_search and not setup.fallback.search:
+                            fallback_search = setup.fallback.search if setup.fallback else use_search
+                            if not configured and "injected" in self._providers:
+                                fallback_search = use_search
+                            if request.search_required and not fallback_search:
                                 return finish(AIReply("", False, "search_unavailable"))
-                            fallback_search = ((setup.fallback.search and self._should_use_search(prompt))
-                                               if configured else use_search)
                             operator_event(logger, "ai.fallback", "model_unavailable")
                             generation = AIGenerationDetails(
                                 fallback_provider.name, fallback_options.model, fallback_options.thinking,
                                 fallback_used=True,
-                                search_enabled=setup.fallback.search if configured else legacy_search,
+                                search_enabled=fallback_search,
                                 search_requested=fallback_search,
                             )
                             with operator_event_scope(provider=fallback_provider.name, model=fallback_options.model,
                                                       attempt=2, fallback=True):
-                                response = await fallback_provider.generate(replace(request, use_search=fallback_search), fallback_options)
+                                fallback_request = replace(request, use_search=fallback_search,
+                                                           search_required=fallback_search and explicit_lookup)
+                                response = await fallback_provider.generate(fallback_request, fallback_options)
                     generation = replace(generation, search_used=response.search_used,
                                          model=response.effective_model or generation.model,
                                          input_tokens=response.input_tokens, output_tokens=response.output_tokens)
@@ -321,25 +319,10 @@ class SharedAIService:
                     if blocked is not None:
                         logger.info("AI response blocked by local response filter")
                         return finish(blocked)
-                    citations = ""
-                    if response.search_used:
-                        if not response.sources:
-                            return finish(AIReply("", False, "search_error"))
-                        if response.inline_citations:
-                            # Native OpenAI citations stay beside the supported text.
-                            # Truncation could remove a citation or the claim it supports.
-                            if len(original_text) > max_length:
-                                return finish(AIReply("", False, "attribution_unavailable"))
-                        else:
-                            citations = " Sources: " + " ".join(dict.fromkeys(source.url for source in response.sources))
-                            if len(citations) + 20 > max_length:
-                                return finish(AIReply("", False, "attribution_unavailable"))
-                    final_text = self._smart_truncate(original_text, max_length - len(citations)) + citations
-                    if citations:
-                        blocked = self._blocked_response_reply(final_text)
-                        if blocked is not None:
-                            return finish(blocked)
-                    return finish(AIReply(final_text, True))
+                    # Truncation could separate required citations from their claims.
+                    if response.inline_citations and len(original_text) > max_length:
+                        return finish(AIReply("", False, "attribution_unavailable"))
+                    return finish(AIReply(self._smart_truncate(original_text, max_length), True))
             except asyncio.CancelledError:
                 operator_event(logger, "ai.logical_finish", "cancelled")
                 raise
@@ -349,14 +332,6 @@ class SharedAIService:
                     operator_event(logger, "ai.failure", "provider_failure", reason=type(error).__name__)
                 status = "timeout" if isinstance(error, (TimeoutError, httpx.TimeoutException)) else "api_error"
                 return finish(AIReply("", False, status))
-
-    @staticmethod
-    def _should_use_search(prompt: str) -> bool:
-        return (
-            _SEARCH_TRIGGER_PATTERN.search(prompt) is not None
-            or _SEARCH_ENTITY_CONTEXT_PATTERN.search(prompt) is not None
-            or _SEARCH_NAMED_OPINION_PATTERN.search(prompt) is not None
-        )
 
     @staticmethod
     def _build_request_content(

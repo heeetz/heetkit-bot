@@ -240,11 +240,10 @@ class GeminiProvider:
             from google.genai import types
 
             content = request.content
-            if request.use_search:
-                content = (
-                    "Use Google Search to verify current, changing, or event-related facts before answering.\n\n"
-                    + content
-                )
+            if request.search_required:
+                # Google Search is a built-in tool selected by Gemini, even on
+                # explicit requests. Check the resulting grounding metadata below.
+                content = "Use Google Search for the current user request before answering.\n\n" + content
             async def request_model(model: str) -> Any:
                 validate_model_options("gemini", model, options.thinking, request.use_search)
                 thinking = native_thinking_parameters("gemini", model, options.thinking)
@@ -253,7 +252,7 @@ class GeminiProvider:
                 # final output. Reserve final-answer room even at a native maximum.
                 output_limit = max(GEMINI_MAX_OUTPUT_TOKENS, budget + 1024)
                 config = types.GenerateContentConfig(
-                    system_instruction=request.system_instruction,
+                    system_instruction=request.system_instruction + request.search_instruction,
                     tools=[types.Tool(google_search=types.GoogleSearch())] if request.use_search else None,
                     thinking_config=types.ThinkingConfig(**thinking) if thinking else None,
                     max_output_tokens=output_limit,
@@ -280,6 +279,11 @@ class GeminiProvider:
                 for metadata in grounding_metadata
                 if metadata is not None
             )
+            grounded = bool(grounding_chunks or any(
+                getattr(metadata, "search_entry_point", None) or getattr(metadata, "grounding_supports", None)
+                for metadata in grounding_metadata
+            ))
+            search_used = bool(search_queries or grounded)
             tool_call_parts = sum(
                 sum(
                     1
@@ -313,7 +317,10 @@ class GeminiProvider:
                 for candidate in candidates
             )
             if safety_blocked:
-                return AIProviderResponse(safety_blocked=True, **usage)
+                return AIProviderResponse(safety_blocked=True, search_used=search_used, **usage)
+            if ((search_used and not request.use_search)
+                    or (not grounded and (request.search_required or search_used))):
+                return AIProviderResponse(status="search_error", search_used=search_used, **usage)
             # Never trust a convenience accessor to decide which parts are thoughts.
             # Candidates are the provider's canonical final-answer surface.
             text = ""
@@ -321,7 +328,8 @@ class GeminiProvider:
                 candidate = candidates[0]
                 finish = str(getattr(candidate, "finish_reason", "")).rsplit(".", 1)[-1]
                 if finish in {"MAX_TOKENS", "MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL", "OTHER"}:
-                    return AIProviderResponse(status="api_error", **usage)
+                    return AIProviderResponse(status="search_error" if search_used else "api_error",
+                                              search_used=search_used, **usage)
                 parts = getattr(getattr(candidate, "content", None), "parts", None) or []
                 text = "".join(part.text for part in parts
                                if not getattr(part, "thought", False)
@@ -331,25 +339,22 @@ class GeminiProvider:
                 value = getattr(response, "text", None)
                 text = value if isinstance(value, str) else ""
             if not text.strip():
-                return AIProviderResponse(status="api_error", **usage)
+                return AIProviderResponse(status="search_error" if search_used else "api_error",
+                                          search_used=search_used, **usage)
             sources: dict[str, AISource] = {}
-            attribution_required = False
             for metadata in grounding_metadata:
                 if metadata is None:
                     continue
-                entry = getattr(metadata, "search_entry_point", None)
-                attribution_required |= bool(getattr(entry, "rendered_content", None))
                 for chunk in (getattr(metadata, "grounding_chunks", None) or [])[:20]:
                     web = getattr(chunk, "web", None)
                     source = source_metadata(getattr(web, "title", None), getattr(web, "uri", None))
                     if source is not None:
                         sources[source.url] = source
-            search_used = bool(search_queries or grounding_chunks or attribution_required)
             return AIProviderResponse(
                 text=text, sources=tuple(sources.values()), search_used=search_used,
                 # Google requires a Suggestions display for grounded responses; URL
                 # citations alone are insufficient for a plain-text chat transport.
-                attribution_required=search_used,
+                attribution_required=grounded,
                 **usage,
             )
         except asyncio.CancelledError:

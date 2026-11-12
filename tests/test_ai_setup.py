@@ -143,19 +143,35 @@ async def test_search_off_mismatch_and_attribution_are_explicit():
     assert not providers["deepseek"].generate.call_args.args[0].use_search
     service.settings.ai_setup = replace(configuration, primary=replace(configuration.primary, search=True))
     providers["deepseek"].generate.return_value = AIProviderResponse(status="model_unavailable")
-    assert (await service.generate_reply("latest weather", "viewer")).status == "search_unavailable"
+    assert (await service.generate_reply("Look up the weather", "viewer")).status == "search_unavailable"
     providers["gemini"].generate.assert_not_awaited()
+    optional = await service.generate_reply("What's the weather?", "viewer")
+    assert optional.is_available and optional.generation.fallback_used
+    assert not optional.generation.search_enabled and not providers["gemini"].generate.call_args.args[0].use_search
     providers["deepseek"].generate.return_value = AIProviderResponse("Fresh answer.", search_used=True,
         sources=(AISource("Source", "https://example.test/facts"),))
     reply = await service.generate_reply("latest weather", "viewer")
-    assert reply.is_available and "https://example.test/facts" in reply.text and len(reply.text) <= 220
+    assert reply.is_available and reply.text == "Fresh answer."
     providers["deepseek"].generate.return_value = AIProviderResponse("Fresh answer.", attribution_required=True)
     assert (await service.generate_reply("latest weather", "viewer")).status == "attribution_unavailable"
 
     service.settings.ai_setup = replace(service.settings.ai_setup, max_answer_length=20)
     providers["deepseek"].generate.return_value = AIProviderResponse("Fresh answer.", search_used=True,
         sources=(AISource("Source", "https://example.test/facts"),))
-    assert (await service.generate_reply("latest weather", "viewer")).status == "attribution_unavailable"
+    assert (await service.generate_reply("latest weather", "viewer")).text == "Fresh answer."
+
+
+async def test_explicit_lookup_enables_search_on_saved_fallback_only():
+    configuration = setup()
+    service, providers = pipeline(replace(configuration, fallback=replace(configuration.fallback, search=True)))
+    providers["deepseek"].generate.return_value = AIProviderResponse(status="model_unavailable")
+    providers["gemini"].generate.return_value = AIProviderResponse(search_used=True, attribution_required=True)
+    result = await service.generate_reply("Погугли, кто это", "viewer")
+    assert result.status == "attribution_unavailable" and result.generation.fallback_used
+    primary = providers["deepseek"].generate.call_args.args[0]
+    fallback = providers["gemini"].generate.call_args.args[0]
+    assert not primary.use_search and not primary.search_required
+    assert fallback.use_search and fallback.search_required
 
 
 async def test_citation_urls_remain_subject_to_profile_filters():
@@ -165,7 +181,7 @@ async def test_citation_urls_remain_subject_to_profile_filters():
     service, providers = pipeline(configuration)
     service.filter_manager = FilterManager()
     service.filter_manager.add_blocked_word("blockedsite")
-    providers["deepseek"].generate.return_value = AIProviderResponse("Answer.", search_used=True,
+    providers["deepseek"].generate.return_value = AIProviderResponse("Answer https://blockedsite.test/", search_used=True,
         sources=(AISource("Source", "https://blockedsite.test/"),))
     result = await service.generate_reply("latest weather", "viewer")
     assert result.status == "output_blocked" and result.moderation_source == "editable_filter"

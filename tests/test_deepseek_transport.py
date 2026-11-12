@@ -412,3 +412,14 @@ async def test_tool_bytes_and_timeout_are_bounded(monkeypatch):
         await asyncio.sleep(30)
     wire_transport(monkeypatch, stalled)
     assert (await provider.generate(AIGenerationRequest("s", "u", True), provider.snapshot())).status == "search_error"
+
+
+async def test_explicit_lookup_preserves_deepseek_thinking_and_requires_tool_evidence(monkeypatch):
+    requests = wire_transport(monkeypatch, lambda _: asyncio.sleep(0, result=completion("Unverified")))
+    provider = make_provider()
+    options = replace(provider.snapshot(), thinking="high")
+    result = await provider.generate(AIGenerationRequest("s", "Look it up", True, search_required=True), options)
+    payload = json.loads(requests[0].content)
+    assert payload["thinking"] == {"type": "enabled"} and payload["reasoning_effort"] == "high"
+    assert payload["tools"] and "tool_choice" not in payload
+    assert result.status == "search_error" and result.text == ""

@@ -16,7 +16,31 @@ test('OpenAI Playground displays safe usage and clickable inline attribution', a
   await expect(playground.getByRole('status')).toContainText('Input tokens: 150')
   await expect(playground.getByRole('status')).toContainText('Output tokens: 25')
   await expect(playground.getByRole('link', { name: 'https://example.test/facts', exact: true })).toHaveAttribute('href', 'https://example.test/facts')
+  await expect(playground.getByRole('status')).not.toContainText('Sources:')
 })
+
+for (const { status, searchUsed, label } of [
+  { status: 'success', searchUsed: false, label: 'Available, unused' },
+  { status: 'search_error', searchUsed: false, label: 'Failed' },
+  { status: 'attribution_unavailable', searchUsed: true, label: 'Used, answer withheld' },
+] as const) {
+  test(`Playground reports Gemini search as ${label}`, async ({ page }) => {
+    await page.goto('/tests/fixture.html')
+    await page.evaluate(({ status, searchUsed }) => {
+      window.pywebview!.api.get_ai_playground_result = async () => ({ ok: true, status,
+        text: 'Synthetic response', generation: { provider: 'Google Gemini', model: 'gemini-2.5-flash',
+          thinking: 'off', fallback_used: false, search_enabled: true, search_requested: true, search_used: searchUsed } })
+    }, { status, searchUsed })
+    await page.getByRole('button', { name: 'AI', exact: true }).click()
+    const playground = page.locator('.ai-playground')
+    await playground.getByLabel('Playground prompt').fill('Who designed the Z1?')
+    await playground.getByRole('button', { name: 'Test prompt' }).click()
+    const result = playground.getByRole('status')
+    await expect(result).toContainText(`Search/Fetch: ${label}`)
+    if (status !== 'success') await expect(result).not.toContainText('Synthetic response')
+    if (status === 'attribution_unavailable') await expect(result).toContainText('required Google Search Suggestions')
+  })
+}
 
 test('local Playground uses the prompt only and presents quota, active settings and plain text', async ({ page }) => {
   await page.goto('/tests/fixture.html')

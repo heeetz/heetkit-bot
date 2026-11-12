@@ -191,6 +191,7 @@ async def test_search_payload_tool_budget_and_valid_citations(monkeypatch):
     result = await provider.generate(AIGenerationRequest("s", "u", True), provider.snapshot())
     payload = json.loads(requests[0].content)
     assert payload["tools"] == [{"type": "web_search", "search_context_size": "low"}]
+    assert payload["tool_choice"] == "auto"
     assert payload["max_tool_calls"] == openai.OPENAI_MAX_TOOL_CALLS == 2
     assert result.search_used and result.inline_citations
     assert result.text == "Verified result https://example.test/a and result https://example.test/a"
@@ -199,13 +200,14 @@ async def test_search_payload_tool_budget_and_valid_citations(monkeypatch):
     ]
 
 
-def test_native_citation_markers_become_inline_urls_without_removing_the_claim():
-    text = "Фактcitesource0."
+@pytest.mark.parametrize("marker", ["\ue200cite\ue202source0\ue201", "[Example](https://example.test/a)", "https://example.test/a"])
+def test_native_citation_markers_become_inline_urls_without_removing_the_claim(marker):
+    text = f"Факт{marker}."
     citation = {"type": "url_citation", "url": "https://example.test/a", "title": "A",
                 "start_index": 4, "end_index": len(text) - 1}
     payload = response(text, annotations=[citation]).json()
     payload["output"].insert(0, {"type": "web_search_call", "status": "completed"})
-    answer, sources, used, blocked = make_provider()._parse_response(payload, search_requested=True)
+    answer, sources, used, blocked = make_provider()._parse_response(payload, search_enabled=True)
     assert answer == "Факт https://example.test/a ."
     assert used and not blocked and sources[0].url == "https://example.test/a"
 
@@ -260,9 +262,10 @@ async def test_unexpected_search_call_without_search_request_is_rejected(monkeyp
 
 @pytest.mark.asyncio
 async def test_search_request_without_completed_search_call_is_rejected(monkeypatch):
-    wire_transport(monkeypatch, lambda _: asyncio.sleep(0, result=response("Unverified answer")))
+    requests = wire_transport(monkeypatch, lambda _: asyncio.sleep(0, result=response("Unverified answer")))
     provider = make_provider()
-    result = await provider.generate(AIGenerationRequest("s", "u", True), provider.snapshot())
+    result = await provider.generate(AIGenerationRequest("s", "u", True, search_required=True), provider.snapshot())
+    assert json.loads(requests[0].content)["tool_choice"] == "required"
     assert result.status == "search_error" and result.text == ""
 
 

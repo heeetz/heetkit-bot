@@ -171,7 +171,7 @@ class OpenAIProvider:
         return isinstance(error, dict) and error.get("code") == "model_not_found"
 
     def _parse_response(
-        self, payload: Any, *, search_requested: bool,
+        self, payload: Any, *, search_enabled: bool, search_required: bool = False,
     ) -> tuple[str, tuple[AISource, ...], bool, bool]:
         if not isinstance(payload, dict):
             raise ValueError("OpenAI response was not an object.")
@@ -195,7 +195,7 @@ class OpenAIProvider:
 
         search_calls = [item for item in outputs if isinstance(item, dict)
                         and item.get("type") == "web_search_call"]
-        if search_calls and not search_requested:
+        if search_calls and not search_enabled:
             raise _SearchError("Unexpected web search call.")
         if len(search_calls) > OPENAI_MAX_TOOL_CALLS:
             raise _SearchError("OpenAI web search call limit was exceeded.")
@@ -220,7 +220,7 @@ class OpenAIProvider:
             if kind in {"reasoning", "summary_text"}:
                 continue
             if kind != "message" or item.get("role") != "assistant":
-                raise _SearchError("Unexpected OpenAI output item.") if search_requested else ValueError("Unexpected output.")
+                raise _SearchError("Unexpected OpenAI output item.") if search_used else ValueError("Unexpected output.")
             if item.get("status") not in (None, "completed"):
                 raise _SearchError("OpenAI search answer was incomplete.") if search_used else ValueError("Incomplete message.")
             content = item.get("content")
@@ -246,29 +246,33 @@ class OpenAIProvider:
                             raise _SearchError("Malformed OpenAI citation.") if search_used else ValueError("Malformed citation.")
                         if annotation.get("type") != "url_citation":
                             continue
+                        if not search_used:
+                            raise _SearchError("OpenAI returned citations without a completed search.")
                         source = source_metadata(annotation.get("title"), annotation.get("url"))
                         if source is None:
-                            raise _SearchError("Invalid OpenAI citation.") if search_used else ValueError("Invalid citation.")
+                            raise _SearchError("Invalid OpenAI citation.")
                         if source.url not in sources:
                             if len(sources) >= OPENAI_MAX_SOURCES:
-                                raise _SearchError("OpenAI citation limit was exceeded.") if search_used else ValueError("Citation limit was exceeded.")
+                                raise _SearchError("OpenAI citation limit was exceeded.")
                             sources[source.url] = source
                         start = annotation.get("start_index")
                         end = annotation.get("end_index")
                         if (type(start) is not int or type(end) is not int or start < 0
                                 or end <= start or end > len(value)):
-                            raise _SearchError("Invalid OpenAI citation range.") if search_used else ValueError("Invalid citation range.")
+                            raise _SearchError("Invalid OpenAI citation range.")
                         annotated = value[start:end]
                         # An annotation can cover prose as well as a native citation
                         # marker. Keep the claim; only replace an actual marker.
-                        label = "" if re.fullmatch(r"\ue200cite\ue202[^\ue201]*\ue201", annotated) else annotated
+                        is_marker = re.fullmatch(r"\ue200cite\ue202[^\ue201]*\ue201", annotated)
+                        is_link = re.fullmatch(r"\[.+?\]\(" + re.escape(source.url) + r"\)", annotated)
+                        label = "" if is_marker or is_link or annotated == source.url else annotated
                         prefix = "" if not label and start > 0 and value[start - 1].isspace() else " "
                         suffix = " " if end < len(value) and not value[end].isspace() else ""
                         replacements.append((start, end, f"{label}{prefix}{source.url}{suffix}"))
                     replacements.sort()
                     if any(current[0] < previous[1]
                            for previous, current in zip(replacements, replacements[1:])):
-                        raise _SearchError("Overlapping OpenAI citation ranges.") if search_used else ValueError("Overlapping citation ranges.")
+                        raise _SearchError("Overlapping OpenAI citation ranges.")
                     visible_text = value
                     for start, end, replacement in reversed(replacements):
                         visible_text = visible_text[:start] + replacement + visible_text[end:]
@@ -279,7 +283,7 @@ class OpenAIProvider:
         answer = "".join(text_parts).strip()
         if safety_blocked:
             return "", (), search_used, True
-        if search_requested and not search_used:
+        if search_required and not search_used:
             raise _SearchError("OpenAI did not complete the requested web search.")
         if not answer:
             raise _SearchError("OpenAI search returned no answer.") if search_used else ValueError("OpenAI returned no answer.")
@@ -293,7 +297,7 @@ class OpenAIProvider:
         assert options.api_key is not None
         payload: dict[str, Any] = {
             "model": model,
-            "instructions": request.system_instruction,
+            "instructions": request.system_instruction + request.search_instruction,
             "input": request.content,
             "store": False,
             "max_output_tokens": 1024 if options.thinking == "none" else 4096,
@@ -301,12 +305,11 @@ class OpenAIProvider:
         }
         if request.use_search:
             payload["instructions"] += (
-                "\nUse web search for this answer. Keep the answer concise and leave room for visible source URLs. "
-                "Use only completed web search results for current claims; never imply a search occurred if it did not."
+                " Keep searched answers concise and leave room for the required inline citation URLs."
             )
             payload["tools"] = [{"type": "web_search", "search_context_size": "low"}]
             payload["max_tool_calls"] = OPENAI_MAX_TOOL_CALLS
-            payload["tool_choice"] = "required"
+            payload["tool_choice"] = "required" if request.search_required else "auto"
         status, result = await self._http_json("POST", "/responses", options.api_key, json=payload)
         report_usage("openai", result)
         if status >= 400:
@@ -323,7 +326,7 @@ class OpenAIProvider:
                                                for item in output[:100])
         try:
             text, sources, searched, safety_blocked = self._parse_response(
-                result, search_requested=request.use_search,
+                result, search_enabled=request.use_search, search_required=request.search_required,
             )
         except _SearchError:
             return AIProviderResponse(status="search_error", **metadata)

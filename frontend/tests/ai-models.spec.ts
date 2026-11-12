@@ -173,7 +173,7 @@ for (const width of [1280, 390, 320]) {
     await expect(models.locator('.ai-connection-row').first()).not.toContainText('credential_store')
     await expect(models.locator('.ai-connection-row').first()).not.toContainText('secret-file')
     await models.getByLabel('Primary internet search', { exact: true }).press('Space')
-    await expect(models).toContainText('Search answers cannot be sent to Twitch.')
+    await expect(models).toContainText('Gemini search answers are withheld in Twitch and Playground.')
     await models.getByRole('button', { name: 'Help: Primary internet search', exact: true }).focus()
     await expect(page.getByRole('tooltip')).toContainText(/Search Suggestions/)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)

@@ -82,7 +82,7 @@ def model_capabilities(provider: str, model: str) -> dict[str, Any]:
             options.append({"value": f"budget:{maximum}", "label": f"Maximum ({maximum} thinking tokens)"})
         if search:
             reason = ("Google Search requires Search Suggestions and source attribution. "
-                      "Twitch chat cannot render the required Suggestions; grounded answers cannot be sent there.")
+                      "HeetKit withholds grounded answers in Twitch chat and Playground because those surfaces lack the required display.")
     return {
         "provider": provider, "model": model, "known": known,
         "thinking_options": options, "search_supported": search,

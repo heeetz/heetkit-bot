@@ -15,20 +15,22 @@ function linkedResponse(text: string) {
 
 function searchOutcome(result: AIPlaygroundResult): string {
   if (result.status === 'search_error') return 'Failed'
-  if (result.status === 'search_unavailable') return 'Unavailable on fallback'
-  if (result.status === 'attribution_unavailable') return 'Answer withheld: required attribution unavailable'
+  if (result.status === 'search_unavailable') return 'Off on fallback'
+  if (result.status === 'attribution_unavailable' || (result.status === 'output_blocked' && result.generation?.search_used)) {
+    return 'Used, answer withheld'
+  }
   if (result.generation?.search_used) return 'Used'
   if (!result.generation?.search_enabled) return 'Off'
-  if (!result.generation?.search_requested) return 'Not needed for this prompt'
-  return 'Requested; no tool use reported'
+  if (result.status === 'success') return 'Available, unused'
+  return result.generation.search_requested ? 'Tool use unconfirmed' : 'Unavailable for this request'
 }
 
 const STATUS_LABELS = {
   model_unavailable: 'Model unavailable — the configured primary and fallback could not serve this request.',
   configuration_error: 'AI configuration needs attention — check thinking choices, fallback consent and saved connections.',
-  search_error: 'Search failed — no verified fresh answer was produced.',
-  search_unavailable: 'Fallback search is unavailable — requested search was not silently disabled.',
-  attribution_unavailable: 'Required search attribution cannot fit or be displayed in this output. Turn search off or use a compatible configuration.',
+  search_error: 'Search failed to produce a usable answer.',
+  search_unavailable: 'This prompt requested a lookup and Internet search is off for the fallback model.',
+  attribution_unavailable: 'Answer withheld because the answer and its required inline citations exceed the saved length limit.',
   question_too_long: 'Question exceeds the saved character limit.',
   pending: 'Waiting for the AI provider…',
   success: 'Response',
@@ -168,7 +170,9 @@ export default function AIPlayground({ active, personality, hasDrafts = false }:
       <div className="playground-result" role="status" aria-live="polite">
         {pending && <p>{cancelling ? 'Cancelling…' : STATUS_LABELS.pending}</p>}
         {result?.status && <>
-          <strong>{STATUS_LABELS[result.status]}</strong>
+          <strong>{result.status === 'attribution_unavailable' && result.generation?.provider === 'Google Gemini'
+            ? 'Answer withheld because this Playground cannot display the required Google Search Suggestions.'
+            : STATUS_LABELS[result.status]}</strong>
           {result.generation && <p className="setting-effect">
             Provider: {result.generation.provider} · Model: {result.generation.model}
             {' · '}Thinking: {result.generation.thinking}

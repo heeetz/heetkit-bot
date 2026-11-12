@@ -138,11 +138,22 @@ request leaves the fallback unused.
 - HeetKit tries fallback once, only when the primary model is unavailable (404).
   Both attempts share a 60-second deadline. Key, billing, quota, rate limit,
   refusal, filter and network failures do not trigger fallback.
-- Search **Off** prevents search calls. **On** allows search as needed.
-  Keep Gemini search off for ordinary replies. Twitch and Playground cannot
-  display Google's required Search Suggestions, so HeetKit withholds grounded
-  replies that require them. HeetKit also withholds answers when required sources
-  do not fit the answer limit.
+- Search **Off** prevents search calls. With search **On**, the model can look up
+  unfamiliar people, products, events and specific facts. It forms its own query
+  from your wording and can skip search for banter, translations and simple math.
+- Each selection uses its own saved Search setting. For an explicit lookup with
+  search enabled on the primary, HeetKit reports the lookup unavailable if the
+  primary is missing and fallback search is off. When an explicit lookup is sent
+  with search enabled, a response without confirmed search is reported as a failure.
+- DeepSeek can return searched answers to Twitch and Playground. OpenAI keeps
+  the required citation links inline on both surfaces and withholds answers that
+  exceed the saved length limit with citations included. Twitch channel link
+  moderation applies. HeetKit leaves out the appended URL list.
+  [Twitch link moderation](https://help.twitch.tv/s/article/how-to-manage-harassment-in-chat)
+- Gemini can run Google Search, but Twitch and the current Playground lack the
+  required Google Search Suggestions display. HeetKit withholds grounded replies
+  and names the attribution requirement in Playground. Replies that do not use
+  search can still be shown. [Google Search grounding terms](https://ai.google.dev/gemini-api/terms#grounding-with-google-search)
 - Unknown model IDs use provider defaults and have no search control. Imported
   cross-provider fallback needs consent again in the destination profile.
 - Saved changes apply to new requests. A request in progress uses the settings

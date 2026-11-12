@@ -1,6 +1,8 @@
 """Both hosts share isolated operator generation without viewer or Twitch state."""
 
 import asyncio
+import logging
+from json import dumps
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -8,12 +10,16 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
+from app.commands.ai import register_ai_commands
+from app.commands.registry import CommandContext, CommandRegistry
+from app.config.ai_setup import AIModelSelection, AISetup
 from app.config.settings import Settings
 from app.runtime_state import RuntimeState
 from app.services.ai_request_policy import AIRequestPolicy
 from app.services.filter_manager import FilterEvaluation, FilterManager
 from app.services.ai_service import SharedAIService
 from app.services.ai_playground import AIPlayground
+from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.webview_host import WebUIBridge
 
 
@@ -64,6 +70,116 @@ async def run_prompt(bridge, prompt="Tell me a story"):
     return await bridge._get_ai_playground_result(started["request_id"])
 
 
+@pytest.mark.parametrize("provider,model,thinking", [
+    ("deepseek", "deepseek-flash", "off"),
+    ("openai", "gpt-6-luna", "none"),
+    ("gemini", "gemini-2.5-flash", "off"),
+])
+@pytest.mark.parametrize("prompt,enabled,required,query", [
+    ("кто такой счилла братик, он киберспортик?", True, False, "Schilla esports player"),
+    ("Who designed the Z1 computer?", True, False, "Z1 computer designer"),
+    ("Could you look up who designed the Z1?", True, True, "Z1 computer designer"),
+    ("Погугли, кто создал Z1", True, True, None),  # Provider skipped the explicit lookup.
+    ("Hey, how are you?", True, False, None),
+    ("Translate 'search for a game' into French", True, False, None),
+    ("What is 24 + 18?", True, False, None),
+    ("Look up who designed the Z1", False, False, None),
+])
+async def test_search_tools_and_attribution_through_ask_and_playground(
+    playground, monkeypatch, provider, model, thinking, prompt, enabled, required, query,
+):
+    bridge, ai, generate, filters, _ = playground
+    ai.settings.ai_setup = AISetup(AIModelSelection(provider, model, thinking, enabled))
+    setattr(ai.settings, f"{provider}_api_key", SecretStr("synthetic-search-key"))
+    answer, url = "Synthetic answer.", "https://example.test/fact"
+    tool_queries = []
+
+    def check_instruction(instruction, content):
+        assert content.endswith(prompt)
+        assert ("accounting for casual wording, typos" in instruction) is enabled
+        assert ("explicitly requested a lookup" in instruction) is required
+
+    if provider == "gemini":
+        async def grounded_response(contents, config, **kwargs):
+            check_instruction(config.system_instruction, contents)
+            assert bool(config.tools) is enabled
+            if enabled:
+                assert config.tools[0].google_search is not None
+            if query is None:
+                return SimpleNamespace(text=answer, candidates=[])
+            tool_queries.append(query)
+            grounding = SimpleNamespace(web_search_queries=[query],
+                grounding_chunks=[SimpleNamespace(web=SimpleNamespace(title="Example", uri=url))],
+                search_entry_point=SimpleNamespace(rendered_content="<div>Required suggestions</div>"))
+            return SimpleNamespace(candidates=[SimpleNamespace(grounding_metadata=grounding,
+                finish_reason="STOP", content=SimpleNamespace(parts=[SimpleNamespace(text=answer)]))])
+
+        generate.side_effect = grounded_response
+    else:
+        async def http_json(method, path, key, *, json, **kwargs):
+            if path == "/v1/tools/search":
+                tool_queries.append(json["query"])
+                return 200, {"results": [{"title": "Example", "url": url, "snippet": "Synthetic evidence"}]}
+            assert path == ("/responses" if provider == "openai" else "/chat/completions")
+            assert ("tools" in json) is enabled
+            if provider == "openai":
+                check_instruction(json["instructions"], json["input"])
+                assert json.get("tool_choice") == (("required" if required else "auto") if enabled else None)
+                output = []
+                annotations = []
+                if query is not None:
+                    tool_queries.append(query)
+                    output.append({"type": "web_search_call", "status": "completed",
+                                   "action": {"type": "search", "query": query}})
+                    annotations.append({"type": "url_citation", "start_index": 0, "end_index": len(answer),
+                                        "url": url, "title": "Example"})
+                output.append({"type": "message", "role": "assistant", "content": [
+                    {"type": "output_text", "text": answer, "annotations": annotations}]})
+                return 200, {"status": "completed", "output": output}
+
+            messages = json["messages"]
+            check_instruction(messages[0]["content"], messages[1]["content"])
+            if len(messages) > 2:
+                assert "tool_choice" not in json
+                assert messages[-1]["role"] == "tool" and url in messages[-1]["content"]
+            else:
+                assert ("tool_choice" in json) is required
+                if required:
+                    assert json["tool_choice"]["function"]["name"] == "search_web"
+                if query is not None:
+                    return 200, {"choices": [{"finish_reason": "tool_calls", "message": {"tool_calls": [
+                        {"id": "search-1", "type": "function", "function": {
+                            "name": "search_web", "arguments": dumps({"query": query})}}]}}]}
+            return 200, {"choices": [{"finish_reason": "stop", "message": {"content": answer}}]}
+
+        monkeypatch.setattr(ai.provider, "_http_json", http_json)
+
+    expected_status = ("attribution_unavailable" if provider == "gemini" and query else
+                       "search_error" if required and query is None else "success")
+    expected_answer = f"{answer} {url}" if provider == "openai" and query else answer
+    result = await run_prompt(bridge, prompt)
+    assert result["status"] == expected_status
+    assert result["generation"]["search_enabled"] is enabled
+    assert result["generation"]["search_used"] is bool(query)
+    assert result["text"] == (expected_answer if expected_status == "success" else "")
+
+    respond = AsyncMock(return_value=SimpleNamespace(sent=True))
+    message = IncomingChatMessage("testchannel", f"!ask {prompt}", ChatAuthor("1", "viewer"), respond)
+    services = SimpleNamespace(ai=ai, ai_request_policy=AIRequestPolicy(), filter_manager=filters)
+    context = CommandContext(message, services, logging.getLogger(__name__))
+    registry = CommandRegistry()
+    register_ai_commands(registry)
+    command = registry.get("ask")
+    assert command.pre_check(context, prompt)
+    await command.handler(context, prompt)
+    if expected_status == "success":
+        respond.assert_awaited_once_with(f"@viewer {expected_answer}")
+    else:
+        respond.assert_not_awaited()
+    assert tool_queries == ([query, query] if query else [])
+    await ai.aclose()
+
+
 async def test_reuses_generation_and_applied_instructions_without_any_viewer_state(playground, tmp_path):
     bridge, ai, generate, _, state = playground
     state.apply_profile_instructions("Use a friendly community vocabulary.")
@@ -77,7 +193,7 @@ async def test_reuses_generation_and_applied_instructions_without_any_viewer_sta
         assert request["contents"] == "Tell me a story"
         instruction = request["config"].system_instruction
         assert instruction.index("Never:") < instruction.index(state.profile_instructions)
-        assert instruction.endswith("Use a cheerful tone.")
+        assert instruction.index(state.profile_instructions) < instruction.index("Use a cheerful tone.")
         assert "Current stream context" not in request["contents"]
         assert state.get_personality_settings_snapshot() == before
         assert not list(tmp_path.iterdir())
@@ -299,8 +415,7 @@ async def test_public_controls_submit_to_owner_loop_and_sanitize_failures(playgr
                                                           ("openai", "gpt-6-luna", "none", "OpenAI")])
 @pytest.mark.parametrize("fallback", [False, True])
 async def test_effective_provider_model_thinking_and_tool_outcome_are_shared(playground, fallback, provider, model, thinking, label):
-    from app.config.ai_setup import AIModelSelection, AISetup
-    from app.services.ai_provider import AIProviderResponse, AISource
+    from app.services.ai_provider import AIProviderResponse
 
     bridge, ai, _, _, _ = playground
     ai.settings.ai_setup = AISetup(
@@ -310,14 +425,16 @@ async def test_effective_provider_model_thinking_and_tool_outcome_are_shared(pla
     )
     ai.settings.deepseek_api_key = SecretStr("private-deepseek-key")
     ai.settings.openai_api_key = SecretStr("private-openai-key")
-    response = AIProviderResponse("Fresh answer.", sources=(AISource("Example", "https://example.test/"),), search_used=True)
+    response = AIProviderResponse("Fresh answer.", search_used=True)
     primary = ai._providers[provider].generate = AsyncMock(
         return_value=AIProviderResponse(status="model_unavailable") if fallback else response,
     )
-    secondary = ai._providers["gemini"].generate = AsyncMock(return_value=response)
+    secondary = ai._providers["gemini"].generate = AsyncMock(
+        return_value=AIProviderResponse("Grounded answer.", search_used=True, attribution_required=True),
+    )
     result = await run_prompt(bridge, "What is the latest news?")
-    assert result["status"] == "success"
-    assert result["text"].endswith("Sources: https://example.test/")
+    assert result["status"] == ("attribution_unavailable" if fallback else "success")
+    assert result["text"] == ("" if fallback else "Fresh answer.")
     details = result["generation"]
     assert details == {
         "provider": "Google Gemini" if fallback else label,
