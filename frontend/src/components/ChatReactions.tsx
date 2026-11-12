@@ -56,6 +56,11 @@ export default function ChatReactions({ active }: { active: boolean }) {
 
   const update = (change: Partial<Draft>) => setDraft((current) => current && { ...current, ...change })
   const position = draft && data ? data.triggers.findIndex((rule) => rule.id === draft.id) : -1
+  const original = data?.triggers[position]
+  useRestartDraft('Chat reactions', Boolean(draft && (!original || draft.position !== position
+    || draft.text !== original.text || draft.enabled !== original.enabled || draft.match_mode !== original.match_mode
+    || draft.case_sensitive !== original.case_sensitive || draft.probability !== probabilityText(original.probability)
+    || draft.cooldown_seconds !== String(original.cooldown_seconds) || draft.responses !== original.responses.join('\n'))))
   const persist = async (rules: ChatReaction[]) => {
     if (!data || busy) return
     setError('')
@@ -177,3 +182,4 @@ export default function ChatReactions({ active }: { active: boolean }) {
     </div>
   </section>
 }
+import { useRestartDraft } from '../desktopRestart'

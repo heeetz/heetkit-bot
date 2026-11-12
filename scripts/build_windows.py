@@ -33,6 +33,8 @@ def stage_resources(stage: Path) -> None:
     resources = ROOT / "app/resources"
     for name in ("personalities.json", "gemini_models.json", "default_triggers.json", "icon.ico", "icon.png", "tray.png"):
         copy(resources / name, stage / "app/resources" / name)
+    if (resources / "update-publisher.pub").exists():
+        copy(resources / "update-publisher.pub", stage / "app/resources/update-publisher.pub")
     for name in ("blocked_words.txt", "blocked_phrases.txt", "blocked_patterns.txt"):
         copy(resources / "filters" / name, stage / "app/resources/filters" / name)
     frontend = ROOT / "frontend/dist"

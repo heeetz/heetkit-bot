@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
-import { type AboutInfo, type UpdateCheckResponse, isBrowserMode, waitForBridge } from '../bridge'
+import { useEffect, useRef, useState } from 'react'
+import { type AboutInfo, type DesktopUpdateProgress, type UpdateCheckResponse, isBrowserMode, waitForBridge } from '../bridge'
 import HelpTip from '../components/HelpTip'
+import { confirmDesktopRestart } from '../desktopRestart'
 
 type ExternalDestination = 'repository' | 'license' | 'third_party_notices' | 'author_twitch' | 'releases'
 
@@ -12,6 +13,9 @@ function AboutPage() {
   const [updateResult, setUpdateResult] = useState<UpdateCheckResponse | null>(null)
   const [updateError, setUpdateError] = useState('')
   const [updateBusy, setUpdateBusy] = useState(false)
+  const [installing, setInstalling] = useState(false)
+  const [progress, setProgress] = useState<DesktopUpdateProgress>({})
+  const updateLock = useRef(false)
 
   useEffect(() => {
     let active = true
@@ -79,7 +83,8 @@ function AboutPage() {
   }
 
   const checkForUpdates = async () => {
-    if (updateBusy) return
+    if (updateLock.current) return
+    updateLock.current = true
     setUpdateResult(null)
     setUpdateError('')
     setUpdateBusy(true)
@@ -94,7 +99,43 @@ function AboutPage() {
     } catch (reason) {
       setUpdateError(reason instanceof Error ? reason.message : 'Could not check for updates.')
     } finally {
+      updateLock.current = false
       setUpdateBusy(false)
+    }
+  }
+
+  const installUpdate = async () => {
+    const version = updateResult?.latest_version
+    if (updateLock.current || !version) return
+    updateLock.current = true
+    setInstalling(true)
+    setProgress({})
+    setUpdateError('')
+    let polling: number | undefined
+    let restarting = false
+    try {
+      const api = await waitForBridge()
+      polling = window.setInterval(() => {
+        void api.get_desktop_update_progress().then(setProgress).catch(() => {})
+      }, 300)
+      const prepared = await api.prepare_desktop_update(version)
+      if (!prepared.ok) throw new Error(prepared.error ?? 'Could not download and verify the update.')
+      if (!confirmDesktopRestart()) {
+        setUpdateError('Update verified. Save any drafts, then select Update & restart to continue.')
+        return
+      }
+      setProgress({ phase: 'ready' })
+      const result = await api.finish_desktop_update(version)
+      if (!result.ok) throw new Error(result.error ?? 'Could not start the installer handoff.')
+      restarting = true
+    } catch (reason) {
+      setUpdateError(reason instanceof Error ? reason.message : 'Could not prepare the update.')
+    } finally {
+      window.clearInterval(polling)
+      if (!restarting) {
+        updateLock.current = false
+        setInstalling(false)
+      }
     }
   }
 
@@ -125,19 +166,18 @@ function AboutPage() {
         <div className="section-heading update-heading">
           <div className="update-title">
             <h2>Check for updates</h2>
-            <HelpTip label="Check for updates">Checks the latest stable release only when requested. Nothing is downloaded or installed automatically. Open release / downloads to review the release and choose a download.</HelpTip>
+            <HelpTip label="Check for updates">HeetKit checks the latest stable release on request. Update &amp; restart downloads and verifies the installer before closing HeetKit. Open release / downloads is available for manual installation.</HelpTip>
           </div>
-          <span className="mini-badge">Manual</span>
         </div>
-        <p className="section-copy">Check manually for the latest stable release.</p>
         <div className="update-toolbar">
           <div className="update-actions">
-            <button className="primary" onClick={() => void checkForUpdates()} disabled={updateBusy}>
+            <button className={updateResult?.automatic_update ? 'secondary' : 'primary'} onClick={() => void checkForUpdates()} disabled={updateBusy || installing}>
               {updateBusy ? 'Checking…' : updateResult || updateError ? 'Check again' : 'Check for updates'}
             </button>
             <button className="secondary" onClick={() => void openExternal('releases')} disabled={opening === 'releases'}>
               {opening === 'releases' ? 'Opening…' : 'Open release / downloads'}
             </button>
+            {updateResult?.automatic_update && <button className="primary" disabled={installing} onClick={() => void installUpdate()}>Update &amp; restart</button>}
           </div>
           <div className="update-summary" aria-live="polite">
             <div>
@@ -158,8 +198,13 @@ function AboutPage() {
             {updateResult.release_name && <span>{updateResult.release_name}</span>}
             {updateResult.published_at && <time dateTime={updateResult.published_at}>Published {updateResult.published_at}</time>}
             {updateResult.release_notes && <p className="update-notes">{updateResult.release_notes}</p>}
+            {updateResult.automatic_update_reason && <p>{updateResult.automatic_update_reason}</p>}
           </div>
         )}
+        {installing && <div role="status">
+          {progress.phase === 'ready' ? 'Closing HeetKit to install the update…' : progress.phase === 'verifying' ? 'Verifying installer and preparing the restart…' : 'Downloading installer…'}
+          {progress.phase === 'downloading' && <progress aria-label="Installer download" value={progress.downloaded} max={progress.total} />}
+        </div>}
         {updateError && <p className="inline-error update-error" role="alert">{updateError}</p>}
       </article>}
 

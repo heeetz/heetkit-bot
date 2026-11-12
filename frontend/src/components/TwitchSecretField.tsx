@@ -8,7 +8,7 @@ interface TwitchSecretFieldProps {
   busy: string
   host: 'desktop' | 'server'
   onChange: (value: string) => void
-  onAction: (action: 'replace' | 'remove' | 'test') => void
+  onAction: (action: 'replace' | 'remove' | 'test', restart?: boolean) => void
 }
 
 /** A draft field only: saved secrets are never returned to the UI. */
@@ -34,10 +34,13 @@ export default function TwitchSecretField({ credential, value, busy, host, onCha
       onChange={(event) => onChange(event.target.value)} />
     <div className="credential-actions">
       <button className="secondary" disabled={disabled || external || !value.trim()} onClick={() => onAction('replace')}>{busy === 'twitch_client_secret:replace' ? 'Saving...' : configured ? 'Replace secret' : 'Add secret'}</button>
+      {host === 'desktop' && value.trim() && <button className="primary" disabled={disabled || external} onClick={() => onAction('replace', true)}>{configured ? 'Replace secret & restart' : 'Add secret & restart'}</button>}
       <button className="secondary" disabled={disabled || !configured} onClick={() => onAction('test')}>{busy === 'twitch_client_secret:test' ? 'Testing...' : 'Test client secret'}</button>
       <button className="ghost destructive" disabled={disabled || !removable} onClick={() => onAction('remove')}>{busy === 'twitch_client_secret:remove' ? 'Removing...' : 'Remove secret'}</button>
+      {host === 'desktop' && removable && <button className="ghost destructive" disabled={disabled} onClick={() => onAction('remove', true)}>Remove secret &amp; restart</button>}
     </div>
-    {value.trim() && <p className="settings-hint">{host === 'desktop' ? 'Restart required after saving.' : 'Saving stops the bot and clears authorization.'}</p>}
+    {host === 'desktop' && <p className="settings-hint">Saved secret changes apply when HeetKit restarts.</p>}
+    {host === 'server' && value.trim() && <p className="settings-hint">Saving stops the bot and clears authorization.</p>}
     {!credential && <p className="credential-warning" role="alert">Secret status unavailable. Reopen Settings to retry.</p>}
     {credential?.validation_status === 'validation_failed' && <p className="credential-warning" role="alert">Secret validation failed.</p>}
   </div>

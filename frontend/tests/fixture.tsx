@@ -29,6 +29,10 @@ const twitch: TwitchConnectionSettings = {
   client_id: configured ? 'synthetic-client' : '',
   bot_username: configured ? 'testbot' : '',
   bot_user_id: configured ? '100' : '',
+  active_client_id: configured ? 'synthetic-client' : '',
+  active_bot_username: configured ? 'testbot' : '',
+  active_bot_user_id: configured ? '100' : '',
+  requires_secret_restart: query.has('restartRequired'),
   target_channel: configured ? 'testchannel' : '',
   target_channel_user_id: configured ? '200' : '',
   active_channel: configured ? 'testchannel' : '',
@@ -300,6 +304,17 @@ window.pywebview = { api: {
     }
     return { ok: true, changed: status.running }
   },
+  restart_desktop: async () => {
+    twitchCalls.push(['restart', status.running])
+    if (query.has('relaunchFixture')) {
+      const next = new URL(window.location.href)
+      next.searchParams.delete('relaunchFixture')
+      next.searchParams.delete('connection')
+      if (status.running) next.searchParams.set('auth', '')
+      window.setTimeout(() => window.location.assign(next), 0)
+    }
+    return { ok: true }
+  },
   save_twitch_preset: async (presetId: string | null, displayName: string, channel: string, channelId: string) => {
     const id = presetId ?? `synthetic-${twitch.presets.length + 1}`
     twitchCalls.push(['save_channel', id])
@@ -341,15 +356,23 @@ window.pywebview = { api: {
     credentialCalls.push(['replace', name])
     if (query.has('credentialSaveError')) return { ok: false, error: 'Could not store the credential securely.' }
     Object.assign(credentials.find((credential) => credential.name === name)!, { configured: true, source: 'credential_store' })
-    if (name === 'twitch_client_secret') secretRestartRequired = twitch.requires_restart = true
-    else aiStatus = { ...aiStatus, available: true }
+    if (name === 'twitch_client_secret') {
+      if (query.has('credentialUnchanged')) return { ok: true, changed: false, requires_restart: twitch.requires_restart }
+      secretRestartRequired = twitch.requires_secret_restart = twitch.requires_restart = true
+      return { ok: true, changed: true, requires_restart: true }
+    }
+    aiStatus = { ...aiStatus, available: true }
     return { ok: true }
   },
   remove_credential: async (name: string) => {
     credentialCalls.push(['remove', name])
+    if (query.has('credentialSaveError')) return { ok: false, error: 'Could not remove the credential securely.' }
     Object.assign(credentials.find((credential) => credential.name === name)!, { configured: false, source: 'missing' })
-    if (name === 'twitch_client_secret') secretRestartRequired = twitch.requires_restart = true
-    else aiStatus = { ...aiStatus, available: false }
+    if (name === 'twitch_client_secret') {
+      secretRestartRequired = twitch.requires_secret_restart = twitch.requires_restart = true
+      return { ok: true, changed: true, requires_restart: true }
+    }
+    aiStatus = { ...aiStatus, available: false }
     return { ok: true, changed: true }
   },
   test_credential: async (name: string) => { credentialCalls.push(['test', name]); return { ok: true } },
@@ -415,6 +438,8 @@ window.pywebview = { api: {
       current_version: '0.1.0',
       latest_version: newer ? '0.2.0' : '0.1.0',
       update_available: newer,
+      automatic_update: newer && query.has('verifiedUpdate'),
+      automatic_update_reason: newer && !query.has('verifiedUpdate') ? 'Use Open release / downloads to update this portable or source copy.' : undefined,
       release_name: newer ? 'HeetKit 0.2.0' : 'HeetKit 0.1.0',
       release_notes: query.has('notesMarkup')
         ? 'Fixes <strong>markup</strong> & **formatting**.'
@@ -422,6 +447,13 @@ window.pywebview = { api: {
       published_at: '2026-10-09',
     }
   },
+  prepare_desktop_update: async (version: string) => {
+    updateCalls.push(['prepare', version])
+    await new Promise((resolve) => window.setTimeout(resolve, 700))
+    return query.has('badDownload') ? { ok: false, error: 'Installer verification failed.' } : { ok: true }
+  },
+  get_desktop_update_progress: async () => ({ phase: 'downloading', downloaded: 30, total: 60 }),
+  finish_desktop_update: async (version: string) => { updateCalls.push(['finish', version]); return { ok: true } },
   start_bot: async () => {
     status = { ...status, running: true, twitch_connection_state: 'auth_required' }
     return { ok: true }

@@ -33,6 +33,10 @@ class BotRuntime:
     def bot_active(self) -> bool:
         return self._bot_task is not None and not self._bot_task.done()
 
+    @property
+    def twitch_restart_required(self) -> bool:
+        return self._cleanup_failed
+
     async def startup(self) -> None:
         if self._started:
             return

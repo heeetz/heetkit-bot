@@ -72,7 +72,7 @@ test('removing the desktop secret uses the secure operation and preserves target
   await twitch.getByRole('button', { name: 'Remove secret', exact: true }).click()
   await expect.poll(() => page.evaluate(() => Reflect.get(window, 'credentialCalls'))).toEqual([['remove', 'twitch_client_secret']])
   await expect(twitch.getByLabel('Target channel login')).toHaveValue('draft-channel')
-  await expect(twitch).toContainText('Restart the application')
+  await expect(twitch.getByRole('button', { name: 'Restart now', exact: true })).toBeVisible()
 })
 
 for (const width of [1920, 1280, 390, 320]) {

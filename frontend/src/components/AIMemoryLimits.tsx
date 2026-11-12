@@ -24,6 +24,7 @@ export default function AIMemoryLimits({ active }: { active: boolean }) {
   const n = Number(stored), m = Number(context)
   const valid = /^\d+$/.test(stored) && /^\d+$/.test(context) && n >= 1 && n <= 500 && m >= 1 && m <= 50 && m <= n
   const dirty = saved && (n !== saved[0] || m !== saved[1])
+  useRestartDraft('AI memory limits', Boolean(dirty))
   return <form className="memory-limits" onSubmit={(event) => {
     event.preventDefault()
     if (!valid) return
@@ -48,3 +49,4 @@ export default function AIMemoryLimits({ active }: { active: boolean }) {
     {error && <p role="alert" className="inline-error">{error}</p>}{notice && <p role="status">{notice}</p>}
   </form>
 }
+import { useRestartDraft } from '../desktopRestart'

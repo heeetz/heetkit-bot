@@ -35,17 +35,22 @@ Server. On Desktop, the **Twitch connection** shortcut opens this section.
 12. Enter the broadcaster's numeric ID in **Target channel user ID**.
 13. In **Authorization, status and save**, save the fields.
 
-    - **Desktop:** Select **Save & apply** on a fresh, stopped setup.
+    - **Desktop:** Select **Save for later** if you are also about to add the
+      secret. For an identity-only change, select **Save & restart** to apply it now.
     - **Server:** Select **Save Twitch settings**. Changing the Client ID or bot
       identity stops the current session and clears local authorization.
 
 14. Select **New Secret** on the application's **Manage** page in Twitch.
     Generating a replacement invalidates the previous secret. Treat it like a password.
 15. Paste the secret into **Twitch client secret**.
-16. Select **Add secret** or, for an existing secret, **Replace secret**. This saves
-    immediately. On Server, a change stops the session and clears authorization.
-17. On Desktop, restart HeetKit when prompted to apply the Client ID, bot account
-    and secret. On Server, the panel applies changes without a process restart.
+16. On Desktop, select **Add secret & restart** or **Replace secret & restart**
+    to save and apply the secret and any pending identity changes. Use **Add secret**
+    or **Replace secret** to defer applying it. **Restart now** in Settings or on
+    Dashboard applies saved pending changes. HeetKit asks before discarding drafts
+    in other editors and reopens with the bot's previous run intent.
+17. On Server, select **Add secret** or **Replace secret**. The panel applies the
+    change immediately, stops the session and clears authorization. Authorize the
+    account again through Settings.
 
 **Check:** On Server, check that **Setup** shows **Complete**. On Desktop, check
 the bot account, target and **Client secret** status in **Authorization, status
@@ -64,7 +69,7 @@ Application, account and channel** and finish on **Dashboard**.
 ### Desktop
 
 1. Open **Dashboard**.
-2. Select **Start Bot**.
+2. If the bot is stopped, select **Start Bot** when ready to connect.
 3. If prompted, select **Authorize Twitch**.
 4. Sign in to Twitch as the configured bot account.
 5. Approve access for the registered application.

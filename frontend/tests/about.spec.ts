@@ -137,7 +137,7 @@ test('About update actions lead compact version boxes and wrap within their card
     if (width === 1180 || width === 320) await card.screenshot({ path: `node_modules/.tmp/ui-update-${width}.png` })
     const help = card.getByRole('button', { name: 'Help: Check for updates' })
     await help.focus()
-    await expect(page.getByRole('tooltip')).toContainText('Nothing is downloaded or installed automatically')
+    await expect(page.getByRole('tooltip')).toContainText('downloads and verifies the installer before closing HeetKit')
     await help.press('Escape')
   }
 })
@@ -151,4 +151,53 @@ test('A release browser failure leaves manual checking and About links usable', 
   await expect(page.getByRole('button', { name: 'GitHub repository' })).toBeEnabled()
   await card.getByRole('button', { name: 'Check for updates', exact: true }).click()
   await expect(card).toContainText('You are up to date')
+})
+
+for (const failed of [false, true]) {
+  test(`one-click update ${failed ? 'leaves Desktop open after failed verification' : 'verifies then hands off once'}`, async ({ page }) => {
+    await page.goto(`/tests/fixture.html?about&updateNewer&verifiedUpdate${failed ? '&badDownload' : ''}`)
+    const card = page.locator('.update-card')
+    await card.getByRole('button', { name: 'Check for updates', exact: true }).click()
+    const install = card.getByRole('button', { name: 'Update & restart' })
+    await install.evaluate((button: HTMLButtonElement) => { button.click(); button.click() })
+    await expect(card.getByRole('progressbar', { name: 'Installer download' })).toHaveAttribute('value', '30')
+    if (failed) {
+      await expect(card.getByRole('alert')).toContainText('Installer verification failed')
+      await expect(install).toBeEnabled()
+      await expect(card.getByRole('button', { name: 'Open release / downloads' })).toBeEnabled()
+    } else {
+      await expect(card).toContainText('Closing HeetKit to install')
+    }
+    expect(await page.evaluate(() => Reflect.get(window, 'updateCalls'))).toEqual([
+      ['check_for_updates'], ['prepare', '0.2.0'], ...(!failed ? [['finish', '0.2.0']] : []),
+    ])
+  })
+}
+
+test('portable builds offer manual downloads', async ({ page }) => {
+  await page.goto('/tests/fixture.html?about&updateNewer')
+  const card = page.locator('.update-card')
+  await card.getByRole('button', { name: 'Check for updates', exact: true }).click()
+  await expect(card).toContainText('portable or source copy')
+  await expect(card.getByRole('button', { name: 'Open release / downloads' })).toBeEnabled()
+  await expect(card.getByRole('button', { name: 'Update & restart' })).toHaveCount(0)
+})
+
+test('update allows an editor draft to be saved before shutdown', async ({ page }) => {
+  await page.goto('/tests/fixture.html?configured&updateNewer&verifiedUpdate')
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('button', { name: 'Twitch connection', exact: true }).click()
+  const channel = page.getByLabel('Target channel login')
+  await channel.fill('unsaved_channel')
+  await page.getByRole('button', { name: 'About', exact: true }).click()
+  await page.getByRole('button', { name: 'Check for updates', exact: true }).click()
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('Twitch connection')
+    await dialog.dismiss()
+  })
+  await page.getByRole('button', { name: 'Update & restart' }).click()
+  await expect(page.locator('.update-card')).toContainText('Save any drafts')
+  expect(await page.evaluate(() => Reflect.get(window, 'updateCalls'))).toEqual([['check_for_updates'], ['prepare', '0.2.0']])
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await expect(channel).toHaveValue('unsaved_channel')
 })

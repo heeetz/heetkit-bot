@@ -27,16 +27,60 @@ access. For Server, follow [Docker backup and updates](docker.md#backup-restore-
 
 1. Open **About**.
 2. Select **Check for updates**. This checks GitHub for a stable release.
-3. If a newer version is available, select **Open release / downloads**.
-4. Download the installer or ZIP from the release page.
-5. Quit Desktop fully with **Exit** from the tray menu.
-6. Run the installer or extract the new portable ZIP.
+3. On an installed Windows x64 copy, select **Update & restart** when offered.
+   HeetKit downloads and verifies the full installer while the app is open.
+   If an editor has an unsaved draft, you can cancel the restart, save the draft,
+   and resume the verified update from About.
+4. HeetKit exits through the same path as tray **Exit**, takes a private snapshot
+   of the stopped profile, installs silently in the registered directory, and
+   reopens once. The current profile, credentials and installer choices carry over.
 
 **Check:** Launch the updated copy. Check **Current version** in **About**
 and check that your existing profile settings are available.
 
+**Manual installation.** Select **Open release / downloads** if you use a portable
+ZIP or About reports that publisher verification is unavailable. Fully exit via
+the tray before running the downloaded installer or extracting a new portable ZIP.
 If GitHub is unavailable or rate limits the check, try **Check again** later.
-HeetKit offers only stable versions and leaves installation to you.
+
+### Update recovery
+
+If downloading or verification fails, the current Desktop stays open. Retry in
+About or use the manual download. If Setup asks for a Windows reboot, restart
+Windows when ready, then launch HeetKit from Start. The updater never reboots Windows.
+
+After installation or startup failure, the updater shows the recovery action and
+the paths to any installer log and pre-update snapshot in
+`%LOCALAPPDATA%\HeetKit Update Work\upgrade-*`. A snapshot contains private profile
+files and consistent SQLite databases, including Analytics. The Windows credential
+store stays in place. `backup-versions.json` identifies the versions for that snapshot.
+
+To recover onto the previous version, fully exit all processes using the profile.
+Move the current profile aside and copy the corresponding `profile-backup` folder
+to the original profile location. If the newer app was installed, uninstall it
+first, then install the previous version into the same application directory.
+Open the previous version with the restored profile. Keep the moved-aside profile
+if you need settings or data written after the update. Keep snapshots private and
+remove them when you no longer need recovery.
+
+### Publisher verification for one-click updates
+
+Before building the first updater-enabled candidate, place the release publisher's
+32-byte Ed25519 public key as 64 hex characters in `app/resources/update-publisher.pub`.
+The Windows build embeds this file as its trust pin. Keep the signing private key
+offline and outside the checkout, CI artifacts and installed app. Ship a build with
+the new pin through manual installation when rotating keys.
+
+On the signing machine, calculate the size and SHA-256 of the final, unchanged
+`HeetKit-<version>-windows-x64-setup.exe`. Write a UTF-8 JSON file with `version`
+(without the `v`), `asset` (the exact installer filename), `size` (integer bytes)
+and `sha256` (lowercase hex). Sign those exact bytes with Ed25519, for example
+`openssl pkeyutl -sign -rawin -inkey <private-key> -in <manifest> -out <signature>`.
+Include the two files on the same stable release as the installer, with
+`.manifest.json` and `.manifest.sig` appended to the full installer filename. The
+signature is the raw 64-byte output. Releases without publisher verification are
+available for manual installation. Prepare and attach the verification files as
+part of a separately authorized publication.
 
 ## Build inputs and version
 

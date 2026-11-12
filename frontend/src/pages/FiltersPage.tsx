@@ -138,6 +138,8 @@ export default function FiltersPage({ active }: FiltersPageProps) {
     [data, drafts],
   )
 
+  useRestartDraft('Filters', dirty)
+
   const updateRule = (name: FilterCategoryName, id: number, value: string) => {
     setDrafts((current) => ({
       ...current,
@@ -460,3 +462,4 @@ export default function FiltersPage({ active }: FiltersPageProps) {
     </div>
   )
 }
+import { useRestartDraft } from '../desktopRestart'

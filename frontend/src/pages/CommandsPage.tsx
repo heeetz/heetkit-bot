@@ -260,6 +260,10 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
   const [drafts, setDrafts] = useState<Drafts>({})
   const [customDraft, setCustomDraft] = useState<CustomDraft | null>(null)
   const customBaseline = useRef<CustomDraft | null>(null)
+  useRestartDraft('Commands', Boolean(
+    (customDraft && JSON.stringify(customDraft) !== JSON.stringify(customBaseline.current))
+    || data?.commands.some((command) => drafts[command.name] && draftIsDirty(command, drafts[command.name])),
+  ))
   const customEditorToggle = useRef<HTMLButtonElement>(null)
   const customResponse = useRef<HTMLTextAreaElement>(null)
   const [focusTarget, setFocusTarget] = useState<string | null>(null)
@@ -1114,3 +1118,4 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     </div>
   )
 }
+import { useRestartDraft } from '../desktopRestart'

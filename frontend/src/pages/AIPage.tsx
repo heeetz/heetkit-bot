@@ -456,6 +456,8 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
     || data?.personalities.some((item) => drafts[item.name] !== undefined && drafts[item.name] !== item.prompt)
     || (createOpen && (createName || createPrompt)))
 
+  useRestartDraft('AI', hasDrafts)
+
   const openPlayground = () => {
     setPlaygroundSource(null)
     onOpenPlayground()
@@ -782,3 +784,4 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
     </section>
   )
 }
+import { useRestartDraft } from '../desktopRestart'

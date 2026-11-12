@@ -94,6 +94,7 @@ export default function AnnouncementsPanel({ active }: { active: boolean }) {
   const [loadError, setLoadError] = useState('')
   const [notice, setNotice] = useState('')
   const dirty = draft !== null && JSON.stringify(draft) !== baseline.current
+  useRestartDraft('Announcements', dirty)
 
   useEffect(() => {
     if (!active) return
@@ -257,3 +258,4 @@ export default function AnnouncementsPanel({ active }: { active: boolean }) {
       }} />}
   </section>
 }
+import { useRestartDraft } from '../desktopRestart'

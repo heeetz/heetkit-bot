@@ -78,6 +78,7 @@ export default function CommandRestrictions({ active, commands }: Props) {
   const [serverCommands, setServerCommands] = useState<CommandRestrictionChoice[] | null>(null)
   const [channelId, setChannelId] = useState<string | null | undefined>(undefined)
   const [draft, setDraft] = useState<Draft | null>(null)
+  useRestartDraft('User restrictions', Boolean(draft))
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -210,3 +211,4 @@ export default function CommandRestrictions({ active, commands }: Props) {
     {removeTarget && <Confirmation title="Remove user restriction?" description={`This immediately removes this rule for ${removeTarget.username}. Other active channel or global AI restrictions may still apply.`} danger onCancel={() => { if (!busy) setRemoveTarget(null) }} onConfirm={() => void remove()} />}
   </section>
 }
+import { useRestartDraft } from '../desktopRestart'

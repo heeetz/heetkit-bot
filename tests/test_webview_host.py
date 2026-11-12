@@ -679,10 +679,21 @@ def test_twitch_secret_changes_report_restart_and_prevent_using_stale_setup(
     monkeypatch, tmp_path, action,
 ) -> None:
     bridge = twitch_authorization_bridge(tmp_path)
+    secret = "synthetic-secret"
+
+    def replace_secret(name, value):
+        nonlocal secret
+        secret = value
+
+    def remove_secret(name):
+        replace_secret(name, None)
+        return True
+
     bridge._credential_manager = SimpleNamespace(
         parse_name=lambda name: CredentialName(name),
-        replace=lambda name, value: None,
-        remove=lambda name: True,
+        replace=replace_secret,
+        remove=remove_secret,
+        effective_value=lambda name: secret,
     )
     monkeypatch.setattr(
         "app.webview_host.webbrowser.open", lambda *args, **kwargs: pytest.fail("opened browser"),
@@ -690,7 +701,7 @@ def test_twitch_secret_changes_report_restart_and_prevent_using_stale_setup(
     assert bridge.get_twitch_settings()["settings"]["requires_restart"] is False
     result = (bridge.replace_credential("twitch_client_secret", "synthetic-new-secret")
               if action == "replace" else bridge.remove_credential("twitch_client_secret"))
-    assert result["ok"] is True
+    assert result == {"ok": True, "changed": True, "requires_restart": True}
     assert bridge.get_twitch_settings()["settings"]["requires_restart"] is True
     assert bridge._backend.application.settings.twitch_client_secret.get_secret_value() == "synthetic-secret"
     for operation in (bridge.start_bot, bridge.reconnect_twitch,
@@ -700,7 +711,7 @@ def test_twitch_secret_changes_report_restart_and_prevent_using_stale_setup(
         assert "Restart" in result["error"]
 
 
-@pytest.mark.parametrize("action", ["failed_replace", "unchanged_remove", "gemini"])
+@pytest.mark.parametrize("action", ["failed_replace", "unchanged_replace", "unchanged_remove", "gemini"])
 def test_unchanged_twitch_secret_and_gemini_edits_do_not_require_restart(tmp_path, action) -> None:
     bridge = twitch_authorization_bridge(tmp_path)
     def fail_replace(name, value):
@@ -709,10 +720,14 @@ def test_unchanged_twitch_secret_and_gemini_edits_do_not_require_restart(tmp_pat
         parse_name=lambda name: CredentialName(name),
         replace=fail_replace if action == "failed_replace" else lambda name, value: None,
         remove=lambda name: action == "gemini",
-        effective_value=lambda name: "synthetic-gemini",
+        effective_value=lambda name: "synthetic-secret" if name is CredentialName.TWITCH_CLIENT_SECRET else "synthetic-gemini",
     )
     if action == "failed_replace":
         assert bridge.replace_credential("twitch_client_secret", "synthetic-new-secret")["ok"] is False
+    elif action == "unchanged_replace":
+        assert bridge.replace_credential("twitch_client_secret", "synthetic-secret") == {
+            "ok": True, "changed": False, "requires_restart": False,
+        }
     elif action == "unchanged_remove":
         assert bridge.remove_credential("twitch_client_secret") == {"ok": True, "changed": False}
     else:
@@ -1065,6 +1080,11 @@ def test_bridge_exposes_and_saves_non_secret_twitch_settings(tmp_path) -> None:
         "bot_username": "testbot",
         "bot_user_id": "100",
         "client_id": "",
+        "active_client_id": "",
+        "active_bot_username": "testbot",
+        "active_bot_user_id": "100",
+        "requires_secret_restart": False,
+        "requires_cleanup_restart": False,
         "requires_restart": False,
         "running": True,
         "connected": True,

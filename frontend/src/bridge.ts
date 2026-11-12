@@ -378,6 +378,11 @@ export interface TwitchConnectionSettings {
   bot_user_id: string
   client_id: string
   requires_restart: boolean
+  requires_secret_restart?: boolean
+  requires_cleanup_restart?: boolean
+  active_client_id?: string
+  active_bot_username?: string
+  active_bot_user_id?: string
   running: boolean
   connected: boolean
   oauth_token_available: boolean
@@ -513,9 +518,17 @@ export interface UpdateCheckResponse extends ActionResult {
   current_version: string
   latest_version?: string
   update_available?: boolean
+  automatic_update?: boolean
+  automatic_update_reason?: string
   release_name?: string
   release_notes?: string
   published_at?: string
+}
+
+export interface DesktopUpdateProgress {
+  phase?: 'downloading' | 'verifying' | 'ready'
+  downloaded?: number
+  total?: number
 }
 
 export interface LogEntry {
@@ -601,6 +614,10 @@ export interface PythonApi {
   get_app_status(): Promise<AppStatus>
   get_about_info(): Promise<AboutInfo>
   check_for_updates(): Promise<UpdateCheckResponse>
+  prepare_desktop_update(version: string): Promise<ActionResult>
+  get_desktop_update_progress(): Promise<DesktopUpdateProgress>
+  finish_desktop_update(version: string): Promise<ActionResult>
+  restart_desktop(): Promise<ActionResult>
   get_commands(): Promise<CommandsResponse>
   get_custom_commands(): Promise<CustomCommandsResponse>
   get_opt_outs(query?: string, offset?: number, limit?: number): Promise<OptOutsResponse>

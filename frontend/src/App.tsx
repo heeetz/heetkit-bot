@@ -30,6 +30,7 @@ import HelpTip from './components/HelpTip'
 import BrowserSession from './components/BrowserSession'
 import DesktopStartup from './components/DesktopStartup'
 import Confirmation from './components/Confirmation'
+import { restartDesktop } from './desktopRestart'
 import './styles.css'
 
 const sections = ['Dashboard', 'Commands', 'Filters', 'AI', 'Logs', 'Analytics', 'Settings', 'About'] as const
@@ -127,6 +128,20 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
 }) {
   const [setup, setSetup] = useState<DashboardSetup | null>(null)
   const [setupError, setSetupError] = useState('')
+  const [restartError, setRestartError] = useState('')
+  const [restarting, setRestarting] = useState(false)
+  const desktopConnectionState = isBrowserMode() ? undefined : status?.twitch_connection_state
+
+  const restartTwitch = async () => {
+    setRestartError('')
+    setRestarting(true)
+    try {
+      if (await restartDesktop()) return
+    } catch (reason) {
+      setRestartError(reason instanceof Error ? reason.message : 'HeetKit could not restart.')
+    }
+    setRestarting(false)
+  }
 
   useEffect(() => {
     let active = true
@@ -168,7 +183,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
     }
     void loadSetup()
     return () => { active = false }
-  }, [])
+  }, [desktopConnectionState])
 
   const statusLabel = status ? (status.running ? 'Running' : 'Stopped') : 'Loading…'
   const twitchCredential = setup?.credentials.find(
@@ -181,7 +196,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
   const needsTwitchSetup = Boolean(setup && (!twitchTargetReady || !twitchCredential?.configured))
   const aiConfigured = Boolean(setup?.credentials.some((credential) => credential.configured
     && (credential.name === 'gemini_api_key' || credential.name === 'deepseek_api_key' || credential.name === 'openai_api_key')))
-  const pendingRestart = Boolean(setup?.twitch.requires_restart)
+  const pendingRestart = !isBrowserMode() && Boolean(setup?.twitch.requires_restart || setup?.twitch.requires_cleanup_restart)
   const pendingReconnect = Boolean(setup?.twitch.requires_reconnect && !pendingRestart && !needsTwitchSetup)
   const connectionState = status?.twitch_connection_state
   const operation = isBrowserMode() ? status?.operation : undefined
@@ -241,18 +256,22 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
       {(needsTwitchSetup || pendingRestart || pendingReconnect || setupError) && (
         <article className="card dashboard-notice setup-card">
           <div>
-            <h2>{setupError ? 'Setup status needs attention' : needsTwitchSetup ? 'Finish Twitch setup' : pendingRestart ? 'Restart to apply Twitch setup' : 'Channel change pending'}</h2>
-            <p>{setupError || (isBrowserMode() ? 'Configure Twitch identity, authorization and credentials on the server, then restart it to apply changes.' : needsTwitchSetup
-              ? 'Save the client ID, bot account, channel and client secret in Settings, then restart the application.'
-              : pendingRestart
-                ? 'Restart the application to apply the saved client ID, bot identity or secret.'
-                : status?.running
+            <h2>{setupError ? 'Setup status needs attention' : pendingRestart ? 'Restart to apply Twitch setup' : needsTwitchSetup ? 'Finish Twitch setup' : 'Channel change pending'}</h2>
+            <p>{setupError || (pendingRestart
+              ? setup?.twitch.requires_restart ? 'Restart to apply the saved client ID, bot identity or secret.' : 'Twitch cleanup needs an application restart before connecting.'
+              : isBrowserMode() ? 'Save Twitch setup in Settings, then authorize the configured bot account.'
+                : needsTwitchSetup ? 'Enter the client ID, bot account, channel and client secret in Settings.'
+                  : status?.running
                   ? 'Use Save & reconnect in Settings to switch the running bot to the saved channel.'
                   : 'Use Save & apply in Settings to switch to the saved channel.')}</p>
+            {restartError && <p className="inline-error" role="alert">{restartError}</p>}
           </div>
-          <button className="secondary" onClick={() => onNavigate('Settings', 'twitch-settings')}>
-            {needsTwitchSetup ? 'Configure Twitch' : 'Review Twitch setup'}
-          </button>
+          <div className="row-actions">
+            <button className="secondary" onClick={() => onNavigate('Settings', 'twitch-settings')}>
+              {needsTwitchSetup ? 'Configure Twitch' : 'Review Twitch setup'}
+            </button>
+            {pendingRestart && <button className="primary" disabled={restarting || Boolean(busy)} onClick={() => void restartTwitch()}>{restarting ? 'Restarting…' : 'Restart now'}</button>}
+          </div>
         </article>
       )}
       {operation && (
@@ -552,6 +571,7 @@ function LogsPage() {
 
 function ManagementApp() {
   const [section, setSection] = useState<Section>('Dashboard')
+  const [aboutVisited, setAboutVisited] = useState(false)
   const [navigationTarget, setNavigationTarget] = useState<{ id?: string } | null>(null)
   const main = useRef<HTMLElement | null>(null)
   const sidebar = useRef<HTMLElement | null>(null)
@@ -561,6 +581,7 @@ function ManagementApp() {
   const [actionBusy, setActionBusy] = useState('')
 
   const navigate = (nextSection: Section, targetId?: string) => {
+    if (nextSection === 'About') setAboutVisited(true)
     setSection(nextSection)
     setNavigationTarget({ id: targetId })
   }
@@ -789,7 +810,7 @@ function ManagementApp() {
           {section === 'Logs' && <LogsPage />}
           {section === 'Analytics' && <AnalyticsPage />}
           <div hidden={section !== 'Settings'}><SettingsPage active={section === 'Settings'} status={status} /></div>
-          {section === 'About' && <AboutPage />}
+          {aboutVisited && <div hidden={section !== 'About'}><AboutPage /></div>}
         </div>
       </main>
     </div>

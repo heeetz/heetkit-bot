@@ -47,6 +47,7 @@ interface SelectedImport {
 export default function ConfigurationTransfer() {
   const input = useRef<HTMLInputElement>(null)
   const [selection, setSelection] = useState<SelectedImport | null>(null)
+  useRestartDraft('Configuration import', Boolean(selection))
   const [busy, setBusy] = useState<'export' | 'preview' | 'import' | ''>('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -218,3 +219,4 @@ export default function ConfigurationTransfer() {
     </section>
   )
 }
+import { useRestartDraft } from '../desktopRestart'

@@ -10,6 +10,7 @@ const PAGE_SIZE = 50
 export default function OptOutManagement({ active }: { active: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const [username, setUsername] = useState('')
+  useRestartDraft('Local privacy', Boolean(username.trim()))
   const [query, setQuery] = useState('')
   const [offset, setOffset] = useState(0)
   const [total, setTotal] = useState(0)
@@ -98,3 +99,4 @@ export default function OptOutManagement({ active }: { active: boolean }) {
     </div>}
   </article>
 }
+import { useRestartDraft } from '../desktopRestart'

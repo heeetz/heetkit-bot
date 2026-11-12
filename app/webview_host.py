@@ -8,6 +8,7 @@ import ctypes
 import logging
 import math
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -45,6 +46,7 @@ from app.desktop_instance import (
     desktop_instance_guard,
     notify_existing_desktop,
 )
+from app import desktop_relaunch
 from app.filter_settings import (
     FilterValidationError,
     apply_filter_settings,
@@ -58,9 +60,12 @@ from app.runtime_paths import (
     RuntimePaths, RuntimeDataError, prepare_runtime_data,
 )
 from app.system_tray import SystemTray
-from app.services.updates import UpdateCheckError, check_for_updates
+from app.services.updates import (
+    DOWNLOAD_TIMEOUT_SECONDS, ReleaseAssets, UpdateCheckError, VerifiedUpdate,
+    authorize_installer, check_for_updates, download_installer, publisher_key,
+)
 from app.windows_runtime import DesktopPrerequisiteError, ensure_windows_runtime
-from app.twitch.client import OAUTH_REDIRECT_URI
+from app.twitch.client import OAUTH_REDIRECT_URI, TwitchCleanupError
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
 from app.utils.logging import (
@@ -91,6 +96,7 @@ FRONTEND_OPERATIONS = (
     "export_activity",
     "export_configuration", "preview_configuration_import", "apply_configuration_import",
     "get_app_status", "get_about_info", "check_for_updates", "get_commands", "get_custom_commands",
+    "prepare_desktop_update", "get_desktop_update_progress", "finish_desktop_update", "restart_desktop",
     "get_announcements", "save_announcements",
     "get_message_triggers", "save_message_triggers",
     "get_analytics", "configure_analytics", "reset_analytics", "get_ai_balance",
@@ -140,6 +146,7 @@ class AsyncioBackendHost:
     ) -> None:
         self._settings = settings
         self._auto_start = auto_start
+        self.run_intent = auto_start
         self._initial_ai_memory_enabled = initial_ai_memory_enabled
         self._logger = get_logger("app.webview")
         self._thread: threading.Thread | None = None
@@ -197,6 +204,7 @@ class AsyncioBackendHost:
             try:
                 await self.bot_runtime.start_bot()
             except TwitchConfigurationError as error:
+                self.run_intent = False
                 self._logger.warning("Automatic Twitch start skipped: %s", error)
         self._startup_state = "ready"
 
@@ -424,9 +432,22 @@ class WebUIBridge(ApplicationManagement):
         self._profile_root = RuntimePaths.default().root.resolve()
         self._window: Any | None = None
         self._on_startup_complete = None
+        self._relaunch_ready: Path | None = None
+        self._controller: DesktopController | None = None
+        self._desktop_operation = threading.Lock()
+        self._update_offer: VerifiedUpdate | None = None
+        self._prepared_update: Path | None = None
+        self._update_progress: dict[str, object] = {}
 
     def get_desktop_startup(self) -> dict[str, object]:
-        return self._backend.startup_status()
+        status = self._backend.startup_status()
+        if self._relaunch_ready is not None and status["state"] in {"ready", "mapping_required"}:
+            try:
+                desktop_relaunch.report_desktop_ready(self._relaunch_ready)
+                self._relaunch_ready = None
+            except OSError:
+                self._logger.warning("Could not report Desktop relaunch readiness")
+        return status
 
     def confirm_legacy_channel(self, channel_id: object, confirmed: object) -> dict[str, object]:
         try:
@@ -622,6 +643,16 @@ class WebUIBridge(ApplicationManagement):
         return {"path": str(self._profile_root)}
 
     def check_for_updates(self) -> dict[str, object]:
+        if not self._desktop_operation.acquire(blocking=False):
+            return {"ok": False, "current_version": application_version(), "error": "A Desktop update is already in progress."}
+        try:
+            return self._check_for_updates()
+        finally:
+            self._desktop_operation.release()
+
+    def _check_for_updates(self) -> dict[str, object]:
+        self._discard_prepared_update()
+        self._update_offer = None
         current_version = application_version()
         try:
             release = self._wait_for_backend(
@@ -636,7 +667,110 @@ class WebUIBridge(ApplicationManagement):
         except Exception as error:
             self._logger.warning("Update check failed error_type=%s", type(error).__name__)
             return {"ok": False, "current_version": current_version, "error": "Could not check for updates. Try again later."}
-        return {"ok": True, "current_version": current_version, **release}
+        assets = release.pop("_installer", None)
+        result = {"ok": True, "current_version": current_version, **release}
+        if self._controller is None or not release["update_available"]:
+            return result
+        if desktop_relaunch.installed_directory() is None:
+            result["automatic_update_reason"] = "Use Open release / downloads to update this portable or source copy."
+        elif (key := publisher_key()) is None:
+            result["automatic_update_reason"] = "This build has no trusted update publisher key. Install the update manually."
+        elif not isinstance(assets, ReleaseAssets):
+            result["automatic_update_reason"] = "This release has no matching installer with publisher verification. Install it manually."
+        else:
+            try:
+                self._update_offer = self._wait_for_backend(
+                    authorize_installer(self._backend.application.http_client, assets, key),
+                    operation="verify_update_publisher", timeout=BRIDGE_UPDATE_CHECK_TIMEOUT_SECONDS,
+                )
+            except UpdateCheckError as error:
+                result["automatic_update_reason"] = str(error)
+            except (OSError, RuntimeError):
+                result["automatic_update_reason"] = "Publisher verification is unavailable. Install the update manually."
+        result["automatic_update"] = self._update_offer is not None
+        return result
+
+    def _discard_prepared_update(self) -> None:
+        if self._prepared_update is not None:
+            shutil.rmtree(self._prepared_update, ignore_errors=True)
+            self._prepared_update = None
+        self._update_progress = {}
+
+    def get_desktop_update_progress(self) -> dict[str, object]:
+        return self._update_progress
+
+    def prepare_desktop_update(self, version: object) -> dict[str, object]:
+        if not self._desktop_operation.acquire(blocking=False):
+            return {"ok": False, "error": "A Desktop update or restart is already in progress."}
+        stage = None
+        try:
+            update = self._update_offer
+            install = desktop_relaunch.installed_directory()
+            if update is None or version != update.assets.version or install is None or self._controller is None:
+                return {"ok": False, "error": "Check for a verified update first."}
+            if self._prepared_update is not None:
+                return {"ok": True}
+            stage = desktop_relaunch.new_work_directory(self._profile_root, install)
+
+            def progress(phase: str, size: int) -> None:
+                self._update_progress = {"phase": phase, "downloaded": size, "total": update.assets.size}
+
+            self._wait_for_backend(
+                download_installer(self._backend.application.http_client, update, stage / update.assets.name, progress),
+                operation="download_installer", timeout=DOWNLOAD_TIMEOUT_SECONDS + 30,
+            )
+            desktop_relaunch.verify_installer_version(stage / update.assets.name, update.assets.version)
+            desktop_relaunch.prepare_worker_copy(stage, install)
+            self._prepared_update = stage
+            progress("ready", update.assets.size)
+            return {"ok": True}
+        except UpdateCheckError as error:
+            return {"ok": False, "error": str(error)}
+        except (OSError, RuntimeError) as error:
+            self._logger.warning("Update preparation failed error_type=%s", type(error).__name__)
+            return {"ok": False, "error": "Could not prepare the update. Check free disk space and try again."}
+        finally:
+            if stage is not None and self._prepared_update != stage:
+                shutil.rmtree(stage, ignore_errors=True)
+                self._update_progress = {}
+            self._desktop_operation.release()
+
+    def finish_desktop_update(self, version: object) -> dict[str, object]:
+        return self._schedule_desktop_relaunch(version, update_requested=True)
+
+    def restart_desktop(self) -> dict[str, object]:
+        return self._schedule_desktop_relaunch()
+
+    def _schedule_desktop_relaunch(self, version: object = None, *, update_requested: bool = False) -> dict[str, object]:
+        if self._controller is None or not self._desktop_operation.acquire(blocking=False):
+            return {"ok": False, "error": "Desktop restart is unavailable or another operation is in progress."}
+        stage = None
+        try:
+            if update_requested:
+                stage, update = self._prepared_update, self._update_offer
+                install = desktop_relaunch.installed_directory()
+                if stage is None or update is None or install is None or version != update.assets.version:
+                    return {"ok": False, "error": "Prepare a verified update first."}
+            else:
+                update = install = None
+                pending = self._app_settings is not None and self._twitch_setup_requires_restart(self._app_settings.snapshot().twitch)
+                if not pending and not self._twitch_cleanup_requires_restart():
+                    return {"ok": False, "error": "There are no Twitch changes requiring a Desktop restart."}
+                stage = desktop_relaunch.new_work_directory(self._profile_root)
+            self._controller.schedule_relaunch(stage, install=install, update=update)
+            if update_requested:
+                self._prepared_update = None
+                self._update_offer = None
+            return {"ok": True}
+        except (OSError, RuntimeError) as error:
+            self._logger.warning("Desktop restart preparation failed error_type=%s", type(error).__name__)
+            if update_requested:
+                self._discard_prepared_update()
+            elif stage is not None:
+                shutil.rmtree(stage, ignore_errors=True)
+            return {"ok": False, "error": "Could not start the Desktop relaunch. HeetKit is still running. Try again or use Exit from the tray."}
+        finally:
+            self._desktop_operation.release()
 
     def open_profile_folder(self) -> dict[str, object]:
         """Open only this desktop's selected profile, never a frontend-supplied path."""
@@ -930,6 +1064,11 @@ class WebUIBridge(ApplicationManagement):
                 "client_id": local.client_id or getattr(application.settings, "twitch_client_id", ""),
                 "bot_username": local.bot_username or application.settings.twitch_bot_username,
                 "bot_user_id": local.bot_user_id or application.settings.twitch_bot_user_id,
+                "active_client_id": getattr(application.settings, "twitch_client_id", ""),
+                "active_bot_username": application.settings.twitch_bot_username,
+                "active_bot_user_id": application.settings.twitch_bot_user_id,
+                "requires_secret_restart": self._twitch_secret_requires_restart,
+                "requires_cleanup_restart": self._twitch_cleanup_requires_restart(),
                 "requires_restart": self._twitch_setup_requires_restart(local),
                 "running": runtime_state.status()[0],
                 "connected": runtime_state.twitch_connected,
@@ -985,7 +1124,7 @@ class WebUIBridge(ApplicationManagement):
         )
         return {
             "ok": True, "requires_reconnect": requires_reconnect,
-            "requires_restart": self._twitch_setup_requires_restart(updated.twitch),
+            "requires_restart": self._twitch_setup_requires_restart(updated.twitch) or self._twitch_cleanup_requires_restart(),
         }
 
     def _twitch_setup_requires_restart(self, local: TwitchSettings) -> bool:
@@ -997,6 +1136,9 @@ class WebUIBridge(ApplicationManagement):
                 ("bot_user_id", local.bot_user_id),
             )
         )
+
+    def _twitch_cleanup_requires_restart(self) -> bool:
+        return getattr(getattr(self._backend, "bot_runtime", None), "twitch_restart_required", False) is True
 
     def save_twitch_preset(
         self,
@@ -1078,7 +1220,7 @@ class WebUIBridge(ApplicationManagement):
                 operation="reconnect_twitch",
                 timeout=BRIDGE_TWITCH_RECONNECT_TIMEOUT_SECONDS,
             )
-        except TwitchConfigurationError as error:
+        except (TwitchConfigurationError, TwitchCleanupError) as error:
             return {"ok": False, "error": str(error)}
         except BridgeOperationTimedOut:
             return {
@@ -1218,24 +1360,28 @@ class WebUIBridge(ApplicationManagement):
         value = self._credential_manager.effective_value(name)
         setattr(self._backend.application.settings, name.value, SecretStr(value) if value else None)
 
-    def _apply_credential_change(self, name: CredentialName) -> None:
-        if name is not CredentialName.TWITCH_CLIENT_SECRET:
-            self._wait_for_backend(
-                self._refresh_ai_credential(name), operation="apply_ai_credential",
-                timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
-            )
-        else:
-            self._twitch_secret_requires_restart = True
+    def _apply_credential_change(self, name: CredentialName, previous: str | None) -> dict[str, object]:
+        if name is CredentialName.TWITCH_CLIENT_SECRET:
+            active = self._backend.application.settings.twitch_client_secret
+            effective = self._credential_manager.effective_value(name)
+            self._twitch_secret_requires_restart = effective != (active.get_secret_value() if active else None)
+            return {"changed": effective != previous, "requires_restart": self._twitch_secret_requires_restart}
+        self._wait_for_backend(
+            self._refresh_ai_credential(name), operation="apply_ai_credential",
+            timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
+        )
+        return {}
 
     def replace_credential(self, name: object, value: object) -> dict[str, object]:
         if self._credential_manager is None:
             return {"ok": False, "error": "Credential storage is not configured."}
         try:
             parsed_name = self._credential_manager.parse_name(name)
+            previous = self._credential_manager.effective_value(parsed_name) if parsed_name is CredentialName.TWITCH_CLIENT_SECRET else None
             self._credential_manager.replace(parsed_name.value, value)
-            self._apply_credential_change(parsed_name)
+            outcome = self._apply_credential_change(parsed_name, previous)
         except BridgeOperationTimedOut:
-            return {"ok": False, "error": "Credential stored securely. Restart to apply it; the backend timed out."}
+            return {"ok": False, "error": "Credential stored securely. Its runtime status could not be refreshed. Try saving it again."}
         except ValueError as error:
             return {"ok": False, "error": str(error)}
         except CredentialError as error:
@@ -1254,18 +1400,18 @@ class WebUIBridge(ApplicationManagement):
                 "event_action": "replace",
             },
         )
-        return {"ok": True}
+        return {"ok": True, **outcome}
 
     def remove_credential(self, name: object) -> dict[str, object]:
         if self._credential_manager is None:
             return {"ok": False, "error": "Credential storage is not configured."}
         try:
             parsed_name = self._credential_manager.parse_name(name)
+            previous = self._credential_manager.effective_value(parsed_name) if parsed_name is CredentialName.TWITCH_CLIENT_SECRET else None
             removed = self._credential_manager.remove(parsed_name.value)
-            if removed or parsed_name is not CredentialName.TWITCH_CLIENT_SECRET:
-                self._apply_credential_change(parsed_name)
+            outcome = self._apply_credential_change(parsed_name, previous) if removed or parsed_name is not CredentialName.TWITCH_CLIENT_SECRET else {}
         except BridgeOperationTimedOut:
-            return {"ok": False, "error": "Credential removed. Restart to apply the fallback; the backend timed out."}
+            return {"ok": False, "error": "Credential removed. Its runtime status could not be refreshed. Try removing it again."}
         except ValueError as error:
             return {"ok": False, "error": str(error)}
         except CredentialError as error:
@@ -1285,7 +1431,7 @@ class WebUIBridge(ApplicationManagement):
                     "event_action": "remove",
                 },
             )
-        return {"ok": True, "changed": removed}
+        return {"ok": True, "changed": removed, **outcome}
 
     def test_credential(self, name: object) -> dict[str, object]:
         if self._credential_manager is None:
@@ -1386,7 +1532,7 @@ class WebUIBridge(ApplicationManagement):
                 operation="start_bot",
                 timeout=BRIDGE_BOT_START_TIMEOUT_SECONDS,
             )
-        except TwitchConfigurationError as error:
+        except (TwitchConfigurationError, TwitchCleanupError) as error:
             return {"ok": False, "changed": False, "error": str(error)}
         except BridgeOperationTimedOut:
             return {
@@ -1406,6 +1552,7 @@ class WebUIBridge(ApplicationManagement):
                 "event_action": "start",
             },
         )
+        self._backend.run_intent = True
         return {"ok": True, "changed": started}
 
     def stop_bot(self) -> dict[str, object]:
@@ -1433,6 +1580,7 @@ class WebUIBridge(ApplicationManagement):
                 "event_action": "stop",
             },
         )
+        self._backend.run_intent = False
         return {"ok": True, "changed": stopped}
 
 
@@ -1509,6 +1657,7 @@ class DesktopController:
         bridge: WebUIBridge,
         app_settings: AppSettingsStore,
         tray: SystemTray | None = None,
+        dev_url: str | None = None,
     ) -> None:
         self._backend = backend
         self._bridge = bridge
@@ -1519,6 +1668,8 @@ class DesktopController:
         self._tray_started = False
         self._tray_supported = sys.platform == "win32" or tray is not None
         self._exit_lock = threading.RLock()
+        self._dev_url = dev_url
+        self._relaunch_stage: Path | None = None
         self._tray = tray or SystemTray(
             on_open=self.open_window,
             on_toggle_bot=self.toggle_bot,
@@ -1569,6 +1720,15 @@ class DesktopController:
             self._logger.error("Tray could not change bot state error=%s", result.get("error"))
         self._tray.update_menu()
 
+    def schedule_relaunch(self, stage: Path, *, install: Path | None, update: VerifiedUpdate | None) -> None:
+        with self._exit_lock:
+            if self._exit_requested or self._relaunch_stage is not None:
+                raise RuntimeError("Desktop is already exiting.")
+            desktop_relaunch.start_worker(stage, self._bridge._profile_root, self._backend.run_intent,
+                                          dev_url=self._dev_url, install=install, update=update)
+            self._relaunch_stage = stage
+            threading.Thread(target=self.exit_application, name="heetkit-desktop-relaunch").start()
+
     def exit_application(self) -> None:
         with self._exit_lock:
             if self._exit_requested:
@@ -1576,9 +1736,17 @@ class DesktopController:
             self._exit_requested = True
         try:
             self._backend.close()
+            if self._relaunch_stage is not None:
+                (self._relaunch_stage / "shutdown-complete").touch()
         except Exception:
             self._logger.exception("Desktop backend shutdown failed")
         finally:
+            if self._relaunch_stage is None and isinstance(self._bridge, WebUIBridge):
+                if self._bridge._desktop_operation.acquire(blocking=False):
+                    try:
+                        self._bridge._discard_prepared_update()
+                    finally:
+                        self._bridge._desktop_operation.release()
             self._tray.stop()
             if self._window is not None:
                 try:
@@ -1636,6 +1804,7 @@ def run_desktop_host(
     *,
     auto_start: bool | None = None,
     credential_manager: CredentialManager | None = None,
+    relaunch_ready: Path | None = None,
 ) -> None:
     import webview
 
@@ -1670,14 +1839,17 @@ def run_desktop_host(
             app_settings=app_settings,
             credential_manager=credential_manager,
         )
-        controller = DesktopController(backend, bridge, app_settings)
+        development_mode = frontend_url.startswith(("http://", "https://"))
+        controller = DesktopController(backend, bridge, app_settings, dev_url=frontend_url if development_mode else None)
+        bridge._controller = controller
+        bridge._relaunch_ready = relaunch_ready
         window = webview.create_window(
             APPLICATION_NAME,
             frontend_url,
             width=1180,
             height=760,
             min_size=(900, 620),
-            hidden=settings_snapshot.window.start_minimized and sys.platform == "win32" and not backend.startup_pending,
+            hidden=relaunch_ready is None and settings_snapshot.window.start_minimized and sys.platform == "win32" and not backend.startup_pending,
             background_color="#0b0f17",
             text_select=True,
         )
@@ -1690,7 +1862,6 @@ def run_desktop_host(
         controller.bind_window(window)
         bridge._on_startup_complete = controller.start_tray
         controller.start_tray()
-        development_mode = frontend_url.startswith(("http://", "https://"))
         icon_name = (
             "icon.ico" if sys.platform == "win32" else
             "icon.icns" if sys.platform == "darwin" else
@@ -1710,17 +1881,23 @@ def run_desktop_host(
 
 
 def main() -> None:
+    if len(sys.argv) == 4 and sys.argv[1] == desktop_relaunch.WORKER_FLAG:
+        desktop_relaunch.run_worker(Path(sys.argv[2]), int(sys.argv[3]))
+        return
     parser = argparse.ArgumentParser(description="HeetKit — Desktop control center for Twitch chat")
     parser.add_argument("--data-dir", type=Path, help="Use an independent profile directory (or HEETKIT_DATA_DIR).")
     parser.add_argument(
         "--dev-url",
         help="Load a running Vite development server instead of built frontend assets.",
     )
-    parser.add_argument(
+    run_override = parser.add_mutually_exclusive_group()
+    run_override.add_argument(
         "--stopped",
         action="store_true",
         help="Open the UI with the Twitch bot stopped, overriding the saved preference.",
     )
+    run_override.add_argument("--resume-bot", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(desktop_relaunch.READY_FLAG, type=Path, help=argparse.SUPPRESS)
     parser.add_argument(
         "--check",
         action="store_true",
@@ -1739,6 +1916,9 @@ def main() -> None:
         with ExitStack() as guards:
             paths = RuntimePaths.default()
             if not arguments.check:
+                if (install := desktop_relaunch.installed_directory()) is not None:
+                    guards.enter_context(desktop_relaunch.installation_access(install))
+                    desktop_relaunch.remove_finished_runners()
                 guards.enter_context(desktop_instance_guard(paths.app_settings))
                 if sys.platform == "win32" and not paths.brand_migration_marker.exists():
                     # Legacy compatibility: the former desktop could also be
@@ -1768,8 +1948,9 @@ def main() -> None:
             run_desktop_host(
                 settings,
                 frontend_url,
-                auto_start=False if arguments.stopped else None,
+                auto_start=False if arguments.stopped else True if arguments.resume_bot else None,
                 credential_manager=credential_manager,
+                relaunch_ready=arguments.desktop_relaunch_ready,
             )
     except DesktopPrerequisiteError as error:
         if not arguments.check:

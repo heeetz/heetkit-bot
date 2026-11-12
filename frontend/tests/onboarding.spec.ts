@@ -303,7 +303,7 @@ test('secret changes retain Twitch drafts and require restart across Settings an
   await expect(twitchSection.getByLabel('Target channel login')).toHaveValue('unsaved_channel')
   await expect(twitchSection.getByLabel('Twitch client secret', { exact: true })).toHaveValue('')
   await expect(twitchSection.getByRole('button', { name: 'Authorize Twitch', exact: true })).toBeDisabled()
-  await expect(twitchSection.getByRole('button', { name: 'Save (restart required)', exact: true })).toBeVisible()
+  await expect(twitchSection.getByRole('button', { name: 'Save & restart', exact: true })).toBeVisible()
   await twitchSection.getByLabel('Saved channel name', { exact: true }).fill('After restart')
   await twitchSection.getByRole('button', { name: 'Save channel', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('Restart the application to apply pending Twitch setup')
@@ -347,10 +347,8 @@ test('identity changes explain restart before saving and do not reconnect', asyn
   await openTwitchSettings(page)
   const twitchSection = page.locator('#twitch-settings')
   await twitchSection.getByLabel('Twitch application client ID').fill('other-client')
-  await twitchSection.getByRole('button', { name: 'Save & reconnect', exact: true }).click()
-  await expect(page.getByRole('status')).toContainText('Restart the application')
-  expect(await page.evaluate(() => Reflect.get(window, 'twitchCalls')).then((calls) => calls.map((call: string[]) => call[0]))).toEqual(['save'])
-  await expect(twitchSection.getByRole('button', { name: 'Save (restart required)', exact: true })).toBeVisible()
+  await twitchSection.getByRole('button', { name: 'Save & restart', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, 'twitchCalls').map((call: string[]) => call[0]))).toEqual(['save', 'restart'])
 })
 
 for (const connection of ['stopped', 'connected']) {
@@ -484,5 +482,81 @@ for (const width of [1280, 320]) {
     }))
     await expect(card).not.toContainText('Recovery:')
     await expect(card).toContainText('Connected')
+  })
+}
+
+for (const running of [false, true]) {
+  test(`reopened Desktop preserves a ${running ? 'running' : 'stopped'} Twitch session intent`, async ({ page }) => {
+    await page.goto(`/tests/fixture.html?configured&relaunchFixture${running ? '&connection=connected' : ''}`)
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await openTwitchSettings(page)
+    await page.getByLabel('Bot account login').fill('differentbot')
+    await page.getByRole('button', { name: 'Save & restart', exact: true }).click()
+    await expect(page.locator('.dashboard-hero').getByRole('heading')).toHaveText(running ? 'Running' : 'Stopped')
+    if (!running) {
+      await expect(page.getByRole('button', { name: 'Authorize Twitch' })).toHaveCount(0)
+      await page.getByRole('button', { name: 'Start Bot' }).click()
+    }
+    await expect(page.getByRole('button', { name: 'Authorize Twitch' })).toBeEnabled()
+  })
+}
+
+test('saved pending identity applies from Dashboard and a cancelled restart keeps other drafts', async ({ page }) => {
+  await page.goto('/tests/fixture.html?configured')
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await openTwitchSettings(page)
+  await page.getByLabel('Twitch application client ID').fill('changed-client')
+  await page.getByRole('button', { name: 'Save for later' }).click()
+  await expect(page.getByRole('button', { name: 'Restart now' })).toBeVisible()
+  await page.getByLabel('Target channel login').fill('unsaved_channel')
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
+  const restart = page.locator('.setup-card').getByRole('button', { name: 'Restart now' })
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('Twitch connection')
+    await dialog.dismiss()
+  })
+  await restart.click()
+  expect(await page.evaluate(() => Reflect.get(window, 'twitchCalls').map((call: string[]) => call[0]))).toEqual(['save'])
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await expect(page.getByLabel('Target channel login')).toHaveValue('unsaved_channel')
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
+  page.once('dialog', (dialog) => dialog.accept())
+  await restart.click()
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, 'twitchCalls').at(-1))).toEqual(['restart', false])
+})
+
+test('failed identity save leaves HeetKit running', async ({ page }) => {
+  await page.goto('/tests/fixture.html?configured&twitchSaveError')
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await openTwitchSettings(page)
+  await page.getByLabel('Bot account login').fill('differentbot')
+  await page.getByRole('button', { name: 'Save & restart', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Twitch settings could not be saved')
+  expect(await page.evaluate(() => Reflect.get(window, 'twitchCalls').map((call: string[]) => call[0]))).toEqual(['save'])
+})
+
+for (const action of ['add', 'replace', 'remove', 'test', 'failed', 'unchanged']) {
+  test(`Desktop secret ${action} requests a restart only for an applied change`, async ({ page }) => {
+    const query = action === 'add' ? '' : action === 'failed' ? '?configured&credentialSaveError' : action === 'unchanged' ? '?configured&credentialUnchanged' : '?configured'
+    await page.goto(`/tests/fixture.html${query}`)
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await openTwitchSettings(page)
+    if (action === 'test') {
+      await page.getByRole('button', { name: 'Test client secret', exact: true }).click()
+      await expect(page.getByRole('status')).toContainText('validation passed')
+    } else if (action === 'remove') {
+      page.once('dialog', (dialog) => dialog.accept())
+      await page.getByRole('button', { name: 'Remove secret & restart' }).click()
+    } else {
+      await page.getByLabel('Twitch client secret', { exact: true }).fill('synthetic-secret')
+      await page.getByRole('button', { name: action === 'add' ? 'Add secret & restart' : 'Replace secret & restart' }).click()
+    }
+    if (['add', 'replace', 'remove'].includes(action)) {
+      await expect.poll(() => page.evaluate(() => Reflect.get(window, 'twitchCalls'))).toEqual([['restart', false]])
+    } else {
+      if (action === 'failed') await expect(page.getByRole('alert')).toContainText('Could not store the credential')
+      if (action === 'unchanged') await expect(page.getByRole('status')).toContainText('Client secret unchanged')
+      expect(await page.evaluate(() => Reflect.get(window, 'twitchCalls'))).toEqual([])
+    }
   })
 }
