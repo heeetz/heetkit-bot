@@ -97,7 +97,9 @@ def test_backend_dependencies_exclude_desktop_and_linux_lock_preserves_shared_pi
     root = Path(__file__).resolve().parents[1]
     project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
     assert not any(item.startswith(("keyring", "pywebview", "pystray")) for item in project["dependencies"])
-    assert {item.split(">=")[0] for item in project["optional-dependencies"]["desktop"]} == {"keyring", "pywebview", "pystray", "pillow"}
+    assert {Requirement(item).name for item in project["optional-dependencies"]["desktop"]} == {
+        "keyring", "pywebview", "pystray", "pillow", "cryptography",
+    }
     windows = dict(line.split("==") for line in (root / "packaging/windows/requirements.txt").read_text().splitlines() if "==" in line)
     # Source installs and reproducible Windows builds must satisfy the same
     # runtime requirements, including explicit transitive security constraints.

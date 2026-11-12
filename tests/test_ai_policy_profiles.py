@@ -40,7 +40,7 @@ async def test_provider_request_uses_protected_profile_and_personality_order(mon
         assert instruction.startswith("You are a Twitch chat assistant.")
         assert instruction.index("Never:") < instruction.index(state.profile_instructions)
         assert instruction.index(state.profile_instructions) < instruction.index("Use a cheerful tone.")
-        assert instruction.endswith("Use a cheerful tone.")
+        assert instruction.index("Use a cheerful tone.") < instruction.index("Cite only sources returned by the tools")
     finally:
         await service.aclose()
 
