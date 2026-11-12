@@ -450,7 +450,11 @@ window.pywebview = { api: {
   },
   prepare_desktop_update: async (version: string) => {
     updateCalls.push(['prepare', version])
-    await new Promise((resolve) => window.setTimeout(resolve, 700))
+    if (query.has('holdDownload')) {
+      await new Promise<void>((resolve) => Object.assign(window, { finishUpdateDownload: resolve }))
+    } else {
+      await new Promise((resolve) => window.setTimeout(resolve, 700))
+    }
     return query.has('badDownload') ? { ok: false, error: 'Installer verification failed.' } : { ok: true }
   },
   get_desktop_update_progress: async () => ({ phase: 'downloading', downloaded: 30, total: 60 }),

@@ -189,12 +189,13 @@ test('A release browser failure leaves manual checking and About links usable', 
 
 for (const failed of [false, true]) {
   test(`one-click update ${failed ? 'leaves Desktop open after failed verification' : 'verifies then hands off once'}`, async ({ page }) => {
-    await page.goto(`/tests/fixture.html?about&updateNewer&verifiedUpdate${failed ? '&badDownload' : ''}`)
+    await page.goto(`/tests/fixture.html?about&updateNewer&verifiedUpdate&holdDownload${failed ? '&badDownload' : ''}`)
     const card = page.locator('.update-card')
     await card.getByRole('button', { name: 'Check for updates', exact: true }).click()
     const install = card.getByRole('button', { name: 'Update & restart' })
     await install.evaluate((button: HTMLButtonElement) => { button.click(); button.click() })
     await expect(card.getByRole('progressbar', { name: 'Installer download' })).toHaveAttribute('value', '30')
+    await page.evaluate(() => Reflect.get(window, 'finishUpdateDownload')())
     if (failed) {
       await expect(card.getByRole('alert')).toContainText('Installer verification failed')
       await expect(install).toBeEnabled()
