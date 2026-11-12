@@ -122,9 +122,12 @@ function gh { $args | ConvertTo-Json | Set-Content -LiteralPath 'gh-arguments.js
 
 @pytest.mark.parametrize("version,prerelease", [("1.3.0", "false"), ("1.4.0-beta.1", "true"), ("0.1.3", "true")])
 def test_publication_uses_curated_tagged_notes_and_exact_verified_assets(tmp_path, version, prerelease):
-    metadata_result = version_metadata(tmp_path, version=version)
+    metadata_work = tmp_path / "version-metadata"
+    metadata_work.mkdir()
+    metadata_result = version_metadata(metadata_work, version=version)
     assert metadata_result.returncode == 0, metadata_result.stderr
-    metadata = dict(line.split("=", 1) for line in (tmp_path / "version-output").read_text(encoding="utf-8-sig").splitlines())
+    output = (metadata_work / "version-output").read_text(encoding="utf-8-sig")
+    metadata = dict(line.split("=", 1) for line in output.splitlines())
     assert metadata == {"version": version, "prerelease": prerelease}
     notes = (ROOT / f"docs/releases/v{version}.md").read_text(encoding="utf-8") if version != "0.1.3" else "# HeetKit v0.1.3\n" + "Test release. " * 20
     assert notes.startswith(f"# HeetKit v{version}\n")
