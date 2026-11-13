@@ -1,19 +1,39 @@
 # Third-party notices
 
-HeetKit is licensed under Apache-2.0; dependencies retain their own licenses.
-The Python source inventory began as a **2026-10-04** snapshot for application version
-**0.1.0**, covering the 54-package Windows runtime dependency closure; later corrections
-are identified below. The frontend tables reflect the current
-`frontend/package-lock.json` (**125 packages**).
-The Python declarations support 3.12+ and mostly use version ranges: this snapshot
-is evidence of inspected versions, not a Python lockfile or a released artifact.
+HeetKit is licensed under Apache-2.0. Dependencies retain their own licenses.
+Preserved upstream texts and attributions are in [third_party_licenses/](third_party_licenses/).
 
-Evidence: installed Python distribution `METADATA`, `Requires-Dist`, and shipped
-license/NOTICE files; npm lockfile metadata and installed production-package licenses;
-upstream sources for ambiguous entries. Full runtime texts and attributions copied
-from those packages are in [third_party_licenses/](third_party_licenses/). That directory
-also includes Vite's license because its module-preload helper can enter generated JS.
-These notices do not relicense any dependency under the project's Apache license.
+## Published Windows x64 release v1.5.4
+
+The release was built from `3eff9eaf071d5d23af19c36e9a0721c1ce1731ec`.
+Both retained release artifacts matched their SHA-256 sidecars. The portable ZIP
+matched all **617** file hashes in its `BUILD-MANIFEST.json` and the catalogue
+hashes for **197** native components and **270** required notice files.
+See the [v1.5.4 release](https://github.com/heeetz/heetkit-bot/releases/tag/v1.5.4)
+and [packaging catalogue](packaging/windows/redistribution.json).
+
+- **Portable ZIP, inspected directly.** `_internal/` contains `LICENSE`, `NOTICE`,
+  the release's `THIRD_PARTY_NOTICES.md` and `PORTABLE.txt`.
+  `_internal/third_party_licenses/` contains the preserved native, Python, React,
+  React DOM, Scheduler, Vite, Unicode CLDR and Inno Setup texts. This includes the
+  WebView2 SDK license and `NOTICE.txt`, .NET SDK license and `ThirdPartyNotices.txt`,
+  Windows SDK RTF terms, and OpenSSL, libffi and Rust attributions.
+  `_internal/licenses/` contains the CPython license collection, installed distribution
+  notices (including Pillow, aiohttp's llhttp, pystray and certifi), and
+  `windows-redistribution.json`. The ZIP contains replaceable pystray modules and
+  certifi source and CA data outside the frozen PYZ.
+- **Installer, verified by traceability.** The Setup `.build.json` binds the exact
+  installer SHA-256 to the verified portable ZIP and its `BUILD-MANIFEST.json`.
+  The build script verifies and stages that payload. The Inno Setup recipe installs it
+  recursively, adds `INSTALLER.txt` and a separate `_internal/licenses/Inno-Setup-LICENSE.txt`,
+  and displays the generated notice page. The file-by-file inspection covers the ZIP.
+  See the [installer build script](scripts/build_installer.py) and
+  [Inno Setup recipe](packaging/windows/HeetKit.iss).
+
+[Redistribution questions remain open](#windows-redistribution-evidence-and-open-questions).
+This refresh documents the published files, which retain the notices from their release build.
+
+## Weather country names
 
 Weather country qualifiers use English, Ukrainian and Russian territory names
 from [Unicode CLDR 48](https://github.com/unicode-org/cldr/tree/release-48).
@@ -21,7 +41,7 @@ The derived [country table](app/services/weather_countries.py) and the bundled
 [Unicode-3.0 notice](third_party_licenses/data/Unicode-CLDR-48-LICENSE.txt)
 carry the copyright and permission terms.
 
-## Windows v1.1.0 artifact review
+## Historical Windows v1.1.0 artifact review
 
 Reviewed on **2026-10-09** against the downloaded
 [v1.1.0 prerelease](https://github.com/heeetz/heetkit-bot/releases/tag/v1.1.0), built at
@@ -57,25 +77,19 @@ published v1.1.0 installer or ZIP.
 
 ## Redistribution requirements and manual review
 
-[Windows x64 v1.0.0](https://github.com/heeetz/heetkit-bot/releases/tag/v1.0.0) is published.
-The canonical build uses CPython 3.14.7, PyInstaller 6.22.3 and hooks-contrib 2026.8.
-Publication does not resolve the artifact-specific redistribution reviews below; the
-source inventory remains its dated 0.1.0 snapshot, with v1.1.0 evidence recorded above.
-Exact build/runtime pins are in `packaging/windows/requirements.txt`. The bundle includes
-the Python license collection, these preserved texts and installed distribution license files
-under `_internal/licenses/`. `BUILD-MANIFEST.json` records its file hashes.
+The v1.5.4 build uses CPython 3.14.7, PyInstaller 6.22.3 and hooks-contrib 2026.8.
+See the [Windows build and runtime pins](packaging/windows/requirements.txt).
 
-The Windows installer uses Inno Setup **6.7.3** around the verified onedir payload. The compiler is pinned and its unmodified installer/uninstaller engine retains
-upstream copyright/site notices. Its [license](https://github.com/jrsoftware/issrc/blob/is-6_7_3/license.txt)
-is preserved in `third_party_licenses/inno-setup/LICENSE.txt`, shown in the setup notices,
-and installed under `_internal/licenses/Inno-Setup-LICENSE.txt`. .NET Framework and
-WebView2 Runtime installers are not bundled: missing prerequisites direct the user to
-Microsoft's supported downloads. The remaining payload redistribution reviews below
-are open; producing an installer does not establish public-release clearance.
+The Windows installer uses Inno Setup **6.7.3** around the verified onedir payload.
+The pinned, unmodified installer/uninstaller engine retains upstream copyright/site notices.
+The [Inno Setup license](https://github.com/jrsoftware/issrc/blob/is-6_7_3/license.txt)
+is preserved in `third_party_licenses/inno-setup/LICENSE.txt`.
+Setup directs users with missing .NET Framework or WebView2 Runtime prerequisites to
+Microsoft's supported downloads. Those runtime installers are separate downloads.
 
 The build keeps pystray's redistributed modules as exact, replaceable `.py` files outside
-the frozen PYZ, alongside GPL/LGPL texts; no pystray modifications are made. certifi's Python
-source and exact CA bundle are also supplied outside PYZ. WebView2 ships only its Core/WinForms
+the frozen PYZ, alongside GPL/LGPL texts. certifi's Python source and exact CA bundle
+are also supplied outside PYZ. WebView2 ships only its Core/WinForms
 SDK DLLs and x64 loader; the other architecture directories contain placeholders required
 by pywebview path discovery. CLR loading uses only the amd64 loader. The collected Python.NET
 payload still includes the Microsoft/System/netstandard assemblies described below.
@@ -83,16 +97,16 @@ payload still includes the Microsoft/System/netstandard assemblies described bel
 **Recheck this notice set against each actual packaged artifact**, including frozen imports,
 native DLLs/extensions, Python's
 standard library, generated JS, data files, and any bundled OS prerequisites. Resolve
-the remaining items before distributing another binary; this review does not clear v1.1.0.
+the remaining items before distributing another binary.
 
 | Component | Status and required action |
 | --- | --- |
 | **pystray 0.19.5** | **Resolved for the v1.1.0 layout: LGPL-3.0-or-later.** All six redistributed `.py` modules match the official wheel, retain source headers and are absent from PYZ. GPLv3/LGPLv3 copies match the wheel. `_internal/pystray/` loads from disk through the frozen importer's normal file fallback, without source-integrity restrictions: edit or replace these files while HeetKit is stopped, then relaunch without rebuilding the executable. `PORTABLE.txt` describes replacement. This verifies the source/import layout; no new native modified-library smoke test was run. Preserve this layout and its notices. [Upstream license](https://github.com/moses-palmer/pystray/blob/v0.19.5/COPYING.LGPL), [versioned source](https://github.com/moses-palmer/pystray/tree/v0.19.5). |
 | **proxy-tools 0.1.0** | **Resolved source attribution for v1.1.0: BSD-2-Clause; MIT metadata conflicts with the source grant.** The official sdist SHA-256 is `ccb3751f529c047e2d8a58440d86b205303cf0fe8146f784d1cbcd94f0a28010`. Its module explicitly identifies BSD and credits Armin Ronacher/Jonathan Tushman. It is byte-identical to [upstream source at `db43f1e`](https://github.com/jtushman/proxy_tools/blob/db43f1e35d4f90a65c5a4d56d9e9af88212ec6e6/proxy_tools/__init__.py). The frozen code objects match that sdist after normalizing only source filenames. Shipped `UPSTREAM-LICENSE.txt` exactly matches that commit's [BSD notice](https://github.com/jtushman/proxy_tools/blob/db43f1e35d4f90a65c5a4d56d9e9af88212ec6e6/LICENSE.txt), including its malformed final line. Retain it unchanged; do not substitute generic MIT text. |
 | **certifi 2026.7.22** | **Resolved source delivery for v1.1.0: MPL-2.0 CA bundle.** `_internal/certifi/` contains the exact wheel's `__init__.py`, `core.py`, `py.typed` and `cacert.pem`, outside PYZ. The shipped license matches the wheel, identifies the MPL-covered bundle and links the MPL text. `PORTABLE.txt` identifies the source/bundle location. No modifications were found. Preserve source/data delivery and notices. [Exact package/source downloads](https://pypi.org/project/certifi/2026.7.22/#files), [MPL responsibilities](https://www.mozilla.org/en-US/MPL/2.0/#responsibilities). |
-| **WebView2 SDK 1.0.3856.49** | **Exact source and missing texts resolved for next-build staging.** The three shipped SDK DLLs match official NuGet `Microsoft.Web.WebView2` **1.0.3856.49**, archive SHA-256 `bc0f76eb911b569838dc4aa8f8d325269b966bedb592863d26211aef3a099f1a`. Its original Microsoft BSD license and full `NOTICE.txt` (including ANTLR and StringTemplate) are preserved in [versioned texts](third_party_licenses/native/webview2-1.0.3856.49/). They remain absent from the published v1.1.0 assets. No other native architecture or separately installed WebView2 Runtime is bundled. |
-| **pythonnet 3.1.0 / clr-loader 0.3.1 and extra .NET assemblies** | **Provenance resolved; Microsoft obligations remain open.** Correction: the earlier comparison used the platform-neutral wheel. All **97** Python.NET DLLs, including the **96** compatibility files, exactly match the official Windows-specific wheel (SHA-256 `7bdd4de03df3547a48122a3989265c8b31d5be0d19dadffa009eec7df8085e0b`). All 96 also match the official .NET SDK **10.0.300** `Microsoft.NET.Build.Extensions/net461/lib` files. The exact SDK [LICENSE and ThirdPartyNotices](third_party_licenses/native/dotnet-sdk-10.0.300/) are supplied for the next build. They are Microsoft .NET Library terms, not a blanket MIT grant. Python.NET's own DLL and CLR loader retain their own MIT grants. See necessity and owner/legal review below. |
-| **Native wheel/interpreter contents** | **Versioned notice delivery implemented; remaining questions listed below.** OpenSSL **3.5.7** and **4.0.2**, CFFI's embedded libffi, CPython's separate libffi **3.4.4**, Rust standard-library and candidate Windows crate notices are preserved from exact upstream sources. Pillow's existing full wheel collection is retained. The [artifact evidence catalogue](packaging/windows/redistribution.json) identifies binary hashes, distribution members, source archives, notice hashes, dependency scopes and unresolved findings. A crate lockfile or PE version alone is not used to claim binary linkage or licensing clearance. |
+| **WebView2 SDK 1.0.3856.49** | **Exact source verified and notices shipped in v1.5.4.** The three shipped SDK DLLs match official NuGet `Microsoft.Web.WebView2` **1.0.3856.49**, archive SHA-256 `bc0f76eb911b569838dc4aa8f8d325269b966bedb592863d26211aef3a099f1a`. The original Microsoft BSD license and full `NOTICE.txt` (including ANTLR and StringTemplate) were absent from the published v1.1.0 assets. The v1.5.4 ZIP includes both [versioned texts](third_party_licenses/native/webview2-1.0.3856.49/). No other native architecture or separately installed WebView2 Runtime is bundled. |
+| **pythonnet 3.1.0 / clr-loader 0.3.1 and extra .NET assemblies** | **Provenance verified. Microsoft obligations remain open.** The earlier comparison used the platform-neutral wheel. All **97** Python.NET DLLs, including the **96** compatibility files, exactly match the official Windows-specific wheel (SHA-256 `7bdd4de03df3547a48122a3989265c8b31d5be0d19dadffa009eec7df8085e0b`). All 96 also match the official .NET SDK **10.0.300** `Microsoft.NET.Build.Extensions/net461/lib` files. The v1.5.4 ZIP contains the exact SDK [LICENSE and ThirdPartyNotices](third_party_licenses/native/dotnet-sdk-10.0.300/), including the Microsoft .NET Library terms. Python.NET's own DLL and CLR loader retain their own MIT grants. See necessity and owner/legal review below. |
+| **Native wheel/interpreter contents** | **Versioned notices shipped in v1.5.4.** The ZIP includes OpenSSL **3.5.7** and **4.0.2**, CFFI's embedded libffi, CPython's separate libffi **3.4.4**, Rust standard-library and candidate Windows crate notices, and Pillow's full wheel notice collection. The [artifact evidence catalogue](packaging/windows/redistribution.json) identifies binary hashes, distribution members, source archives, notice hashes, dependency scopes and unresolved findings. Binary linkage and redistribution conclusions require evidence beyond crate lockfiles and PE versions. |
 | **Future platform backends / bundlers** | Linux `python-xlib` has LGPLv2+ metadata and needs artifact-specific source/replacement review. Optional Qt/GTK/CEF backends and macOS frameworks are outside this Windows payload. Determine exact grants, exceptions and distribution contents before shipping another platform or bundler; the pywebview wrapper does not license its renderer. CPython and the current Windows bundler/installer are covered by the Windows evidence and remaining actions above. |
 
 For MIT, BSD, MIT-CMU, PSF and similar permissive components, retain their individual
@@ -103,23 +117,20 @@ notices when changed. Shipped NOTICE files from **propcache, requests and yarl**
 here; aiohttp's vendored llhttp MIT notice and Pillow's bundled notices are also retained.
 The project's `NOTICE` credits heeetz; it does not replace those component notices.
 
-## Next Windows build: corrected materials and remaining blockers
+## Windows redistribution evidence and open questions
 
-This is the current staging policy, separate from the **0.1.0 historical inventory**
-and the immutable **published v1.1.0 evidence** above. The canonical builder recursively
-copies `third_party_licenses/`; it now also delivers
-`_internal/licenses/windows-redistribution.json`. The existing bundle inspector checks
+The v1.5.4 portable ZIP contains the staged `third_party_licenses/` tree and
+`_internal/licenses/windows-redistribution.json`. The bundle inspector checks
 the finished onedir payload before ZIP creation and again before installer compilation.
 It requires the reviewed native inventory and byte-exact notice hashes, rejects new or
 renamed PE/native files and changed binary versions/hashes, and compares the staged
-catalogue with the trusted repository copy. It does **not** grant legal clearance.
-The SDK UCRT inputs are now pinned to those exact published v1.1.0 files, with verified
+catalogue with the trusted repository copy. Redistribution clearance remains open.
+The v1.5.4 SDK UCRT inputs match the exact published v1.1.0 files, with verified
 download/member hashes and a restricted freezing search path. This prevents ambient
-tool directories supplying different DLLs. Updating the allowlist requires exact upstream review, never merely hashes
-from a new build. Historical notice files may remain in staging; the catalogue separately
-identifies the current required texts and their concrete evidence.
+tool directories supplying different DLLs. Updating the allowlist requires exact
+upstream review. The catalogue identifies required texts and their evidence.
 
-The current security baseline uses official PyPI wheels for aiohttp **3.14.4**,
+The v1.5.4 build uses official PyPI wheels for aiohttp **3.14.4**,
 certifi **2026.10.19**, multidict **6.9.1**, Pillow **13.0.0** and yarl **1.25.1**.
 The catalogue records their verified archive hashes, the eleven shipped native member
 hashes and exact installed notices, including Pillow's complete bundled-library
@@ -183,11 +194,6 @@ Compiler tooling is not bundled as an application dependency.
   are retained. Confirm REDIST-list coverage and the SDK **3.a.ii** contractual requirements.
   `VCRUNTIME140.dll`/`VCRUNTIME140_1.dll` match official CPython distributions, but their
   separate Microsoft redistribution terms also need confirmation.
-- The published `sqlite3.dll` reports **3.50.4.0** and CPython selects that source version,
-  but it does not match the inspected official CPython NuGet binary. Its exact binary
-  distribution remains unproven; metadata does not supply the missing provenance.
-  The next-build SQLite hash independently matches official CPython NuGet **3.14.7**;
-  its current entry and the unresolved historical entry are kept separate.
 - The retained pydantic/toolchain code lacks an upstream reproducible build/symbol map.
   Rust's standard-library lockfile identifies in-tree `compiler_builtins 0.1.160` without
   a registry checksum; the exact registry text is supplied conservatively, but that
@@ -195,12 +201,23 @@ Compiler tooling is not bundled as an application dependency.
   generated macro output needs any additional attribution. Candidate inclusion is not
   a claim that build-only crates are shipped or that all linkage questions are closed.
 
-## Python runtime inventory (Windows)
+**SQLite provenance.** The v1.5.4 ZIP's `sqlite3.dll` hash matches the catalogue's
+verified CPython **3.14.7** embeddable and NuGet binaries. The v1.1.0 DLL's exact
+binary distribution remains unproven. It reports **3.50.4.0**, the version selected
+by CPython, and its hash differs from the inspected official CPython NuGet binary.
 
-“Direct” means declared in `pyproject.toml`; other rows are recursively selected non-extra
-runtime dependencies using Windows markers. Versions are installed distribution versions.
-The linked package page identifies the exact version; local text links contain the inspected
-licenses and notices. Runtime inclusion in a frozen bundle must be confirmed during packaging.
+## Historical Python runtime inventory (Windows)
+
+This inventory began as a **2026-10-04** snapshot for HeetKit **0.1.0**, covering
+the 54-package Windows runtime dependency closure. Later corrections are identified
+in the table. Versions and license findings came from installed distribution
+`METADATA`, `Requires-Dist`, shipped license and notice files, and upstream sources
+for ambiguous entries. The source declarations support Python 3.12+ and mostly use
+version ranges. For the published v1.5.4 payload, see the artifact evidence above.
+
+“Direct” means declared in `pyproject.toml`. Other rows are recursively selected
+non-extra runtime dependencies using Windows markers. Package links identify the
+inspected versions and local links point to the preserved licenses and notices.
 
 | Package | Version | Relationship | License evidence | Preserved text |
 | --- | --- | --- | --- | --- |
@@ -289,7 +306,7 @@ Python <3.12 backports are outside this project's supported runtime. Optional de
 extras for test/docs, alternate renderers and development are not runtime dependencies of
 the default Windows application.
 
-## Python development / installation tooling
+## Historical Python development / installation tooling
 
 These inspected environment packages are not selected by the default runtime closure.
 They must stay out of application bundles unless actual frozen imports demonstrate otherwise.
@@ -311,17 +328,19 @@ No license-audit tool has been added as a runtime dependency.
 
 ## Frontend production / bundled inventory
 
-React, React DOM and Scheduler are the lockfile's three production packages. React's JSX
-runtime is part of React. The generated module-preload helper is from Vite, so its text is
-preserved despite Vite being a build dependency. No remote fonts/icon libraries are declared;
-the app's tracked icon assets are project resources.
+The tables were checked against [the frontend lockfile](frontend/package-lock.json)
+(**125 packages**). React, React DOM and Scheduler are its three production packages.
+React's JSX runtime is part of React. The v1.5.4 ZIP's generated JavaScript includes
+Vite's module-preload helper. The preserved Vite license matches the installed 7.3.7
+package's license byte for byte. No remote fonts or icon libraries are declared.
+The app's tracked icon assets are project resources.
 
 | Package | Locked version | License | Preserved text |
 | --- | --- | --- | --- |
 | react | 19.3.0 | MIT | [License](third_party_licenses/frontend/react/LICENSE) |
 | react-dom | 19.3.0 | MIT | [License](third_party_licenses/frontend/react-dom/LICENSE) |
 | scheduler | 0.28.0 | MIT | [License](third_party_licenses/frontend/scheduler/LICENSE) |
-| vite (generated helper only) | 7.3.6 | MIT (Vite core); its own bundled-tool notices are also preserved | [License collection](third_party_licenses/frontend/vite/LICENSE.md) |
+| vite (generated helper only) | 7.3.7 | MIT (Vite core), with bundled-tool notices preserved | [License collection](third_party_licenses/frontend/vite/LICENSE.md) |
 
 ### Frontend development / build-only lockfile inventory
 
@@ -457,7 +476,7 @@ test runner nor test browsers are part of the application frontend bundle.
 | typescript | 5.9.3 | Apache-2.0 | No |
 | undici-types | 7.8.0 | MIT | No |
 | update-browserslist-db | 1.3.3 | MIT | No |
-| vite | 7.3.6 | MIT | No |
+| vite | 7.3.7 | MIT | No |
 | yallist | 3.1.1 | ISC | No |
 
 ## Rechecking a distribution
@@ -472,6 +491,5 @@ test runner nor test browsers are part of the application frontend bundle.
    credentials, caches and development context. A repository link alone does not satisfy
    delivery of required license texts with a binary.
 
-This review does not establish binary redistribution clearance while the recorded
-actions remain open. Verify corrected notices and provenance in the actual next
-installer/ZIP; updating repository documentation does not change published artifacts.
+Verify notice delivery and provenance in each new installer and ZIP. The recorded
+redistribution questions require separate resolution.

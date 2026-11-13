@@ -133,7 +133,7 @@ also pass isolated query, transaction and integrity checks before ZIP creation.
 This prevents interpreter variants or unrelated tools from supplying unreviewed DLLs.
 The finished bundle and installer input must match the reviewed native hashes and
 preserved notice texts.
-To check an extracted next-build payload independently:
+To check an extracted Windows payload independently:
 
 ```powershell
 .venv\Scripts\python.exe scripts/windows_redistribution.py C:\path\to\HeetKit
@@ -144,9 +144,8 @@ check. Review exact official sources and applicable terms before changing the po
 never accept new hashes solely because a build produced them. Historical v1.1.0
 evidence is retained separately in the catalogue. Passing this check verifies artifact
 evidence and notice delivery; the open owner/legal findings in
-[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md#next-windows-build-corrected-materials-and-remaining-blockers)
-still block redistribution clearance. Existing published assets are not repaired by
-this next-build check.
+[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md#windows-redistribution-evidence-and-open-questions)
+still block redistribution clearance.
 
 The installer wraps that exact ZIP without another freeze or frontend build.
 `-PortableZip` selects an existing ZIP; its checksum, manifest, file inventory and
@@ -306,9 +305,10 @@ on 9 October 2026. The maintainer confirmed the complete published installer/por
 validation checklist passed in Windows Sandbox and on a second laptop, including
 settings and credential retention, migration, profile isolation and update checking.
 These are maintainer-reported manual results for v1.1.0. The separate
-[artifact licensing review](../THIRD_PARTY_NOTICES.md#windows-v110-artifact-review)
-records corrected next-build materials and remaining legal/provenance questions; redistribution
-clearance remains open.
+[historical artifact licensing review](../THIRD_PARTY_NOTICES.md#historical-windows-v110-artifact-review)
+records the v1.1.0 findings. See the
+[v1.5.4 notice inventory](../THIRD_PARTY_NOTICES.md#published-windows-x64-release-v154)
+for what shipped and which redistribution questions remain open.
 
 ## Windows runtime and installation
 
