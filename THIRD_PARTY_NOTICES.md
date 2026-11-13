@@ -63,6 +63,10 @@ The installed-license collection retains exact wheel GPL/LGPL, certifi, Pillow a
 texts. The copied source inventory remains historical; for example, the packaging pin
 for urllib3 is now **2.8.0**, rather than the inventory's **2.7.0**.
 
+The exact distribution of the v1.1.0 `sqlite3.dll` remains unproven. It reports
+**3.50.4.0**, the version selected by CPython, and its hash differs from the
+inspected official CPython NuGet binary.
+
 Exact official PyPI wheels were downloaded with their PyPI SHA-256 verified. Shipped
 files matched pystray 0.19.5 (six Python modules), certifi 2026.7.22 (four source/data
 files), pywebview 6.2.1 (three SDK DLLs and six JS files), pythonnet 3.1.0 (runtime DLL,
@@ -171,40 +175,133 @@ official CPython **3.14.7** embeddable package and its **3.4.4** source selector
 Both notices and CFFI's own MIT-0 text are delivered.
 
 Cryptography's wheel SBOM/Cargo source distinguishes runtime, procedural-macro and
-build/probe dependencies. Pydantic-core **2.46.5**'s wheel SBOM explicitly includes
-**all targets**: its Cargo/feature analysis supplies a conservative possible Windows
-runtime closure, not proof that every locked crate survived compilation. Build-only
-and non-Windows dependencies are separately identified, with exact candidate runtime
-license texts supplied. Both Rust extensions contain the compiler commit path
-`88d9e12ae178fab0fb5cc050a94da85685d449ea`, mapped to Rust **1.98.0**.
-That exact release's Apache/MIT/COPYRIGHT texts and evidenced standard-library
-dependency notices are supplied; its source archive SHA-256 is
+build/probe dependencies. The Cargo SBOMs for the **cryptography 50.0.1** and
+**pydantic-core 2.46.5** Windows x64 wheels both mark their scope as all targets.
+The v1.5.4 ZIP carries cryptography's two SBOMs. The pydantic-core SBOM was inspected
+from its wheel evidence. The catalogue records the Windows runtime candidates and
+their preserved licenses. PyPI provides a publishing attestation for the exact
+cryptography wheel and lists the pydantic-core wheel without a provenance attestation.
+See the exact wheel records for
+[cryptography 50.0.1](https://pypi.org/project/cryptography/50.0.1/) and
+[pydantic-core 2.46.5](https://pypi.org/project/pydantic_core/2.46.5/).
+
+Both shipped extensions retain source paths for `core`, `alloc`, `std` and
+`panic_unwind` from commit `88d9e12ae178fab0fb5cc050a94da85685d449ea`.
+The ZIP includes that release's Apache, MIT and COPYRIGHT texts and the evidenced
+standard-library dependency notices. The Rust source archive SHA-256 is
 `271fa73d8174f53d713c46a8310da7bf7cfdcfb8b7cfd1c2b74b84a83ae9fb1e`.
-Compiler tooling is not bundled as an application dependency.
+See the [Rust 1.98.0 release](https://github.com/rust-lang/rust/releases/tag/1.98.0)
+and [shipped Rust notices](third_party_licenses/native/rust/).
 
-**Redistribution clearance remains open. Owner/legal or upstream review is required:**
+The in-tree `compiler_builtins` manifest and standard-library lockfile identify
+version **0.1.160**. Its `src/lib.rs` differs from the crates.io 0.1.160 package.
+The two `LICENSE.txt` files are byte-identical, including the MIT terms and the Apache
+2.0 terms with the LLVM exception. The v1.5.4 ZIP carries that exact text
+(SHA-256 `ab6eec6caf0fa5775e411c7a8bc6a45c4ef2956b0980b157ab74fc5cd62a928b`).
+See the [in-tree manifest](https://raw.githubusercontent.com/rust-lang/rust/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/compiler-builtins/compiler-builtins/Cargo.toml),
+[in-tree source](https://github.com/rust-lang/rust/tree/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/compiler-builtins)
+and [in-tree license](https://raw.githubusercontent.com/rust-lang/rust/88d9e12ae178fab0fb5cc050a94da85685d449ea/library/compiler-builtins/LICENSE.txt).
 
-- Microsoft .NET Library **3.a.ii** requires protective distributor/end-user terms and
-  indemnification. The app's current notice display/Apache project license does not
-  demonstrate satisfaction. Determine the applicable grant and contractual treatment;
-  do not assign Microsoft's assemblies Python.NET's MIT license.
-- All **43** published UCRT files match `Microsoft.Windows.SDK.CPP` **10.0.26100.1742**
-  (package SHA-256 `cea18bcdb33096a94e441a8fdf2db138e356b020a1b5f27d6ddfea1bcec48eb2`).
-  Its exact package license URL's original [RTF terms](third_party_licenses/native/windows-sdk-10.0.26100.1742/LICENSE.rtf)
-  are retained. Confirm REDIST-list coverage and the SDK **3.a.ii** contractual requirements.
-  `VCRUNTIME140.dll`/`VCRUNTIME140_1.dll` match official CPython distributions, but their
-  separate Microsoft redistribution terms also need confirmation.
-- The retained pydantic/toolchain code lacks an upstream reproducible build/symbol map.
-  Rust's standard-library lockfile identifies in-tree `compiler_builtins 0.1.160` without
-  a registry checksum; the exact registry text is supplied conservatively, but that
-  does not prove identity with the in-tree source. Confirm this relationship and whether
-  generated macro output needs any additional attribution. Candidate inclusion is not
-  a claim that build-only crates are shipped or that all linkage questions are closed.
+Exact linked objects and generated macro attribution remain open. Both extensions
+reference PDBs, and the ZIP contains neither PDB. Ask the PyCA and Pydantic maintainers
+for linker maps or matching PDBs and build inputs for the exact Windows x64 wheels.
+Use those to identify retained intrinsics, any LLVM compiler-rt objects and generated
+code, then check their attribution against the notices already shipped.
+
+### Microsoft runtime redistribution
+
+The file inventory below was verified directly in the v1.5.4 portable ZIP.
+The installer traceability identifies the same application payload.
+Redistribution clearance remains open.
+
+- **.NET Framework compatibility.** `_internal/pythonnet/runtime/` contains
+  `Python.Runtime.dll` and 96 compatibility DLLs (94 `System.*.dll` files,
+  `Microsoft.Win32.Primitives.dll` and `netstandard.dll`). Python.NET and the
+  separate amd64 `ClrLoader.dll` let pywebview use WinForms/WebView2 with the
+  system .NET Framework. The 96 files support older Framework installations
+  consuming .NET Standard 2.0 and match the .NET SDK **10.0.300** files identified
+  above. The saved Microsoft .NET Library terms §3(a)(ii) require substantial
+  application functionality, a valid copyright notice, protective terms accepted
+  by downstream distributors and external users, and publisher indemnification.
+  Setup displays notices and portable users can extract the ZIP directly.
+  The owner and counsel need to establish the applicable grant for these exact
+  files and review assent and indemnification for both formats. Microsoft can
+  clarify the grant and Python.NET maintainers can confirm how the set is produced.
+  See the [SDK terms](third_party_licenses/native/dotnet-sdk-10.0.300/LICENSE.txt)
+  and [Python.NET 3.1.0 compatibility project](https://raw.githubusercontent.com/pythonnet/pythonnet/v3.1.0/src/compat/Python.Runtime.Compat.csproj).
+- **Windows SDK/UCRT.** The 43 DLLs under `_internal/` are `ucrtbase.dll` and
+  42 API-set forwarders (29 `api-ms-win-core-*` and 13 `api-ms-win-crt-*`).
+  Native modules such as `python314.dll` import the C runtime through CRT API sets.
+  All 43 byte-match the x64 UCRT Redist members of `Microsoft.Windows.SDK.CPP`
+  **10.0.26100.1742** (package SHA-256
+  `cea18bcdb33096a94e441a8fdf2db138e356b020a1b5f27d6ddfea1bcec48eb2`).
+  Section 3(a)(i) of the package terms links to Microsoft's REDIST list.
+  Its x64 UCRT section names **39 of the 43** shipped files. The four unmatched
+  names are `api-ms-win-core-fibers-l1-1-0.dll`,
+  `api-ms-win-core-fibers-l1-1-1.dll`,
+  `api-ms-win-core-kernel32-legacy-l1-1-1.dll` and
+  `api-ms-win-core-sysinfo-l1-2-0.dll`. The exact NuGet archive carries no
+  `REDIST.TXT` to establish additional coverage. If retaining the DLLs, obtain
+  the exact SDK's applicable list or written coverage for those four from
+  Microsoft. Counsel still needs to review §3(a)(ii), including protective
+  assent, copyright notice and indemnification, for both formats.
+  See the [package](https://www.nuget.org/packages/Microsoft.Windows.SDK.CPP/10.0.26100.1742),
+  [saved SDK terms](third_party_licenses/native/windows-sdk-10.0.26100.1742/LICENSE.rtf)
+  and [Microsoft Windows SDK REDIST list](https://learn.microsoft.com/en-us/legal/windows-sdk/redist).
+- **Visual C++ Runtime.** `_internal/VCRUNTIME140.dll` and
+  `_internal/VCRUNTIME140_1.dll` are both **14.51.36247.0** and match the
+  CPython **3.14.7** embeddable and NuGet distributions. The native imports
+  show `python314.dll` using the first and CPython's `_wmi.pyd` using the second.
+  The Visual C++ v14 Runtime terms grant installation and use and restrict
+  onward distribution. Microsoft documents a separate route under applicable
+  Visual Studio license terms for licensed users to distribute eligible,
+  unmodified Redist files. If retaining the DLLs, the owner and counsel need
+  to establish that grant and match the hashes to the exact x64 Microsoft Redist.
+  CPython's release maintainers can confirm the source toolset and Microsoft can
+  confirm coverage for the exact files.
+  See [CPython 3.14.7](https://www.python.org/downloads/release/python-3147/),
+  the [Visual Studio 2026 Redist list](https://learn.microsoft.com/en-us/visualstudio/releases/2026/redistribution)
+  and [Visual C++ v14 Runtime terms](https://visualstudio.microsoft.com/license-terms/vs2026-ga-visualcpp-v14-redist-runtime/).
+
+### Runtime options for a future Windows build
+
+- **.NET Framework.** Test a .NET Framework **4.8+** baseline using the system
+  Framework and the Python.NET wheel without the older compatibility set.
+  Confirm managed dependency resolution and binding on the minimum supported
+  Windows version. The .NET Framework runtime installer is available online and
+  offline. Setup could detect the higher minimum and direct users to Microsoft.
+  Portable users would need it installed before launch. The modern .NET SDK
+  and Desktop Runtime serve a different host, so a CoreCLR migration would
+  require its own Python.NET and pywebview compatibility review.
+  See [Python.NET runtime selection](https://github.com/pythonnet/pythonnet/blob/v3.1.0/doc/source/python.rst),
+  [Framework support for .NET Standard](https://learn.microsoft.com/en-us/dotnet/standard/net-standard)
+  and the [Microsoft .NET Framework 4.8 runtime](https://dotnet.microsoft.com/en-us/download/dotnet-framework/net48).
+- **UCRT.** Test dropping the app-local UCRT set for both formats. Windows 10
+  and 11 load the system UCRT even when an app-local copy exists. That path
+  needs neither an SDK install nor a separate UCRT setup step. Verify the
+  imported API sets resolve on the oldest Windows build HeetKit supports.
+  See [Microsoft UCRT deployment guidance](https://learn.microsoft.com/en-us/cpp/windows/universal-crt-deployment).
+- **Visual C++ Runtime.** Test using the Microsoft-installed x64 v14 runtime.
+  Select a version that satisfies the newest MSVC build tools used by the
+  payload. Per-user Setup could detect a missing or outdated runtime and
+  direct the user to the Microsoft installer, which can require elevation.
+  Portable users would need to install it beforehand, including obtaining the
+  Microsoft installer separately for offline machines. Hosting or bundling that
+  installer would require its own verified redistribution grant.
+  See [Microsoft's Visual C++ Redistributable downloads and version rules](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist).
+
+Validate each removal independently on clean x64 Windows 10 and 11, including
+the oldest Windows build retained in the support baseline. Use a standard user
+without developer tools. Test both Setup and a fresh Explorer extraction, with
+missing, outdated and supported prerequisites where applicable. Check download
+and retry, offline preparation, elevation and restart paths. Run `HeetKit.exe --check`
+and open the WinForms/WebView2 UI. Exercise _wmi, TLS, SQLite and the two Rust
+extensions, and record loaded DLL paths and managed assembly binding. Test an
+upgrade from v1.5.4 to ensure old DLLs cannot mask missing dependencies, then
+verify the candidate inventory and uninstall behavior.
 
 **SQLite provenance.** The v1.5.4 ZIP's `sqlite3.dll` hash matches the catalogue's
-verified CPython **3.14.7** embeddable and NuGet binaries. The v1.1.0 DLL's exact
-binary distribution remains unproven. It reports **3.50.4.0**, the version selected
-by CPython, and its hash differs from the inspected official CPython NuGet binary.
+verified CPython **3.14.7** embeddable and NuGet binaries.
 
 ## Historical Python runtime inventory (Windows)
 
