@@ -229,7 +229,7 @@ td { color: var(--text); }
 .command-list-state .switch-content { display: none; }
 .command-list-empty { margin: 0; padding: 14px; border: 1px dashed var(--separator); border-radius: 10px; }
 .unified-command-table .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.command-editor-dialog { width: min(760px, calc(100vw - 28px)); max-height: calc(100dvh - 28px); padding: 0; border: 1px solid var(--separator); border-radius: 14px; color: var(--text); background: var(--panel); box-shadow: 0 22px 70px #0009; overflow: visible; }
+.command-editor-dialog { width: min(860px, calc(100vw - 28px)); max-height: calc(100dvh - 28px); padding: 0; border: 1px solid var(--separator); border-radius: 14px; color: var(--text); background: var(--panel); box-shadow: 0 22px 70px #0009; overflow: visible; }
 .command-editor-dialog[open] { display: flex; flex-direction: column; }
 .command-editor-dialog::backdrop { background: rgba(5, 8, 14, .74); }
 .command-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--separator); }
@@ -237,13 +237,21 @@ td { color: var(--text); }
 .command-dialog-heading h2 { font-size: 21px; margin: 0; overflow-wrap: anywhere; }
 .command-dialog-close { flex: none; font-size: 18px; line-height: 1; }
 .command-dialog-error { margin: 0; padding: 8px 20px; color: var(--error); border-bottom: 1px solid var(--separator); overflow-wrap: anywhere; }
-.command-dialog-body { min-height: 0; overflow: auto; overscroll-behavior: contain; border-radius: 0 0 14px 14px; }
-.command-editor-dialog .custom-command-editor, .command-editor-dialog .command-details { padding: 16px 20px; margin: 0; border: 0; border-radius: 0; }
+.command-editor-form { display: flex; min-height: 0; flex-direction: column; }
+.command-dialog-body { display: grid; grid-template-columns: 170px minmax(0, 1fr); min-height: 0; }
+.command-dialog-sections { display: flex; flex-direction: column; align-items: stretch; gap: 5px; min-height: 0; padding: 10px; overflow: auto; border-right: 1px solid var(--separator); background: var(--page); }
+.command-dialog-sections button[aria-current] { color: var(--text); font-weight: 700; background: var(--hover); }
+.command-dialog-panels { padding: 16px 20px; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.command-editor-stack { display: grid; gap: 14px; align-items: start; }
+.command-editor-stack > :is(.command-fields, .command-burst-controls, .command-response-editor, .command-behavior-note, .command-unavailable, .custom-random-actions, .custom-burst-controls, .custom-variable-help) { margin-block: 0; }
+.command-editor-stack > .command-fields { padding-top: 0; }
+.command-editor-identity { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; }
+.command-editor-identity .switch-control { min-height: 40px; margin: 0; white-space: nowrap; }
+.command-dialog-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--separator); }
 .command-editor-dialog .command-enabled-toggle { padding-top: 0; }
 .command-editor-dialog fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
-.command-editor-dialog .reaction-order { justify-content: space-between; gap: 8px; margin-bottom: 12px; }
-.command-editor-dialog .command-editor-actions { position: sticky; bottom: 0; z-index: 4; background: var(--panel); margin-inline: -20px; padding: 12px 20px; }
-.command-editor-dialog :is(.custom-command-editor, .command-details) { padding-bottom: 0; }
+.command-editor-dialog .reaction-order { justify-content: space-between; gap: 8px; }
+.commands-layout .command-create-trigger { width: auto; min-width: 96px; background: var(--primary); color: white; border-color: var(--primary); font-weight: 700; }
 @container command-list (max-width: 645px) {
   .command-list-toolbar { justify-content: flex-end; }
   .command-list-filters, .command-list-create { justify-content: flex-end; margin-left: auto; }
@@ -265,9 +273,11 @@ td { color: var(--text); }
   .command-list-filters { width: min(100%, 300px); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.28fr); }
   .commands-layout .command-list-filters .select-trigger { width: 100%; min-width: 0; padding-inline: 6px; gap: 4px; font-size: 12px; }
 }
-@media (max-width: 560px) {
-  .command-editor-dialog .command-action-footer { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
-  .command-editor-dialog .command-action-group { width: auto; }
+@media (max-width: 640px) {
+  .command-dialog-body { grid-template: auto minmax(0, 1fr) / minmax(0, 1fr); }
+  .command-dialog-sections { flex-direction: row; padding: 8px; border-right: 0; border-bottom: 1px solid var(--separator); }
+  .command-dialog-sections button { flex: 0 0 auto; min-height: 40px; padding-inline: 8px; }
+  .command-dialog-panels { padding-inline: 12px; }
 }
 .command-list { display: grid; gap: 12px; }
 .command-card { min-width: 0; border: 1px solid var(--separator); border-radius: 11px; background: var(--panel); overflow: hidden; }
@@ -404,7 +414,11 @@ td { color: var(--text); }
 .section-heading.reaction-editor-heading, .reaction-order { align-items: center; }
 .reaction-editor-heading { flex-wrap: wrap; }
 .reaction-order { justify-content: flex-start; }
-.reaction-case { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; grid-row: span 2; align-self: end; min-height: 38px; }
+.reaction-matching-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 14px; }
+.reaction-case { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 40px; }
+@media (max-width: 520px) {
+  .reaction-matching-fields { grid-template-columns: minmax(0, 1fr); }
+}
 .custom-editor-error, .custom-burst-restriction { margin: 0; font-size: 13px; line-height: 1.5; }
 .custom-editor-error { color: var(--error); margin-top: var(--space-4); }
 .custom-burst-restriction { grid-column: 1 / -1; color: var(--muted); }

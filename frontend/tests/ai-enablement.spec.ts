@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openEditorSection } from './command-editor-helpers'
 import { selectOption } from './select-helpers'
 
 async function navigate(page: Page, name: string) {
@@ -23,6 +24,7 @@ for (const width of [1280, 390]) {
       await toggle.press('Space')
       await expect(toggle).toBeChecked()
       await expect(toggle).toBeEnabled()
+      if (entry === 'Commands') await page.getByRole('button', { name: 'Dismiss message', exact: true }).click()
       for (const view of ['Dashboard', 'AI', 'Commands']) {
         await navigate(page, view)
         if (view === 'Commands') await selectOption(page.getByRole('combobox', { name: 'Status', exact: true }), 'all')
@@ -65,7 +67,9 @@ test('editing Ask saves its draft enabled state together with permissions and co
   await toggleOn(page, 'Commands')
   await page.getByRole('button', { name: 'Edit !ask', exact: true }).click()
   const ask = page.locator('#command-editor-ask')
+  await openEditorSection(ask, 'Access & aliases')
   await selectOption(ask.getByRole('combobox', { name: 'Permission', exact: true }), 'VIP')
+  await openEditorSection(ask, 'General')
   await ask.getByLabel('Global cooldown', { exact: true }).fill('42')
   await ask.getByRole('checkbox', { name: 'Enable !ask' }).press('Space')
   await expect(ask.getByRole('checkbox')).toBeChecked()

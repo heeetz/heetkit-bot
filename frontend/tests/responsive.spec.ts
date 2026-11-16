@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { openEditorSection } from './command-editor-helpers'
 import { selectOption } from './select-helpers'
 
 type ViewportCase = {
@@ -48,14 +49,14 @@ async function expectNoHorizontalOverflow(page: Page) {
       const html = element as HTMLElement
       return `${element.tagName.toLowerCase()}${html.id ? `#${html.id}` : ''}${html.className && typeof html.className === 'string' ? `.${html.className.trim().replace(/\s+/g, '.')}` : ''}`
     }
-    for (const element of document.querySelectorAll<HTMLElement>('main, .page-content, main .card, .feedback-toast')) {
+    for (const element of document.querySelectorAll<HTMLElement>('main, .page-content, main .card, .feedback-toast, .command-dialog-panels')) {
       if (visible(element) && element.scrollWidth > element.clientWidth + 1) {
         messages.push(`${name(element)} scrolls ${element.scrollWidth}/${element.clientWidth}`)
       }
     }
     for (const element of document.querySelectorAll<HTMLElement>('main input, main [role="combobox"], main textarea, main button, main summary')) {
       if (!visible(element) || element.closest('.feedback-toast')) continue
-      const container = element.closest<HTMLElement>('.card') ?? element.closest<HTMLElement>('.page-content')
+      const container = element.closest<HTMLElement>('dialog') ?? element.closest<HTMLElement>('.card') ?? element.closest<HTMLElement>('.page-content')
       if (!container) continue
       const bounds = element.getBoundingClientRect()
       const parent = container.getBoundingClientRect()
@@ -225,6 +226,7 @@ test('long model, personality, alias and draft values wrap inside the 761px cont
   const ping = page.locator('#command-editor-ping')
   await expect(page.getByRole('rowheader').filter({ hasText: '!ping' })).toContainText('alternate_command_4')
   await page.getByRole('button', { name: 'Edit !ping', exact: true }).click()
+  await openEditorSection(ping, 'Access & aliases')
   await expect(ping.getByLabel('Aliases, separated by commas')).toHaveValue(/alternate_command_4/)
   await expectNoHorizontalOverflow(page)
 })

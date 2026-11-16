@@ -1,10 +1,29 @@
 import { expect, test, type Page } from '@playwright/test'
+import { createEntry, openEditorSection } from './command-editor-helpers'
 import { selectOption } from './select-helpers'
 
 const row = (page: Page, name: string) => page.getByRole('row').filter({
   has: page.getByRole('rowheader').getByText(name, { exact: true }),
 })
 const names = (page: Page) => page.getByRole('rowheader').locator('strong')
+
+test('Save opens the section containing an invalid reaction setting', async ({ page }) => {
+  await page.goto('/tests/commands.fixture.html')
+  await createEntry(page, 'reaction')
+  const editor = page.locator('#chat-reaction-editor')
+  await editor.getByLabel('Match text', { exact: true }).fill('hello chat')
+  await editor.getByLabel('Responses', { exact: true }).fill('Welcome!')
+  await openEditorSection(editor, 'Matching & priority')
+  const probability = editor.getByLabel('Probability (%)', { exact: true })
+  await probability.fill('110')
+  await openEditorSection(editor, 'General')
+  await editor.getByRole('button', { name: 'Save reaction', exact: true }).click()
+  await expect(probability).toBeFocused()
+  await expect(editor.getByRole('alert')).toBeVisible()
+  await probability.fill('100')
+  await editor.getByRole('button', { name: 'Save reaction', exact: true }).click()
+  await expect(names(page).first()).toHaveText('hello chat')
+})
 
 test('filters and name sort leave creation order and reaction priority intact', async ({ page }) => {
   await page.goto('/tests/commands.fixture.html?legacyRemoved')
@@ -27,14 +46,14 @@ test('filters and name sort leave creation order and reaction priority intact', 
   await ping.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(names(page)).toHaveText(originalNames.map((name) => name === '!ping' ? '!aaprobe' : name))
 
-  await page.getByRole('button', { name: 'New reaction', exact: true }).click()
+  await createEntry(page, 'reaction')
   const reaction = page.locator('#chat-reaction-editor')
   await reaction.getByLabel('Match text', { exact: true }).fill('zee')
   await reaction.getByLabel('Responses', { exact: true }).fill('Reaction reply')
   await reaction.getByRole('button', { name: 'Save reaction', exact: true }).click()
   await expect(names(page).first()).toHaveText('zee')
 
-  await page.getByRole('button', { name: 'New command', exact: true }).click()
+  await createEntry(page, 'custom')
   const command = page.locator('#custom-command-editor')
   await command.getByLabel('Command name', { exact: true }).fill('fresh')
   await command.getByLabel('Message', { exact: true }).fill('Custom reply')
@@ -42,13 +61,15 @@ test('filters and name sort leave creation order and reaction priority intact', 
   await expect(names(page).first()).toHaveText('!fresh')
   await expect(names(page).nth(1)).toHaveText('zee')
 
-  await page.getByRole('button', { name: 'New reaction', exact: true }).click()
+  await createEntry(page, 'reaction')
   await reaction.getByLabel('Match text', { exact: true }).fill('alpha')
   await reaction.getByLabel('Responses', { exact: true }).fill('A second reaction')
   await reaction.getByRole('button', { name: 'Save reaction', exact: true }).click()
   await expect(names(page).first()).toHaveText('alpha')
   await row(page, 'alpha').getByRole('button', { name: 'Edit alpha' }).click()
+  await openEditorSection(reaction, 'Matching & priority')
   await expect(reaction.getByText('Priority 2 of 2', { exact: true })).toBeVisible()
+  await openEditorSection(reaction, 'General')
   await reaction.getByLabel('Match text', { exact: true }).fill('zulu')
   await reaction.getByRole('button', { name: 'Save reaction', exact: true }).click()
   await expect(names(page).first()).toHaveText('zulu')
@@ -57,6 +78,7 @@ test('filters and name sort leave creation order and reaction priority intact', 
   await selectOption(page.getByRole('combobox', { name: 'Sort', exact: true }), 'name')
   await expect(names(page)).toHaveText(['zee', 'zulu'])
   await row(page, 'zulu').getByRole('button', { name: 'Edit zulu' }).click()
+  await openEditorSection(reaction, 'Matching & priority')
   await expect(reaction.getByText('Priority 2 of 2', { exact: true })).toBeVisible()
   await reaction.getByRole('button', { name: 'Close editor' }).click()
   const remove = row(page, 'zulu').getByRole('button', { name: 'Delete zulu', exact: true })

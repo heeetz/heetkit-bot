@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 import { join } from 'node:path'
+import { createEntry, openEditorSection } from './command-editor-helpers'
 import { selectOption } from './select-helpers'
 
 async function screenshot(locator: Locator, name: string, host: string, width: number) {
@@ -11,11 +12,13 @@ async function screenshot(locator: Locator, name: string, host: string, width: n
 export async function reviewCommands(page: Page, host: 'desktop' | 'server', width: number) {
   const nav = page.getByRole('navigation', { name: 'Main navigation' })
   await nav.getByRole('button', { name: 'Commands', exact: true }).click()
-  await page.getByRole('button', { name: 'New command', exact: true }).click()
+  await createEntry(page, 'custom')
   const custom = page.locator('#custom-command-editor')
   await custom.getByLabel('Command name', { exact: true }).fill('welcome')
   await custom.getByLabel('Message', { exact: true }).fill('Welcome, {sender}!')
+  await openEditorSection(custom, 'Access & aliases')
   await selectOption(custom.getByRole('combobox', { name: 'Permission', exact: true }), 'USER')
+  await openEditorSection(custom, 'General')
   const delivery = custom.getByRole('combobox', { name: 'Send as', exact: true })
   await selectOption(delivery, 'reply')
   await custom.getByRole('button', { name: 'Save command' }).click()
@@ -25,44 +28,24 @@ export async function reviewCommands(page: Page, host: 'desktop' | 'server', wid
   await expect(delivery).toHaveText('Reply to message')
   const name = (await editor.getByLabel('Command name', { exact: true }).boundingBox())!
   const enabled = (await editor.locator('.custom-command-enabled').boundingBox())!
-  const permission = (await editor.getByRole('combobox', { name: 'Permission', exact: true }).boundingBox())!
-  const response = (await editor.getByRole('combobox', { name: 'Response type', exact: true }).boundingBox())!
-  const sendAs = (await delivery.boundingBox())!
-  expect(enabled.y).toBeLessThan(name.y)
-  const streamField = editor.getByRole('combobox', { name: 'Stream availability', exact: true })
-  if (host === 'server') {
-    const stream = (await streamField.boundingBox())!
-    if (width >= 1280) {
-      expect(stream.x).toBe(permission.x)
-      expect(stream.width).toBe(permission.width)
-      expect(sendAs.x).toBe(response.x)
-      expect(sendAs.width).toBe(response.width)
-      expect(sendAs.y).toBe(stream.y)
-    } else expect(sendAs.y).toBeGreaterThan(stream.y)
-  } else {
-    await expect(streamField).toHaveCount(0)
-    expect(sendAs.x).toBe(permission.x)
-    expect(sendAs.width).toBe(permission.width)
-  }
-  await editor.getByRole('heading').click()
+  expect(enabled.x).toBeGreaterThan(name.x + name.width)
   await screenshot(editor, 'custom-editor', host, width)
+  await openEditorSection(editor, 'Access & aliases')
+  await expect(editor.getByRole('combobox', { name: 'Permission', exact: true })).toBeVisible()
+  if (host === 'server') {
+    await openEditorSection(editor, 'Conditions')
+    await expect(editor.getByRole('combobox', { name: 'Stream availability', exact: true })).toBeVisible()
+  } else await expect(editor.getByRole('button', { name: 'Conditions', exact: true })).toHaveCount(0)
 
   await editor.getByRole('button', { name: 'Close editor' }).click()
   await page.getByRole('button', { name: 'Edit !ask', exact: true }).click()
   const builtin = page.locator('#command-editor-ask')
-  const primary = (await builtin.getByLabel('Primary chat name', { exact: true }).boundingBox())!
-  const display = (await builtin.getByLabel('Name in UI', { exact: true }).boundingBox())!
-  const aliases = (await builtin.getByLabel('Aliases, separated by commas', { exact: true }).boundingBox())!
+  await expect(builtin.getByLabel('Primary chat name', { exact: true })).toBeVisible()
   const builtinDelivery = builtin.getByRole('combobox', { name: 'Send as', exact: true })
-  const builtinSendAs = (await builtinDelivery.boundingBox())!
-  if (width >= 1280) {
-    expect(builtinSendAs.y).toBe(primary.y)
-    expect(aliases.y).toBe(display.y)
-    expect(builtinSendAs.x).toBe(aliases.x)
-  } else {
-    expect(builtinSendAs.y).toBeGreaterThan(primary.y)
-    expect(aliases.y).toBeGreaterThan(display.y)
-  }
+  await openEditorSection(builtin, 'Access & aliases')
+  await expect(builtin.getByLabel('Name in UI', { exact: true })).toBeVisible()
+  await expect(builtin.getByLabel('Aliases, separated by commas', { exact: true })).toBeVisible()
+  await openEditorSection(builtin, 'General')
   await expect(builtinDelivery).toHaveText('Mention sender')
   await screenshot(builtin, 'builtin-editor', host, width)
   await selectOption(builtinDelivery, 'reply')
@@ -73,7 +56,7 @@ export async function reviewCommands(page: Page, host: 'desktop' | 'server', wid
 
   const reactions = page.locator('#chat-reaction-editor')
   const add = async (text: string) => {
-    await page.getByRole('button', { name: 'New reaction', exact: true }).click()
+    await createEntry(page, 'reaction')
     await reactions.getByLabel('Match text', { exact: true }).fill(text)
     await reactions.getByLabel('Responses', { exact: true }).fill('Welcome to chat!\nGlad you are here!')
     await reactions.getByRole('button', { name: 'Save reaction' }).click()
@@ -82,11 +65,18 @@ export async function reviewCommands(page: Page, host: 'desktop' | 'server', wid
   await add('hello chat')
   await add('good morning')
   await page.getByRole('button', { name: 'Edit good morning', exact: true }).click()
+  await openEditorSection(reactions, 'Matching & priority')
   await selectOption(reactions.getByRole('combobox', { name: 'Match mode', exact: true }), 'exact')
   await reactions.getByLabel('Probability (%)', { exact: true }).fill('75')
   await reactions.getByLabel('Cooldown (seconds)', { exact: true }).fill('30')
   await reactions.getByRole('checkbox', { name: 'Case sensitive', exact: true }).press('Space')
+  await openEditorSection(reactions, 'General')
   await reactions.getByRole('checkbox', { name: 'Enable chat reaction', exact: true }).press('Space')
+  await openEditorSection(reactions, 'Matching & priority')
+  const mode = (await reactions.getByRole('combobox', { name: 'Match mode' }).boundingBox())!
+  const caseControl = (await reactions.locator('.reaction-case').boundingBox())!
+  if (width >= 1280) expect(caseControl.x).toBeGreaterThan(mode.x + mode.width)
+  else expect(caseControl.y).toBeGreaterThan(mode.y)
   const priority = reactions.locator('.reaction-order')
   await expect(priority.getByText('Priority 2 of 2', { exact: true })).toBeVisible()
   await priority.getByRole('button', { name: 'Help: Reaction priority' }).press('Enter')
@@ -98,6 +88,7 @@ export async function reviewCommands(page: Page, host: 'desktop' | 'server', wid
   await reactions.getByRole('button', { name: 'Save reaction' }).click()
   await selectOption(page.getByRole('combobox', { name: 'Status', exact: true }), 'disabled')
   await page.getByRole('button', { name: 'Edit good morning', exact: true }).click()
+  await openEditorSection(reactions, 'Matching & priority')
   await expect(reactions.getByText('Priority 1 of 2', { exact: true })).toBeVisible()
   await expect(reactions.getByLabel('Probability (%)', { exact: true })).toHaveValue('75')
   await expect(reactions.getByLabel('Cooldown (seconds)', { exact: true })).toHaveValue('30')

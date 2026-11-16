@@ -1,4 +1,5 @@
 import { expect, test, type Locator } from '@playwright/test'
+import { createEntry, openEditorSection } from './command-editor-helpers'
 import { selectOption } from './select-helpers'
 
 async function box(control: Locator) {
@@ -14,38 +15,32 @@ for (const width of [1280, 390, 320]) {
     await page.getByRole('navigation').getByRole('button', { name: 'Commands', exact: true }).click()
     const editor = page.locator('#custom-command-editor')
     for (const action of ['create', 'edit']) {
-      if (action === 'create') await page.getByRole('button', { name: 'New command', exact: true }).click()
+      if (action === 'create') await createEntry(page, 'custom')
       else await page.getByRole('button', { name: 'Edit !hello', exact: true }).click()
       for (const mode of ['single', 'random', 'burst']) {
         await selectOption(editor.getByRole('combobox', { name: 'Response type', exact: true }), mode)
-        const fields = [
-          editor.locator('.custom-name-input'),
-          editor.getByRole('textbox', { name: 'Aliases, separated by commas', exact: true }),
-          editor.getByRole('combobox', { name: 'Permission', exact: true }),
-          editor.getByRole('combobox', { name: 'Response type', exact: true }),
-          editor.getByRole('spinbutton', { name: 'Per-user cooldown (seconds)', exact: true }),
-          editor.getByRole('spinbutton', { name: 'Global cooldown (seconds)', exact: true }),
-        ]
-        const bounds = await Promise.all(fields.map(box))
-        if (width === 1280) {
-          expect(bounds[0].y).toBe(bounds[1].y)
-          expect(bounds[0].width).toBeCloseTo(bounds[1].width, -1)
-          for (let index = 2; index < 6; index++) {
-            expect(bounds[index].y).toBe(bounds[2].y)
-            expect(bounds[index].y).toBeGreaterThan(bounds[0].y + bounds[0].height)
-            if (index > 2) expect(bounds[index].x).toBeGreaterThan(bounds[index - 1].x)
-          }
-        } else {
-          for (let index = 1; index < bounds.length; index++) {
-            expect(bounds[index].y).toBeGreaterThanOrEqual(bounds[index - 1].y + bounds[index - 1].height)
-            expect(bounds[index].width).toBeGreaterThan(170)
-          }
-        }
+        const name = await box(editor.locator('.custom-name-input'))
+        const enabled = await box(editor.locator('.custom-command-enabled'))
+        const navigation = await box(editor.getByRole('navigation', { name: 'Editor sections' }))
+        expect(name.x + name.width).toBeLessThan(enabled.x)
+        if (width === 1280) expect(navigation.x + navigation.width).toBeLessThan(name.x)
+        else expect(navigation.y + navigation.height).toBeLessThan(name.y)
         const message = await box(editor.locator('textarea'))
-        expect(message.y).toBeGreaterThan(bounds[5].y + bounds[5].height)
+        const cooldown = await box(editor.getByRole('spinbutton', { name: 'Per-user cooldown (seconds)', exact: true }))
+        expect(message.y + message.height).toBeLessThan(cooldown.y)
         const variables = editor.locator('.custom-variable-help')
-        expect((await box(variables)).y).toBeGreaterThan(message.y + message.height)
         await expect(variables).not.toHaveAttribute('open')
+        const alias = editor.getByRole('textbox', { name: 'Aliases, separated by commas', exact: true })
+        await expect(alias).toBeHidden()
+        await openEditorSection(editor, 'Access & aliases')
+        await expect(alias).toBeVisible()
+        await expect(editor.getByRole('combobox', { name: 'Permission', exact: true })).toBeVisible()
+        const conditions = editor.getByRole('button', { name: 'Conditions', exact: true })
+        if (mode === 'burst') {
+          await conditions.click()
+          await expect(editor.getByLabel('Default repeat count', { exact: true })).toBeVisible()
+        } else await expect(conditions).toHaveCount(0)
+        await openEditorSection(editor, 'General')
         await expect(editor.getByRole('heading')).toHaveCount(1)
         await expect(page.getByRole('button', { name: 'Discard draft', exact: true })).toHaveCount(0)
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
@@ -69,7 +64,7 @@ for (const width of [1280, 390, 320]) {
 
 test('field help supports touch, keyboard and Escape without changing the draft', async ({ page }) => {
   await page.goto('/tests/commands.fixture.html')
-  await page.getByRole('button', { name: 'New command', exact: true }).click()
+  await createEntry(page, 'custom')
   const editor = page.locator('#custom-command-editor')
   const help = editor.getByRole('button', { name: 'Help: Command name', exact: true })
   await help.dispatchEvent('pointerdown', { pointerType: 'touch' })

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { ChatReaction, CommandInfo, CustomCommandInfo } from '../bridge'
 import { Select } from './Select'
 import Switch from './Switch'
+import { commandEditorCopy as copy } from '../i18n/commands.en'
 
 export type CommandEntry =
   | { type: 'builtin'; item: CommandInfo }
@@ -70,8 +71,13 @@ export default function CommandList({ entries, prefix, busy, canCreateCommand, c
         <Select aria-label="Sort" value={sort} options={sortOptions} onChange={setSort} />
       </div>
       <div className="command-list-create">
-        <button className="primary" disabled={busy || !canCreateCommand} onClick={() => onCreate('custom')}>New command</button>
-        <button className="secondary" disabled={busy || !canCreateReaction} onClick={() => onCreate('reaction')}>New reaction</button>
+        <Select className="command-create-trigger" aria-label={copy.create} value="" placeholder={copy.create}
+          disabled={busy || (!canCreateCommand && !canCreateReaction)}
+          options={[
+            { value: 'custom', label: copy.createCommand, disabled: !canCreateCommand },
+            { value: 'reaction', label: copy.createReaction, disabled: !canCreateReaction },
+          ]}
+          onChange={(type) => onCreate(type === 'custom' ? 'custom' : 'reaction')} />
       </div>
     </div>
     {visible.length ? <div className="command-list-frame">

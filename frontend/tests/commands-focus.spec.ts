@@ -1,12 +1,15 @@
 import { expect, test } from '@playwright/test'
 import { selectOption } from './select-helpers'
+import { createEntry, openEditorSection } from './command-editor-helpers'
 
 for (const width of [1280, 900, 390, 320]) {
   test(`Commands dialogs keep focus, menus and save controls within the viewport at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 720 })
     await page.goto('/tests/commands.fixture.html?shell&extended')
     await page.getByRole('navigation').getByRole('button', { name: 'Commands', exact: true }).click()
-    const opener = page.getByRole('button', { name: 'New command', exact: true })
+    const opener = page.getByRole('combobox', { name: 'Create', exact: true })
+    await opener.press('Enter')
+    await expect(page.getByRole('option', { name: 'Command', exact: true })).toBeVisible()
     await opener.press('Enter')
     const editor = page.locator('#custom-command-editor')
     const name = editor.getByLabel('Command name', { exact: true })
@@ -32,6 +35,7 @@ for (const width of [1280, 900, 390, 320]) {
     await edit.press('Enter')
     const builtin = page.locator('#command-editor-fate')
     await expect(builtin.getByLabel('Primary chat name', { exact: true })).toBeFocused()
+    await openEditorSection(builtin, 'Access & aliases')
     const permission = builtin.getByRole('combobox', { name: 'Permission', exact: true })
     await selectOption(permission, 'VIP')
     await builtin.getByRole('button', { name: 'Save command', exact: true }).click()
@@ -44,8 +48,8 @@ for (const width of [1280, 900, 390, 320]) {
 test('a dirty editor requires confirmation and keeps the draft when canceled', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 720 })
   await page.goto('/tests/commands.fixture.html')
-  const opener = page.getByRole('button', { name: 'New reaction', exact: true })
-  await opener.click()
+  const opener = page.getByRole('combobox', { name: 'Create', exact: true })
+  await createEntry(page, 'reaction')
   const editor = page.locator('#chat-reaction-editor')
   await editor.getByRole('textbox', { name: 'Match text', exact: true }).fill('hello world')
   await page.keyboard.press('Escape')
@@ -60,7 +64,7 @@ test('a dirty editor requires confirmation and keeps the draft when canceled', a
   await confirm.getByRole('button', { name: 'Confirm', exact: true }).click()
   await expect(editor).toHaveCount(0)
   await expect(opener).toBeFocused()
-  await opener.click()
+  await createEntry(page, 'reaction')
   await page.mouse.click(4, 4)
   await expect(editor).toHaveCount(0)
 })

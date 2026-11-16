@@ -23,9 +23,10 @@ stopped. To test it in chat, [connect Twitch](twitch-setup.md#give-the-bot-chann
 **In HeetKit** · **Commands > Command list** on Desktop or Server.
 
 1. Open **Commands**.
-2. Select **New command**.
+2. Select **Create > Command**.
 3. In **Command name**, enter `hello` without the prefix.
-4. In **Permission**, select **user** to let any viewer run it.
+4. Open **Access & aliases** and set **Permission** to **user** to let any
+   viewer run it.
 5. In **Response type**, select **Single**.
 6. In **Message**, enter `Welcome, {sender}!`.
 7. Check that the switch shows **Enabled**.
@@ -63,8 +64,9 @@ UTF-8 bytes. A Burst renders the template once and repeats the same result.
 | `{arg1}` through `{arg9}` | Individual arguments. A missing argument becomes blank. See **Advanced variables**. |
 | `{random_user}` | A chatter seen in the last 30 minutes, or the sender if there is none. |
 
-Use **Edit** to change a saved command. **Discard and close** leaves the saved
-command in place. A failed save leaves the draft open so you can correct it.
+Use **Edit** to change a saved command. **Save command** saves edits across all
+sections. **Cancel**, Esc and clicking the backdrop close the editor and prompt
+before discarding unsaved changes. A failed save leaves the draft open.
 Select **Delete** beside **Edit** in the list to remove a custom command after
 confirmation.
 
@@ -81,8 +83,8 @@ account with the chosen permission.
 2. Select **Edit** for the command.
 3. Set **Enabled**. The editor saves it with the other settings. The switch
    in the list saves the enabled state immediately.
-4. Select the minimum role in **Permission**.
-5. Set **Per-user cooldown (seconds)**.
+4. Open **Access & aliases** and select the minimum role in **Permission**.
+5. Open **General** and set **Per-user cooldown (seconds)**.
 6. Set **Global cooldown (seconds)**.
 7. Select **Save**. For Fate or Tg, select **Save command**.
 
@@ -125,7 +127,8 @@ factory name, or `optout`.
 
 ### Server command availability
 
-On Server, select **Stream availability** in the built-in or custom editor.
+On Server, select **Stream availability** under **Conditions** in the built-in
+or custom editor.
 Save with the command. This setting controls when a command can run while
 the bot is connected. The [operation mode](twitch-setup.md#choose-when-the-server-connects)
 controls the connection itself.
@@ -169,7 +172,8 @@ after confirmation. Each built-in keeps its current enabled state.
 
 ### Burst limits and spacing
 
-In the Tg editor, set **Maximum repeat count** to 1–20. The default is 10.
+In the Tg editor, open **Conditions** and set **Maximum repeat count** to 1–20.
+The default is 10.
 Select **Save command**. With no argument, `!tg` makes one send attempt.
 `!tg 5` makes five attempts when the saved maximum allows it.
 
@@ -363,16 +367,18 @@ Make HeetKit reply to matching chat without a command prefix.
 
 **In HeetKit** · **Commands > Command list** on Desktop or Server.
 
-1. Select **New reaction** and enter **Match text**.
-2. Choose **Exact** for the whole message or **Contains** to match within it.
+1. Select **Create > Chat reaction** and enter **Match text**.
+2. Open **Matching & priority**. Choose **Exact** for the whole message or
+   **Contains** to match within it.
    Turn on **Case sensitive** if uppercase and lowercase letters must match.
 3. Set **Probability (%)** and **Cooldown (seconds)**. A 100% probability
    makes every match eligible. A zero cooldown allows consecutive matches.
-4. Enter one to ten response lines. HeetKit picks one at random.
+4. Return to **General** and enter one to ten response lines. HeetKit picks one
+   at random.
 5. Select **Save reaction**. Changes apply immediately.
 
-Use **Edit** to change a rule. **Move up** and **Move down** in the editor change
-its execution priority when you save. The command list's **Sort** control only
+Use **Edit** to change a rule. **Move up** and **Move down** under
+**Matching & priority** change its execution priority when you save. The command list's **Sort** control only
 changes the displayed order. Select **Delete** beside **Edit** in the list to
 remove a reaction after confirmation.
 

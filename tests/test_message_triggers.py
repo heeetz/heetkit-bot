@@ -238,6 +238,31 @@ async def test_trigger_dispatch_skips_commands_and_bot_and_reuses_cooldown_and_o
 
 
 @pytest.mark.asyncio
+async def test_reordering_matching_reactions_changes_which_rule_responds(tmp_path, monkeypatch):
+    store = save(
+        tmp_path / "message_triggers.json",
+        trigger(id="broad", text="good luck", responses=["First"], cooldown_seconds=0),
+        trigger(id="exact", text="good luck", match_mode="exact", responses=["Second"], cooldown_seconds=0),
+    )
+    replies = []
+
+    async def respond(content):
+        replies.append(content)
+
+    services = cast(ApplicationServices, SimpleNamespace(settings=SimpleNamespace(twitch_bot_user_id="bot-id")))
+    dispatcher = CommandDispatcher(
+        CommandRegistry(), CooldownManager(), logging.getLogger(__name__), "!", message_triggers=store,
+    )
+    monkeypatch.setattr("app.commands.registry.random.random", lambda: 0)
+    message = IncomingChatMessage("channel", "good luck", ChatAuthor("viewer-id", "viewer"), respond)
+    assert await dispatcher.dispatch(message, services)
+    assert replies == ["First"]
+    store.save([rule.to_json() for rule in reversed(store.list())])
+    assert await dispatcher.dispatch(message, services)
+    assert replies == ["First", "Second"]
+
+
+@pytest.mark.asyncio
 async def test_probability_and_disabled_trigger_do_not_send(tmp_path, monkeypatch):
     path = tmp_path / "message_triggers.json"
     store = save(path, trigger(id="off", enabled=False), trigger(id="rare", probability=0.1))
