@@ -221,13 +221,13 @@ def test_publish_is_manual_and_only_publication_gets_write_permission():
     assert job["if"] == "github.ref == 'refs/heads/main'"
     assert job["permissions"] == {"contents": "write", "actions": "read"}
     commands = "\n".join(s.get("run", "") for s in job["steps"])
-    assert "python scripts/release_evidence.py verify" in commands
+    assert "python -m scripts.release_evidence verify" in commands
     assert "python -m scripts.release_evidence verify-update" in commands
     assert "gh @releaseArgs @assets" in commands
     for forbidden in ("build_windows.py", "build_installer.py", "npm", "gh workflow run"):
         assert forbidden not in commands
     checkout = [s for s in job["steps"] if s.get("uses", "").startswith("actions/checkout@")]
-    assert [s["with"]["ref"] for s in checkout] == ["${{ github.sha }}", "${{ inputs.sha }}"]
+    assert [s["with"]["ref"] for s in checkout] == ["${{ github.sha }}"]
     assert all(s["with"]["persist-credentials"] == "false" for s in checkout)
     gate, publish = job["steps"][-2:]
     assert gate["env"]["RELEASE_SHA"] == "${{ inputs.sha }}"

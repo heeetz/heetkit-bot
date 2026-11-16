@@ -73,7 +73,7 @@ def publication(tmp_path, *, notes=None, tag=None, version=VERSION, prerelease="
         path.write_text(notes, encoding="utf-8")
     installer = artifacts / (base + "-setup.exe")
     key = Ed25519PrivateKey.generate()
-    key_path = source / "app/resources/update-publisher.pub"
+    key_path = tmp_path / "app/resources/update-publisher.pub"
     if change != "missing key":
         key_path.parent.mkdir(parents=True)
         key_path.write_text(key.public_key().public_bytes_raw().hex() + "\n", encoding="ascii")
@@ -83,7 +83,11 @@ def publication(tmp_path, *, notes=None, tag=None, version=VERSION, prerelease="
     }).encode() + b"\r\n"
     signature = key.sign(manifest)
     if change == "wrong key":
-        signature = Ed25519PrivateKey.generate().sign(manifest)
+        substitute = Ed25519PrivateKey.generate()
+        candidate_key = source / "app/resources/update-publisher.pub"
+        candidate_key.parent.mkdir(parents=True)
+        candidate_key.write_text(substitute.public_key().public_bytes_raw().hex(), encoding="ascii")
+        signature = substitute.sign(manifest)
     if change == "changed manifest bytes":
         manifest = manifest.replace(b"\r\n", b"\n")
     if change == "zip":

@@ -6,6 +6,7 @@ GitHub access uses the runner's gh CLI/token. No build or release creation here.
 from __future__ import annotations
 
 import argparse
+import ast
 import base64
 import binascii
 from datetime import datetime, timezone
@@ -62,6 +63,17 @@ class GitHub:
 
     def get(self, path: str) -> dict:
         return json.loads(subprocess.check_output(["gh", "api", self.prefix + path]))
+
+    def source_file(self, sha: str, path: str, limit: int) -> bytes:
+        data = self.get(f"contents/{path}?ref={sha}")
+        require(data.get("type") == "file" and data.get("path") == path
+                and data.get("encoding") == "base64" and type(data.get("size")) is int
+                and 0 < data["size"] <= limit, "Unexpected release source file")
+        encoded = "".join(data["content"].splitlines())
+        require(len(encoded) <= 4 * ((limit + 2) // 3), "Oversized release source file")
+        raw = base64.b64decode(encoded, validate=True)
+        require(len(raw) == data["size"], "Release source file size mismatch")
+        return raw
 
     def artifacts(self, run_id: int) -> list[dict]:
         result = []
@@ -157,6 +169,33 @@ def verify(*, repository: str, sha: str, tag: str, version: str, candidate_run: 
     print(f"Verified {repository} {sha}: Full {full_run}, candidate {candidate_run}, artifact {artifact['id']}.")
 
 
+def prepare_publication(*, repository: str, sha: str, tag: str, candidate_run: str,
+                        full_run: str, destination: Path, api: GitHub | None = None) -> tuple[str, bool]:
+    from app.version import is_prerelease
+
+    require(bool(re.fullmatch(r"[0-9a-f]{40}", sha)), "Expected exact immutable release SHA")
+    require(bool(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository)), "Invalid repository")
+    api = api or GitHub(repository)
+    version_file = ast.parse(api.source_file(sha, "app/version.py", 16384))
+    assignments = [
+        node.value for node in version_file.body if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "VERSION" for target in node.targets)
+    ]
+    require(len(assignments) == 1 and isinstance(assignments[0], ast.Constant)
+            and isinstance(assignments[0].value, str), "Candidate VERSION must be one string literal")
+    version = assignments[0].value
+    prerelease = is_prerelease(version)
+    verify(repository=repository, sha=sha, tag=tag, version=version, candidate_run=candidate_run,
+           full_run=full_run, destination=destination / "release-artifacts", api=api)
+    notes = f"docs/releases/{tag}.md"
+    raw = api.source_file(sha, notes, 256 * 1024)
+    target = destination / notes
+    target.parent.mkdir(parents=True)
+    with target.open("xb") as stream:
+        stream.write(raw)
+    return version, prerelease
+
+
 def decode_sidecar(value: str, limit: int, name: str) -> bytes:
     require(0 < len(value) <= 4 * ((limit + 2) // 3), f"Missing or oversized {name} input")
     try:
@@ -167,7 +206,8 @@ def decode_sidecar(value: str, limit: int, name: str) -> bytes:
     return decoded
 
 
-def verify_update_sidecars(source: Path, version: str, manifest_input: str, signature_input: str) -> None:
+def verify_update_sidecars(source: Path, version: str, manifest_input: str, signature_input: str,
+                           *, publisher_path: Path) -> None:
     # Full and candidate evidence recording only needs the standard library.
     from app.services.updates import (
         MAX_INSTALLER_BYTES, MAX_MANIFEST_BYTES, SIGNATURE_BYTES, ReleaseAssets,
@@ -176,8 +216,8 @@ def verify_update_sidecars(source: Path, version: str, manifest_input: str, sign
     from app.version import windows_version
 
     windows_version(version)
-    key = publisher_key(source / "app/resources/update-publisher.pub")
-    require(key is not None, "Candidate source has no valid pinned update publisher key")
+    key = publisher_key(publisher_path)
+    require(key is not None, "Trusted workflow has no valid pinned update publisher key")
     manifest = decode_sidecar(manifest_input, MAX_MANIFEST_BYTES, "installer manifest")
     signature = decode_sidecar(signature_input, SIGNATURE_BYTES, "installer signature")
     require(len(signature) == SIGNATURE_BYTES, "Expected a raw 64-byte installer signature")
@@ -201,14 +241,18 @@ def main() -> None:
         record(args.mode.removeprefix("record-"), Path("release-evidence.json"))
     elif args.mode == "verify-update":
         verify_update_sidecars(Path("release-source"), os.environ["APP_VERSION"],
-                               os.environ["INSTALLER_MANIFEST"], os.environ["INSTALLER_SIGNATURE"])
+                               os.environ["INSTALLER_MANIFEST"], os.environ["INSTALLER_SIGNATURE"],
+                               publisher_path=Path("app/resources/update-publisher.pub"))
     else:
         require(os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch" and
                 os.environ["GITHUB_REF"] == "refs/heads/main", "Publish must be dispatched from main")
-        verify(repository=os.environ["GITHUB_REPOSITORY"], sha=os.environ["RELEASE_SHA"],
-               tag=os.environ["RELEASE_TAG"], version=os.environ["APP_VERSION"],
-               candidate_run=os.environ["CANDIDATE_RUN_ID"], full_run=os.environ["FULL_RUN_ID"],
-               destination=Path("release-source/release-artifacts"))
+        version, prerelease = prepare_publication(
+            repository=os.environ["GITHUB_REPOSITORY"], sha=os.environ["RELEASE_SHA"],
+            tag=os.environ["RELEASE_TAG"], candidate_run=os.environ["CANDIDATE_RUN_ID"],
+            full_run=os.environ["FULL_RUN_ID"], destination=Path("release-source"),
+        )
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
+            stream.write(f"version={version}\nprerelease={str(prerelease).lower()}\n")
 
 
 if __name__ == "__main__":

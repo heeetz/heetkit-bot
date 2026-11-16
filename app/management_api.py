@@ -42,6 +42,7 @@ TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{43,128}\Z")
 SESSION_SECONDS = 3600
 MAX_SESSIONS = 8
 MAX_ASSET = 4 * 1024 * 1024
+REQUESTS_PER_MINUTE = 120
 
 
 @dataclass(frozen=True)
@@ -267,6 +268,9 @@ class ManagementAPI:
         self.site: web.TCPSite | None = None
         self.active = 0
         self.requests: deque[float] = deque()
+        self.public_requests: deque[float] = deque()
+        self.asset_requests: deque[float] = deque()
+        self.callback_active = False
         self.started = time.monotonic()
         self.log_buffer = log_buffer
         # Store only digests of short-lived browser bearer tokens. No cookies,
@@ -313,24 +317,40 @@ class ManagementAPI:
         administrator = hashlib.sha256(self.config.token.encode("ascii")).digest()
         return hmac.compare_digest(owner, administrator) or self.sessions.get(owner, 0) > time.monotonic()
 
-    async def oauth_callback(self, request: web.BaseRequest) -> web.Response:
+    @staticmethod
+    def _admit_request(requests: deque[float], now: float) -> bool:
+        while requests and now - requests[0] >= 60:
+            requests.popleft()
+        if len(requests) >= REQUESTS_PER_MINUTE:
+            return False
+        requests.append(now)
+        return True
+
+    async def oauth_callback(self, request: web.BaseRequest, now: float) -> web.Response:
         # Never render or reflect query parameters. A fixed clean redirect drops
         # codes/state from the final address and referrer; proxies must omit logs.
         if (request.method != "GET" or request.content_length not in (None, 0)
                 or "Transfer-Encoding" in request.headers or "Content-Encoding" in request.headers
                 or request.raw_path.split("?", 1)[0] != "/oauth/callback"):
+            if not self._admit_request(self.public_requests, now):
+                return self.response(429, {"ok": False, "error": "Management request limit reached."})
             return self.response(400, {"ok": False, "error": "Invalid OAuth callback."})
-        self.active += 1
-        try:
-            async with asyncio.timeout(REQUEST_SECONDS):
-                async with self.lock:
-                    await self.setup.callback(request.rel_url.raw_query_string)
-        except Exception:
-            # Details are visible only as fixed status in the initiating tab.
-            # A cancelled/timed-out exchange must never be retried automatically.
-            pass
-        finally:
-            self.active -= 1
+        attempt = self.setup.pending_callback(request.rel_url.raw_query_string)
+        if attempt is None or self.callback_active:
+            if not self._admit_request(self.public_requests, now):
+                return self.response(429, {"ok": False, "error": "Management request limit reached."})
+        else:
+            self.callback_active = True
+            try:
+                async with asyncio.timeout(REQUEST_SECONDS):
+                    async with self.lock:
+                        await self.setup.complete_callback(*attempt)
+            except Exception:
+                # Details are visible only as fixed status in the initiating tab.
+                # A cancelled/timed-out exchange must never be retried automatically.
+                pass
+            finally:
+                self.callback_active = False
         response = self.response(303, {"ok": True})
         response.headers["Location"] = "/oauth/result"
         return response
@@ -347,7 +367,7 @@ class ManagementAPI:
         response.force_close()
         return response
 
-    def asset(self, path: str) -> web.Response:
+    def asset(self, path: str, now: float) -> web.Response:
         """Serve only Vite's public entry/icon and compiled JS/CSS, never profiles."""
         if path in ("/", "/index.html"):
             relative, content_type = "index.html", "text/html"
@@ -357,7 +377,11 @@ class ManagementAPI:
             relative = path[1:]
             content_type = "text/javascript" if path.endswith(".js") else "text/css"
         else:
+            if not self._admit_request(self.public_requests, now):
+                return self.response(429, {"ok": False, "error": "Management request limit reached."})
             return self.response(404, {"ok": False, "error": "Unknown management resource."})
+        if not self._admit_request(self.asset_requests, now):
+            return self.response(429, {"ok": False, "error": "Management request limit reached."})
         target = self.frontend / relative
         try:
             # The asset root is fixed by installation/source discovery, not a
@@ -386,20 +410,21 @@ class ManagementAPI:
     async def handle(self, request: web.BaseRequest) -> web.Response:
         def reject(status, message):
             return self.response(status, {"ok": False, "error": message})
+
+        def reject_public(status, message):
+            if not self._admit_request(self.public_requests, now):
+                return reject(429, "Management request limit reached.")
+            return reject(status, message)
+
         now = time.monotonic()
-        while self.requests and now - self.requests[0] >= 60:
-            self.requests.popleft()
-        if len(self.requests) >= 120 or self.active >= 16:
-            return reject(429, "Management request limit reached.")
-        self.requests.append(now)
         oauth_navigation = (self.config.oauth_callback_enabled
             and request.path in ("/oauth/callback", "/oauth/result")
             and request.headers.get("Host") == urlsplit(self.config.oauth_redirect_uri).netloc)
         if (len(request.headers.getall("Host", [])) != 1 or
                 (request.headers.get("Host") not in self.config.authorities and not oauth_navigation)):
-            return reject(403, "Untrusted Host.")
+            return reject_public(403, "Untrusted Host.")
         if not self.config.accepts_proxy(request):
-            return reject(403, "Untrusted proxy headers or peer; check the configured HTTPS proxy boundary.")
+            return reject_public(403, "Untrusted proxy headers or peer; check the configured HTTPS proxy boundary.")
         origins = request.headers.getall("Origin", [])
         host = request.headers["Host"]
         allowed_origins = {self.config.trusted_origin or "https://" + host}
@@ -414,22 +439,24 @@ class ManagementAPI:
         # Ignore them: only the explicit bearer below can grant authority.
         if (len(origins) > 1 or (origins and origins[0] not in allowed_origins)
                 or (not oauth_navigation and request.headers.get("Sec-Fetch-Site", "none") not in ("none", "same-origin"))):
-            return reject(403, "Untrusted browser origin.")
+            return reject_public(403, "Untrusted browser origin.")
         if callback:
-            return await self.oauth_callback(request)
+            return await self.oauth_callback(request, now)
         if request.query_string or request.raw_path != request.path:
-            return reject(400, "Use an exact path without query parameters.")
+            return reject_public(400, "Use an exact path without query parameters.")
         if request.method not in ("GET", "POST"):
-            return reject(405, "Method not supported.")
+            return reject_public(405, "Method not supported.")
         if not request.path.startswith("/v1/"):
             if request.method != "GET" or request.content_length not in (None, 0):
-                return reject(405, "Assets require GET without a body.")
+                return reject_public(405, "Assets require GET without a body.")
             if request.path == "/oauth/result" and oauth_navigation:
+                if not self._admit_request(self.asset_requests, now):
+                    return reject(429, "Management request limit reached.")
                 response = self.response(200, {})
                 response.text = "Twitch authorization attempt finished. Close this tab and return to the signed-in Settings tab for the result. If it is still waiting, check callback reachability, registered redirect and proxy settings, then try again."
                 response.content_type = "text/plain"
                 return response
-            return self.asset(request.path)
+            return self.asset(request.path, now)
         authorization = request.headers.getall("Authorization", [])
         expected = "Bearer " + self.config.token
         self.sessions = {key: expiry for key, expiry in self.sessions.items() if expiry > now}
@@ -438,9 +465,11 @@ class ManagementAPI:
         digest = hashlib.sha256(supplied.removeprefix("Bearer ").encode("utf-8")).digest()
         session = supplied.startswith("Bearer ") and digest in self.sessions
         if not (admin or session):
-            return reject(401, "Authentication required.")
+            return reject_public(401, "Authentication required.")
         if request.path == "/v1/session" and (admin != (request.method == "POST")):
             return reject(401, "Authentication required.")
+        if self.active >= 16 or not self._admit_request(self.requests, now):
+            return reject(429, "Management request limit reached.")
         if "Content-Encoding" in request.headers or "Transfer-Encoding" in request.headers:
             return reject(400, "Encoded or streamed bodies are not supported.")
         self.active += 1

@@ -543,15 +543,16 @@ value before switching provisioning methods. Empty secret files permit browser s
 Saved non-secret Twitch settings retain their existing precedence over environment
 defaults. Validation results are process-local and reset after edits/restart.
 
-Authorization attempts are single-use, expire after five minutes, and are bound to
-the initiating bearer session. Another session cannot finish or replace an active
-attempt. Logout cancels its attempt; restarting loses all pending state. Configuration
-changes cancel pending attempts. A failed exchange or denied authorization requires
-a new attempt. The code exchange, application/account/scope validation and writable
-token cache use TwitchIO; the management token and provider secrets never enter the
-authorization URL. There is no unauthenticated OAuth callback route. Treat the pasted
-callback URL as sensitive, close its browser tab afterwards, and remove it from
-browser history when practical. Remote HTTPS callback automation is not supported.
+Authorization attempts are single-use, expire after five minutes, and belong to
+the initiating administrator bearer or browser session. For a supported loopback
+or configured HTTPS redirect, the browser returns to the exact GET
+`/oauth/callback` without sending a bearer. The callback requires the pending
+state and a still-active owner and redirects to the fixed `/oauth/result` page.
+Paste completion sends the full callback URL to the authenticated completion
+endpoint under the initiating bearer. Another session cannot finish or replace
+an active attempt. Logout, restart and configuration changes clear pending state.
+A failed exchange or denied authorization requires a new attempt. Treat callback
+URLs as sensitive and keep them out of logs.
 
 Limits are 64 KiB per JSON request, except AI setup allows 256 KiB for escaped Unicode
 instructions, announcements allow 768 KiB for their message collections, chat reactions
@@ -567,9 +568,12 @@ are rejected rather than partially imported. Previews are one-use, expire after 
 minutes, and at most eight are retained per process. Uploads and previews are held
 in memory, with no arbitrary extraction or caller-selected server paths.
 
-Other limits are 2 MiB per response, 16 active requests,
-120 requests per minute per instance (including failed authentication), 32 open
-connections, bounded HTTP header fields/count, five seconds to read a body,
+Other limits are 2 MiB per response and 16 active authenticated requests.
+Authenticated requests, public assets (including the inert OAuth result page),
+and rejected unauthenticated requests each have a per-instance limit of
+120 requests per minute. An automatic OAuth return with a valid pending state and active owner
+uses its own single exchange slot. Connection limits still apply to all traffic.
+The listener allows 32 open connections, bounded HTTP header fields/count, five seconds to read a body,
 25 seconds per operation including queue time, and a 35-second absolute connection
 lifetime. Responses close their connection. API cleanup gets up to five seconds
 plus cancellation grace before the existing bounded core shutdown proceeds.

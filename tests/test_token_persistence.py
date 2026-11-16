@@ -8,11 +8,12 @@ import stat
 from types import SimpleNamespace
 
 import pytest
+from twitchio.authentication.oauth import OAuth
 from twitchio.exceptions import HTTPException, InvalidTokenException
 
 from app.config.settings import Settings
 from app.runtime_state import RuntimeState
-from app.twitch.client import TwitchChatBot, TwitchConnectionError, run_twitch_bot
+from app.twitch.client import CHAT_SCOPES, TwitchChatBot, TwitchConnectionError, run_twitch_bot
 
 
 @pytest.fixture(autouse=True)
@@ -145,6 +146,28 @@ async def test_rejected_cached_token_reaches_authorization_required(tmp_path, mo
     assert bot._services.runtime_state.twitch_connection_state == "auth_required"
     await bot.close()
     assert json.loads(bot._token_file.read_text()) == cache()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("valid", [True, False])
+async def test_desktop_cache_verifies_base_grant_before_activation(tmp_path, monkeypatch, valid):
+    async def validate(self, token):
+        return SimpleNamespace(client_id="synthetic-client", user_id="100", login="testbot",
+                               scopes=CHAT_SCOPES.selected if valid else ["user:write:chat"],
+                               expires_in=7200)
+    monkeypatch.setattr(OAuth, "validate_token", validate)
+    bot = bot_at(tmp_path)
+    bot._token_file.parent.mkdir()
+    original = json.dumps(cache())
+    bot._token_file.write_text(original)
+    try:
+        await bot.load_tokens()
+        assert ("100" in bot.tokens) is valid
+        assert bot._send_authorized is valid
+    finally:
+        await bot.close()
+    if not valid:
+        assert bot._token_file.read_text() == original
 
 
 @pytest.mark.asyncio

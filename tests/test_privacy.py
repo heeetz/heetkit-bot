@@ -444,13 +444,68 @@ async def test_optout_precedes_filters_bans_cooldowns_and_never_targets_argument
         logger.addHandler(OperatorActivityHandler(buffer))
         incoming = twitch_message("?optout 456", channel_id="200")
         await process_twitch_message(incoming, services, dispatcher, logger)
-        await process_twitch_message(incoming, services, dispatcher, logger)  # Idempotent outside EventSub replay guard too.
+        repeated = twitch_message("?optout", channel_id="200")
+        incoming.id, repeated.id = "first", "distinct"
+        await process_twitch_message(repeated, services, dispatcher, logger)
         assert [row.twitch_user_id for row in await stored(database, PrivacyOptOut)] == ["123"]
         assert {row.twitch_user_id for row in await stored(database, User)} == {"456"}
         assert {row.twitch_user_id for row in await stored(database, AIMemoryEntry)} == {"456"}
         assert buffer.activity()["entries"] == []
         assert "provider" in incoming.respond.await_args.args[0]
+        repeated.respond.assert_not_awaited()
         dispatcher.dispatch.assert_not_awaited()
+    finally:
+        await database.close()
+
+async def test_optout_coalesces_and_retries_recovery_without_repeating_deletion(monkeypatch):
+    database = Database("sqlite+aiosqlite:///:memory:")
+    await database.initialize()
+    users = UserRepository(database.session_factory)
+    services = SimpleNamespace(users=users, settings=SimpleNamespace(command_prefix="!"))
+    logger = logging.getLogger("test.optout")
+    entered, resume = asyncio.Event(), asyncio.Event()
+    now = [100.0]
+    monkeypatch.setattr("app.database.repository.monotonic", lambda: now[0])
+    attempts = []
+
+    async def scrub(*, suppressed=(), withdrawn=()):
+        if withdrawn:
+            return
+        attempts.append(suppressed)
+        if len(attempts) == 1:
+            entered.set()
+            await resume.wait()
+            raise OSError("synthetic recovery failure")
+
+    monkeypatch.setattr(users, "_update_recovery", scrub)
+    try:
+        first = twitch_message("!optout")
+        first.id = "first"
+        pending = asyncio.create_task(process_twitch_message(first, services, None, logger))
+        await entered.wait()
+        overlap = twitch_message("!optout")
+        overlap.id = "second"
+        try:
+            await asyncio.wait_for(process_twitch_message(overlap, services, None, logger), 1)
+        finally:
+            resume.set()
+            await pending
+        overlap.respond.assert_not_awaited()
+        assert "could not complete" in first.respond.await_args.args[0]
+        assert await users.is_storage_opted_out("123")
+
+        retry = twitch_message("!optout")
+        retry.id = "third"
+        await process_twitch_message(retry, services, None, logger)
+        retry.respond.assert_not_awaited()
+        now[0] += 6
+        await process_twitch_message(retry, services, None, logger)
+        assert "storage disabled" in retry.respond.await_args.args[0]
+        assert users.policy.privacy_epochs["123"] == 1
+        assert attempts == [("123",), ("123",)]
+        assert await users.opt_out("123", chat=True) is False
+        await users.withdraw_opt_out("123")
+        assert await users.opt_out("123", chat=True) is True
     finally:
         await database.close()
 

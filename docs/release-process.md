@@ -239,10 +239,11 @@ GitHub CLI. It requires successful completed manual runs of the expected workflo
 from this repository's main branch and matching evidence from their current attempts.
 It downloads the original candidate by ID, verifies its archive SHA-256 against both
 the evidence and API digest, and copies only the five expected flat filenames.
+Publish reads the version literal and curated notes from the selected SHA as data.
 Publication rechecks the portable and installer checksums, installer traceability
-and exact-version curated notes. It uses the candidate source's embedded public key
-to verify the supplied manifest bytes and checks that the signed version, asset name,
-size and SHA-256 match the original installer. Existing canonical builder inspections,
+and exact-version curated notes. The publisher key from the trusted workflow
+revision verifies the supplied manifest bytes. The signed version, asset name,
+size and SHA-256 must match the original installer. Existing canonical builder inspections,
 notice and private-content/profile-isolation checks still gate candidate creation.
 
 Missing, expired, ambiguous or changed artifacts, a different repository/ref/version/tag,

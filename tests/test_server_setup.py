@@ -506,11 +506,18 @@ async def test_terminal_failed_session_can_be_reauthorized(api, twitch_provider,
 
 @pytest.mark.parametrize("changes", [{"client_id": "wrong"}, {"scopes": []}, {"login": "wrong"}, {}])
 async def test_headless_cached_tokens_verify_application_scopes_account_and_channel(api, twitch_provider, changes, monkeypatch):
+    from twitchio import Client
+    from twitchio.authentication.oauth import OAuth
+
     server, call = api
     await configure(call)
     twitch_provider[0].update(changes)
     path = RuntimePaths.default().tokens
     path.write_text('{"100":{"token":"synthetic","refresh":"synthetic"}}')
+    async def validate(self, token):
+        return ValidateTokenPayload(twitch_provider[0])
+    monkeypatch.setattr(TwitchChatBot, "add_token", Client.add_token)
+    monkeypatch.setattr(OAuth, "validate_token", validate)
     bot = server.setup._bot()
     bot.require_verified_identity = True
     async def wrong_target(*args, **kwargs):
@@ -661,6 +668,36 @@ async def test_unsolicited_callback_never_consumes_valid_attempt(callback_server
     assert not twitch_provider[1] and server.setup.pending is not None
     await callback(query)
     assert len(twitch_provider[1]) == 1
+
+
+async def test_rejected_requests_leave_login_session_and_valid_callback_capacity(callback_server, twitch_provider, monkeypatch):
+    server, call, callback = callback_server
+    await configure(call)
+    token = (await call("/v1/session", {}))[1]["token"]
+    headers = {"Authorization": "Bearer " + token}
+    expired_query = await callback_begin(call, headers)
+    with monkeypatch.context() as clock:
+        deadline = server.setup.pending[2]
+        clock.setattr("app.server_setup.monotonic", lambda: deadline + 1)
+        assert (await callback(expired_query))[0] == 303
+    query = await callback_begin(call, headers)
+
+    for _ in range(120):
+        response = await call("/v1/setup", headers={"Authorization": ""})
+        assert response[0] in (401, 429)
+    assert (await call("/v1/setup", headers={"Authorization": ""}))[0] == 429
+    assert (await callback(expired_query))[0] == 429
+    assert (await callback("state=wrong&code=synthetic"))[0] == 429
+    origin = urlsplit(server.config.trusted_origin or "")
+    proxy_headers = {"Host": origin.netloc, "X-Forwarded-Proto": "https"} if origin.netloc else {}
+    async with aiohttp.ClientSession(trust_env=False) as browser:
+        async with browser.get(f"http://127.0.0.1:{server.config.port}/", headers=proxy_headers) as index:
+            assert index.status in (200, 503)  # A checkout may have no frontend build.
+    assert (await call("/v1/session", {}))[0] == 200
+    assert (await call("/v1/setup", headers=headers))[0] == 200
+    assert (await callback(query))[0] == 303
+    assert (await callback(query))[0] == 429
+    assert len(twitch_provider[1]) == 1 and not server.callback_active
 
 
 @pytest.mark.parametrize("reason", ["cancel", "logout", "expiry", "session_expiry", "session_eviction", "superseded", "identity"])

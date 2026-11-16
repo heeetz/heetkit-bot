@@ -322,7 +322,10 @@ private. Local deletion does not send a Twitch/provider deletion request.
 
 Handle a verified viewer request to stop storing their identifying data. Verify
 control of the Twitch account before you act. A viewer can also send `!optout`
-in chat to act on their own account.
+in chat to act on their own account. The bot attempts one confirmation after
+deletion and recovery cleanup, subject to the chat reply limit. A failed cleanup
+can be retried after a short delay. Repeats after completion are silent until
+the opt-out is withdrawn.
 
 **In HeetKit** · **Commands > Storage opt-outs** on Desktop or Server.
 

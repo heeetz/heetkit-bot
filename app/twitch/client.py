@@ -236,11 +236,21 @@ async def process_twitch_message(
             # scope, command diagnostics, filters, block rules or cooldowns precede this.
             with privacy_log_scope(True):
                 try:
-                    await services.users.opt_out(incoming.author.twitch_user_id, username=incoming.author.username)
-                    await CommandContext(incoming, services, logger).reply("Local data storage disabled. Fresh AI requests still reach the provider.")
+                    completed = await services.users.opt_out(
+                        incoming.author.twitch_user_id, username=incoming.author.username, chat=True,
+                    )
                 except Exception as error:
                     logger.error("Privacy request failed: %s", type(error).__name__)
-                    await CommandContext(incoming, services, logger).reply("Privacy request could not complete. Contact the bot operator.")
+                    reply = "Privacy request could not complete. Contact the bot operator."
+                else:
+                    if not completed:
+                        return
+                    reply = "Local data storage disabled. Fresh AI requests still reach the provider."
+                limiter = getattr(getattr(services, "twitch", None), "output_limiter", None)
+                try:
+                    await CommandContext(incoming, services, logger, limiter).reply(reply)
+                except Exception as error:
+                    logger.error("Privacy acknowledgment failed: %s", type(error).__name__)
             return
 
         opted_out = False
@@ -360,6 +370,7 @@ class TwitchChatBot(commands.Bot):
         self._connection_notices: dict[str, tuple[float, int]] = {}
         self._chat_messages = getattr(services.twitch, "chat_messages", None) or ChatMessageCorrelation()
         self._token_save_lock = asyncio.Lock()
+        self._token_registration_tasks: set[asyncio.Task] = set()
         self._tokens_loaded = False
         self._loading_tokens = False
         self._cached_tokens: dict[str, dict] = {}
@@ -378,6 +389,18 @@ class TwitchChatBot(commands.Bot):
             scopes=OAUTH_SCOPES,
             adapter=DesktopOAuthAdapter(host="localhost", port=4343),
         )
+        # TwitchIO validates both the original and any rotated token through
+        # this OAuth client before it adds either to the live managed map.
+        oauth = self.http._ManagedHTTPClient__isolated
+        validate = oauth.validate_token
+
+        async def validate_registration(token):
+            result = await validate(token)
+            if asyncio.current_task() in self._token_registration_tasks:
+                validate_bot_authorization(result, self._settings)
+            return result
+
+        oauth.validate_token = validate_registration
         if services.twitch is not None:
             services.twitch.bind(self, account.channel_user_id, account.user_id, channel_name=account.channel)
 
@@ -645,40 +668,37 @@ class TwitchChatBot(commands.Bot):
             return
         self.refresh_readiness()
 
+    async def _add_verified_token(self, token: str, refresh: str):
+        task = asyncio.current_task()
+        self._token_registration_tasks.add(task)
+        try:
+            return await self.add_token(token, refresh)
+        finally:
+            self._token_registration_tasks.discard(task)
+
     async def event_oauth_authorized(self, payload: UserTokenPayload) -> None:
         if not self._owns_session():
             return
-        token = await self.add_token(payload["access_token"], payload["refresh_token"])
-        if token.user_id == self.bot_id:
-            self._tokens_loaded = True
-            self._cached_tokens = {}
-            if not self._owns_session():
-                return  # close waits for this callback, then flushes its rotation.
-            self._send_authorized = "user:write:chat" in token.scopes
-            if not self._send_authorized:
+        try:
+            await self._add_verified_token(payload["access_token"], payload["refresh_token"])
+        except (TwitchConnectionError, InvalidTokenException):
+            if self.bot_id not in self.tokens:
                 self._set_connection_state("auth_required")
-                return
-            await self.save_tokens()
-            if not self._owns_session():
-                return
-            self._logger.info("Configured bot account OAuth authorization completed")
-            if not (self._services.twitch is not None and self._services.twitch.chat_connected):
-                self._set_connection_state("connecting")
-                await self._subscribe_to_chat()
-            self.refresh_readiness()
+            self._logger.warning("Desktop Twitch authorization was rejected. Authorize again from Settings.")
             return
-
-        if token.user_id == self._account.channel_user_id:
-            await self.remove_token(token.user_id)
-            self._logger.info("Configured channel OAuth authorization completed")
+        self._tokens_loaded = True
+        self._cached_tokens = {}
+        if not self._owns_session():
+            return  # close waits for this callback, then flushes its rotation.
+        self._send_authorized = True
+        await self.save_tokens()
+        if not self._owns_session():
             return
-
-        await self.remove_token(token.user_id)
-        self._set_connection_state("auth_required")
-        self._logger.error(
-            "OAuth authorization was for an unknown account",
-            extra={"event_kind": "twitch.auth_required", "event_channel": self._account.channel},
-        )
+        self._logger.info("Configured bot account OAuth authorization completed")
+        if not (self._services.twitch is not None and self._services.twitch.chat_connected):
+            self._set_connection_state("connecting")
+            await self._subscribe_to_chat()
+        self.refresh_readiness()
 
     async def event_token_refreshed(self, payload: TokenRefreshedPayload) -> None:
         if payload.user_id == self.bot_id:
@@ -701,32 +721,29 @@ class TwitchChatBot(commands.Bot):
             ) for record in cached.values()
         ):
             raise TwitchConnectionError("Twitch authorization cache is malformed; restore a private backup or reauthorize.")
-        self._cached_tokens = cached
-        self._tokens_loaded = True
+        self._cached_tokens = cached.copy()
         self._loading_tokens = True
         try:
-            for record in cached.values():
+            for key, record in cached.items():
                 try:
                     # TwitchIO retains validation/refresh ownership. Persist only
                     # its managed result, never construct or refresh tokens here.
-                    validated = await self.add_token(record["token"], record["refresh"])
-                    if validated is not None and validated.user_id == self.bot_id:
-                        self._send_authorized = "user:write:chat" in validated.scopes
-                    if self.require_verified_identity:
-                        try:
-                            validate_bot_authorization(validated, self._settings)
-                        except TwitchConnectionError:
-                            if validated.user_id:
-                                await self.remove_token(validated.user_id)
-                            continue
-                        users = await self.fetch_users(ids=[self._account.channel_user_id], token_for=self.bot_id)
-                        if not any(str(user.id) == self._account.channel_user_id and
-                                   user.name.lower() == self._account.channel.lower() for user in users):
-                            raise TwitchConnectionError("Configured Twitch channel does not match its account ID. Correct Settings before reconnecting.")
+                    await self._add_verified_token(record["token"], record["refresh"])
+                except TwitchConnectionError:
+                    self._cached_tokens.pop(key, None)
+                    continue
                 except InvalidTokenException as error:
                     if recoverable_failure(error):
                         raise
+                    self._cached_tokens.pop(key, None)
                     continue
+                self._tokens_loaded = True
+                self._send_authorized = True
+                if self.require_verified_identity:
+                    users = await self.fetch_users(ids=[self._account.channel_user_id], token_for=self.bot_id)
+                    if not any(str(user.id) == self._account.channel_user_id and
+                               user.name.lower() == self._account.channel.lower() for user in users):
+                        raise TwitchConnectionError("Configured Twitch channel does not match its account ID. Correct Settings before reconnecting.")
             if self.bot_id in self.tokens:
                 self._cached_tokens = {}
         finally:

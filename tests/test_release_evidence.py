@@ -111,6 +111,36 @@ def test_exact_selected_sha_and_original_candidate_bytes_are_reused(tmp_path):
     assert api.calls.count("actions/runs/10") == api.calls.count("actions/runs/20") == 2
 
 
+@pytest.mark.parametrize("valid", [True, False])
+def test_publication_uses_selected_source_as_data_and_checks_evidence(tmp_path, monkeypatch, valid):
+    api = Actions()
+    version_file = f'VERSION = "{VERSION}"\nopen("candidate-executed", "w").close()\n'.encode()
+    notes = f"# HeetKit v{VERSION}\nSynthetic release notes".encode()
+    paths = {"app/version.py": version_file, f"docs/releases/v{VERSION}.md": notes}
+    reads = []
+
+    def read_file(sha, path, limit):
+        assert sha == SHA and len(paths[path]) <= limit
+        reads.append(path)
+        return paths[path]
+
+    api.source_file = read_file
+    monkeypatch.chdir(tmp_path)
+    destination = tmp_path / "release-source"
+    options = dict(repository=REPO, sha=SHA, tag=f"v{VERSION}", candidate_run="10",
+                   full_run="20", destination=destination, api=api)
+    if valid:
+        assert release.prepare_publication(**options) == (VERSION, False)
+        assert (destination / f"docs/releases/v{VERSION}.md").read_bytes() == notes
+        assert reads == list(paths)
+    else:
+        api.runs[10]["conclusion"] = "failure"
+        with pytest.raises(ValueError, match="Run must complete successfully"):
+            release.prepare_publication(**options)
+        assert reads == ["app/version.py"] and not destination.exists()
+    assert not (tmp_path / "candidate-executed").exists()
+
+
 @pytest.mark.parametrize("kind", ["candidate", "full"])
 @pytest.mark.parametrize("field,value", [
     ("sha", "c" * 40), ("repository", "other/repo"), ("attempt", 1), ("run_id", 99),

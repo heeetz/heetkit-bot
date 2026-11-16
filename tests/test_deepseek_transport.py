@@ -317,11 +317,11 @@ async def test_search_fetch_use_fixed_provider_endpoints_and_transient_continuat
         if request.url.path == "/v1/tools/search":
             assert payload == {"query": "current news", "count": 5, "need_content": False}
             return httpx.Response(200, json={"results": [{
-                "title": "Example", "url": "https://example.test/article", "summary": "untrusted summary",
+                "title": "Example", "url": "https://example.com/article", "summary": "untrusted summary",
                 "other": "PRIVATE UNNEEDED METADATA",
             }]})
         if request.url.path == "/v1/tools/fetch":
-            assert payload == {"url": "https://example.test/article"}
+            assert payload == {"url": "https://example.com/article"}
             return httpx.Response(200, json={"title": "Example article", "content": "untrusted article"})
         chats += 1
         if chats == 1:
@@ -329,7 +329,7 @@ async def test_search_fetch_use_fixed_provider_endpoints_and_transient_continuat
         assert payload["messages"][2]["reasoning_content"] == "PRIVATE TOOL REASONING"
         assert "untrusted_web_context" in payload["messages"][3]["content"]
         if chats == 2:
-            return tool_completion("fetch_web", {"url": "https://example.test/article"}, "call-2")
+            return tool_completion("fetch_web", {"url": "https://example.com/article"}, "call-2")
         return completion("Verified result")
     requests = wire_transport(monkeypatch, handler)
     provider = make_provider()
@@ -337,10 +337,40 @@ async def test_search_fetch_use_fixed_provider_endpoints_and_transient_continuat
                                      replace(provider.snapshot(), thinking="low", single_attempt=True))
     assert result.text == "Verified result" and result.search_used
     assert result.sources[0].title == "Example article"
-    assert result.sources[0].url == "https://example.test/article"
+    assert result.sources[0].url == "https://example.com/article"
     assert len(requests) == 5
     assert "PRIVATE" not in str([vars(record) for record in caplog.records])
     assert not result.attribution_required
+
+
+@pytest.mark.parametrize("url,allowed", [
+    ("http://127.0.0.1/secret", False), ("https://10.0.0.1", False),
+    ("http://169.254.169.254/", False), ("http://192.0.2.1", False),
+    ("http://100.64.0.1", False), ("http://224.0.0.1", False),
+    ("http://[::ffff:127.0.0.1]/", False), ("http://[fe80::1%25en0]", False),
+    ("http://127.1", False), ("http://0x7f000001", False),
+    ("http://0177.0.0.1", False), ("http://2130706433", False),
+    ("http://localhost.", False), ("http://router.home.arpa", False),
+    ("http://printer.local", False), ("http://api.internal", False),
+    ("http://fileserver", False), ("http://096.example.test", False),
+    ("https://[2606:4700:4700::1111]/", True), ("http://1.1.1.1", True),
+    ("https://www.example.com/path", True),
+])
+async def test_fetch_rejects_nonpublic_addresses_before_transport(monkeypatch, url, allowed):
+    async def handler(request):
+        assert request.url.host == "api.deepseek.com" and request.url.path == "/v1/tools/fetch"
+        return httpx.Response(200, json={"content": "synthetic article"})
+
+    calls = wire_transport(monkeypatch, handler)
+    provider = make_provider()
+    function = {"name": "fetch_web", "arguments": json.dumps({"url": url})}
+    if allowed:
+        await provider._run_search_tool(function, SecretStr("synthetic-key"))
+        assert len(calls) == 1
+    else:
+        with pytest.raises(deepseek._SearchError):
+            await provider._run_search_tool(function, SecretStr("synthetic-key"))
+        assert calls == []
 
 
 @pytest.mark.parametrize("status,payload", [
@@ -374,7 +404,7 @@ async def test_continuation_404_cannot_restart_tools_on_another_model(monkeypatc
         if request.url.path == "/chat/completions":
             chats += 1
             if chats == 1:
-                return tool_completion("fetch_web", {"url": "https://example.test/"})
+                return tool_completion("fetch_web", {"url": "https://example.com/"})
             return httpx.Response(404)
         return httpx.Response(200, json={"title": "Example", "content": "Page"})
     requests = wire_transport(monkeypatch, handler)
@@ -387,7 +417,7 @@ async def test_tool_round_and_call_limits_end_with_search_error(monkeypatch):
     monkeypatch.setattr(deepseek, "DEEPSEEK_MAX_TOOL_ROUNDS", 1)
     async def handler(request):
         if request.url.path == "/chat/completions":
-            return tool_completion("fetch_web", {"url": "https://example.test/"})
+            return tool_completion("fetch_web", {"url": "https://example.com/"})
         return httpx.Response(200, json={"title": "Example", "content": "Page"})
     requests = wire_transport(monkeypatch, handler)
     provider = make_provider()
@@ -399,7 +429,7 @@ async def test_tool_bytes_and_timeout_are_bounded(monkeypatch):
     monkeypatch.setattr(deepseek, "DEEPSEEK_MAX_TOOL_BYTES", 10)
     async def handler(request):
         if request.url.path == "/chat/completions":
-            return tool_completion("fetch_web", {"url": "https://example.test/"})
+            return tool_completion("fetch_web", {"url": "https://example.com/"})
         return httpx.Response(200, json={"title": "Example", "content": "Page"})
     requests = wire_transport(monkeypatch, handler)
     provider = make_provider()

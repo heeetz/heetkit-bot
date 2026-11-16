@@ -3,6 +3,8 @@
 from datetime import datetime, timedelta
 from contextlib import contextmanager
 from contextvars import ContextVar
+from time import monotonic
+from typing import Literal
 
 from sqlalchemy import case, delete, exists, func, insert, literal, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -33,6 +35,9 @@ class UserRepository:
     def __init__(self, session_factory: async_sessionmaker) -> None:
         self._session_factory = session_factory
         self._suppressed_ids: set[str] = set()
+        self._opt_out_state: dict[str, Literal["requested", "pending_recovery", "completed"]] = {}
+        self._chat_opt_outs: set[str] = set()
+        self._chat_retry_after: dict[str, float] = {}
         self.policy = session_factory.kw["info"]["memory_policy"]
 
     @contextmanager
@@ -60,30 +65,66 @@ class UserRepository:
                 _storage_ticket.set((id(self.policy), twitch_user_id, -1))
         return suppressed or self.logs_suppressed(twitch_user_id)
 
-    async def opt_out(self, twitch_user_id: str, username: str | None = None) -> None:
+    async def opt_out(self, twitch_user_id: str, username: str | None = None, *, chat: bool = False) -> bool:
+        """Return whether this request completed a new suppression or a pending scrub."""
         if not twitch_user_id.isascii() or not twitch_user_id.isdigit() or not 1 <= len(twitch_user_id) <= 32:
             raise ValueError("Opt-out requires the authenticated Twitch account ID.")
         if username is not None:
             from app.ai_user_blocks import normalize_ai_username
             username = normalize_ai_username(username)
-        # Invalidate captured work permanently, including after withdrawal.
-        self.policy.privacy_epochs[twitch_user_id] = self.policy.privacy_epochs.get(twitch_user_id, 0) + 1
+        if chat:
+            if (self._opt_out_state.get(twitch_user_id) == "completed" or twitch_user_id in self._chat_opt_outs
+                    or self._chat_retry_after.get(twitch_user_id, 0) > monotonic()):
+                return False
+            self._chat_opt_outs.add(twitch_user_id)
+            self._chat_retry_after.pop(twitch_user_id, None)
+        try:
+            return await self._complete_opt_out(twitch_user_id, username)
+        except Exception:
+            if chat:
+                now = monotonic()
+                self._chat_retry_after = {
+                    account: deadline for account, deadline in self._chat_retry_after.items() if deadline > now
+                }
+                self._chat_retry_after[twitch_user_id] = now + 5
+            raise
+        finally:
+            if chat:
+                self._chat_opt_outs.discard(twitch_user_id)
+
+    def _suppress(self, twitch_user_id: str) -> None:
+        if twitch_user_id not in self._opt_out_state:
+            # Revoke captured work before any await, even if a write owns the lock.
+            epochs = self.policy.privacy_epochs
+            epochs[twitch_user_id] = epochs.get(twitch_user_id, 0) + 1
+            self._opt_out_state[twitch_user_id] = "requested"
         self._suppressed_ids.add(twitch_user_id)
-        analytics = getattr(self, "analytics", None)
-        if analytics is not None:
-            await analytics.privacy_barrier()
+
+    async def _complete_opt_out(self, twitch_user_id: str, username: str | None) -> bool:
+        self._suppress(twitch_user_id)
         async with self.policy.lock, self._session_factory() as session:
-            self._suppressed_ids.add(twitch_user_id)
-            statement = sqlite_insert(PrivacyOptOut).values(twitch_user_id=twitch_user_id,
-                username=username, opted_out_at=utcnow())
-            # Repeated requests keep the original date, including unknown history.
-            statement = statement.on_conflict_do_update(index_elements=[PrivacyOptOut.twitch_user_id],
-                set_={"username": func.coalesce(statement.excluded.username, PrivacyOptOut.username)})
-            await session.execute(statement)
-            await session.execute(delete(User).where(User.twitch_user_id == twitch_user_id))
-            await session.execute(delete(AIMemoryEntry).where(AIMemoryEntry.twitch_user_id == twitch_user_id))
-            await session.commit()
-            await self._update_recovery(suppressed=(twitch_user_id,))
+            self._suppress(twitch_user_id)  # A queued withdrawal may have completed.
+            record = await session.get(PrivacyOptOut, twitch_user_id)
+            if record is None:
+                analytics = getattr(self, "analytics", None)
+                if analytics is not None:
+                    await analytics.privacy_barrier()
+                session.add(PrivacyOptOut(twitch_user_id=twitch_user_id, username=username, opted_out_at=utcnow()))
+                await session.execute(delete(User).where(User.twitch_user_id == twitch_user_id))
+                await session.execute(delete(AIMemoryEntry).where(AIMemoryEntry.twitch_user_id == twitch_user_id))
+                # A cancelled commit can have reached SQLite. Retain the retry
+                # marker until the live transaction and recovery scrub finish.
+                self._opt_out_state[twitch_user_id] = "pending_recovery"
+                await session.commit()
+            elif username is not None and record.username != username:
+                record.username = username  # Preserve the original or unknown date.
+                await session.commit()
+            pending = self._opt_out_state[twitch_user_id] == "pending_recovery"
+            if pending:
+                await self._update_recovery(suppressed=(twitch_user_id,))
+            # Startup already scrubs recovery for durable suppression rows.
+            self._opt_out_state[twitch_user_id] = "completed"
+            return pending
 
     async def _update_recovery(self, *, suppressed=(), withdrawn=()):
         path = self._session_factory.kw["info"]["database_path"]
@@ -100,6 +141,8 @@ class UserRepository:
             await session.execute(delete(PrivacyOptOut).where(PrivacyOptOut.twitch_user_id == twitch_user_id))
             await session.commit()
             self._suppressed_ids.discard(twitch_user_id)
+            self._opt_out_state.pop(twitch_user_id, None)
+            self._chat_retry_after.pop(twitch_user_id, None)
 
     async def list_opt_outs(self, query="", offset=0, limit=50):
         if not isinstance(query, str) or len(query) > 100 or type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 100:

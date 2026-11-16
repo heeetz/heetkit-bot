@@ -54,35 +54,21 @@ jobs:
         with:
           python-version: '3.14.7'
           architecture: x64
-      - name: Check out exact candidate source for version and notes
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.sha }}
-          path: release-source
-          persist-credentials: false
-      - name: Read canonical candidate version
-        id: version
-        working-directory: release-source
-        run: |
-          $metadata = @(python -c "from app.version import VERSION, is_prerelease; print(VERSION); print(str(is_prerelease()).lower())")
-          if ($LASTEXITCODE -ne 0 -or $metadata.Count -ne 2) { throw 'Cannot validate the canonical application version.' }
-          "version=$($metadata[0])" >> $env:GITHUB_OUTPUT
-          "prerelease=$($metadata[1])" >> $env:GITHUB_OUTPUT
       - name: Install pinned update verification dependencies
         run: python -m pip install --disable-pip-version-check cryptography==50.0.1 httpx==0.28.1
       - name: Verify exact-SHA evidence and download the original candidate
+        id: candidate
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_SHA: ${{ inputs.sha }}
           RELEASE_TAG: ${{ inputs.tag }}
-          APP_VERSION: ${{ steps.version.outputs.version }}
           CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
           FULL_RUN_ID: ${{ inputs.full_run_id }}
-        run: python scripts/release_evidence.py verify
+        run: python -m scripts.release_evidence verify
       - name: Verify downloads and publish the existing tag
         env:
-          APP_VERSION: ${{ steps.version.outputs.version }}
-          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+          APP_VERSION: ${{ steps.candidate.outputs.version }}
+          PRERELEASE: ${{ steps.candidate.outputs.prerelease }}
           RELEASE_TAG: ${{ inputs.tag }}
           INSTALLER_MANIFEST: ${{ inputs.installer_manifest }}
           INSTALLER_SIGNATURE: ${{ inputs.installer_signature }}

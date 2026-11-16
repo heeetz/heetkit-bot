@@ -236,13 +236,16 @@ class ServerSetup:
             raise
         return {"ok": True, "url": url, "expires_in": int(OAUTH_STATE_TTL_SECONDS)}
 
-    async def callback(self, query_string):
-        """Only the fixed management route may complete without a bearer. State and
-        the still-authorized initiating owner grant this one transaction only."""
+    def pending_callback(self, query_string):
+        """Check state and owner before this request takes an exchange slot."""
         self._expire()
-        if self.pending is None:
-            raise CredentialError("No pending Twitch authorization.")
-        return await self.complete(self.pending[0], self.redirect_uri + "?" + query_string)
+        pending = self.pending
+        if pending is None or len(query_string) > 16384:
+            return None
+        try:
+            return pending, self._callback_query(pending, query_string)
+        except (CredentialError, ValueError):
+            return None
 
     async def complete(self, owner, callback_url):
         self._expire()
@@ -252,13 +255,25 @@ class ServerSetup:
         if not isinstance(callback_url, str) or not 1 <= len(callback_url) <= 16384:
             raise CredentialError("Use the complete callback URL from Twitch.")
         url = urlsplit(callback_url)
-        query = parse_qs(url.query, keep_blank_values=True, max_num_fields=10)
-        if (callback_url.split("?", 1)[0] != self.redirect_uri
-                or url.fragment or any(len(values) != 1 for values in query.values())
+        if callback_url.split("?", 1)[0] != self.redirect_uri or "#" in callback_url:
+            raise CredentialError("Callback address or state does not match. Use the URL from this authorization attempt.")
+        return await self.complete_callback(pending, self._callback_query(pending, url.query))
+
+    @staticmethod
+    def _callback_query(pending, query_string):
+        query = parse_qs(query_string, keep_blank_values=True, max_num_fields=10)
+        if (any(len(values) != 1 for values in query.values())
                 or set(query) - {"code", "state", "scope", "error", "error_description"}
                 or not query.get("state") or not query["state"][0].isascii()
                 or not secrets.compare_digest(query["state"][0], pending[1])):
             raise CredentialError("Callback address or state does not match. Use the URL from this authorization attempt.")
+        return query
+
+    async def complete_callback(self, pending, query):
+        self._expire()
+        if self.pending is not pending:
+            raise CredentialError("No pending Twitch authorization.")
+        owner = pending[0]
         # Consume before any provider await, including denial and failed exchange.
         self.pending = None
         self._clear_timer()

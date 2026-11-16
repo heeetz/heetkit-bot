@@ -2,12 +2,15 @@
 
 import logging
 import asyncio
+from datetime import datetime
 from types import SimpleNamespace
 from typing import cast
 from urllib.parse import parse_qs, urlsplit
 from unittest.mock import AsyncMock
 
 import pytest
+from twitchio.authentication.oauth import OAuth
+from twitchio.authentication.payloads import RefreshTokenPayload
 from twitchio.exceptions import HTTPException, InvalidTokenException
 
 from twitch_fakes import established_socket
@@ -231,14 +234,14 @@ async def test_self_optout_runs_once_after_replay_and_outgoing_echo_validation()
         request.id, request.chatter.id = "privacy-request", "123"
         await bot.event_message(request)
         await bot.event_message(request)
-        users.opt_out.assert_awaited_once_with("123", username="viewer")
+        users.opt_out.assert_awaited_once_with("123", username="viewer", chat=True)
         echo = FakeTwitchMessage("!optout")
         echo.id, echo.chatter.id = "privacy-echo", settings.twitch_bot_user_id
         async def accepted(_):
             return SimpleNamespace(id="privacy-echo", sent=True)
         await services.twitch.chat_messages.send(settings.twitch_bot_user_id, "100", accepted, "!optout")
         await bot.event_message(echo)
-        users.opt_out.assert_awaited_once_with("123", username="viewer")
+        users.opt_out.assert_awaited_once_with("123", username="viewer", chat=True)
         dispatcher.dispatch.assert_not_awaited()
     finally:
         await bot.close(save_tokens=False)
@@ -811,8 +814,24 @@ async def test_oauth_callback_accepts_the_configured_bot_account(monkeypatch: py
 
 
 @pytest.mark.asyncio
-async def test_oauth_callback_rejects_an_unexpected_account(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("changes", [
+    {"user_id": "unexpected-user"}, {"user_id": "200"},
+    {"client_id": "other-app"}, {"login": "otherbot"}, {"scopes": ["user:write:chat"]},
+])
+@pytest.mark.parametrize("rotation", [False, True])
+async def test_oauth_callback_rejects_mismatched_renewal(monkeypatch, changes, rotation) -> None:
     settings = build_settings()
+    async def validate(self, token):
+        fields = dict(client_id=settings.twitch_client_id, user_id=settings.twitch_bot_user_id,
+                      login=settings.twitch_bot_username, scopes=CHAT_SCOPES.selected, expires_in=7200)
+        if rotation and token == "new-access":
+            return SimpleNamespace(**(fields | {"expires_in": 60}))
+        return SimpleNamespace(**(fields | changes))
+    async def refresh(self, refresh_token):
+        return RefreshTokenPayload({"access_token": "rotated-access", "refresh_token": "rotated-refresh",
+                                    "expires_in": 7200, "scope": CHAT_SCOPES.selected, "token_type": "bearer"})
+    monkeypatch.setattr(OAuth, "validate_token", validate)
+    monkeypatch.setattr(OAuth, "refresh_token", refresh)
     bot = TwitchChatBot(
         settings=settings,
         account=settings.primary_account,
@@ -820,52 +839,20 @@ async def test_oauth_callback_rejects_an_unexpected_account(monkeypatch: pytest.
         dispatcher=cast(CommandDispatcher, object()),
         logger=logging.getLogger("tests.twitch"),
     )
-    removed_users: list[str] = []
-
-    async def add_token(token: str, refresh: str) -> SimpleNamespace:
-        return SimpleNamespace(user_id="unexpected-user")
-
-    async def remove_token(user_id: str) -> None:
-        removed_users.append(user_id)
-
-    monkeypatch.setattr(bot, "add_token", add_token)
-    monkeypatch.setattr(bot, "remove_token", remove_token)
-
-    await bot.event_oauth_authorized(
-        {"access_token": "test-access", "refresh_token": "test-refresh", "user_id": "unexpected-user"}
-    )
-
-    assert removed_users == ["unexpected-user"]
-    await bot.close(save_tokens=False)
-
-
-@pytest.mark.asyncio
-async def test_oauth_callback_discards_broadcaster_authorization(monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = build_settings()
-    bot = TwitchChatBot(
-        settings=settings,
-        account=settings.primary_account,
-        services=cast(ApplicationServices, SimpleNamespace(twitch=None)),
-        dispatcher=cast(CommandDispatcher, object()),
-        logger=logging.getLogger("tests.twitch"),
-    )
-    removed_users: list[str] = []
-
-    async def add_token(token: str, refresh: str) -> SimpleNamespace:
-        return SimpleNamespace(user_id="200")
-
-    async def remove_token(user_id: str) -> None:
-        removed_users.append(user_id)
-
-    monkeypatch.setattr(bot, "add_token", add_token)
-    monkeypatch.setattr(bot, "remove_token", remove_token)
-
-    await bot.event_oauth_authorized(
-        {"access_token": "test-access", "refresh_token": "test-refresh", "user_id": "200"}
-    )
-
-    assert removed_users == ["200"]
-    await bot.close(save_tokens=False)
+    prior = {"100": {"user_id": "100", "token": "valid-access", "refresh": "valid-refresh",
+                     "last_validated": datetime.now().isoformat()}}
+    bot.http._tokens.update(prior)
+    bot._send_authorized = True
+    save, subscribe = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(bot, "save_tokens", save)
+    monkeypatch.setattr(bot, "_subscribe_to_chat", subscribe)
+    try:
+        await bot.event_oauth_authorized({"access_token": "new-access", "refresh_token": "new-refresh"})
+        assert dict(bot.tokens) == prior and bot._send_authorized
+        save.assert_not_awaited()
+        subscribe.assert_not_awaited()
+    finally:
+        await bot.close(save_tokens=False)
 
 
 @pytest.mark.asyncio

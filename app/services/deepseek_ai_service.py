@@ -5,7 +5,10 @@ import json
 import logging
 import time
 from contextlib import asynccontextmanager
+from ipaddress import ip_address
+import re
 from typing import Any, AsyncIterator
+from urllib.parse import urlsplit
 
 import httpx
 from pydantic import SecretStr
@@ -34,6 +37,37 @@ DEEPSEEK_MAX_TOOL_ROUNDS = 3
 DEEPSEEK_MAX_TOOL_CALLS = 4
 DEEPSEEK_MAX_TOOL_BYTES = 65536
 DEEPSEEK_TOOL_TIMEOUT_SECONDS = 12.0
+_LOCAL_FETCH_SUFFIXES = {
+    "localhost", "local", "localdomain", "internal", "lan", "home", "home.arpa",
+    "corp", "intranet", "test", "example", "invalid", "onion", "alt",
+}
+_DNS_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+
+
+def _public_fetch_url(url: object) -> bool:
+    if source_metadata("", url) is None:
+        return False
+    host = urlsplit(url).hostname
+    try:
+        address = ip_address(host)
+    except ValueError:
+        try:
+            name = host.encode("idna").decode("ascii").lower().removesuffix(".")
+        except UnicodeError:
+            return False
+        labels = name.split(".")
+        # URL parsers can interpret short, octal, hex and integer IPv4 forms.
+        if re.fullmatch(r"[0-9]+|0x[0-9a-f]*", labels[-1]):
+            return False
+        return (len(labels) >= 2 and len(name) <= 253
+                and all(_DNS_LABEL.fullmatch(label) for label in labels)
+                and not any(name == suffix or name.endswith("." + suffix) for suffix in _LOCAL_FETCH_SUFFIXES))
+    if "%" in host:  # IPv6 zone identifiers are meaningful only within a local network.
+        return False
+    address = getattr(address, "ipv4_mapped", None) or address
+    return address.is_global and not address.is_multicast and not address.is_reserved
+
+
 _SEARCH_TOOLS = [
     {"type": "function", "function": {
         "name": "search_web", "description": "Search public web sources using a focused query you formulate from the question.",
@@ -260,7 +294,7 @@ class DeepSeekProvider:
                 body = {"query": query.strip(), "count": 5, "need_content": False}
             elif name == "fetch_web":
                 url = arguments.get("url")
-                if set(arguments) != {"url"} or source_metadata("", url) is None:
+                if set(arguments) != {"url"} or not _public_fetch_url(url):
                     raise ValueError("Invalid URL.")
                 path, body = "/v1/tools/fetch", {"url": url}
             else:
