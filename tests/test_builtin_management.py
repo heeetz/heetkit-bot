@@ -435,6 +435,39 @@ def test_custom_edits_reserve_runtime_and_saved_builtin_aliases_even_after_remov
     assert custom.save(custom_payload(name="sessionping"))
 
 
+def test_legacy_enable_preserves_settings_and_leaves_a_colliding_command_disabled(tmp_path):
+    _, _, custom, fun, _, _, _ = setup_commands(tmp_path)
+    custom.save(custom_payload(name="occupied"))
+    fun.save(["Saved community reply"], "tg")
+    path = tmp_path / "command_settings.json"
+    path.write_text(json.dumps({"tg": {
+        "removed": True, "enabled": False, "primary_name": "community",
+        "aliases": ["occupied"], "display_name": "Community link",
+        "burst_interval_ms": 250, "permission": "BROADCASTER",
+    }}))
+    _, state, custom, fun, bridge, _, _ = setup_commands(tmp_path)
+    original = state.get_command_settings("tg")
+    before = path.read_bytes()
+    assert state.resolve_command_alias("occupied") is None
+    assert custom.get_by_name("occupied") is not None
+    assert bridge.save_builtin_enabled("tg", True) == {
+        "ok": False, "error": "Command name or alias already exists: occupied",
+        "code": "command_name_conflict",
+    }
+    assert state.get_command_settings("tg") == original
+    assert path.read_bytes() == before
+
+    custom.delete(custom.get_by_name("occupied").id)
+    assert bridge.save_builtin_enabled("tg", True) == {"ok": True}
+    assert state.get_command_settings("tg") == replace(original, enabled=True, removed=False)
+    assert bridge.save_builtin_enabled("tg", False) == {"ok": True}
+    assert setup_commands(tmp_path)[1].get_command_settings("tg") == replace(original, enabled=False, removed=False)
+    assert bridge.reset_command_settings("tg", True) == {"ok": True}
+    assert not state.command_enabled("tg")
+    assert state.get_command_settings("tg").primary_name == "tg"
+    assert fun.tg_message == "Saved community reply"
+
+
 def test_startup_conflict_keeps_existing_custom_command_and_recovers_original_override(tmp_path):
     _, _, custom, _, _, _, _ = setup_commands(tmp_path)
     command = custom.save(custom_payload(aliases=["hello"]))

@@ -695,6 +695,11 @@ async def test_management_applies_and_persists_existing_stores(api):
     await save("/v1/commands/save", {"command_name": "ping", "enabled": False,
         "per_user_seconds": 7, "global_seconds": 3, "permission": "MODERATOR",
         "options": {"aliases": ["latency"], "display_name": "Latency", "send_as": "reply"}})
+    toggle = {"command_name": "ping", "enabled": True}
+    assert (await call("POST", "/v1/commands/enabled", json=toggle, headers={"Authorization": ""}))[0] == 401
+    await save("/v1/commands/enabled", toggle)
+    assert server.runtime.application.services.runtime_state.command_enabled("ping")
+    await save("/v1/commands/enabled", {**toggle, "enabled": False})
     await save("/v1/commands/responses/save", {"name": "fate", "responses": ["Synthetic fate"]})
     custom = {"name": "greeting", "enabled": True, "responses": ["Hi {sender}"], "permission": "USER",
               "per_user_seconds": 4, "global_seconds": 2, "aliases": ["salute"], "send_as": "mention"}
@@ -720,7 +725,11 @@ async def test_management_applies_and_persists_existing_stores(api):
     many = [trigger, *[{**trigger, "id": f"rule-{index}", "responses": ["x" * 450] * 10}
                        for index in range(20)]]
     updated = await save("/v1/triggers", {"triggers": many, "revision": initial["revision"]})
-    assert updated["triggers"] == many
+    assert [{key: value for key, value in reaction.items() if key != "creation_order"}
+            for reaction in updated["triggers"]] == many
+    orders = [reaction["creation_order"] for reaction in updated["triggers"]]
+    assert orders == sorted(set(orders))
+    assert orders[0] == initial["triggers"][0]["creation_order"]
     status, stale, _ = await call("POST", "/v1/triggers", json={"triggers": [], "revision": initial["revision"]})
     assert status == 400 and "changed" in stale["error"]
     assert server.runtime.application.services.runtime_state.active_ai_personality == "Synthetic"

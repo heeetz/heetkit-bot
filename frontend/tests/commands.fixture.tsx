@@ -43,10 +43,16 @@ if (new URLSearchParams(window.location.search).has('legacyBurstMax')) {
 }
 let reactions: ChatReaction[] = []
 let reactionRevision = 0
+let creationOrder = 0
 let customCommands: CustomCommandInfo[] = [{
   id: 'synthetic-hello', name: 'hello', enabled: true, responses: ['Hello, {sender}!', 'Welcome, {target}!'],
   permission: 'USER', per_user_seconds: 2, global_seconds: 5, aliases: ['hi'], response_mode: 'random',
 }]
+if (new URLSearchParams(window.location.search).has('legacyRemoved')) {
+  Object.assign(commands.find((item) => item.name === 'tg')!, {
+    enabled: false, removed: true, primary_name: 'community', aliases: ['hello'], has_saved_override: true,
+  })
+}
 if (new URLSearchParams(window.location.search).has('manyCommands')) {
   customCommands.push(...Array.from({ length: 35 }, (_, index) => ({ ...structuredClone(customCommands[0]), id: `growth-${index}`, name: `long_custom_command_name_${index}` })))
 }
@@ -69,7 +75,7 @@ Object.assign(window, { updateAnnouncementStatus: (status: Partial<AnnouncementI
   announcements = announcements.map((item) => ({ ...item, status: { ...item.status, ...status } }))
 } })
 
-function settingsAction(action: string, name: string, enabled?: boolean, perUserSeconds?: number, globalSeconds?: number, permission?: string, metadata?: CommandSettingsMetadata) {
+function settingsAction(action: string, name: string, enabled?: boolean, perUserSeconds?: number, globalSeconds?: number, permission?: string, metadata?: CommandSettingsMetadata, preserveEnabled?: boolean) {
   commandCalls.push([`${action}_command_settings`, name, enabled, perUserSeconds, globalSeconds, permission, ...(metadata ? [structuredClone(metadata)] : [])])
   if (new URLSearchParams(window.location.search).has('settingsError')) return { ok: false, error: 'Synthetic settings save failure.' }
   const names = [metadata?.primary_name, ...(metadata?.aliases ?? [])].filter((value): value is string => value !== undefined).map((value) => value.trim().replace(/^!+/, '').toLowerCase())
@@ -78,14 +84,20 @@ function settingsAction(action: string, name: string, enabled?: boolean, perUser
     return { ok: false, error: 'Command name or alias is already in use.' }
   }
   const command = commands.find((item) => item.name === name)!
-  if (action === 'reset') Object.assign(command, structuredClone(command.default_settings))
-  else Object.assign(command, { enabled, permission, ...metadata, cooldown: { per_user_seconds: perUserSeconds, global_seconds: globalSeconds } })
+  if (action === 'reset') {
+    const status = preserveEnabled ? { enabled: command.enabled, removed: command.removed } : {}
+    Object.assign(command, structuredClone(command.default_settings), status)
+  } else {
+    const { reactivate_removed, ...settings } = metadata ?? {}
+    Object.assign(command, { enabled, permission, ...settings, cooldown: { per_user_seconds: perUserSeconds, global_seconds: globalSeconds } })
+    if (enabled && reactivate_removed) command.removed = false
+  }
   command.saved = action !== 'apply'
   if (action !== 'apply') command.has_saved_override = action === 'save'
   return { ok: true }
 }
 
-function factoryAction(action: 'remove' | 'restore' | 'resetAll', name?: string) {
+function factoryAction(action: 'remove' | 'restore' | 'resetAll', name?: string, preserveEnabled?: boolean) {
   commandCalls.push([action === 'resetAll' ? 'reset_all_builtin_commands' : `${action}_builtin_command`, ...(name ? [name] : [])])
   if (new URLSearchParams(window.location.search).has('factoryError')) return { ok: false, error: 'Synthetic factory save failure.' }
   const responseError = action === 'resetAll' && new URLSearchParams(window.location.search).has('factoryResponseError')
@@ -95,7 +107,8 @@ function factoryAction(action: 'remove' | 'restore' | 'resetAll', name?: string)
       command.enabled = false
       command.has_saved_override = true
     } else {
-      Object.assign(command, structuredClone(command.default_settings))
+      const status = preserveEnabled ? { enabled: command.enabled, removed: command.removed } : {}
+      Object.assign(command, structuredClone(command.default_settings), status)
       command.saved = true
       command.has_saved_override = false
       if (action === 'resetAll' && !responseError && command.response_pool) {
@@ -129,8 +142,9 @@ window.pywebview = { api: {
   get_message_triggers: async () => ({ ok: true, triggers: structuredClone(reactions), revision: String(reactionRevision) }),
   save_message_triggers: async (triggers: ChatReaction[], revision: string) => {
     if (revision !== String(reactionRevision)) return { ok: false, error: 'Chat reactions changed.' }
-    reactions = structuredClone(triggers)
-    return { ok: true, triggers, revision: String(++reactionRevision) }
+    const previous = new Map(reactions.map((reaction) => [reaction.id, reaction.creation_order ?? 0]))
+    reactions = triggers.map((reaction) => ({ ...reaction, creation_order: previous.get(reaction.id) ?? ++creationOrder }))
+    return { ok: true, triggers: structuredClone(reactions), revision: String(++reactionRevision) }
   },
   get_announcements: async () => ({ ok: true, announcements: structuredClone(announcements) }),
   save_announcements: async (input: AnnouncementInput[]) => {
@@ -202,10 +216,18 @@ window.pywebview = { api: {
   },
   apply_command_settings: async (name: string, enabled: boolean, perUser: number, global: number, permission: string, metadata?: CommandSettingsMetadata) => settingsAction('apply', name, enabled, perUser, global, permission, metadata),
   save_command_settings: async (name: string, enabled: boolean, perUser: number, global: number, permission: string, metadata?: CommandSettingsMetadata) => settingsAction('save', name, enabled, perUser, global, permission, metadata),
-  reset_command_settings: async (name: string) => settingsAction('reset', name),
+  reset_command_settings: async (name: string, preserveEnabled?: boolean) => settingsAction('reset', name, undefined, undefined, undefined, undefined, undefined, preserveEnabled),
   remove_builtin_command: async (name: string) => factoryAction('remove', name),
   restore_builtin_command: async (name: string) => factoryAction('restore', name),
-  reset_all_builtin_commands: async () => factoryAction('resetAll'),
+  save_builtin_enabled: async (name: string, enabled: boolean) => {
+    commandCalls.push(['save_builtin_enabled', name, enabled])
+    const command = commands.find((item) => item.name === name)!
+    const conflict = command.aliases.find((alias) => customCommands.some((item) => [item.name, ...item.aliases].includes(alias)))
+    if (enabled && conflict) return { ok: false, error: `Command name or alias already exists: ${conflict}` }
+    Object.assign(command, { enabled, removed: enabled ? false : command.removed })
+    return { ok: true }
+  },
+  reset_all_builtin_commands: async (preserveEnabled?: boolean) => factoryAction('resetAll', undefined, preserveEnabled),
   apply_command_responses: async (name: string, responses: string[]) => responseAction('apply', name, responses),
   save_command_responses: async (name: string, responses: string[]) => responseAction('save', name, responses),
   reset_command_responses: async (name: string) => responseAction('reset', name),
@@ -218,7 +240,9 @@ window.pywebview = { api: {
       return { ok: false, error: 'Response contains an unknown variable.' }
     }
     const command: CustomCommandInfo = {
-      ...input, id: input.id ?? 'synthetic-new', response_mode: input.response_mode ?? (input.responses.length > 1 ? 'random' : 'single'),
+      ...input, id: input.id ?? (customCommands.some((item) => item.id === 'synthetic-new') ? crypto.randomUUID() : 'synthetic-new'),
+      response_mode: input.response_mode ?? (input.responses.length > 1 ? 'random' : 'single'),
+      creation_order: customCommands.find((item) => item.id === input.id)?.creation_order ?? (input.id ? 0 : ++creationOrder),
     }
     customCommands = [...customCommands.filter((item) => item.id !== command.id), command]
     return { ok: true }

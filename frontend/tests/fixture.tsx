@@ -125,6 +125,15 @@ const toggleCommands: CommandInfo[] = ['ask', 'ping'].map((name) => ({
   default_settings: { enabled: true, permission: 'USER', cooldown: { per_user_seconds: 3, global_seconds: 15 } },
   saved: true, has_saved_override: true,
 }))
+async function persistAskEnabled(enabled: boolean) {
+    if (query.has('askSaveDelay')) await new Promise((resolve) => window.setTimeout(resolve, 800))
+    if (query.has('askSaveError')) return { ok: false, error: 'Could not save AI command enabled setting.' }
+    aiStatus = { ...aiStatus, enabled }
+    toggleCommands[0].enabled = enabled
+    sessionStorage.setItem('askEnabled', JSON.stringify(enabled))
+    return { ok: true }
+}
+
 window.pywebview = { api: {
   get_desktop_startup: async () => ({ state: startupState, windows: !query.has('nonWindows'), suggested_channel: 'syntheticchannel',
     suggested_channel_id: query.has('noSuggestedChannel') ? '' : '200',
@@ -144,12 +153,11 @@ window.pywebview = { api: {
   get_commands: async () => ({ command_prefix: '!', permissions: ['USER', 'VIP', 'MODERATOR'], commands: query.has('askToggle') ? structuredClone(toggleCommands) : [] }),
   set_ai_enabled: async (enabled: boolean) => {
     aiCalls.push(['set_ai_enabled', enabled])
-    if (query.has('askSaveDelay')) await new Promise((resolve) => window.setTimeout(resolve, 800))
-    if (query.has('askSaveError')) return { ok: false, error: 'Could not save AI command enabled setting.' }
-    aiStatus = { ...aiStatus, enabled }
-    toggleCommands[0].enabled = enabled
-    sessionStorage.setItem('askEnabled', JSON.stringify(enabled))
-    return { ok: true }
+    return persistAskEnabled(enabled)
+  },
+  save_builtin_enabled: async (name: string, enabled: boolean) => {
+    aiCalls.push(['save_builtin_enabled', name, enabled])
+    return persistAskEnabled(enabled)
   },
   set_ai_memory_enabled: async (enabled: boolean) => {
     aiCalls.push(['set_ai_memory_enabled', enabled])

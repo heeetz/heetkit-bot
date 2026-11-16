@@ -240,6 +240,6 @@ export function Select({ value, onChange, options: allOptions, disabled = false,
       </div>)}
       {!options.length && <div className="select-empty">No options available</div>}
       </div>
-    </div>, document.body)}
+    </div>, trigger.current?.closest('dialog') ?? document.body)}
   </>
 }

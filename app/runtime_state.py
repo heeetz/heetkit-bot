@@ -9,6 +9,7 @@ from time import monotonic
 from typing import Literal
 
 from app.command_settings import (
+    CommandNameConflict,
     CommandSettings,
     CommandSettingsDefinition,
     CommandSettingsOverride,
@@ -144,19 +145,26 @@ class RuntimeState:
     def reserved_command_names(self) -> set[str]:
         with self._lock:
             names = set(self._command_defaults) | {"optout"}
+            custom_names = {alias for command in self._custom_commands.list() for alias in (command.name, *command.aliases)} if self._custom_commands is not None else set()
             for name, defaults in self._command_defaults.items():
                 names.update(defaults.aliases)
-                names.update(self._command_settings[name].aliases)
-                names.add(self._command_settings[name].primary_name)
                 saved = self._persisted_command_overrides.get(name, CommandSettingsOverride()).apply(defaults)
-                names.update(saved.aliases)
-                names.add(saved.primary_name)
+                for settings in (self._command_settings[name], saved):
+                    identity = {settings.primary_name, *settings.aliases}
+                    names.update(identity - custom_names if settings.removed else identity)
             return names
 
     def resolve_command_alias(self, alias: str) -> str | None:
         with self._lock:
-            return next((name for name, settings in self._command_settings.items()
-                         if alias == settings.primary_name or alias in settings.aliases), None)
+            removed_match = None
+            for name, settings in self._command_settings.items():
+                if alias == settings.primary_name or alias in settings.aliases:
+                    if not settings.removed:
+                        return name
+                    removed_match = name
+            if removed_match and self._custom_commands is not None and self._custom_commands.get_by_name(alias):
+                return None
+            return removed_match
 
     def _validated_command_settings(self, name: str, settings: CommandSettings, *, loading: bool = False) -> CommandSettings:
         definition = self._command_definitions[name]
@@ -186,25 +194,32 @@ class RuntimeState:
                     raise ValueError("This command's identity is protected.")
                 settings = replace(settings, aliases=defaults.aliases, display_name=defaults.display_name)
         validate_primary_name(settings.primary_name)
+        # Keep legacy removed identities for explicit re-enablement, even if a
+        # different command now owns one of their names.
+        if settings.removed:
+            return settings
         used = (set(self._command_defaults) - {name}) | {"optout"}
+        current = self._command_settings[name]
+        current_saved = self._persisted_command_overrides.get(name, CommandSettingsOverride()).apply(defaults)
+        existing_identity = {current.primary_name, *current.aliases, current_saved.primary_name, *current_saved.aliases}
         for other, other_defaults in self._command_defaults.items():
             if other != name:
                 used.update(other_defaults.aliases)
-                used.update(self._command_settings[other].aliases)
-                used.add(self._command_settings[other].primary_name)
                 saved = self._persisted_command_overrides.get(other, CommandSettingsOverride()).apply(other_defaults)
-                used.update(saved.aliases)
-                used.add(saved.primary_name)
+                for other_settings in (self._command_settings[other], saved):
+                    identity = {other_settings.primary_name, *other_settings.aliases}
+                    used.update(identity - existing_identity if other_settings.removed else identity)
         if self._custom_commands is not None:
             used.update(alias for command in self._custom_commands.list() for alias in (command.name, *command.aliases))
         if settings.primary_name in used:
             if not loading:
-                raise ValueError("Command name or alias already exists.")
+                raise CommandNameConflict(settings.primary_name)
             logging.getLogger(__name__).warning("Ignoring colliding primary name for command=%s", name)
             settings = replace(settings, primary_name=defaults.primary_name)
-        if any(alias in used or alias == settings.primary_name for alias in settings.aliases):
+        conflicting_alias = next((alias for alias in settings.aliases if alias in used or alias == settings.primary_name), None)
+        if conflicting_alias is not None:
             if not loading:
-                raise ValueError("Command name or alias already exists.")
+                raise CommandNameConflict(conflicting_alias)
             logging.getLogger(__name__).warning("Ignoring colliding aliases for command=%s", name)
             settings = replace(settings, aliases=defaults.aliases)
         return settings
@@ -290,11 +305,13 @@ class RuntimeState:
         burst_max_count: int | None = None,
         stream_availability: str | None = None,
         send_as: str | None = None,
+        reactivate_removed: bool = False,
     ) -> CommandSettings:
         with self._lock:
             current = self.get_command_settings(command_name)
             updated = replace(current,
                 enabled=enabled,
+                removed=current.removed and not (enabled and reactivate_removed),
                 cooldown=cooldown,
                 permission=permission,
                 aliases=current.aliases if aliases is None else validate_command_aliases(aliases),
@@ -331,22 +348,30 @@ class RuntimeState:
             )
             self._persisted_command_overrides = overrides
 
-    def reset_command_settings(self, command_name: str) -> CommandSettings:
+    def reset_command_settings(self, command_name: str, *, preserve_enabled: bool = False) -> CommandSettings:
         with self._lock:
             try:
                 defaults = self._command_defaults[command_name]
             except KeyError as error:
                 raise KeyError(f"Unknown command: {command_name}") from error
+            updated = defaults
+            if preserve_enabled:
+                current = self._command_settings[command_name]
+                updated = replace(defaults, enabled=current.enabled, removed=current.removed)
             overrides = dict(self._persisted_command_overrides)
-            overrides.pop(command_name, None)
+            override = CommandSettingsOverride.from_settings(updated, defaults)
+            if override.is_empty:
+                overrides.pop(command_name, None)
+            else:
+                overrides[command_name] = override
             if self._command_settings_path is not None:
                 save_command_overrides(
                     self._command_settings_path, overrides,
                     recovered_overrides=self._persisted_command_overrides,
                 )
             self._persisted_command_overrides = overrides
-            self._command_settings[command_name] = defaults
-            return defaults
+            self._command_settings[command_name] = updated
+            return updated
 
     def remove_builtin_command(self, command_name: str) -> None:
         with self._lock:
@@ -354,13 +379,34 @@ class RuntimeState:
             self._save_command_settings(command_name, updated)
             self._command_settings[command_name] = updated
 
-    def reset_all_command_settings(self) -> None:
+    def save_builtin_enabled(self, command_name: str, enabled: bool) -> None:
+        with self._lock:
+            current = self.get_command_settings(command_name)
+            defaults = self._command_defaults[command_name]
+            saved = self._persisted_command_overrides.get(command_name, CommandSettingsOverride()).apply(defaults)
+            updated = replace(current, enabled=enabled, removed=current.removed and not enabled)
+            updated_saved = replace(saved, enabled=enabled, removed=saved.removed and not enabled)
+            self._validated_command_settings(command_name, updated)
+            self._validated_command_settings(command_name, updated_saved)
+            self._save_command_settings(command_name, updated_saved)
+            self._command_settings[command_name] = updated
+
+    def reset_all_command_settings(self, *, preserve_enabled: bool = False) -> None:
         with self._lock:
             if self._command_settings_path is None:
                 raise RuntimeError("Command settings persistence is not configured.")
-            save_command_overrides(self._command_settings_path, {}, recovered_overrides=self._persisted_command_overrides)
-            self._persisted_command_overrides = {}
-            self._command_settings = dict(self._command_defaults)
+            updated = dict(self._command_defaults)
+            overrides: dict[str, CommandSettingsOverride] = {}
+            if preserve_enabled:
+                for name, current in self._command_settings.items():
+                    defaults = updated[name]
+                    updated[name] = replace(defaults, enabled=current.enabled, removed=current.removed)
+                    override = CommandSettingsOverride.from_settings(updated[name], defaults)
+                    if not override.is_empty:
+                        overrides[name] = override
+            save_command_overrides(self._command_settings_path, overrides, recovered_overrides=self._persisted_command_overrides)
+            self._persisted_command_overrides = overrides
+            self._command_settings = updated
 
     def is_command_enabled(self, command_name: str) -> bool:
         return self.command_enabled(command_name)
@@ -394,7 +440,7 @@ class RuntimeState:
         with self._lock:
             current = self.get_command_settings("ask")
             if enabled and current.removed:
-                raise ValueError("Restore !ask in Commands before enabling it.")
+                raise ValueError("Find the AI command under Disabled in Commands and enable it there.")
             defaults = self.get_command_default_settings("ask")
             saved = self._persisted_command_overrides.get(
                 "ask", CommandSettingsOverride(),

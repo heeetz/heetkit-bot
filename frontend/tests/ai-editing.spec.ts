@@ -97,7 +97,7 @@ for (const width of [1280, 390]) {
 
   })
 
-  test(`AI setup location and Commands navigation retain drafts at ${width}px`, async ({ page }) => {
+  test(`AI drafts survive Commands navigation and canceling a command edit at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
     await openAI(page)
     const profile = page.locator('#ai-profile-instructions')
@@ -113,16 +113,18 @@ for (const width of [1280, 390]) {
     await expect(page.locator('#ai-playground')).toBeInViewport()
     await expect(profile.locator('textarea')).toHaveValue('Keep profile draft')
     await settingsNav.getByRole('button', { name: 'Commands', exact: true }).click()
+    await selectOption(page.getByRole('combobox', { name: 'Status', exact: true }), 'all')
     const ask = page.locator('#command-editor-ask')
-    await ask.getByRole('button', { name: 'Edit !ask', exact: true }).click()
+    await page.getByRole('button', { name: 'Edit !ask', exact: true }).click()
     await expect(ask).toBeInViewport()
-    await expect(ask.getByRole('button', { name: 'Collapse !ask', exact: true })).toBeVisible()
     await ask.getByLabel('Per-user cooldown', { exact: true }).fill('9')
+    await ask.getByRole('button', { name: 'Close editor' }).click()
+    await page.getByRole('dialog', { name: 'Discard unsaved changes?' }).getByRole('button', { name: 'Confirm' }).click()
     await page.getByRole('button', { name: 'AI', exact: true }).click()
     await expect(profile.locator('textarea')).toHaveValue('Keep profile draft')
     await settingsNav.getByRole('button', { name: 'Commands', exact: true }).click()
-    await ask.scrollIntoViewIfNeeded()
-    await expect(ask.getByLabel('Per-user cooldown', { exact: true })).toHaveValue('9')
+    await page.getByRole('button', { name: 'Edit !ask', exact: true }).click()
+    await expect(ask.getByLabel('Per-user cooldown', { exact: true })).not.toHaveValue('9')
   })
 }
 
@@ -190,11 +192,10 @@ test('Commands navigation reaches recovery when Ask is removed', async ({ page }
     }
   })
   await page.getByRole('navigation').getByRole('button', { name: 'Commands', exact: true }).click()
-  await page.getByRole('navigation').getByRole('button', { name: 'Removed commands', exact: true }).click()
-  const ask = page.locator('#command-editor-ask')
-  await expect(ask).toBeInViewport()
-  await expect(ask).toContainText('Removed')
-  await expect(ask.getByRole('button', { name: 'Restore defaults and enable' })).toBeVisible()
+  await selectOption(page.getByRole('combobox', { name: 'Status', exact: true }), 'disabled')
+  await expect(page.getByRole('checkbox', { name: 'Enable !ask', exact: true })).not.toBeChecked()
+  await page.getByRole('button', { name: 'Edit !ask', exact: true }).click()
+  await expect(page.locator('#command-editor-ask')).toBeInViewport()
 })
 
 for (const width of [1280, 900, 761, 390, 320]) {

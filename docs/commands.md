@@ -1,8 +1,12 @@
 # Commands and customization
 
-Use **Commands** and **Filters** on Desktop or Server. Chat examples use the
-default `!` prefix and default command names. Select a section header to
-expand it. Use the question-mark buttons for field help.
+Use **Commands** and **Filters** on Desktop or Server. The command list shows
+built-in commands, custom commands and reactions to ordinary chat messages.
+It opens on **Active** and **Newest saved**. Use **Disabled** or **All statuses**
+to find disabled entries, or narrow the list by search and type. Newly saved
+commands and reactions appear at the top. Edits keep their position in
+**Newest saved** order, including after restart. **Name A–Z** changes the
+view. Use the question-mark buttons for field help.
 
 - [Create a custom reply](#custom-commands)
 - [Edit a built-in command](#permissions-cooldowns-and-responses)
@@ -16,10 +20,10 @@ expand it. Use the question-mark buttons for field help.
 Add a command that replies with your own text. You can set it up with the bot
 stopped. To test it in chat, [connect Twitch](twitch-setup.md#give-the-bot-channel-access-then-connect).
 
-**In HeetKit:** **Commands > Your commands** on Desktop or Server.
+**In HeetKit** · **Commands > Command list** on Desktop or Server.
 
 1. Open **Commands**.
-2. In **Your commands**, select **New command**.
+2. Select **New command**.
 3. In **Command name**, enter `hello` without the prefix.
 4. In **Permission**, select **user** to let any viewer run it.
 5. In **Response type**, select **Single**.
@@ -27,7 +31,7 @@ stopped. To test it in chat, [connect Twitch](twitch-setup.md#give-the-bot-chann
 7. Check that the switch shows **Enabled**.
 8. Select **Save command**. The change takes effect immediately.
 
-**Check:** Find `!hello` in **Your commands**. Send it in the connected channel
+**Check:** Find `!hello` in the command list. Send it in the connected channel
 from an allowed account. Check that the bot replies with your Twitch name.
 
 ### Optional replies and settings
@@ -61,7 +65,8 @@ UTF-8 bytes. A Burst renders the template once and repeats the same result.
 
 Use **Edit** to change a saved command. **Discard and close** leaves the saved
 command in place. A failed save leaves the draft open so you can correct it.
-**Delete** permanently removes a custom command after confirmation.
+Select **Delete** beside **Edit** in the list to remove a custom command after
+confirmation.
 
 ## Permissions, cooldowns and responses
 
@@ -69,13 +74,13 @@ Choose who can use a built-in command and how often it can run. You can edit
 with the bot stopped. To check the change, you need a connected channel and an
 account with the chosen permission.
 
-**In HeetKit:** **Commands > Built-in commands** on Desktop or Server. Find
-`!erase` and storage opt-out controls under **Administrative commands**.
+**In HeetKit** · **Commands > Command list** on Desktop or Server. Find
+`!erase` in the list and storage opt-out controls under **Storage opt-outs**.
 
 1. Open **Commands**.
-2. Expand the command's row under **Built-in commands** or **Administrative commands**.
-3. Set **Enabled**. For `!ask`, this switch saves immediately. Save the
-   other `!ask` settings separately.
+2. Select **Edit** for the command.
+3. Set **Enabled**. The editor saves it with the other settings. The switch
+   in the list saves the enabled state immediately.
 4. Select the minimum role in **Permission**.
 5. Set **Per-user cooldown (seconds)**.
 6. Set **Global cooldown (seconds)**.
@@ -148,18 +153,19 @@ generate their own replies.
 its saved text. See [prediction settings upgrades](data-and-privacy.md#existing-prediction-settings)
 if you used `!forecast` in an older version.
 
-### Remove or restore a built-in
+### Disable, enable or reset a built-in
 
-Select **Remove and disable** in the command's editor. When you confirm, HeetKit
-disables the command, hides it from the working list, and discards its draft.
-To bring it back, open **Removed commands** and select **Restore defaults and
-enable**. This restores default names, access and cooldowns and keeps any saved
-response text. Restore `!ask` here before enabling it if you removed it earlier.
+Switch off **Enabled** in the list to disable a built-in. To bring it back,
+choose **Disabled** and switch it on. This keeps the command name, aliases,
+access, cooldowns and saved text. Commands removed in older versions also
+appear under **Disabled**. If a name or alias is now in use, HeetKit shows the
+conflicting name and leaves the command disabled. Edit the name or alias to
+resolve the conflict before enabling it.
 
-Under **Advanced: reset all built-ins**, **Restore all factory defaults**
-restores all built-in settings and Fate/Tg text after confirmation. It also
-returns removed commands and discards built-in drafts. Your custom commands,
-user restrictions and storage opt-outs stay in place.
+**Reset settings** in an editor restores that built-in's settings and keeps
+its current enabled state and saved text. Under **Advanced: reset all built-ins**,
+**Restore all factory defaults** resets built-in settings and Fate/Tg text
+after confirmation. Each built-in keeps its current enabled state.
 
 ### Burst limits and spacing
 
@@ -355,7 +361,7 @@ A match or regex timeout suppresses the reply and records the reason in
 
 Make HeetKit reply to matching chat without a command prefix.
 
-**In HeetKit:** **Commands > Chat reactions** on Desktop or Server.
+**In HeetKit** · **Commands > Command list** on Desktop or Server.
 
 1. Select **New reaction** and enter **Match text**.
 2. Choose **Exact** for the whole message or **Contains** to match within it.
@@ -365,9 +371,10 @@ Make HeetKit reply to matching chat without a command prefix.
 4. Enter one to ten response lines. HeetKit picks one at random.
 5. Select **Save reaction**. Changes apply immediately.
 
-Use **Edit** to change a rule. **Move up** and **Move down** at the top of the
-editor change its position when you save. **Remove reaction** deletes the rule
-after confirmation.
+Use **Edit** to change a rule. **Move up** and **Move down** in the editor change
+its execution priority when you save. The command list's **Sort** control only
+changes the displayed order. Select **Delete** beside **Edit** in the list to
+remove a reaction after confirmation.
 
 **Check:** With the bot connected, send matching text from a permitted account.
 HeetKit checks rules from top to bottom and sends at most one reaction per

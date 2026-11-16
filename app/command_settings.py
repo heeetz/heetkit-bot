@@ -21,6 +21,11 @@ from app.utils.text import normalize_command_name
 logger = logging.getLogger(__name__)
 
 
+class CommandNameConflict(ValueError):
+    def __init__(self, name: str) -> None:
+        super().__init__(f"Command name or alias already exists: {name}")
+
+
 def validate_primary_name(value: object) -> str:
     if not isinstance(value, str):
         raise ValueError("Command names must be text.")

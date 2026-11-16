@@ -47,6 +47,7 @@ class CommandDefinition:
     minimum_permission: Permission = Permission.USER
     supports_send_as: bool = True
     default_send_as: str = "chat"
+    description: str = ""
 
     @property
     def identity_editable(self) -> bool:
@@ -143,6 +144,7 @@ class CommandRegistry:
         minimum_permission: Permission = Permission.USER,
         supports_send_as: bool = True,
         default_send_as: str = "chat",
+        description: str = "",
     ) -> Callable[[CommandHandler], CommandHandler]:
         def decorator(handler: CommandHandler) -> CommandHandler:
             self.register(
@@ -162,6 +164,7 @@ class CommandRegistry:
                     minimum_permission=minimum_permission,
                     supports_send_as=supports_send_as,
                     default_send_as=default_send_as,
+                    description=description,
                 )
             )
             return handler
@@ -197,6 +200,7 @@ class CommandRegistry:
             minimum_permission=definition.minimum_permission,
             supports_send_as=definition.supports_send_as,
             default_send_as=definition.default_send_as,
+            description=definition.description,
         )
         for command_name in normalized_names:
             self._commands[command_name] = normalized_definition

@@ -12,12 +12,10 @@ for (const width of [1280, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 })
     await page.goto('/tests/commands.fixture.html?shell')
     await page.getByRole('navigation').getByRole('button', { name: 'Commands', exact: true }).click()
-    const editor = page.locator('.custom-command-editor')
-    const builtin = page.locator('#builtin-commands > .command-list')
-    const before = await builtin.innerHTML()
+    const editor = page.locator('#custom-command-editor')
     for (const action of ['create', 'edit']) {
       if (action === 'create') await page.getByRole('button', { name: 'New command', exact: true }).click()
-      else await page.locator('.custom-command-row').getByRole('button', { name: 'Edit', exact: true }).click()
+      else await page.getByRole('button', { name: 'Edit !hello', exact: true }).click()
       for (const mode of ['single', 'random', 'burst']) {
         await selectOption(editor.getByRole('combobox', { name: 'Response type', exact: true }), mode)
         const fields = [
@@ -62,18 +60,17 @@ for (const width of [1280, 390, 320]) {
           await page.screenshot({ path: `node_modules/.tmp/task8-${action}-${width}.png`, fullPage: width < 1280 })
         }
       }
-      await editor.getByRole('button', { name: 'Discard and close', exact: true }).click()
-      await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click()
+      await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+      await page.getByRole('dialog', { name: 'Discard unsaved changes?' }).getByRole('button', { name: 'Confirm', exact: true }).click()
       await expect(editor).toHaveCount(0)
     }
-    expect(await builtin.innerHTML()).toBe(before)
   })
 }
 
 test('field help supports touch, keyboard and Escape without changing the draft', async ({ page }) => {
   await page.goto('/tests/commands.fixture.html')
   await page.getByRole('button', { name: 'New command', exact: true }).click()
-  const editor = page.locator('.custom-command-editor')
+  const editor = page.locator('#custom-command-editor')
   const help = editor.getByRole('button', { name: 'Help: Command name', exact: true })
   await help.dispatchEvent('pointerdown', { pointerType: 'touch' })
   await help.click()
@@ -85,14 +82,14 @@ test('field help supports touch, keyboard and Escape without changing the draft'
   await expect(page.getByRole('tooltip')).toBeVisible()
   await help.press('Escape')
   await expect(help).toBeFocused()
-  await editor.getByRole('button', { name: 'Discard and close', exact: true }).click()
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
 })
 
 test('random add and remove controls edit the same response draft and enforce the cap', async ({ page }) => {
   await page.goto('/tests/commands.fixture.html')
-  await page.locator('.custom-command-row').getByRole('button', { name: 'Edit', exact: true }).click()
-  const editor = page.locator('.custom-command-editor')
+  await page.getByRole('button', { name: 'Edit !hello', exact: true }).click()
+  const editor = page.locator('#custom-command-editor')
   const text = editor.getByRole('textbox', { name: 'Responses', exact: true })
   await editor.getByRole('button', { name: 'Add response', exact: true }).click()
   await expect(text).toBeFocused()

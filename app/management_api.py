@@ -206,6 +206,7 @@ WRITES = {
     "/v1/commands/reset": "reset_command_settings",
     "/v1/commands/remove": "remove_builtin_command",
     "/v1/commands/restore": "restore_builtin_command",
+    "/v1/commands/enabled": "save_builtin_enabled",
     "/v1/commands/responses/save": "save_command_responses",
     "/v1/commands/responses/apply": "apply_command_responses",
     "/v1/commands/responses/reset": "reset_command_responses",
@@ -567,6 +568,8 @@ class ManagementAPI:
             # Domain validators remain authoritative; never echo their exception
             # text (some legacy validators interpolate supplied values).
             if result.get("ok") is False:
+                if path in {"/v1/commands/save", "/v1/commands/enabled"} and result.get("code") == "command_name_conflict":
+                    return result
                 if path.startswith("/v1/privacy/opt-outs/") or path in {"/v1/ai/setup", "/v1/triggers", "/v1/command-restrictions",
                             "/v1/command-restrictions/save", "/v1/command-restrictions/remove"}:
                     return result

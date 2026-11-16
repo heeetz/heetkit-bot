@@ -29,6 +29,7 @@ def register_ai_commands(registry: CommandRegistry) -> None:
 
     @registry.command(
         "ask",
+        description="Answer a question with AI.",
         help_text="!ask <question>",
         cooldown=CooldownPolicy(per_user_seconds=0.0, global_seconds=ASK_COOLDOWN_SECONDS),
         pre_check=ask_pre_check,
@@ -107,6 +108,7 @@ def register_ai_commands(registry: CommandRegistry) -> None:
 
     @registry.command(
         "erase",
+        description="Delete a viewer’s AI memory for this channel.",
         supports_send_as=False,
         required_permission=Permission.BROADCASTER,
         minimum_permission=Permission.MODERATOR,

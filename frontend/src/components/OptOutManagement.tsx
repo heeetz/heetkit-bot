@@ -75,7 +75,7 @@ export default function OptOutManagement({ active }: { active: boolean }) {
   }
 
   return <article className="command-card optout-management" id="optout-management">
-    <AccordionHeader ariaLabel="Manage !optout" title={<strong>!optout</strong>} expanded={expanded} contentId="optout-management-content" onToggle={() => setExpanded(!expanded)}
+    <AccordionHeader ariaLabel="Manage !optout" title="Storage opt-outs" expanded={expanded} contentId="optout-management-content" onToggle={() => setExpanded(!expanded)}
       helpLabel="!optout management" help="Profile-wide storage privacy. Add erases this account's stored presence and AI history and prevents new storage in every channel. This is separate from command access restrictions. Self-service !optout is always available and appears last in public command help. Withdrawal allows future storage without restoring history or replaying old input." />
     {expanded && <div className="command-details optout-details" id="optout-management-content">
       <div className="optout-add-row">

@@ -13,7 +13,7 @@ for (const width of [1280, 390, 320]) {
     await page.goto('/tests/commands.fixture.html?extended&manyCommands&shell')
     await page.getByRole('navigation').getByRole('button', { name: 'Commands', exact: true }).click()
     const ask = page.locator('#command-editor-ask')
-    await ask.getByRole('button', { name: 'Edit !ask', exact: true }).click()
+    await page.getByRole('button', { name: 'Edit !ask', exact: true }).click()
     const primary = await bounds(ask.getByLabel('Primary chat name', { exact: true }))
     const sendAs = await bounds(ask.getByLabel('Send as', { exact: true }))
     const display = await bounds(ask.getByLabel('Name in UI', { exact: true }))
@@ -34,11 +34,12 @@ for (const width of [1280, 390, 320]) {
       expect(aliases.y).toBeGreaterThan(display.y)
     }
     await ask.screenshot({ path: `node_modules/.tmp/consolidation-ask-${width}.png` })
+    await ask.getByRole('button', { name: 'Close editor' }).click()
     const restrictions = page.locator('#command-restrictions')
     const order = await page.evaluate(() => {
-      const list = document.querySelector('#builtin-commands > .command-list')!
+      const list = document.querySelector('#command-list')!
       const restrictions = document.querySelector('#command-restrictions')!
-      const removed = document.querySelector('#removed-commands')!
+      const removed = document.querySelector('#optout-management')!
       return [Boolean(list.compareDocumentPosition(restrictions) & Node.DOCUMENT_POSITION_FOLLOWING), Boolean(restrictions.compareDocumentPosition(removed) & Node.DOCUMENT_POSITION_FOLLOWING)]
     })
     expect(order).toEqual([true, true])
@@ -56,13 +57,13 @@ for (const width of [1280, 390, 320]) {
     await expect(choices).toHaveCount(42)
     await expect(restrictions.getByRole('checkbox', { name: 'Manage !optout', exact: true })).toHaveCount(0)
     await restrictions.screenshot({ path: `node_modules/.tmp/consolidation-restrictions-${width}.png` })
-    await page.locator('#administrative-commands > summary').click()
     const erase = page.locator('#command-editor-erase')
-    await erase.getByRole('button', { name: 'Edit !erase', exact: true }).click()
+    await page.getByRole('button', { name: 'Edit !erase', exact: true }).click()
     await erase.getByLabel('Permission', { exact: true }).click()
     await expect(page.getByRole('option').locator('span:first-child')).toHaveText(['moderator', 'broadcaster'])
     await page.keyboard.press('Escape')
     await expect(erase.getByRole('combobox', { name: 'Response type' })).toHaveCount(0)
+    await erase.getByRole('button', { name: 'Close editor' }).click()
     const optout = page.locator('#optout-management')
     await optout.getByRole('button', { name: 'Manage !optout', exact: true }).click()
     await expect(optout).toContainText('No opted-out users.')
@@ -71,7 +72,6 @@ for (const width of [1280, 390, 320]) {
     await expect(optout.locator('tbody tr')).toHaveCount(1)
     await optout.screenshot({ path: `node_modules/.tmp/consolidation-optouts-${width}.png` })
     await expect(optout.locator('.state-pill, .mini-badge, .switch-input')).toHaveCount(0)
-    await page.locator('#administrative-commands').screenshot({ path: `node_modules/.tmp/consolidation-administration-${width}.png` })
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
   })
 }
@@ -98,7 +98,6 @@ test('global AI scope and unresolved legacy rules remain visible and manageable'
 
 test('optout add, duplicate, withdrawal confirmation, historic metadata, paging and chat refresh', async ({ page }) => {
   await page.goto('/tests/commands.fixture.html?extended&manyOptouts')
-  await page.locator('#administrative-commands > summary').click()
   const panel = page.locator('#optout-management')
   await panel.getByRole('button', { name: 'Manage !optout', exact: true }).click()
   await expect(panel.locator('tbody tr')).toHaveCount(50)
@@ -138,7 +137,6 @@ test('optout add, duplicate, withdrawal confirmation, historic metadata, paging 
 
 test('optout errors preserve a usable draft and list failures remain visible', async ({ page }) => {
   await page.goto('/tests/commands.fixture.html?extended&optoutError&optoutListError')
-  await page.locator('#administrative-commands > summary').click()
   const panel = page.locator('#optout-management')
   await panel.getByRole('button', { name: 'Manage !optout', exact: true }).click()
   await expect(panel.getByRole('alert')).toContainText('privacy list failure')

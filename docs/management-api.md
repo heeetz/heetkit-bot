@@ -361,13 +361,14 @@ POST writes persist and apply immediately unless stated otherwise.
 | POST `bot/start`, `bot/stop` | `{}`; policy-aware connect/disconnect intent, `changed` and current `operation`; completion is asynchronous |
 | POST `bot/mode` | `mode`: `always_on`, `stream_only`, `manual` or `disabled`; persist and reconcile without process restart |
 | GET `commands` | Built-ins with stable `name` IDs, effective/default `primary_name` triggers, aliases, permissions, cooldowns, delivery and response pools |
-| POST `commands/save` | Stable `command_name` ID, `enabled`, `per_user_seconds`, `global_seconds`, `permission`; optional `options` with `primary_name`, `aliases`, `display_name`, `burst_interval_ms`, `burst_max_count` |
-| POST `commands/reset`, `commands/remove`, `commands/restore` | `command_name`; factory administrative permission floors remain enforced |
-| POST `commands/apply` / `commands/reset-all` | Same arguments as Save but session-only / `{}` to restore all factory settings/responses, never custom commands |
+| POST `commands/save` | Stable `command_name` ID, `enabled`, `per_user_seconds`, `global_seconds`, `permission`. Optional `options` includes `primary_name`, `aliases`, `display_name`, `burst_interval_ms`, `burst_max_count` and `reactivate_removed` to explicitly enable a legacy removed command. |
+| POST `commands/enabled` | Stable `command_name` and boolean `enabled`. Saves only the enabled state and clears legacy removal when enabling. A name conflict returns an error and leaves the command disabled. |
+| POST `commands/reset`, `commands/remove`, `commands/restore` | `command_name`. Reset accepts `preserve_enabled: true` to keep the enabled state. Factory administrative permission floors remain enforced. |
+| POST `commands/apply` / `commands/reset-all` | Apply uses the same settings as Save for the session. Reset all restores factory settings and responses and accepts `preserve_enabled: true` to keep each enabled state. |
 | POST `commands/responses/save` | `name` (`fate` or `tg`), `responses` (list of text) |
 | POST `commands/responses/reset` | `name` |
 | POST `commands/responses/apply` | Same as responses Save, session-only |
-| GET `custom-commands` | Commands, allowed template variables and permissions |
+| GET `custom-commands` | Commands, allowed template variables and permissions. Optional `creation_order` orders entries created in the profile alongside chat reactions. |
 | GET / POST `announcements` | GET: saved schedules plus transient `status` (`next_run_at`, `last_sent_at`, `last_outcome`, `eligible_messages`). POST: complete `announcements` list, at most 50; each has UUID `id` (null/omitted for new rows), `name` (80 UTF-8 bytes), `enabled`, `messages` (1–30 single lines, 450 UTF-8 bytes each), `message_mode` (`single`/`random`), optional `delivery_mode` (`regular`/`highlighted`, defaults to `regular` for older clients/archives), `interval_seconds` (60–86400), `min_messages` (0–1000), `stream_availability` (`anytime`/`live_only`/`offline_only`). Saved edits restart full intervals; both hosts enforce announcement availability. Highlighted sends use the configured user token and channel accent; 401/403 produce `authorization_required`/`permission_denied`, without Regular fallback. Body limit: 768 KiB. See [announcements](commands.md#scheduled-announcements). |
 | POST `custom-commands/save` | `command` object in the existing command format: `name`, `enabled`, `responses`, `permission`, `per_user_seconds`, `global_seconds`, `aliases`; an existing `id` edits that command; existing optional response-mode/burst fields are supported |
 | POST `custom-commands/delete` | `identifier` (saved command ID) |
@@ -398,7 +399,7 @@ POST writes persist and apply immediately unless stated otherwise.
 | POST `privacy/opt-outs/list` | Optional `query` (stored username, up to 100 characters), `offset` (nonnegative integer), `limit` (1-100, default 50). Returns bounded `users`, `total`, `offset`, `limit`; each user has internal `twitch_user_id`, nullable stored `username` and nullable UTC `opted_out_at`. |
 | POST `privacy/opt-outs/add` | `username`; verifies identity and applies profile-wide deletion/suppression using the self-service operation. Repeated adds preserve the original timestamp. |
 | POST `privacy/opt-outs/withdraw` | `twitch_user_id`, `confirmed: true`; allows future storage without restoring history or permitting old in-flight work to save. |
-| GET / POST `triggers` | GET returns the ordered reaction list and its `revision`. POST accepts the complete `triggers` list with at most 100 unique IDs. Supply the GET `revision` to reject stale edits. |
+| GET / POST `triggers` | GET returns reactions in execution priority order and includes their `revision`. Optional `creation_order` is for the Commands display. POST accepts the complete `triggers` list with at most 100 unique IDs. Supply the GET `revision` to reject stale edits. |
 | POST `logs/recent` | Optional integer `after_id` (default 0), `limit` (1–200, default 100); allowlisted operator activity plus `next_after_id` advancing across excluded entries; authentication required |
 | GET `diagnostics` | Process uptime, desired session state and settings/restart boundaries |
 

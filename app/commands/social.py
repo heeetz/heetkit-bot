@@ -80,6 +80,7 @@ def _format_seen(last_seen_at: datetime, now: datetime | None = None) -> str:
 def register_social_commands(registry: CommandRegistry) -> None:
     @registry.command(
         "followage",
+        description="Show how long a viewer has followed the channel.",
         default_send_as="mention",
         help_text="!followage",
         cooldown=CooldownPolicy(global_seconds=FOLLOWAGE_COOLDOWN_SECONDS),
@@ -106,6 +107,7 @@ def register_social_commands(registry: CommandRegistry) -> None:
 
     @registry.command(
         "seen",
+        description="Show when HeetKit last saw a viewer in this channel.",
         help_text="!seen <username>",
         cooldown=CooldownPolicy(global_seconds=SEEN_COOLDOWN_SECONDS),
         argument_validator=lambda arguments: len(arguments.split()) == 1,

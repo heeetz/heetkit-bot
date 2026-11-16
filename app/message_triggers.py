@@ -7,11 +7,12 @@ import logging
 import math
 import os
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from hashlib import sha256
 from pathlib import Path
 from threading import RLock
 
+from app.command_order import CommandCreationOrder, parse_creation_order
 from app.custom_commands import MAX_RESPONSE_LENGTH
 from app.settings_recovery import preserve_settings_recovery
 
@@ -28,6 +29,7 @@ _TRIGGER_FIELDS = frozenset(
         "probability",
         "cooldown_seconds",
         "responses",
+        "creation_order",
     }
 )
 
@@ -42,6 +44,14 @@ class MessageTrigger:
     probability: float
     cooldown_seconds: float
     responses: tuple[str, ...]
+    creation_order: int = 0
+
+    def to_json(self, *, include_order: bool = True) -> dict[str, object]:
+        result = asdict(self)
+        result["responses"] = list(self.responses)
+        if not include_order or not self.creation_order:
+            result.pop("creation_order")
+        return result
 
     def matches(self, content: str) -> bool:
         haystack = content if self.case_sensitive else content.casefold()
@@ -101,6 +111,7 @@ def parse_message_trigger(raw: object) -> MessageTrigger:
         probability=_number(raw.get("probability"), "Probability", 1),
         cooldown_seconds=_number(raw.get("cooldown_seconds"), "Cooldown", 86400),
         responses=parsed_responses,
+        creation_order=parse_creation_order(raw.get("creation_order", 0)),
     )
 
 
@@ -112,9 +123,10 @@ def trigger_revision(triggers: tuple[MessageTrigger, ...]) -> str:
 class MessageTriggerStore:
     """Keep immutable trigger snapshots behind one lock; publish after atomic save."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, creation_order: CommandCreationOrder | None = None) -> None:
         self._path = path
         self._lock = RLock()
+        self._creation_order = creation_order or CommandCreationOrder()
         self._triggers: tuple[MessageTrigger, ...] = ()
         try:
             # ``utf-8-sig`` accepts both ordinary UTF-8 and the BOM emitted by
@@ -168,6 +180,7 @@ class MessageTriggerStore:
         if len(payload["triggers"]) > 100:
             logger.warning("Ignoring message triggers after the first 100 entries")
         self._triggers = tuple(loaded)
+        self._creation_order.observe(max((trigger.creation_order for trigger in loaded), default=0))
 
     def list(self) -> tuple[MessageTrigger, ...]:
         with self._lock:
@@ -185,16 +198,18 @@ class MessageTriggerStore:
                 raise ValueError("Chat reactions changed. Reload them before saving.")
             parsed: list[MessageTrigger] = []
             used: set[str] = set()
+            previous_order = {trigger.id: trigger.creation_order for trigger in self._triggers}
             for raw in payload:
                 if not isinstance(raw, dict):
                     raise ValueError("Trigger must be an object.")
                 unknown = set(raw) - _TRIGGER_FIELDS
                 if unknown:
                     raise ValueError("Unknown trigger field.")
-                trigger = parse_message_trigger(raw)
+                trigger = parse_message_trigger({**raw, "creation_order": 0})
                 if trigger.id in used:
                     raise ValueError("Duplicate trigger ID")
-                parsed.append(trigger)
+                order = previous_order[trigger.id] if trigger.id in previous_order else self._creation_order.next()
+                parsed.append(replace(trigger, creation_order=order))
                 used.add(trigger.id)
 
             updated = tuple(parsed)
@@ -218,19 +233,7 @@ class MessageTriggerStore:
                 json.dump(
                     {
                         "version": SCHEMA_VERSION,
-                        "triggers": [
-                            {
-                                "id": trigger.id,
-                                "enabled": trigger.enabled,
-                                "match_mode": trigger.match_mode,
-                                "text": trigger.text,
-                                "case_sensitive": trigger.case_sensitive,
-                                "probability": trigger.probability,
-                                "cooldown_seconds": trigger.cooldown_seconds,
-                                "responses": list(trigger.responses),
-                            }
-                            for trigger in triggers
-                        ],
+                        "triggers": [trigger.to_json() for trigger in triggers],
                     },
                     output,
                     indent=2,
@@ -243,19 +246,7 @@ class MessageTriggerStore:
                 self._path,
                 {
                     "version": SCHEMA_VERSION,
-                    "triggers": [
-                        {
-                            "id": trigger.id,
-                            "enabled": trigger.enabled,
-                            "match_mode": trigger.match_mode,
-                            "text": trigger.text,
-                            "case_sensitive": trigger.case_sensitive,
-                            "probability": trigger.probability,
-                            "cooldown_seconds": trigger.cooldown_seconds,
-                            "responses": list(trigger.responses),
-                        }
-                        for trigger in self._triggers
-                    ],
+                    "triggers": [trigger.to_json() for trigger in self._triggers],
                 },
                 version=SCHEMA_VERSION,
                 encoding="utf-8-sig",

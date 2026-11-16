@@ -61,6 +61,7 @@ export interface CommandInfo {
   send_as?: SendAs | null
   default_send_as?: SendAs
   help_text?: string
+  description?: string
   enabled: boolean
   available: boolean
   unavailable_reason: string | null
@@ -108,6 +109,7 @@ export interface CommandSettingsMetadata {
   burst_max_count?: number
   stream_availability?: StreamAvailability
   send_as?: SendAs
+  reactivate_removed?: boolean
 }
 
 export interface CommandsResponse {
@@ -140,6 +142,7 @@ export interface CustomCommandInput {
 export interface CustomCommandInfo extends CustomCommandInput {
   id: string
   response_mode: CustomResponseMode
+  creation_order?: number
 }
 
 export type StreamAvailability = 'anytime' | 'live_only' | 'offline_only'
@@ -153,6 +156,7 @@ export interface ChatReaction {
   probability: number
   cooldown_seconds: number
   responses: string[]
+  creation_order?: number
 }
 
 export interface ChatReactionsResponse extends ActionResult {
@@ -650,10 +654,11 @@ export interface PythonApi {
   export_activity(entryIds: number[]): Promise<ActionResult & { saved?: boolean; cancelled?: boolean }>
   apply_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string, metadata?: CommandSettingsMetadata): Promise<ActionResult>
   save_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string, metadata?: CommandSettingsMetadata): Promise<ActionResult>
-  reset_command_settings(commandName: string): Promise<ActionResult>
+  reset_command_settings(commandName: string, preserveEnabled?: boolean): Promise<ActionResult>
   remove_builtin_command(commandName: string): Promise<ActionResult>
   restore_builtin_command(commandName: string): Promise<ActionResult>
-  reset_all_builtin_commands(): Promise<ActionResult>
+  save_builtin_enabled(commandName: string, enabled: boolean): Promise<ActionResult>
+  reset_all_builtin_commands(preserveEnabled?: boolean): Promise<ActionResult>
   apply_command_responses(commandName: string, responses: string[]): Promise<ActionResult>
   save_command_responses(commandName: string, responses: string[]): Promise<ActionResult>
   reset_command_responses(commandName: string): Promise<ActionResult>

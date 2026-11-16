@@ -8,6 +8,8 @@ from typing import cast
 import pytest
 
 from app.commands.registry import CommandDispatcher, CommandRegistry
+from app.command_order import CommandCreationOrder
+from app.custom_commands import CustomCommandStore
 from app.message_triggers import MessageTriggerStore
 from app.runtime_paths import DEFAULT_TRIGGERS, RuntimePaths, prepare_runtime_data
 from app.services.facade import ApplicationServices
@@ -264,3 +266,28 @@ def test_editor_reorders_stable_ids_and_rejects_stale_collection(tmp_path):
     with pytest.raises(ValueError, match="Chat reactions changed"):
         store.save([first], revision=revision)
     assert MessageTriggerStore(path).list() == updated
+
+
+def test_creation_order_survives_restart_and_does_not_change_when_reordering_reactions(tmp_path):
+    command_path = tmp_path / "custom_commands.json"
+    trigger_path = tmp_path / "message_triggers.json"
+    order = CommandCreationOrder()
+    commands = CustomCommandStore(command_path, set(), creation_order=order)
+    reactions = MessageTriggerStore(trigger_path, creation_order=order)
+    first = reactions.save([trigger(id="one")])[0]
+    command = commands.save({
+        "name": "hello", "enabled": True, "permission": "USER", "responses": ["Hello!"],
+        "aliases": [], "per_user_seconds": 0, "global_seconds": 0,
+    })
+    second = reactions.save([first.to_json(), trigger(id="two")])[1]
+    assert 0 < first.creation_order < command.creation_order < second.creation_order
+
+    order = CommandCreationOrder()
+    reactions = MessageTriggerStore(trigger_path, creation_order=order)
+    commands = CustomCommandStore(command_path, set(), creation_order=order)
+    assert commands.save({**command.to_json(), "name": "welcome"}).creation_order == command.creation_order
+    changed = reactions.save([second.to_json(), {**first.to_json(), "text": "updated"}, trigger(id="three")])
+    assert [item.id for item in changed] == ["two", "one", "three"]
+    assert changed[0].creation_order == second.creation_order
+    assert changed[1].creation_order == first.creation_order
+    assert changed[2].creation_order > second.creation_order

@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useRestartDraft } from '../desktopRestart'
 
 import {
   type CommandInfo,
+  type ChatReaction,
+  type ChatReactionsResponse,
   type CommandsResponse,
   type CustomCommandInfo,
   type CustomCommandInput,
@@ -16,10 +19,11 @@ import FeedbackToast from '../components/FeedbackToast'
 import Confirmation from '../components/Confirmation'
 import { Select } from '../components/Select'
 import Switch from '../components/Switch'
-import AccordionHeader from '../components/AccordionHeader'
 import HelpTip from '../components/HelpTip'
 import AnnouncementsPanel from '../components/AnnouncementsPanel'
-import ChatReactions from '../components/ChatReactions'
+import ChatReactions, { newReactionDraft, probabilityText, reactionDraftFrom, type ReactionDraft } from '../components/ChatReactions'
+import CommandList, { type CommandEntry } from '../components/CommandList'
+import CommandEditorDialog from '../components/CommandEditorDialog'
 import CommandRestrictions from '../components/CommandRestrictions'
 import OptOutManagement from '../components/OptOutManagement'
 
@@ -260,16 +264,20 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
   const [drafts, setDrafts] = useState<Drafts>({})
   const [customDraft, setCustomDraft] = useState<CustomDraft | null>(null)
   const customBaseline = useRef<CustomDraft | null>(null)
+  const [reactionData, setReactionData] = useState<ChatReactionsResponse | null>(null)
+  const [reactionDraft, setReactionDraft] = useState<ReactionDraft | null>(null)
+  const reactionBaseline = useRef<ReactionDraft | null>(null)
+  const [editingBuiltin, setEditingBuiltin] = useState<string | null>(null)
+  const [busyReaction, setBusyReaction] = useState(false)
+  const customDirty = Boolean(customDraft && JSON.stringify(customDraft) !== JSON.stringify(customBaseline.current))
+  const reactionDirty = Boolean(reactionDraft && JSON.stringify(reactionDraft) !== JSON.stringify(reactionBaseline.current))
   useRestartDraft('Commands', Boolean(
-    (customDraft && JSON.stringify(customDraft) !== JSON.stringify(customBaseline.current))
+    customDirty || reactionDirty
     || data?.commands.some((command) => drafts[command.name] && draftIsDirty(command, drafts[command.name])),
   ))
-  const customEditorToggle = useRef<HTMLButtonElement>(null)
   const customResponse = useRef<HTMLTextAreaElement>(null)
-  const [focusTarget, setFocusTarget] = useState<string | null>(null)
   const [busyCommand, setBusyCommand] = useState('')
   const [busyCustom, setBusyCustom] = useState(false)
-  const [expandedCommands, setExpandedCommands] = useState<Record<string, boolean>>({})
   const commandSnapshot = useRef<Record<string, CommandInfo>>({})
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -279,27 +287,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
   useEffect(() => () => { confirmationResult.current?.(false) }, [])
 
   useEffect(() => {
-    if (!focusTarget) return
-    setFocusTarget(null)
-    if (!active) return
-    // Restore after the editor unmounts and the save button is enabled again.
-    if (focusTarget === 'custom-command-toggle') {
-      customEditorToggle.current?.focus({ preventScroll: true })
-      return
-    }
-    // Only explicit opens scroll, after any dialog restores focus. Match shell navigation.
-    const editor = document.getElementById(focusTarget)
-    const sidebar = editor?.closest('.app-shell')?.querySelector('.sidebar')
-    editor?.closest('main')?.style.setProperty('--sidebar-height', `${sidebar?.getBoundingClientRect().height ?? 0}px`)
-    editor?.scrollIntoView({ block: 'start', inline: 'nearest' })
-    const initialField = editor?.classList.contains('command-card')
-      ? editor.querySelector<HTMLElement>('.command-fields [role="combobox"]:not(:disabled)')
-      : editor?.querySelector<HTMLElement>('input:not([type="checkbox"]):not(:disabled), [role="combobox"]:not(:disabled), textarea:not(:disabled)')
-    initialField?.focus({ preventScroll: true })
-  }, [active, focusTarget])
-
-  useEffect(() => {
-    if (active && revealCommand) setExpandedCommands((current) => ({ ...current, [revealCommand]: true }))
+    if (active && revealCommand) setEditingBuiltin(revealCommand)
   }, [active, revealCommand])
 
   const confirmAction = (request: CommandConfirmation): Promise<boolean> => new Promise((resolve) => {
@@ -324,7 +312,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       const nextDraft = draftFromCommand(command)
       if (command.name !== completedCommand && previousCommand && previousDraft) {
         if (settingsDraftIsDirty(previousCommand, previousDraft)) {
-          if (command.name !== 'ask') nextDraft.enabled = previousDraft.enabled
+          nextDraft.enabled = previousDraft.enabled
           nextDraft.permission = previousDraft.permission
           nextDraft.perUserSeconds = previousDraft.perUserSeconds
           nextDraft.globalSeconds = previousDraft.globalSeconds
@@ -334,6 +322,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           nextDraft.burstIntervalMs = previousDraft.burstIntervalMs
           nextDraft.burstMaxCount = previousDraft.burstMaxCount
           nextDraft.streamAvailability = previousDraft.streamAvailability
+          nextDraft.sendAs = previousDraft.sendAs
         }
         if (responseDraftIsDirty(previousCommand, previousDraft)) {
           nextDraft.responsePool = previousDraft.responsePool
@@ -341,7 +330,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       } else if (command.name === completedCommand && completedArea === 'settings' && previousCommand && previousDraft && responseDraftIsDirty(previousCommand, previousDraft)) {
         nextDraft.responsePool = previousDraft.responsePool
       } else if (command.name === completedCommand && completedArea === 'responses' && previousCommand && previousDraft && settingsDraftIsDirty(previousCommand, previousDraft)) {
-        if (command.name !== 'ask') nextDraft.enabled = previousDraft.enabled
+        nextDraft.enabled = previousDraft.enabled
         nextDraft.permission = previousDraft.permission
         nextDraft.perUserSeconds = previousDraft.perUserSeconds
         nextDraft.globalSeconds = previousDraft.globalSeconds
@@ -351,6 +340,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         nextDraft.burstIntervalMs = previousDraft.burstIntervalMs
         nextDraft.burstMaxCount = previousDraft.burstMaxCount
         nextDraft.streamAvailability = previousDraft.streamAvailability
+        nextDraft.sendAs = previousDraft.sendAs
       }
       return [command.name, nextDraft]
     })))
@@ -373,13 +363,15 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     const load = async () => {
       try {
         const api = await waitForBridge()
-        const [response, customResponse] = await Promise.all([
+        const [response, customResponse, reactionResponse] = await Promise.all([
           api.get_commands(),
           api.get_custom_commands(),
+          api.get_message_triggers().catch((reason: unknown) => ({ ok: false, triggers: [], revision: '', error: reason instanceof Error ? reason.message : 'Could not load chat reactions.' })),
         ])
         if (mounted) {
           setData(response)
           setCustomData(customResponse)
+          setReactionData(reactionResponse.ok ? reactionResponse : null)
           const previousCommands = commandSnapshot.current
           setDrafts((currentDrafts) => Object.fromEntries(response.commands.map((command) => {
             const previousCommand = previousCommands[command.name]
@@ -388,11 +380,10 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
               && previousDraft
               && draftIsDirty(previousCommand, previousDraft)
             const draft = keepDraft ? { ...previousDraft } : draftFromCommand(command)
-            if (command.name === 'ask') draft.enabled = command.enabled
             return [command.name, draft]
           })))
           commandSnapshot.current = Object.fromEntries(response.commands.map((command) => [command.name, command]))
-          setError('')
+          setError(reactionResponse.ok ? '' : reactionResponse.error ?? 'Could not load chat reactions.')
         }
       } catch (reason) {
         if (mounted) {
@@ -415,20 +406,25 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     setNotice('')
   }
 
-  const changeAIEnabled = async (enabled: boolean) => {
-    setBusyCommand('ask')
+  const focusListIfNeeded = () => window.requestAnimationFrame(() => {
+    if (active && document.activeElement === document.body) document.getElementById('command-list-search')?.focus()
+  })
+
+  const toggleBuiltin = async (command: CommandInfo, enabled: boolean) => {
+    setBusyCommand(command.name)
     setError('')
     setNotice('')
     try {
       const api = await waitForBridge()
-      const result = await api.set_ai_enabled(enabled)
-      if (!result.ok) throw new Error(result.error ?? 'AI command enabled setting could not be saved.')
+      const result = await api.save_builtin_enabled(command.name, enabled)
+      if (!result.ok) throw new Error(result.error ?? 'Could not change command status.')
       await loadCommands()
-      setNotice('AI command enabled setting saved. Other command drafts are kept.')
+      setNotice(`${data?.command_prefix ?? '!'}${command.primary_name ?? command.name} ${enabled ? 'enabled' : 'disabled'}.`)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'AI command enabled setting could not be saved.')
+      setError(reason instanceof Error ? reason.message : 'Could not change command status.')
     } finally {
       setBusyCommand('')
+      focusListIfNeeded()
     }
   }
 
@@ -462,6 +458,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       ...(canEditIdentity(command) ? { aliases: parseAliases(draft.aliases), display_name: draft.displayName } : {}),
       ...(command.name === 'tg' ? { burst_interval_ms: burstInterval!, burst_max_count: burstMaxCount! } : {}),
       ...(isBrowserMode() ? { stream_availability: draft.streamAvailability } : {}),
+      ...(command.removed && draft.enabled ? { reactivate_removed: true } : {}),
     }
     const responsePool = command.response_pool
     const saveResponses = action === 'save' && responsePool && draft.responsePool !== null
@@ -473,7 +470,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     }
     if (action === 'reset' && !await confirmAction({
       title: `Reset ${data?.command_prefix ?? '!'}${command.primary_name ?? command.name} settings?`,
-      description: 'Reset only this command’s settings to factory defaults, including its primary chat name and enabled state. Its saved message is kept.',
+      description: 'Restore the factory name, aliases, access and cooldowns. Keep the current enabled state and saved message.',
       danger: true,
     })) {
       return
@@ -487,7 +484,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     try {
       const api = await waitForBridge()
       if (action === 'reset') {
-        const result = await api.reset_command_settings(command.name)
+        const result = await api.reset_command_settings(command.name, true)
         if (!result.ok) throw new Error(result.error ?? 'Command settings could not be updated.')
       } else if (settingsDraftIsDirty(command, draft) || !command.saved) {
         const result = await api.save_command_settings(
@@ -507,6 +504,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         responsesSaved = true
       }
       await loadCommands(command.name, action === 'reset' ? 'settings' : undefined)
+      if (action === 'save') setEditingBuiltin(null)
       setNotice(action === 'save'
           ? `Saved ${data?.command_prefix ?? '!'}${draft.primaryName.trim()}${responsePool ? ' text and settings' : ''}.`
           : `Reset !${command.name} settings to built-in defaults. Its message was kept.`)
@@ -523,6 +521,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       }
     } finally {
       setBusyCommand('')
+      focusListIfNeeded()
     }
   }
 
@@ -567,14 +566,31 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     setNotice('')
   }
 
-  const replaceCustomDraft = async (draft: CustomDraft | null) => {
-    if (customDraft && JSON.stringify(customDraft) !== JSON.stringify(customBaseline.current)
-      && !await confirmAction({ title: 'Discard unsaved command changes?', description: 'Your current draft will be lost.', danger: true })) return
+  const openCustomDraft = (draft: CustomDraft) => {
     customBaseline.current = draft ? { ...draft } : null
     setCustomDraft(draft)
-    setFocusTarget(draft ? 'custom-command-editor' : 'custom-command-toggle')
     setError('')
     setNotice('')
+  }
+
+  const openReactionDraft = (draft: ReactionDraft) => {
+    reactionBaseline.current = { ...draft }
+    setReactionDraft(draft)
+    setError('')
+    setNotice('')
+  }
+
+  const closeEditor = async () => {
+    const builtin = editingBuiltin ? commandSnapshot.current[editingBuiltin] : undefined
+    const builtinDraft = builtin && drafts[builtin.name]
+    if ((customDirty || reactionDirty || (builtin && builtinDraft && draftIsDirty(builtin, builtinDraft)))
+      && !await confirmAction({ title: 'Discard unsaved changes?', description: 'Your changes in this editor will be lost.', danger: true })) return
+    if (builtin) setDrafts((current) => ({ ...current, [builtin.name]: draftFromCommand(builtin) }))
+    setEditingBuiltin(null)
+    setCustomDraft(null)
+    setReactionDraft(null)
+    setError('')
+    focusListIfNeeded()
   }
 
   const changeCustomMode = (responseMode: CustomResponseMode) => {
@@ -639,12 +655,12 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       await loadCustomCommands()
       setCustomDraft(null)
       customBaseline.current = null
-      setFocusTarget('custom-command-toggle')
       setNotice(`Saved ${customData?.command_prefix ?? '!'}${name}.`)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not save custom command.')
     } finally {
       setBusyCustom(false)
+      focusListIfNeeded()
     }
   }
 
@@ -677,6 +693,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       setError(reason instanceof Error ? reason.message : 'Could not update custom command.')
     } finally {
       setBusyCustom(false)
+      focusListIfNeeded()
     }
   }
 
@@ -694,56 +711,74 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       const result = await api.delete_custom_command(command.id)
       if (!result.ok) throw new Error(result.error ?? 'Could not delete custom command.')
       await loadCustomCommands()
-      setCustomDraft((current) => current?.id === command.id ? null : current)
       setNotice(`Deleted ${customData?.command_prefix ?? '!'}${command.name}.`)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not delete custom command.')
     } finally {
       setBusyCustom(false)
+      focusListIfNeeded()
     }
   }
 
-  const runFactoryAction = async (action: 'remove' | 'restore' | 'resetAll', command?: CommandInfo) => {
-    const hasDirtyDraft = command && drafts[command.name] && draftIsDirty(command, drafts[command.name])
-    const request: CommandConfirmation = action === 'remove' ? {
-      title: `Remove and disable ${data?.command_prefix ?? '!'}${command!.primary_name ?? command!.name}?`,
-      description: `Disable and hide this built-in command. You can restore it from Removed commands.${hasDirtyDraft ? ' Unsaved changes will be discarded.' : ''}`,
-      danger: true,
-    } : action === 'restore' ? {
-      title: `Restore defaults and enable ${data?.command_prefix ?? '!'}${command!.primary_name ?? command!.name}?`,
-      description: `Replace this command’s settings with factory defaults and enable it. Previous custom settings are not recovered. Its saved message is kept.${hasDirtyDraft ? ' Unsaved changes will be discarded.' : ''}`,
-      danger: true,
-    } : {
-      title: 'Restore all factory defaults?',
-      description: 'Replace all built-in settings and messages with factory defaults, including enabled states. Removed commands return. Unsaved built-in drafts will be discarded. Custom commands are kept.',
-      danger: true,
+  const persistReactions = async (rules: ChatReaction[]) => {
+    if (!reactionData || busyReaction) return
+    setError('')
+    setNotice('')
+    setBusyReaction(true)
+    try {
+      const result = await (await waitForBridge()).save_message_triggers(rules, reactionData.revision)
+      if (!result.ok) throw new Error(result.error ?? 'Could not save chat reactions.')
+      setReactionData(result)
+      setReactionDraft(null)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not save chat reactions.')
+    } finally {
+      setBusyReaction(false)
+      focusListIfNeeded()
     }
-    if (!await confirmAction(request)) return
-    setBusyCommand(command?.name ?? 'factory')
+  }
+
+  const reactionPosition = reactionData && reactionDraft
+    ? reactionData.triggers.findIndex((item) => item.id === reactionDraft.id) : -1
+  const saveReaction = (event: FormEvent) => {
+    event.preventDefault()
+    if (!reactionData || !reactionDraft) return
+    const { position, ...values } = reactionDraft
+    const original = reactionData.triggers[reactionPosition]
+    const rules = reactionData.triggers.filter((item) => item.id !== values.id)
+    rules.splice(position, 0, {
+      ...values,
+      probability: original && values.probability === probabilityText(original.probability)
+        ? original.probability : Number(values.probability) / 100,
+      cooldown_seconds: Number(values.cooldown_seconds),
+      responses: values.responses.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
+    })
+    void persistReactions(rules)
+  }
+
+  const deleteReaction = async (reaction: ChatReaction) => {
+    if (!reactionData) return
+    if (await confirmAction({ title: 'Delete chat reaction?', description: `Permanently delete the reaction for “${reaction.text}”?`, danger: true })) {
+      await persistReactions(reactionData.triggers.filter((item) => item.id !== reaction.id))
+    }
+  }
+
+  const resetAllBuiltins = async () => {
+    if (!await confirmAction({
+      title: 'Restore all factory defaults?',
+      description: 'Restore built-in settings and messages. Each command keeps its current enabled state.',
+      danger: true,
+    })) return
+    setBusyCommand('factory')
     setError('')
     setNotice('')
     try {
-      const api = await waitForBridge()
-      const result = action === 'remove'
-        ? await api.remove_builtin_command(command!.name)
-        : action === 'restore' ? await api.restore_builtin_command(command!.name)
-          : await api.reset_all_builtin_commands()
-      if (!result.ok) {
-        // Settings and response pools have independent atomic stores.
-        if (action === 'resetAll') await loadCommands()
-        throw new Error(result.error ?? 'Factory command could not be updated.')
-      }
-      if (action === 'resetAll') {
-        commandSnapshot.current = {}
-        setDrafts({})
-      }
-      await loadCommands(command?.name)
-      if (command) setExpandedCommands((current) => ({ ...current, [command.name]: false }))
-      setNotice(action === 'remove'
-        ? `Removed and disabled ${data?.command_prefix ?? '!'}${command!.primary_name ?? command!.name}. Restore it from Removed commands.`
-        : action === 'restore' ? `Restored !${command!.name} default settings and enabled it. Its saved message was kept.` : 'Restored all factory command settings and messages.')
+      const result = await (await waitForBridge()).reset_all_builtin_commands(true)
+      await loadCommands()
+      if (!result.ok) throw new Error(result.error ?? 'Could not reset all built-ins.')
+      setNotice('Restored all built-in settings and messages.')
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Factory command could not be updated.')
+      setError(reason instanceof Error ? reason.message : 'Could not reset all built-ins.')
     } finally {
       setBusyCommand('')
     }
@@ -766,9 +801,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     const parsedResponses = responsePool && responseDraft !== null ? parseResponsePool(responsePool, responseDraft) : []
     const responseValid = parsedResponses.length > 0
     const isRandom = responsePool?.response_mode === 'random'
-    const expanded = Boolean(expandedCommands[command.name])
     const busy = busyCommand !== ''
-    const detailsId = `command-details-${command.name}`
     const compact = !isBrowserMode() || command.name === 'erase'
     const aliasField = canEditIdentity(command) && <div className="form-field command-aliases">
       <div className="custom-field-label"><label htmlFor={`aliases-${command.name}`}>Aliases, separated by commas</label>{compact && <HelpTip label="Built-in aliases">Optional alternate chat names, without {data.command_prefix}. For example question, q. Aliases keep this command's identity and access rules.</HelpTip>}</div>
@@ -782,7 +815,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     const identityFields = <div className={`command-identity-fields${supportsSendAs ? ' has-send-as' : ''}`}>
       <div className="form-field">
         <div className="custom-field-label"><label htmlFor={`primary-name-${command.name}`}>Primary chat name</label><HelpTip label="Primary chat name">Use one word of up to 40 characters, without {data.command_prefix}. Renaming keeps this command’s behavior, permission and cooldowns. The old name stops working unless kept as an alias. Reset settings restores the factory name. Factory names remain reserved for restoration.</HelpTip></div>
-        <input id={`primary-name-${command.name}`} disabled={busy} value={draft.primaryName} maxLength={40} onChange={(event) => updateDraft(command.name, { primaryName: event.target.value })} />
+        <input id={`primary-name-${command.name}`} data-editor-focus disabled={busy} value={draft.primaryName} maxLength={40} onChange={(event) => updateDraft(command.name, { primaryName: event.target.value })} />
       </div>
       {supportsSendAs
         ? <><SendAsField id={`send-as-${command.name}`} value={draft.sendAs} disabled={busy} onChange={(sendAs) => updateDraft(command.name, { sendAs })} />{displayField}{aliasField}</>
@@ -804,50 +837,20 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       </div>
     </div>
     return (
-      <article className={`command-card ${compact ? 'command-compact' : ''} ${dirty ? 'dirty' : ''}`} key={command.name} id={`command-editor-${command.name}`}>
-        <AccordionHeader
-          title={(<span className="command-summary-title">
-              <strong>{data.command_prefix}{primaryName}</strong>
-              {command.display_name && <span className="command-display-name">{command.display_name}</span>}
-            </span>)}
-          badges={(
-            <span className="command-summary-title">
-              <span className={`state-pill ${draft.enabled ? 'enabled' : ''}`}>{draft.enabled ? 'Enabled' : 'Disabled'}</span>
-              {!command.available && <span className="state-pill unavailable-pill">Unavailable</span>}
-            </span>
-          )}
-          metadata={(<span className="command-summary-meta">
-              {command.hidden && <span className="mini-badge">Hidden</span>}
-              {(command.has_saved_override || responsePool?.has_saved_override) && <span className="mini-badge saved-badge">Saved override</span>}
-              {(!command.saved || (responsePool && !responsePool.saved)) && <span className="mini-badge runtime-badge">Runtime only</span>}
-              {dirty && <span className="mini-badge dirty-badge">Edited</span>}
-              <span>Permission: {draft.permission.toLowerCase()}</span>
-              <span>Cooldown: {draft.perUserSeconds}s / {draft.globalSeconds}s</span>
-              {command.aliases.length > 0 && <span>Aliases: {command.aliases.map((alias) => `${data.command_prefix}${alias}`).join(', ')}</span>}
-            </span>)}
-          help={compact ? <>{command.help_text || 'Permission is the minimum chat role. Per-user cooldown limits one viewer; global cooldown limits all viewers.'}{!responsePool && <p>This command uses its built-in behavior; no response type or text template is selectable.</p>}{command.name === 'ask' && <p>Enabled state is saved immediately and shared with Dashboard and AI. Save applies only your other settings edits.</p>}</> : command.help_text || 'Permission is the minimum chat role. Per-user cooldown limits one viewer; global cooldown limits all viewers.'}
-          helpLabel={`${data.command_prefix}${primaryName}`}
-          expanded={expanded} contentId={detailsId}
-          ariaLabel={`${expanded ? 'Collapse' : 'Edit'} ${data.command_prefix}${primaryName}`}
-          onToggle={() => {
-            setExpandedCommands((current) => ({ ...current, [command.name]: !expanded }))
-            if (!expanded) setFocusTarget(`command-editor-${command.name}`)
-          }}
-        />
-        {expanded && <div className="command-details" id={detailsId}>
+      <CommandEditorDialog id={`command-editor-${command.name}`} title={`Edit ${data.command_prefix}${primaryName}`}
+        busy={busy} dirty={dirty} error={error} onClose={() => void closeEditor()}>
+        <div className={`command-details ${compact ? 'command-compact' : ''}`}>
           <Switch
             className="toggle-field command-enabled-toggle"
             checked={draft.enabled}
             disabled={busy}
             ariaLabel={`Enable ${data.command_prefix}${primaryName}`}
-            onCheckedChange={(enabled) => command.name === 'ask'
-              ? void changeAIEnabled(enabled) : updateDraft(command.name, { enabled })}
+            onCheckedChange={(enabled) => updateDraft(command.name, { enabled })}
           >
             <span>{draft.enabled ? 'Enabled' : 'Disabled'}</span>
           </Switch>
           {compact && !supportsSendAs ? <>{identityFields}{settingsFields}</> : <>
             {settingsFields}
-            {!compact && command.name === 'ask' && <p className="setting-effect">Enabled state is saved immediately and shared with Dashboard and AI. Save applies only your other settings edits.</p>}
             {identityFields}
           </>}
           {command.name === 'tg' && <div className="command-burst-controls">
@@ -862,8 +865,8 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
               {!compact && <span className="custom-field-hint">Default {data.command_prefix}{primaryName} sends 1. Use 1–{maxCount}; e.g. {data.command_prefix}{primaryName} {maxCount} sends {maxCount} copies.</span>}
             </div>
           </div>}
-          {command.hidden && !compact && <p className="command-behavior-note">Hidden administrative command; minimum {command.minimum_permission?.toLowerCase()} permission is required.</p>}
-          {!compact && !responsePool && <div className="command-behavior-note command-dynamic-note">
+          {command.hidden && <p className="command-behavior-note">Hidden administrative command; minimum {command.minimum_permission?.toLowerCase()} permission is required.</p>}
+          {!responsePool && <div className="command-behavior-note command-dynamic-note">
             <span>Dynamic response</span>
             <HelpTip label="Dynamic response">This command generates its response from its built-in behavior and cannot be edited as a text template. Enabled state, permission and cooldowns still apply.</HelpTip>
           </div>}
@@ -897,7 +900,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           </div>}
           <div className="command-editor-actions">
             <div className="command-action-footer" role="group" aria-label={`${data.command_prefix}${primaryName} settings actions`}>
-              {!command.hidden && <button className="ghost command-remove" disabled={busy} onClick={() => void runFactoryAction('remove', command)}>Remove and disable</button>}
+              <button className="secondary" disabled={busy} onClick={() => void closeEditor()}>Cancel</button>
               <div className="command-action-group">
                 {!command.hidden && responsePool && responseDraft !== null && <button className="ghost" disabled={busy || (!responseDirty && !responsePool.has_saved_override && responsePool.saved)} onClick={() => void runResponseAction(command)}>{isRandom ? 'Reset responses' : 'Reset message'}</button>}
                 <button className="ghost" disabled={busy || (!settingsDirty && !command.has_saved_override && command.saved)} onClick={() => void runAction(command, 'reset')}>Reset settings</button>
@@ -905,10 +908,29 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
               </div>
             </div>
           </div>
-        </div>}
-      </article>
+        </div>
+      </CommandEditorDialog>
     )
 
+  }
+
+  const builtinEditor = data?.commands.find((item) => item.name === editingBuiltin)
+  const editorBusy = Boolean(busyCommand) || busyCustom || busyReaction
+  const editorOpen = Boolean(builtinEditor || customDraft || reactionDraft)
+
+  const editEntry = (entry: CommandEntry) => {
+    if (entry.type === 'builtin') {
+      setEditingBuiltin(entry.item.name)
+      setError('')
+      setNotice('')
+    } else if (entry.type === 'custom') openCustomDraft(customDraftFromCommand(entry.item))
+    else if (reactionData) openReactionDraft(reactionDraftFrom(entry.item, reactionData.triggers.indexOf(entry.item)))
+  }
+
+  const toggleEntry = (entry: CommandEntry, enabled: boolean) => {
+    if (entry.type === 'builtin') void toggleBuiltin(entry.item, enabled)
+    else if (entry.type === 'custom') void toggleCustom(entry.item)
+    else if (reactionData) void persistReactions(reactionData.triggers.map((item) => item.id === entry.item.id ? { ...item, enabled } : item))
   }
 
   const customResponseCount = customDraft?.responses.split(/\r?\n/).filter((response) => response.trim()).length ?? 0
@@ -917,33 +939,42 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     <div className="commands-layout" aria-busy={loading}>
       {confirmation && <Confirmation {...confirmation} onConfirm={() => finishConfirmation(true)} onCancel={() => finishConfirmation(false)} />}
       <FeedbackToast
-        error={error}
+        error={editorOpen ? '' : error}
         notice={notice}
         onDismiss={() => { setError(''); setNotice('') }}
       />
-    <section className="card command-editor-card" id="custom-commands">
-      <div className="section-heading">
-        <div>
-          <h2>Your commands</h2>
-          <p className="section-copy">Create responses with template variables. Save applies changes immediately.</p>
-        </div>
-        <button ref={customEditorToggle} className="primary" hidden={Boolean(customDraft)} disabled={!customData || busyCustom} aria-expanded={false} aria-controls="custom-command-editor" onClick={() => void replaceCustomDraft(newCustomDraft(customData?.permissions[0] ?? 'USER'))}>New command</button>
-      </div>
-      {customDraft && customData && (
-        <div className="custom-command-editor" id="custom-command-editor">
-          <div className="section-heading">
-            <div>
-              <h3>{customDraft.id ? 'Edit command' : 'New command'}</h3>
-              {JSON.stringify(customDraft) !== JSON.stringify(customBaseline.current) && <span className="mini-badge dirty-badge">Unsaved changes</span>}
-            </div>
-          </div>
+      <CommandList entries={[
+        ...(data?.commands.map((item) => ({ type: 'builtin' as const, item })) ?? []),
+        ...(customData?.commands.map((item) => ({ type: 'custom' as const, item })) ?? []),
+        ...(reactionData?.triggers.map((item) => ({ type: 'reaction' as const, item })) ?? []),
+      ]} prefix={data?.command_prefix ?? customData?.command_prefix ?? '!'} busy={loading || editorBusy}
+        canCreateCommand={Boolean(customData)} canCreateReaction={Boolean(reactionData && reactionData.triggers.length < 100)}
+        onCreate={(type) => {
+          if (type === 'custom') openCustomDraft(newCustomDraft(customData?.permissions[0] ?? 'USER'))
+          if (type === 'reaction' && reactionData) openReactionDraft(newReactionDraft(reactionData.triggers.length))
+        }}
+        onEdit={editEntry} onToggle={toggleEntry}
+        onDelete={(entry) => entry.type === 'custom' ? void deleteCustom(entry.item) : void deleteReaction(entry.item)} />
+      {active && builtinEditor && renderBuiltin(builtinEditor)}
+      {active && reactionDraft && reactionData && <CommandEditorDialog id="chat-reaction-editor"
+        title={reactionPosition < 0 ? 'New reaction' : 'Edit reaction'} dirty={reactionDirty}
+        busy={busyReaction} error={error} onClose={() => void closeEditor()}>
+        <ChatReactions draft={reactionDraft} count={reactionData.triggers.length} position={reactionPosition} busy={busyReaction}
+          update={(values) => { setReactionDraft({ ...reactionDraft, ...values }); setError('') }}
+          onSave={saveReaction} onClose={() => void closeEditor()} />
+      </CommandEditorDialog>}
+      {active && customDraft && customData && <CommandEditorDialog id="custom-command-editor"
+        title={customDraft.id ? 'Edit command' : 'New command'} dirty={customDirty}
+        busy={busyCustom} error={error} onClose={() => void closeEditor()}>
+        <form className="custom-command-editor" onSubmit={(event) => { event.preventDefault(); void saveCustom() }}>
+          <fieldset className="custom-dialog-fields" disabled={busyCustom}>
           <Switch className="custom-command-enabled" checked={customDraft.enabled} ariaLabel="Enable custom command" onCheckedChange={(enabled) => updateCustomDraft({ enabled })}>
             <span>{customDraft.enabled ? 'Enabled' : 'Disabled'}</span>
           </Switch>
           <div className="custom-command-fields">
             <div className="form-field">
               <div className="custom-field-label"><label htmlFor="custom-name">Command name</label><HelpTip label="Command name">Use a single word of up to 40 characters, without {customData.command_prefix}. Names and aliases cannot conflict with another command.</HelpTip></div>
-              <span className="custom-name-input"><span>{customData.command_prefix}</span><input id="custom-name" value={customDraft.name} onChange={(event) => updateCustomDraft({ name: event.target.value })} placeholder="hello" /></span>
+              <span className="custom-name-input"><span>{customData.command_prefix}</span><input data-editor-focus id="custom-name" value={customDraft.name} onChange={(event) => updateCustomDraft({ name: event.target.value })} placeholder="hello" /></span>
             </div>
             <div className="form-field">
               <div className="custom-field-label"><label htmlFor="custom-aliases">Aliases, separated by commas</label><HelpTip label="Aliases">Optional alternate names, for example hi, hey. Use up to ten unique aliases without {customData.command_prefix}; the same naming rules apply.</HelpTip></div>
@@ -990,7 +1021,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           </div>
           {customDraft.responseMode === 'random' && <div className="custom-random-actions">
             <span className="muted">{customResponseCount} / 30 responses</span>
-            <button className="secondary" disabled={busyCustom || customResponseCount >= 30} onClick={() => {
+            <button type="button" className="secondary" disabled={busyCustom || customResponseCount >= 30} onClick={() => {
               updateCustomDraft({ responses: customDraft.responses.trimEnd() + (customDraft.responses.trim() ? '\n' : '') })
               requestAnimationFrame(() => {
                 const field = customResponse.current
@@ -998,7 +1029,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
                 field?.setSelectionRange(field.value.length, field.value.length)
               })
             }}>Add response</button>
-            <button className="secondary" disabled={busyCustom || !customDraft.responses.trim()} onClick={() => {
+            <button type="button" className="secondary" disabled={busyCustom || !customDraft.responses.trim()} onClick={() => {
               const responses = customDraft.responses.trimEnd().split(/\r?\n/)
               responses.pop()
               updateCustomDraft({ responses: responses.join('\n') })
@@ -1033,89 +1064,31 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
               </div>
             </details>
           </details>
-          {error && <p className="custom-editor-error">{error}</p>}
-          <div className="settings-actions custom-editor-actions">
-            <button className="primary" disabled={busyCustom || (customDraft.responseMode === 'burst' && (parsedBurstCount(customDraft.burstCount) === null || parsedBurstInterval(customDraft.burstIntervalMs) === null))} onClick={() => void saveCustom()}>{busyCustom ? 'Saving…' : 'Save command'}</button>
-            <button className="secondary" disabled={busyCustom} onClick={() => void replaceCustomDraft(null)}>Discard and close</button>
+          <div className="command-editor-actions">
+            <div className="command-action-footer">
+              <div className="command-action-group">
+                <button type="button" className="secondary" onClick={() => void closeEditor()}>Cancel</button>
+                <button type="submit" className="primary" disabled={customDraft.responseMode === 'burst' && (parsedBurstCount(customDraft.burstCount) === null || parsedBurstInterval(customDraft.burstIntervalMs) === null)}>{busyCustom ? 'Saving…' : 'Save command'}</button>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
-      {!customData ? <p className="muted">Loading custom commands…</p> : customData.commands.length === 0 ? (
-        <div className="empty-state-inline">
-          <strong>No custom commands yet</strong>
-          <p>Create a command to add a response to chat.</p>
-        </div>
-      ) : (
-        <div className="custom-command-list">
-          {customData.commands.map((command) => (
-            <article className="custom-command-row" key={command.id}>
-              <div className="custom-command-summary">
-                <div className="custom-command-heading">
-                  <strong>{customData.command_prefix}{command.name}</strong>
-                  <span className={`state-pill ${command.enabled ? 'enabled' : ''}`}>{command.enabled ? 'Enabled' : 'Disabled'}</span>
-                  {command.response_mode === 'random' && <span className="mini-badge">Random response</span>}
-                  {command.response_mode === 'burst' && <span className="mini-badge">Burst · {command.burst_count ?? 1} copies</span>}
-                </div>
-                {command.aliases.length > 0 && <p className="command-meta">Aliases: {command.aliases.map((alias) => `${customData.command_prefix}${alias}`).join(', ')}</p>}
-                <p className="custom-command-response">{command.responses[0]}</p>
-                {command.responses.length > 1 && <small className="muted">{command.responses.length} response templates · one chosen at random</small>}
-                {command.response_mode === 'burst' && <small className="muted">{command.burst_allow_override ? 'Argument count override enabled' : 'Default repeat count'} · {command.burst_interval_ms ?? 0} ms interval · {command.permission.toLowerCase()}</small>}
-              </div>
-              <div className="row-actions">
-                <button className="secondary" disabled={busyCustom} onClick={() => replaceCustomDraft(customDraftFromCommand(command))}>Edit</button>
-                <button className="secondary" disabled={busyCustom} onClick={() => void toggleCustom(command)}>{command.enabled ? 'Disable' : 'Enable'}</button>
-                <button className="ghost destructive" disabled={busyCustom} onClick={() => void deleteCustom(command)}>Delete</button>
-              </div>
-            </article>
-          ))}
-        </div>
-      )}
-    </section>
-    <ChatReactions active={active} />
-    <AnnouncementsPanel active={active} />
-    <section className="card command-editor-card" id="builtin-commands">
-      <div className="section-heading">
-        <div>
-          <h2>Built-in commands</h2>
-          <p className="section-copy">Save applies changes immediately and keeps them across restarts.</p>
-        </div>
-        <span className="read-only-badge">{data ? `${data.commands.filter((command) => !command.hidden && !command.removed).length} active commands` : 'Loading…'}</span>
-      </div>
-      {!data ? <p className="muted">Loading command registry…</p> : (
-        <div className="command-list">
-          {data.commands.filter((command) => !command.hidden && !command.removed).map(renderBuiltin)}
-        </div>
-      )}
-    <CommandRestrictions active={active} commands={[
-      ...(data?.commands.filter((command) => !command.removed).map((command) => ({ id: command.name, label: `!${command.primary_name ?? command.name}` })) ?? []),
-      ...(customData?.commands.map((command) => ({ id: `custom:${command.id}`, label: `!${command.name}` })) ?? []),
-    ]} />
-      {data && <details className="factory-commands removed-commands" id="removed-commands">
-        <summary>Removed commands ({data.commands.filter((command) => !command.hidden && command.removed).length})</summary>
-        <p className="section-copy">Restore defaults and enable replaces a removed command’s settings with defaults, including primary chat names, access, cooldowns and aliases. Previous custom settings are not recovered; its saved text is kept.</p>
-        <div className="factory-command-list">
-          {data.commands.filter((command) => !command.hidden && command.removed).map((command) => <div className="factory-command-row" key={command.name} id={`command-editor-${command.name}`}>
-            <div><strong>{data.command_prefix}{command.primary_name ?? command.name}</strong><span className="custom-field-hint">Removed and disabled</span></div>
-            <button className="secondary" disabled={busyCommand !== ''} onClick={() => void runFactoryAction('restore', command)}>Restore defaults and enable</button>
-          </div>)}
-        </div>
-        {!data.commands.some((command) => !command.hidden && command.removed) && <p className="muted">No removed commands.</p>}
-      </details>}
-      {data && <details className="factory-commands administrative-commands" id="administrative-commands">
-        <summary>Administrative commands</summary>
-        <p className="section-copy">Administrative commands stay hidden from public help and retain their minimum permissions and implementations.</p>
-        <div className="command-list">{data.commands.filter((command) => command.hidden).map(renderBuiltin)}<OptOutManagement active={active} /></div>
-        {!data.commands.some((command) => command.hidden) && <p className="muted">No administrative commands.</p>}
-      </details>}
-      {data && <details className="factory-commands advanced-command-reset" id="advanced-command-reset">
-        <summary>Advanced: reset all built-ins</summary>
-        <div className="command-reset-row">
-          <p className="custom-field-hint">Complete reset restores built-in settings and messages. Your custom commands are kept.</p>
-          <button className="ghost destructive" disabled={busyCommand !== ''} onClick={() => void runFactoryAction('resetAll')}>Restore all factory defaults</button>
-        </div>
-      </details>}
-    </section>
+          </fieldset>
+        </form>
+      </CommandEditorDialog>}
+      <AnnouncementsPanel active={active} />
+      <CommandRestrictions active={active} commands={[
+        ...(data?.commands.filter((command) => !command.removed).map((command) => ({ id: command.name, label: `${data.command_prefix}${command.primary_name ?? command.name}` })) ?? []),
+        ...(customData?.commands.map((command) => ({ id: `custom:${command.id}`, label: `${customData.command_prefix}${command.name}` })) ?? []),
+      ]} />
+      {data && <OptOutManagement active={active} />}
+      {data && <section className="card command-editor-card">
+        <details className="factory-commands advanced-command-reset" id="advanced-command-reset">
+          <summary>Advanced: reset all built-ins</summary>
+          <div className="command-reset-row">
+            <button className="ghost destructive" disabled={editorBusy} onClick={() => void resetAllBuiltins()}>Restore all factory defaults</button>
+          </div>
+        </details>
+      </section>}
     </div>
   )
 }
-import { useRestartDraft } from '../desktopRestart'

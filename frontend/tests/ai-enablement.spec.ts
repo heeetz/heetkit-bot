@@ -8,7 +8,7 @@ async function navigate(page: Page, name: string) {
 async function toggleOn(page: Page, entry: string) {
   await navigate(page, entry)
   if (entry === 'Commands') {
-    await page.getByRole('button', { name: 'Edit !ask', exact: true }).click()
+    await selectOption(page.getByRole('combobox', { name: 'Status', exact: true }), 'all')
   }
   return page.getByRole('checkbox', { name: entry === 'Commands' ? 'Enable !ask' : 'Enable AI command', exact: true })
 }
@@ -25,16 +25,13 @@ for (const width of [1280, 390]) {
       await expect(toggle).toBeEnabled()
       for (const view of ['Dashboard', 'AI', 'Commands']) {
         await navigate(page, view)
-        if (view === 'Commands') {
-          const edit = page.getByRole('button', { name: 'Edit !ask', exact: true })
-          if (await edit.isVisible()) await edit.click()
-        }
+        if (view === 'Commands') await selectOption(page.getByRole('combobox', { name: 'Status', exact: true }), 'all')
         if (view === 'AI') {
           await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).toHaveCount(0)
           await expect(page.locator('.ai-runtime-values')).toContainText('Enabled')
         } else await expect(page.getByRole('checkbox', { name: view === 'Commands' ? 'Enable !ask' : 'Enable AI command', exact: true })).toBeChecked()
       }
-      expect(await page.evaluate(() => Reflect.get(window, 'aiCalls'))).toEqual([['set_ai_enabled', true]])
+      expect(await page.evaluate(() => Reflect.get(window, 'aiCalls'))).toEqual([entry === 'Commands' ? ['save_builtin_enabled', 'ask', true] : ['set_ai_enabled', true]])
       // A browser reload exercises presentation startup; Python tests cover a real state reload.
       await page.reload()
       await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).toBeChecked()
@@ -52,10 +49,7 @@ for (const entry of ['Dashboard', 'Commands']) {
     await expect(toggle).toBeEnabled()
     for (const view of ['Dashboard', 'AI', 'Commands']) {
       await navigate(page, view)
-      if (view === 'Commands') {
-        const edit = page.getByRole('button', { name: 'Edit !ask', exact: true })
-        if (await edit.isVisible()) await edit.click()
-      }
+      if (view === 'Commands') await selectOption(page.getByRole('combobox', { name: 'Status', exact: true }), 'all')
       if (view === 'AI') {
         await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).toHaveCount(0)
         await expect(page.locator('.ai-runtime-values')).toContainText('Disabled')
@@ -66,58 +60,21 @@ for (const entry of ['Dashboard', 'Commands']) {
   })
 }
 
-test('Ask toggles preserve unrelated drafts and keep permissions/cooldowns explicitly saved', async ({ page }) => {
+test('editing Ask saves its draft enabled state together with permissions and cooldowns', async ({ page }) => {
   await page.goto('/tests/fixture.html?askToggle')
   await toggleOn(page, 'Commands')
-  const ask = page.locator('#command-details-ask')
-  const permission = ask.getByRole('combobox', { name: 'Permission', exact: true })
-  await selectOption(permission, 'VIP')
+  await page.getByRole('button', { name: 'Edit !ask', exact: true }).click()
+  const ask = page.locator('#command-editor-ask')
+  await selectOption(ask.getByRole('combobox', { name: 'Permission', exact: true }), 'VIP')
   await ask.getByLabel('Global cooldown', { exact: true }).fill('42')
-  await page.getByRole('button', { name: 'Edit !ping', exact: true }).click()
-  const ping = page.locator('#command-details-ping')
-  await ping.getByLabel('Per-user cooldown', { exact: true }).fill('19')
-  await ping.getByRole('checkbox', { name: 'Enable !ping', exact: true }).press('Space')
-
-  await ask.getByRole('checkbox').press('Space')
+  await ask.getByRole('checkbox', { name: 'Enable !ask' }).press('Space')
   await expect(ask.getByRole('checkbox')).toBeChecked()
-  await expect(permission).toHaveAttribute('data-value', 'VIP')
-  await expect(ask.getByLabel('Global cooldown', { exact: true })).toHaveValue('42')
-  await expect(ping.getByLabel('Per-user cooldown', { exact: true })).toHaveValue('19')
-  await expect(ping.getByRole('checkbox')).not.toBeChecked()
-  const stored = await page.evaluate(() => window.pywebview!.api.get_commands())
-  expect(stored.commands[0]).toMatchObject({ enabled: true, permission: 'USER', cooldown: { global_seconds: 15 } })
-  expect(stored.commands[1]).toMatchObject({ enabled: true, cooldown: { per_user_seconds: 3 } })
-
-  await navigate(page, 'AI')
-  const personality = page.locator('#ai-personalities')
-  await personality.locator('.accordion-trigger').click()
-  await personality.locator('textarea').fill('Keep this personality draft')
-  await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).toHaveCount(0)
-  await expect(personality.locator('textarea')).toHaveValue('Keep this personality draft')
-  await navigate(page, 'Dashboard')
-  await page.getByRole('checkbox', { name: 'Enable AI command', exact: true }).press('Space')
-  await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).not.toBeChecked()
-  await page.getByRole('checkbox', { name: 'Enable AI command', exact: true }).press('Space')
-  await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).toBeChecked()
-  await navigate(page, 'Commands')
-  await expect(ask.getByRole('checkbox')).toBeChecked()
-  await expect(permission).toHaveAttribute('data-value', 'VIP')
-  await expect(ask.getByLabel('Global cooldown', { exact: true })).toHaveValue('42')
-
-  // Change it elsewhere while the Commands draft is dirty; Save must use the new enabled value.
-  await navigate(page, 'Dashboard')
-  await page.getByRole('checkbox', { name: 'Enable AI command', exact: true }).press('Space')
-  await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).not.toBeChecked()
-  await navigate(page, 'Commands')
-  await expect(ask.getByRole('checkbox')).not.toBeChecked()
-  await expect(permission).toHaveAttribute('data-value', 'VIP')
-  await expect(ping.getByLabel('Per-user cooldown', { exact: true })).toHaveValue('19')
-  await expect(ping.getByRole('checkbox')).not.toBeChecked()
+  expect(await page.evaluate(() => Reflect.get(window, 'aiCalls'))).toEqual([])
   await ask.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(page.getByRole('status')).toContainText('Saved !ask.')
-  expect((await page.evaluate(() => Reflect.get(window, 'aiCalls'))).at(-1)).toEqual(['save_command_settings', 'ask', false, 3, 42, 'VIP'])
-  await navigate(page, 'AI')
-  await expect(personality.locator('textarea')).toHaveValue('Keep this personality draft')
+  await expect(ask).toHaveCount(0)
+  expect(await page.evaluate(() => Reflect.get(window, 'aiCalls'))).toEqual([['save_command_settings', 'ask', true, 3, 42, 'VIP']])
+  await navigate(page, 'Dashboard')
+  await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).toBeChecked()
 })
 
 test('the enabled value is unchanged while its save is pending', async ({ page }) => {

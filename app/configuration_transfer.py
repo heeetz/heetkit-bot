@@ -201,7 +201,7 @@ class ConfigurationTransfer:
                          for name in state.runtime_toggleable_commands
                          for value in (state.get_command_settings(name),)},
             "responses": {name: self.fun.snapshot(name)["responses"] for name in ("fate", "tg")},
-            "custom_commands": [item.to_json() for item in self.custom.list()],
+            "custom_commands": [item.to_json(include_order=False) for item in self.custom.list()],
             "personalities": asdict(state.get_personality_settings_snapshot()[0]),
             "ai": {"memory_enabled": state.ai_memory_enabled,
                    "provider": self.app.settings.ai_provider,
@@ -215,7 +215,7 @@ class ConfigurationTransfer:
                    "response_language": asdict(self.app.settings.ai_response_language)},
             "filters": {"words": list(words), "phrases": list(phrases), "patterns": [item.pattern for item in patterns]},
             "blocked_users": [asdict(item) for item in self.blocks.list()],
-            "triggers": [asdict(item) for item in self.triggers.list()],
+            "triggers": [item.to_json(include_order=False) for item in self.triggers.list()],
             "announcements": [item.to_json() for item in self.announcements.list()],
         }
 
@@ -246,6 +246,7 @@ class ConfigurationTransfer:
                                                  **value, "cooldown": policy, "permission": permission,
                                                  "aliases": tuple(_list(value["aliases"], 10))})
         customs = {}
+        existing_commands = {item.id: item for item in self.custom.list()}
         for raw in _list(payload["custom_commands"], 1000):
             if not isinstance(raw, dict) or set(raw) - {"id", "name", "enabled", "responses", "permission",
                     "per_user_seconds", "global_seconds", "aliases", "response_mode", "burst_count",
@@ -260,6 +261,8 @@ class ConfigurationTransfer:
                 if existing is not None:
                     raw = {**raw, "stream_availability": existing.stream_availability}
             command = parse_custom_command(raw)
+            if command.id in existing_commands:
+                command = replace(command, creation_order=existing_commands[command.id].creation_order)
             if command.id in customs:
                 raise ValueError("Duplicate custom command.")
             customs[command.id] = command
@@ -338,12 +341,13 @@ class ConfigurationTransfer:
             names.add(name)
             ids.add(identifier)
         triggers, used = [], set()
+        trigger_order = {item.id: item.creation_order for item in self.triggers.list()}
         for raw in _list(payload["triggers"], 100):
-            _fields(raw, _TRIGGER_FIELDS)
+            _fields(raw, _TRIGGER_FIELDS - {"creation_order"})
             trigger = parse_message_trigger(raw)
             if trigger.id in used:
                 raise ValueError("Duplicate trigger ID.")
-            triggers.append(trigger)
+            triggers.append(replace(trigger, creation_order=trigger_order.get(trigger.id, 0)))
             used.add(trigger.id)
         return SimpleNamespace(commands=commands, customs=customs, responses=responses,
                                personality=personality, ai=ai, setup=setup, language=language, filters=filters,
@@ -499,7 +503,7 @@ class ConfigurationTransfer:
             {"version": 2, "commands": [item.to_json() for item in parsed.customs.values()]},
             parsed.personality, fun_payload, app_payload,
             self.blocks._payload(()),
-            {"version": 1, "triggers": [asdict(item) for item in parsed.triggers]},
+            {"version": 1, "triggers": [item.to_json() for item in parsed.triggers]},
             {"version": 1, "announcements": [item.to_json() for item in parsed.announcements]},
         ]
         # Existing recovery rules refuse corrupt/future local stores. Exact import

@@ -223,8 +223,8 @@ test('long model, personality, alias and draft values wrap inside the 761px cont
 
   await nav.getByRole('button', { name: 'Commands', exact: true }).click()
   const ping = page.locator('#command-editor-ping')
-  await expect(ping).toContainText('alternate_command_4')
-  await ping.locator('.accordion-caret').click()
+  await expect(page.getByRole('rowheader').filter({ hasText: '!ping' })).toContainText('alternate_command_4')
+  await page.getByRole('button', { name: 'Edit !ping', exact: true }).click()
   await expect(ping.getByLabel('Aliases, separated by commas')).toHaveValue(/alternate_command_4/)
   await expectNoHorizontalOverflow(page)
 })

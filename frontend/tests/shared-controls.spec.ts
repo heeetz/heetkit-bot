@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test'
 
 for (const { section, id } of [
-  { section: 'Commands', id: 'command-editor-ask' },
   { section: 'Filters', id: 'filters-words' },
   { section: 'AI', id: 'ai-profile-instructions' },
   { section: 'Settings', id: 'twitch-settings' },
@@ -197,8 +196,8 @@ test('shared colors, control sizes, contrast and reduced motion follow A2', asyn
   ratios.slice(0, 5).forEach((ratio) => expect(ratio).toBeGreaterThanOrEqual(4.5))
   expect(ratios[5]).toBeGreaterThanOrEqual(3)
   await page.getByRole('navigation').getByRole('button', { name: 'Commands', exact: true }).click()
-  await page.locator('#command-editor-ask .accordion-trigger').click()
-  const cooldown = page.locator('#command-editor-ask input[type="number"]').first()
+  await page.getByRole('button', { name: 'Edit !ping', exact: true }).click()
+  const cooldown = page.locator('#command-editor-ping input[type="number"]').first()
   await cooldown.fill('-1')
   await expect(cooldown).toHaveCSS('border-color', 'rgb(248, 113, 113)')
 })
@@ -215,6 +214,6 @@ test('required setup, unsaved drafts and full-reset consequences stay visible', 
   await nav.getByRole('button', { name: 'Commands', exact: true }).click()
   await page.locator('.advanced-command-reset > summary').click()
   await page.getByRole('button', { name: 'Restore all factory defaults', exact: true }).click()
-  await expect(page.getByRole('dialog')).toContainText('Unsaved built-in drafts will be discarded')
+  await expect(page.getByRole('dialog')).toContainText('Each command keeps its current enabled state')
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
 })

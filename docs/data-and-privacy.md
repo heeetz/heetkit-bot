@@ -324,13 +324,12 @@ Handle a verified viewer request to stop storing their identifying data. Verify
 control of the Twitch account before you act. A viewer can also send `!optout`
 in chat to act on their own account.
 
-**In HeetKit:** **Commands > Administrative commands > !optout** on Desktop or Server.
+**In HeetKit** · **Commands > Storage opt-outs** on Desktop or Server.
 
 1. Open **Commands**.
-2. Find **Administrative commands**.
-3. Expand **!optout**.
-4. Enter the verified account's **Twitch username**.
-5. Select **Add**. **This erases stored presence and AI history across the
+2. Expand **Storage opt-outs**.
+3. Enter the verified account's **Twitch username**.
+4. Select **Add**. **This erases stored presence and AI history across the
    profile and stops future identifying storage for this account.**
 
 **Check:** Find the account under **Opted-out users**. Use **Refresh** to
@@ -489,7 +488,7 @@ provider keys separately on the destination.
    clears the old drafts.
 
 **Check:** Check the import result and reopen a feature you transferred, such
-as **Your commands**. Check its saved settings before testing it in chat.
+as the **Command list**. Check its saved settings before testing it in chat.
 
 ### What transfers
 

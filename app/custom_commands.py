@@ -10,12 +10,13 @@ import random
 import re
 import tempfile
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from threading import RLock
 from uuid import UUID, uuid4
 
 from app.twitch.permissions import Permission
+from app.command_order import CommandCreationOrder, parse_creation_order
 from app.command_settings import validate_burst_interval, validate_send_as, validate_stream_availability
 from app.settings_recovery import preserve_settings_recovery
 from app.utils.cooldown import CooldownPolicy
@@ -45,8 +46,9 @@ class CustomCommand:
     burst_interval_ms: int = 0
     stream_availability: str = "anytime"
     send_as: str = "chat"
+    creation_order: int = 0
 
-    def to_json(self) -> dict[str, object]:
+    def to_json(self, *, include_order: bool = True) -> dict[str, object]:
         result: dict[str, object] = {
             "id": self.id,
             "name": self.name,
@@ -66,6 +68,8 @@ class CustomCommand:
             result["stream_availability"] = self.stream_availability
         if self.send_as != "chat":
             result["send_as"] = self.send_as
+        if include_order and self.creation_order:
+            result["creation_order"] = self.creation_order
         return result
 
 
@@ -158,6 +162,7 @@ def parse_custom_command(raw: object, *, command_id: str | None = None, legacy: 
         burst_interval_ms=burst_interval_ms,
         stream_availability=validate_stream_availability(raw.get("stream_availability", "anytime")),
         send_as=validate_send_as(raw.get("send_as", "chat")),
+        creation_order=parse_creation_order(raw.get("creation_order", 0)),
     )
 
 
@@ -175,7 +180,8 @@ def render_response(command: CustomCommand, arguments: str, sender: str, random_
 class CustomCommandStore:
     """Keep immutable command snapshots behind one lock; publish after atomic save."""
 
-    def __init__(self, path: Path, built_in_names: set[str], *, namespace_lock=None) -> None:
+    def __init__(self, path: Path, built_in_names: set[str], *, namespace_lock=None,
+                 creation_order: CommandCreationOrder | None = None) -> None:
         self._path = path
         self._built_in_names = built_in_names | {"optout"}
         self._builtin_names_provider: Callable[[], set[str]] | None = None
@@ -183,6 +189,7 @@ class CustomCommandStore:
         self._commands: dict[str, CustomCommand] = {}
         self._lookup: dict[str, str] = {}
         self._schema_version = SCHEMA_VERSION
+        self._creation_order = creation_order or CommandCreationOrder()
         self._load()
 
     def list(self) -> tuple[CustomCommand, ...]:
@@ -203,7 +210,9 @@ class CustomCommandStore:
             if requested_id is not None:
                 current = self._commands[requested_id]
                 raw = {"stream_availability": current.stream_availability, "send_as": current.send_as, **raw}
-            command = parse_custom_command(raw, command_id=requested_id or str(uuid4()))
+            command = parse_custom_command({**raw, "creation_order": 0}, command_id=requested_id or str(uuid4()))
+            order = self._commands[requested_id].creation_order if requested_id is not None else self._creation_order.next()
+            command = replace(command, creation_order=order)
             updated = dict(self._commands)
             updated[command.id] = command
             self._validate_collisions(updated)
@@ -233,6 +242,7 @@ class CustomCommandStore:
             self._builtin_names_provider = provider
 
     def _publish(self, commands: dict[str, CustomCommand]) -> None:
+        self._creation_order.observe(max((command.creation_order for command in commands.values()), default=0))
         self._commands = commands
         self._lookup = {name: command.id for command in commands.values() for name in (command.name, *command.aliases)}
 

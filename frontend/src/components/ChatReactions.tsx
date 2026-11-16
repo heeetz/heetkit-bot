@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { waitForBridge, type ChatReaction, type ChatReactionsResponse } from '../bridge'
-import Confirmation from './Confirmation'
+import type { FormEvent } from 'react'
+import type { ChatReaction } from '../bridge'
 import HelpTip from './HelpTip'
 import { Select } from './Select'
 import Switch from './Switch'
 
-type Draft = Omit<ChatReaction, 'probability' | 'cooldown_seconds' | 'responses'> & {
+export type ReactionDraft = Omit<ChatReaction, 'probability' | 'cooldown_seconds' | 'responses' | 'creation_order'> & {
   probability: string
   cooldown_seconds: string
   responses: string
@@ -13,128 +12,52 @@ type Draft = Omit<ChatReaction, 'probability' | 'cooldown_seconds' | 'responses'
 }
 
 const matchModes = [{ value: 'exact', label: 'Exact' }, { value: 'contains', label: 'Contains' }]
-const matchLabel = (mode: ChatReaction['match_mode']) => mode === 'exact' ? 'Exact' : 'Contains'
-const probabilityText = (probability: number) => String(Number((probability * 100).toPrecision(15)))
-const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, '0')).join('')
+export const probabilityText = (probability: number) => String(Number((probability * 100).toPrecision(15)))
 
-export default function ChatReactions({ active }: { active: boolean }) {
-  const [data, setData] = useState<ChatReactionsResponse | null>(null)
-  const [draft, setDraft] = useState<Draft | null>(null)
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [confirmRemove, setConfirmRemove] = useState(false)
-  const request = useRef(0)
-  const editor = useRef<HTMLFormElement>(null)
-  const matchText = useRef<HTMLInputElement>(null)
+export function reactionDraftFrom(rule: ChatReaction, position: number): ReactionDraft {
+  const { creation_order: _, ...values } = rule
+  return { ...values, probability: probabilityText(rule.probability), cooldown_seconds: String(rule.cooldown_seconds),
+    responses: rule.responses.join('\n'), position }
+}
 
-  const load = async () => {
-    const current = ++request.current
-    setError('')
-    setBusy(true)
-    try {
-      const response = await (await waitForBridge()).get_message_triggers()
-      if (!response.ok) throw new Error(response.error ?? 'Could not load chat reactions.')
-      if (current === request.current) setData(response)
-    } catch (reason) {
-      if (current === request.current) setError(reason instanceof Error ? reason.message : 'Could not load chat reactions.')
-    } finally {
-      if (current === request.current) setBusy(false)
-    }
-  }
+export function newReactionDraft(position: number): ReactionDraft {
+  const id = Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, '0')).join('')
+  return { id, text: '', enabled: true, case_sensitive: false, match_mode: 'contains',
+    probability: '100', cooldown_seconds: '0', responses: '', position }
+}
 
-  const hasData = data !== null
-  useEffect(() => {
-    if (active && !hasData) void load()
-    return () => { ++request.current }
-  }, [active, hasData])
-
-  useEffect(() => {
-    if (!active || !draft?.id) return
-    editor.current?.scrollIntoView({ block: 'start' })
-    matchText.current?.focus({ preventScroll: true })
-  }, [active, draft?.id])
-
-  const update = (change: Partial<Draft>) => setDraft((current) => current && { ...current, ...change })
-  const position = draft && data ? data.triggers.findIndex((rule) => rule.id === draft.id) : -1
-  const original = data?.triggers[position]
-  useRestartDraft('Chat reactions', Boolean(draft && (!original || draft.position !== position
-    || draft.text !== original.text || draft.enabled !== original.enabled || draft.match_mode !== original.match_mode
-    || draft.case_sensitive !== original.case_sensitive || draft.probability !== probabilityText(original.probability)
-    || draft.cooldown_seconds !== String(original.cooldown_seconds) || draft.responses !== original.responses.join('\n'))))
-  const persist = async (rules: ChatReaction[]) => {
-    if (!data || busy) return
-    setError('')
-    setBusy(true)
-    try {
-      const result = await (await waitForBridge()).save_message_triggers(rules, data.revision)
-      if (!result.ok) throw new Error(result.error ?? 'Could not save chat reactions.')
-      setData(result)
-      setDraft(null)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not save chat reactions.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const save = (event: FormEvent) => {
-    event.preventDefault()
-    if (!data || !draft) return
-    const { position: nextPosition, ...values } = draft
-    const original = data.triggers[position]
-    const rules = data.triggers.filter((rule) => rule.id !== draft.id)
-    rules.splice(nextPosition, 0, {
-      ...values,
-      probability: original && draft.probability === probabilityText(original.probability)
-        ? original.probability : Number(draft.probability) / 100,
-      cooldown_seconds: Number(draft.cooldown_seconds),
-      responses: draft.responses.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
-    })
-    void persist(rules)
-  }
-
-  return <section className="card command-editor-card" id="chat-reactions" aria-busy={busy}>
-    <div className="section-heading">
-      <div><h2>Chat reactions</h2><p className="section-copy">Respond to matching chat messages. Rules are checked from top to bottom.</p></div>
-      {!draft && <button className="primary" disabled={!data || busy || data.triggers.length >= 100} onClick={() => {
-        setError('')
-        setDraft({ id: newId(), text: '', enabled: true, case_sensitive: false, match_mode: 'contains',
-          probability: '100', cooldown_seconds: '0', responses: '', position: data!.triggers.length })
-      }}>New reaction</button>}
-    </div>
-    {error && <p className="custom-editor-error" role="alert">{error}</p>}
-    {error && !draft && <button className="secondary" disabled={busy} onClick={() => void load()}>Reload reactions</button>}
-    {confirmRemove && <Confirmation title="Remove chat reaction?" description={`Remove the reaction for “${data?.triggers[position]?.text}”?`} danger
-      onCancel={() => setConfirmRemove(false)} onConfirm={() => {
-        setConfirmRemove(false)
-        if (data && draft) void persist(data.triggers.filter((rule) => rule.id !== draft.id))
-      }} />}
-    {draft && data && <form ref={editor} className="custom-command-editor" id="chat-reaction-editor" onSubmit={save}>
+export default function ChatReactions({ draft, count, position, busy, update, onSave, onClose }: {
+  draft: ReactionDraft
+  count: number
+  position: number
+  busy: boolean
+  update: (change: Partial<ReactionDraft>) => void
+  onSave: (event: FormEvent) => void
+  onClose: () => void
+}) {
+  return <form className="custom-command-editor" onSubmit={onSave}>
       <fieldset className="reaction-fields" disabled={busy}>
-        <div className="section-heading reaction-editor-heading">
-          <h3>{position < 0 ? 'Add reaction' : 'Edit reaction'}</h3>
-          {position >= 0 && <div className="row-actions reaction-order">
+        {position >= 0 && <div className="row-actions reaction-order">
             <div className="custom-field-label">
-              <span className="muted" aria-live="polite">Position {draft.position + 1} of {data.triggers.length}</span>
-              <HelpTip label="Reaction order">HeetKit checks reactions from top to bottom. The first eligible reaction responds. Move up checks this rule earlier. Move down checks it later. Save reaction applies the new order.</HelpTip>
+              <span className="muted" aria-live="polite">Priority {draft.position + 1} of {count}</span>
+              <HelpTip label="Reaction priority">HeetKit checks reactions from top to bottom. The first eligible reaction responds. Move up checks this rule earlier. Move down checks it later. Save reaction applies the new order.</HelpTip>
             </div>
             <div className="row-actions">
               <button type="button" className="secondary" disabled={draft.position === 0} onClick={() => update({ position: draft.position - 1 })}>Move up</button>
-              <button type="button" className="secondary" disabled={draft.position >= data.triggers.length - 1} onClick={() => update({ position: draft.position + 1 })}>Move down</button>
+              <button type="button" className="secondary" disabled={draft.position >= count - 1} onClick={() => update({ position: draft.position + 1 })}>Move down</button>
             </div>
           </div>}
-        </div>
         <Switch className="custom-command-enabled" checked={draft.enabled} ariaLabel="Enable chat reaction" onCheckedChange={(enabled) => update({ enabled })}>
           <span>{draft.enabled ? 'Enabled' : 'Disabled'}</span>
         </Switch>
         <div className="custom-command-fields">
           <div className="form-field">
             <div className="custom-field-label"><label htmlFor="reaction-text">Match text</label><HelpTip label="Match text">Enter up to 100 characters from an ordinary chat message.</HelpTip></div>
-            <input ref={matchText} id="reaction-text" value={draft.text} onChange={(event) => update({ text: event.target.value })} required maxLength={100} />
+            <input data-editor-focus id="reaction-text" value={draft.text} onChange={(event) => update({ text: event.target.value })} required maxLength={100} />
           </div>
           <div className="form-field">
             <div className="custom-field-label"><label htmlFor="reaction-mode">Match mode</label><HelpTip label="Match mode">Exact matches the whole message. Contains matches anywhere in the message.</HelpTip></div>
-            <Select id="reaction-mode" value={draft.match_mode} options={matchModes} onChange={(mode) => update({ match_mode: mode as Draft['match_mode'] })} />
+            <Select id="reaction-mode" value={draft.match_mode} options={matchModes} onChange={(mode) => update({ match_mode: mode as ReactionDraft['match_mode'] })} />
           </div>
         </div>
         <div className="custom-command-fields custom-command-settings">
@@ -157,29 +80,12 @@ export default function ChatReactions({ active }: { active: boolean }) {
         </div>
         <div className="command-editor-actions">
           <div className="command-action-footer">
-            {position >= 0 && <button type="button" className="ghost destructive" onClick={() => setConfirmRemove(true)}>Remove reaction</button>}
             <div className="command-action-group">
               <button className="primary" type="submit">Save reaction</button>
-              <button className="secondary" type="button" onClick={() => { setDraft(null); void load() }}>Discard and close</button>
+              <button className="secondary" type="button" onClick={onClose}>Cancel</button>
             </div>
           </div>
         </div>
       </fieldset>
-    </form>}
-    {data && !data.triggers.length && !draft && <p className="muted">No chat reactions yet.</p>}
-    <div className="custom-command-list">
-      {data?.triggers.map((rule, index) => <article className="custom-command-row" key={rule.id}>
-        <div className="custom-command-summary">
-          <div className="custom-command-heading"><strong>{rule.text}</strong><span className={`state-pill ${rule.enabled ? 'enabled' : ''}`}>{rule.enabled ? 'Enabled' : 'Disabled'}</span></div>
-          <p className="command-meta">{matchLabel(rule.match_mode)}</p>
-        </div>
-        <button className="secondary" disabled={busy || Boolean(draft)} onClick={() => {
-          setError('')
-          setDraft({ ...rule, position: index, probability: probabilityText(rule.probability),
-            cooldown_seconds: String(rule.cooldown_seconds), responses: rule.responses.join('\n') })
-        }}>Edit</button>
-      </article>)}
-    </div>
-  </section>
+  </form>
 }
-import { useRestartDraft } from '../desktopRestart'

@@ -10,6 +10,7 @@ from app.commands.fun import register_fun_commands
 from app.commands.info import register_info_commands, register_weather_commands
 from app.commands.social import register_social_commands
 from app.commands.registry import CommandDispatcher, CommandRegistry
+from app.command_order import CommandCreationOrder
 from app.custom_commands import CustomCommandStore
 from app.announcements import AnnouncementStore, AnnouncementScheduler
 from app.ai_user_blocks import AIUserBlocklist
@@ -129,10 +130,12 @@ def build_application(settings: Settings) -> Application:
     register_ai_commands(registry)
     register_social_commands(registry)
     runtime_state.configure_commands(registry.definitions())
+    creation_order = CommandCreationOrder()
     custom_commands = CustomCommandStore(
         paths.custom_commands,
         {name for definition in registry.definitions() for name in (definition.name, *definition.aliases)},
         namespace_lock=runtime_state.command_namespace_lock,
+        creation_order=creation_order,
     )
     runtime_state.bind_custom_commands(custom_commands)
     services = ApplicationServices(
@@ -151,7 +154,7 @@ def build_application(settings: Settings) -> Application:
         analytics=analytics,
     )
     services.command_restrictions.migrate_ai_blocks(services.ai_user_blocks, settings.twitch_channel_user_id)
-    message_triggers = MessageTriggerStore(paths.message_triggers)
+    message_triggers = MessageTriggerStore(paths.message_triggers, creation_order=creation_order)
     dispatcher = CommandDispatcher(
         registry=registry,
         cooldowns=CooldownManager(),

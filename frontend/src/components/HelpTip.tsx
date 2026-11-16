@@ -203,7 +203,7 @@ export default function HelpTip({ label, children, className = '' }: HelpTipProp
         >
           {children}
         </div>,
-        document.body,
+        trigger.current?.closest('dialog') ?? document.body,
       )}
     </>
   )

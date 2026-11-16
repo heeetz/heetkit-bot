@@ -196,6 +196,79 @@ td { color: var(--text); }
 .update-actions button { max-width: 100%; }
 .command-editor-card { min-height: 0; }
 .commands-layout { display: grid; gap: var(--space-4); }
+.command-list-card { min-width: 0; container: command-list / inline-size; }
+.command-list-toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+.command-list-toolbar input { flex: 1 1 220px; min-width: 0; padding: 9px 12px; border: 1px solid var(--input-border); border-radius: 9px; color: var(--text); background: var(--page); font: inherit; }
+.command-list-filters, .command-list-create { display: flex; flex-wrap: wrap; gap: 8px; }
+.command-list-filters .select-trigger { width: auto; min-width: 96px; }
+.command-list-create { margin-left: auto; }
+.command-list-frame { border: 1px solid var(--separator); border-radius: 10px; overflow: hidden; }
+.unified-command-table { width: 100%; table-layout: fixed; border-collapse: collapse; text-align: left; }
+.command-state-column { width: 76px; }
+.command-name-column { width: 22%; }
+.command-type-column { width: 92px; }
+.command-access-column { width: 100px; }
+.command-action-column { width: 135px; }
+.unified-command-table :is(td, th) { padding: 9px 12px; vertical-align: middle; border: 0; overflow-wrap: anywhere; }
+.unified-command-table thead th { background: var(--hover); }
+.unified-command-table thead { background: var(--hover); color: var(--muted); font-size: 12px; }
+.unified-command-table tbody tr { border-top: 1px solid var(--separator); }
+.unified-command-table tbody tr:hover, .unified-command-table tbody tr:focus-within { background: var(--hover); }
+.unified-command-table .command-list-name { font-weight: 400; color: var(--text); background: transparent; }
+.unified-command-table .command-list-name strong { font-weight: 700; }
+.unified-command-table small { display: block; color: var(--muted); line-height: 1.35; margin-top: 2px; }
+.unified-command-table .command-list-response small { color: #f0c66b; }
+.command-list-response > span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.command-list-type, .command-list-access { font-size: 12px; }
+.command-type-label { display: inline-block; border: 1px solid var(--separator); border-radius: 6px; padding: 1px 6px; }
+.command-type-label.type-custom { color: #d6c4fe; border-color: #665498; }
+.command-type-label.type-reaction { color: #a7e5d9; border-color: #32796a; }
+.command-list-actions { text-align: right; white-space: nowrap; }
+.command-list-actions button { padding: 5px 9px; }
+.command-list-actions button + button { margin-left: 4px; }
+.command-list-state .switch-content { display: none; }
+.command-list-empty { margin: 0; padding: 14px; border: 1px dashed var(--separator); border-radius: 10px; }
+.unified-command-table .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.command-editor-dialog { width: min(760px, calc(100vw - 28px)); max-height: calc(100dvh - 28px); padding: 0; border: 1px solid var(--separator); border-radius: 14px; color: var(--text); background: var(--panel); box-shadow: 0 22px 70px #0009; overflow: visible; }
+.command-editor-dialog[open] { display: flex; flex-direction: column; }
+.command-editor-dialog::backdrop { background: rgba(5, 8, 14, .74); }
+.command-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--separator); }
+.command-dialog-heading > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.command-dialog-heading h2 { font-size: 21px; margin: 0; overflow-wrap: anywhere; }
+.command-dialog-close { flex: none; font-size: 18px; line-height: 1; }
+.command-dialog-error { margin: 0; padding: 8px 20px; color: var(--error); border-bottom: 1px solid var(--separator); overflow-wrap: anywhere; }
+.command-dialog-body { min-height: 0; overflow: auto; overscroll-behavior: contain; border-radius: 0 0 14px 14px; }
+.command-editor-dialog .custom-command-editor, .command-editor-dialog .command-details { padding: 16px 20px; margin: 0; border: 0; border-radius: 0; }
+.command-editor-dialog .command-enabled-toggle { padding-top: 0; }
+.command-editor-dialog fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.command-editor-dialog .reaction-order { justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.command-editor-dialog .command-editor-actions { position: sticky; bottom: 0; z-index: 4; background: var(--panel); margin-inline: -20px; padding: 12px 20px; }
+.command-editor-dialog :is(.custom-command-editor, .command-details) { padding-bottom: 0; }
+@container command-list (max-width: 645px) {
+  .command-list-toolbar { justify-content: flex-end; }
+  .command-list-filters, .command-list-create { justify-content: flex-end; margin-left: auto; }
+  .unified-command-table, .unified-command-table tbody { display: block; }
+  .unified-command-table colgroup { display: none; }
+  .unified-command-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .unified-command-table tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "name state edit" "type type access" "response response response"; align-items: center; gap: 6px 12px; padding: 10px; }
+  .unified-command-table tbody tr:first-child { border-top: 0; }
+  .unified-command-table :is(td, th) { display: block; min-width: 0; padding: 0; }
+  .command-list-name { grid-area: name; }
+  .command-list-state { grid-area: state; }
+  .command-list-actions { grid-area: edit; }
+  .command-list-type { grid-area: type; }
+  .command-list-access { grid-area: access; text-align: right; }
+  .command-list-response { grid-area: response; }
+}
+@container command-list (max-width: 395px) {
+  .command-list-toolbar input { flex-basis: 100%; }
+  .command-list-filters { width: min(100%, 300px); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.28fr); }
+  .commands-layout .command-list-filters .select-trigger { width: 100%; min-width: 0; padding-inline: 6px; gap: 4px; font-size: 12px; }
+}
+@media (max-width: 560px) {
+  .command-editor-dialog .command-action-footer { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .command-editor-dialog .command-action-group { width: auto; }
+}
 .command-list { display: grid; gap: 12px; }
 .command-card { min-width: 0; border: 1px solid var(--separator); border-radius: 11px; background: var(--panel); overflow: hidden; }
 .command-card.dirty { border-color: var(--primary); box-shadow: inset 3px 0 var(--primary); }

@@ -1207,6 +1207,7 @@ def test_bridge_gets_commands_from_registry_and_effective_runtime_settings() -> 
         minimum_permission=Permission.BROADCASTER,
         identity_editable=False,
         supports_send_as=False, default_send_as="chat",
+            description="Delete a viewer’s AI memory for this channel.",
         help_text=None,
     )
     settings = SimpleNamespace(
@@ -1248,6 +1249,7 @@ def test_bridge_gets_commands_from_registry_and_effective_runtime_settings() -> 
                 "display_name": "", "removed": False, "burst_interval_ms": 0, "burst_max_count": 10,
                 "minimum_permission": "BROADCASTER", "identity_editable": False,
                 "supports_send_as": False, "default_send_as": "chat", "send_as": None,
+                "description": "Delete a viewer’s AI memory for this channel.",
                 "help_text": "!erase",
                 "enabled": False,
                 "available": True,
@@ -1627,7 +1629,7 @@ def test_bridge_ai_toggle_does_not_reenable_removed_ask(tmp_path) -> None:
     bridge, state = build_ai_bridge(tmp_path)
     state.remove_builtin_command("ask")
     assert bridge.set_ai_enabled(True) == {
-        "ok": False, "error": "Restore !ask in Commands before enabling it.",
+        "ok": False, "error": "Find the AI command under Disabled in Commands and enable it there.",
     }
     _, restarted = build_ai_bridge(tmp_path)
     assert restarted.get_command_settings("ask").removed

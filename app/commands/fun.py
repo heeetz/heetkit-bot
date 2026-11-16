@@ -43,6 +43,7 @@ def register_fun_commands(registry: CommandRegistry, fun_settings: FunSettingsSt
     fun_settings = fun_settings or FunSettingsStore(RuntimePaths.default().config / "fun_settings.json")
     @registry.command(
         "ping",
+        description="Check that HeetKit responds.",
         help_text="!ping",
         cooldown=CooldownPolicy(global_seconds=PING_COOLDOWN_SECONDS),
         required_permission=Permission.MODERATOR,
@@ -52,6 +53,7 @@ def register_fun_commands(registry: CommandRegistry, fun_settings: FunSettingsSt
 
     @registry.command(
         "tg",
+        description="Send the saved community message.",
         supports_send_as=False,
         help_text="!tg [1-20]",
         required_permission=Permission.MODERATOR,
@@ -69,6 +71,7 @@ def register_fun_commands(registry: CommandRegistry, fun_settings: FunSettingsSt
 
     @registry.command(
         "fate",
+        description="Send a random prediction.",
         default_send_as="mention",
         help_text="!fate",
         cooldown=CooldownPolicy(global_seconds=FATE_COOLDOWN_SECONDS),

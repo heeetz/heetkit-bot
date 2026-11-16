@@ -40,8 +40,8 @@ test('the selected top-level page alone expands its submenu, and repeated clicks
 
 const destinations = [
   { section: 'Commands', children: [
-    ['Your commands', 'custom-commands'], ['Chat reactions', 'chat-reactions'], ['Announcements', 'announcements'], ['Built-in commands', 'builtin-commands'], ['User restrictions', 'command-restrictions'],
-    ['Removed commands', 'removed-commands'], ['Administrative commands', 'administrative-commands'],
+    ['Command list', 'command-list'], ['Announcements', 'announcements'],
+    ['User restrictions', 'command-restrictions'], ['Storage opt-outs', 'optout-management'],
     ['Advanced: reset all built-ins', 'advanced-command-reset'],
   ] },
   { section: 'Filters', children: [

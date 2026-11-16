@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 from app.ai_user_blocks import normalize_ai_username, verified_user_id
 from app.app_settings import AISettings, AppSettingsStore
-from app.command_settings import CommandSettings
+from app.command_settings import CommandNameConflict, CommandSettings
 from app.commands.registry import command_unavailable_reason
 from app.config.ai_language import RESPONSE_LANGUAGES, build_response_language_instruction
 from app.config.ai_models import (GEMINI_MODEL_PRESETS, AI_PROVIDERS, DEFAULT_DEEPSEEK_MODEL,
@@ -431,6 +431,7 @@ class ApplicationManagement:
                     "supports_send_as": definition.supports_send_as,
                     "send_as": settings.send_as,
                     "default_send_as": definition.default_send_as,
+                    "description": definition.description,
                     "help_text": f"{application.settings.command_prefix}{settings.primary_name}"
                     + (" " + definition.help_text.partition(" ")[2] if definition.help_text and " " in definition.help_text else ""),
                     "enabled": settings.enabled,
@@ -503,7 +504,7 @@ class ApplicationManagement:
 
     @staticmethod
     def _trigger_snapshot(triggers) -> dict[str, object]:
-        return {"ok": True, "triggers": [asdict(trigger) for trigger in triggers],
+        return {"ok": True, "triggers": [trigger.to_json() for trigger in triggers],
                 "revision": trigger_revision(triggers)}
 
     def get_message_triggers(self) -> dict[str, object]:
@@ -687,10 +688,12 @@ class ApplicationManagement:
                 enabled=parsed_enabled,
                 cooldown=cooldown,
                 permission=parsed_permission,
-                **self._parse_command_options(options),
+                **self._parse_command_options(options, saving=True),
             )
         except KeyError:
             return {"ok": False, "error": "Unknown command."}
+        except CommandNameConflict as error:
+            return {"ok": False, "error": str(error), "code": "command_name_conflict"}
         except (TypeError, ValueError) as error:
             return {"ok": False, "error": str(error)}
         except (OSError, RuntimeError):
@@ -707,10 +710,12 @@ class ApplicationManagement:
         )
         return {"ok": True}
 
-    def reset_command_settings(self, command_name: str) -> dict[str, object]:
+    def reset_command_settings(self, command_name: str, preserve_enabled: bool = False) -> dict[str, object]:
+        if type(preserve_enabled) is not bool:
+            return {"ok": False, "error": "Preserve enabled must be a boolean."}
         try:
             self._backend.application.services.runtime_state.reset_command_settings(
-                command_name
+                command_name, preserve_enabled=preserve_enabled,
             )
         except (KeyError, TypeError):
             return {"ok": False, "error": "Unknown command."}
@@ -730,16 +735,20 @@ class ApplicationManagement:
         )
         return {"ok": True}
 
-    def _parse_command_options(self, options: object) -> dict[str, object]:
+    def _parse_command_options(self, options: object, *, saving: bool = False) -> dict[str, object]:
         if options is None:
             return {}
         allowed = ("primary_name", "aliases", "display_name", "burst_interval_ms", "burst_max_count", "send_as")
+        if saving:
+            allowed += ("reactivate_removed",)
         if self._backend.application.services.runtime_state.server_runtime:
             allowed += ("stream_availability",)
         if not isinstance(options, dict) or any(key not in allowed for key in options):
             raise ValueError("Unknown command editor settings.")
         if any(value is None for value in options.values()):
             raise ValueError("Command editor settings cannot be null.")
+        if "reactivate_removed" in options and type(options["reactivate_removed"]) is not bool:
+            raise ValueError("Reactivate removed must be a boolean.")
         return options
 
     def remove_builtin_command(self, command_name: str) -> dict[str, object]:
@@ -757,10 +766,28 @@ class ApplicationManagement:
     def restore_builtin_command(self, command_name: str) -> dict[str, object]:
         return self.reset_command_settings(command_name)
 
-    def reset_all_builtin_commands(self) -> dict[str, object]:
+    def save_builtin_enabled(self, command_name: str, enabled: object) -> dict[str, object]:
+        if type(enabled) is not bool:
+            return {"ok": False, "error": "Enabled must be a boolean."}
+        try:
+            self._backend.application.services.runtime_state.save_builtin_enabled(command_name, enabled)
+        except (KeyError, TypeError):
+            return {"ok": False, "error": "Unknown command."}
+        except CommandNameConflict as error:
+            return {"ok": False, "error": str(error), "code": "command_name_conflict"}
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except (OSError, RuntimeError):
+            self._logger.exception("Could not save built-in command status")
+            return {"ok": False, "error": "Could not save command status."}
+        return {"ok": True}
+
+    def reset_all_builtin_commands(self, preserve_enabled: bool = False) -> dict[str, object]:
+        if type(preserve_enabled) is not bool:
+            return {"ok": False, "error": "Preserve enabled must be a boolean."}
         application = self._backend.application
         try:
-            application.services.runtime_state.reset_all_command_settings()
+            application.services.runtime_state.reset_all_command_settings(preserve_enabled=preserve_enabled)
         except (ValueError, TypeError, OSError, RuntimeError) as error:
             self._logger.warning("Could not restore factory command settings error_type=%s", type(error).__name__)
             return {"ok": False, "error": "Could not restore factory command settings. Back up and repair the profile if needed."}

@@ -104,7 +104,7 @@ FRONTEND_OPERATIONS = (
     "get_filters", "get_ai_status", "get_personalities", "get_recent_logs",
     "start_ai_playground", "get_ai_playground_result", "cancel_ai_playground",
     "apply_command_settings", "save_command_settings", "reset_command_settings",
-    "remove_builtin_command", "restore_builtin_command", "reset_all_builtin_commands",
+    "remove_builtin_command", "restore_builtin_command", "save_builtin_enabled", "reset_all_builtin_commands",
     "apply_command_responses", "save_command_responses", "reset_command_responses",
     "save_custom_command", "delete_custom_command", "apply_filters", "save_filters", "test_filters",
     "set_ai_enabled", "set_ai_memory_enabled", "apply_personality", "create_personality",

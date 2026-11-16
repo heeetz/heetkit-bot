@@ -51,6 +51,7 @@ def command_help_page(entries: tuple[str, ...], invocation: str, arguments: str)
 def register_weather_commands(registry: CommandRegistry) -> None:
     @registry.command(
         "weather",
+        description="Show current weather for a city.",
         default_send_as="mention",
         help_text="!weather <city>",
         cooldown=CooldownPolicy(global_seconds=WEATHER_COOLDOWN_SECONDS),
@@ -100,6 +101,7 @@ def register_info_commands(registry: CommandRegistry) -> None:
 
     @registry.command(
             "help",
+            description="List public command help.",
             help_text="!help [page]",
             cooldown=CooldownPolicy(global_seconds=HELP_COOLDOWN_SECONDS),
         )
@@ -108,6 +110,7 @@ def register_info_commands(registry: CommandRegistry) -> None:
 
     @registry.command(
         "commands",
+        description="List public command help.",
         help_text="!commands [page]",
         required_permission=Permission.MODERATOR,
         cooldown=CooldownPolicy(global_seconds=COMMANDS_COOLDOWN_SECONDS),
@@ -117,6 +120,7 @@ def register_info_commands(registry: CommandRegistry) -> None:
 
     @registry.command(
         "uptime",
+        description="Show how long HeetKit has been running.",
         help_text="!uptime",
         required_permission=Permission.MODERATOR,
         cooldown=CooldownPolicy(global_seconds=UPTIME_COOLDOWN_SECONDS),
