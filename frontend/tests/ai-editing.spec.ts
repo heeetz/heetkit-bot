@@ -396,8 +396,7 @@ for (const width of [1280, 390, 320]) {
     const profile = await openAIBehaviorSection(page, 'Profile instructions')
     const dialog = aiBehaviorDialog(page)
     const profileBox = (await dialog.boundingBox())!
-    expect(profileBox.height).toBeGreaterThanOrEqual(360)
-    expect(profileBox.height).toBeLessThan(height - 28)
+    expect(profileBox.height).toBe(560)
     const sections = dialog.getByRole('navigation', { name: 'AI behavior sections' })
     const sectionBox = (await sections.boundingBox())!
     const fieldsBox = (await profile.locator('.ai-behavior-fields').boundingBox())!
@@ -406,7 +405,7 @@ for (const width of [1280, 390, 320]) {
 
     const languages = await openAIBehaviorSection(page, 'Response languages')
     const languageBox = (await dialog.boundingBox())!
-    expect(languageBox.height).toBeGreaterThanOrEqual(profileBox.height)
+    expect(languageBox.height).toBe(profileBox.height)
     expect(languageBox.height).toBeLessThanOrEqual(height - 28)
     await page.setViewportSize({ width, height: 480 })
     const save = languages.getByRole('button', { name: 'Save language settings' })

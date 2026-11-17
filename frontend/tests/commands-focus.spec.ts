@@ -17,6 +17,7 @@ for (const width of [1280, 900, 390, 320]) {
     await expect(name).toBeInViewport()
     await expect(editor.getByRole('button', { name: 'Save command' })).toBeInViewport()
     const bounds = (await editor.boundingBox())!
+    expect(bounds.height).toBe(560)
     expect(bounds.x).toBeGreaterThanOrEqual(0)
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(width)
     expect(bounds.y).toBeGreaterThanOrEqual(0)
@@ -34,8 +35,10 @@ for (const width of [1280, 900, 390, 320]) {
     const edit = page.getByRole('button', { name: 'Edit !fate', exact: true })
     await edit.press('Enter')
     const builtin = page.locator('#command-editor-fate')
+    const builtinHeight = (await builtin.boundingBox())!.height
     await expect(builtin.getByLabel('Primary chat name', { exact: true })).toBeFocused()
     await openEditorSection(builtin, 'Access & aliases')
+    expect((await builtin.boundingBox())!.height).toBe(builtinHeight)
     const permission = builtin.getByRole('combobox', { name: 'Permission', exact: true })
     await selectOption(permission, 'VIP')
     await builtin.getByRole('button', { name: 'Save command', exact: true }).click()

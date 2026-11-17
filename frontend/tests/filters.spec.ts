@@ -168,8 +168,13 @@ for (const width of [1280, 900, 390, 320]) {
   test(`large rule lists fit the grouped editor at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 620 })
     await page.goto('/tests/filters.fixture.html?large')
+    let editorHeight = 0
     for (const [section, count] of [['Blocked words', 80], ['Blocked phrases', 65], ['Regex patterns', 19]] as const) {
       const text = await openSection(page, section)
+      const height = (await dialog(page).boundingBox())!.height
+      expect(height).toBe(560)
+      if (editorHeight) expect(height).toBe(editorHeight)
+      editorHeight = height
       await expect(dialog(page).getByRole('textbox')).toHaveCount(1)
       await expect(dialog(page).getByText(`${count} rules`, { exact: true })).toBeVisible()
       await expect(text).toBeInViewport()

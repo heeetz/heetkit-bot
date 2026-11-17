@@ -229,7 +229,7 @@ td { color: var(--text); }
 .command-list-state .switch-content { display: none; }
 .command-list-empty { margin: 0; padding: 14px; border: 1px dashed var(--separator); border-radius: 10px; }
 .unified-command-table .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.command-editor-dialog { width: min(860px, calc(100vw - 28px)); max-height: calc(100dvh - 28px); padding: 0; border: 1px solid var(--separator); border-radius: 14px; color: var(--text); background: var(--panel); box-shadow: 0 22px 70px #0009; overflow: visible; }
+.command-editor-dialog { width: min(860px, calc(100vw - 28px)); height: min(560px, calc(100dvh - 28px)); max-height: calc(100dvh - 28px); padding: 0; border: 1px solid var(--separator); border-radius: 14px; color: var(--text); background: var(--panel); box-shadow: 0 22px 70px #0009; overflow: visible; }
 .command-editor-dialog[open] { display: flex; flex-direction: column; }
 .command-editor-dialog::backdrop { background: rgba(5, 8, 14, .74); }
 .command-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--separator); }
@@ -237,8 +237,8 @@ td { color: var(--text); }
 .command-dialog-heading h2 { font-size: 21px; margin: 0; overflow-wrap: anywhere; }
 .command-dialog-close { flex: none; font-size: 18px; line-height: 1; }
 .command-dialog-error { margin: 0; padding: 8px 20px; color: var(--error); border-bottom: 1px solid var(--separator); overflow-wrap: anywhere; }
-.command-editor-form { display: flex; min-height: 0; flex-direction: column; }
-.command-dialog-body { display: grid; grid-template-columns: 170px minmax(0, 1fr); min-height: 0; }
+.command-editor-form { display: flex; flex: 1; min-height: 0; flex-direction: column; }
+.command-dialog-body { display: grid; flex: 1; grid-template-columns: 170px minmax(0, 1fr); min-height: 0; }
 .command-dialog-sections { display: flex; flex-direction: column; align-items: stretch; gap: 5px; min-height: 0; padding: 10px; overflow: auto; border-right: 1px solid var(--separator); background: var(--page); }
 .command-dialog-sections button[aria-current] { color: var(--text); font-weight: 700; background: var(--hover); }
 .command-dialog-panels { padding: 16px 20px; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
@@ -456,7 +456,7 @@ td { color: var(--text); }
 .ai-behavior-shortcuts button { min-width: 0; overflow-wrap: anywhere; }
 .ai-behavior-summary { min-width: 0; }
 .ai-behavior-status { margin: 10px 0 0; }
-.ai-behavior-dialog { width: min(920px, calc(100vw - 28px)); min-height: min(360px, calc(100dvh - 28px)); max-height: min(720px, calc(100dvh - 28px)); }
+.ai-behavior-dialog { width: min(920px, calc(100vw - 28px)); }
 .ai-behavior-dialog .command-dialog-body { flex: 1 1 auto; grid-template-columns: 192px minmax(0, 1fr); }
 .ai-behavior-dialog .command-dialog-panels { display: flex; flex-direction: column; overflow: hidden; padding: 0; scrollbar-gutter: auto; container: ai-behavior-form / inline-size; }
 .ai-behavior-dialog .command-dialog-panel:not([hidden]), .ai-editor-slot, .ai-behavior-section { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; }
