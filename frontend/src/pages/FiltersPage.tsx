@@ -1,95 +1,108 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
-  type FilterActionResult,
-  type FilterCategory,
   type FilterCategoryName,
+  type FilterCategory,
   type FilterEntry,
   type FilterInput,
   type FilterTestResult,
   type FiltersResponse,
   waitForBridge,
 } from '../bridge'
+import Confirmation from '../components/Confirmation'
+import EditorDialog, { EditorSections } from '../components/EditorDialog'
 import FeedbackToast from '../components/FeedbackToast'
-import AccordionHeader from '../components/AccordionHeader'
-
-interface FilterDraft extends FilterEntry {
-  id: number
-}
-
-type Drafts = Record<FilterCategoryName, FilterDraft[]>
+import { useRestartDraft } from '../desktopRestart'
 
 interface FiltersPageProps {
   active: boolean
 }
 
-const categoryInfo: Record<FilterCategoryName, { label: string; description: string; empty: string }> = {
-  words: {
-    label: 'Blocked words',
-    description: 'Match individual words before bot processing and in generated AI replies.',
-    empty: 'No blocked words configured.',
-  },
-  phrases: {
-    label: 'Blocked phrases',
-    description: 'Match literal text snippets before bot processing and in generated AI replies.',
-    empty: 'No blocked phrases configured.',
-  },
-  patterns: {
-    label: 'Regex patterns',
-    description: 'Advanced: match text with Python regular expressions. Python validates rules and limits evaluation time.',
-    empty: 'No regex patterns configured.',
-  },
+type FilterTexts = Record<FilterCategoryName, string>
+type RuleError = { category: FilterCategoryName; value: string; message: string }
+
+const categoryNames = ['words', 'phrases', 'patterns'] as const
+const categoryInfo = {
+  words: { label: 'Blocked words', description: 'Matches individual words.' },
+  phrases: { label: 'Blocked phrases', description: 'Matches literal text, including punctuation.' },
+  patterns: { label: 'Regex patterns', description: 'Matches text with Python regular expressions.' },
 }
 
-const categoryNames: FilterCategoryName[] = ['words', 'phrases', 'patterns']
-
-function emptyDrafts(): Drafts {
-  return { words: [], phrases: [], patterns: [] }
-}
-
-function draftsFromResponse(response: FiltersResponse): Drafts {
-  let nextId = 0
-  return Object.fromEntries(categoryNames.map((name) => [
-    name,
-    response[name].rules.map((rule) => ({ ...rule, id: nextId++ })),
-  ])) as Drafts
-}
-
-function inputFromDrafts(drafts: Drafts): FilterInput {
+function draftTexts(data: FiltersResponse): FilterTexts {
   return {
-    words: drafts.words.map((rule) => rule.value.trim()).filter(Boolean),
-    phrases: drafts.phrases.map((rule) => rule.value.trim()).filter(Boolean),
-    patterns: drafts.patterns.map((rule) => rule.value.trim()).filter(Boolean),
+    words: data.words.rules.map(({ value }) => value).join('\n'),
+    phrases: data.phrases.rules.map(({ value }) => value).join('\n'),
+    patterns: data.patterns.rules.map(({ value }) => value).join('\n'),
   }
 }
 
-function categoryIsDirty(category: FilterCategory | undefined, rules: FilterDraft[]): boolean {
-  if (!category) return rules.length > 0
-  return JSON.stringify(rules.map((rule) => rule.value.trim()).filter(Boolean))
-    !== JSON.stringify(category.rules.map((rule) => rule.value.trim()).filter(Boolean))
+function ruleValues(text: string): string[] {
+  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
 }
 
-function configuredRules(rules: FilterDraft[]): FilterDraft[] {
-  return rules.filter((rule) => rule.value.trim() && !rule.value.trim().startsWith('#'))
+function filterInput(drafts: FilterTexts): FilterInput {
+  return {
+    words: ruleValues(drafts.words),
+    phrases: ruleValues(drafts.phrases),
+    patterns: ruleValues(drafts.patterns),
+  }
+}
+
+function acceptedFilters(previous: FiltersResponse, payload: FilterInput): FiltersResponse {
+  const category = (name: FilterCategoryName): FilterCategory => {
+    const { defaults } = previous[name]
+    const values = payload[name].filter((value) => !value.startsWith('#'))
+    const rules = (name === 'patterns' ? values : [...new Set(values)]).map<FilterEntry>((value) => ({
+      value, origin: defaults.includes(value) ? 'default' : 'local', valid: true,
+    }))
+    return { defaults, rules }
+  }
+  return { words: category('words'), phrases: category('phrases'), patterns: category('patterns') }
 }
 
 export default function FiltersPage({ active }: FiltersPageProps) {
   const [data, setData] = useState<FiltersResponse | null>(null)
   const [loading, setLoading] = useState(true)
-  const [drafts, setDrafts] = useState<Drafts>(emptyDrafts)
-  const [nextId, setNextId] = useState(0)
+  const [drafts, setDrafts] = useState<FilterTexts>({ words: '', phrases: '', patterns: '' })
+  const [section, setSection] = useState<FilterCategoryName | null>(null)
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const [invalidRule, setInvalidRule] = useState<RuleError | null>(null)
+  const [editorError, setEditorError] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [testText, setTestText] = useState('')
-  const [testSource, setTestSource] = useState<'active' | 'draft'>('active')
   const [testResult, setTestResult] = useState<Extract<FilterTestResult, { ok: true }> | null>(null)
   const [testError, setTestError] = useState('')
   const [testBusy, setTestBusy] = useState(false)
-  const [expanded, setExpanded] = useState<Record<FilterCategoryName, boolean>>({ words: false, phrases: false, patterns: false })
-  const hasLoaded = useRef(false)
   const testBusyRef = useRef(false)
   const testRequestVersion = useRef(0)
+
+  useEffect(() => {
+    if (!active || data) return
+    let current = true
+    setLoading(true)
+    void (async () => {
+      try {
+        const response = await (await waitForBridge()).get_filters()
+        if (current) {
+          setData(response)
+          setDrafts(draftTexts(response))
+          setError('')
+        }
+      } catch (reason) {
+        if (current) setError(reason instanceof Error ? reason.message : 'Could not load filters.')
+      } finally {
+        if (current) setLoading(false)
+      }
+    })()
+    return () => { current = false }
+  }, [active, data])
+
+  const dirty = Boolean(data && categoryNames.some((name) => (
+    JSON.stringify(ruleValues(drafts[name])) !== JSON.stringify(data[name].rules.map(({ value }) => value))
+  )))
+  useRestartDraft('Filters', dirty)
 
   const clearTestResult = () => {
     testRequestVersion.current += 1
@@ -97,142 +110,50 @@ export default function FiltersPage({ active }: FiltersPageProps) {
     setTestError('')
   }
 
-  const loadFilters = async () => {
-    const api = await waitForBridge()
-    const response = await api.get_filters()
-    setData(response)
-    const nextDrafts = draftsFromResponse(response)
-    setDrafts(nextDrafts)
-    setNextId(Math.max(-1, ...categoryNames.flatMap((name) => nextDrafts[name].map((rule) => rule.id))) + 1)
-    setError('')
-  }
-
-  useEffect(() => {
-    if (!active || hasLoaded.current) return
-    let mounted = true
-    setLoading(true)
-    const load = async () => {
-      try {
-        const api = await waitForBridge()
-        const response = await api.get_filters()
-        if (mounted) {
-          hasLoaded.current = true
-          setData(response)
-          const nextDrafts = draftsFromResponse(response)
-          setDrafts(nextDrafts)
-          setNextId(Math.max(-1, ...categoryNames.flatMap((name) => nextDrafts[name].map((rule) => rule.id))) + 1)
-          setError('')
-        }
-      } catch (reason) {
-        if (mounted) setError(reason instanceof Error ? reason.message : 'Could not load filters.')
-      } finally {
-        if (mounted) setLoading(false)
-      }
+  const closeEditor = () => {
+    if (busy) return
+    if (dirty) {
+      setConfirmDiscard(true)
+      return
     }
-    void load()
-    return () => { mounted = false }
-  }, [active])
-
-  const dirty = useMemo(
-    () => categoryNames.some((name) => categoryIsDirty(data?.[name], drafts[name])),
-    [data, drafts],
-  )
-
-  useRestartDraft('Filters', dirty)
-
-  const updateRule = (name: FilterCategoryName, id: number, value: string) => {
-    setDrafts((current) => ({
-      ...current,
-      [name]: current[name].map((rule) => rule.id === id
-        ? { ...rule, value, origin: data?.[name].defaults.includes(value.trim()) ? 'default' : 'local', valid: true, error: null }
-        : rule),
-    }))
-    setError('')
-    setNotice('')
-    clearTestResult()
+    discardEdits()
   }
 
-  const updateTextRules = (name: 'words' | 'phrases', value: string) => {
-    setDrafts((current) => {
-      const previousRules = new Map(current[name].map((rule) => [rule.value.trim(), rule]))
-      return {
-        ...current,
-        [name]: value.split(/\r?\n/).map((line, index) => {
-          const previous = previousRules.get(line.trim())
-          return {
-            id: index,
-            value: line,
-            origin: data?.[name].defaults.includes(line.trim()) ? 'default' : 'local',
-            valid: previous?.valid ?? true,
-            error: previous?.error ?? null,
-          }
-        }),
-      }
-    })
-    setError('')
-    setNotice('')
-    clearTestResult()
+  const discardEdits = () => {
+    if (data) setDrafts(draftTexts(data))
+    setConfirmDiscard(false)
+    setSection(null)
   }
 
-  const addRule = (name: FilterCategoryName) => {
-    setDrafts((current) => ({
-      ...current,
-      [name]: [...current[name], { id: nextId, value: '', origin: 'local', valid: true, error: null }],
-    }))
-    setNextId((current) => current + 1)
-    setError('')
-    setNotice('')
-    clearTestResult()
-  }
-
-  const removeRule = (name: FilterCategoryName, id: number) => {
-    setDrafts((current) => ({ ...current, [name]: current[name].filter((rule) => rule.id !== id) }))
-    setError('')
-    setNotice('')
-    clearTestResult()
-  }
-
-  const runAction = async (action: 'apply' | 'save') => {
-    const payload = inputFromDrafts(drafts)
-    clearTestResult()
+  const saveFilters = async () => {
+    if (busy || !data || !dirty) return
+    const payload = filterInput(drafts)
     setBusy(true)
-    setError('')
-    setNotice('')
+    setEditorError('')
+    setInvalidRule(null)
     try {
       const api = await waitForBridge()
-      const result: FilterActionResult = action === 'apply'
-        ? await api.apply_filters(payload)
-        : await api.save_filters(payload)
+      const result = await api.save_filters(payload)
       if (!result.ok) {
+        const message = result.error ?? 'Filters could not be saved.'
         if (result.invalid_rule) {
           const { category, index } = result.invalid_rule
-          setExpanded((current) => ({ ...current, [category]: true }))
-          const nonblankRules = drafts[category].filter((rule) => rule.value.trim())
-          const invalidId = nonblankRules[index]?.id
-          if (invalidId !== undefined) {
-            setDrafts((current) => ({
-              ...current,
-              [category]: current[category].map((rule) => rule.id === invalidId
-                ? { ...rule, valid: false, error: result.error ?? 'Invalid rule.' }
-                : rule),
-            }))
-          }
+          const value = payload[category][index]
+          setSection(category)
+          if (value !== undefined) setInvalidRule({ category, value, message })
         }
-        throw new Error(result.error ?? 'Filters could not be updated.')
+        setEditorError(message)
+        return
       }
-      if (action === 'save') {
-        await loadFilters()
-      } else {
-        setDrafts((current) => Object.fromEntries(categoryNames.map((name) => [
-          name,
-          current[name].map((rule) => ({ ...rule, valid: true, error: null })),
-        ])) as Drafts)
-      }
-      setNotice(action === 'apply'
-        ? 'Applied filters for this session.'
-        : 'Saved filters across restarts.')
+      clearTestResult()
+      // A successful save is final even if the follow-up read fails.
+      const response = await api.get_filters().catch(() => acceptedFilters(data, payload))
+      setData(response)
+      setDrafts(draftTexts(response))
+      setSection(null)
+      setNotice('Filters saved.')
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Filters could not be updated.')
+      setEditorError(reason instanceof Error ? reason.message : 'Filters could not be saved.')
     } finally {
       setBusy(false)
     }
@@ -241,27 +162,15 @@ export default function FiltersPage({ active }: FiltersPageProps) {
   const runFilterTest = async () => {
     if (testBusyRef.current || busy || !data) return
     testBusyRef.current = true
-    const requestVersion = testRequestVersion.current + 1
-    testRequestVersion.current = requestVersion
+    const requestVersion = ++testRequestVersion.current
     setTestBusy(true)
     setTestResult(null)
     setTestError('')
     try {
-      const api = await waitForBridge()
-      const result = await api.test_filters(
-        testText,
-        testSource,
-        testSource === 'draft' ? inputFromDrafts(drafts) : null,
-      )
+      const result = await (await waitForBridge()).test_filters(testText, 'active', null)
       if (requestVersion !== testRequestVersion.current) return
-      if (!result.ok) {
-        const invalid = result.invalid_rule
-        setTestError(invalid
-          ? `Draft rule invalid: ${categoryInfo[invalid.category].label}, rule ${invalid.index + 1}. ${result.error}`
-          : result.error)
-        return
-      }
-      setTestResult(result)
+      if (result.ok) setTestResult(result)
+      else setTestError(result.error)
     } catch (reason) {
       if (requestVersion === testRequestVersion.current) {
         setTestError(reason instanceof Error ? reason.message : 'The filter test could not be completed.')
@@ -272,71 +181,81 @@ export default function FiltersPage({ active }: FiltersPageProps) {
     }
   }
 
+  const renderSection = (name: FilterCategoryName) => {
+    if (!data) return null
+    const category = data[name]
+    const info = categoryInfo[name]
+    const values = ruleValues(drafts[name]).filter((value) => !value.startsWith('#'))
+    const configured = name === 'patterns' ? values : [...new Set(values)]
+    const defaults = configured.filter((value) => category.defaults.includes(value)).length
+    const invalid = new Map(category.rules.filter((rule) => !rule.valid || rule.error)
+      .map(({ value, error }) => [value, error ?? 'Invalid rule.']))
+    if (invalidRule?.category === name) invalid.set(invalidRule.value, invalidRule.message)
+    const errors = drafts[name].split(/\r?\n/).flatMap((line, index) => {
+      const message = invalid.get(line.trim())
+      return message ? [{ line: index + 1, message }] : []
+    })
+    const inputId = `filters-${name}-input`
+
+    return (
+      <div className="filter-text-editor" id={`filters-${name}`}>
+        <div className="filter-editor-heading">
+          <h3>{info.label}</h3>
+          <span className="read-only-badge">{configured.length} {configured.length === 1 ? 'rule' : 'rules'}</span>
+        </div>
+        {category.load_error && <p className="filter-load-warning" role="status">{category.load_error}</p>}
+        <label className="form-field" htmlFor={inputId}>{info.label}, one rule per line</label>
+        <textarea id={inputId} className={`filter-textarea${errors.length ? ' invalid' : ''}`} rows={9}
+          data-editor-focus={name === 'words' ? true : undefined}
+          aria-invalid={errors.length > 0} aria-describedby={`${inputId}-help${errors.length ? ` ${inputId}-errors` : ''}`}
+          value={drafts[name]} disabled={busy}
+          onChange={(event) => {
+            setDrafts((current) => ({ ...current, [name]: event.target.value }))
+            setEditorError('')
+          }} />
+        <p className="settings-hint" id={`${inputId}-help`}>{info.description} Blank lines and lines starting with # are skipped.</p>
+        {configured.length > 0 && <div className="filter-text-meta">
+          <span className="mini-badge filter-default-badge">{defaults} built-in {defaults === 1 ? 'default' : 'defaults'}</span>
+          <span className="mini-badge filter-local-badge">{configured.length - defaults} local {configured.length - defaults === 1 ? 'rule' : 'rules'}</span>
+        </div>}
+        {errors.length > 0 && <ul className="filter-text-errors" id={`${inputId}-errors`}>
+          {errors.map(({ line, message }) => <li key={line}>Line {line}: {message}</li>)}
+        </ul>}
+      </div>
+    )
+  }
+
   return (
     <div className="filters-layout" aria-busy={loading}>
       <FeedbackToast error={error} notice={notice} onDismiss={() => { setError(''); setNotice('') }} />
       <section className="card filters-intro">
-        <div className="section-heading">
-          <div>
-            <h2>Bot filters</h2>
-            <p className="section-copy">These rules stop matching messages from being processed by the bot and block matching AI replies. They do not delete Twitch messages or ban users. Start with words and phrases; regex is advanced.</p>
-          </div>
-          <span className="read-only-badge">{data ? 'Loaded' : 'Loading…'}</span>
+        <div>
+          <h2>Bot filters</h2>
+          <p className="section-copy">Blocked words, phrases, and regex patterns stop matching Twitch messages from being processed by the bot and prevent matching AI replies from being sent.</p>
         </div>
-        <div className="filters-effect-note">
-          <strong>Apply</strong> changes the running session only. <strong>Save</strong> persists them across restarts. Regex rules are validated by Python when you apply or save.
+        <div className="filters-intro-actions">
+          <button className="primary" type="button" aria-haspopup="dialog" disabled={!data || busy} onClick={() => {
+            setEditorError('')
+            setInvalidRule(null)
+            setNotice('')
+            setSection('words')
+          }}>Edit filters</button>
         </div>
       </section>
       <section className="card filter-tester-card" id="filter-tester">
         <div className="section-heading">
           <div>
             <h2>Filter Tester</h2>
-            <p className="section-copy">Try sample text against the filters used in this session or the unsaved rules currently shown below.</p>
+            <p className="section-copy">Try sample text against the current bot filters.</p>
           </div>
         </div>
         <label className="form-field filter-test-text">
           Sample text
-          <textarea
-            rows={4}
-            value={testText}
-            onChange={(event) => {
-              setTestText(event.target.value)
-              clearTestResult()
-            }}
-            placeholder="Enter a message to test"
-          />
+          <textarea rows={4} value={testText} placeholder="Enter a message to test"
+            onChange={(event) => { setTestText(event.target.value); clearTestResult() }} />
         </label>
-        <fieldset className="filter-test-source">
-          <legend>Rules to test</legend>
-          <label>
-            <input
-              type="radio"
-              name="filter-test-source"
-              value="active"
-              checked={testSource === 'active'}
-              onChange={() => {
-                setTestSource('active')
-                clearTestResult()
-              }}
-            />
-            <span><strong>Active filters</strong><small>The effective rules in the running session.</small></span>
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="filter-test-source"
-              value="draft"
-              checked={testSource === 'draft'}
-              onChange={() => {
-                setTestSource('draft')
-                clearTestResult()
-              }}
-            />
-            <span><strong>Unsaved draft</strong><small>The current editors, without applying or saving them.</small></span>
-          </label>
-        </fieldset>
         <div className="filter-test-footer">
-          <p className="settings-hint">Tests user-editable bot filters only, without changing rules. Protected AI safety is separate and is not tested here. This runs locally without Twitch or an API request.</p>
+          <p className="settings-hint">Runs locally and checks the editable filters only.</p>
           <button className="primary" type="button" disabled={testBusy || busy || !data} onClick={() => void runFilterTest()}>
             {testBusy ? 'Testing…' : 'Test sample'}
           </button>
@@ -349,117 +268,32 @@ export default function FiltersPage({ active }: FiltersPageProps) {
               <strong>{testResult.decision}</strong>
             </div>
             {testResult.timed_out ? (
-              <p><strong>Regex evaluation timed out.</strong> Bot processing was blocked safely; no rule is claimed as a match. Protected AI safety was not evaluated.</p>
+              <p>Regex evaluation timed out. The sample was blocked as a precaution.</p>
             ) : testResult.decision === 'BLOCK' ? (
               <dl>
                 <div><dt>Category</dt><dd>{testResult.category ? categoryInfo[testResult.category].label : 'Not reported'}</dd></div>
                 <div><dt>Editable rule</dt><dd>{testResult.rule ? <code>{testResult.rule}</code> : 'Not available'}</dd></div>
               </dl>
             ) : (
-              <p>No user-editable bot filter matched this sample. Protected AI safety may still block an AI request or reply.</p>
+              <p>Protected AI safety may still block an AI request or reply.</p>
             )}
-            <small>Tested {testResult.source === 'draft' ? 'unsaved draft rules' : 'active session filters'}.</small>
           </div>
         )}
       </section>
-      {data && categoryNames.map((name) => {
-        const category = data[name]
-        const info = categoryInfo[name]
-        const rules = drafts[name]
-        const configured = configuredRules(rules)
-        const count = name === 'patterns' ? configured.length : new Set(configured.map((rule) => rule.value.trim())).size
-        const invalidCount = rules.filter((rule) => !rule.valid || rule.error).length
-        const defaultLines = rules.flatMap((rule, index) => rule.value.trim() && !rule.value.trim().startsWith('#') && rule.origin === 'default' ? [index + 1] : [])
-        const defaultCount = new Set(configured.filter((rule) => rule.origin === 'default').map((rule) => rule.value.trim())).size
-        const detailsId = `filter-details-${name}`
-        return (
-          <section className="card filter-category-card" id={`filters-${name}`} data-category={name} key={name}>
-            <AccordionHeader title={<span role="heading" aria-level={2}>{info.label}</span>}
-              helpLabel={info.label} help={info.description}
-              expanded={expanded[name]} contentId={detailsId} ariaLabel={info.label}
-              onToggle={() => setExpanded((current) => ({ ...current, [name]: !current[name] }))}
-              badges={(<span className="filter-category-status">
-                  <span className="read-only-badge">{count} {count === 1 ? 'rule' : 'rules'}</span>
-                  {invalidCount > 0 && <span className="filter-invalid-label">{invalidCount} invalid</span>}
-                  {category.load_error && <span className="filter-warning-label">File warning</span>}
-                </span>)}
-            />
-            {expanded[name] && <div className="filter-category-details" id={detailsId}>
-              {category.load_error && (
-                <div className="filter-load-warning" role="status">
-                  Could not load the latest file: {category.load_error}. Existing rules remain available.
-                </div>
-              )}
-              {name !== 'patterns' ? (
-                <div className="filter-text-editor">
-                  <label className="form-field">
-                    {info.label}, one rule per line
-                    <textarea
-                      className={`filter-textarea ${invalidCount ? 'invalid' : ''}`}
-                      rows={6}
-                      aria-invalid={invalidCount > 0}
-                      aria-describedby={`filter-help-${name}${invalidCount ? ` filter-errors-${name}` : ''}`}
-                      value={rules.map((rule) => rule.value).join('\n')}
-                      onChange={(event) => updateTextRules(name, event.target.value)}
-                      placeholder={info.empty}
-                    />
-                  </label>
-                  <p className="settings-hint" id={`filter-help-${name}`}>One non-empty line = one rule. Whitespace is trimmed; blank lines and lines starting with # are ignored. Commas remain part of the rule.</p>
-                  <div className="filter-text-meta">
-                    <span className="mini-badge filter-default-badge">{defaultCount} built-in {defaultCount === 1 ? 'default' : 'defaults'}</span>
-                    <span className="mini-badge filter-local-badge">{count - defaultCount} local {count - defaultCount === 1 ? 'rule' : 'rules'}</span>
-                    {defaultLines.length > 0 && <span>Built-in defaults on {defaultLines.length === 1 ? 'line' : 'lines'} {defaultLines.join(', ')}. Other rules are local.</span>}
-                  </div>
-                  {invalidCount > 0 && <ul className="filter-text-errors" id={`filter-errors-${name}`}>
-                    {rules.map((rule, index) => (!rule.valid || rule.error) && <li key={rule.id}>Line {index + 1}: {rule.error ?? 'Invalid rule.'}</li>)}
-                  </ul>}
-                </div>
-              ) : rules.length === 0 ? (
-                <div className="empty-state-inline"><strong>{info.empty}</strong><p>Add a rule below to update this category.</p></div>
-              ) : (
-                <div className="filter-rule-list">
-                  {rules.map((rule, index) => (
-                    <div className={`filter-rule-row ${!rule.valid ? 'invalid' : ''}`} key={rule.id}>
-                      <label className="form-field">
-                        {info.label} {index + 1}
-                        <input
-                          aria-invalid={!rule.valid || Boolean(rule.error)}
-                          className={!rule.valid || rule.error ? 'invalid' : ''}
-                          value={rule.value}
-                          onChange={(event) => updateRule(name, rule.id, event.target.value)}
-                          placeholder={name === 'patterns' ? String.raw`\bexample\b` : 'Enter a rule'}
-                        />
-                      </label>
-                      <div className="filter-rule-meta">
-                        <span className={`mini-badge ${rule.origin === 'default' ? 'filter-default-badge' : 'filter-local-badge'}`}>
-                          {rule.origin === 'default' ? 'Built-in default' : 'Local rule'}
-                        </span>
-                        {!rule.valid && <span className="filter-invalid-label">Invalid</span>}
-                        {rule.error && <span className="filter-rule-error">{rule.error}</span>}
-                      </div>
-                      <button className="ghost" type="button" disabled={busy} onClick={() => removeRule(name, rule.id)}>Remove</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {category.defaults.length > 0 && (
-                <p className="filter-default-summary">{category.defaults.length} built-in {category.defaults.length === 1 ? 'default is' : 'defaults are'} available in this category.</p>
-              )}
-              {name === 'patterns' && <div className="filter-category-actions">
-                <button className="secondary" type="button" disabled={busy} onClick={() => addRule(name)}>Add rule</button>
-              </div>}
-            </div>}
-          </section>
-        )
-      })}
-      <section className="card filters-actions-card">
-        {!data && <p className="muted">Loading filters…</p>}
-        <div className="settings-actions">
-          <button className="secondary" type="button" disabled={busy || !data || !dirty} onClick={() => void runAction('apply')}>Apply for session</button>
-          <button className="primary" type="button" disabled={busy || !data || !dirty} onClick={() => void runAction('save')}>{busy ? 'Saving…' : 'Save filters'}</button>
+      {active && section && <EditorDialog id="filters-editor" title="Edit filters" closeLabel="Close editor"
+        dirtyLabel={dirty ? 'Unsaved changes' : undefined} busy={busy} error={editorError} onClose={closeEditor}
+        className="filters-editor-dialog">
+        <EditorSections id="filters-editor" label="Filter sections" active={section} onSelect={setSection}
+          sections={categoryNames.map((name) => ({ id: name, label: categoryInfo[name].label, body: renderSection(name) }))} />
+        <div className="command-dialog-footer">
+          <button className="secondary" type="button" disabled={busy} onClick={closeEditor}>Cancel</button>
+          <button className="primary" type="button" disabled={busy || !dirty} onClick={() => void saveFilters()}>
+            {busy ? 'Saving…' : 'Save filters'}
+          </button>
         </div>
-      </section>
+      </EditorDialog>}
+      {active && confirmDiscard && <Confirmation title="Discard unsaved changes?"
+        description="The current bot filters will stay in effect." danger onConfirm={discardEdits} onCancel={() => setConfirmDiscard(false)} />}
     </div>
   )
 }
-import { useRestartDraft } from '../desktopRestart'

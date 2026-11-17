@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { openAIBehaviorSection } from './ai-behavior-helpers'
 
 test('OpenAI Playground displays safe usage and clickable inline attribution', async ({ page }) => {
   await page.goto('/tests/fixture.html')
@@ -45,15 +46,15 @@ for (const { status, searchUsed, label } of [
 test('local Playground uses the prompt only and presents quota, active settings and plain text', async ({ page }) => {
   await page.goto('/tests/fixture.html')
   await page.getByRole('button', { name: 'AI', exact: true }).click()
-  const personality = page.locator('.personality-editor')
-  await personality.locator('.accordion-trigger').click()
-  await page.getByRole('button', { name: 'Playground', exact: true }).click()
+  const personality = await openAIBehaviorSection(page, 'Personalities')
+  await personality.locator('textarea').fill('unsaved personality draft')
+  await personality.getByRole('button', { name: 'Open Playground' }).click()
+  await personality.getByRole('button', { name: 'Use current applied settings' }).click()
   const playground = page.locator('.ai-playground')
   await expect(playground).toContainText('Testing may consume real provider API quota')
   await expect(playground).toContainText('active personality (neutral)')
   await expect(playground).toContainText('no viewer memory, stream context, chat activity, command permissions or cooldowns')
   await expect(playground.getByRole('button', { name: 'Test prompt' })).toBeDisabled()
-  await personality.locator('textarea').fill('unsaved personality draft')
   await playground.getByLabel('Playground prompt').fill('Tell me a story')
   await playground.getByRole('button', { name: 'Test prompt' }).click()
   await expect(playground.getByRole('status')).toContainText('Synthetic response <strong>plain text</strong>.')

@@ -267,35 +267,27 @@ Stop HeetKit from processing matching chat messages or posting matching AI
 replies. You can edit and test rules with the bot stopped. New profiles start
 with empty rules. Filters control the bot's behavior in chat.
 
-**In HeetKit:** **Filters > Bot filters** on Desktop or Server.
+**In HeetKit:** **Filters > Bot filters > Edit filters** on Desktop or Server.
 
-1. Open **Filters**.
-2. Expand **Blocked words** to match whole words or **Blocked phrases** to
-   match literal text snippets.
+1. Open **Filters** and select **Edit filters**.
+2. Choose **Blocked words** for whole words, **Blocked phrases** for literal
+   text snippets, or **Regex patterns** for Python regular expressions.
 3. Enter one rule per line. HeetKit trims spaces at the ends of a rule.
    Blank lines and lines that start with `#` are ignored. Commas stay in the rule.
-4. Use [Filter Tester](#test-filters-locally) with **Unsaved draft**.
-5. Select **Save filters** to apply the rules and keep them across restarts.
+4. Select **Save filters**. If a rule fails validation, correct the line shown.
 
-**Check:** In **Filter Tester**, use **Active filters**. Test a sample that
+**Check:** Use [Filter Tester](#test-filters-locally) with a sample that
 should match and one that should pass.
-
-For a temporary change, choose **Apply for session** in place of **Save
-filters**. For a regular expression, expand **Regex patterns**, select
-**Add rule**, and enter the pattern. If a rule fails validation, correct the
-line or pattern shown before you save.
 
 ### Test filters locally
 
-Check sample text without Twitch or a provider request. You need either an
-active rule or a draft rule to test a match.
+Check sample text against the current bot filters without Twitch or a provider request.
 
 **In HeetKit:** **Filters > Filter Tester** on Desktop or Server.
 
 1. Open **Filters**.
 2. Enter a message in **Sample text**.
-3. Under **Rules to test**, select **Active filters** or **Unsaved draft**.
-4. Select **Test sample**.
+3. Select **Test sample**.
 
 **Check:** **User filter matched** (`BLOCK`) identifies the category and rule
 when available. **User filters passed** (`ALLOW`) means no editable rule blocked

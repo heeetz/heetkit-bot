@@ -1,318 +1,184 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
-function card(page: Page, category: 'words' | 'phrases' | 'patterns') {
-  return page.locator(`.filter-category-card[data-category="${category}"]`)
+const names = ['Blocked words', 'Blocked phrases', 'Regex patterns'] as const
+type FilterSection = typeof names[number]
+
+function dialog(page: Page) {
+  return page.getByRole('dialog', { name: 'Edit filters', exact: true })
 }
 
-async function expand(page: Page, category: 'words' | 'phrases' | 'patterns') {
-  const target = card(page, category)
-  const summary = target.locator('.accordion-trigger')
-  if (await summary.getAttribute('aria-expanded') === 'false') await summary.press('Enter')
-  await expect(summary).toHaveAttribute('aria-expanded', 'true')
-  return target
+async function openSection(page: Page, section: FilterSection = 'Blocked words') {
+  const editor = dialog(page)
+  if (!await editor.isVisible()) await page.getByRole('button', { name: 'Edit filters', exact: true }).click()
+  await editor.getByRole('navigation', { name: 'Filter sections' }).getByRole('button', { name: section }).click()
+  return editor.getByRole('textbox', { name: `${section}, one rule per line` })
+}
+
+function save(page: Page) {
+  return dialog(page).getByRole('button', { name: 'Save filters', exact: true }).click()
 }
 
 async function calls(page: Page) {
   return page.evaluate(() => Reflect.get(window, 'filterCalls')) as Promise<unknown[][]>
 }
 
-function details(target: Locator) {
-  return target.locator('.filter-category-details')
-}
-
-test('filter sections start collapsed with effective counts and expand from the keyboard', async ({ page }) => {
+test('keyboard opens the shared dialog and confirms discarding edits', async ({ page }) => {
   await page.goto('/tests/filters.fixture.html')
-  for (const [category, count] of [['words', '2'], ['phrases', '2'], ['patterns', '3']] as const) {
-    const target = card(page, category)
-    const summary = target.locator('.accordion-trigger')
-    await expect(summary).toHaveAttribute('aria-expanded', 'false')
-    await expect(target.locator('.accordion-badges .read-only-badge')).toHaveText(`${count} rules`)
-    await expect(details(target)).toBeHidden()
-  }
-  const words = card(page, 'words')
-  await words.locator('.accordion-trigger').focus()
-  await words.locator('.accordion-trigger').press('Enter')
-  await expect(words.locator('.accordion-trigger')).toHaveAttribute('aria-expanded', 'true')
-  await expect(details(words)).toBeVisible()
-  await words.locator('.accordion-trigger').press('Space')
-  await expect(words.locator('.accordion-trigger')).toHaveAttribute('aria-expanded', 'false')
+  const open = page.getByRole('button', { name: 'Edit filters', exact: true })
+  await expect(dialog(page)).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Save filters' })).toHaveCount(0)
+  await open.press('Enter')
+  const nav = dialog(page).getByRole('navigation', { name: 'Filter sections' })
+  await expect(nav.getByRole('button')).toHaveText([...names])
+  await expect(dialog(page).getByRole('textbox')).toBeFocused()
+  const patterns = nav.getByRole('button', { name: 'Regex patterns' })
+  await patterns.press('Space')
+  await expect(patterns).toHaveAttribute('aria-current', 'true')
+  const regex = dialog(page).getByRole('textbox')
+  await regex.fill('^temporary$')
+  await page.keyboard.press('Escape')
+  const confirmation = page.getByRole('dialog', { name: 'Discard unsaved changes?' })
+  await confirmation.getByRole('button', { name: 'Cancel' }).click()
+  await expect(regex).toHaveValue('^temporary$')
+  await dialog(page).getByRole('button', { name: 'Close editor' }).click()
+  await confirmation.getByRole('button', { name: 'Confirm' }).click()
+  await expect(open).toBeFocused()
+  await expect(await openSection(page, 'Regex patterns')).toHaveValue('^safe$\n^safe$\n\\burl\\b')
+  expect(await calls(page)).toEqual([])
 })
 
-test('multiline drafts preserve raw text while Apply sends trimmed lines and Save reloads backend normalization', async ({ page }) => {
+test('one save preserves regex order and duplicates and normalizes literal lists', async ({ page }) => {
   await page.goto('/tests/filters.fixture.html')
-  const words = await expand(page, 'words')
-  const phrases = await expand(page, 'phrases')
-  const patterns = await expand(page, 'patterns')
-  const wordEditor = words.getByRole('textbox', { name: 'Blocked words, one rule per line' })
-  await wordEditor.fill('alpha')
-  await wordEditor.press('End')
-  await wordEditor.press('Enter')
-  await wordEditor.press('Enter')
-  await wordEditor.pressSequentially('beta,one')
-  await expect(wordEditor).toHaveValue('alpha\n\nbeta,one')
+  const words = await openSection(page)
   const wordText = '  alpha\n\n# ignored comment\nalpha\n beta,one  \n'
-  const phraseText = ' hello, world\n\nphrase, with, commas\n hello, world \n'
-  await words.getByRole('textbox', { name: 'Blocked words, one rule per line' }).fill(wordText)
-  await phrases.getByRole('textbox', { name: 'Blocked phrases, one rule per line' }).fill(phraseText)
-  await words.locator('.accordion-trigger').click()
-  await expand(page, 'words')
-  await expect(wordEditor).toHaveValue(wordText)
-  await expect(words.locator('.accordion-badges .read-only-badge')).toHaveText('2 rules')
-  const patternInputs = patterns.locator('input')
-  await patternInputs.nth(0).fill('^saved$')
-  await page.getByRole('button', { name: 'Apply for session', exact: true }).click()
-  await expect(words.getByRole('textbox', { name: 'Blocked words, one rule per line' })).toHaveValue(wordText)
-  await expect(phrases.getByRole('textbox', { name: 'Blocked phrases, one rule per line' })).toHaveValue(phraseText)
-  expect((await calls(page))[0]).toEqual(['apply_filters', {
+  await words.fill(wordText)
+  await (await openSection(page, 'Blocked phrases')).fill(' hello, world\n\nphrase, with, commas\n hello, world \n')
+  const patterns = await openSection(page, 'Regex patterns')
+  await expect(patterns).toHaveValue('^safe$\n^safe$\n\\burl\\b')
+  await patterns.fill('^saved$\n\n^safe$\n^safe$\n\\burl\\b')
+  await openSection(page)
+  await expect(words).toHaveValue(wordText)
+  await save(page)
+  await expect(dialog(page)).toBeHidden()
+  await expect(page.getByRole('status')).toContainText('Filters saved.')
+  expect(await calls(page)).toEqual([['save_filters', {
     words: ['alpha', '# ignored comment', 'alpha', 'beta,one'],
     phrases: ['hello, world', 'phrase, with, commas', 'hello, world'],
-    patterns: ['^saved$', '^safe$', '\\burl\\b'],
-  }])
-
-  await page.getByRole('button', { name: 'Save filters', exact: true }).click()
-  await expect(words.getByRole('textbox', { name: 'Blocked words, one rule per line' })).toHaveValue('alpha\nbeta,one')
-  await expect(phrases.getByRole('textbox', { name: 'Blocked phrases, one rule per line' })).toHaveValue('hello, world\nphrase, with, commas')
-  await expect(patterns.locator('input')).toHaveCount(3)
-  await expect(patterns.locator('input').nth(0)).toHaveValue('^saved$')
-  await expect(patterns.locator('input').nth(1)).toHaveValue('^safe$')
-  await expect(patterns.locator('input').nth(2)).toHaveValue('\\burl\\b')
-  expect((await calls(page))[1]).toEqual((await calls(page))[0].map((value, index) => index === 0 ? 'save_filters' : value))
+    patterns: ['^saved$', '^safe$', '^safe$', '\\burl\\b'],
+  }]])
+  await expect(await openSection(page)).toHaveValue('alpha\nbeta,one')
+  await expect(await openSection(page, 'Blocked phrases')).toHaveValue('hello, world\nphrase, with, commas')
+  await expect(await openSection(page, 'Regex patterns')).toHaveValue('^saved$\n^safe$\n^safe$\n\\burl\\b')
 })
 
-test('Save errors keep the multiline draft and Apply and Save remain separate actions', async ({ page }) => {
+test('save errors leave the dialog and draft available', async ({ page }) => {
   await page.goto('/tests/filters.fixture.html?saveError')
-  const words = await expand(page, 'words')
-  const draft = 'draft one\n\ndraft, two\n'
-  await words.getByRole('textbox', { name: 'Blocked words, one rule per line' }).fill(draft)
-  await page.getByRole('button', { name: 'Apply for session', exact: true }).click()
-  await expect(words.getByRole('textbox', { name: 'Blocked words, one rule per line' })).toHaveValue(draft)
-  await page.getByRole('button', { name: 'Save filters', exact: true }).click()
-  await expect(page.getByRole('alert')).toContainText('Synthetic filter save failed.')
-  await expect(words.getByRole('textbox', { name: 'Blocked words, one rule per line' })).toHaveValue(draft)
-  expect((await calls(page)).map((call) => call[0])).toEqual(['apply_filters', 'save_filters'])
+  const words = await openSection(page)
+  await words.fill('draft one\n\ndraft, two\n')
+  await save(page)
+  await expect(dialog(page).getByRole('alert')).toHaveText('Synthetic filter save failed.')
+  await expect(words).toHaveValue('draft one\n\ndraft, two\n')
+  expect((await calls(page)).map((call) => call[0])).toEqual(['save_filters'])
 })
 
-test('backend invalid_rule maps past blanks to the exact regex and opens its collapsed category', async ({ page }) => {
+test('invalid regex opens its section and identifies the exact line through blanks and comments', async ({ page }) => {
   await page.goto('/tests/filters.fixture.html')
-  const patterns = await expand(page, 'patterns')
-  await patterns.getByRole('button', { name: 'Add rule', exact: true }).click()
-  await patterns.getByRole('button', { name: 'Add rule', exact: true }).click()
-  const inputs = patterns.locator('input')
-  await inputs.nth(1).fill('')
-  await inputs.nth(2).fill('[')
-  await patterns.locator('.accordion-trigger').press('Space')
-  await expect(patterns.locator('.accordion-trigger')).toHaveAttribute('aria-expanded', 'false')
-  await page.getByRole('button', { name: 'Save filters', exact: true }).click()
-  await expect(patterns.locator('.accordion-trigger')).toHaveAttribute('aria-expanded', 'true')
-  await expect(inputs.nth(2)).toHaveAttribute('aria-invalid', 'true')
-  await expect(patterns.locator('.filter-rule-error')).toContainText('Invalid regular expression.')
-  await expect(page.getByRole('alert')).toContainText('Invalid regular expression.')
+  const regex = await openSection(page, 'Regex patterns')
+  await regex.fill('^valid$\n\n# comment\n[')
+  await openSection(page)
+  await save(page)
+  await expect(dialog(page).getByRole('alert')).toContainText('Invalid regular expression.')
+  await expect(regex).toBeVisible()
+  await expect(regex).toHaveAttribute('aria-invalid', 'true')
+  await expect(dialog(page).locator('#filters-patterns .filter-text-errors')).toHaveText('Line 4: Invalid regular expression.')
+  await regex.fill('^valid$\n\n\n# comment\n[')
+  await expect(dialog(page).locator('#filters-patterns .filter-text-errors')).toHaveText('Line 5: Invalid regular expression.')
+  await regex.fill('^valid$\n^corrected$')
+  await expect(regex).toHaveAttribute('aria-invalid', 'false')
+  await save(page)
+  await expect(dialog(page)).toBeHidden()
 })
 
-test('default and local ownership plus file warning remain visible, and no reset action is introduced', async ({ page }) => {
+test('file warnings and rule origins are visible and clearing rules saves empty lists', async ({ page }) => {
   await page.goto('/tests/filters.fixture.html?loadWarning')
-  const words = card(page, 'words')
-  await expect(words.getByText('File warning', { exact: true })).toBeVisible()
-  await expand(page, 'words')
-  await expect(words.locator('.filter-load-warning')).toContainText('synthetic words file is unreadable')
-  const phrases = await expand(page, 'phrases')
-  await expect(phrases.locator('.filter-text-meta')).toContainText(/Built-in default.*line 1/i)
-  await expect(phrases.locator('.filter-text-meta')).toContainText(/Local rule/i)
-  const patterns = await expand(page, 'patterns')
-  await expect(patterns.locator('.filter-default-badge')).toHaveCount(2)
-  await expect(patterns.locator('.filter-local-badge')).toHaveCount(1)
-  await phrases.getByRole('textbox').fill('local phrase\nphrase, with, commas')
-  await expect(phrases.locator('.filter-default-badge')).toHaveText('0 built-in defaults')
-  await expect(phrases.locator('.filter-local-badge')).toHaveText('2 local rules')
-  await expect(page.getByRole('button', { name: /Reset/i })).toHaveCount(0)
+  const words = await openSection(page)
+  await expect(dialog(page).getByRole('status')).toContainText('synthetic words file is unreadable')
+  await expect(dialog(page).locator('#filters-words .filter-default-badge')).toHaveText('1 built-in default')
+  await expect(dialog(page).locator('#filters-words .filter-local-badge')).toHaveText('1 local rule')
+  await words.fill('')
+  await (await openSection(page, 'Blocked phrases')).fill('\n  \n')
+  await save(page)
+  await expect(dialog(page)).toBeHidden()
+  expect((await calls(page))[0]).toMatchObject(['save_filters', { words: [], phrases: [] }])
 })
 
-test('invalid multiline text opens its category and identifies the draft line past blanks and comments', async ({ page }) => {
+test('Filter Tester sends active rules only and clears the result after a save', async ({ page }) => {
   await page.goto('/tests/filters.fixture.html')
-  const words = await expand(page, 'words')
-  const editor = words.getByRole('textbox')
-  await editor.fill('first\n\n# ignored comment\nbroken\ufffd\nlast')
-  await words.locator('.accordion-trigger').click()
-  await page.getByRole('button', { name: 'Save filters', exact: true }).click()
-  await expect(words.locator('.accordion-trigger')).toHaveAttribute('aria-expanded', 'true')
-  await expect(editor).toHaveAttribute('aria-invalid', 'true')
-  await expect(words.locator('.filter-text-errors')).toHaveText('Line 4: Rule contains invalid text.')
-  await editor.fill('first\n\n\n# ignored comment\nbroken\ufffd\nlast')
-  await expect(words.locator('.filter-text-errors')).toHaveText('Line 5: Rule contains invalid text.')
-  await editor.fill('first\n\n# ignored comment\ncorrected\nlast')
-  await expect(editor).toHaveAttribute('aria-invalid', 'false')
-  await page.getByRole('button', { name: 'Save filters', exact: true }).click()
-  await expect(editor).toHaveValue('first\ncorrected\nlast')
+  const tester = page.locator('#filter-tester')
+  await expect(tester.getByRole('radio')).toHaveCount(0)
+  await tester.getByRole('textbox').fill('blocked pattern')
+  await tester.getByRole('button', { name: 'Test sample' }).click()
+  await expect(tester.getByRole('status')).toContainText('Regex patterns')
+  await expect(tester.locator('code')).toHaveText('^safe$')
+  await (await openSection(page)).fill('updated word')
+  await save(page)
+  await expect(dialog(page)).toBeHidden()
+  await expect(tester.getByRole('status')).toHaveCount(0)
+  await tester.getByRole('textbox').fill('allowed sample')
+  await tester.getByRole('button', { name: 'Test sample' }).click()
+  await expect(tester.getByRole('status')).toContainText('ALLOW')
+  const recorded = await calls(page)
+  expect(recorded.filter(([method]) => method === 'test_filters')).toEqual([
+    ['test_filters', 'blocked pattern', 'active', null], ['test_filters', 'allowed sample', 'active', null],
+  ])
+  expect(recorded.map(([method]) => method)).toEqual(['test_filters', 'save_filters', 'test_filters'])
 })
 
-test('clearing both multiline text categories sends empty rule lists', async ({ page }) => {
+test('Filter Tester shows timeout and failed-request results', async ({ page }) => {
   await page.goto('/tests/filters.fixture.html')
-  const words = await expand(page, 'words')
-  const phrases = await expand(page, 'phrases')
-  await words.getByRole('textbox', { name: 'Blocked words, one rule per line' }).fill('')
-  await phrases.getByRole('textbox', { name: 'Blocked phrases, one rule per line' }).fill('\n  \n')
-  await page.getByRole('button', { name: 'Apply for session', exact: true }).click()
-  expect((await calls(page))[0]).toMatchObject(['apply_filters', { words: [], phrases: [] }])
-  await expect(words.getByRole('textbox', { name: 'Blocked words, one rule per line' })).toHaveValue('')
-  await expect(phrases.getByRole('textbox', { name: 'Blocked phrases, one rule per line' })).toHaveValue('\n  \n')
-})
-
-test('Filter Tester keeps active and draft evaluation isolated and sends drafts only when selected', async ({ page }) => {
-  await page.goto('/tests/filters.fixture.html')
-  const tester = page.locator('.filter-tester-card')
-  const sample = tester.getByRole('textbox', { name: 'Sample text' })
-
-  await sample.fill('allowed sample')
-  await tester.getByRole('button', { name: 'Test sample' }).click()
-  await expect(tester.locator('.filter-test-result')).toContainText('ALLOW')
-  await expect(tester.locator('.filter-test-result')).toContainText('User filters passed')
-  await expect(tester.locator('.filter-test-result')).toContainText('Protected AI safety may still block')
-  expect((await calls(page))[0]).toEqual(['test_filters', 'allowed sample', 'active', null])
-
-  const words = await expand(page, 'words')
-  await words.getByRole('textbox', { name: 'Blocked words, one rule per line' }).fill(' draft-only \n# comment\nsecond')
-  await tester.getByRole('radio', { name: /Unsaved draft/ }).check()
-  await sample.fill('blocked word')
-  await tester.getByRole('button', { name: 'Test sample' }).click()
-  await expect(tester.locator('.filter-test-result')).toContainText('BLOCK')
-  await expect(tester.locator('.filter-test-result')).toContainText('User filter matched')
-  await expect(tester.locator('.filter-test-result')).toContainText('Blocked words')
-  await expect(tester.locator('.filter-test-result code')).toHaveText('alpha')
-  expect((await calls(page))[1]).toEqual(['test_filters', 'blocked word', 'draft', {
-    words: ['draft-only', '# comment', 'second'],
-    phrases: ['hello, world', 'phrase, with, commas'],
-    patterns: ['^safe$', '^safe$', '\\burl\\b'],
-  }])
-  expect((await calls(page)).map((call) => call[0])).toEqual(['test_filters', 'test_filters'])
-})
-
-test('Filter Tester renders backend invalid-draft, timeout, and rejected-request states clearly', async ({ page }) => {
-  await page.goto('/tests/filters.fixture.html')
-  const tester = page.locator('.filter-tester-card')
-  const sample = tester.getByRole('textbox', { name: 'Sample text' })
-  await tester.getByRole('radio', { name: /Unsaved draft/ }).check()
-
-  await sample.fill('invalid draft')
-  await tester.getByRole('button', { name: 'Test sample' }).click()
-  await expect(tester.getByRole('alert')).toContainText('Draft rule invalid: Regex patterns, rule 2. Synthetic invalid regular expression.')
-
-  await sample.fill('timeout sample')
-  await tester.getByRole('button', { name: 'Test sample' }).click()
-  const timeout = tester.locator('.filter-test-result')
-  await expect(timeout).toContainText('BLOCK')
-  await expect(timeout).toContainText('Regex timeout')
-  await expect(timeout).toContainText('Regex evaluation timed out.')
-  await expect(timeout).toContainText('Protected AI safety was not evaluated')
-  await expect(timeout).toContainText('no rule is claimed as a match')
-  await expect(timeout).not.toContainText('Category')
-  await expect(timeout).not.toContainText('Editable rule')
-
-  await sample.fill('reject request')
-  await tester.getByRole('button', { name: 'Test sample' }).click()
-  await expect(tester.getByRole('alert')).toHaveText('Synthetic bridge rejection.')
-  await expect(tester.locator('.filter-test-result')).toHaveCount(0)
-})
-
-test('Filter Tester prevents duplicate submissions and discards an in-flight stale result', async ({ page }) => {
-  await page.goto('/tests/filters.fixture.html')
-  const tester = page.locator('.filter-tester-card')
-  const sample = tester.getByRole('textbox', { name: 'Sample text' })
+  const tester = page.locator('#filter-tester')
+  const sample = tester.getByRole('textbox')
   const button = tester.getByRole('button', { name: 'Test sample' })
-  await sample.fill('slow block')
-  await button.evaluate((element: HTMLButtonElement) => {
-    element.click()
-    element.click()
+  await sample.fill('timeout sample')
+  await button.click()
+  await expect(tester.getByRole('status')).toContainText('Regex timeout')
+  await expect(tester.getByRole('status')).toContainText('BLOCK')
+  await expect(tester.locator('code')).toHaveCount(0)
+  await sample.fill('reject request')
+  await button.click()
+  await expect(tester.getByRole('alert')).toHaveText('Synthetic bridge rejection.')
+})
+
+test('Filter Tester prevents duplicate submissions and drops a stale result', async ({ page }) => {
+  await page.goto('/tests/filters.fixture.html')
+  const tester = page.locator('#filter-tester')
+  await tester.getByRole('textbox').fill('slow block')
+  await tester.getByRole('button', { name: 'Test sample' }).evaluate((button: HTMLButtonElement) => {
+    button.click()
+    button.click()
   })
   await expect(tester.getByRole('button', { name: 'Testing…' })).toBeDisabled()
-  await expect.poll(async () => (await calls(page)).filter((call) => call[0] === 'test_filters').length).toBe(1)
-  await sample.fill('changed while pending')
+  await tester.getByRole('textbox').fill('changed while pending')
   await expect(tester.getByRole('button', { name: 'Test sample' })).toBeEnabled()
-  await expect(tester.locator('.filter-test-result')).toHaveCount(0)
-  await page.waitForTimeout(175)
-  await expect(tester.locator('.filter-test-result')).toHaveCount(0)
-})
-
-test('Filter Tester clears completed results after source, draft, Apply, and Save changes', async ({ page }) => {
-  await page.goto('/tests/filters.fixture.html')
-  const tester = page.locator('.filter-tester-card')
-  const sample = tester.getByRole('textbox', { name: 'Sample text' })
-  const button = tester.getByRole('button', { name: 'Test sample' })
-  const result = tester.locator('.filter-test-result')
-
-  await sample.fill('blocked pattern')
-  await button.click()
-  await expect(result).toContainText('Regex patterns')
-  await tester.getByRole('radio', { name: /Unsaved draft/ }).check()
-  await expect(result).toHaveCount(0)
-
-  await button.click()
-  await expect(result).toContainText('BLOCK')
-  const words = await expand(page, 'words')
-  await words.getByRole('textbox', { name: 'Blocked words, one rule per line' }).fill('changed draft')
-  await expect(result).toHaveCount(0)
-
-  await button.click()
-  await expect(result).toContainText('BLOCK')
-  await page.getByRole('button', { name: 'Apply for session', exact: true }).click()
-  await expect(result).toHaveCount(0)
-
-  await button.click()
-  await expect(result).toContainText('BLOCK')
-  await page.getByRole('button', { name: 'Save filters', exact: true }).click()
-  await expect(result).toHaveCount(0)
-  expect((await calls(page)).map((call) => call[0])).toEqual([
-    'test_filters', 'test_filters', 'test_filters', 'apply_filters', 'test_filters', 'save_filters',
-  ])
-})
-
-test('Filter Tester stays unavailable while Apply changes the active rules', async ({ page }) => {
-  await page.goto('/tests/filters.fixture.html?slowAction')
-  const tester = page.locator('.filter-tester-card')
-  const sample = tester.getByRole('textbox', { name: 'Sample text' })
-  const testButton = tester.getByRole('button', { name: 'Test sample' })
-  await sample.fill('blocked word')
-  await testButton.click()
-  await expect(tester.locator('.filter-test-result')).toContainText('BLOCK')
-
-  const words = await expand(page, 'words')
-  await words.getByRole('textbox', { name: 'Blocked words, one rule per line' }).fill('changed draft')
-  await page.getByRole('button', { name: 'Apply for session', exact: true }).click()
-  await expect(testButton).toBeDisabled()
-  await expect(tester.locator('.filter-test-result')).toHaveCount(0)
-  await expect(testButton).toBeEnabled()
-  expect((await calls(page)).filter((call) => call[0] === 'test_filters')).toHaveLength(1)
+  await expect(tester.getByRole('status')).toHaveCount(0)
+  expect(await calls(page)).toHaveLength(1)
 })
 
 for (const width of [1280, 900, 390, 320]) {
-  test(`large multiline editors stay compact inside their cards at ${width}px`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 1000 })
+  test(`large rule lists fit the grouped editor at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 620 })
     await page.goto('/tests/filters.fixture.html?large')
-    await expect(page.getByRole('heading', { name: 'Bot filters', exact: true })).toBeVisible()
-    await expect(page.locator('.filters-intro')).toContainText('They do not delete Twitch messages or ban users')
-    const tester = page.locator('#filter-tester')
-    expect(await tester.evaluate((element) => Boolean(element.compareDocumentPosition(document.getElementById('filters-words')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true)
-    await expect(tester).toContainText('without changing rules')
-    await expect(tester).toContainText('Protected AI safety is separate and is not tested here')
-    await card(page, 'patterns').getByRole('button', { name: 'Help: Regex patterns' }).focus()
-    await expect(page.getByRole('tooltip')).toContainText('Advanced: match text with Python regular expressions')
-    await page.keyboard.press('Escape')
-    const words = await expand(page, 'words')
-    const phrases = await expand(page, 'phrases')
-    await expect(words.locator('textarea')).toHaveCount(1)
-    await expect(phrases.locator('textarea')).toHaveCount(1)
-    await expect(words.locator('.filter-rule-row')).toHaveCount(0)
-    await expect(phrases.locator('.filter-rule-row')).toHaveCount(0)
-    await expect(words.locator('.accordion-badges .read-only-badge')).toHaveText('80 rules')
-    await expect(phrases.locator('.accordion-badges .read-only-badge')).toHaveText('65 rules')
-    for (const container of [words.locator('.filter-text-editor'), phrases.locator('.filter-text-editor')]) {
-      const textarea = container.getByRole('textbox')
-      const bounds = (await textarea.boundingBox())!
-      const containerBounds = (await container.boundingBox())!
-      expect(bounds.height).toBeLessThan(260)
-      expect(bounds.x).toBeGreaterThanOrEqual(containerBounds.x)
-      expect(bounds.x + bounds.width).toBeLessThanOrEqual(containerBounds.x + containerBounds.width + 1)
+    for (const [section, count] of [['Blocked words', 80], ['Blocked phrases', 65], ['Regex patterns', 19]] as const) {
+      const text = await openSection(page, section)
+      await expect(dialog(page).getByRole('textbox')).toHaveCount(1)
+      await expect(dialog(page).getByText(`${count} rules`, { exact: true })).toBeVisible()
+      await expect(text).toBeInViewport()
+      await expect(dialog(page).getByRole('button', { name: 'Save filters' })).toBeInViewport()
     }
+    const nav = (await dialog(page).getByRole('navigation').boundingBox())!
+    const textbox = (await dialog(page).getByRole('textbox').boundingBox())!
+    if (width <= 640) expect(nav.y + nav.height).toBeLessThan(textbox.y)
+    else expect(nav.x + nav.width).toBeLessThan(textbox.x)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
-    await page.screenshot({ path: `node_modules/.tmp/filters-${width}.png`, fullPage: true })
   })
 }

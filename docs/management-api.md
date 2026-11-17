@@ -403,6 +403,10 @@ POST writes persist and apply immediately unless stated otherwise.
 | POST `logs/recent` | Optional integer `after_id` (default 0), `limit` (1–200, default 100); allowlisted operator activity plus `next_after_id` advancing across excluded entries; authentication required |
 | GET `diagnostics` | Process uptime, desired session state and settings/restart boundaries |
 
+When a rule fails validation, `filters/save` and `filters/apply` return HTTP 400
+with `invalid_rule.category` and the zero-based `invalid_rule.index` in the
+submitted list for that category.
+
 Playground controls are ephemeral and return promptly; generation runs separately
 from the serialized HTTP operation lock, with one slot per application and a 60-second
 deadline. The same shared pipeline and applied/saved settings serve Desktop and Server.

@@ -25,6 +25,7 @@ from app.app_settings import AppSettingsStore
 from app.bot_runtime import BotRuntime
 from app.operation_policy import OperationPolicy
 from app.configuration_transfer import MAX_TRANSFER_BODY
+from app.filter_settings import FilterValidationError
 from app.management import ApplicationManagement
 from app.runtime_paths import PACKAGED_FRONTEND, SOURCE_ROOT, RuntimePaths
 from app.utils.logging import RecentLogBuffer
@@ -655,7 +656,14 @@ class ManagementAPI:
             if not path.endswith("/test"):
                 if set(payload) != {"payload"}:
                     raise ValueError
-                await self.service._change_filters(payload["payload"], save=path.endswith("/save"))
+                try:
+                    await self.service._change_filters(payload["payload"], save=path.endswith("/save"))
+                except FilterValidationError as error:
+                    return {
+                        "ok": False,
+                        "error": "Invalid regex rule." if error.category == "patterns" else "Invalid filter rule text.",
+                        "invalid_rule": {"category": error.category, "index": error.index},
+                    }
                 return {"ok": True}
             operation = self.service._test_filters
             inspect.signature(operation).bind(**payload)

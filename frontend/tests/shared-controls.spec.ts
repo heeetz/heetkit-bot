@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test'
+import { openAIBehaviorSection } from './ai-behavior-helpers'
 
 for (const { section, id } of [
-  { section: 'Filters', id: 'filters-words' },
-  { section: 'AI', id: 'ai-profile-instructions' },
+  { section: 'AI', id: 'ai-models' },
   { section: 'Settings', id: 'twitch-settings' },
 ]) {
   test(`${section} uses the shared keyboard header and independent help`, async ({ page }) => {
@@ -39,7 +39,8 @@ for (const { section, id } of [
 test('hover waits 900 ms and the pointer can enter the help content', async ({ page }) => {
   await page.goto('/tests/fixture.html')
   await page.getByRole('navigation').getByRole('button', { name: 'AI', exact: true }).click()
-  const help = page.locator('#ai-profile-instructions .help-trigger')
+  const profile = await openAIBehaviorSection(page, 'Profile instructions')
+  const help = profile.locator('.help-trigger')
   await page.clock.install()
   await help.hover()
   await page.clock.runFor(799)
@@ -153,7 +154,7 @@ test('changing pages closes help from the hidden page', async ({ page }) => {
   await page.goto('/tests/fixture.html')
   const nav = page.getByRole('navigation')
   await nav.getByRole('button', { name: 'AI', exact: true }).click()
-  await page.locator('#ai-profile-instructions .help-trigger').focus()
+  await page.getByRole('button', { name: 'Help: AI setup', exact: true }).focus()
   await expect(page.getByRole('tooltip')).toBeVisible()
   await nav.getByRole('button', { name: 'Commands', exact: true }).click()
   await expect(page.getByRole('tooltip')).toHaveCount(0)
@@ -207,10 +208,12 @@ test('required setup, unsaved drafts and full-reset consequences stay visible', 
   await expect(page.getByRole('heading', { name: 'Finish Twitch setup', exact: true })).toBeVisible()
   const nav = page.getByRole('navigation')
   await nav.getByRole('button', { name: 'AI', exact: true }).click()
-  await page.locator('#ai-profile-instructions .accordion-trigger').press('Enter')
+  const profile = await openAIBehaviorSection(page, 'Profile instructions')
   await page.locator('#ai-profile-instructions textarea').fill('Synthetic draft')
   await expect(page.locator('#ai-profile-instructions .dirty-badge')).toHaveText('Edited')
-  await expect(page.locator('#ai-profile-instructions .setting-effect')).toContainText('unsaved editor draft is not applied')
+  await expect(profile.locator('.setting-effect')).toContainText('unsaved editor draft is not applied')
+  await profile.getByRole('button', { name: 'Open Playground' }).click()
+  await profile.getByRole('button', { name: 'Use current applied settings' }).click()
   await nav.getByRole('button', { name: 'Commands', exact: true }).click()
   await page.locator('.advanced-command-reset > summary').click()
   await page.getByRole('button', { name: 'Restore all factory defaults', exact: true }).click()

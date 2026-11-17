@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { openAIBehaviorSection, closeAIBehavior } from './ai-behavior-helpers'
 import { openEditorSection } from './command-editor-helpers'
 import { selectOption } from './select-helpers'
 
@@ -96,27 +97,15 @@ test('column and form thresholds handle fractional CSS content widths', async ({
   }
   await page.getByRole('navigation').getByRole('button', { name: 'AI', exact: true }).click()
   await expect(page.locator('.ai-layout')).toHaveAttribute('aria-busy', 'false')
-  for (const [width, columns] of [[1000, 2], [999.5, 2], [480, 2], [479.5, 1]]) {
+  for (const [width, columns] of [[1000, 2], [620.5, 2], [620, 1], [479.5, 1]]) {
     await page.locator('.page-content').evaluate((element, width) => {
       element.style.width = `${width}px`
     }, width)
-    expect(await gridColumns(page.locator('#ai-runtime'), ':scope > .ai-state-panel')).toBe(columns)
-    if (columns === 2) {
-      const panels = await page.locator('#ai-runtime > .ai-state-panel').all()
-      const provider = (await panels[0].boundingBox())!
-      const memory = (await panels[1].boundingBox())!
-      expect(memory.width / provider.width).toBeCloseTo(2, 1)
-    }
+    expect(await gridColumns(page.locator('.ai-behavior-overview'), ':scope > *')).toBe(columns)
     await expectNoHorizontalOverflow(page)
   }
-  const language = page.locator('#ai-language')
-  await language.locator('.accordion-caret').click()
-  for (const [width, columns] of [[620.5, 2], [620, 1]]) {
-    await page.locator('.page-content').evaluate((element, width) => {
-      element.style.width = `${width}px`
-    }, width)
-    expect(await gridColumns(language.locator('.language-fields'), ':scope > label')).toBe(columns)
-  }
+  const language = await openAIBehaviorSection(page, 'Response languages')
+  expect(await gridColumns(language.locator('.language-fields'), ':scope > label')).toBe(2)
 })
 
 for (const viewport of viewports) {
@@ -136,23 +125,15 @@ for (const viewport of viewports) {
     await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'AI', exact: true }).click()
     const ai = page.locator('.ai-layout')
     await expect(ai).toHaveAttribute('aria-busy', 'false')
-    await expect(page.locator('#ai-runtime .ai-state-panel')).toHaveCount(2)
-    await expect(page.locator('#ai-runtime').getByRole('heading')).toHaveText(['AI provider', 'Conversation memory'])
-    expect(await gridColumns(page.locator('#ai-runtime'), ':scope > .ai-state-panel'))
-      .toBe(viewport.width <= 760 || contentWidth < 480 ? 1 : 2)
-    if (viewport.aiAvailable) {
-      await expect(page.locator('#ai-runtime')).toContainText('Configured for requests')
-    } else {
-      await expect(page.locator('#ai-runtime')).toContainText('Unavailable')
-      await expect(page.getByRole('button', { name: 'Manage AI setup', exact: true })).toBeVisible()
-      await page.getByRole('button', { name: 'Manage AI setup', exact: true }).click()
-      await expect(page.locator('#ai-models')).toBeInViewport()
-    }
+    await expect(ai.locator('#ai-behavior').getByRole('heading')).toHaveText('AI behavior')
+    expect(await gridColumns(ai.locator('.ai-behavior-overview'), ':scope > *'))
+      .toBe(contentWidth <= 620 ? 1 : 2)
+    await expect(ai.locator('#ai-behavior')).toContainText('Active personality')
 
-    const language = page.locator('#ai-language')
-    await language.locator('.accordion-caret').click()
+    const language = await openAIBehaviorSection(page, 'Response languages')
     const formColumns = await gridColumns(language.locator('.language-fields'), ':scope > label')
-    expect(formColumns).toBe(viewport.width <= 760 || contentWidth <= 621 ? 1 : 2)
+    expect(formColumns).toBe((await language.boundingBox())!.width <= 620 ? 1 : 2)
+    await closeAIBehavior(page)
 
     const nav = page.getByRole('navigation', { name: 'Main navigation' })
     await nav.getByRole('button', { name: 'AI setup', exact: true }).click()
@@ -164,7 +145,7 @@ for (const viewport of viewports) {
     await expect(page.locator('#ai-playground')).toHaveCount(1)
     await expectNoHorizontalOverflow(page)
     if ([900, 1440, 2560].includes(viewport.width)) {
-      await page.locator('#ai-runtime').screenshot({ path: `node_modules/.tmp/a5-ai-state-${viewport.width}.png` })
+      await page.locator('#ai-behavior').screenshot({ path: `node_modules/.tmp/a5-ai-state-${viewport.width}.png` })
     }
     for (const section of ['Commands', 'Filters', 'Logs', 'Settings', 'About']) {
       await page.getByRole('navigation').getByRole('button', { name: section, exact: true }).click()
@@ -216,12 +197,13 @@ test('long model, personality, alias and draft values wrap inside the 761px cont
   const nav = page.getByRole('navigation', { name: 'Main navigation' })
   await nav.getByRole('button', { name: 'AI', exact: true }).click()
   await expect(page.locator('.ai-layout')).toHaveAttribute('aria-busy', 'false')
-  const profile = page.locator('#ai-profile-instructions')
-  await profile.locator('.accordion-caret').click()
+  const profile = await openAIBehaviorSection(page, 'Profile instructions')
   await profile.locator('textarea').fill(`draft_${'unbroken'.repeat(30)}`)
   await expect(profile.locator('.dirty-badge')).toHaveText('Edited')
   await expectNoHorizontalOverflow(page)
 
+  await closeAIBehavior(page)
+  await page.getByRole('dialog', { name: 'Discard unsaved AI behavior changes?' }).getByRole('button', { name: 'Confirm' }).click()
   await nav.getByRole('button', { name: 'Commands', exact: true }).click()
   const ping = page.locator('#command-editor-ping')
   await expect(page.getByRole('rowheader').filter({ hasText: '!ping' })).toContainText('alternate_command_4')
@@ -247,8 +229,8 @@ test('loading and a long error remain contained at the 320px minimum width', asy
   await expectNoHorizontalOverflow(page)
 })
 
-test('the desktop menu scrolls independently at minimum height and keyboard help stays in the window', async ({ page }) => {
-  await page.setViewportSize({ width: 900, height: 620 })
+test('the side menu scrolls independently in a short viewport and keyboard help stays in the window', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 520 })
   await page.addInitScript(() => {
     const scrollIntoView = HTMLElement.prototype.scrollIntoView
     Object.assign(window, { lastNavigationScroll: '' })
@@ -270,17 +252,9 @@ test('the desktop menu scrolls independently at minimum height and keyboard help
   expect((await brand.boundingBox())!.y).toBeCloseTo(brandBefore.y, 0)
   await expect(nav.getByRole('button', { name: 'About', exact: true })).toBeInViewport()
 
-  await nav.getByRole('button', { name: 'Profile instructions', exact: true }).click()
-  const card = page.locator('#ai-profile-instructions')
-  const trigger = card.locator('.accordion-trigger')
-  // Complete navigation's automatic expansion and scroll before testing deliberate toggles.
-  await expect.poll(() => page.evaluate(() => Reflect.get(window, 'lastNavigationScroll'))).toBe('ai-profile-instructions')
-  await trigger.focus()
-  await expect(trigger).toHaveAttribute('aria-expanded', 'true')
-  await trigger.press('Enter')
-  await expect(trigger).toHaveAttribute('aria-expanded', 'false')
-  await trigger.press('Space')
-  await expect(trigger).toHaveAttribute('aria-expanded', 'true')
+  await nav.getByRole('button', { name: 'AI behavior', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, 'lastNavigationScroll'))).toBe('ai-behavior')
+  const card = await openAIBehaviorSection(page, 'Profile instructions')
   const help = card.getByRole('button', { name: 'Help: Profile instructions', exact: true })
   await help.focus()
   const tooltip = page.getByRole('tooltip')
@@ -289,7 +263,7 @@ test('the desktop menu scrolls independently at minimum height and keyboard help
   expect(bounds.x).toBeGreaterThanOrEqual(12)
   expect(bounds.x + bounds.width).toBeLessThanOrEqual(888)
   expect(bounds.y).toBeGreaterThanOrEqual(12)
-  expect(bounds.y + bounds.height).toBeLessThanOrEqual(608)
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(508)
   await help.press('Escape')
   await expect(tooltip).toHaveCount(0)
   await expect(help).toBeFocused()
@@ -302,9 +276,8 @@ for (const width of [1440, 1180, 900, 390, 320]) {
     const nav = page.getByRole('navigation')
     await nav.getByRole('button', { name: 'AI', exact: true }).click()
     await expect(page.locator('.ai-layout')).toHaveAttribute('aria-busy', 'false')
-    for (const id of ['ai-personalities', 'ai-profile-instructions', 'ai-language']) {
-      const card = page.locator(`#${id}`)
-      await card.locator('.accordion-caret').click()
+    for (const section of ['Personalities', 'Profile instructions', 'Response languages'] as const) {
+      const card = await openAIBehaviorSection(page, section)
       const footer = card.locator('.ai-editor-footer')
       const playground = footer.getByRole('button', { name: 'Open Playground' })
       await expect(playground).toBeVisible()
@@ -319,7 +292,7 @@ for (const width of [1440, 1180, 900, 390, 320]) {
       }
       await expectNoHorizontalOverflow(page)
       if (width === 1180 || width === 320) {
-        await footer.screenshot({ path: `node_modules/.tmp/ui-${id}-footer-${width}.png` })
+        await footer.screenshot({ path: `node_modules/.tmp/ui-${section}-footer-${width}.png` })
       }
     }
     const language = page.locator('#ai-language')
@@ -329,6 +302,8 @@ for (const width of [1440, 1180, 900, 390, 320]) {
     await expect(page.getByRole('tooltip')).toContainText('Prompt guidance cannot perfectly guarantee')
     await page.keyboard.press('Escape')
 
+    await closeAIBehavior(page)
+    await page.getByRole('dialog', { name: 'Discard unsaved AI behavior changes?' }).getByRole('button', { name: 'Confirm' }).click()
     await expect(page.locator('#ai-blocked-users')).toHaveCount(0)
 
     await nav.getByRole('button', { name: 'AI', exact: true }).click()

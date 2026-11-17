@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { openAIBehaviorSection } from './ai-behavior-helpers'
 import { selectOption } from './select-helpers'
 
 for (const width of [1280, 390]) {
@@ -67,8 +68,7 @@ for (const width of [1280, 320]) {
       }
     })
     await page.getByRole('button', { name: 'AI', exact: true }).click()
-    const personality = page.locator('#ai-personalities')
-    await personality.locator('.accordion-caret').click()
+    const personality = await openAIBehaviorSection(page, 'Personalities')
     const control = personality.getByRole('combobox', { name: 'Personality', exact: true })
     const initialWidth = (await control.boundingBox())!.width
     expect(initialWidth).toBeGreaterThanOrEqual(240)

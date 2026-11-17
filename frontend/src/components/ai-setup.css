@@ -1,6 +1,6 @@
 .ai-setup-panel, .ai-shared-instructions-slot { min-width: 0; }
-.ai-setup-panel .accordion-content, .ai-shared-instructions .accordion-content { display: grid; gap: .75rem; }
-.ai-setup-panel .accordion-content[hidden], .ai-shared-instructions .accordion-content[hidden] { display: none; }
+.ai-setup-panel .accordion-content { display: grid; gap: .75rem; }
+.ai-setup-panel .accordion-content[hidden] { display: none; }
 .ai-setup-panel h3, .ai-setup-panel p { margin: 0; }
 .ai-section-title, .ai-discovery-action { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
 .ai-connections, .ai-model-card, .ai-setup-lengths { min-width: 0; border: 1px solid var(--separator); border-radius: .75rem; padding: 1rem; }

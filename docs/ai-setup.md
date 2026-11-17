@@ -23,8 +23,8 @@ the provider's limits, charges and data-use terms before you enable AI for viewe
 6. Select a **Model**.
 7. If you changed the model or options, select **Save AI setup**.
 
-**Check:** Check **AI provider** for the expected **Active model** and
-**Configured for requests**. Then [test a prompt](#test-locally-with-ai-playground).
+**Check:** Check the AI controls on **Dashboard** for the active model and
+[test a prompt](#test-locally-with-ai-playground).
 
 ### If the provider or model is unavailable
 
@@ -92,13 +92,14 @@ chat configured. One pair is a question and its successfully delivered answer.
 **In HeetKit:** **AI > Conversation memory** on Desktop or Server.
 
 1. Open **AI**.
-2. Turn on **Conversation memory** using its switch. The switch saves immediately.
+2. Find **Conversation memory** below **AI behavior** and turn on the switch.
+   The switch saves immediately.
 3. Set **Stored pairs (N)** to 1–500 per viewer per channel. The default is 100.
 4. Set **Context pairs (M)** to 1–50. The default is 5. This value must be at most N.
 5. Select **Save memory limits**. **A lower N immediately deletes older pairs
    above the new limit, including in recovery copies.**
 
-**Check:** Reopen **AI** and check that the switch and both limits show your saved
+**Check:** Reopen the AI page and check that the switch and both limits show your saved
 values. In chat, try an allowed follow-up about an earlier answer from the same
 account and channel. Leave enough time for the command cooldown.
 
@@ -170,10 +171,13 @@ and [Gemini grounding](https://ai.google.dev/gemini-api/docs/generate-content/go
 Give the bot a reply style. You can select a built-in personality or create your
 own. To check its replies, you need a working provider and model.
 
-**In HeetKit:** **AI > Personality-specific prompt** on Desktop or Server.
+**In HeetKit:** **AI > AI behavior > Edit personalities** on Desktop or Server.
+
+The editor keeps drafts as you switch sections. Closing with unsaved changes
+asks whether to discard them. Each section saves its own settings.
 
 1. Open **AI**.
-2. Expand **Personality-specific prompt**.
+2. On **AI behavior**, select **Edit personalities**.
 3. Choose a **Personality**.
 4. To change its prompt, edit **Editable prompt**.
 5. If you edited the prompt, select **Save**.
@@ -199,10 +203,10 @@ filters and protected safety checks still apply.
 Give every personality in this profile the same guidance. You need a working
 provider and model to test its effect.
 
-**In HeetKit:** **AI > Profile instructions** on Desktop or Server.
+**In HeetKit:** **AI > AI behavior > Edit profile instructions** on Desktop or Server.
 
 1. Open **AI**.
-2. Expand **Profile instructions**.
+2. On **AI behavior**, select **Edit profile instructions**.
 3. Enter the guidance in **Profile instructions**.
 4. Select **Save** to keep the instructions across restarts. For a session-only
    change, select **Apply** instead.
@@ -215,14 +219,14 @@ to test a prompt that exercises the instruction.
 Change the common AI instructions or control how long questions and answers can be.
 You need a working provider and model to test your changes.
 
-**In HeetKit:** **AI > Shared instructions** and **AI > AI setup** on Desktop or Server.
+**In HeetKit:** **AI > AI behavior > Edit shared instructions** and **AI > AI setup** on Desktop or Server.
 
 1. Open **AI**.
-2. Expand **Shared instructions**.
+2. On **AI behavior**, select **Edit shared instructions**.
 3. Edit **Shared AI instructions**. Select **Restore default instructions** to
    put the default text in the draft.
 4. Select **Save instructions**. Saving an empty field removes the shared text.
-5. To change the length limits, expand **AI setup**.
+5. To change the length limits, close the editor and expand **AI setup**.
 6. Set **Input length limit** to 1–4000 characters. The default is 300.
 7. Set **Output length limit** to 1–450 characters. The default is 220.
 8. Select **Save AI setup**.
@@ -241,10 +245,10 @@ in one Twitch message.
 Let the bot follow the question's language or limit replies to selected languages.
 You need a working provider and model to test the policy.
 
-**In HeetKit:** **AI > AI response language** on Desktop or Server.
+**In HeetKit:** **AI > AI behavior > Edit response languages** on Desktop or Server.
 
 1. Open **AI**.
-2. Expand **AI response language**.
+2. On **AI behavior**, select **Edit response languages**.
 3. Select **Auto** or **Limited** in **Response language mode**.
 4. For **Limited**, select the **Allowed languages**.
 5. For **Limited**, select a **Fallback language** from that list.

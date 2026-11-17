@@ -713,6 +713,15 @@ async def test_management_applies_and_persists_existing_stores(api):
     await save("/v1/personalities/activate", {"personality": "Synthetic"})
     await save("/v1/ai/instructions/save", {"prompt": "Synthetic instructions"})
     await save("/v1/filters/save", {"payload": {"words": ["syntheticblocked"], "phrases": [], "patterns": []}})
+    status, rejected_rule, _ = await call("POST", "/v1/filters/save", json={
+        "payload": {"words": [], "phrases": [], "patterns": ["# comment", "["]},
+    })
+    assert status == 400
+    assert rejected_rule == {
+        "ok": False,
+        "error": "Invalid regex rule.",
+        "invalid_rule": {"category": "patterns", "index": 1},
+    }
     result = await save("/v1/filters/test", {"text": "syntheticblocked", "source": "active", "payload": None})
     assert result["decision"] == "BLOCK"
     await save("/v1/blocked-users/block", {"username": "syntheticviewer"})

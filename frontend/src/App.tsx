@@ -45,21 +45,10 @@ const subsections: Partial<Record<Section, { label: string; targetId: string }[]
     { label: 'Storage opt-outs', targetId: 'optout-management' },
     { label: 'Advanced: reset all built-ins', targetId: 'advanced-command-reset' },
   ],
-  Filters: [
-    { label: 'Filter Tester', targetId: 'filter-tester' },
-    { label: 'Blocked words', targetId: 'filters-words' },
-    { label: 'Blocked phrases', targetId: 'filters-phrases' },
-    { label: 'Regex patterns', targetId: 'filters-patterns' },
-  ],
   AI: [
     { label: 'AI setup', targetId: 'ai-models' },
-    { label: 'State', targetId: 'ai-runtime' },
-    { label: 'Conversation memory', targetId: 'ai-memory' },
+    { label: 'AI behavior', targetId: 'ai-behavior' },
     { label: 'Playground', targetId: 'ai-playground' },
-    { label: 'Personalities', targetId: 'ai-personalities' },
-    { label: 'Profile instructions', targetId: 'ai-profile-instructions' },
-    { label: 'Shared instructions', targetId: 'ai-shared-instructions' },
-    { label: 'Response language', targetId: 'ai-language' },
   ],
   Settings: [
     { label: 'Desktop behavior', targetId: 'desktop-settings' },
@@ -333,7 +322,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
       <article className="card dashboard-ai-card">
         <div className="dashboard-card-heading">
           <div className="dashboard-label">AI controls<HelpTip label="AI controls">Gemini is optional; other Twitch commands work without it. The AI command switch saves immediately across restarts and is shared with AI and Commands. Filter Tester works while stopped. AI Playground also works while stopped with Gemini configured. Turning memory off stops new storage and use without erasing previous exchanges.</HelpTip></div>
-          <button className="secondary" onClick={() => onNavigate('AI', 'ai-runtime')}>Manage AI</button>
+          <button className="secondary" onClick={() => onNavigate('AI', 'ai-behavior')}>Manage AI</button>
         </div>
         <div className="dashboard-ai-summary">
           <span>{aiStatus ? aiStatus.available ? aiStatus.model || setup?.aiProvider.selected_model || 'Model not selected' : 'AI unavailable' : 'Loading…'}</span>

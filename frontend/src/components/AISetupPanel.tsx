@@ -2,12 +2,21 @@ import { useEffect, useRef, useState } from 'react'
 import { type AIModelSelection, type AIProviderId, type AISetupResponse, type AISetupSettings, waitForBridge } from '../bridge'
 import Switch from './Switch'
 import Accordion from './Accordion'
+import AIBehaviorSection from './AIBehaviorSection'
 import HelpTip from './HelpTip'
 import { Select } from './Select'
 import { createPortal } from 'react-dom'
 import './ai-setup.css'
 
-export default function AISetupPanel({ active, onDirtyChange, onSaved, instructionsTarget }: { instructionsTarget: HTMLElement | null; active: boolean; onDirtyChange: (dirty: boolean) => void; onSaved?: () => void }) {
+export default function AISetupPanel({ active, onDirtyChange, onSaved, instructionsTarget, discardInstructions, onInstructionsDirtyChange, onInstructionsBusyChange }: {
+  instructionsTarget: HTMLElement | null
+  discardInstructions: number
+  active: boolean
+  onDirtyChange: (dirty: boolean) => void
+  onInstructionsDirtyChange: (dirty: boolean) => void
+  onInstructionsBusyChange: (busy: boolean) => void
+  onSaved?: () => void
+}) {
   const [data, setData] = useState<AISetupResponse | null>(null)
   const [saved, setSaved] = useState<AISetupSettings | null>(null)
   const [draft, setDraft] = useState<AISetupSettings | null>(null)
@@ -16,6 +25,8 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [instructionsError, setInstructionsError] = useState('')
+  const [instructionsNotice, setInstructionsNotice] = useState('')
   const [discoveries, setDiscoveries] = useState<Partial<Record<AIProviderId, string[]>>>({})
   const [discoveryState, setDiscoveryState] = useState<Partial<Record<AIProviderId, string>>>({})
   const generation = useRef({ gemini: 0, deepseek: 0, openai: 0 })
@@ -23,7 +34,14 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
   const lastFallback = useRef<AIModelSelection | null>(null)
   const dirty = Boolean(draft && saved && JSON.stringify(draft) !== JSON.stringify(saved))
   const instructionsDirty = Boolean(saved && instructions !== saved.shared_instructions)
-  useEffect(() => { onDirtyChange(dirty || instructionsDirty) }, [dirty, instructionsDirty, onDirtyChange])
+  useEffect(() => { onDirtyChange(dirty) }, [dirty, onDirtyChange])
+  useEffect(() => { onInstructionsDirtyChange(instructionsDirty) }, [instructionsDirty, onInstructionsDirtyChange])
+  useEffect(() => { onInstructionsBusyChange(busy === 'instructions') }, [busy, onInstructionsBusyChange])
+  useEffect(() => {
+    setInstructions(saved?.shared_instructions ?? null)
+    setInstructionsError('')
+    setInstructionsNotice('')
+  }, [discardInstructions])
   useEffect(() => {
     mounted.current = true
     return () => { mounted.current = false; generation.current.gemini++; generation.current.deepseek++; generation.current.openai++ }
@@ -47,8 +65,10 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
     if (active && !data) void load(true).catch((reason: Error) => setError(reason.message))
   }, [active, data])
   const run = async (name: string, action: () => Promise<void>) => {
-    setBusy(name); setError(''); setNotice('')
-    try { await action() } catch (reason) { setError(reason instanceof Error ? reason.message : 'AI setup failed.') }
+    const reportError = name === 'instructions' ? setInstructionsError : setError
+    const clearNotice = name === 'instructions' ? setInstructionsNotice : setNotice
+    setBusy(name); reportError(''); clearNotice('')
+    try { await action() } catch (reason) { reportError(reason instanceof Error ? reason.message : 'AI setup failed.') }
     finally { if (mounted.current) { setBusy('') } }
   }
   const change = (patch: Partial<AISetupSettings>) => setDraft((current) => current ? { ...current, ...patch } : current)
@@ -151,7 +171,7 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
     setDraft((current) => current ? { ...current, shared_instructions: settings.shared_instructions } : current)
     setInstructions(settings.shared_instructions)
     onSaved?.()
-    setNotice('Shared instructions saved. Model and length drafts were kept.')
+    setInstructionsNotice('Shared instructions saved.')
   })
   return <>
     <Accordion id="ai-models" title="AI setup" className="ai-setup-panel" description="Connect provider keys immediately, then choose primary/fallback models and character limits. Save AI setup applies the non-secret draft; Cancel cannot undo credential changes." badges={dirty && <span className="mini-badge dirty-badge">Edited</span>}>
@@ -183,13 +203,19 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
         </div></div>
       </>}
     </Accordion>
-    {instructionsTarget && createPortal(<Accordion id="ai-shared-instructions" title="Shared instructions" className="ai-shared-instructions" badges={instructionsDirty && <span className="mini-badge dirty-badge">Edited</span>} description="Shared text is separate from personality and profile instructions. Save instructions applies only this editor; model and length drafts stay unchanged. Empty deliberately removes the shared text. Restore defaults changes the draft. Placeholders: {current_datetime}, {ai_max_response_length}, {response_language_instruction}.">
-      {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
-      {!saved ? <p>Loading shared instructions...</p> : <>
+    {instructionsTarget && createPortal(<AIBehaviorSection id="ai-shared-instructions" title="Shared instructions" className="ai-shared-instructions" badges={instructionsDirty && <span className="mini-badge dirty-badge">Edited</span>} description="Shared text applies to every AI reply in this profile. Saving an empty field removes the shared text. Restore defaults changes the draft. Placeholders: {current_datetime}, {ai_max_response_length}, {response_language_instruction}."
+      footer={saved && <div className="editor-footer ai-editor-footer">
+        <button className="secondary" disabled={Boolean(busy)} onClick={() => setInstructions(null)}>Restore default instructions</button>
+        <div className="row-actions">
+          <button className="secondary" disabled={Boolean(busy) || !instructionsDirty} onClick={() => setInstructions(saved.shared_instructions)}>Cancel instruction edits</button>
+          <button className="primary" disabled={Boolean(busy) || !instructionsDirty} onClick={saveInstructions}>Save instructions</button>
+        </div>
+      </div>}>
+      {instructionsError && <p role="alert">{instructionsError}</p>}{instructionsNotice && <p role="status">{instructionsNotice}</p>}
+      {!saved ? <p>{error || 'Loading shared instructions…'}</p> : <>
         <label className="form-field">Shared AI instructions<textarea aria-label="Shared AI instructions" rows={12} maxLength={20000} disabled={Boolean(busy)} value={instructions ?? data?.default_shared_instructions ?? ''} onChange={(event) => setInstructions(event.target.value)} /></label>
         <p className="settings-hint">These instructions apply to every AI reply in this profile.</p>
-        <div className="editor-footer"><button className="secondary" disabled={Boolean(busy)} onClick={() => setInstructions(null)}>Restore default instructions</button><div className="row-actions"><button className="secondary" disabled={Boolean(busy) || !instructionsDirty} onClick={() => setInstructions(saved.shared_instructions)}>Cancel instruction edits</button><button className="primary" disabled={Boolean(busy) || !instructionsDirty} onClick={saveInstructions}>Save instructions</button></div></div>
       </>}
-    </Accordion>, instructionsTarget)}
+    </AIBehaviorSection>, instructionsTarget)}
   </>
 }

@@ -186,20 +186,16 @@ export async function analyticsFlow(page: Page, mock: Awaited<ReturnType<typeof 
   await expect(page.getByText('USD 12.34', { exact: true })).toBeVisible()
   await nav.getByRole('button', { name: 'AI', exact: true }).click()
   await expect(page.locator('.ai-layout')).toHaveAttribute('aria-busy', 'false')
-  await expect(page.locator('#ai-runtime > article')).toHaveCount(2)
+  const behavior = page.locator('#ai-behavior')
+  await expect(behavior.getByRole('heading')).toHaveText('AI behavior')
   await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).toHaveCount(0)
-  await page.locator('#ai-runtime').screenshot({ path: `node_modules/.tmp/ai-state-${host}-${width}.png` })
-  if (width >= 1280) {
-    const left = (await page.locator('#ai-runtime > article').first().boundingBox())!
-    const right = (await page.locator('#ai-memory').boundingBox())!
-    expect(left.y).toBe(right.y)
-    expect(right.width / left.width).toBeGreaterThan(1.9)
-  }
+  await behavior.screenshot({ path: `node_modules/.tmp/ai-state-${host}-${width}.png` })
+  const memoryPanel = page.getByRole('form', { name: 'Conversation memory' })
   const memory = page.getByRole('checkbox', { name: 'Enable conversation memory', exact: true })
   const checked = await memory.isChecked()
   await memory.press('Space'); await expect(memory).toBeChecked({ checked: !checked })
   await page.getByLabel('Stored pairs (N)', { exact: true }).fill('20')
-  await page.locator('.memory-limits').getByRole('button', { name: 'Cancel', exact: true }).click()
+  await memoryPanel.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(page.getByLabel('Stored pairs (N)', { exact: true })).toHaveValue('100')
   await page.getByLabel('Stored pairs (N)', { exact: true }).fill('3')
   await page.getByLabel('Context pairs (M)', { exact: true }).fill('4')
@@ -210,6 +206,6 @@ export async function analyticsFlow(page: Page, mock: Awaited<ReturnType<typeof 
   await expect(page.getByText('Memory limits saved.', { exact: true })).toBeVisible()
   await page.locator('#ai-memory').screenshot({ path: `node_modules/.tmp/memory-${host}-${width}.png` })
   expect(mock.calls.find((call) => call.path.endsWith('/limits') && call.body.stored)).toMatchObject({ body: { stored: 3, context: 2 } })
-  await page.getByRole('button', { name: 'Help: Exchange limits', exact: true }).click()
+  await page.getByRole('button', { name: 'Help: Conversation memory', exact: true }).click()
   await expect(page.getByText(/One pair means one question/)).toBeVisible()
 }

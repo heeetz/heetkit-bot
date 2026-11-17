@@ -415,7 +415,7 @@ test('commands-only Dashboard stays quiet about optional Gemini and links to AI 
   await expect(page.locator('.dashboard-layout')).not.toContainText('Gemini')
   await expect(page.locator('.dashboard-ai-card')).toContainText('AI unavailable')
   await page.getByRole('button', { name: 'Manage AI', exact: true }).click()
-  await expect(page.locator('#ai-runtime')).toBeInViewport()
+  await expect(page.locator('#ai-behavior')).toBeInViewport()
 })
 
 for (const running of [false, true]) {

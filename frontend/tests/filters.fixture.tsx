@@ -64,13 +64,14 @@ function normalizedResponse(payload: FilterInput): FiltersResponse {
   const values = {
     words: normalizeText(payload.words),
     phrases: normalizeText(payload.phrases),
-    patterns: payload.patterns.map((value) => value.trim()).filter(Boolean),
+    patterns: payload.patterns.map((value) => value.trim()).filter((value) => value && !value.startsWith('#')),
   }
   return responseFrom(values)
 }
 
 function invalidPattern(payload: FilterInput) {
-  const index = payload.patterns.map((value) => value.trim()).filter(Boolean).findIndex((value) => {
+  const index = payload.patterns.findIndex((value) => {
+    if (!value || value.startsWith('#')) return false
     try { new RegExp(value); return false } catch { return true }
   })
   return index < 0 ? undefined : { category: 'patterns' as const, index }
@@ -120,4 +121,4 @@ window.pywebview = { api: {
   test_filters: testFilters,
 } as unknown as Awaited<ReturnType<typeof waitForBridge>> }
 
-createRoot(document.getElementById('root')!).render(<main><FiltersPage active /></main>)
+createRoot(document.getElementById('root')!).render(<main><div className="page-content"><FiltersPage active /></div></main>)

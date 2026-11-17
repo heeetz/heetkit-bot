@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openAIBehaviorSection, closeAIBehavior } from './ai-behavior-helpers'
 import { selectOption } from './select-helpers'
 
 async function openModels(page: Page, query = '') {
@@ -56,15 +57,16 @@ for (const width of [1280, 390, 320]) {
     await selectOption(models.getByLabel('Primary thinking'), 'max')
     await models.getByLabel('Primary internet search', { exact: true }).press('Space')
     await expect(models.getByLabel('Primary thinking')).toHaveAttribute('data-value', 'max')
-    const instructions = page.locator('#ai-shared-instructions')
-    await instructions.locator('.accordion-trigger').press('Space')
+    const instructions = await openAIBehaviorSection(page, 'Shared instructions')
     await instructions.getByLabel('Shared AI instructions', { exact: true }).fill('Owner edited shared instructions')
     await instructions.getByRole('button', { name: 'Save instructions', exact: true }).click()
-    await models.getByLabel('Maximum question length', { exact: true }).fill('1200')
-    await models.getByLabel('Maximum answer length', { exact: true }).fill('300')
     await expect(instructions.getByRole('button', { name: 'Help: Shared instructions', exact: true })).toBeVisible()
     await expect(instructions).toContainText('These instructions apply to every AI reply in this profile.')
     await expect(instructions).not.toContainText('Local request and full-output checks remain enabled')
+    await expect(instructions.getByRole('status')).toContainText('Shared instructions saved')
+    await closeAIBehavior(page)
+    await models.getByLabel('Maximum question length', { exact: true }).fill('1200')
+    await models.getByLabel('Maximum answer length', { exact: true }).fill('300')
     await expect(models.getByRole('button', { name: 'Save AI setup' })).toBeDisabled()
     await models.getByLabel(/I understand that my question/).check()
     await models.getByRole('button', { name: 'Save AI setup' }).click()
@@ -76,7 +78,7 @@ for (const width of [1280, 390, 320]) {
     await models.locator('.accordion-trigger').click()
     await expect(models.getByLabel('Primary provider')).toHaveAttribute('data-value', 'deepseek')
     await expect(models.getByLabel('Primary thinking')).toHaveAttribute('data-value', 'max')
-    await instructions.locator('.accordion-trigger').click()
+    await openAIBehaviorSection(page, 'Shared instructions')
     await expect(instructions.getByLabel('Shared AI instructions', { exact: true })).toHaveValue('Owner edited shared instructions')
   })
 }
@@ -182,8 +184,7 @@ for (const width of [1280, 390, 320]) {
 
 test('save error and instruction reset/cancel retain deliberate state', async ({ page }) => {
   const models = await openModels(page, 'modelSaveError')
-  const instructions = page.locator('#ai-shared-instructions')
-  await instructions.locator('.accordion-trigger').click()
+  const instructions = await openAIBehaviorSection(page, 'Shared instructions')
   await instructions.getByLabel('Shared AI instructions', { exact: true }).fill('')
   await instructions.getByRole('button', { name: 'Save instructions', exact: true }).click()
   await expect(instructions.getByRole('alert')).toContainText('Synthetic setup save failure')
@@ -268,20 +269,21 @@ test('model search supports keyboard, empty results, long IDs and viewport bound
 
 test('shared instructions and model drafts save and cancel independently', async ({ page }) => {
   const models = await openModels(page)
-  const instructions = page.locator('#ai-shared-instructions')
-  await instructions.locator('.accordion-trigger').click()
   await models.getByLabel('Primary model', { exact: true }).fill('unsaved-model')
+  const instructions = await openAIBehaviorSection(page, 'Shared instructions')
   await instructions.getByLabel('Shared AI instructions', { exact: true }).fill('Saved shared text')
   await instructions.getByRole('button', { name: 'Save instructions', exact: true }).click()
   expect(await page.evaluate(() => Reflect.get(window, 'aiCalls').at(-1)[1].primary.model)).toBe('gemini-2.5-flash')
   await expect(models.getByLabel('Primary model', { exact: true })).toHaveValue('unsaved-model')
-  await instructions.getByLabel('Shared AI instructions', { exact: true }).fill('Keep instruction draft')
+  await expect(instructions.getByRole('status')).toContainText('Shared instructions saved')
+  await closeAIBehavior(page)
   await models.getByRole('button', { name: 'Save AI setup', exact: true }).click()
   expect(await page.evaluate(() => Reflect.get(window, 'aiCalls').at(-1)[1].shared_instructions)).toBe('Saved shared text')
-  await expect(instructions.getByLabel('Shared AI instructions', { exact: true })).toHaveValue('Keep instruction draft')
   await models.getByLabel('Maximum question length', { exact: true }).fill('850')
   await models.getByRole('button', { name: 'Cancel AI edits', exact: true }).click()
-  await expect(instructions.getByLabel('Shared AI instructions', { exact: true })).toHaveValue('Keep instruction draft')
+  await openAIBehaviorSection(page, 'Shared instructions')
+  await expect(instructions.getByLabel('Shared AI instructions', { exact: true })).toHaveValue('Saved shared text')
+  await instructions.getByLabel('Shared AI instructions', { exact: true }).fill('Keep instruction draft')
   await instructions.getByRole('button', { name: 'Cancel instruction edits', exact: true }).click()
   await expect(instructions.getByLabel('Shared AI instructions', { exact: true })).toHaveValue('Saved shared text')
   const help = instructions.getByRole('button', { name: 'Help: Shared instructions', exact: true })
