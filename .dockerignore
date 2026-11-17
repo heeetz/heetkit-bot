@@ -57,6 +57,9 @@ frontend/src/**
 !frontend/src/*.ts
 !frontend/src/*.tsx
 !frontend/src/*.css
+!frontend/src/i18n/
+frontend/src/i18n/**
+!frontend/src/i18n/commands.en.ts
 !frontend/src/components/
 frontend/src/components/**
 !frontend/src/components/*.tsx

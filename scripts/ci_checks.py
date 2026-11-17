@@ -21,6 +21,10 @@ SMOKE_TESTS = (
     "tests/test_command_settings.py",
     "tests/test_management_api.py::test_authentication_origin_host_and_private_surface",
 )
+CONTAINER_FRONTEND_INPUTS = (
+    "frontend/src/i18n/commands.en.ts",
+    "frontend/src/pages/analytics.css",
+)
 
 
 def select_checks(paths: list[str]) -> dict[str, bool]:
@@ -46,7 +50,8 @@ def select_checks(paths: list[str]) -> dict[str, bool]:
         ),
         "inputs": orchestration or any(
             p.startswith(("docs/releases/", "scripts/", "packaging/"))
-            or p in ("app/version.py", "pyproject.toml", ".dockerignore", "frontend/src/pages/analytics.css")
+            or p in ("app/version.py", "pyproject.toml", ".dockerignore")
+            or p in CONTAINER_FRONTEND_INPUTS
             or p.startswith(".github/") and p.endswith((".yml", ".yaml"))
             for p in paths
         ),
@@ -107,17 +112,16 @@ def check_inputs(root: Path = ROOT) -> None:
         notes = path.read_text(encoding="utf-8")
         if not notes.splitlines() or notes.splitlines()[0].strip() != f"# HeetKit {path.stem}" or len(notes.strip()) < 100:
             raise ValueError(f"Invalid curated release notes: {path.name}")
-    check_container_stylesheet_input(root)
-    summary("Workflow/issue YAML, curated release and container stylesheet inputs passed.")
+    check_container_frontend_inputs(root)
+    summary("Workflow/issue YAML, curated release and container frontend inputs passed.")
 
 
-def check_container_stylesheet_input(root: Path = ROOT) -> None:
-    # This page stylesheet is an explicit exception to the private-data deny-all
-    # context. Require its narrow entry rather than broadening the page allowlist.
-    asset = "frontend/src/pages/analytics.css"
+def check_container_frontend_inputs(root: Path = ROOT) -> None:
+    # These sources need explicit entries in the private-data deny-all context.
     rules = (root / ".dockerignore").read_text(encoding="utf-8").splitlines()
-    if not (root / asset).is_file() or "!" + asset not in rules:
-        raise ValueError(f"Missing required container stylesheet input: {asset}")
+    for asset in CONTAINER_FRONTEND_INPUTS:
+        if not (root / asset).is_file() or "!" + asset not in rules:
+            raise ValueError(f"Missing required container frontend input: {asset}")
 
 
 def check_results(results: dict, selected: dict[str, bool] | None = None) -> bool:
