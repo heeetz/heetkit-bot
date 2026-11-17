@@ -11,7 +11,9 @@ on Linux/Docker. Both use the same bot core and settings model.
 AI is optional. Ordinary Twitch commands work without a provider key.
 HeetKit is not affiliated with or endorsed by Twitch.
 
-![HeetKit desktop interface](docs/assets/heetkit-main.png)
+<p align="center">
+  <img src="docs/assets/HeetKit-Promo.gif" alt="HeetKit demo" width="800">
+</p>
 
 ## Features
 
