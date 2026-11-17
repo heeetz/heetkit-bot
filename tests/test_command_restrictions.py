@@ -135,7 +135,7 @@ def core(tmp_path):
     services = SimpleNamespace(command_restrictions=rules, settings=settings, runtime_state=state,
         ai_user_blocks=AIUserBlocklist(tmp_path / "ai_blocks.json"),
         users=SimpleNamespace(get_by_username=AsyncMock(return_value=None), upsert_seen=AsyncMock(),
-                              opt_out=AsyncMock(), is_storage_opted_out=AsyncMock(return_value=False)),
+                              opt_out=AsyncMock(return_value=True), is_storage_opted_out=AsyncMock(return_value=False)),
         twitch=SimpleNamespace(resolve_user_id=AsyncMock(return_value="123"), record_human_message=Mock()),
         ai=SimpleNamespace(is_available=True, generate_reply=AsyncMock(return_value=AIReply("Answer", True))),
         ai_request_policy=AIRequestPolicy(), filter_manager=FilterManager(),
@@ -322,7 +322,7 @@ async def test_optout_precedes_all_rules_and_global_ai_block_still_wins(core):
         chatter=SimpleNamespace(id="123", name="viewer", subscriber=False, vip=False, moderator=False,
                                 broadcaster=False), respond=AsyncMock())
     await process_twitch_message(incoming, services, dispatcher, dispatcher._logger)
-    services.users.opt_out.assert_awaited_once_with("123", username="viewer")
+    services.users.opt_out.assert_awaited_once_with("123", username="viewer", chat=True)
     incoming.respond.assert_awaited_once()
     assert buffer.recent() == []
     assert rules.list() == (rule,)
