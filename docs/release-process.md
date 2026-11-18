@@ -167,28 +167,31 @@ CI uses pinned Python/Node toolchains, synthetic state and no personal secrets o
 profiles. Choose the validation level explicitly:
 
 - **Quick** runs on every `main` push, including prose-only pushes so its result can
-  complete. `scripts/ci_checks.py` selects fixed groups from the entire push diff,
-  including deletions/renames. If the old commit is unavailable, it uses all tracked
-  inputs. Backend/tests/scripts/packaging/container changes select a small fixed Python
-  smoke set (version, registry, cooldown, command settings and API authentication).
-  Frontend changes select TypeScript checking. Python dependency changes select both;
-  shared management/API/Desktop adapter changes also select TypeScript. Workflow
-  changes select orchestration tests and TypeScript; scripts/packaging, version,
-  release-note and issue-form changes select machine-input/publication-guard tests.
-  Ordinary prose selects no application checks. The summary records each run/skip
-  reason. Quick never runs the complete Python/Edge suites, Vite build, Docker build
-  or Windows packaging. A new Quick run cancels superseded Quick runs on that branch.
+  complete. `scripts/ci_checks.py` uses the entire push comparison, including deletions
+  and both sides of renames. Python source, tests, workflow/build scripts and shared
+  dependency declarations select the complete Python suite. Frontend changes select
+  the Vite production build, including TypeScript, and the affected Edge files from
+  the feature map plus changed test files. Shared controls, styles, dependencies,
+  Desktop/Server transport changes and unmapped frontend inputs select all Edge
+  tests. Unknown paths and unavailable comparison bases select all Quick groups.
+  Source and distribution changes validate Docker context coverage, the platform
+  requirements and npm lockfile, and declared runtime/notice inputs. The frontend
+  job verifies that Windows staging accepts the production assets. Ordinary prose
+  selects lightweight metadata checks. Curated notes and issue forms also select
+  the orchestration and publication guards when they are outside the Python run.
+  A new Quick run cancels superseded Quick runs on that branch.
 - **Full validation** runs only through **Actions > Full validation > Run workflow**.
   Enter the intended ref; preferably use its exact SHA. It runs the complete Python
-  suite, machine-input validation, production frontend build (including typecheck),
-  complete Microsoft Edge suite and `scripts/check_linux_container.py` on native
-  AMD64 and ARM64 Linux runners. The container workflow is reusable only, with the
-  same resolved SHA passed to both runners. Full validation creates no Windows ZIP
-  or installer. Its result fails if any required job fails, is cancelled or is skipped.
+  suite and machine-input validation, the production frontend build and complete
+  Edge suite, and the native AMD64/ARM64 container checks in independent jobs at
+  the same resolved SHA. A failure in one group leaves the others running.
+  Every required job must succeed for the result to issue validation evidence.
 - **Build candidate** runs through **Actions > Build candidate > Run workflow**,
   dispatched from main with the intended SHA in `ref`. It never publishes.
   The canonical standalone builder, packaging/prerequisite/profile-isolation/
-  publication checks, complete Edge suite and installer builder remain unchanged.
+  publication checks, complete Edge suite and installer builder run in the
+  candidate's builder environment. These checks exercise the actual build inputs
+  and artifacts.
   The official Inno Setup download stays SHA-256 verified. Full/candidate/publication
   runs have no cancellation group and cannot be cancelled by newer Quick runs.
 
@@ -196,9 +199,12 @@ The stable required-check target for new branch rules is **Quick result**, which
 requires successful selection and every selected job to succeed; only explicitly
 unselected jobs may skip. Existing branch rules referencing the old checks must be
 updated by the repository owner; source changes cannot update repository settings.
-Observed completed job/step durations for the current attempt are added to the
-Quick/Full/candidate summaries when Actions metadata is available; otherwise the
-summary directs readers to the run timings. No duration budget is promised.
+Quick lists the compared paths, selected groups and skip reasons. Quick, Full and
+candidate summaries report the selected SHA and link failed steps when Actions
+metadata is available. See the run's artifacts for failure-only pytest/Playwright
+JUnit XML and Playwright failure traces and screenshots, retained for seven days.
+The upload paths are limited to synthetic test reports and attachments. The summaries
+also show observed job and check durations for the current attempt.
 
 Only pip/npm dependency downloads are cached, keyed to
 `packaging/windows/requirements.txt` and `frontend/package-lock.json` respectively.
@@ -211,9 +217,8 @@ collection and freezing, so they are not shipped. Frontend tests reuse the depen
 already installed for the production build. They use installed Microsoft Edge at
 Playwright's standard Windows locations, installing it only when missing; the browser
 channel remains `msedge`.
-CI passes `--workers=2`, using file-level parallelism; tests within each file remain
-sequential, with isolated browser contexts and synthetic bridge state. No sharding,
-matrix or retries are added. Local `npm test` keeps its one-worker default; use
+CI passes `--workers=2`, using file-level parallelism with isolated browser contexts
+and synthetic bridge state. Local `npm test` keeps its one-worker default; use
 `npm test -- --workers=1` to compare CI behavior serially. See
 [Playwright parallelism](https://playwright.dev/docs/test-parallel) and
 [GitHub job concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).

@@ -31,5 +31,5 @@ jobs:
         with:
           ref: ${{ inputs.sha }}
           persist-credentials: false
-      - name: Build and validate disposable Linux container
+      - name: 'Container: build and validate disposable Linux container'
         run: python3 scripts/check_linux_container.py

@@ -26,6 +26,7 @@ def test_staging_keeps_tray_and_public_defaults_but_ignores_profile_decoys(tmp_p
     frontend = source / "frontend/dist"
     (frontend / "assets").mkdir(parents=True)
     (frontend / "index.html").write_text("<html></html>", encoding="utf-8")
+    (frontend / "icon.png").write_bytes(b"synthetic icon")
     (frontend / "assets/app.js").write_text("// synthetic", encoding="utf-8")
     for relative in ("data/owner.db", ".agent/HANDOFF.md", "app/resources/app_settings.json", "app/resources/filters/private.json"):
         path = source / relative

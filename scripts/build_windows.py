@@ -16,6 +16,10 @@ import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
+WINDOWS_RESOURCES = (
+    "personalities.json", "gemini_models.json", "default_triggers.json", "icon.ico", "icon.png", "tray.png",
+    "filters/blocked_words.txt", "filters/blocked_phrases.txt", "filters/blocked_patterns.txt",
+)
 
 
 def run(*command: str, cwd: Path = ROOT, env=None) -> None:
@@ -29,23 +33,27 @@ def copy(source: Path, destination: Path) -> None:
     shutil.copyfile(source, destination)
 
 
+def frontend_assets(frontend: Path) -> list[Path]:
+    files = [path.relative_to(frontend) for path in frontend.rglob("*") if path.is_file()]
+    for relative in files:
+        if relative.as_posix() not in ("index.html", "icon.png") and not (
+            relative.parts[0] == "assets" and relative.suffix in (".js", ".css")
+        ):
+            raise RuntimeError(f"Unexpected frontend build output: {relative}")
+    if not {"index.html", "icon.png"}.issubset(path.as_posix() for path in files):
+        raise RuntimeError("Missing frontend index.html or icon.png in the production build")
+    return files
+
+
 def stage_resources(stage: Path) -> None:
     resources = ROOT / "app/resources"
-    for name in ("personalities.json", "gemini_models.json", "default_triggers.json", "icon.ico", "icon.png", "tray.png"):
+    for name in WINDOWS_RESOURCES:
         copy(resources / name, stage / "app/resources" / name)
     if (resources / "update-publisher.pub").exists():
         copy(resources / "update-publisher.pub", stage / "app/resources/update-publisher.pub")
-    for name in ("blocked_words.txt", "blocked_phrases.txt", "blocked_patterns.txt"):
-        copy(resources / "filters" / name, stage / "app/resources/filters" / name)
     frontend = ROOT / "frontend/dist"
-    for source in frontend.rglob("*"):
-        if source.is_file():
-            relative = source.relative_to(frontend)
-            if relative.as_posix() not in ("index.html", "icon.png") and not (
-                relative.parts[0] == "assets" and source.suffix in (".js", ".css")
-            ):
-                raise RuntimeError(f"Unexpected frontend build output: {relative}")
-            copy(source, stage / "app/resources/frontend" / relative)
+    for relative in frontend_assets(frontend):
+        copy(frontend / relative, stage / "app/resources/frontend" / relative)
     for name in ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"):
         copy(ROOT / name, stage / name)
     for source in (ROOT / "third_party_licenses").rglob("*"):

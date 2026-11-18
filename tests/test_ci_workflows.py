@@ -2,12 +2,16 @@
 
 import json
 from pathlib import Path
+import re
+import shutil
 import subprocess
+import tomllib
 
 import pytest
 import yaml
 
-from scripts import ci_checks
+from scripts import ci_checks, release_evidence
+from scripts.check_distribution_inputs import check_container_inputs, check_dependencies, check_windows_inputs, read_pins
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,58 +29,129 @@ def workflow(name):
 
 
 @pytest.mark.parametrize("paths,expected", [
-    (["README.md", "docs/development.md"], (False, False, False)),
-    (["app/commands/fun.py"], (True, False, False)),
-    (["tests/test_commands.py"], (True, False, False)),
-    (["frontend/src/bridge.ts"], (False, True, False)),
-    (["frontend/package-lock.json"], (False, True, False)),
-    (["app/management_api.py"], (True, True, False)),
-    (["app/management.py", "app/webview_host.py"], (True, True, False)),
+    (["README.md", "docs/development.md"], (False, False, True)),
+    (["app/commands/fun.py"], (True, False, True)),
+    (["tests/behavior.py"], (True, False, False)),
+    (["frontend/src/pages/FiltersPage.tsx"], (False, True, True)),
+    (["frontend/src/bridge.ts"], (False, True, True)),
+    (["frontend/package-lock.json"], (False, True, True)),
+    (["app/management_api.py"], (True, True, True)),
+    (["app/management.py", "app/webview_host.py"], (True, True, True)),
     (["pyproject.toml"], (True, True, True)),
     (["packaging/windows/requirements.txt"], (True, True, True)),
     (["packaging/linux/requirements.txt"], (True, True, True)),
     (["packaging/python-bootstrap.txt"], (True, True, True)),
-    ([".github/workflows/quick.yml"], (False, True, True)),
+    ([".github/workflows/quick.yml"], (True, True, True)),
     (["scripts/ci_checks.py"], (True, True, True)),
     ([".github/ISSUE_TEMPLATE/bug.yml"], (False, False, True)),
     (["docs/releases/v1.4.1.md"], (False, False, True)),
     (["app/version.py"], (True, False, True)),
-    (["Dockerfile"], (True, False, False)),
-    ([".dockerignore"], (True, False, True)),
+    (["Dockerfile"], (True, True, True)),
+    ([".dockerignore"], (True, True, True)),
     (["frontend/src/i18n/commands.en.ts"], (False, True, True)),
     (["frontend/src/pages/analytics.css"], (False, True, True)),
-    (["scripts/build_windows.py"], (True, False, True)),
-    (["frontend/tests/browser-server.spec.ts", "app/config/settings.py"], (True, True, False)),
+    (["scripts/build_windows.py"], (True, True, True)),
+    (["frontend/tests/browser-server.spec.ts", "app/config/settings.py"], (True, True, True)),
+    (["app/new_area/module.py"], (True, False, True)),
+    (["new_runtime/entrypoint"], (True, True, True)),
+    ([], (False, False, False)),
 ])
-def test_coarse_path_selection(paths, expected):
-    assert tuple(ci_checks.select_checks(paths).values()) == expected
+def test_path_selection(paths, expected):
+    plan = ci_checks.select_checks(paths)
+    assert tuple(bool(plan.reasons[name]) for name in ci_checks.QUICK_GROUPS) == expected
 
 
-def test_whole_push_diff_includes_deleted_and_renamed_paths(monkeypatch):
-    calls = []
+@pytest.mark.parametrize("path", [
+    "frontend/src/App.tsx", "frontend/src/styles.css", "frontend/src/components/EditorDialog.tsx",
+    "frontend/src/components/Select.tsx", "frontend/src/components/Switch.tsx",
+    "frontend/src/bridge.ts", "frontend/src/httpTransport.ts", "frontend/src/components/BrowserSession.tsx",
+    "frontend/src/new_area/new.ts", "frontend/tests/new-custom-scenario.ts",
+    "frontend/tests/removed.spec.ts", "frontend/package-lock.json",
+    "app/management.py", "app/management_api.py", "app/webview_host.py", "app/server_setup.py",
+    "app/credentials.py", "app/config/profile_settings.py", "tests/fixtures/management_browser.py",
+])
+def test_shared_uncertain_and_deleted_paths_include_both_browser_hosts(path):
+    plan = ci_checks.select_checks([path])
+    assert plan.all_browser
+    assert plan.outputs()["server"] == "true"
 
-    def git(args, **kwargs):
-        calls.append(args)
-        return b"app/deleted.py\0frontend/src/new.ts\0frontend/src/old.ts\0"
 
-    monkeypatch.setattr(subprocess, "check_output", git)
-    selected, reason = ci_checks.plan_event("push", "refs/heads/main", "a" * 40, "b" * 40)
-    assert selected == {"smoke": True, "typecheck": True, "inputs": False}
+def test_named_feature_and_changed_or_new_tests_are_combined_once(tmp_path):
+    frontend_tests = tmp_path / "frontend/tests"
+    frontend_tests.mkdir(parents=True)
+    for name in ("filters.spec.ts", "navigation.spec.ts", "browser-management.spec.ts", "responsive.spec.ts",
+                 "browser-server.spec.ts", "new[scenario].test.mts"):
+        (frontend_tests / name).touch()
+    plan = ci_checks.select_checks([
+        "frontend/src/pages/FiltersPage.tsx", "frontend/tests/filters.spec.ts",
+        "frontend/tests/new[scenario].test.mts", "frontend/tests/browser-server.spec.ts",
+    ], root=tmp_path)
+    assert not plan.all_browser
+    assert plan.outputs()["server"] == "true"
+    assert set(json.loads(plan.outputs()["browser_files"])) == {
+        "tests/filters.spec.ts", "tests/navigation.spec.ts", "tests/browser-management.spec.ts",
+        "tests/responsive.spec.ts", "tests/browser-server.spec.ts", "tests/new[scenario].test.mts",
+    }
+    command = ci_checks.browser_command(list(plan.browser_files) + ["tests/filters.spec.ts"])
+    filters = command[len(ci_checks.browser_command(None)):]
+    assert len(filters) == len(plan.browser_files)
+    new_scenario = next(pattern for pattern in filters if "scenario" in pattern)
+    assert re.search(new_scenario, "C:/checkout/tests/new[scenario].test.mts")
+    assert not re.search(new_scenario, "/checkout/tests/new[scenario].test.mtsx")
+    with pytest.raises(ValueError, match="empty browser selection"):
+        ci_checks.browser_command([])
+
+
+def test_focused_orchestration_does_not_repeat_tests_when_python_is_selected():
+    paths = ["docs/releases/v1.5.5.md"]
+    docs_plan = ci_checks.select_checks(paths).outputs()
+    assert docs_plan["orchestration"] == "true"
+    assert docs_plan["distribution"] == "false"
+    mixed = ci_checks.select_checks([*paths, "tests/test_release_evidence.py"]).outputs()
+    assert mixed["python"] == "true"
+    assert mixed["orchestration"] == "false"
+
+
+def test_whole_push_diff_includes_both_commits_deletions_and_rename(tmp_path):
+    def git(*args):
+        return subprocess.check_output(["git", "-c", "user.email=ci@example.invalid", "-c", "user.name=CI",
+                                        *args], cwd=tmp_path, text=True).strip()
+
+    git("init", "-q")
+    (tmp_path / "app").mkdir()
+    (tmp_path / "frontend/src").mkdir(parents=True)
+    for path in ("app/deleted.py", "app/edited.py", "frontend/src/old.ts"):
+        (tmp_path / path).write_text(f"# {path}\n", encoding="utf-8")
+    git("add", ".")
+    git("commit", "-qm", "base")
+    before = git("rev-parse", "HEAD")
+    git("rm", "app/deleted.py")
+    (tmp_path / "app/edited.py").write_text("# edited\n", encoding="utf-8")
+    git("add", ".")
+    git("commit", "-qm", "backend")
+    git("mv", "frontend/src/old.ts", "frontend/src/new.ts")
+    (tmp_path / "README.md").touch()
+    git("add", ".")
+    git("commit", "-qm", "frontend")
+    plan, paths, reason = ci_checks.plan_event("push", "refs/heads/main", before, git("rev-parse", "HEAD"), root=tmp_path)
+    assert set(paths) == {"app/deleted.py", "app/edited.py", "frontend/src/old.ts", "frontend/src/new.ts", "README.md"}
+    assert all(plan.outputs()[name] == "true" for name in ci_checks.QUICK_GROUPS)
     assert reason == "whole-push diff"
-    assert calls == [["git", "diff", "--no-renames", "--name-only", "-z", "a" * 40, "b" * 40, "--"]]
 
 
 @pytest.mark.parametrize("before,fail_diff", [("0" * 40, False), ("a" * 40, True)])
-def test_new_branch_or_missing_base_selects_all_tracked_paths(monkeypatch, before, fail_diff):
+def test_new_branch_or_missing_base_selects_all_groups(monkeypatch, before, fail_diff):
     def git(args, **kwargs):
         if args[1] == "diff" and fail_diff:
             raise subprocess.CalledProcessError(128, args)
         assert args == ["git", "ls-tree", "-r", "--name-only", "-z", "b" * 40]
-        return b"app/main.py\0frontend/package.json\0.github/workflows/quick.yml\0"
+        return b"README.md\0"
 
     monkeypatch.setattr(subprocess, "check_output", git)
-    selected, reason = ci_checks.plan_event("push", "refs/heads/main", before, "b" * 40)
-    assert all(selected.values())
+    plan, paths, reason = ci_checks.plan_event("push", "refs/heads/main", before, "b" * 40)
+    assert all(plan.outputs()[name] == "true" for name in ci_checks.QUICK_GROUPS)
+    assert plan.all_browser and plan.distribution
+    assert paths == ["README.md"]
     assert "base unavailable" in reason
 
 
@@ -103,27 +178,55 @@ def test_plan_cli_outputs_and_summary(monkeypatch, tmp_path):
     monkeypatch.setattr(subprocess, "check_output", lambda *a, **k: b"docs/development.md\0")
     monkeypatch.setattr("sys.argv", ["ci_checks.py", "plan"])
     assert ci_checks.main() == 0
-    assert output.read_text() == "smoke=false\ntypecheck=false\ninputs=false\n"
-    assert "skip (no matching paths)" in summary.read_text()
+    assert dict(line.split("=", 1) for line in output.read_text().splitlines()) == {
+        "python": "false", "frontend": "false", "inputs": "true", "browser_files": "[]", "server": "false",
+        "distribution": "false", "orchestration": "false",
+    }
+    assert "python: skip (no applicable changes)" in summary.read_text()
+    assert "metadata only" in summary.read_text()
+    assert "docs/development.md" in summary.read_text()
     assert "b" * 40 in summary.read_text()
 
 
 @pytest.mark.parametrize("job,result,success", [
-    ("smoke", "success", True), ("smoke", "failure", False),
-    ("smoke", "skipped", False), ("smoke", "cancelled", False),
-    ("typecheck", "skipped", True), ("typecheck", "success", False),
+    ("python", "success", True), ("python", "failure", False),
+    ("python", "skipped", False), ("python", "cancelled", False),
+    ("frontend", "skipped", True), ("frontend", "success", False),
+    ("inputs", "skipped", False),
     ("plan", "failure", False), ("plan", "skipped", False),
 ])
 def test_required_gate_distinguishes_deliberate_skips_and_failures(job, result, success):
-    results = {"plan": {"result": "success"}, "smoke": {"result": "success"},
-               "typecheck": {"result": "skipped"}, "inputs": {"result": "skipped"}}
+    results = {"plan": {"result": "success"}, "python": {"result": "success"},
+               "frontend": {"result": "skipped"}, "inputs": {"result": "success"}}
     results[job]["result"] = result
-    assert ci_checks.check_results(results, {"smoke": True, "typecheck": False, "inputs": False}) is success
+    assert ci_checks.check_results(results, {"python": True, "frontend": False, "inputs": True}) is success
 
 
-@pytest.mark.parametrize("result", ["failure", "cancelled", "skipped"])
-def test_full_gate_requires_every_job_success(result):
-    assert not ci_checks.check_results({"resolve": {"result": "success"}, "containers": {"result": result}})
+@pytest.mark.parametrize("job,result", [("", "success"), ("python", "failure"), ("frontend", "cancelled"),
+                                       ("containers", "skipped"), ("resolve", "missing")])
+def test_full_gate_only_produces_evidence_after_all_required_jobs(tmp_path, monkeypatch, job, result):
+    jobs = workflow("full-validation")["jobs"]["complete"]["needs"]
+    results = {name: {"result": "success"} for name in jobs}
+    if result == "missing":
+        del results[job]
+    elif job:
+        results[job] = {"result": result}
+    monkeypatch.setattr("sys.argv", ["ci_checks.py", "finish"])
+    for key, value in {
+        "CI_RESULTS": json.dumps(results), "SELECTED_SHA": "a" * 40, "GITHUB_SHA": "b" * 40,
+        "GITHUB_REF": "refs/heads/main", "GITHUB_REPOSITORY": "example/heetkit", "GITHUB_RUN_ID": "123",
+        "GITHUB_RUN_ATTEMPT": "2", "GITHUB_WORKFLOW_REF": "example/heetkit/.github/workflows/full-validation.yml@refs/heads/main",
+    }.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    target = tmp_path / "release-evidence.json"
+    if ci_checks.main() == 0:
+        release_evidence.record("full", target)
+    if not job:
+        evidence = json.loads(target.read_text())
+        assert evidence["sha"] == "a" * 40 and evidence["workflow_sha"] == "b" * 40 and evidence["attempt"] == 2
+    else:
+        assert not target.exists()
 
 
 def test_only_quick_runs_on_main_pushes_and_only_it_cancels():
@@ -141,21 +244,30 @@ def test_only_quick_runs_on_main_pushes_and_only_it_cancels():
 
 def test_quick_gate_and_workload_wiring():
     jobs = workflow("quick")["jobs"]
+    assert jobs["complete"]["name"] == "Quick result"
     assert jobs["complete"]["if"] == "always()"
-    assert set(jobs["complete"]["needs"]) == {"plan", "smoke", "typecheck", "inputs"}
-    for name in ("smoke", "typecheck", "inputs"):
+    assert set(jobs["complete"]["needs"]) == {"plan", *ci_checks.QUICK_GROUPS}
+    for name in ci_checks.QUICK_GROUPS:
         assert jobs[name]["if"] == f"needs.plan.outputs.{name} == 'true'"
     assert jobs["plan"]["steps"][0]["with"]["fetch-depth"] == "0"
-    source = (ROOT / ".github/workflows/quick.yml").read_text()
-    for forbidden in ("npm run build", "npm test", "playwright install", "build_windows.py", "build_installer.py", "check_linux_container.py"):
+    python = "\n".join(step.get("run", "") for step in jobs["python"]["steps"])
+    assert "python -m pytest -q --junitxml" in python and "tests/" not in python
+    frontend = "\n".join(step.get("run", "") for step in jobs["frontend"]["steps"])
+    assert "npm run build" in frontend and "npm run typecheck" not in frontend
+    assert "ci_checks.py browser" in frontend and "ci_checks.py frontend-output" in frontend
+    steps = {step["id"]: step for step in jobs["frontend"]["steps"] if "id" in step}
+    assert steps["browser_tests"]["env"]["BROWSER_FILES"] == "${{ needs.plan.outputs.browser_files }}"
+    tests = next(step for step in jobs["inputs"]["steps"] if step.get("id") == "pytest")
+    assert tests["if"] == "needs.plan.outputs.orchestration == 'true'"
+    assert "tests/test_ci_workflows.py tests/test_release_publication.py tests/test_release_evidence.py" in tests["run"]
+    source = (ROOT / ".github/workflows/quick.yml").read_text(encoding="utf-8")
+    for forbidden in ("build_windows.py", "build_installer.py", "check_linux_container.py"):
         assert forbidden not in source
-    assert "python scripts/ci_checks.py smoke" in source
-    assert "npm run typecheck" in source
-    assert "tests/test_ci_workflows.py tests/test_release_publication.py tests/test_release_evidence.py" in source
-    assert all((ROOT / path.split("::")[0]).is_file() for path in ci_checks.SMOKE_TESTS)
 
 
-@pytest.mark.parametrize("name,worker", [("full-validation", "validation"), ("windows-build", "windows-build")])
+@pytest.mark.parametrize("name,worker", [
+    ("full-validation", "python"), ("full-validation", "frontend"), ("windows-build", "windows-build"),
+])
 def test_manual_ref_resolved_once_and_consumers_pin_same_sha(name, worker):
     data = workflow(name)
     assert data["on"]["workflow_dispatch"]["inputs"]["ref"]["type"] == "string"
@@ -176,14 +288,18 @@ def test_manual_ref_resolved_once_and_consumers_pin_same_sha(name, worker):
 def test_full_covers_complete_suites_and_native_containers_without_packaging():
     data = workflow("full-validation")
     jobs = data["jobs"]
-    commands = "\n".join(s.get("run", "") for s in jobs["validation"]["steps"])
-    for command in ("python -m pytest -q", "npm run build", "npm test -- --reporter=line --workers=2", "playwright install msedge"):
-        assert command in commands
-    assert "build_windows.py" not in commands
+    assert jobs["python"]["needs"] == jobs["frontend"]["needs"] == jobs["containers"]["needs"] == "resolve"
+    python = "\n".join(step.get("run", "") for step in jobs["python"]["steps"])
+    frontend = "\n".join(step.get("run", "") for step in jobs["frontend"]["steps"])
+    assert "python -m pytest -q --junitxml" in python and "tests/" not in python
+    assert "npm run build" in frontend and "npm run typecheck" not in frontend
+    assert "npm test -- '--reporter=line,junit' --workers=2 --trace=retain-on-failure" in frontend
+    assert "playwright install msedge" in frontend
+    assert "build_windows.py" not in python + frontend
     assert jobs["containers"]["uses"] == "./.github/workflows/linux-container.yml"
     assert jobs["containers"]["with"]["sha"] == "${{ needs.resolve.outputs.sha }}"
     assert jobs["complete"]["if"] == "always()"
-    assert set(jobs["complete"]["needs"]) == {"resolve", "validation", "containers"}
+    assert set(jobs["complete"]["needs"]) == {"resolve", "python", "frontend", "containers"}
     container = workflow("linux-container")["jobs"]["container"]
     assert container["strategy"]["matrix"]["include"] == [
         {"runner": "ubuntu-24.04", "platform": "linux/amd64"},
@@ -207,8 +323,8 @@ def test_candidate_preserves_canonical_builds_without_publication():
     assert all(job.get("permissions", {}).get("contents", "read") == "read" for job in jobs.values())
     upload = next(s for s in build["steps"] if s.get("id") == "candidate")
     assert len(upload["with"]["path"].splitlines()) == 5
-    assert build["steps"][-1]["with"]["name"] == "candidate-evidence-${{ github.run_attempt }}"
-    assert "CANDIDATE_ARTIFACT_ID" in build["steps"][-2]["env"]
+    assert build["steps"][-2]["with"]["name"] == "candidate-evidence-${{ github.run_attempt }}"
+    assert "CANDIDATE_ARTIFACT_ID" in build["steps"][-3]["env"]
 
 
 def test_publish_is_manual_and_only_publication_gets_write_permission():
@@ -246,25 +362,127 @@ def test_full_records_evidence_only_after_required_gate_succeeds():
     assert all("if" not in s for s in steps[-2:])
 
 
+@pytest.mark.parametrize("workflow_name,job_name", [
+    ("quick", "frontend"), ("full-validation", "frontend"), ("windows-build", "windows-build"),
+])
+def test_browser_diagnostics_are_uploaded_on_failure_with_bounded_paths(workflow_name, job_name):
+    steps = workflow(workflow_name)["jobs"][job_name]["steps"]
+    index = next(i for i, step in enumerate(steps) if step.get("id") == "browser_tests")
+    test, upload = steps[index:index + 2]
+    assert test["env"]["PLAYWRIGHT_JUNIT_OUTPUT_FILE"].endswith("/heetkit-browser-junit.xml")
+    assert upload["if"] == "failure() && steps.browser_tests.outcome == 'failure'"
+    assert upload["with"]["retention-days"] == "7"
+    assert upload["with"]["path"].splitlines() == [
+        "${{ runner.temp }}/heetkit-browser-junit.xml",
+        "frontend/node_modules/.tmp/playwright-results/**/trace.zip",
+        "frontend/node_modules/.tmp/playwright-results/**/test-failed-*.png",
+    ]
+
+
 def test_actual_machine_inputs_parse():
     ci_checks.check_inputs()
 
 
-@pytest.mark.parametrize("asset", ["frontend/src/i18n/commands.en.ts", "frontend/src/pages/analytics.css"])
-def test_missing_container_frontend_input_fails_before_build(tmp_path, asset):
-    for name in ci_checks.CONTAINER_FRONTEND_INPUTS:
-        source = tmp_path / name
-        source.parent.mkdir(parents=True, exist_ok=True)
-        source.write_text("/* synthetic input */")
-    rules = (ROOT / ".dockerignore").read_text(encoding="utf-8")
-    (tmp_path / ".dockerignore").write_text(rules.replace(f"!{asset}\n", ""))
-    with pytest.raises(ValueError, match="Missing required container frontend input"):
-        ci_checks.check_container_frontend_inputs(tmp_path)
-    (tmp_path / ".dockerignore").write_text(rules)
-    ci_checks.check_container_frontend_inputs(tmp_path)
-    (tmp_path / asset).unlink()
-    with pytest.raises(ValueError, match="Missing required container frontend input"):
-        ci_checks.check_container_frontend_inputs(tmp_path)
+@pytest.mark.parametrize("asset", ["frontend/src/new/nested/module.ts", "frontend/public/new.png"])
+def test_new_container_inputs_follow_context_rules(tmp_path, asset):
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text("COPY frontend/ ./\nCOPY --from=frontend /frontend/dist/ ./frontend/\n")
+    tracked = {"Dockerfile", ".dockerignore", asset}
+    path = tmp_path / asset
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"synthetic build input")
+    ignore = tmp_path / ".dockerignore"
+    ignore.write_text("**\n")
+    with pytest.raises(ValueError, match=f"Docker context excludes required build input: {re.escape(asset)}"):
+        check_container_inputs(tmp_path, tracked, set())
+    allow = f"**\n!{asset}\n"
+    ignore.write_text(allow + f"{asset}\n")
+    with pytest.raises(ValueError, match="Docker context excludes"):
+        check_container_inputs(tmp_path, tracked, set())
+    ignore.write_text(allow)
+    check_container_inputs(tmp_path, tracked, set())
+    path.unlink()
+    with pytest.raises(ValueError, match="Missing, untracked or linked"):
+        check_container_inputs(tmp_path, tracked, set())
+
+
+def test_broad_container_rules_cannot_admit_private_decoys(tmp_path):
+    (tmp_path / "Dockerfile").write_text("COPY frontend/ ./\n")
+    (tmp_path / ".dockerignore").write_text("**\n!frontend/**\n")
+    with pytest.raises(ValueError, match="Docker context admits private or generated paths"):
+        check_container_inputs(tmp_path, {"Dockerfile", ".dockerignore"}, set())
+
+
+def test_container_required_runtime_resource_cannot_disappear(tmp_path):
+    (tmp_path / "Dockerfile").write_text("COPY app/ ./app/\n")
+    (tmp_path / ".dockerignore").write_text("**\n!app/resources/public.json\n")
+    with pytest.raises(ValueError, match="app/resources/public.json"):
+        check_container_inputs(tmp_path, {"Dockerfile", ".dockerignore"}, {"public.json"})
+
+
+def test_windows_notice_hashes_are_verified_at_source(tmp_path):
+    import hashlib
+
+    files = {
+        "packaging/windows/HeetKit.iss": b"synthetic installer configuration",
+        "packaging/windows/HeetKit.spec": b"# synthetic spec",
+        "packaging/windows/HeetKit.exe.config": b"<configuration/>",
+        "packaging/windows/launcher.py": b"# synthetic launcher",
+        "packaging/windows/PORTABLE.txt": b"synthetic portable instructions",
+        "third_party_licenses/inno-setup/LICENSE.txt": b"synthetic installer notice",
+        "THIRD_PARTY_NOTICES.md": b"synthetic redistribution notices",
+    }
+    notice = "third_party_licenses/inno-setup/LICENSE.txt"
+    files["packaging/windows/redistribution.json"] = json.dumps({
+        "schema": "heetkit.windows-redistribution.v1", "required_notices": {},
+        "required_documents": ["_internal/THIRD_PARTY_NOTICES.md"],
+        "notice_sources": [{"path": notice, "sha256": hashlib.sha256(files[notice]).hexdigest()}],
+    }).encode()
+    for name, content in files.items():
+        target = tmp_path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+    check_windows_inputs(tmp_path, set(files))
+    (tmp_path / notice).write_bytes(b"synthetic modified notice")
+    with pytest.raises(ValueError, match="Redistribution notice hash mismatch"):
+        check_windows_inputs(tmp_path, set(files))
+
+
+@pytest.mark.parametrize("change,message", [
+    ("missing-backend", "Linux requires a compatible pin for new-backend"),
+    ("missing-desktop", "Windows requires a compatible pin for new-desktop"),
+    ("divergent", "Shared Python pin differs for httpx"),
+    ("stale-npm-lock", "Frontend manifest and lockfile disagree"),
+])
+def test_platform_requirements_and_npm_lock_must_match_declarations(tmp_path, change, message):
+    files = ("packaging/windows/requirements.txt", "packaging/linux/requirements.txt",
+             "packaging/python-bootstrap.txt", "frontend/package.json", "frontend/package-lock.json")
+    for name in files:
+        target = tmp_path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / name, target)
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    if change == "missing-backend":
+        project["dependencies"].append("new-backend>=1")
+    elif change == "missing-desktop":
+        project["optional-dependencies"]["desktop"].append("new-desktop>=1")
+    elif change == "divergent":
+        path = tmp_path / files[0]
+        path.write_text(path.read_text().replace("httpx==0.28.1", "httpx==0.28.0"))
+    else:
+        path = tmp_path / files[3]
+        manifest = json.loads(path.read_text())
+        manifest["dependencies"]["synthetic"] = "1.0.0"
+        path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match=message):
+        check_dependencies(tmp_path, set(files), project)
+
+
+def test_linux_lock_requires_hashes(tmp_path):
+    path = tmp_path / "requirements.txt"
+    path.write_text("example==1.0\n")
+    with pytest.raises(ValueError, match="with SHA-256 hashes"):
+        read_pins(path, hashes_required=True)
 
 
 @pytest.mark.parametrize("content", ["- invalid mapping", "name: missing triggers"])
@@ -288,23 +506,35 @@ def test_missing_empty_or_mismatched_release_input_fails(tmp_path, notes):
         ci_checks.check_inputs(tmp_path)
 
 
-def test_smoke_cli_forwards_test_failure(monkeypatch):
+def test_browser_cli_forwards_test_failure(monkeypatch):
     calls = []
-    monkeypatch.setattr("sys.argv", ["ci_checks.py", "smoke"])
-    monkeypatch.setattr(subprocess, "call", lambda args, **kwargs: calls.append(args) or 7)
+    monkeypatch.setattr("sys.argv", ["ci_checks.py", "browser"])
+    monkeypatch.setenv("BROWSER_FILES", json.dumps(["tests/filters.spec.ts"]))
+    monkeypatch.setattr(subprocess, "call", lambda args, **kwargs: calls.append((args, kwargs)) or 7)
     assert ci_checks.main() == 7
-    assert calls[0][1:] == ["-m", "pytest", "-q", *ci_checks.SMOKE_TESTS]
+    assert calls == [(ci_checks.browser_command(["tests/filters.spec.ts"]), {"cwd": ROOT / "frontend"})]
 
 
 def test_finish_cli_fails_when_selection_failed(monkeypatch):
     monkeypatch.setattr("sys.argv", ["ci_checks.py", "finish"])
     monkeypatch.setenv("CI_RESULTS", json.dumps({
         "plan": {"result": "failure", "outputs": {}},
-        "smoke": {"result": "skipped"}, "typecheck": {"result": "skipped"},
+        "python": {"result": "skipped"}, "frontend": {"result": "skipped"},
         "inputs": {"result": "skipped"},
     }))
     monkeypatch.delenv("GH_TOKEN", raising=False)
     assert ci_checks.main() == 1
+
+
+def test_docs_only_quick_finishes_successfully(monkeypatch):
+    outputs = ci_checks.select_checks(["docs/development.md"]).outputs()
+    monkeypatch.setattr("sys.argv", ["ci_checks.py", "finish"])
+    monkeypatch.setenv("CI_RESULTS", json.dumps({
+        "plan": {"result": "success", "outputs": outputs},
+        "python": {"result": "skipped"}, "frontend": {"result": "skipped"}, "inputs": {"result": "success"},
+    }))
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    assert ci_checks.main() == 0
 
 
 def test_observed_durations_use_this_attempt_and_no_estimates(monkeypatch, capsys):
@@ -318,13 +548,15 @@ def test_observed_durations_use_this_attempt_and_no_estimates(monkeypatch, capsy
         assert req.full_url.endswith("/repos/test/repo/actions/runs/42/attempts/2/jobs?per_page=100")
         assert kwargs["timeout"] == 15
         return BytesIO(json.dumps({"jobs": [{"name": "Synthetic job", "started_at": "2026-10-22T10:00:00Z",
-            "completed_at": "2026-10-22T10:00:12Z", "steps": [{"name": "Synthetic step",
+            "completed_at": "2026-10-22T10:00:12Z", "steps": [{"name": "Test: synthetic step", "conclusion": "failure", "number": 5,
             "started_at": "2026-10-22T10:00:02Z", "completed_at": "2026-10-22T10:00:05Z"}]}]}).encode())
 
     monkeypatch.setattr(ci_checks, "urlopen", request)
-    ci_checks.report_durations()
+    ci_checks.report_actions()
     output = capsys.readouterr().out
     assert "12.0s" in output and "3.0s" in output
+    assert "Synthetic job / Test: synthetic step" in output
+    assert "#step:5:1" in output and "actions/runs/42#artifacts" in output
     assert "synthetic-token" not in output
 
 

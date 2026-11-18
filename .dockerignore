@@ -52,6 +52,7 @@ frontend/**
 !frontend/tsconfig.tests.json
 !frontend/vite.config.ts
 !frontend/playwright.config.ts
+!frontend/playwright.compatibility.config.ts
 !frontend/src/
 frontend/src/**
 !frontend/src/*.ts

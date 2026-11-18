@@ -13,6 +13,13 @@ from uuid import uuid4
 
 
 ROOT = Path(__file__).resolve().parents[1]
+CONTEXT_PATHS = ("app", "frontend", "Dockerfile", ".dockerignore", "Dockerfile.dockerignore", "LICENSE", "NOTICE",
+                 "packaging/linux/requirements.txt", "packaging/python-bootstrap.txt")
+CONTEXT_DECOYS = (".env", ".git/config", "data/heetkit.db", "auth/twitchio_tokens.json", ".agent/HANDOFF.md",
+                  "app/data/twitchio_tokens.json", "app/resources/private.json", "app/resources/frontend/index.html",
+                  "frontend/dist/index.html", "frontend/src/private.json", "frontend/.env",
+                  "frontend/node_modules/private.json", "frontend/public/private.json",
+                  "tests/private.json", "packaging/windows/private.txt")
 
 
 def main() -> None:
@@ -26,7 +33,7 @@ def main() -> None:
         private = Path(temporary)
         context = private / "context"
         context.mkdir()
-        tracked = subprocess.run(["git", "ls-files", "-z", "--", "app", "frontend", "Dockerfile", ".dockerignore", "LICENSE", "NOTICE", "packaging/linux/requirements.txt", "packaging/python-bootstrap.txt"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+        tracked = subprocess.check_output(["git", "ls-files", "-z", "--", *CONTEXT_PATHS], cwd=ROOT).decode("utf-8")
         for name in filter(None, tracked.split("\0")):
             source = ROOT / name
             if source.is_symlink() or not source.resolve().is_relative_to(ROOT):
@@ -36,11 +43,7 @@ def main() -> None:
             shutil.copy2(source, target)
         # Poison only this temporary context, never the user's ignored profile,
         # credentials or built frontend. Directory exceptions must not admit these.
-        for name in (".env", ".git/config", "data/heetkit.db", "auth/twitchio_tokens.json",
-                     "app/data/twitchio_tokens.json", "app/resources/private.json",
-                     "app/resources/frontend/index.html", "frontend/dist/index.html", "frontend/src/private.json",
-                     "frontend/.env", "frontend/node_modules/private.json", "frontend/public/private.json",
-                     "tests/private.json", "packaging/windows/private.txt"):
+        for name in CONTEXT_DECOYS:
             decoy = context / name
             decoy.parent.mkdir(parents=True, exist_ok=True)
             decoy.write_text("synthetic-excluded-build-context-sentinel")
@@ -103,13 +106,16 @@ def main() -> None:
                 time.sleep(0.2)
             raise TimeoutError(f"Synthetic policy sessions did not settle: {counters}")
 
+        phase = "environment and Compose configuration"
         try:
             run(*compose, "config", "--quiet")
             engine = run("docker", "version", "--format", "{{.Server.Arch}}", capture=True)
             execution = "native" if engine == target_platform.split("/")[1] else "emulated"
             print(f"Validating {target_platform} on {engine} Docker Engine ({execution} execution).", flush=True)
+            phase = "production container build"
             run(*compose, "build", timeout=600)
             built = True
+            phase = "packaged container tests"
             assert run("docker", "image", "inspect", image, "--format", "{{.Architecture}}", capture=True) == target_platform.split("/")[1]
             machine = run(*compose, "run", "--rm", "--no-deps", "--entrypoint", "python", "bot",
                 "-c", "import platform; print(platform.machine())", capture=True)
@@ -181,6 +187,9 @@ def main() -> None:
             assert "synthetic-client-secret" not in failure.stderr
             print(f"Canonical Linux Compose checks passed for {target_platform} ({execution} execution); no live authorization or application network used.")
         except BaseException:
+            if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
+                with open(summary, "a", encoding="utf-8") as stream:
+                    stream.write(f"Container ({target_platform}) failed during {phase}. See this job's build and validation step.\n")
             subprocess.run([*compose, "logs", "--no-color"], cwd=ROOT, env=environment, timeout=30, check=False)
             raise
         finally:

@@ -22,11 +22,23 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def validate(bundle: Path, policy_path: Path = POLICY) -> dict:
-    """Require exact native inventory and byte-preserved required notice texts."""
+def load_policy(policy_path: Path) -> dict:
     policy = json.loads(policy_path.read_text(encoding="utf-8"))
     if policy["schema"] != "heetkit.windows-redistribution.v1":
         raise ValueError("Unsupported Windows redistribution evidence schema")
+    return policy
+
+
+def verify_notice(path: Path, name: str, expected: str) -> None:
+    if not path.is_file():
+        raise ValueError(f"Required redistribution notice missing: {name}")
+    if sha256(path) != expected:
+        raise ValueError(f"Redistribution notice hash mismatch: {name}")
+
+
+def validate(bundle: Path, policy_path: Path = POLICY) -> dict:
+    """Require exact native inventory and byte-preserved required notice texts."""
+    policy = load_policy(policy_path)
     staged_policy = bundle / STAGED_POLICY
     if not staged_policy.is_file() or sha256(staged_policy) != sha256(policy_path):
         raise ValueError("Missing or mismatched staged Windows redistribution evidence")
@@ -54,11 +66,7 @@ def validate(bundle: Path, policy_path: Path = POLICY) -> dict:
         if sha256(native[name]) != entry["sha256"]:
             raise ValueError(f"Native hash/version mismatch: {name} (reviewed {entry['version']})")
     for name, entry in policy["required_notices"].items():
-        path = bundle / name
-        if not path.is_file():
-            raise ValueError(f"Required redistribution notice missing: {name}")
-        if sha256(path) != entry["sha256"]:
-            raise ValueError(f"Redistribution notice hash mismatch: {name}")
+        verify_notice(bundle / name, name, entry["sha256"])
     for name in policy["required_documents"]:
         path = bundle / name
         if not path.is_file() or not path.stat().st_size:

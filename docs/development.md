@@ -333,18 +333,27 @@ On Windows they use installed Microsoft Edge;
 on other development platforms install Chromium with `npx playwright install chromium`.
 Native window, tray and OAuth behavior may need platform-specific manual validation.
 
-Ordinary `main` pushes run only Quick: coarse path selection chooses the fixed Python
-smoke set, TypeScript and/or machine-input tests. Prose-only pushes report explicit
-skips. Quick complements the focused local checks for a change; it does not establish
-full application acceptance. Workflows or their selection/reporting helper can be
-checked locally with `python -m pytest -q tests/test_ci_workflows.py tests/test_release_publication.py tests/test_release_evidence.py`
-(install test-only `PyYAML==6.0.3` alongside pytest), then
-`python scripts/ci_checks.py inputs`. Neither command builds artifacts or calls GitHub.
+Before editing behavior, trace the normal entry point, direct callers, shared host
+adapters, persistence and production inputs. Review nearby integration tests, fixtures
+and mocks. Update tests with approved behavior and interface changes, preserving
+assertions that still apply. Scope UI selectors to accessible controls. Exercise the
+normal operation on both supported hosts for shared features, with synthetic state.
+Verify that the final diff routes new and changed tests into Quick.
+
+Ordinary `main` pushes run Quick over the entire push diff. Backend code and Python
+tests select the full Python suite. Frontend changes select a production build and
+feature tests or the complete Edge suite for shared or uncertain changes. Plain prose
+selects metadata checks. The selection summary lists the paths, reasons and skips.
+For workflow and input changes, run
+`python -m pytest -q tests/test_ci_workflows.py tests/test_release_publication.py tests/test_release_evidence.py`
+and `python scripts/ci_checks.py inputs` with the development environment. These checks
+use the existing source configuration and synthetic tests without building release artifacts.
 
 Full validation and Build candidate are separate manual workflows accepting a ref
 and pinning all jobs to one resolved SHA. Do not start either as incidental local
-validation. Full includes Python, frontend production/Edge and native AMD64/ARM64
-container checks; candidate uses the canonical Windows builders. Dispatch both from
+validation. Full runs the Python, frontend production/Edge and native AMD64/ARM64
+container checks independently. Candidate uses the canonical Windows builders and
+exercises the builder environment and packaged outputs. Dispatch both from
 main and select source through the ref input. Publish is separately manual and requires
 an exact SHA, existing matching tag, candidate run ID and Full validation run ID.
 It verifies current-attempt evidence and reuses the original candidate artifacts.

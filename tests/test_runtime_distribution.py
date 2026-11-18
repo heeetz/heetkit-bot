@@ -152,6 +152,8 @@ def test_installed_tree_runs_check_and_clean_backend_without_checkout_or_install
             "PYTHONPATH": str(install_root),
             "PYTHONDONTWRITEBYTECODE": "1",
             "HEETKIT_DATA_DIR": str(profile),
+            # Exercise source startup with an empty synthetic credential store.
+            "PYTHON_KEYRING_BACKEND": "keyring.backends.null.Keyring",
         }
     )
     for name in Settings.model_fields:

@@ -95,7 +95,7 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
           "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
 
-      - name: Build, inspect and archive the standalone application
+      - name: 'Packaging: build, inspect and archive the standalone application'
         id: build
         # Owns the isolated pinned venv, npm ci/build, licenses, PyInstaller,
         # integrity checks, portable ZIP and ZIP SHA-256 sidecar.
@@ -114,11 +114,13 @@ jobs:
           & $env:BUILDER_PYTHON -c "from importlib.metadata import version; from packaging.version import Version; resolved = version('urllib3'); print(f'urllib3 {resolved}'); assert Version(resolved) >= Version('2.8.0'), 'urllib3 must be >= 2.8.0'"
           if ($LASTEXITCODE -ne 0) { throw 'urllib3 security version check failed.' }
 
-      - name: Run packaging, prerequisite and profile isolation tests
+      - name: 'Test: packaging, prerequisites and profile isolation in the builder environment'
+        id: pytest
         env:
           BUILDER_PYTHON: ${{ steps.build.outputs.python }}
         run: >-
           & $env:BUILDER_PYTHON -m pytest -q
+          --junitxml "$env:RUNNER_TEMP/heetkit-python-junit.xml"
           tests/test_windows_packaging.py
           tests/test_windows_installer.py
           tests/test_windows_runtime.py
@@ -126,6 +128,15 @@ jobs:
           tests/test_profile_isolation.py
           tests/test_release_publication.py
           tests/test_release_evidence.py
+
+      - name: Upload builder Python failure report
+        if: failure() && steps.pytest.outcome == 'failure'
+        uses: actions/upload-artifact@v6
+        with:
+          name: candidate-python-diagnostics-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/heetkit-python-junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Install the pinned Inno Setup compiler
         id: inno
@@ -164,20 +175,35 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Microsoft Edge installation failed.' }
           }
 
-      - name: Run frontend tests using the builder-installed dependencies
+      - name: 'Test: complete Edge suite in the builder environment'
+        id: browser_tests
         working-directory: frontend
         env:
           HEETKIT_TEST_PYTHON: ${{ steps.build.outputs.python }}
-        run: npm test -- --reporter=line --workers=2
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: ${{ runner.temp }}/heetkit-browser-junit.xml
+        run: npm test -- '--reporter=line,junit' --workers=2 --trace=retain-on-failure
 
-      - name: Build installer from the verified portable ZIP
+      - name: Upload builder browser failure reports and attachments
+        if: failure() && steps.browser_tests.outcome == 'failure'
+        uses: actions/upload-artifact@v6
+        with:
+          name: candidate-browser-diagnostics-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/heetkit-browser-junit.xml
+            frontend/node_modules/.tmp/playwright-results/**/trace.zip
+            frontend/node_modules/.tmp/playwright-results/**/test-failed-*.png
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: 'Packaging: build installer from the verified portable ZIP'
         env:
           INNO_COMPILER: ${{ steps.inno.outputs.compiler }}
           BUILDER_PYTHON: ${{ steps.build.outputs.python }}
         # Reuses bundle inspection and writes the installer SHA-256/traceability.
         run: '& $env:BUILDER_PYTHON scripts/build_installer.py --inno-compiler "$env:INNO_COMPILER"'
 
-      - name: Verify all expected outputs before upload
+      - name: 'Packaging: verify all expected outputs before upload'
         env:
           APP_VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -203,12 +229,6 @@ jobs:
             dist/HeetKit-${{ steps.version.outputs.version }}-windows-x64-setup.exe.sha256
             dist/HeetKit-${{ steps.version.outputs.version }}-windows-x64-setup.exe.build.json
 
-      - name: Report observed candidate durations
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python scripts/ci_checks.py durations
-
       - name: Record candidate identity after successful checks and upload
         env:
           SELECTED_SHA: ${{ needs.resolve.outputs.sha }}
@@ -223,3 +243,10 @@ jobs:
           path: release-evidence.json
           if-no-files-found: error
           retention-days: 14
+
+      - name: Report candidate failures and durations
+        if: always()
+        env:
+          SELECTED_SHA: ${{ needs.resolve.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/ci_checks.py durations

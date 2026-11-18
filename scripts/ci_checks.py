@@ -1,8 +1,9 @@
-"""Coarse Quick selection and CI reporting; never build or publish artifacts."""
+"""Quick selection, lightweight input checks and Actions reporting."""
 
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass, field
 import json
 import os
 from pathlib import Path
@@ -14,48 +15,110 @@ from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SMOKE_TESTS = (
-    "tests/test_version.py",
-    "tests/test_registry.py",
-    "tests/test_cooldown.py",
-    "tests/test_command_settings.py",
-    "tests/test_management_api.py::test_authentication_origin_host_and_private_surface",
+QUICK_GROUPS = ("python", "frontend", "inputs")
+PLAN_FLAGS = (*QUICK_GROUPS, "server", "distribution", "orchestration")
+BROWSER_TEST = re.compile(r".+\.(?:spec|test)\.[cm]?[jt]sx?$")
+SERVER_TEST = "tests/browser-server.spec.ts"
+
+# Match only files owned by one area. Unknown and shared source gets the full suite.
+# Names are relative to frontend/src; test stems are relative to frontend/tests.
+BROWSER_AREAS = (
+    ("pages/AIPage.tsx components/AISetupPanel.tsx components/AIBehaviorSection.tsx "
+     "components/AIMemoryLimits.tsx components/AIPlayground.tsx components/BlockedAIUsers.tsx components/ai-setup.css",
+     "ai ai-editing ai-enablement ai-models ai-user-blocks playground dropdown-pages onboarding"),
+    ("pages/CommandsPage.tsx components/AnnouncementsPanel.tsx components/ChatLeaderboards.tsx "
+     "components/ChatReactions.tsx components/CommandEditorDialog.tsx components/CommandList.tsx "
+     "components/CommandRestrictions.tsx components/OptOutManagement.tsx i18n/commands.en.ts",
+     "announcements analytics commands commands-consolidation commands-focus commands-layout commands-review commands-unified"),
+    ("pages/AnalyticsPage.tsx pages/analytics.css", "analytics"),
+    ("pages/FiltersPage.tsx", "filters"),
+    ("pages/SettingsPage.tsx components/ConfigurationTransfer.tsx components/SetupChecklist.tsx "
+     "components/TwitchSecretField.tsx components/TwitchSetupInstructions.tsx components/settings-layout.css",
+     "configuration-transfer dropdown-pages onboarding profile-location settings-layout"),
+    ("pages/AboutPage.tsx", "about"),
 )
-CONTAINER_FRONTEND_INPUTS = (
-    "frontend/src/i18n/commands.en.ts",
-    "frontend/src/pages/analytics.css",
-)
+PAGE_INTEGRATION_TESTS = "browser-management navigation responsive"
+SHARED_HOST_PATHS = {
+    "app/app_settings.py", "app/bot_runtime.py", "app/configuration_transfer.py", "app/container.py",
+    "app/credentials.py", "app/desktop_relaunch.py", "app/headless.py", "app/main.py", "app/management.py",
+    "app/management_api.py",
+    "app/operation_policy.py", "app/runtime_paths.py", "app/server_credentials.py", "app/server_setup.py",
+    "app/settings_recovery.py", "app/twitch/client.py", "app/webview_host.py",
+}
 
 
-def select_checks(paths: list[str]) -> dict[str, bool]:
-    """Select fixed check groups, not individual tests based on source files."""
-    python_dependencies = any(
-        p == "pyproject.toml" or p.startswith("packaging/") and p.endswith(".txt")
-        for p in paths
-    )
-    orchestration = any(
-        p.startswith(".github/workflows/") or p in (
-            "scripts/ci_checks.py", "tests/test_ci_workflows.py",
-            "tests/test_release_publication.py", "tests/test_release_evidence.py",
-            "scripts/release_evidence.py",
-        ) for p in paths
-    )
-    return {
-        "smoke": python_dependencies or any(p.startswith(("app/", "tests/", "scripts/", "packaging/"))
-                                             or p in ("Dockerfile", ".dockerignore", "compose.yaml", "compose.remote.yaml")
-                                             for p in paths),
-        "typecheck": python_dependencies or orchestration or any(
-            p.startswith("frontend/") or p in ("app/management.py", "app/management_api.py", "app/webview_host.py")
-            for p in paths
-        ),
-        "inputs": orchestration or any(
-            p.startswith(("docs/releases/", "scripts/", "packaging/"))
-            or p in ("app/version.py", "pyproject.toml", ".dockerignore")
-            or p in CONTAINER_FRONTEND_INPUTS
-            or p.startswith(".github/") and p.endswith((".yml", ".yaml"))
-            for p in paths
-        ),
-    }
+@dataclass
+class QuickPlan:
+    reasons: dict[str, set[str]] = field(default_factory=lambda: {name: set() for name in QUICK_GROUPS})
+    browser_files: set[str] = field(default_factory=set)
+    all_browser: bool = False
+    distribution: bool = False
+    orchestration: bool = False
+
+    def broaden(self, reason: str) -> None:
+        for reasons in self.reasons.values():
+            reasons.add(reason)
+        self.all_browser = self.distribution = self.orchestration = True
+
+    def outputs(self) -> dict[str, str]:
+        groups = {name: str(bool(reasons)).lower() for name, reasons in self.reasons.items()}
+        return {**groups, "browser_files": json.dumps(None if self.all_browser else sorted(self.browser_files)),
+                "server": str(self.all_browser or SERVER_TEST in self.browser_files).lower(),
+                "distribution": str(self.distribution).lower(),
+                "orchestration": str(self.orchestration and not self.reasons["python"]).lower()}
+
+
+def select_checks(paths: list[str], *, root: Path = ROOT, missing_base: bool = False) -> QuickPlan:
+    plan = QuickPlan()
+    if missing_base:
+        plan.broaden("comparison base unavailable")
+        return plan
+
+    for path in paths:
+        if path.startswith("frontend/"):
+            plan.reasons["frontend"].add("frontend source, setup or tests")
+            plan.reasons["inputs"].add("frontend distribution and dependency inputs")
+            plan.distribution = True
+            relative = path.removeprefix("frontend/")
+            if relative.startswith("tests/") and BROWSER_TEST.fullmatch(relative) and (root / path).is_file():
+                plan.browser_files.add(relative)
+            else:
+                for sources, test_stems in BROWSER_AREAS:
+                    if relative.removeprefix("src/") in sources.split() and relative.startswith("src/"):
+                        plan.browser_files.update(f"tests/{stem}.spec.ts"
+                                                  for stem in (test_stems + " " + PAGE_INTEGRATION_TESTS).split())
+                        break
+                else:
+                    plan.all_browser = True
+                    plan.reasons["frontend"].add("shared, removed or unmapped frontend input")
+        elif path.startswith(("app/", "tests/")):
+            plan.reasons["python"].add("application source or Python tests")
+            if path.startswith("app/"):
+                plan.reasons["inputs"].add("application distribution inputs")
+                plan.distribution = True
+            if path in SHARED_HOST_PATHS or path.startswith(("app/config/", "tests/fixtures/")):
+                plan.reasons["frontend"].add("shared Desktop and Server boundary")
+                plan.all_browser = True
+        elif (path.startswith(("scripts/", "packaging/", ".github/workflows/", ".github/actions/"))
+              or path in {"pyproject.toml", ".gitattributes", "Dockerfile", "Dockerfile.dockerignore",
+                          ".dockerignore", "run.bat"} or path.startswith("compose.")):
+            plan.broaden("build, workflow or dependency configuration")
+        elif path.startswith("third_party_licenses/") or path in {"LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"}:
+            plan.reasons["inputs"].add("distribution notices")
+            plan.distribution = True
+        elif path.startswith(("docs/releases/", ".github/ISSUE_TEMPLATE/")):
+            plan.reasons["inputs"].add("machine-consumed release or issue metadata")
+            plan.orchestration = True
+        elif (path in {"README.md", "CONTRIBUTING.md", "SECURITY.md", ".github/pull_request_template.md"}
+              or path.startswith("docs/") and (path.endswith(".md") or path.startswith("docs/assets/"))):
+            plan.reasons["inputs"].add("lightweight documentation and metadata checks")
+        else:
+            plan.broaden("unclassified executable or input path")
+
+    if not plan.all_browser and any(not (root / "frontend" / name).is_file() for name in plan.browser_files):
+        plan.all_browser = True
+        plan.reasons["frontend"].add("a mapped browser test moved or is missing")
+    return plan
 
 
 def changed_paths(before: str, sha: str, *, root: Path = ROOT) -> tuple[list[str], str]:
@@ -76,11 +139,11 @@ def changed_paths(before: str, sha: str, *, root: Path = ROOT) -> tuple[list[str
     return data.decode("utf-8").rstrip("\0").split("\0"), "all tracked paths (base unavailable)"
 
 
-def plan_event(event: str, ref: str, before: str, sha: str, *, root: Path = ROOT) -> tuple[dict[str, bool], str]:
+def plan_event(event: str, ref: str, before: str, sha: str, *, root: Path = ROOT) -> tuple[QuickPlan, list[str], str]:
     if event != "push" or ref != "refs/heads/main":
         raise ValueError("Quick accepts only main pushes")
     paths, reason = changed_paths(before, sha, root=root)
-    return select_checks(paths), reason
+    return select_checks(paths, root=root, missing_base=reason != "whole-push diff"), paths, reason
 
 
 def summary(message: str) -> None:
@@ -90,7 +153,7 @@ def summary(message: str) -> None:
             stream.write(message + "\n")
 
 
-def check_inputs(root: Path = ROOT) -> None:
+def check_inputs(root: Path = ROOT, *, metadata_only: bool = False) -> None:
     import yaml  # CI-only dependency; never part of the application payload.
 
     for suffix in ("*.yml", "*.yaml"):
@@ -112,83 +175,125 @@ def check_inputs(root: Path = ROOT) -> None:
         notes = path.read_text(encoding="utf-8")
         if not notes.splitlines() or notes.splitlines()[0].strip() != f"# HeetKit {path.stem}" or len(notes.strip()) < 100:
             raise ValueError(f"Invalid curated release notes: {path.name}")
-    check_container_frontend_inputs(root)
-    summary("Workflow/issue YAML, curated release and container frontend inputs passed.")
+    summary("Workflow/issue YAML and curated release notes passed.")
+    if not metadata_only:
+        from scripts.check_distribution_inputs import check_distribution_inputs
+
+        check_distribution_inputs(root)
+        summary("Docker context, runtime resources, Python pins and Windows notice inputs passed.")
 
 
-def check_container_frontend_inputs(root: Path = ROOT) -> None:
-    # These sources need explicit entries in the private-data deny-all context.
-    rules = (root / ".dockerignore").read_text(encoding="utf-8").splitlines()
-    for asset in CONTAINER_FRONTEND_INPUTS:
-        if not (root / asset).is_file() or "!" + asset not in rules:
-            raise ValueError(f"Missing required container frontend input: {asset}")
+def browser_command(files: list[str] | None) -> list[str]:
+    if files == []:
+        raise ValueError("An empty browser selection cannot run")
+    filters = [r"[/\\]".join(map(re.escape, name.split("/"))) + "$" for name in sorted(set(files or []))]
+    return ["node", "node_modules/@playwright/test/cli.js", "test", "--reporter=line,junit", "--workers=2",
+            "--trace=retain-on-failure", *filters]
 
 
-def check_results(results: dict, selected: dict[str, bool] | None = None) -> bool:
+def check_results(results: dict, selected: dict[str, bool] | None = None, *, required: tuple[str, ...] = ()) -> bool:
     """Skipped work is valid only when the successful plan deliberately omitted it."""
     good = True
-    for name, job in results.items():
-        result = job["result"]
+    for name in sorted(results.keys() | set(required)):
+        result = results.get(name, {}).get("result", "missing")
         expected = selected is None or name == "plan" or selected.get(name, True)
         good &= result == ("success" if expected else "skipped")
-        summary(f"- {name}: {result}; {'required' if expected else 'no matching paths'}")
+        summary(f"- {name}: {result} ({'required' if expected else 'omitted by the plan'})")
     return good
 
 
-def report_durations() -> None:
-    """Report observed completed jobs/steps from this attempt, when Actions exposes them."""
+def report_actions() -> None:
+    """Report failures and measured job durations from the current Actions attempt."""
     from datetime import datetime
 
     if not os.environ.get("GH_TOKEN"):
         summary("Actions durations unavailable locally; no runtime estimate.")
         return
     base = os.environ.get("GITHUB_API_URL", "https://api.github.com")
-    url = (f"{base}/repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
-           f"{os.environ['GITHUB_RUN_ID']}/attempts/{os.environ['GITHUB_RUN_ATTEMPT']}/jobs?per_page=100")
+    run = f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+    run_page = f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/{run}"
+    url = f"{base}/repos/{run}/attempts/{os.environ['GITHUB_RUN_ATTEMPT']}/jobs?per_page=100"
     try:
         request = Request(url, headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
                                         "Accept": "application/vnd.github+json"})
         with urlopen(request, timeout=15) as response:
             jobs = json.load(response)["jobs"]
-        summary("\nObserved durations for this attempt (seconds; no time budget):")
+        failures = []
         for job in jobs:
-            for item in [job, *job.get("steps", [])]:
+            job_page = job.get("html_url") or run_page
+            failed_steps = [step for step in job.get("steps", []) if step.get("conclusion") in {"failure", "cancelled"}]
+            for step in failed_steps:
+                label, _, _ = step["name"].partition(":")
+                category = label if label in {"Test", "Build", "Packaging", "Inputs", "Container"} else "Setup or workflow"
+                step_page = f"{job_page}#step:{step['number']}:1" if step.get("number") else job_page
+                failures.append(f"- {category} · [{job['name']} / {step['name']}]({step_page}) · {step['conclusion']}")
+            if not failed_steps and job.get("conclusion") in {"failure", "cancelled"}:
+                failures.append(f"- [{job['name']}]({job_page}) · {job['conclusion']} before a step reported a result")
+        if failures:
+            summary("\n### Failed or cancelled steps\n" + "\n".join(failures))
+            summary(f"See [run artifacts]({run_page}#artifacts) for available `*-diagnostics-*` JUnit reports, traces and screenshots.")
+        summary("\n### Observed job and check durations")
+        for job in jobs:
+            items = [job, *(step for step in job.get("steps", []) if step["name"].startswith(("Test:", "Build:", "Packaging:", "Container:")))]
+            for item in items:
                 if item.get("started_at") and item.get("completed_at"):
                     seconds = (datetime.fromisoformat(item["completed_at"]) - datetime.fromisoformat(item["started_at"])).total_seconds()
-                    summary(f"- {job['name']} / {item['name']}: {seconds:.1f}s")
+                    name = job["name"] if item is job else f"{job['name']} / {item['name']}"
+                    summary(f"- {name} · {seconds:.1f}s")
     except (URLError, KeyError, ValueError):
         summary("Actions duration metadata unavailable; check the run's job/step timings.")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("plan", "smoke", "inputs", "finish", "durations"))
+    parser.add_argument("mode", choices=("plan", "browser", "inputs", "frontend-output", "finish", "durations"))
+    parser.add_argument("--metadata-only", action="store_true")
     args = parser.parse_args()
     if args.mode == "plan":
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
-        selected, reason = plan_event(os.environ["GITHUB_EVENT_NAME"], os.environ["GITHUB_REF"],
-                                      event.get("before", ""), os.environ["GITHUB_SHA"])
+        plan, paths, reason = plan_event(os.environ["GITHUB_EVENT_NAME"], os.environ["GITHUB_REF"],
+                                         event.get("before", ""), os.environ["GITHUB_SHA"])
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
-            for name, value in selected.items():
-                stream.write(f"{name}={str(value).lower()}\n")
-        summary(f"Quick at {os.environ['GITHUB_SHA']}: {reason}.\n" + "\n".join(
-            f"- {name}: {'run (matching paths)' if run else 'skip (no matching paths)'}" for name, run in selected.items()
-        ))
-    elif args.mode == "smoke":
-        summary("Fixed Python smoke set:\n" + "\n".join(f"- {name}" for name in SMOKE_TESTS))
-        return subprocess.call([sys.executable, "-m", "pytest", "-q", *SMOKE_TESTS], cwd=ROOT)
+            for name, value in plan.outputs().items():
+                stream.write(f"{name}={value}\n")
+        summary(f"### Quick selection for `{os.environ['GITHUB_SHA']}`\n\n{reason}.")
+        summary("\nPaths from the push comparison or fallback inventory:\n\n~~~text\n" +
+                ("\n".join(json.dumps(path) for path in paths) or "(empty comparison)") + "\n~~~")
+        for name, reasons in plan.reasons.items():
+            details = "; ".join(sorted(reasons)) if reasons else "no applicable changes" if paths else "empty comparison"
+            summary(f"- {name}: {'run' if reasons else 'skip'} ({details})")
+        if plan.reasons["frontend"]:
+            summary("- Browser files: " + ("complete suite" if plan.all_browser else ", ".join(sorted(plan.browser_files))))
+        if plan.reasons["inputs"]:
+            summary("- Input scope: " + ("metadata and distribution" if plan.distribution else "metadata only"))
+            if plan.orchestration:
+                summary("- Orchestration tests: " + ("included in the Python suite" if plan.reasons["python"] else "focused input job"))
+    elif args.mode == "browser":
+        return subprocess.call(browser_command(json.loads(os.environ["BROWSER_FILES"])), cwd=ROOT / "frontend")
     elif args.mode == "inputs":
-        check_inputs()
+        check_inputs(metadata_only=args.metadata_only)
+    elif args.mode == "frontend-output":
+        sys.path.insert(0, str(ROOT))
+        from scripts.build_windows import frontend_assets
+
+        frontend_assets(ROOT / "frontend/dist")
     elif args.mode == "finish":
+        summary(f"### Selected SHA\n\n`{os.environ.get('SELECTED_SHA', os.environ.get('GITHUB_SHA')) or 'unresolved'}`")
         results = json.loads(os.environ["CI_RESULTS"])
-        selected = None
-        if "plan" in results:
-            selected = {name: value == "true" for name, value in results["plan"].get("outputs", {}).items()}
-        good = check_results(results, selected)
-        report_durations()
+        if os.environ.get("CI_QUICK") == "true" or "plan" in results:
+            outputs = results.get("plan", {}).get("outputs", {})
+            selected = {name: outputs.get(name) == "true" for name in QUICK_GROUPS}
+            good = check_results(results, selected, required=("plan", *QUICK_GROUPS))
+            if any(outputs.get(name) not in {"true", "false"} for name in PLAN_FLAGS):
+                summary("Quick selection did not report a valid decision for every group.")
+                good = False
+        else:
+            good = check_results(results, required=("resolve", "python", "frontend", "containers"))
+        report_actions()
         return 0 if good else 1
     else:
-        report_durations()
+        summary(f"### Selected SHA\n\n`{os.environ.get('SELECTED_SHA') or 'unresolved'}`")
+        report_actions()
     return 0
 
 

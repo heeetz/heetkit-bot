@@ -1,7 +1,6 @@
 name: Quick
 
-# Always report a result, including prose-only pushes. Do not use workflow path filters:
-# skipped workflows can leave a required check pending indefinitely.
+# Keep the stable required check on every push, including prose-only pushes.
 on:
   push:
     branches: [main]
@@ -18,34 +17,40 @@ jobs:
     name: Select Quick checks
     runs-on: ubuntu-24.04
     outputs:
-      smoke: ${{ steps.plan.outputs.smoke }}
-      typecheck: ${{ steps.plan.outputs.typecheck }}
+      python: ${{ steps.plan.outputs.python }}
+      frontend: ${{ steps.plan.outputs.frontend }}
       inputs: ${{ steps.plan.outputs.inputs }}
+      browser_files: ${{ steps.plan.outputs.browser_files }}
+      server: ${{ steps.plan.outputs.server }}
+      distribution: ${{ steps.plan.outputs.distribution }}
+      orchestration: ${{ steps.plan.outputs.orchestration }}
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Select fixed check groups for the whole push
+      - name: Select checks for the whole push
         id: plan
         run: python3 scripts/ci_checks.py plan
 
-  smoke:
-    name: Python smoke
+  python:
+    name: Python suite
     needs: plan
-    if: needs.plan.outputs.smoke == 'true'
+    if: needs.plan.outputs.python == 'true'
     runs-on: windows-2022
-    timeout-minutes: 10
+    timeout-minutes: 20
     defaults:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@v6
+      - name: Check out source
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - name: Set up Windows x64 Python
+        uses: actions/setup-python@v6
         with:
           python-version: '3.14.7'
           architecture: x64
@@ -53,87 +58,172 @@ jobs:
           cache-dependency-path: |
             packaging/python-bootstrap.txt
             packaging/windows/requirements.txt
-      - name: Install pinned runtime and smoke test tools
+      - name: Install pinned Python runtime and test dependencies
         run: |
           python -m pip install --disable-pip-version-check --only-binary=:all: --require-hashes -r packaging/python-bootstrap.txt
           if ($LASTEXITCODE -ne 0) { throw 'Python installer bootstrap failed.' }
-          python -m pip install --disable-pip-version-check -r packaging/windows/requirements.txt pytest==8.4.2 pytest-asyncio==0.26.0
+          python -m pip install --disable-pip-version-check -r packaging/windows/requirements.txt pytest==8.4.2 pytest-asyncio==0.26.0 PyYAML==6.0.3
           if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed.' }
           python -m pip check
           if ($LASTEXITCODE -ne 0) { throw 'Python dependency check failed.' }
-          python -c "from importlib.metadata import version; from packaging.version import Version; assert Version(version('urllib3')) >= Version('2.8.0')"
+          python -c "from importlib.metadata import version; from packaging.version import Version; assert Version(version('urllib3')) >= Version('2.8.0'), 'urllib3 must be >= 2.8.0'"
           if ($LASTEXITCODE -ne 0) { throw 'urllib3 security version check failed.' }
-      - name: Run the fixed Python smoke set
-        run: python scripts/ci_checks.py smoke
+      - name: 'Test: complete Python suite'
+        id: pytest
+        run: python -m pytest -q --junitxml "$env:RUNNER_TEMP/heetkit-python-junit.xml"
+      - name: Upload Python failure report
+        if: failure() && steps.pytest.outcome == 'failure'
+        uses: actions/upload-artifact@v6
+        with:
+          name: quick-python-diagnostics-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/heetkit-python-junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
 
-  typecheck:
-    name: TypeScript
+  frontend:
+    name: Production frontend and selected Edge tests
     needs: plan
-    if: needs.plan.outputs.typecheck == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    if: needs.plan.outputs.frontend == 'true'
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
     steps:
-      - uses: actions/checkout@v6
+      - name: Check out source
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-node@v6
+      - name: Set up Windows x64 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14.7'
+          architecture: x64
+          cache: pip
+          cache-dependency-path: |
+            packaging/python-bootstrap.txt
+            packaging/windows/requirements.txt
+      - name: Set up Node
+        uses: actions/setup-node@v6
         with:
           node-version: '24.20.0'
+          architecture: x64
           package-manager-cache: false
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install locked frontend dependencies
         working-directory: frontend
         run: npm ci
-      - name: Check TypeScript without a production build
+      - name: 'Build: production frontend and TypeScript'
         working-directory: frontend
-        run: npm run typecheck
-
-  inputs:
-    name: Workflow and release inputs
-    needs: plan
-    if: needs.plan.outputs.inputs == 'true'
-    runs-on: windows-2022
-    timeout-minutes: 10
-    defaults:
-      run:
-        shell: pwsh
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.14.7'
-          architecture: x64
-      - name: Install workflow test tools only
+        run: npm run build
+      - name: 'Inputs: production frontend output for Windows staging'
+        run: python scripts/ci_checks.py frontend-output
+      - name: Install pinned Python runtime for the Server browser fixture
+        if: needs.plan.outputs.server == 'true'
         run: |
           python -m pip install --disable-pip-version-check --only-binary=:all: --require-hashes -r packaging/python-bootstrap.txt
           if ($LASTEXITCODE -ne 0) { throw 'Python installer bootstrap failed.' }
-          python -m pip install --disable-pip-version-check pytest==8.4.2 PyYAML==6.0.3 cryptography==50.0.1 httpx==0.28.1
-          if ($LASTEXITCODE -ne 0) { throw 'Workflow test dependency installation failed.' }
-      - name: Validate machine-consumed inputs
+          python -m pip install --disable-pip-version-check -r packaging/windows/requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed.' }
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'Python dependency check failed.' }
+          python -c "from importlib.metadata import version; from packaging.version import Version; assert Version(version('urllib3')) >= Version('2.8.0'), 'urllib3 must be >= 2.8.0'"
+          if ($LASTEXITCODE -ne 0) { throw 'urllib3 security version check failed.' }
+      - name: Ensure Microsoft Edge is available
+        working-directory: frontend
+        run: |
+          $edgeRoots = @($env:LOCALAPPDATA, $env:ProgramFiles, ${env:ProgramFiles(x86)})
+          if ($env:HOMEDRIVE) { $edgeRoots += "$env:HOMEDRIVE\Program Files", "$env:HOMEDRIVE\Program Files (x86)" }
+          $edgePaths = $edgeRoots |
+            Where-Object { $_ } | ForEach-Object { Join-Path $_ 'Microsoft/Edge/Application/msedge.exe' }
+          $installedEdge = $edgePaths | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+          if ($installedEdge) {
+            Write-Host "Using installed Microsoft Edge: $installedEdge"
+          } else {
+            npx --no-install playwright install msedge
+            if ($LASTEXITCODE -ne 0) { throw 'Microsoft Edge installation failed.' }
+          }
+      - name: 'Test: selected Edge browser suite'
+        id: browser_tests
+        env:
+          BROWSER_FILES: ${{ needs.plan.outputs.browser_files }}
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: ${{ runner.temp }}/heetkit-browser-junit.xml
+        run: python scripts/ci_checks.py browser
+      - name: Upload browser failure reports and attachments
+        if: failure() && steps.browser_tests.outcome == 'failure'
+        uses: actions/upload-artifact@v6
+        with:
+          name: quick-browser-diagnostics-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/heetkit-browser-junit.xml
+            frontend/node_modules/.tmp/playwright-results/**/trace.zip
+            frontend/node_modules/.tmp/playwright-results/**/test-failed-*.png
+          # Limit hidden-path upload to the exact Playwright output patterns above.
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+
+  inputs:
+    name: Workflow and distribution inputs
+    needs: plan
+    if: needs.plan.outputs.inputs == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up input validation Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14.7'
+      - name: Install lightweight input validators
+        run: python -m pip install --disable-pip-version-check PyYAML==6.0.3 packaging==26.3
+      - name: 'Inputs: workflow metadata and curated release notes'
+        if: needs.plan.outputs.distribution == 'false'
+        run: python scripts/ci_checks.py inputs --metadata-only
+      - name: 'Inputs: workflow, distribution and release configuration'
+        if: needs.plan.outputs.distribution == 'true'
         run: python scripts/ci_checks.py inputs
-      - name: Exercise selection, orchestration and publication guards
-        run: python -m pytest -q tests/test_ci_workflows.py tests/test_release_publication.py tests/test_release_evidence.py
+      - name: Install focused orchestration test dependencies
+        if: needs.plan.outputs.orchestration == 'true'
+        run: python -m pip install --disable-pip-version-check pytest==8.4.2 cryptography==50.0.1 httpx==0.28.1
+      - name: 'Test: orchestration and publication guards'
+        if: needs.plan.outputs.orchestration == 'true'
+        id: pytest
+        run: >-
+          python -m pytest -q --junitxml "$RUNNER_TEMP/heetkit-python-junit.xml"
+          tests/test_ci_workflows.py tests/test_release_publication.py tests/test_release_evidence.py
+      - name: Upload orchestration failure report
+        if: failure() && steps.pytest.outcome == 'failure'
+        uses: actions/upload-artifact@v6
+        with:
+          name: quick-inputs-diagnostics-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/heetkit-python-junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
 
   complete:
     name: Quick result
     if: always()
-    needs: [plan, smoke, typecheck, inputs]
+    needs: [plan, python, frontend, inputs]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       actions: read
     steps:
-      - uses: actions/checkout@v6
+      - name: Check out source
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Report results, skip reasons and observed durations
+      - name: Report required checks, failures and durations
         env:
+          CI_QUICK: 'true'
           CI_RESULTS: ${{ toJSON(needs) }}
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci_checks.py finish
