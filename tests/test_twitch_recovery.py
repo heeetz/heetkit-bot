@@ -1,5 +1,6 @@
 """Deterministic shared recovery failures; no credentials, live HTTP, or chat."""
 import asyncio
+from contextlib import nullcontext
 import logging
 from datetime import datetime, timedelta
 from types import SimpleNamespace as NS
@@ -180,7 +181,8 @@ def real_bot():
     settings = build_settings()
     state = RuntimeState()
     state.set_bot_running(True)
-    services = NS(runtime_state=state, twitch=TwitchAPIService())
+    services = NS(runtime_state=state, twitch=TwitchAPIService(),
+                  users=NS(storage_scope=lambda user_id: nullcontext()))
     bot = lifecycle.TwitchChatBot(settings, settings.primary_account, services, object(), logging.getLogger("tests.real.recovery"))
     bot._http._tokens[bot.bot_id] = {}
     return bot
@@ -283,7 +285,7 @@ async def test_old_socket_ingress_does_not_reserve_replacement_replay_id(real_bo
         calls.append(kwargs["message"].id)
     original = lifecycle.process_twitch_message
     lifecycle.process_twitch_message = process
-    message = NS(id="once", broadcaster=NS(id="200", name="testchannel"))
+    message = NS(id="once", broadcaster=NS(id="200", name="testchannel"), chatter=NS(id="300"))
     try:
         token = _transport_origin.set(bot._socket_ref("old"))
         try:
@@ -700,7 +702,7 @@ async def test_handover_ingress_is_accepted_before_old_close_completes(real_bot,
     monkeypatch.setattr(lifecycle, "process_twitch_message", process)
     token = _transport_origin.set(bot._socket_ref("new"))
     try:
-        await bot.event_message(NS(id="handover", broadcaster=NS(id="200", name="testchannel")))
+        await bot.event_message(NS(id="handover", broadcaster=NS(id="200", name="testchannel"), chatter=NS(id="300")))
         assert processed == ["handover"]
     finally:
         _transport_origin.reset(token)
