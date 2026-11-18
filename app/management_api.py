@@ -29,6 +29,7 @@ from app.filter_settings import FilterValidationError
 from app.management import ApplicationManagement
 from app.runtime_paths import PACKAGED_FRONTEND, SOURCE_ROOT, RuntimePaths
 from app.utils.logging import RecentLogBuffer
+from app.twitch.client import has_saved_bot_authorization
 from app.credentials import CredentialError
 from app.config.settings import TwitchConfigurationError
 from app.server_setup import ServerSetup
@@ -192,6 +193,8 @@ READS = {
 WRITES = {
     "/v1/triggers": "save_message_triggers",
     "/v1/analytics/query": "_get_analytics",
+    "/v1/leaderboards/query": "_get_leaderboards",
+    "/v1/leaderboards/settings": "_save_leaderboard_settings",
     "/v1/analytics/configure": "_configure_analytics",
     "/v1/analytics/reset": "_reset_analytics",
     "/v1/ai/balance": "_get_ai_balance",
@@ -600,7 +603,8 @@ class ManagementAPI:
             if result.get("ok") is False:
                 if path in {"/v1/commands/save", "/v1/commands/enabled"} and result.get("code") == "command_name_conflict":
                     return result
-                if path.startswith("/v1/privacy/opt-outs/") or path in {"/v1/ai/setup", "/v1/triggers", "/v1/command-restrictions",
+                if path.startswith("/v1/privacy/opt-outs/") or path in {"/v1/ai/setup", "/v1/setup/guide", "/v1/leaderboards/settings",
+                            "/v1/triggers", "/v1/command-restrictions",
                             "/v1/command-restrictions/save", "/v1/command-restrictions/remove"}:
                     return result
                 return {"ok": False, "error": "Operation rejected; check input, profile storage and current state."}
@@ -669,12 +673,14 @@ class ManagementAPI:
             inspect.signature(operation).bind(**payload)
             return await operation(**payload)
         if method == "POST" and path == "/v1/logs/recent":
-            if set(payload) - {"after_id", "limit"}:
+            if set(payload) - {"after_id", "limit", "snapshot"}:
                 raise ValueError
             after, limit = payload.get("after_id", 0), payload.get("limit", 100)
-            if type(after) is not int or after < 0 or type(limit) is not int or not 1 <= limit <= 200:
+            snapshot = payload.get("snapshot", False)
+            if (type(after) is not int or after < 0 or type(limit) is not int or not 1 <= limit <= 200
+                    or type(snapshot) is not bool or (snapshot and after != 0)):
                 raise ValueError
-            return {"ok": True, **(self.log_buffer.activity(after_id=after, limit=limit)
+            return {"ok": True, **(self.log_buffer.activity(after_id=after, limit=limit, snapshot=snapshot)
                     if self.log_buffer else {"entries": [], "next_after_id": after})}
         raise LookupError
 
@@ -711,6 +717,7 @@ class ManagementAPI:
                 "active_channel": settings.twitch_channel, "active_channel_user_id": settings.twitch_channel_user_id,
                 "requires_restart": False, "requires_reconnect": False, "running": state["running"],
                 "connected": state["twitch_connected"], "oauth_token_available": Path(settings.twitch_token_file).is_file(),
+                "saved_bot_authorization": has_saved_bot_authorization(settings),
                 "presets": [{"id": preset.id, "display_name": preset.display_name,
                     "target_channel": preset.channel, "target_channel_user_id": preset.channel_user_id}
                     for preset in presets], "selected_preset_id": active, "active_preset_id": active,

@@ -64,14 +64,14 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     last_checked_at: '2026-10-20T12:00:00Z', error: null as null | 'connection_failed',
     ...operationOverrides,
   }
-  const status = { running: true, twitch_connected: true, twitch_connection_state: 'connected' as const, uptime_seconds: 10, channel: 'synthetic_channel', account: 'synthetic_bot', ...statusOverrides, operation }
+  const status = { running: true, twitch_connected: true, twitch_connection_state: 'connected' as const, uptime_seconds: 10, channel: 'synthetic_channel', account: 'synthetic_bot', leaderboard_channel_id: '200', ...statusOverrides, operation }
   const ai = () => ({ provider: 'Google Gemini', enabled, available: aiConfigured, memory_enabled: memoryEnabled, active_personality: 'neutral', available_personalities: ['neutral'], model: 'test-model' })
   const aiProvider = { provider: 'Gemini', selected_model: 'test-model', fallback_model: 'test-fallback', presets: [], credential: null }
   let aiSetup = { primary: { provider: 'gemini', model: 'gemini-2.5-flash', thinking: 'default', search: false },
     fallback: null, cross_provider_acknowledged: false, max_question_length: 300, max_answer_length: 220,
     shared_instructions: null, provider_drafts: {} }
   let setupGuide = { dismissed: false, ai_skipped: false }
-  const twitch: Record<string, unknown> = { client_id: 'synthetic-client', bot_username: 'synthetic_bot', bot_user_id: '100', target_channel: 'synthetic_channel', target_channel_user_id: '200', active_channel: 'synthetic_channel', requires_restart: false, requires_reconnect: false, oauth_token_available: true, oauth_callback_url: 'http://localhost:8765/oauth/callback', authorization_status: 'verified', authorized_account: 'synthetic_bot', setup_complete: true }
+  const twitch: Record<string, unknown> = { client_id: 'synthetic-client', bot_username: 'synthetic_bot', bot_user_id: '100', target_channel: 'synthetic_channel', target_channel_user_id: '200', active_channel: 'synthetic_channel', requires_restart: false, requires_reconnect: false, oauth_token_available: true, saved_bot_authorization: true, oauth_callback_url: 'http://localhost:8765/oauth/callback', authorization_status: 'verified', authorized_account: 'synthetic_bot', setup_complete: true }
   const credentials = [{ name: 'twitch_client_secret', label: 'Twitch client secret', configured: true, source: 'environment', managed: false, validation_status: 'not_tested', secure_storage_available: false }, { name: 'gemini_api_key', label: 'Gemini API key', configured: false, source: 'missing', managed: true, validation_status: 'not_tested', secure_storage_available: false }, { name: 'deepseek_api_key', label: 'DeepSeek API key', configured: aiConfigured, source: aiConfigured ? 'server_file' : 'missing', managed: true, validation_status: 'not_tested', secure_storage_available: false }]
   await page.route('**/v1/**', async (route) => {
     const request = route.request()
@@ -202,7 +202,10 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
     if (path === '/v1/privacy/opt-outs/withdraw') optouts = optouts.filter((user) => user.twitch_user_id !== body!.twitch_user_id)
     if (path.startsWith('/v1/privacy/opt-outs/')) result = { ok: true, users: optouts, total: optouts.length, offset: 0, limit: 50 }
     if (path === '/v1/blocked-users') result = { ok: true, users: [] }
-    if (path === '/v1/logs/recent') result = { ok: true, entries: logs.filter((entry) => entry.id > Number(body?.after_id ?? 0)), next_after_id: 99 }
+    if (path === '/v1/logs/recent') {
+      const entries = logs.filter((entry) => entry.id > Number(body?.after_id ?? 0)).slice(0, body?.snapshot ? 500 : Number(body?.limit ?? 200))
+      result = { ok: true, entries, next_after_id: Math.max(99, entries.at(-1)?.id ?? Number(body?.after_id ?? 0)) }
+    }
     if (path === '/v1/about') result = { application_name: 'HeetKit', application_subtitle: 'Twitch bot controls', version: '1.3.0', author: 'heeetz', license_name: 'Apache-2.0' }
     await route.fulfill({ json: result })
   })
@@ -343,7 +346,7 @@ for (const width of [1280, 390, 320]) {
     await page.goto('/tests/browser.fixture.html')
     await login(page)
     const checklist = page.getByRole('article', { name: 'Setup checklist' })
-    await expect(checklist.locator('.section-heading p')).toHaveText('Twitch connected · AI optional')
+    await expect(checklist.locator('.section-heading p')).toHaveText('Twitch authorized · AI optional')
     await expect(checklist).not.toContainText(/unverified|not confirmed/)
     const bounds = (await checklist.boundingBox())!
     for (const action of await checklist.getByRole('button').all()) {
@@ -399,6 +402,50 @@ test('Server announcements save highlighted delivery through authenticated fixed
   expect(api.calls.filter((call) => call.path === '/v1/announcements').every((call) => call.authorization === `Bearer ${sessionToken}`)).toBe(true)
   await panel.getByRole('button', { name: 'Help: Announcement status Server reminder', exact: true }).click()
   await expect(page.getByRole('tooltip')).toContainText('Last outcome: No attempts yet')
+})
+
+test('Server instructions preserve the Twitch draft and explain callback paste mode', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 900 })
+  const api = await server(page)
+  api.setTwitch({ authorization_mode: 'paste', oauth_callback_url: 'http://localhost:8765/oauth/callback' })
+  await page.goto('/tests/browser.fixture.html')
+  await login(page)
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('button', { name: 'Twitch connection', exact: true }).click()
+  const field = page.getByRole('textbox', { name: 'Client ID', exact: true })
+  await field.fill('draft-client')
+  const instructions = page.getByRole('button', { name: 'Setup instructions', exact: true })
+  await instructions.press('Enter')
+  const dialog = page.getByRole('dialog', { name: 'Twitch setup instructions' })
+  await expect(dialog).toContainText('http://localhost:8765/oauth/callback')
+  await expect(dialog).toContainText('Save Twitch settings')
+  await expect(dialog).toContainText('Complete authorization')
+  await expect(dialog.getByRole('link', { name: 'Open Twitch Developer Console' }))
+    .toHaveAttribute('href', 'https://dev.twitch.tv/console/apps')
+  await dialog.getByRole('button', { name: 'Close setup instructions' }).click()
+  await expect(instructions).toBeFocused()
+  await expect(field).toHaveValue('draft-client')
+})
+
+test('Server Skip AI persists and finishes setup while waiting for a stream', async ({ page }) => {
+  const api = await server(page, { mode: 'stream_only', stream_status: 'offline' },
+    { running: false, twitch_connected: false, twitch_connection_state: 'stopped' }, false)
+  api.setTwitch({ saved_bot_authorization: false })
+  await page.goto('/tests/browser.fixture.html')
+  await login(page)
+  const checklist = page.getByRole('article', { name: 'Setup checklist' })
+  const skip = checklist.getByRole('button', { name: 'Skip AI for now' })
+  await skip.click()
+  await expect(checklist.locator('.section-heading p')).toHaveText('Twitch needs authorization')
+  await expect(skip).toHaveCount(0)
+  await page.reload()
+  if (await page.getByLabel('Administrator token').isVisible()) await login(page)
+  await expect(checklist.locator('.section-heading p')).toHaveText('Twitch needs authorization')
+  api.setTwitch({ saved_bot_authorization: true })
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
+  await expect.poll(() => api.calls.filter((call) => call.path === '/v1/setup/guide').length).toBeGreaterThan(2)
+  await expect(checklist).toHaveCount(0)
 })
 
 test('browser login keeps tokens out of storage, URLs and request bodies; reload signs out', async ({ page, context }) => {
@@ -871,6 +918,10 @@ test('authenticated operator activity includes replies, outcomes and linked deta
 
 test('status and logs poll at most every five seconds, use cursor and pause while hidden', async ({ page }) => {
   const api = await server(page)
+  api.setLogs(Array.from({ length: 450 }, (_, index) => ({
+    id: index + 1, timestamp: '2026-11-18T00:00:00Z', source: 'synthetic', level: 'INFO',
+    message: 'command.input', event_kind: 'command.input', text: `!activity-${index + 1}`, context: {},
+  })))
   await page.clock.install()
   await page.goto('/tests/browser.fixture.html')
   await login(page)
@@ -881,19 +932,62 @@ test('status and logs poll at most every five seconds, use cursor and pause whil
   await page.getByRole('button', { name: 'Logs', exact: true }).click()
   await expect(page.getByText('OPERATOR ACTIVITY', { exact: true })).toBeVisible()
   await expect.poll(() => api.calls.filter((call) => call.path === '/v1/logs/recent').length).toBe(1)
+  await expect(page.locator('.log-row').last()).toContainText('!activity-450')
+  await expect(page.locator('.log-row').last()).toBeInViewport()
+  expect(api.calls.filter((call) => call.path === '/v1/logs/recent')[0].body)
+    .toEqual({ after_id: 0, limit: 200, snapshot: true })
   await page.clock.fastForward(5100)
   await expect.poll(() => api.calls.filter((call) => call.path === '/v1/logs/recent').length).toBe(2)
-  expect(api.calls.filter((call) => call.path === '/v1/logs/recent').at(-1)?.body).toEqual({ after_id: 99, limit: 200 })
+  expect(api.calls.filter((call) => call.path === '/v1/logs/recent').at(-1)?.body).toEqual({ after_id: 450, limit: 200 })
   await page.evaluate(() => Object.defineProperty(document, 'hidden', { value: true, configurable: true }))
   const count = api.calls.length
   await page.clock.fastForward(15000)
   expect(api.calls).toHaveLength(count)
   await page.evaluate(() => Object.defineProperty(document, 'hidden', { value: false, configurable: true }))
+  await page.clock.fastForward(5100)
+  await expect.poll(() => api.calls.filter((call) => call.path === '/v1/logs/recent').length).toBe(3)
   await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
   await page.clock.fastForward(5100)
   const logs = api.calls.filter((call) => call.path === '/v1/logs/recent').length
   await page.clock.fastForward(5100)
   expect(api.calls.filter((call) => call.path === '/v1/logs/recent')).toHaveLength(logs)
+})
+
+test('Server Logs ignores a stale opening request and picks up traffic during the next snapshot', async ({ page }) => {
+  await server(page)
+  await page.clock.install()
+  const pending: (() => void)[] = []
+  const requests: unknown[] = []
+  const entry = (id: number) => ({
+    id, timestamp: '2026-11-18T00:00:00Z', source: 'synthetic', level: 'INFO',
+    message: 'command.input', event_kind: 'command.input', text: `!activity-${id}`, context: {},
+  })
+  let latest: LogEntry[] = []
+  await page.route('**/v1/logs/recent', async (route) => {
+    const request = route.request().postDataJSON()
+    const index = requests.push(request)
+    if (request.snapshot) await new Promise<void>((resume) => pending.push(resume))
+    const entries = request.snapshot ? [entry(index === 1 ? 999 : 410)] : latest
+    await route.fulfill({ json: { ok: true, entries, next_after_id: request.snapshot && index === 2 ? 411 : entries.at(-1)?.id } })
+  })
+  await page.goto('/tests/browser.fixture.html')
+  await login(page)
+  const logs = page.getByRole('button', { name: 'Logs', exact: true })
+  await logs.click()
+  await expect.poll(() => pending.length).toBe(1)
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
+  await logs.click()
+  await expect.poll(() => pending.length).toBe(2)
+  latest = [entry(412)]
+  pending[1]()
+  await expect(page.locator('.log-row')).toHaveCount(1)
+  expect(requests.slice(0, 2)).toEqual(Array(2).fill({ after_id: 0, limit: 200, snapshot: true }))
+  const abandoned = page.waitForResponse('**/v1/logs/recent')
+  pending[0]()
+  await abandoned
+  await page.clock.fastForward(5100)
+  await expect(page.locator('.log-content')).toHaveText(['!activity-410', '!activity-412'])
+  expect(requests[2]).toEqual({ after_id: 411, limit: 200 })
 })
 
 test('desktop startup waits for delayed pywebviewready without selecting browser transport', async ({ page }) => {

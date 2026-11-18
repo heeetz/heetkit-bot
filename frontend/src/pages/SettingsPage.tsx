@@ -18,6 +18,7 @@ import ConfigurationTransfer from '../components/ConfigurationTransfer'
 import { Select } from '../components/Select'
 import HelpTip from '../components/HelpTip'
 import TwitchSecretField from '../components/TwitchSecretField'
+import TwitchSetupInstructions from '../components/TwitchSetupInstructions'
 import { restartDesktop, useRestartDraft } from '../desktopRestart'
 import '../components/settings-layout.css'
 
@@ -275,7 +276,8 @@ function ServerSettings({ active }: { active: boolean }) {
     <Accordion id="twitch-settings" title="Application, account and channel" description="Save application/account/channel drafts separately from immediate secret actions. Server identity or secret changes stop the session and clear authorization; target-only changes retain authorization. Session control remains in Dashboard." className="settings-page server-settings-page">
       {!setup ? <><p className="muted">Loading server setup…</p>{error && <button className="secondary" onClick={() => setRetry((current) => current + 1)}>Retry setup status</button>}</> : <div className="settings-list twitch-settings-list">
         <section className="twitch-settings-group" aria-labelledby="server-twitch-application-heading">
-          <h3 id="server-twitch-application-heading" className="settings-heading-with-help">Twitch application <HelpTip label="Twitch application setup">Register an application in Twitch Developer Console and copy its Client ID and secret. Register the exact runtime callback shown here before connecting. Save identity settings separately from the secret.</HelpTip></h3>
+          <TwitchSetupInstructions headingId="server-twitch-application-heading" host="server"
+            callback={setup.twitch.oauth_callback_url} callbackMode={setup.twitch.authorization_mode} />
           <div className="settings-application-box">
             <div className="settings-application-fields">
               <label className="form-field"><span className="application-field-label">Client ID</span><input disabled={Boolean(busy)} value={twitchDraft.clientId} maxLength={128} onChange={(event) => updateDraft('clientId', event.target.value)} /></label>
@@ -869,7 +871,7 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
         {!twitchDraft ? <p className="muted">Loading Twitch settings…</p> : (
           <div className="settings-list twitch-settings-list">
             <section className="twitch-settings-group" aria-labelledby="twitch-application-heading">
-              <h3 id="twitch-application-heading" className="settings-heading-with-help">Twitch application <HelpTip label="Twitch application setup">Register an application in Twitch Developer Console and add this exact callback URL. Enter its Client ID and secret, then use the restart actions to apply the saved changes.</HelpTip></h3>
+              <TwitchSetupInstructions headingId="twitch-application-heading" host="desktop" callback={twitchDraft.oauth_callback_url} />
               <div className="settings-application-box">
                 <div className="settings-application-fields">
                   <label className="form-field"><span className="application-field-label">Twitch application client ID</span><input value={twitchDraft.client_id} disabled={Boolean(busy)} onChange={(event) => updateTwitchDraft({ client_id: event.target.value })} placeholder="Client ID from the Twitch Developer Console" /></label>

@@ -18,6 +18,7 @@ from app.command_settings import (
     validate_command_aliases,
     validate_display_name,
     validate_primary_name,
+    validate_leaderboard_template,
 )
 from app.config.personalities import AI_PERSONALITY_PROMPTS
 from app.personality_settings import (
@@ -188,6 +189,12 @@ class RuntimeState:
             if not loading:
                 raise ValueError("This command uses a fixed delivery mode.")
             settings = replace(settings, send_as=None)
+        if settings.entry_limit is not None and defaults.entry_limit is None:
+            raise ValueError("Only Top supports a leaderboard entry limit.")
+        if settings.chat_template is not None:
+            if defaults.chat_template is None:
+                raise ValueError("This command does not support a leaderboard message template.")
+            settings = replace(settings, chat_template=validate_leaderboard_template(name, settings.chat_template))
         if not getattr(definition, "identity_editable", True):
             if settings.aliases != defaults.aliases or settings.display_name != defaults.display_name:
                 if not loading:
@@ -265,6 +272,8 @@ class RuntimeState:
         primary_name: object = None,
         burst_interval_ms: int | None = None,
         burst_max_count: int | None = None,
+        entry_limit: int | None = None,
+        chat_template: str | None = None,
         stream_availability: str | None = None,
         send_as: str | None = None,
     ) -> CommandSettings:
@@ -279,6 +288,8 @@ class RuntimeState:
                 primary_name=current.primary_name if primary_name is None else validate_primary_name(primary_name),
                 burst_interval_ms=current.burst_interval_ms if burst_interval_ms is None else burst_interval_ms,
                 burst_max_count=current.burst_max_count if burst_max_count is None else burst_max_count,
+                entry_limit=current.entry_limit if entry_limit is None else entry_limit,
+                chat_template=current.chat_template if chat_template is None else chat_template,
                 stream_availability=current.stream_availability if stream_availability is None else stream_availability,
                 send_as=current.send_as if send_as is None else send_as,
             )
@@ -303,6 +314,8 @@ class RuntimeState:
         primary_name: object = None,
         burst_interval_ms: int | None = None,
         burst_max_count: int | None = None,
+        entry_limit: int | None = None,
+        chat_template: str | None = None,
         stream_availability: str | None = None,
         send_as: str | None = None,
         reactivate_removed: bool = False,
@@ -319,6 +332,8 @@ class RuntimeState:
                 primary_name=current.primary_name if primary_name is None else validate_primary_name(primary_name),
                 burst_interval_ms=current.burst_interval_ms if burst_interval_ms is None else burst_interval_ms,
                 burst_max_count=current.burst_max_count if burst_max_count is None else burst_max_count,
+                entry_limit=current.entry_limit if entry_limit is None else entry_limit,
+                chat_template=current.chat_template if chat_template is None else chat_template,
                 stream_availability=current.stream_availability if stream_availability is None else stream_availability,
                 send_as=current.send_as if send_as is None else send_as,
             )

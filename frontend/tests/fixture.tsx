@@ -42,6 +42,7 @@ const twitch: TwitchConnectionSettings = {
   requires_restart: query.has('restartRequired'), requires_reconnect: query.has('reconnectRequired'),
   running: sessionRunning, connected: initialConnection === 'connected',
   oauth_token_available: query.has('cachedToken'),
+  saved_bot_authorization: query.has('authorized'),
   oauth_callback_url: 'http://localhost:4343/oauth/callback',
   has_local_override: false,
 }

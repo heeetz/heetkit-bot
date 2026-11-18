@@ -54,6 +54,7 @@ class TwitchAPIService:
         self.human_messages = 0
         self.on_chat_session_changed: Callable[[], None] | None = None
         self.analytics = None
+        self.leaderboards = None
 
     @property
     def chat_connected(self) -> bool:
@@ -116,11 +117,23 @@ class TwitchAPIService:
             raise ChatSessionClosedError("Twitch chat session has been replaced.")
         return self._send_session
 
+    def leaderboard_connection(self):
+        return (self._channel_user_id, self._send_session) if self.chat_connected else (None, None)
+
+    async def fetch_connected_broadcast(self, channel, session):
+        if self.leaderboard_connection() != (channel, session):
+            raise ChatSessionClosedError("Twitch chat session has been replaced.")
+        streams = self._client.fetch_streams(user_ids=[channel], token_for=self._token_user_id,
+                                             first=1, max_results=1)
+        return await anext(streams, None)
+
     def suspend_chat(self) -> None:
         """Invalidate captured senders synchronously, before lifecycle work yields."""
         if self.analytics is not None and self._channel_user_id:
             self.analytics.connection(self._channel_user_id, False)
         self._send_session.invalidate()
+        if self.leaderboards is not None:
+            self.leaderboards.connection_changed()
         for task in self._send_session.tasks:
             self._retiring_sends.add(task)
             task.add_done_callback(self._retiring_sends.discard)
@@ -133,6 +146,8 @@ class TwitchAPIService:
         if ready and not self._chat_stopping:
             if not self._send_session.active:
                 self._send_session = ChatSendSession(active=True)
+                if self.leaderboards is not None:
+                    self.leaderboards.connection_changed()
                 if self.analytics is not None and self._channel_user_id:
                     self.analytics.connection(self._channel_user_id, True)
                 self.human_messages = 0

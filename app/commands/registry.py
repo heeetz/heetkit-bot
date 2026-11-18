@@ -4,10 +4,10 @@ import logging
 import asyncio
 import random
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from contextlib import nullcontext
 
-from app.command_settings import CommandSettings
+from app.command_settings import CommandSettings, LEADERBOARD_TEMPLATES
 from app.command_restrictions import expiry, utcnow
 from app.config.commands import TG_DEFAULT_MAX_COUNT
 from app.config.privacy import PRIVACY_COMMAND
@@ -33,7 +33,7 @@ ArgumentValidator = Callable[[str], bool]
 @dataclass(frozen=True, slots=True)
 class CommandDefinition:
     name: str
-    handler: CommandHandler
+    handler: CommandHandler | None = None
     aliases: tuple[str, ...] = ()
     help_text: str | None = None
     required_permission: Permission = Permission.USER
@@ -48,6 +48,7 @@ class CommandDefinition:
     supports_send_as: bool = True
     default_send_as: str = "chat"
     description: str = ""
+    prepare_reply: Callable[[CommandContext, CommandSettings], Awaitable[str | None]] | None = None
 
     @property
     def identity_editable(self) -> bool:
@@ -62,6 +63,8 @@ class CommandDefinition:
             permission=self.required_permission,
             aliases=self.aliases,
             primary_name=self.name,
+            entry_limit=5 if self.name == "top" and self.prepare_reply else None,
+            chat_template=LEADERBOARD_TEMPLATES.get(self.name) if self.prepare_reply else None,
         )
 
 
@@ -184,24 +187,7 @@ class CommandRegistry:
         if duplicates:
             raise ValueError(f"Command name already registered: {duplicates[0]}")
 
-        normalized_definition = CommandDefinition(
-            name=normalized_names[0],
-            handler=definition.handler,
-            aliases=normalized_names[1:],
-            help_text=definition.help_text,
-            enabled_by_default=definition.enabled_by_default,
-            required_permission=definition.required_permission,
-            cooldown=definition.cooldown,
-            pre_check=definition.pre_check,
-            argument_validator=definition.argument_validator,
-            silent_invalid_arguments=definition.silent_invalid_arguments,
-            hidden=definition.hidden,
-            requires_ai=definition.requires_ai,
-            minimum_permission=definition.minimum_permission,
-            supports_send_as=definition.supports_send_as,
-            default_send_as=definition.default_send_as,
-            description=definition.description,
-        )
+        normalized_definition = replace(definition, name=normalized_names[0], aliases=normalized_names[1:])
         for command_name in normalized_names:
             self._commands[command_name] = normalized_definition
 
@@ -579,6 +565,18 @@ class CommandDispatcher:
                         self._outcome("invalid_arguments")
                     return True
 
+            context = CommandContext(
+                message=message, services=services, logger=self._logger, output_limiter=command_output_limiter,
+                burst_interval_ms=settings.burst_interval_ms, burst_max_count=settings.burst_max_count,
+                send_as=settings.send_as,
+            )
+            prepared = None
+            if definition.prepare_reply is not None:
+                prepared = await definition.prepare_reply(context, settings)
+                if prepared is None:
+                    self._outcome("no_data")
+                    return True
+
             # Check if this is the ask command and user has bypass permission
             should_skip_cooldown = False
             if definition.name == "ask" and self._ai_cooldown_bypass_user_id is not None:
@@ -621,19 +619,13 @@ class CommandDispatcher:
                 message.author.username,
                 extra=event_metadata("command.invoke", outcome="executing"),
             )
-            context = CommandContext(
-                message=message,
-                services=services,
-                logger=self._logger,
-                output_limiter=command_output_limiter,
-                burst_interval_ms=settings.burst_interval_ms,
-                burst_max_count=settings.burst_max_count,
-                send_as=settings.send_as,
-            )
             if weather_channel is not None:
                 self._weather_in_flight.add(weather_channel)
             try:
-                await definition.handler(context, arguments)
+                if prepared is not None:
+                    await context.send_reply(prepared)
+                else:
+                    await definition.handler(context, arguments)
             finally:
                 if weather_channel is not None:
                     self._weather_in_flight.remove(weather_channel)

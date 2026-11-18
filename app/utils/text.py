@@ -1,6 +1,29 @@
 """Small text normalization helpers."""
 
+import re
 import unicodedata
+
+
+CHAT_RESPONSE_BYTES = 450
+_VARIABLE_PATTERN = re.compile(r"\{([^{}]+)\}")
+
+
+def validate_chat_template(value, *, required, optional=()):
+    if not isinstance(value, str) or not value.strip() or any(char in value for char in "\r\n\x00"):
+        raise ValueError("Enter a single-line chat message.")
+    if len(value.encode("utf-8")) > CHAT_RESPONSE_BYTES:
+        raise ValueError(f"Chat messages can use up to {CHAT_RESPONSE_BYTES} UTF-8 bytes.")
+    variables = set(_VARIABLE_PATTERN.findall(value))
+    if not set(required) <= variables or not variables <= set((*required, *optional)):
+        allowed = ", ".join(f"{{{name}}}" for name in required)
+        raise ValueError(f"The message must include {allowed} and may include {{sender}}.")
+    if any(char in _VARIABLE_PATTERN.sub("", value) for char in "{}"):
+        raise ValueError("Use braces only for supported template variables.")
+    return value.strip()
+
+
+def render_chat_template(template, values):
+    return _VARIABLE_PATTERN.sub(lambda match: values[match.group(1)], template)
 
 
 def _is_invisible_command_character(value: str) -> bool:

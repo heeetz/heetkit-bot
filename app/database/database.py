@@ -9,11 +9,11 @@ from pathlib import Path
 
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
-from sqlalchemy import delete, select, event
+from sqlalchemy import delete, exists, select, event
 
 from app.config.privacy import (AI_HISTORY_RETENTION_DAYS, RETENTION_CHECK_SECONDS, USER_RETENTION_DAYS,
                                 AI_HISTORY_MAX_ENTRIES, AI_CONTEXT_MAX_ENTRIES, validate_memory_limits)
-from app.database.models import AIMemoryEntry, PrivacyOptOut, User, utcnow
+from app.database.models import AIMemoryEntry, LeaderboardCount, PrivacyOptOut, User, utcnow
 from app.database.migrations import SCHEMA_SQL, SCHEMA_VERSION, initialize_schema, maintain_recovery, DatabaseMigrationError, run_sqlite_work
 from app.database.migrations import save_legacy_channel_mapping, validate_legacy_channel_choice
 from app.desktop_instance import desktop_instance_guard, DesktopAlreadyRunningError
@@ -80,7 +80,7 @@ class Database:
     async def cleanup_expired(self, now: datetime | None = None) -> None:
         """Delete expired data globally, including inactive viewers and memory-off profiles."""
         current_time = now or utcnow()
-        async with self.session_factory() as session:
+        async with self.memory_policy.lock, self.session_factory() as session:
             opted_out = select(PrivacyOptOut.twitch_user_id)
             await session.execute(delete(AIMemoryEntry).where(
                 (AIMemoryEntry.created_at <= current_time - timedelta(days=AI_HISTORY_RETENTION_DAYS))
@@ -90,6 +90,10 @@ class Database:
                 (User.last_seen_at <= current_time - timedelta(days=USER_RETENTION_DAYS))
                 | User.twitch_user_id.in_(opted_out)
             ))
+            await session.execute(delete(LeaderboardCount).where(~exists().where(
+                User.channel_id == LeaderboardCount.channel_id,
+                User.twitch_user_id == LeaderboardCount.twitch_user_id,
+            )))
             await session.commit()
             suppression_ids = list((await session.scalars(opted_out)).all())
         from app.database.repository import AIMemoryRepository

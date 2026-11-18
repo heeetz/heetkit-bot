@@ -17,8 +17,21 @@ from app.twitch.permissions import Permission
 from app.settings_recovery import migrate_settings_key, preserve_settings_recovery
 from app.utils.cooldown import CooldownPolicy
 from app.utils.text import normalize_command_name
+from app.utils.text import validate_chat_template
 
 logger = logging.getLogger(__name__)
+LEADERBOARD_TEMPLATES = {"top": "Monthly top: {entries}", "rank": "{sender}, you’re #{place} this month with {messages} messages."}
+LEADERBOARD_VARIABLES = {"top": ("entries",), "rank": ("place", "messages")}
+
+
+def validate_entry_limit(value):
+    if type(value) is not int or not 1 <= value <= 10:
+        raise ValueError("Entry limit must be a whole number from 1 to 10.")
+    return value
+
+
+def validate_leaderboard_template(name, value):
+    return validate_chat_template(value, required=LEADERBOARD_VARIABLES[name], optional=("sender",))
 
 
 class CommandNameConflict(ValueError):
@@ -96,6 +109,8 @@ class CommandSettings:
     stream_availability: str = "anytime"
     primary_name: str = ""
     send_as: str | None = None
+    entry_limit: int | None = None
+    chat_template: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.enabled) is not bool:
@@ -119,6 +134,8 @@ class CommandSettings:
             raise ValueError("Command name must be normalized.")
         if not isinstance(self.primary_name, str):
             raise ValueError("Command name must be text.")
+        if self.entry_limit is not None:
+            validate_entry_limit(self.entry_limit)
 
 
 class CommandSettingsDefinition(Protocol):
@@ -143,12 +160,14 @@ class CommandSettingsOverride:
     stream_availability: str | None = None
     primary_name: str | None = None
     send_as: str | None = None
+    entry_limit: int | None = None
+    chat_template: str | None = None
 
     @property
     def is_empty(self) -> bool:
         return all(value is None for value in (self.enabled, self.cooldown, self.permission,
                    self.aliases, self.display_name, self.removed, self.burst_interval_ms, self.burst_max_count,
-                   self.stream_availability, self.primary_name, self.send_as))
+                   self.stream_availability, self.primary_name, self.send_as, self.entry_limit, self.chat_template))
 
     def apply(self, defaults: CommandSettings) -> CommandSettings:
         return CommandSettings(
@@ -163,6 +182,8 @@ class CommandSettingsOverride:
             stream_availability=defaults.stream_availability if self.stream_availability is None else self.stream_availability,
             primary_name=defaults.primary_name if self.primary_name is None else self.primary_name,
             send_as=defaults.send_as if self.send_as is None else self.send_as,
+            entry_limit=defaults.entry_limit if self.entry_limit is None else self.entry_limit,
+            chat_template=defaults.chat_template if self.chat_template is None else self.chat_template,
         )
 
     @classmethod
@@ -183,6 +204,8 @@ class CommandSettingsOverride:
             stream_availability=settings.stream_availability if settings.stream_availability != defaults.stream_availability else None,
             primary_name=settings.primary_name if settings.primary_name != defaults.primary_name else None,
             send_as=settings.send_as if settings.send_as != defaults.send_as else None,
+            entry_limit=settings.entry_limit if settings.entry_limit != defaults.entry_limit else None,
+            chat_template=settings.chat_template if settings.chat_template != defaults.chat_template else None,
         )
 
     def to_json(self) -> dict[str, object]:
@@ -198,7 +221,8 @@ class CommandSettingsOverride:
             result["permission"] = self.permission.name
         if self.aliases is not None:
             result["aliases"] = list(self.aliases)
-        for key in ("display_name", "removed", "burst_interval_ms", "burst_max_count", "stream_availability", "primary_name", "send_as"):
+        for key in ("display_name", "removed", "burst_interval_ms", "burst_max_count", "stream_availability", "primary_name", "send_as",
+                    "entry_limit", "chat_template"):
             value = getattr(self, key)
             if value is not None:
                 result[key] = value
@@ -330,6 +354,16 @@ def _parse_override(
             additional["removed"] = raw_override["removed"]
         else:
             logger.warning("Ignoring invalid removed setting for command name=%s", command_name)
+    if defaults.entry_limit is not None and "entry_limit" in raw_override:
+        try:
+            additional["entry_limit"] = validate_entry_limit(raw_override["entry_limit"])
+        except ValueError:
+            logger.warning("Ignoring invalid entry limit for command name=%s", command_name)
+    if defaults.chat_template is not None and "chat_template" in raw_override:
+        try:
+            additional["chat_template"] = validate_leaderboard_template(command_name, raw_override["chat_template"])
+        except ValueError:
+            logger.warning("Ignoring invalid leaderboard template for command name=%s", command_name)
     return CommandSettingsOverride(
         enabled=enabled,
         cooldown=cooldown,

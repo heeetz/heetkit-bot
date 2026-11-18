@@ -195,7 +195,8 @@ async def test_analytics_current_names_preserve_stable_history_and_daily_only_to
     assert first["totals"]["command.attempts"] == 11
     assert sum(row["metrics"].get("command.attempts", 0) for row in first["series"]) == 6
     labels = {row["name"]: row["label"] for row in first["commands"]}
-    assert {key: labels[key] for key in (stable, "ping", "custom:deleted", "other")} == {stable: "$oldname", "ping": "$ping", "custom:deleted": "Deleted or unavailable command (custom:deleted)", "other": "Other commands (collection limit)"}
+    assert {key: labels[key] for key in (stable, "ping", "other")} == {stable: "$oldname", "ping": "$ping", "other": "Other commands (collection limit)"}
+    assert "custom:deleted" not in labels
     app.custom_commands.save({"id": custom.id, "name": "renamed", "enabled": True, "responses": ["Synthetic"], "permission": "USER", "per_user_seconds": 0, "global_seconds": 0, "aliases": []})
     app.services.runtime_state.apply_command_settings("ping", primary_name="pong")
     collector.record("command.attempts", channel_id="200", dimension=stable, value=1)
@@ -206,7 +207,7 @@ async def test_analytics_current_names_preserve_stable_history_and_daily_only_to
     assert commands["ping"]["label"] == "$pong"
     app.custom_commands.delete(custom.id)
     _, deleted, _ = await call("POST", "/v1/analytics/query", json={"days": 7})
-    assert next(row for row in deleted["commands"] if row["name"] == stable)["label"] == f"Deleted or unavailable command ({stable})"
+    assert all(row["name"] != stable for row in deleted["commands"])
 
 
 async def test_analytics_inventory_refresh_disabled_aliases_range_and_popularity(api):
@@ -241,12 +242,12 @@ async def test_analytics_inventory_refresh_disabled_aliases_range_and_popularity
         assert len({row["name"] for row in rows}) == len(rows)
         assert not any(row["label"] in ("$aliasalpha", "$pingalias") for row in rows)
         active = [row["name"] for row in rows if row["metrics"].get("command.attempts", 0)]
-        assert active == (["custom:older-deleted"] if days == 7 else []) + ["custom:deleted", stable, "ping"]
+        assert active == [stable, "ping"]
         assert rows == sorted(rows, key=lambda row: (-row["metrics"].get("command.attempts", 0), row["label"], row["name"]))
         assert all(not row["metrics"] for row in rows[len(active):])
     app.custom_commands.delete(custom.id)
     deleted = await query()
-    assert next(row for row in deleted["commands"] if row["name"] == stable)["metrics"]["command.attempts"] == 2
+    assert all(row["name"] != stable for row in deleted["commands"])
     # A new zero-activity inventory survives pause/reset without inventing observations.
     await collector.configure(False)
     await collector.reset()
@@ -1264,6 +1265,54 @@ async def test_browser_presentation_routes_apply_save_and_log_cursor(api, monkey
     _, body, _ = await call("POST", "/v1/logs/recent", json={"after_id": body["next_after_id"]})
     assert body["entries"][0]["source"] == "lifecycle" and body["entries"][0]["context"] == {}
     assert "private-chat-sentinel" not in json.dumps(body)
+
+
+async def test_server_logs_snapshot_spans_retained_pages_and_preserves_projected_cursor(api):
+    server, call = api
+    record = logging.LogRecord("tests.activity", logging.INFO, "", 0, "synthetic", (), None)
+    record.event_kind = "twitch.connected"
+    for _ in range(450):
+        server.log_buffer.append(record, "synthetic")
+    record.event_kind = None
+    server.log_buffer.append(record, "hidden-private-diagnostic")
+    _, initial, _ = await call("POST", "/v1/logs/recent", json={"snapshot": True})
+    assert [entry["id"] for entry in initial["entries"]] == list(range(1, 451))
+    assert initial["next_after_id"] == 451
+    assert "hidden-private-diagnostic" not in json.dumps(initial)
+    assert (await call("POST", "/v1/logs/recent", json={"snapshot": True, "after_id": 1}))[0] == 400
+    assert (await call("POST", "/v1/logs/recent", json={"snapshot": 1}))[0] == 400
+
+
+async def test_server_setup_guide_save_failure_retry_and_profile_reload(api, monkeypatch):
+    server, call = api
+    path = RuntimePaths.default().app_settings
+    before = AppSettingsStore(path).snapshot().ai
+    assert server.setup_status()["twitch"]["saved_bot_authorization"] is True
+    with monkeypatch.context() as patch:
+        def reject(*args, **kwargs):
+            raise OSError("private path")
+        patch.setattr("app.app_settings.save_app_settings", reject)
+        _, failure, _ = await call("POST", "/v1/setup/guide", json={"dismissed": False, "ai_skipped": True})
+        assert not failure["ok"] and "profile can be written" in failure["error"]
+        assert "private path" not in failure["error"]
+    assert not AppSettingsStore(path).snapshot().ai.setup_guide_ai_skipped
+    _, saved, _ = await call("POST", "/v1/setup/guide", json={"dismissed": False, "ai_skipped": True})
+    assert saved == {"ok": True, "dismissed": False, "ai_skipped": True}
+    after = AppSettingsStore(path).snapshot().ai
+    assert after.setup_guide_ai_skipped and after.setup == before.setup and after.provider == before.provider
+
+
+async def test_server_leaderboard_exclusions_are_scoped_and_month_is_utc(api):
+    _, call = api
+    endpoint = "/v1/leaderboards/settings"
+    assert (await call("POST", endpoint, json={"channel_id": "201", "exclusions": ["otherbot"]}))[1]["ok"] is False
+    assert (await call("POST", endpoint, json={"channel_id": "200", "exclusions": [" @OtherBot "]}))[1]["ok"] is True
+    assert (await call("POST", endpoint, json={"channel_id": "200", "zone": "UTC", "exclusions": []}))[0] == 400
+    _, response, _ = await call("POST", "/v1/leaderboards/query", json={})
+    board = response["leaderboards"]
+    assert board["exclusions"] == ["otherbot"]
+    assert board["month"]["started_at"].endswith("01T00:00:00+00:00")
+    assert "zone" not in board and "zone" not in board["month"]
 
 
 @pytest.mark.parametrize("origin", [

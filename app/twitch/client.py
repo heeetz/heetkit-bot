@@ -80,6 +80,30 @@ def validate_bot_authorization(token, settings: Settings) -> None:
         raise TwitchConnectionError("Twitch authorization does not match the configured application, bot account or required scopes. Authorize again from Settings.")
 
 
+def has_saved_bot_authorization(settings: Settings) -> bool:
+    """Check for this account's saved grant without contacting Twitch."""
+    if not settings.twitch_bot_user_id:
+        return False
+    try:
+        path = Path(settings.twitch_token_file)
+        if not path.is_file():
+            return False
+        with path.open("rb") as stream:
+            payload = stream.read(256 * 1024 + 1)
+        if len(payload) > 256 * 1024:
+            return False
+        cached = json.loads(payload)
+        grant = cached.get(settings.twitch_bot_user_id) if isinstance(cached, dict) else None
+    except (OSError, ValueError, RecursionError):
+        return False
+    if not isinstance(grant, dict):
+        return False
+    login = grant.get("login", settings.twitch_bot_username)
+    return (all(isinstance(grant.get(key), str) and grant[key] for key in ("token", "refresh"))
+            and grant.get("client_id", settings.twitch_client_id) == settings.twitch_client_id
+            and isinstance(login, str) and login.lower() == settings.twitch_bot_username.lower())
+
+
 @contextmanager
 def headless_twitch_diagnostics(on_failure: Callable[[], None]):
     """Observe library failures without rendering requests, tokens or payloads."""
@@ -185,6 +209,7 @@ def to_incoming_chat_message(message: ChatMessage, respond=None, send_session=No
         message_id=getattr(message, "id", None),
         send_session=send_session,
         respond_in_thread=respond_in_thread,
+        observed_at=getattr(message, "timestamp", None),
     )
 
 
@@ -320,14 +345,17 @@ async def _process_incoming_message(
     if twitch is not None:
         twitch.record_human_message(incoming)
 
+    leaderboard = getattr(twitch, "leaderboards", None)
+    record = leaderboard.capture(incoming) if leaderboard is not None and parsed is None else None
     try:
         await services.users.upsert_seen(
             twitch_user_id=incoming.author.twitch_user_id,
             username=incoming.author.username,
             channel_id=incoming.channel_id,
+            **({"record_leaderboard": record} if record is not None else {}),
         )
-    except SQLAlchemyError:
-        logger.exception("Could not persist chat user")
+    except SQLAlchemyError as error:
+        logger.error("Could not persist chat user: %s", type(error).__name__)
     except Exception:
         logger.exception("Unexpected user persistence failure")
 
@@ -776,7 +804,14 @@ class TwitchChatBot(commands.Bot):
             descriptor, name = tempfile.mkstemp(dir=self._token_file.parent, suffix=".tmp")
             temporary = Path(name)
             with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-                json.dump(self._cached_tokens | self.tokens, stream)
+                grants = self._cached_tokens | self.tokens
+                if self.bot_id in self.tokens:
+                    grants[self.bot_id] = {
+                        **self.tokens[self.bot_id],
+                        "client_id": self._settings.twitch_client_id,
+                        "login": self._settings.twitch_bot_username,
+                    }
+                json.dump(grants, stream)
                 stream.flush()
                 os.fsync(stream.fileno())
             os.chmod(temporary, 0o600)
@@ -838,14 +873,17 @@ class TwitchChatBot(commands.Bot):
                                                   *(_dispatch_origin.get() or (None, None, None)))):
             return
         try:
-            await process_twitch_message(
-                message=message,
-                services=self._services,
-                dispatcher=self._dispatcher,
-                logger=self._logger,
-                correlation=self._chat_messages,
-                send_session=send_session,
-            )
+            storage_scope = getattr(self._services.users, "storage_scope", None)
+            # Capture the privacy epoch before waiting on outgoing correlation.
+            with storage_scope(str(message.chatter.id)) if storage_scope else nullcontext():
+                await process_twitch_message(
+                    message=message,
+                    services=self._services,
+                    dispatcher=self._dispatcher,
+                    logger=self._logger,
+                    correlation=self._chat_messages,
+                    send_session=send_session,
+                )
         except Exception:
             self._logger.exception("Unexpected Twitch message processing failure")
 

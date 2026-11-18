@@ -122,6 +122,7 @@ const commandPayload = (command_name: string, enabled: boolean, per_user_seconds
   command_name, enabled, per_user_seconds, global_seconds, permission,
   ...(options ? { options: { primary_name: options.primary_name, aliases: options.aliases, display_name: options.display_name,
     burst_interval_ms: options.burst_interval_ms, burst_max_count: options.burst_max_count,
+    entry_limit: options.entry_limit, chat_template: options.chat_template,
     send_as: options.send_as, stream_availability: options.stream_availability } } : {}),
 })
 
@@ -147,6 +148,8 @@ export const browserApi: PythonApi = {
   get_filters: () => read('/v1/filters'),
   get_ai_status: () => read('/v1/ai'),
   get_analytics: (days = 7) => write('/v1/analytics/query', { days }),
+  get_leaderboards: () => write('/v1/leaderboards/query', {}),
+  save_leaderboard_settings: (channel_id, exclusions) => write('/v1/leaderboards/settings', { channel_id, exclusions }),
   configure_analytics: (enabled) => write('/v1/analytics/configure', { enabled }),
   reset_analytics: (confirmed) => write('/v1/analytics/reset', { confirmed }),
   get_ai_balance: (provider, refresh = false) => write('/v1/ai/balance', { provider, refresh }),
@@ -159,7 +162,7 @@ export const browserApi: PythonApi = {
   },
   unblock_ai_user: (username) => write('/v1/blocked-users/unblock', { username }),
   get_personalities: () => read('/v1/personalities'),
-  get_recent_logs: (after_id = 0, limit = 100) => write('/v1/logs/recent', { after_id, limit }),
+  get_recent_logs: (after_id = 0, limit = 100, snapshot = false) => write('/v1/logs/recent', { after_id, limit, ...(snapshot ? { snapshot } : {}) }),
   export_activity: unsupported,
   export_configuration: () => write('/v1/configuration/export'),
   preview_configuration_import: (archive_base64) => write('/v1/configuration/preview', { archive_base64 }),

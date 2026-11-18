@@ -8,6 +8,7 @@ import logging
 from app.commands.ai import register_ai_commands
 from app.commands.fun import register_fun_commands
 from app.commands.info import register_info_commands, register_weather_commands
+from app.commands.leaderboard import register_leaderboard_commands
 from app.commands.social import register_social_commands
 from app.commands.registry import CommandDispatcher, CommandRegistry
 from app.command_order import CommandCreationOrder
@@ -22,6 +23,7 @@ from app.config.settings import Settings
 from app.database.database import Database
 from app.database.repository import AIMemoryRepository, UserRepository
 from app.analytics import Analytics
+from app.leaderboards import Leaderboards
 from app.services.facade import ApplicationServices
 from app.services.memory import AIMemoryService
 from app.services.weather import OpenMeteoWeatherService
@@ -59,6 +61,8 @@ class Application:
 
     async def startup(self) -> None:
         await self.database.initialize()
+        if leaderboards := getattr(getattr(self.services, "twitch", None), "leaderboards", None):
+            await leaderboards.start()
         if getattr(self.services, "analytics", None) is not None:
             await self.services.analytics.start()
         # Optional filter files should not prevent the rest of the app from starting.
@@ -75,6 +79,13 @@ class Application:
             self.announcement_scheduler.start()
 
     async def shutdown(self) -> None:
+        try:
+            if leaderboards := getattr(getattr(self.services, "twitch", None), "leaderboards", None):
+                await leaderboards.close()
+        finally:
+            await self._close_services()
+
+    async def _close_services(self) -> None:
         try:
             try:
                 try:
@@ -112,6 +123,7 @@ def build_application(settings: Settings) -> Application:
     ai_request_policy = AIRequestPolicy()
     twitch_api = TwitchAPIService()
     twitch_api.analytics = analytics
+    twitch_api.leaderboards = Leaderboards(user_repository, twitch_api, settings)
     memory = AIMemoryService(memory_repository)
     runtime_state = RuntimeState(
         command_settings_path=paths.command_settings,
@@ -129,6 +141,7 @@ def build_application(settings: Settings) -> Application:
     register_info_commands(registry)
     register_ai_commands(registry)
     register_social_commands(registry)
+    register_leaderboard_commands(registry)
     runtime_state.configure_commands(registry.definitions())
     creation_order = CommandCreationOrder()
     custom_commands = CustomCommandStore(

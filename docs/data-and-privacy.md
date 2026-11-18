@@ -47,7 +47,7 @@ AI prompts, instructions and optional context go to the selected provider; bot r
 go to Twitch. Type `!optout` (using the operator's configured prefix) to disable local
 storage for your authenticated Twitch account. Extra text never selects another person.
 The request runs before normal command restrictions, filters and cooldowns, and
-deletes your presence and AI history across all channels in that profile. It prevents
+deletes your presence, AI history and leaderboard counts across that profile. It prevents
 future identifying writes, including pending AI results and renamed accounts.
 It retains your Twitch ID plus available verified/stored username and the actual
 opt-out date (unknown for historical entries) as a suppression record until the
@@ -162,8 +162,8 @@ after successful eligible persistence. This is newly observed in the bot's datab
 not Twitch's first-time-chatter flag or lifetime unique viewers. A viewer may count
 again after their old presence expires. Collection is prospective, with no historical
 backfill and no viewer/event identity ledger. Command breakdown labels use current
-configured names and prefix while totals remain keyed by stable IDs; deleted commands
-retain their rows with a distinguishable unavailable-name label containing the stable ID.
+configured names and prefix while totals remain keyed by stable IDs. Deleted custom
+commands no longer appear in the breakdown, while their recorded aggregate totals remain.
 The breakdown includes all current built-in and custom commands, even disabled or
 new commands with no recorded attempts, refreshed with each Analytics query. Aliases
 share one row. Rows sort by recorded attempts descending, then displayed name and
@@ -332,7 +332,7 @@ the opt-out is withdrawn.
 1. Open **Commands**.
 2. Expand **Storage opt-outs**.
 3. Enter the verified account's **Twitch username**.
-4. Select **Add**. **This erases stored presence and AI history across the
+4. Select **Add**. **This erases stored presence, AI history and leaderboard counts across the
    profile and stops future identifying storage for this account.**
 
 **Check:** Find the account under **Opted-out users**. Use **Refresh** to
@@ -373,7 +373,7 @@ deadlines and exceptions using the [ICO individual-rights guidance](https://ico.
    ```
 
    `opt-out` atomically adds the minimal ID suppression record and deletes matching
-   rows from **both** `users` and `ai_memory_entries`. `delete` deletes those rows
+   rows from `users`, `ai_memory_entries` and `leaderboard_counts`. `delete` deletes those rows
    without adding an opt-out; later activity may be stored again. It preserves an
    existing opt-out. `opt-in` removes only the suppression record after verified
    withdrawal; it does not restore deleted history. Repeating an action is safe.
@@ -560,15 +560,35 @@ restart. Multi-file replacement is not a filesystem-wide crash-atomic transactio
 Keep these private backups until satisfied with the import, then delete unwanted
 copies according to your retention/deletion policy; they are not automatically removed.
 
+## Chat leaderboards
+
+The personal SQLite database stores message counts by stable Twitch account, channel,
+UTC calendar month and broadcast. The existing presence record supplies the nickname.
+The leaderboard tables do not store ordinary message bodies or individual event IDs.
+Counting starts when the feature is active. The separate aggregate analytics database
+remains identity-free, and its reset and collection controls apply to aggregates.
+
+HeetKit confirms stream counts when consecutive Twitch observations identify the same
+broadcast. The final unconfirmed interval, failed checks and connection gaps can leave
+partial coverage. A restart discards unconfirmed work and keeps confirmed counts. The
+last confirmed broadcast remains available until another is identified. Viewer counts
+follow the existing 60-day inactive-presence retention limit.
+
+A storage opt-out removes the account’s leaderboard counts, including unconfirmed
+counts, across all profile channels. It keeps the suppression marker that prevents
+recollection. The existing privacy operations apply to managed recovery copies.
+Portable configuration carries command settings but excludes personal rankings and
+channel-specific leaderboard exclusions. Operator-managed backups stay under the existing policy.
+
 ## Backups and settings recovery
 
 ### Versioned database upgrade and recovery
 
 Desktop and Server run the same versioned SQLite upgrade before Twitch, requests or
-cleanup workers start. Fresh databases start at schema version 2. Version 1 upgrades
-transactionally by adding nullable opt-out username/date metadata, without changing
-existing suppression IDs or inventing historical dates. A verified `schema-1.sqlite3`
-snapshot supports recovery under the same seven-day/privacy rules as schema 0.
+cleanup workers start. Fresh databases use schema version 3. Version 2, shipped with
+v1.5.4 and v1.5.5, receives empty leaderboard tables in one transaction after a verified
+`schema-2.sqlite3` backup. Version 1 also receives nullable opt-out username/date metadata
+and keeps its verified `schema-1.sqlite3` backup under the same seven-day privacy rules.
 New chat/operator opt-outs store authenticated/resolved usernames and actual UTC dates;
 repeated requests preserve the original date, including unknown historical dates.
 The management list formats dates in the operator's local time and marks unavailable
@@ -612,7 +632,7 @@ This recovery copy has a **seven-day acceptance window**, fixed from creation an
 never extended by startup, use or a privacy request. Startup/hourly cleanup removes
 it at expiry (catch-up after downtime); do not restore/use an expired snapshot.
 The same cleanup also handles an expired verified snapshot when retrying an interrupted
-upgrade. Only the owned, manifest-verified `schema-0`/`schema-1` SQLite/JSON pairs are
+upgrade. Only the owned, manifest-verified `schema-0` through `schema-2` SQLite/JSON pairs are
 removed; unrelated files and unverifiable copies are retained for operator review.
 `!optout` and the offline privacy tool scrub applicable personal rows in that copy;
 opt-out preserves suppression, deletion alone adds no suppression, and verified

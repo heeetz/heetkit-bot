@@ -92,3 +92,63 @@ for (const textSize of [20, 4096]) {
     }
   })
 }
+
+test('Logs snapshots promptly, advances through hidden entries, and ignores abandoned loads', async ({ page }) => {
+  await page.clock.install()
+  await page.goto('/tests/fixture.html?configured')
+  const calls: { cursor: number; snapshot: boolean }[] = []
+  let releaseOld!: () => void
+  const oldAllowed = new Promise<void>((resolve) => { releaseOld = resolve })
+  let finishSnapshot!: () => void
+  const snapshotReady = new Promise<void>((resolve) => { finishSnapshot = resolve })
+  let live: LogEntry[] = []
+  const entry = (id: number) => ({
+    id, timestamp: '2026-11-18T00:00:00Z', level: 'INFO', source: 'synthetic',
+    message: 'command.input', event_kind: 'command.input', text: `!activity-${id}`, context: {},
+  })
+  await page.route('**/synthetic-activity*', async (route) => {
+    const query = new URL(route.request().url()).searchParams
+    const cursor = Number(query.get('cursor'))
+    const snapshot = query.get('snapshot') === 'true'
+    calls.push({ cursor, snapshot })
+    if (calls.length === 1) {
+      await oldAllowed
+      await route.fulfill({ json: { entries: [entry(999)], next_after_id: 999 } })
+    } else if (snapshot) {
+      await snapshotReady
+      await route.fulfill({ json: { entries: Array.from({ length: 449 }, (_, index) => entry(index + 1)), next_after_id: 450 } })
+    } else {
+      await route.fulfill({ json: { entries: live, next_after_id: 452 } })
+    }
+  })
+  await page.evaluate(() => {
+    window.pywebview!.api.get_recent_logs = async (cursor = 0, _limit, snapshot = false) =>
+      (await fetch(`/synthetic-activity?cursor=${cursor}&snapshot=${snapshot}`)).json()
+  })
+  const logs = page.getByRole('button', { name: 'Logs', exact: true })
+  await logs.click()
+  await expect.poll(() => calls.length).toBe(1)
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
+  await logs.click()
+  await expect.poll(() => calls.length).toBe(2)
+  live = [entry(449), entry(451), entry(451)]
+  finishSnapshot()
+  const rows = page.locator('.log-row')
+  await expect(rows).toHaveCount(449)
+  await expect(rows.first()).toContainText('!activity-1')
+  await expect(rows.last()).toContainText('!activity-449')
+  await expect(rows.last()).toBeInViewport()
+  expect(calls.slice(0, 2)).toEqual([{ cursor: 0, snapshot: true }, { cursor: 0, snapshot: true }])
+  const abandoned = page.waitForResponse('**/synthetic-activity*')
+  releaseOld()
+  await abandoned
+  await page.clock.fastForward(1100)
+  await expect(rows).toHaveCount(450)
+  await expect(rows.last()).toContainText('!activity-451')
+  await expect(rows.last()).toBeInViewport()
+  expect(calls[2]).toEqual({ cursor: 450, snapshot: false })
+  await page.getByRole('button', { name: 'Clear view' }).click()
+  await page.clock.fastForward(1100)
+  await expect.poll(() => calls.at(-1)?.cursor).toBe(452)
+  await expect(rows).toHaveCount(0)
+})

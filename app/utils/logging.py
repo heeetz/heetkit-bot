@@ -180,8 +180,8 @@ class RecentLogBuffer:
             entries = [entry for entry, _ in self._entries if entry.id > after_id]
             return [asdict(entry) for entry in entries[:limit]]
 
-    def activity(self, *, after_id: int = 0, limit: int = 200) -> dict:
-        entries = self.recent(after_id=after_id, limit=limit)
+    def activity(self, *, after_id: int = 0, limit: int = 200, snapshot: bool = False) -> dict:
+        entries = self.recent(after_id=after_id, limit=RECENT_LOG_LIMIT if snapshot else limit)
         return {"entries": [projected for entry in entries if (projected := project_activity(entry))],
                 "next_after_id": entries[-1]["id"] if entries else after_id}
 

@@ -17,15 +17,37 @@ import re
 import secrets
 import sqlite3
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 RECOVERY_DAYS = 7
-TABLE_COLUMNS = {
+SCHEMA_2_COLUMNS = {
     "users": ("id", "channel_id", "twitch_user_id", "username", "created_at", "last_seen_at"),
     "ai_memory_entries": ("id", "channel_id", "twitch_user_id", "request_text", "response_text", "created_at"),
     "privacy_opt_outs": ("twitch_user_id", "username", "opted_out_at"),
     "schema_metadata": ("name", "value"),
 }
-SCHEMA_SQL = (
+LEADERBOARD_COLUMNS = {
+    "leaderboard_periods": ("channel_id", "kind", "period_id", "started_at", "partial", "ends_at"),
+    "leaderboard_counts": ("channel_id", "kind", "period_id", "twitch_user_id", "messages"),
+    "leaderboard_settings": ("channel_id", "exclusions"),
+}
+TABLE_COLUMNS = {**SCHEMA_2_COLUMNS, **LEADERBOARD_COLUMNS}
+EXPERIMENTAL_V3_COLUMNS = {
+    **TABLE_COLUMNS,
+    "leaderboard_periods": (*LEADERBOARD_COLUMNS["leaderboard_periods"], "zone"),
+    "leaderboard_settings": ("channel_id", "zone", "exclusions"),
+}
+LEADERBOARD_SQL = (
+    "CREATE TABLE leaderboard_periods (channel_id VARCHAR(32) NOT NULL, kind TEXT NOT NULL, "
+    "period_id TEXT NOT NULL, started_at DATETIME NOT NULL, partial INTEGER NOT NULL CHECK(partial IN (0, 1)), "
+    "ends_at DATETIME, "
+    "PRIMARY KEY(channel_id, kind))",
+    "CREATE TABLE leaderboard_counts (channel_id VARCHAR(32) NOT NULL, kind TEXT NOT NULL, "
+    "period_id TEXT NOT NULL, twitch_user_id VARCHAR(32) NOT NULL, "
+    "messages INTEGER NOT NULL CHECK(messages > 0), PRIMARY KEY(channel_id, kind, period_id, twitch_user_id))",
+    "CREATE INDEX ix_leaderboard_counts_user ON leaderboard_counts(twitch_user_id)",
+    "CREATE TABLE leaderboard_settings (channel_id VARCHAR(32) NOT NULL PRIMARY KEY, exclusions TEXT NOT NULL)",
+)
+SCHEMA_2_SQL = (
     "CREATE TABLE users (id INTEGER NOT NULL PRIMARY KEY, channel_id VARCHAR(32) NOT NULL, "
     "twitch_user_id VARCHAR(32) NOT NULL, username VARCHAR(64) NOT NULL, created_at DATETIME NOT NULL, "
     "last_seen_at DATETIME NOT NULL, UNIQUE(channel_id, twitch_user_id))",
@@ -38,6 +60,7 @@ SCHEMA_SQL = (
     "CREATE TABLE privacy_opt_outs (twitch_user_id VARCHAR(32) NOT NULL PRIMARY KEY, username VARCHAR(64), opted_out_at DATETIME)",
     "CREATE TABLE schema_metadata (name TEXT NOT NULL PRIMARY KEY, value TEXT NOT NULL)",
 )
+SCHEMA_SQL = SCHEMA_2_SQL + LEADERBOARD_SQL
 
 
 class DatabaseMigrationError(RuntimeError):
@@ -90,7 +113,8 @@ def _snapshot(connection):
     for table in sorted(tables):
         if table not in TABLE_COLUMNS:
             raise DatabaseMigrationError("Unsupported database tables; startup stopped.")
-        rows = connection.execute(f'SELECT * FROM "{table}" ORDER BY 1').fetchall()
+        order = ','.join(str(index) for index in range(1, len(tables[table]) + 1)) if table in LEADERBOARD_COLUMNS else '1'
+        rows = connection.execute(f'SELECT * FROM "{table}" ORDER BY {order}').fetchall()
         counts[table] = len(rows)
         digest.update(json.dumps([table, tables[table], rows], ensure_ascii=True).encode())
     return counts, digest.hexdigest()
@@ -204,17 +228,22 @@ def save_legacy_channel_mapping(path: Path, channel_id: str):
             pass
 
 
-def _validate_current(connection):
-    if _tables(connection) != TABLE_COLUMNS:
+def _validate_schema(connection, version, *, experimental=False):
+    expected_columns = SCHEMA_2_COLUMNS if version == 2 else EXPERIMENTAL_V3_COLUMNS if experimental else TABLE_COLUMNS
+    if _tables(connection) != expected_columns:
         raise DatabaseMigrationError("Unsupported database schema; startup stopped.")
-    for table in TABLE_COLUMNS:
+    for table in expected_columns:
         definition = connection.execute(f'PRAGMA table_info("{table}")').fetchall()
         expected_types = {"id": "INTEGER", "channel_id": "VARCHAR(32)", "twitch_user_id": "VARCHAR(32)",
                           "username": "VARCHAR(64)", "request_text": "VARCHAR(500)", "response_text": "VARCHAR(500)",
-                          "created_at": "DATETIME", "last_seen_at": "DATETIME", "opted_out_at": "DATETIME", "name": "TEXT", "value": "TEXT"}
-        optional = {"username", "opted_out_at"} if table == "privacy_opt_outs" else set()
+                          "created_at": "DATETIME", "last_seen_at": "DATETIME", "opted_out_at": "DATETIME", "name": "TEXT", "value": "TEXT",
+                          "kind": "TEXT", "period_id": "TEXT", "started_at": "DATETIME", "partial": "INTEGER", "messages": "INTEGER",
+                          "ends_at": "DATETIME", "zone": "TEXT", "exclusions": "TEXT"}
+        optional = {"privacy_opt_outs": {"username", "opted_out_at"}, "leaderboard_periods": {"ends_at", "zone"}}.get(table, set())
+        primary_key = {"leaderboard_periods": ("channel_id", "kind"),
+                       "leaderboard_counts": ("channel_id", "kind", "period_id", "twitch_user_id")}.get(table, (definition[0][1],))
         if (any((not column[3] and column[1] not in optional) or column[2].upper() != expected_types[column[1]] for column in definition)
-                or [column[1] for column in definition if column[5]] != [definition[0][1]]):
+                or tuple(column[1] for column in sorted(definition, key=lambda field: field[5]) if column[5]) != primary_key):
             raise DatabaseMigrationError("Invalid database field constraints; startup stopped.")
     if connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type IN ('trigger','view')").fetchone()[0]:
         raise DatabaseMigrationError("Unsupported database objects; startup stopped.")
@@ -225,7 +254,7 @@ def _validate_current(connection):
     if ("channel_id", "twitch_user_id") not in unique_keys or ("twitch_user_id",) in unique_keys:
         raise DatabaseMigrationError("Invalid channel identity constraints; startup stopped.")
     marker = connection.execute("SELECT value FROM schema_metadata WHERE name='schema_version'").fetchone()
-    if marker != (str(SCHEMA_VERSION),):
+    if marker != (str(version),):
         raise DatabaseMigrationError("Database completion marker is missing; startup stopped.")
 
 
@@ -327,18 +356,34 @@ def initialize_schema(path: Path, stored_limit: int, *, now=None, before_commit=
                     raise DatabaseMigrationError("Unsupported database objects; startup stopped.")
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
                 report = None
-                if version == SCHEMA_VERSION:
-                    _validate_current(connection)
-                elif version == 1:
-                    expected = {**TABLE_COLUMNS, "privacy_opt_outs": ("twitch_user_id",)}
-                    if tables != expected or connection.execute("SELECT value FROM schema_metadata WHERE name='schema_version'").fetchone() != ('1',):
-                        raise DatabaseMigrationError("Unsupported version-1 database schema; startup stopped.")
-                    _backup(path, connection, now, version=1)
-                    connection.execute("ALTER TABLE privacy_opt_outs ADD COLUMN username VARCHAR(64)")
-                    connection.execute("ALTER TABLE privacy_opt_outs ADD COLUMN opted_out_at DATETIME")
+                if version in (1, 2):
+                    if version == 1:
+                        expected = {**SCHEMA_2_COLUMNS, "privacy_opt_outs": ("twitch_user_id",)}
+                        if tables != expected or connection.execute("SELECT value FROM schema_metadata WHERE name='schema_version'").fetchone() != ('1',):
+                            raise DatabaseMigrationError("Unsupported version-1 database schema; startup stopped.")
+                    else:
+                        _validate_schema(connection, version)
+                    _backup(path, connection, now, version=version)
+                    if version == 1:
+                        connection.execute("ALTER TABLE privacy_opt_outs ADD COLUMN username VARCHAR(64)")
+                        connection.execute("ALTER TABLE privacy_opt_outs ADD COLUMN opted_out_at DATETIME")
+                    for statement in LEADERBOARD_SQL:
+                        connection.execute(statement)
                     connection.execute("UPDATE schema_metadata SET value=? WHERE name='schema_version'", (str(SCHEMA_VERSION),))
                     connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
-                    report = {"opt_out_metadata": "upgraded; historical names and dates remain unknown"}
+                    report = {"leaderboards": "initialized empty"}
+                    if version == 1:
+                        report["opt_out_metadata"] = "upgraded; historical names and dates remain unknown"
+                elif version == SCHEMA_VERSION:
+                    if tables == EXPERIMENTAL_V3_COLUMNS:
+                        _validate_schema(connection, version, experimental=True)
+                        # Discard only local experimental monthly counts. Stream
+                        # periods and channel exclusion IDs keep their meaning.
+                        connection.execute("DELETE FROM leaderboard_counts WHERE kind='month'")
+                        connection.execute("DELETE FROM leaderboard_periods WHERE kind='month'")
+                        connection.execute("ALTER TABLE leaderboard_periods DROP COLUMN zone")
+                        connection.execute("ALTER TABLE leaderboard_settings DROP COLUMN zone")
+                        report = {"leaderboards": "experimental months reset to UTC"}
                 elif version != 0:
                     raise DatabaseMigrationError("Unsupported database version; use a compatible application.")
                 elif not tables:
@@ -351,7 +396,7 @@ def initialize_schema(path: Path, stored_limit: int, *, now=None, before_commit=
                         if set(columns) not in (set(expected), set(expected) - {"channel_id"}):
                             raise DatabaseMigrationError("Unrecognized legacy columns; startup stopped.")
                     report = _upgrade(connection, path, tables, stored_limit, now)
-                _validate_current(connection)
+                _validate_schema(connection, SCHEMA_VERSION)
                 _check_integrity(connection)
                 if before_commit is not None:
                     before_commit(connection)
@@ -367,7 +412,7 @@ def initialize_schema(path: Path, stored_limit: int, *, now=None, before_commit=
 
 
 def maintain_recovery(path: Path, suppressed=(), *, deleted=(), withdrawn=(), now=None):
-    for version in (0, 1):
+    for version in (0, 1, 2):
         _maintain_recovery(path, suppressed, deleted=deleted, withdrawn=withdrawn, now=now, version=version)
 
 
@@ -419,8 +464,9 @@ def _maintain_recovery(path: Path, suppressed=(), *, deleted=(), withdrawn=(), n
                         backup.execute("INSERT OR IGNORE INTO privacy_opt_outs (twitch_user_id) VALUES (?)", (user_id,))
                     for user_id in withdrawn:
                         backup.execute("DELETE FROM privacy_opt_outs WHERE twitch_user_id=?", (user_id,))
+                    personal_tables = {"users", "ai_memory_entries", "leaderboard_counts"} & _tables(backup).keys()
                     for user_id in set(suppressed) | set(deleted):
-                        for table in ("users", "ai_memory_entries"):
+                        for table in personal_tables:
                             backup.execute(f'DELETE FROM "{table}" WHERE twitch_user_id=?', (user_id,))
                 _check_integrity(backup)
                 metadata["recovery_counts"] = _snapshot(backup)[0]

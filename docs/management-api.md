@@ -341,6 +341,8 @@ POST writes persist and apply immediately unless stated otherwise.
 | POST `session` | `{}` with administrator bearer only; returns `token`, `expires_in` (3600 seconds) |
 | POST `ai/playground/start` | `prompt`; starts one isolated test and returns `request_id`, `status: pending`; may consume real provider quota |
 | POST `analytics/query` | `days` = 1, 7, 30 or 60 UTC calendar days (default 7); configured-channel totals, daily series/coverage, command/provider breakdowns, current retained-user snapshot and collection/pricing metadata; Playground excluded |
+| POST `leaderboards/query` | `{}`; returns the active channel’s monthly and current/last stream rankings together, with period, coverage and settings. Uses the configured channel when disconnected. |
+| POST `leaderboards/settings` | `channel_id`, `exclusions` (up to 50 bot logins). The channel must match the current leaderboard view. Monthly rollover uses UTC. |
 | POST `analytics/configure` / `analytics/reset` | `enabled` boolean persists collection preference; reset requires `confirmed: true` and clears all profile aggregates including pending updates |
 | GET / POST `ai/memory/limits` | GET returns `stored`, `context`; POST requires integer `stored` 1–500 and `context` 1–50, no greater than stored; shared transactional prune/persist on both hosts |
 | POST `ai/balance` | `provider`, optional boolean `refresh` (default false); optional cached DeepSeek currency balances with `state` and `updated_at`; unsupported/missing connections return unavailable; never returns keys |
@@ -400,7 +402,7 @@ POST writes persist and apply immediately unless stated otherwise.
 | POST `privacy/opt-outs/add` | `username`; verifies identity and applies profile-wide deletion/suppression using the self-service operation. Repeated adds preserve the original timestamp. |
 | POST `privacy/opt-outs/withdraw` | `twitch_user_id`, `confirmed: true`; allows future storage without restoring history or permitting old in-flight work to save. |
 | GET / POST `triggers` | GET returns reactions in execution priority order and includes their `revision`. Optional `creation_order` is for the Commands display. POST accepts the complete `triggers` list with at most 100 unique IDs. Supply the GET `revision` to reject stale edits. |
-| POST `logs/recent` | Optional integer `after_id` (default 0), `limit` (1–200, default 100); allowlisted operator activity plus `next_after_id` advancing across excluded entries; authentication required |
+| POST `logs/recent` | Optional integer `after_id` (default 0), `limit` (1–200, default 100). With `after_id: 0`, optional `snapshot: true` uses the bounded retained window (up to 500 events and 1 MiB before projection). Returns allowlisted operator activity and `next_after_id`, which also advances across excluded entries. Authentication required. |
 | GET `diagnostics` | Process uptime, desired session state and settings/restart boundaries |
 
 When a rule fails validation, `filters/save` and `filters/apply` return HTTP 400

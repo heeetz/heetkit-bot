@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Integer, String, TypeDecorator, UniqueConstraint
+from sqlalchemy import DateTime, Integer, String, Text, TypeDecorator, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -62,3 +62,31 @@ class PrivacyOptOut(Base):
     twitch_user_id: Mapped[str] = mapped_column(String(32), primary_key=True)
     username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     opted_out_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
+class LeaderboardPeriod(Base):
+    __tablename__ = "leaderboard_periods"
+
+    channel_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    kind: Mapped[str] = mapped_column(Text, primary_key=True)
+    period_id: Mapped[str] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    partial: Mapped[int] = mapped_column(Integer)
+    ends_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+
+
+class LeaderboardCount(Base):
+    __tablename__ = "leaderboard_counts"
+
+    channel_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    kind: Mapped[str] = mapped_column(Text, primary_key=True)
+    period_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    twitch_user_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    messages: Mapped[int] = mapped_column(Integer)
+
+
+class LeaderboardSettings(Base):
+    __tablename__ = "leaderboard_settings"
+
+    channel_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    exclusions: Mapped[str] = mapped_column(Text)

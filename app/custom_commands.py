@@ -20,12 +20,12 @@ from app.command_order import CommandCreationOrder, parse_creation_order
 from app.command_settings import validate_burst_interval, validate_send_as, validate_stream_availability
 from app.settings_recovery import preserve_settings_recovery
 from app.utils.cooldown import CooldownPolicy
-from app.utils.text import normalize_command_name
+from app.utils.text import CHAT_RESPONSE_BYTES, normalize_command_name, render_chat_template
 
 
 logger = logging.getLogger(__name__)
 SCHEMA_VERSION = 2
-MAX_RESPONSE_LENGTH = 450
+MAX_RESPONSE_LENGTH = CHAT_RESPONSE_BYTES
 MAX_POSITIONAL_ARGUMENTS = 9
 VARIABLES = ("sender", "target", "args", *(f"arg{i}" for i in range(1, MAX_POSITIONAL_ARGUMENTS + 1)), "random_user")
 _VARIABLE_PATTERN = re.compile(r"\{([^{}]+)\}")
@@ -173,7 +173,7 @@ def render_response(command: CustomCommand, arguments: str, sender: str, random_
               "args": arguments, "random_user": random_user}
     values.update({f"arg{i}": parts[i - 1] if i <= len(parts) else "" for i in range(1, MAX_POSITIONAL_ARGUMENTS + 1)})
     template = template if template is not None else random.choice(command.responses)
-    expanded = _VARIABLE_PATTERN.sub(lambda match: values[match.group(1)], template)
+    expanded = render_chat_template(template, values)
     return expanded.encode("utf-8")[:MAX_RESPONSE_LENGTH].decode("utf-8", errors="ignore").strip()
 
 

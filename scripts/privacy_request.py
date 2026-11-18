@@ -30,7 +30,7 @@ def apply_request(database_path: Path, user_id: str, action: str) -> None:
         if not {"users", "ai_memory_entries", "privacy_opt_outs"} <= tables:
             raise ValueError("Expected an initialized HeetKit privacy-enabled database.")
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1, SCHEMA_VERSION):
+        if version not in (0, 1, 2, SCHEMA_VERSION):
             raise ValueError("Use a privacy tool compatible with this database version.")
         connection.execute("PRAGMA secure_delete = ON")
         with connection:
@@ -46,6 +46,8 @@ def apply_request(database_path: Path, user_id: str, action: str) -> None:
             if action != "opt-in":
                 connection.execute("DELETE FROM ai_memory_entries WHERE twitch_user_id = ?", (user_id,))
                 connection.execute("DELETE FROM users WHERE twitch_user_id = ?", (user_id,))
+                if version >= 3:
+                    connection.execute("DELETE FROM leaderboard_counts WHERE twitch_user_id = ?", (user_id,))
         maintain_recovery(database_path, (user_id,) if action == "opt-out" else (),
                           deleted=(user_id,) if action == "delete" else (),
                           withdrawn=(user_id,) if action == "opt-in" else ())

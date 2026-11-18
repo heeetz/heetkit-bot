@@ -11,7 +11,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config.privacy import AI_HISTORY_RETENTION_DAYS, USER_RETENTION_DAYS, validate_memory_limits
-from app.database.models import AIMemoryEntry, PrivacyOptOut, User, utcnow
+from app.database.models import AIMemoryEntry, LeaderboardCount, PrivacyOptOut, User, utcnow
 from app.database.migrations import maintain_recovery, run_sqlite_work
 
 _storage_ticket = ContextVar("storage_ticket", default=None)
@@ -112,6 +112,7 @@ class UserRepository:
                 session.add(PrivacyOptOut(twitch_user_id=twitch_user_id, username=username, opted_out_at=utcnow()))
                 await session.execute(delete(User).where(User.twitch_user_id == twitch_user_id))
                 await session.execute(delete(AIMemoryEntry).where(AIMemoryEntry.twitch_user_id == twitch_user_id))
+                await session.execute(delete(LeaderboardCount).where(LeaderboardCount.twitch_user_id == twitch_user_id))
                 # A cancelled commit can have reached SQLite. Retain the retry
                 # marker until the live transaction and recovery scrub finish.
                 self._opt_out_state[twitch_user_id] = "pending_recovery"
@@ -161,7 +162,7 @@ class UserRepository:
                 User.last_seen_at > utcnow() - timedelta(days=USER_RETENTION_DAYS), storage_allowed(twitch_user_id)))
 
     async def upsert_seen(self, twitch_user_id: str, username: str, seen_at: datetime | None = None,
-                          *, channel_id: str) -> User | None:
+                          *, channel_id: str, record_leaderboard=None) -> User | None:
         if not valid_channel_id(channel_id):
             return None
         epoch = self.policy.privacy_epochs.get(twitch_user_id, 0)
@@ -186,6 +187,11 @@ class UserRepository:
                     (User.last_seen_at <= current_time - timedelta(days=USER_RETENTION_DAYS), current_time), else_=User.created_at),
                     "last_seen_at": current_time}, where=storage_allowed(twitch_user_id))
             result = await session.execute(statement)
+            if result.rowcount and previous_seen is not None and new_observation:
+                await session.execute(delete(LeaderboardCount).where(LeaderboardCount.channel_id == channel_id,
+                                                                    LeaderboardCount.twitch_user_id == twitch_user_id))
+            if result.rowcount and record_leaderboard is not None and ticket_current(self.policy, twitch_user_id, epoch):
+                await record_leaderboard(session)
             await session.commit()
             if new_observation and result.rowcount and analytics is not None:
                 # Enqueue only after persistence succeeds. The shared policy lock

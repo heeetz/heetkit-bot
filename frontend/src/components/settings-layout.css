@@ -1,11 +1,23 @@
 .settings-heading-with-help { display: flex; align-items: center; gap: 8px; }
+.twitch-application-heading { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); }
+.twitch-application-heading h3 { margin: 0; }
+.twitch-application-heading button { margin-inline-start: auto; }
+.twitch-setup-dialog .command-dialog-panels { flex: 1; margin: 0 var(--space-2) var(--space-2) 0; }
+.twitch-setup-dialog .command-dialog-panels > p { margin: 0; }
+.twitch-setup-dialog [data-editor-focus]:focus { outline: none; }
+.twitch-setup-dialog ol { display: grid; gap: var(--space-3); padding-inline-start: var(--space-6); margin-block: var(--space-3) 0; }
+.twitch-setup-dialog ul { padding-inline-start: var(--space-6); margin-block: var(--space-2); }
+.twitch-setup-dialog li p { margin: var(--space-2) 0 0; }
+.twitch-setup-callback { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); margin-block-start: var(--space-2); }
+.twitch-setup-callback .settings-callback { flex: 1 1 300px; }
+.twitch-setup-callback > :is(a, button) { white-space: normal; }
 .settings-application-box { display: grid; gap: 1rem; padding: 1rem; border: 1px solid var(--separator); border-radius: 8px; min-width: 0; }
 .settings-application-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 1rem 1.5rem; min-width: 0; }
 .application-field-label, .twitch-secret-label { display: flex; align-items: center; min-height: 30px; }
 .twitch-secret-label { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: .5rem; }
 .twitch-secret-label > label { min-width: 0; }
 .twitch-secret-field { min-width: 0; }
-.twitch-secret-field .credential-actions { margin-top: 0; gap: .5rem; }
+.twitch-secret-field .credential-actions { margin-top: var(--space-1); gap: var(--space-2); }
 .twitch-secret-field .credential-actions > button { min-width: 0; min-height: 40px; white-space: normal; }
 .twitch-secret-field p { margin: 0; }
 .settings-application-footer { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--separator); }
@@ -21,6 +33,6 @@
   .settings-application-box { padding: .75rem; }
 }
 @media (max-width: 480px) {
-  .twitch-secret-field .credential-actions { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
+  .twitch-secret-field .credential-actions { justify-content: flex-start; margin-left: 0; }
   .settings-callback { align-items: stretch; flex-direction: column; gap: .5rem; }
 }

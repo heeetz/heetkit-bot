@@ -159,7 +159,8 @@ class ApplicationManagement:
             commands.setdefault(command_id, {})
         names.setdefault("other", "Other commands (collection limit)")
         command_rows = [{"name": name, "label": names.get(name, f"Deleted or unavailable command ({name})"),
-                         "metrics": values} for name, values in commands.items()]
+                         "metrics": values} for name, values in commands.items()
+                        if not name.startswith("custom:") or name in names]
         command_rows.sort(key=lambda row: (-row["metrics"].get("command.attempts", 0), row["label"], row["name"]))
         retained = None
         if channel:
@@ -178,6 +179,33 @@ class ApplicationManagement:
 
     async def _configure_analytics(self, enabled: bool) -> dict[str, object]:
         await self._backend.application.services.analytics.configure(enabled)
+        return {"ok": True}
+
+    def _leaderboard_channel(self):
+        app = self._backend.application
+        twitch = getattr(app.services, "twitch", None)
+        active, _ = twitch.leaderboard_connection() if getattr(twitch, "leaderboards", None) else (None, None)
+        return active or verified_user_id(getattr(app.settings, "twitch_channel_user_id", None))
+
+    async def _get_leaderboards(self):
+        leaderboards = self._backend.application.services.twitch.leaderboards
+        channel = self._leaderboard_channel()
+        try:
+            snapshot = await leaderboards.snapshot(channel)
+        except Exception as error:
+            self._logger.warning("Could not read leaderboard snapshot: %s", type(error).__name__)
+            return {"ok": False, "error": "Leaderboard data is temporarily unavailable."}
+        if channel != self._leaderboard_channel():
+            return {"ok": False, "error": "The Twitch channel changed. Refresh leaderboards."}
+        return {"ok": True, "leaderboards": snapshot}
+
+    async def _save_leaderboard_settings(self, channel_id, exclusions):
+        if channel_id != self._leaderboard_channel():
+            return {"ok": False, "error": "The Twitch channel changed. Reload its leaderboard settings."}
+        try:
+            await self._backend.application.services.twitch.leaderboards.configure(channel_id, exclusions)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
         return {"ok": True}
 
     async def _reset_analytics(self, confirmed: bool) -> dict[str, object]:
@@ -395,6 +423,7 @@ class ApplicationManagement:
             "twitch_recovery": runtime_state.twitch_recovery,
             "uptime_seconds": uptime,
             "channel": application.settings.twitch_channel,
+            "leaderboard_channel_id": self._leaderboard_channel(),
             "account": application.settings.twitch_bot_username,
         }
 
@@ -426,6 +455,8 @@ class ApplicationManagement:
                     "removed": settings.removed,
                     "burst_interval_ms": settings.burst_interval_ms,
                     "burst_max_count": settings.burst_max_count,
+                    **({"entry_limit": settings.entry_limit} if settings.entry_limit is not None else {}),
+                    **({"chat_template": settings.chat_template} if settings.chat_template is not None else {}),
                     "minimum_permission": definition.minimum_permission.name,
                     "identity_editable": definition.identity_editable,
                     "supports_send_as": definition.supports_send_as,
@@ -590,6 +621,8 @@ class ApplicationManagement:
             "removed": settings.removed,
             "burst_interval_ms": settings.burst_interval_ms,
             "burst_max_count": settings.burst_max_count,
+            **({"entry_limit": settings.entry_limit} if settings.entry_limit is not None else {}),
+            **({"chat_template": settings.chat_template} if settings.chat_template is not None else {}),
             "cooldown": {
                 "per_user_seconds": settings.cooldown.per_user_seconds,
                 "global_seconds": settings.cooldown.global_seconds,
@@ -738,7 +771,7 @@ class ApplicationManagement:
     def _parse_command_options(self, options: object, *, saving: bool = False) -> dict[str, object]:
         if options is None:
             return {}
-        allowed = ("primary_name", "aliases", "display_name", "burst_interval_ms", "burst_max_count", "send_as")
+        allowed = ("primary_name", "aliases", "display_name", "burst_interval_ms", "burst_max_count", "send_as", "entry_limit", "chat_template")
         if saving:
             allowed += ("reactivate_removed",)
         if self._backend.application.services.runtime_state.server_runtime:
@@ -1099,5 +1132,10 @@ class ApplicationManagement:
         return {"ok": True, "dismissed": ai.setup_guide_dismissed, "ai_skipped": ai.setup_guide_ai_skipped}
 
     def save_setup_guide(self, dismissed: object, ai_skipped: object) -> dict[str, object]:
-        self._app_settings.update_setup_guide(dismissed, ai_skipped)
+        try:
+            self._app_settings.update_setup_guide(dismissed, ai_skipped)
+        except ValueError:
+            return {"ok": False, "error": "Setup guide preferences must be boolean."}
+        except OSError:
+            return {"ok": False, "error": "Could not save setup guidance. Check that the profile can be written."}
         return self.get_setup_guide()

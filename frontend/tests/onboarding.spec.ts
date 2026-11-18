@@ -5,9 +5,12 @@ for (const width of [1280, 900, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 })
     await page.goto('/tests/fixture.html?configured')
     const checklist = page.getByRole('article', { name: 'Setup checklist' })
-    await expect(checklist.locator('.section-heading p')).toHaveText('Twitch configured · AI optional')
+    await expect(checklist.locator('.section-heading p')).toHaveText('Twitch needs authorization · AI optional')
     await expect(checklist).not.toContainText(/unverified|not confirmed/)
     await expect(checklist.getByRole('button', { name: 'Skip AI for now' })).toBeVisible()
+    const skip = (await checklist.getByRole('button', { name: 'Skip AI for now' }).boundingBox())!
+    const open = (await checklist.getByRole('button', { name: 'Open AI setup' }).boundingBox())!
+    expect(Math.abs(skip.y - open.y) <= 1 ? skip.x < open.x : skip.y < open.y).toBe(true)
     const steps = checklist.locator('.setup-guide-step')
     const bounds = (await checklist.boundingBox())!
     const actions = []
@@ -37,7 +40,7 @@ for (const width of [1280, 900, 390, 320]) {
   for (const provider of ['aiAvailable', 'multipleProviders']) {
     test(`configured Dashboard hides the setup summary with ${provider === 'aiAvailable' ? 'Gemini' : 'only unselected DeepSeek'} at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 1000 })
-      await page.goto(`/tests/fixture.html?configured&${provider}`)
+      await page.goto(`/tests/fixture.html?configured&authorized&${provider}`)
       await expect(page.locator('.dashboard-card').first()).toContainText('Start Bot to connect.')
       await expect(page.locator('.dashboard-hero')).toContainText('Stopped')
       await expect(page.getByRole('article', { name: 'Setup checklist' })).toHaveCount(0)
@@ -50,19 +53,54 @@ for (const width of [1280, 900, 390, 320]) {
   }
 }
 
-test('setup summary still requires Twitch configuration and an actual AI credential', async ({ page }) => {
+test('skip removes the optional step, survives returning and reloading, and hides the guide on completion', async ({ page }) => {
   await page.goto('/tests/fixture.html?aiAvailable')
   const checklist = page.getByRole('article', { name: 'Setup checklist' })
   await expect(checklist).toContainText('Twitch needs configuration · AI configured')
-  await page.goto('/tests/fixture.html?configured')
+  await page.goto('/tests/fixture.html?configured&cachedToken')
   await expect(checklist.getByRole('button', { name: 'Skip AI for now' })).toBeVisible()
   await checklist.getByRole('button', { name: 'Skip AI for now' }).click()
-  await expect(checklist).toContainText('skipped (optional)')
-  await expect(checklist.getByRole('heading')).toHaveText('Setup summary')
+  await expect(checklist.locator('.section-heading p')).toHaveText('Twitch needs authorization')
+  await expect(checklist.getByRole('button', { name: 'Open AI setup' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'AI', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'AI', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
+  await expect(checklist.locator('.section-heading p')).toHaveText('Twitch needs authorization')
+  await page.reload()
+  await expect(checklist.locator('.section-heading p')).toHaveText('Twitch needs authorization')
+  for (const pending of ['restartRequired', 'reconnectRequired']) {
+    await page.goto(`/tests/fixture.html?configured&authorized&${pending}`)
+    await expect(checklist.locator('.section-heading p')).toHaveText('Twitch changes pending')
+  }
+  for (const state of ['stopped', 'reconnecting', 'failed']) {
+    await page.goto(`/tests/fixture.html?configured&authorized&connection=${state}`)
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
+    await expect(checklist).toHaveCount(0)
+  }
+})
+
+test('failed Skip AI save keeps the guidance and permits retry', async ({ page }) => {
+  await page.goto('/tests/fixture.html?configured')
+  await page.evaluate(() => {
+    const api = window.pywebview!.api
+    const save = api.save_setup_guide
+    api.save_setup_guide = async (...args) => {
+      api.save_setup_guide = save
+      return { ok: false, error: 'Profile is read-only.' }
+    }
+  })
+  const checklist = page.getByRole('article', { name: 'Setup checklist' })
+  const skip = checklist.getByRole('button', { name: 'Skip AI for now' })
+  await skip.click()
+  await expect(checklist.getByRole('alert')).toHaveText('Profile is read-only. Select Skip AI for now to retry.')
+  await expect(skip).toBeEnabled()
+  await skip.click()
+  await expect(skip).toHaveCount(0)
+  await expect(checklist.getByRole('alert')).toHaveCount(0)
 })
 
 test('setup summary follows saved provider keys when returning to Dashboard', async ({ page }) => {
-  await page.goto('/tests/fixture.html?configured&multipleProviders')
+  await page.goto('/tests/fixture.html?configured&authorized&multipleProviders')
   const checklist = page.getByRole('article', { name: 'Setup checklist' })
   await expect(page.locator('.dashboard-card').first()).toContainText('Start Bot to connect.')
   await expect(checklist).toHaveCount(0)
@@ -132,6 +170,36 @@ test('clean setup provides the developer action and copies the backend callback'
   await expect(page.getByRole('button', { name: 'Authorize Twitch', exact: true })).toHaveCount(0)
   await expect(application.locator('.twitch-secret-label .state-pill')).toHaveText('Unconfigured')
   await expect(application.getByRole('button', { name: 'Add secret', exact: true })).toBeDisabled()
+})
+
+for (const width of [1280, 390]) test(`Twitch instructions preserve the Desktop draft and keyboard focus at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 })
+  await page.goto('/tests/fixture.html?settings')
+  await openTwitchSettings(page)
+  const heading = page.getByRole('heading', { name: 'Twitch application' })
+  const field = page.getByLabel('Twitch application client ID')
+  await field.fill('draft-client')
+  const open = page.getByRole('button', { name: 'Setup instructions', exact: true })
+  expect((await open.boundingBox())!.x).toBeGreaterThan((await heading.boundingBox())!.x)
+  await open.press('Enter')
+  const dialog = page.getByRole('dialog', { name: 'Twitch setup instructions' })
+  await expect(dialog.locator('[data-editor-focus]')).toBeFocused()
+  await expect(dialog).toContainText('Confidential')
+  await expect(dialog).toContainText('http://localhost:4343/oauth/callback')
+  await expect(dialog).toContainText('Add secret & restart')
+  await expect(dialog).toContainText('/mod bot_login')
+  await page.keyboard.press('Tab')
+  expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true)
+  await page.keyboard.press('Escape')
+  await expect(open).toBeFocused()
+  await expect(field).toHaveValue('draft-client')
+  await open.click()
+  await page.mouse.click(2, 2)
+  await expect(dialog).toHaveCount(0)
+  await expect(open).toBeFocused()
+  await open.click()
+  await dialog.getByRole('button', { name: 'Close setup instructions' }).click()
+  await expect(field).toHaveValue('draft-client')
 })
 
 test('starting a configured bot exposes a manual authorization action on Dashboard', async ({ page }) => {

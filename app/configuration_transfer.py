@@ -196,7 +196,7 @@ class ConfigurationTransfer:
         words, phrases, patterns = self.app.services.filter_manager.snapshot()
         return {
             "commands": {name: {**{key: item for key, item in asdict(value).items()
-                                   if key != "send_as" or item is not None},
+                                   if key not in {"send_as", "entry_limit", "chat_template"} or item is not None},
                                    "permission": value.permission.name, "aliases": list(value.aliases)}
                          for name in state.runtime_toggleable_commands
                          for value in (state.get_command_settings(name),)},
@@ -225,26 +225,29 @@ class ConfigurationTransfer:
         # Older format-1 archives know nothing about schedules. Preserve the
         # destination collection; explicit [] in a new archive clears it.
         _fields(payload, SECTIONS if isinstance(payload, dict) and "announcements" in payload else SECTIONS[:-1])
-        _fields(payload["commands"], self.state.runtime_toggleable_commands)
+        optional_commands = {"top", "rank"} & set(self.state.runtime_toggleable_commands)
+        optional_commands -= payload["commands"].keys() if isinstance(payload["commands"], dict) else set()
+        _fields(payload["commands"], set(self.state.runtime_toggleable_commands) - optional_commands)
         commands = {}
         for name, value in payload["commands"].items():
-            fields = set(CommandSettings.__dataclass_fields__) - {"stream_availability", "primary_name", "send_as"}
-            if isinstance(value, dict) and "primary_name" in value:
-                fields.add("primary_name")
-            if isinstance(value, dict) and "stream_availability" in value:
-                fields.add("stream_availability")
-            if isinstance(value, dict) and "send_as" in value:
-                fields.add("send_as")
+            optional_fields = {"stream_availability", "primary_name", "send_as", "entry_limit", "chat_template"}
+            fields = set(CommandSettings.__dataclass_fields__) - optional_fields
+            if isinstance(value, dict):
+                fields |= optional_fields & value.keys()
             _fields(value, fields)
             _fields(value["cooldown"], ("per_user_seconds", "global_seconds"))
             cooldown = value["cooldown"]
             # Same finite/nonnegative and administrative bounds as management edits.
             _, policy, permission = ApplicationManagement._parse_command_settings(
                 value["enabled"], cooldown["per_user_seconds"], cooldown["global_seconds"], value["permission"])
+            current = self.state.get_command_settings(name)
             commands[name] = CommandSettings(**{"primary_name": name,
-                                                 "stream_availability": self.state.get_command_settings(name).stream_availability,
+                                                 "stream_availability": current.stream_availability,
+                                                 "entry_limit": current.entry_limit, "chat_template": current.chat_template,
                                                  **value, "cooldown": policy, "permission": permission,
                                                  "aliases": tuple(_list(value["aliases"], 10))})
+        for name in optional_commands:
+            commands[name] = self.state.get_command_settings(name)
         customs = {}
         existing_commands = {item.id: item for item in self.custom.list()}
         for raw in _list(payload["custom_commands"], 1000):

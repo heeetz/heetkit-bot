@@ -50,6 +50,12 @@ const subsections: Partial<Record<Section, { label: string; targetId: string }[]
     { label: 'AI behavior', targetId: 'ai-behavior' },
     { label: 'Playground', targetId: 'ai-playground' },
   ],
+  Analytics: [
+    { label: 'Trends', targetId: 'analytics-trends' },
+    { label: 'Chatters', targetId: 'analytics-chatters' },
+    { label: 'Breakdown', targetId: 'analytics-breakdown' },
+    { label: 'Collection', targetId: 'analytics-collection' },
+  ],
   Settings: [
     { label: 'Desktop behavior', targetId: 'desktop-settings' },
     { label: 'Twitch connection', targetId: 'twitch-settings' },
@@ -118,7 +124,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
   const [setupError, setSetupError] = useState('')
   const [restartError, setRestartError] = useState('')
   const [restarting, setRestarting] = useState(false)
-  const desktopConnectionState = isBrowserMode() ? undefined : status?.twitch_connection_state
+  const connectionState = status?.twitch_connection_state
 
   const restartTwitch = async () => {
     setRestartError('')
@@ -171,7 +177,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
     }
     void loadSetup()
     return () => { active = false }
-  }, [desktopConnectionState])
+  }, [connectionState])
 
   const statusLabel = status ? (status.running ? 'Running' : 'Stopped') : 'Loading…'
   const twitchCredential = setup?.credentials.find(
@@ -186,7 +192,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
     && (credential.name === 'gemini_api_key' || credential.name === 'deepseek_api_key' || credential.name === 'openai_api_key')))
   const pendingRestart = !isBrowserMode() && Boolean(setup?.twitch.requires_restart || setup?.twitch.requires_cleanup_restart)
   const pendingReconnect = Boolean(setup?.twitch.requires_reconnect && !pendingRestart && !needsTwitchSetup)
-  const connectionState = status?.twitch_connection_state
+  const needsApply = Boolean(setup?.twitch.requires_restart || setup?.twitch.requires_reconnect)
   const operation = isBrowserMode() ? status?.operation : undefined
   const automaticOperation = operation?.mode === 'always_on' || operation?.mode === 'stream_only'
   const browserManaged = Boolean(operation)
@@ -222,7 +228,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
 
   return (
     <section className="dashboard-layout">
-      {setup && <SetupChecklist twitchConfigured={!needsTwitchSetup} twitchConnected={connectionState === 'connected'} aiConfigured={aiConfigured} onTwitch={() => onNavigate('Settings', 'twitch-settings')} onAI={() => onNavigate('AI', 'ai-models')} />}
+      {setup && <SetupChecklist twitchConfigured={!needsTwitchSetup} twitchAuthorized={Boolean(setup.twitch.saved_bot_authorization)} twitchPending={needsApply} aiConfigured={aiConfigured} onTwitch={() => onNavigate('Settings', 'twitch-settings')} onAI={() => onNavigate('AI', 'ai-models')} />}
       <article className="card dashboard-hero">
         <div className="dashboard-hero-status">
           <span className={`status-dot ${status?.running ? 'online' : ''}`} />
@@ -387,6 +393,7 @@ function LogsPage() {
 
   useEffect(() => {
     let active = true
+    let initial = true
     let timer = 0
     const refresh = async () => {
       if (isBrowserMode() && document.hidden) {
@@ -396,15 +403,18 @@ function LogsPage() {
       try {
         const api = await waitForBridge()
         if (!active) return
-        const response = await api.get_recent_logs(cursor.current, 200)
-        if (active && response.next_after_id !== undefined) cursor.current = response.next_after_id
-        if (active && response.entries.length > 0) {
-          cursor.current = Math.max(cursor.current, response.entries.at(-1)?.id ?? 0)
-          setEntries((current) => boundedActivity([...current, ...response.entries]))
-        }
-        if (active) {
-          setError('')
-        }
+        const response = await api.get_recent_logs(cursor.current, 200, initial)
+        if (!active) return
+        if (response.ok === false) throw new Error(response.error || 'Could not load application logs.')
+        const fresh = response.entries.filter((entry) => {
+          if (entry.id <= cursor.current) return false
+          cursor.current = entry.id
+          return true
+        })
+        cursor.current = Math.max(cursor.current, response.next_after_id ?? 0)
+        if (fresh.length) setEntries((current) => boundedActivity([...current, ...fresh]))
+        initial = false
+        setError('')
       } catch (reason) {
         if (active) {
           setError(reason instanceof Error ? reason.message : 'Could not load application logs.')
@@ -478,7 +488,7 @@ function LogsPage() {
     if (autoScroll) {
       bottom.current?.scrollIntoView({ block: 'nearest' })
     }
-  }, [autoScroll, visibleEntries.length])
+  }, [autoScroll, visibleEntries.length, visibleEntries.at(-1)?.id])
 
   return (
     <section className="card logs-card">
@@ -516,7 +526,7 @@ function LogsPage() {
         >
           Auto-scroll
         </Switch>
-        <button className="secondary" onClick={() => setEntries([])}>Clear view</button>
+        <button className="secondary" disabled={entries.length === 0} onClick={() => setEntries([])}>Clear view</button>
         <button className="secondary" disabled={exporting || !visibleEntries.length} onClick={() => setExportEntries([...visibleEntries])}>Export filtered…</button>
       </div>
       {requestId && <p className="log-policy">Showing linked request {requestId}. <button className="secondary" onClick={() => setRequestId('')}>All requests</button></p>}
@@ -801,7 +811,7 @@ function ManagementApp({ windowsDesktop = false }: { windowsDesktop?: boolean })
           <div hidden={section !== 'Filters'}><FiltersPage active={section === 'Filters'} /></div>
           <div hidden={section !== 'AI'}><AIPage active={section === 'AI'} onOpenPlayground={() => navigate('AI', 'ai-playground')} onAIEnabledChanged={synchronizeAIEnabled} /></div>
           {section === 'Logs' && <LogsPage />}
-          {section === 'Analytics' && <AnalyticsPage />}
+          {section === 'Analytics' && <AnalyticsPage leaderboardChannel={status?.leaderboard_channel_id} />}
           <div hidden={section !== 'Settings'}><SettingsPage active={section === 'Settings'} status={status} /></div>
           {aboutVisited && <div hidden={section !== 'About'}><AboutPage updates={updates} /></div>}
         </div>

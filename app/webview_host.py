@@ -65,7 +65,7 @@ from app.services.updates import (
     authorize_installer, check_for_updates, download_installer, publisher_key,
 )
 from app.windows_runtime import DesktopPrerequisiteError, ensure_windows_runtime
-from app.twitch.client import OAUTH_REDIRECT_URI, TwitchCleanupError
+from app.twitch.client import OAUTH_REDIRECT_URI, TwitchCleanupError, has_saved_bot_authorization
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
 from app.utils.logging import (
@@ -99,7 +99,7 @@ FRONTEND_OPERATIONS = (
     "prepare_desktop_update", "get_desktop_update_progress", "finish_desktop_update", "restart_desktop",
     "get_announcements", "save_announcements",
     "get_message_triggers", "save_message_triggers",
-    "get_analytics", "configure_analytics", "reset_analytics", "get_ai_balance",
+    "get_analytics", "configure_analytics", "reset_analytics", "get_ai_balance", "get_leaderboards", "save_leaderboard_settings",
     "get_ai_memory_limits", "save_ai_memory_limits",
     "get_filters", "get_ai_status", "get_personalities", "get_recent_logs",
     "start_ai_playground", "get_ai_playground_result", "cancel_ai_playground",
@@ -924,6 +924,12 @@ class WebUIBridge(ApplicationManagement):
     def get_analytics(self, days: int = 7) -> dict[str, object]:
         return self._analytics_operation(self._get_analytics(days), "get_analytics")
 
+    def get_leaderboards(self) -> dict[str, object]:
+        return self._analytics_operation(self._get_leaderboards(), "get_leaderboards")
+
+    def save_leaderboard_settings(self, channel_id, exclusions) -> dict[str, object]:
+        return self._analytics_operation(self._save_leaderboard_settings(channel_id, exclusions), "save_leaderboard_settings")
+
     def configure_analytics(self, enabled: bool) -> dict[str, object]:
         return self._analytics_operation(self._configure_analytics(enabled), "configure_analytics")
 
@@ -1075,6 +1081,7 @@ class WebUIBridge(ApplicationManagement):
                 "oauth_token_available": Path(
                     application.settings.twitch_token_file
                 ).is_file(),
+                "saved_bot_authorization": has_saved_bot_authorization(application.settings),
                 "oauth_callback_url": OAUTH_REDIRECT_URI,
                 "has_local_override": (
                     local.channel is not None
@@ -1479,11 +1486,11 @@ class WebUIBridge(ApplicationManagement):
         )
         return {"ok": True}
 
-    def get_recent_logs(self, after_id: int = 0, limit: int = 200) -> dict[str, object]:
+    def get_recent_logs(self, after_id: int = 0, limit: int = 200, snapshot: bool = False) -> dict[str, object]:
         safe_after_id = after_id if type(after_id) is int and after_id >= 0 else 0
         safe_limit = limit if type(limit) is int else 200
         safe_limit = min(200, max(1, safe_limit))
-        return self._log_buffer.activity(after_id=safe_after_id, limit=safe_limit)
+        return self._log_buffer.activity(after_id=safe_after_id, limit=safe_limit, snapshot=snapshot is True and safe_after_id == 0)
 
     def export_activity(self, entry_ids: object) -> dict[str, object]:
         """Save only retained events selected by the confirmed view, via a native dialog."""

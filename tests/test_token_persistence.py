@@ -13,7 +13,7 @@ from twitchio.exceptions import HTTPException, InvalidTokenException
 
 from app.config.settings import Settings
 from app.runtime_state import RuntimeState
-from app.twitch.client import CHAT_SCOPES, TwitchChatBot, TwitchConnectionError, run_twitch_bot
+from app.twitch.client import CHAT_SCOPES, TwitchChatBot, TwitchConnectionError, has_saved_bot_authorization, run_twitch_bot
 
 
 @pytest.fixture(autouse=True)
@@ -34,6 +34,24 @@ def bot_at(tmp_path):
 
 def cache(token="old-access", refresh="old-refresh"):
     return {"100": {"user_id": "100", "token": token, "refresh": refresh, "last_validated": "2026-10-18T00:00:00"}}
+
+
+def test_onboarding_checks_saved_grant_for_current_account_and_application(tmp_path):
+    settings = Settings(twitch_token_file=str(tmp_path / "tokens.json"), twitch_bot_user_id="100",
+                        twitch_bot_username="testbot", twitch_client_id="synthetic-client")
+    path = tmp_path / "tokens.json"
+    assert not has_saved_bot_authorization(settings)
+    path.write_text("{}")
+    assert not has_saved_bot_authorization(settings)
+    path.write_text(json.dumps(cache()))
+    assert has_saved_bot_authorization(settings)  # Existing validated-cache format.
+    grant = cache()
+    grant["100"].update(client_id="synthetic-client", login="testbot")
+    path.write_text(json.dumps(grant))
+    assert has_saved_bot_authorization(settings)
+    assert has_saved_bot_authorization(settings.model_copy(update={"twitch_bot_username": "TestBot"}))
+    for change in ({"twitch_client_id": "different"}, {"twitch_bot_user_id": "200"}, {"twitch_bot_username": "different"}):
+        assert not has_saved_bot_authorization(settings.model_copy(update=change))
 
 
 @pytest.mark.asyncio

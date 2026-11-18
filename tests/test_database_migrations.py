@@ -17,6 +17,31 @@ from app.desktop_instance import DesktopAlreadyRunningError, desktop_instance_gu
 from scripts.privacy_request import apply_request
 
 NOW = datetime(2026, 10, 29, tzinfo=timezone.utc)
+
+
+def test_experimental_v3_resets_only_monthly_leaderboards_and_keeps_exclusions(tmp_path):
+    path = tmp_path / "experiment.sqlite3"
+    migrations.initialize_schema(path, 100)
+    with sqlite3.connect(path) as connection:
+        connection.execute("ALTER TABLE leaderboard_periods ADD COLUMN zone TEXT")
+        connection.execute("DROP TABLE leaderboard_settings")
+        connection.execute("CREATE TABLE leaderboard_settings (channel_id VARCHAR(32) NOT NULL PRIMARY KEY, zone TEXT NOT NULL, exclusions TEXT NOT NULL)")
+        connection.execute("INSERT INTO leaderboard_settings VALUES ('200', 'Europe/London', '{\"otherbot\": \"300\"}')")
+        connection.execute("INSERT INTO users VALUES (7, '200', '100', 'viewer', '2026-11-01', '2026-11-02')")
+        connection.execute("INSERT INTO ai_memory_entries VALUES (8, '200', '100', 'question', 'answer', '2026-11-01')")
+        connection.execute("INSERT INTO privacy_opt_outs VALUES ('500', 'private', NULL)")
+        for kind, period, zone in (("stream", "123", None), ("month", "2026-11", "Europe/London")):
+            connection.execute("INSERT INTO leaderboard_periods VALUES ('200', ?, ?, '2026-11-01', 1, NULL, ?)", (kind, period, zone))
+            connection.execute("INSERT INTO leaderboard_counts VALUES ('200', ?, ?, '100', 10)", (kind, period))
+    assert migrations.initialize_schema(path, 100) == {"leaderboards": "experimental months reset to UTC"}
+    assert migrations.initialize_schema(path, 100) is None
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT * FROM leaderboard_counts").fetchall() == [("200", "stream", "123", "100", 10)]
+        assert connection.execute("SELECT kind, period_id FROM leaderboard_periods").fetchall() == [("stream", "123")]
+        assert connection.execute("SELECT * FROM leaderboard_settings").fetchall() == [("200", '{"otherbot": "300"}')]
+        assert connection.execute("SELECT username FROM users").fetchall() == [("viewer",)]
+        assert connection.execute("SELECT request_text, response_text FROM ai_memory_entries").fetchall() == [("question", "answer")]
+        assert connection.execute("SELECT twitch_user_id FROM privacy_opt_outs").fetchall() == [("500",)]
 OWNER_CHANNEL = "512901888"
 
 
@@ -58,6 +83,36 @@ def seed(path, *, scoped=False):
         connection.executemany("INSERT INTO users VALUES (" + ",".join("?" for _ in users[0]) + ")", users)
         connection.executemany("INSERT INTO ai_memory_entries VALUES (" + ",".join("?" for _ in ai[0]) + ")", ai)
         connection.commit()
+
+
+def test_schema_two_leaderboard_upgrade_recovers_then_retries(tmp_path):
+    path = tmp_path / "published-schema.db"
+    upgrade_now = datetime.now(timezone.utc)
+    with closing(sqlite3.connect(path)) as connection, connection:
+        for statement in migrations.SCHEMA_2_SQL:
+            connection.execute(statement)
+        connection.execute("PRAGMA user_version=2")
+        connection.execute("INSERT INTO schema_metadata VALUES ('schema_version', '2')")
+        connection.execute("INSERT INTO users VALUES (1, '111', '123', 'viewer', ?, ?)", (stamp(), stamp()))
+        connection.execute("INSERT INTO ai_memory_entries VALUES (1, '111', '123', 'prompt', 'reply', ?)", (stamp(),))
+        connection.execute("INSERT INTO privacy_opt_outs VALUES ('777', 'suppressed', ?)", (stamp(),))
+
+    def interrupt(connection):
+        assert connection.execute("SELECT count(*) FROM leaderboard_counts").fetchone() == (0,)
+        raise RuntimeError("Synthetic interruption")
+
+    with pytest.raises(RuntimeError, match="Synthetic interruption"):
+        migrations.initialize_schema(path, 100, now=upgrade_now, before_commit=interrupt)
+    assert read(path, "PRAGMA user_version") == [(2,)]
+    _, backup, manifest = migrations._recovery_paths(path, version=2)
+    assert json.loads(manifest.read_text())["sha256"] == hashlib.sha256(backup.read_bytes()).hexdigest()
+    assert migrations.initialize_schema(path, 100, now=upgrade_now) == {"leaderboards": "initialized empty"}
+    assert migrations.initialize_schema(path, 100, now=upgrade_now) is None
+    for table in ("users", "ai_memory_entries", "privacy_opt_outs"):
+        assert read(path, f"SELECT * FROM {table}") == read(backup, f"SELECT * FROM {table}")
+    apply_request(path, "123", "opt-out")
+    assert read(backup, "SELECT twitch_user_id FROM privacy_opt_outs ORDER BY 1") == [("123",), ("777",)]
+    assert read(backup, "SELECT * FROM users") == []
 
 
 @pytest.mark.parametrize("scoped", [False, True])

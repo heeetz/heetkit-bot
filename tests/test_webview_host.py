@@ -368,7 +368,7 @@ def test_bridge_reads_shared_runtime_status() -> None:
     )
     application = SimpleNamespace(
         services=SimpleNamespace(runtime_state=runtime_state),
-        settings=SimpleNamespace(twitch_channel="channel", twitch_bot_username="bot"),
+        settings=SimpleNamespace(twitch_channel="channel", twitch_bot_username="bot", twitch_channel_user_id="200"),
     )
     backend = SimpleNamespace(application=application)
 
@@ -381,6 +381,7 @@ def test_bridge_reads_shared_runtime_status() -> None:
         "twitch_recovery": None,
         "uptime_seconds": 42,
         "channel": "channel",
+        "leaderboard_channel_id": "200",
         "account": "bot",
     }
 
@@ -1089,6 +1090,7 @@ def test_bridge_exposes_and_saves_non_secret_twitch_settings(tmp_path) -> None:
         "running": True,
         "connected": True,
         "oauth_token_available": True,
+        "saved_bot_authorization": False,
         "oauth_callback_url": OAUTH_REDIRECT_URI,
         "has_local_override": False,
     }
@@ -1216,6 +1218,7 @@ def test_bridge_gets_commands_from_registry_and_effective_runtime_settings() -> 
         permission=SimpleNamespace(name="BROADCASTER"),
         cooldown=SimpleNamespace(per_user_seconds=3.0, global_seconds=5.0),
         aliases=("forget",), display_name="", removed=False, burst_interval_ms=0, burst_max_count=10, send_as=None,
+        entry_limit=None, chat_template=None,
     )
     runtime_state = SimpleNamespace(
         get_command_settings=lambda name: settings,
@@ -1660,6 +1663,25 @@ def test_bridge_reads_bounded_logs_with_validated_cursor_arguments() -> None:
     result = bridge.get_recent_logs(after_id=2, limit=5000)
 
     assert [entry["text"] for entry in result["entries"]] == ["third"]
+
+
+def test_bridge_opens_full_activity_snapshot_and_advances_past_hidden_tail():
+    log_buffer = RecentLogBuffer()
+    bridge = WebUIBridge(SimpleNamespace(), log_buffer=log_buffer)
+    assert bridge.get_recent_logs(snapshot=True) == {"entries": [], "next_after_id": 0}
+    record = logging.LogRecord("tests.activity", logging.INFO, "", 0, "synthetic", (), None)
+    record.event_kind = "twitch.connected"
+    for _ in range(499):
+        log_buffer.append(record, "synthetic")
+    record.event_kind = None
+    log_buffer.append(record, "private hidden diagnostic")
+    assert bridge.get_recent_logs()["next_after_id"] == 200
+    initial = bridge.get_recent_logs(snapshot=True)
+    assert [entry["id"] for entry in initial["entries"]] == list(range(1, 500))
+    assert initial["next_after_id"] == 500
+    record.event_kind = "twitch.disconnected"
+    log_buffer.append(record, "synthetic new event")
+    assert [entry["id"] for entry in bridge.get_recent_logs(after_id=initial["next_after_id"])["entries"]] == [501]
 
 
 @pytest.mark.parametrize("case", ["saved", "cancelled", "missing_window", "extension", "write_failure", "expired", "invalid"])

@@ -37,6 +37,21 @@
 .analytics-table tbody th { overflow-wrap: anywhere; max-width: 240px; }
 .analytics-table thead th { white-space: nowrap; position: sticky; top: 0; z-index: 1; background: var(--panel); }
 .analytics-table caption { text-align: left; color: var(--muted); padding: 8px; }
+.leaderboard-section { display: grid; gap: var(--space-3); }
+.analytics-layout .leaderboard-time-basis { margin: 0; }
+.leaderboard-row { align-items: stretch; }
+.leaderboard-card { padding: 12px 14px; }
+.leaderboard-period { display: grid; gap: 2px; font-size: 13px; }
+.leaderboard-table table { min-width: 0; }
+.leaderboard-table :is(th, td) { padding: 6px 8px; }
+.leaderboard-table :is(th, td):first-child, .leaderboard-table :is(th, td):nth-child(2) { text-align: left; }
+.leaderboard-table td:last-child { font-variant-numeric: tabular-nums; }
+.leaderboard-exclusions-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: var(--space-3); }
+.leaderboard-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.leaderboard-exclusions p:last-child { margin-bottom: 0; }
+@container page-content (width < 550px) {
+  .leaderboard-exclusions-row { grid-template-columns: minmax(0, 1fr); }
+}
 .analytics-command-table { max-height: 276px; }
 .analytics-command-table tbody th { height: 46px; }
 .analytics-command-name { display: inline-block; max-width: 140px; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -28,14 +28,16 @@ export async function mockAnalytics(page: Page, desktop = false) {
         name: i ? `custom:synthetic-${i}` : 'ping',
         label: i === 14 || (inventoryChanged && i === 3) ? `Deleted or unavailable command (custom:synthetic-${i})` : inventoryChanged && i === 2 ? '!renamed' : i === 1 ? '!long-command-name-'.repeat(8) : i === 13 ? '!disabled-zero' : i ? `!custom${i}` : '!ping',
         metrics: empty || i === 13 ? {} : { ...metrics, 'command.attempts': i === 0 ? 8 : i <= 2 ? 4 : 1 },
-      })).filter((row) => !empty || !row.label.startsWith('Deleted or unavailable')),
+      })).filter((row) => !row.label.startsWith('Deleted or unavailable')),
       ...(inventoryChanged ? [{ name: 'custom:new', label: '!new-command', metrics: {} }] : [])]
         .sort((a, b) => ((b.metrics as Record<string, number>)['command.attempts'] || 0) - ((a.metrics as Record<string, number>)['command.attempts'] || 0) || a.label.localeCompare(b.label) || a.name.localeCompare(b.name)),
       providers: empty ? [] : [{ name: 'deepseek/test-model', metrics }] } })
   })
   if (desktop) await page.evaluate(() => {
     const request = async (path: string, body?: object) => (await fetch(`/synthetic-analytics/${path}`, { method: body ? 'POST' : 'GET', ...(body ? { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } } : {}) })).json()
+    const appStatus = window.pywebview!.api.get_app_status
     Object.assign(window.pywebview!.api, {
+      get_app_status: async () => ({ ...await appStatus(), leaderboard_channel_id: null }),
       get_analytics: (days: number) => request('analytics/query', { days }),
       configure_analytics: (enabled: boolean) => request('analytics/configure', { enabled }),
       reset_analytics: (confirmed: boolean) => request('analytics/reset', { confirmed }),
@@ -65,6 +67,21 @@ export async function analyticsFlow(page: Page, mock: Awaited<ReturnType<typeof 
     await page.setViewportSize({ width, height: 1000 })
   } else await expect(about).toBeInViewport()
   await nav.getByRole('button', { name: 'Analytics', exact: true }).click()
+  await nav.getByRole('button', { name: 'Trends', exact: true }).click()
+  await expect(page.locator('#analytics-trends')).toBeInViewport()
+  for (const [label, id, heading] of [
+    ['Chatters', 'analytics-chatters', 'Stream top 10 chatters'],
+    ['Breakdown', 'analytics-breakdown', 'Commands breakdown'],
+    ['Collection', 'analytics-collection', 'Collection & coverage'],
+  ]) {
+    const shortcut = nav.getByRole('button', { name: label, exact: true })
+    await shortcut.click()
+    await expect(shortcut).toHaveAttribute('aria-current', 'location')
+    const target = page.locator(`#${id}`).getByRole('heading', { name: heading, exact: true })
+    await expect(target).toBeInViewport()
+    expect((await target.boundingBox())!.y).toBeGreaterThanOrEqual(0)
+  }
+  await nav.getByRole('button', { name: 'Analytics', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Analytics', exact: true })).toBeVisible()
   await expect(page.locator('.analytics-layout')).toHaveAttribute('aria-busy', 'false')
   await expect(page.getByText('8 attempts', { exact: true })).toBeVisible()
@@ -75,7 +92,7 @@ export async function analyticsFlow(page: Page, mock: Awaited<ReturnType<typeof 
   const positions = await page.locator('.analytics-trend, .analytics-cards, .analytics-breakdowns, .analytics-coverage').evaluateAll((items) => items.map((el) => el.getBoundingClientRect().top))
   expect(positions).toEqual([...positions].sort((a, b) => a - b))
   const commands = page.getByRole('region', { name: 'Commands breakdown, scroll for more rows', exact: true })
-  await expect(commands.getByRole('row')).toHaveCount(16)
+  await expect(commands.getByRole('row')).toHaveCount(15)
   await expect(commands).toContainText('!ping')
   expect(await commands.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
   if (width >= 1280) expect(await commands.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
@@ -93,9 +110,9 @@ export async function analyticsFlow(page: Page, mock: Awaited<ReturnType<typeof 
   await page.keyboard.press('Escape')
   mock.changeInventory()
   await page.getByRole('button', { name: 'Refresh analytics', exact: true }).click()
-  await expect(commands.getByRole('row')).toHaveCount(17)
+  await expect(commands.getByRole('row')).toHaveCount(15)
   await expect(commands).toContainText('!renamed')
-  await expect(commands).toContainText('Deleted or unavailable command (custom:synthetic-3)')
+  await expect(commands).not.toContainText('Deleted or unavailable command')
   await expect(commands.locator('tbody tr').last()).toHaveText('!new-command0000')
   const coverage = page.locator('.analytics-coverage')
   const details = coverage.locator('details')
@@ -164,12 +181,13 @@ export async function analyticsFlow(page: Page, mock: Awaited<ReturnType<typeof 
   await page.screenshot({ path: `node_modules/.tmp/analytics-${host}-${width}.png`, fullPage: true })
   await page.locator('.analytics-chart').evaluate((element) => element.scrollIntoView({ block: 'center' }))
   await page.locator('.analytics-chart').screenshot({ path: `node_modules/.tmp/analytics-chart-${host}-${width}.png` })
-  await page.locator('.analytics-breakdowns').screenshot({ path: `node_modules/.tmp/analytics-breakdowns-${host}-${width}.png` })
+  await page.locator('#analytics-breakdown').screenshot({ path: `node_modules/.tmp/analytics-breakdowns-${host}-${width}.png` })
   await page.locator('.analytics-coverage').screenshot({ path: `node_modules/.tmp/analytics-coverage-${host}-${width}.png` })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.getByRole('button', { name: 'Reset all profile analytics', exact: true }).click()
-  await expect(page.getByRole('dialog')).toContainText('Permanently clear aggregate totals for every channel and Playground in this profile, including pending updates. Personal AI memory, presence and opt-outs are unchanged. Operator-managed backups are separate copies.')
-  await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+  const resetDialog = page.getByRole('dialog', { name: 'Reset all profile analytics?' })
+  await expect(resetDialog).toContainText('Permanently clear aggregate totals for every channel and Playground in this profile, including pending updates. Personal AI memory, presence and opt-outs are unchanged. Operator-managed backups are separate copies.')
+  await expect(resetDialog.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
   await page.keyboard.press('Escape'); await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.getByRole('button', { name: 'Reset all profile analytics', exact: true }).click()
   await page.getByRole('button', { name: 'Confirm', exact: true }).click()

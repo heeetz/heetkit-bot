@@ -39,7 +39,6 @@ export default function TwitchSecretField({ credential, value, busy, host, onCha
       <button className="ghost destructive" disabled={disabled || !removable} onClick={() => onAction('remove')}>{busy === 'twitch_client_secret:remove' ? 'Removing...' : 'Remove secret'}</button>
       {host === 'desktop' && removable && <button className="ghost destructive" disabled={disabled} onClick={() => onAction('remove', true)}>Remove secret &amp; restart</button>}
     </div>
-    {host === 'desktop' && <p className="settings-hint">Saved secret changes apply when HeetKit restarts.</p>}
     {host === 'server' && value.trim() && <p className="settings-hint">Saving stops the bot and clears authorization.</p>}
     {!credential && <p className="credential-warning" role="alert">Secret status unavailable. Reopen Settings to retry.</p>}
     {credential?.validation_status === 'validation_failed' && <p className="credential-warning" role="alert">Secret validation failed.</p>}

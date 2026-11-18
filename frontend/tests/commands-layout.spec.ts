@@ -19,10 +19,13 @@ for (const width of [1280, 390, 320]) {
       else await page.getByRole('button', { name: 'Edit !hello', exact: true }).click()
       for (const mode of ['single', 'random', 'burst']) {
         await selectOption(editor.getByRole('combobox', { name: 'Response type', exact: true }), mode)
+        // Selecting a response type can scroll the fixed-height panel. Measure the layout from its top.
+        await editor.locator('.command-dialog-panels').evaluate((panel) => { panel.scrollTop = 0 })
         const name = await box(editor.locator('.custom-name-input'))
         const enabled = await box(editor.locator('.custom-command-enabled'))
         const navigation = await box(editor.getByRole('navigation', { name: 'Editor sections' }))
         expect(name.x + name.width).toBeLessThan(enabled.x)
+        expect(Math.abs(name.y + name.height / 2 - enabled.y - enabled.height / 2)).toBeLessThanOrEqual(2)
         if (width === 1280) expect(navigation.x + navigation.width).toBeLessThan(name.x)
         else expect(navigation.y + navigation.height).toBeLessThan(name.y)
         const message = await box(editor.locator('textarea'))

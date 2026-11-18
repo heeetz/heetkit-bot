@@ -19,7 +19,8 @@ Server. On Desktop, the **Twitch connection** shortcut opens this section.
 
 1. Open **Settings**.
 2. Expand **Application, account and channel**.
-3. Copy **OAuth callback URL** from **Twitch application**.
+3. Copy **OAuth callback URL** from **Twitch application**. **Setup instructions**
+   opens the same flow in HeetKit, including the callback URL for this installation.
 4. Select **Open Twitch Developer Console**.
 5. Start registering a **Confidential** application. Follow
    [Twitch's registration guide](https://dev.twitch.tv/docs/authentication/register-app/).
@@ -60,8 +61,10 @@ saved application credentials. Continue below to authorize the bot account.
 ## Give the bot channel access, then connect
 
 Authorize HeetKit to send as the configured bot account. Complete the setup
-above first. If the bot account differs from the broadcaster, give it the
-moderator role in the target channel on Twitch before connecting.
+above first. If you send as the broadcaster, skip the moderator step. For a
+separate bot account, the broadcaster types `/mod bot_login` in the target
+channel's Twitch chat, using the sending account's Twitch login in place of
+`bot_login`.
 
 **In HeetKit:** **Dashboard** on Desktop. On Server, start in **Settings >
 Application, account and channel** and finish on **Dashboard**.

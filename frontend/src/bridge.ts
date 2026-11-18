@@ -5,12 +5,30 @@ export interface AppStatus {
   twitch_recovery?: { reason: string; cause?: string; attempt: number; elapsed_seconds: number; next_retry_seconds: number | null } | null
   uptime_seconds: number
   channel: string
+  leaderboard_channel_id?: string | null
   account: string
   operation?: BrowserOperation
 }
 
 export type BrowserOperationMode = 'always_on' | 'stream_only' | 'manual' | 'disabled'
 export type BrowserStreamStatus = 'live' | 'offline' | 'unknown'
+
+export interface LeaderboardPeriod {
+  period: string
+  started_at: string
+  ends_at: string | null
+  partial: boolean
+  rows: { place: number; nickname: string; messages: number }[]
+}
+
+export interface LeaderboardSnapshot {
+  channel_id: string
+  connected: boolean
+  stream_status: BrowserStreamStatus
+  exclusions: string[]
+  month: LeaderboardPeriod
+  stream?: LeaderboardPeriod
+}
 
 export interface BrowserOperation {
   mode: BrowserOperationMode
@@ -55,6 +73,8 @@ export interface CommandInfo {
   removed?: boolean
   burst_interval_ms?: number
   burst_max_count?: number
+  entry_limit?: number
+  chat_template?: string
   minimum_permission?: string
   identity_editable?: boolean
   supports_send_as?: boolean
@@ -93,6 +113,8 @@ export interface CommandSettings {
   display_name?: string
   burst_interval_ms?: number
   burst_max_count?: number
+  entry_limit?: number
+  chat_template?: string
   permission: string
   stream_availability?: StreamAvailability
   cooldown: {
@@ -107,6 +129,8 @@ export interface CommandSettingsMetadata {
   display_name?: string
   burst_interval_ms?: number
   burst_max_count?: number
+  entry_limit?: number
+  chat_template?: string
   stream_availability?: StreamAvailability
   send_as?: SendAs
   reactivate_removed?: boolean
@@ -390,6 +414,7 @@ export interface TwitchConnectionSettings {
   running: boolean
   connected: boolean
   oauth_token_available: boolean
+  saved_bot_authorization?: boolean
   oauth_callback_url: string
   management_url?: string
   authorization_mode?: 'paste' | 'redirect'
@@ -578,6 +603,8 @@ export interface AIBalanceResponse extends ActionResult {
 }
 
 export interface LogsResponse {
+  ok?: boolean
+  error?: string
   entries: LogEntry[]
   next_after_id?: number
 }
@@ -638,6 +665,8 @@ export interface PythonApi {
   get_filters(): Promise<FiltersResponse>
   get_ai_status(): Promise<AIStatus>
   get_analytics(days?: number): Promise<AnalyticsResponse>
+  get_leaderboards(): Promise<{ ok: boolean; error?: string; leaderboards?: LeaderboardSnapshot | null }>
+  save_leaderboard_settings(channelId: string, exclusions: string[]): Promise<{ ok: boolean; error?: string }>
   configure_analytics(enabled: boolean): Promise<ActionResult>
   reset_analytics(confirmed: boolean): Promise<ActionResult>
   get_ai_balance(provider: string, refresh?: boolean): Promise<AIBalanceResponse>
@@ -650,7 +679,7 @@ export interface PythonApi {
   get_ai_playground_result(requestId: string): Promise<AIPlaygroundResult>
   cancel_ai_playground(requestId: string): Promise<AIPlaygroundResult>
   get_personalities(): Promise<PersonalitiesResponse>
-  get_recent_logs(after_id?: number, limit?: number): Promise<LogsResponse>
+  get_recent_logs(after_id?: number, limit?: number, snapshot?: boolean): Promise<LogsResponse>
   export_activity(entryIds: number[]): Promise<ActionResult & { saved?: boolean; cancelled?: boolean }>
   apply_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string, metadata?: CommandSettingsMetadata): Promise<ActionResult>
   save_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string, metadata?: CommandSettingsMetadata): Promise<ActionResult>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { type AnalyticsResponse, type AIBalanceResponse, waitForBridge } from '../bridge'
+import ChatLeaderboards from '../components/ChatLeaderboards'
 import { Select } from '../components/Select'
 import Switch from '../components/Switch'
 import HelpTip from '../components/HelpTip'
@@ -110,7 +111,7 @@ function Trend({ data, metric, selector }: { data: AnalyticsResponse; metric: st
   </>
 }
 
-export default function AnalyticsPage() {
+export default function AnalyticsPage({ leaderboardChannel }: { leaderboardChannel?: string | null }) {
   const [days, setDays] = useState('7')
   const [metric, setMetric] = useState('command.attempts')
   const [data, setData] = useState<AnalyticsResponse | null>(null)
@@ -176,7 +177,7 @@ export default function AnalyticsPage() {
     <div className="analytics-toolbar"><label>UTC window<Select aria-label="UTC window" value={days} onChange={setDays} disabled={busy} options={[{ value: '1', label: 'Today' }, ...[7, 30, 60].map((n) => ({ value: String(n), label: `${n} days` }))]} /></label><button className="secondary" disabled={busy} onClick={() => void action()}>Refresh analytics</button></div>
     {error && <p role="alert" className="inline-error">{error}</p>}
     {busy && !data && <p role="status">Loading analytics…</p>}
-    {data && <article className="card analytics-trend">
+    {data && <article className="card analytics-trend" id="analytics-trends">
       <Trend key={`${data.resolution}:${data.start}:${data.end}`} data={data} metric={metric} selector={<label className="analytics-trend-select">Trend<Select aria-label="Trend" value={metric} onChange={setMetric} options={trends} /></label>} />
       <p className="muted">{data.resolution === 'hour' ? `${data.end} · Hourly UTC observations. Earlier daily-only data has no hourly history.` : 'Daily UTC observations.'} Gaps are unknown; values reflect observed coverage.</p>
     </article>}
@@ -186,13 +187,14 @@ export default function AnalyticsPage() {
       <article className="card analytics-summary"><div className="ai-state-heading"><h2>AI usage</h2><HelpTip label="AI usage">{value('ai.attempts')} provider attempts. {value('ai.usage_unknown')} attempts with unknown/incomplete usage. Token subsets are not added twice. Spend remains available in the trend and provider breakdown; rates checked {data?.price_checked || 'unavailable'}. Playground is excluded.</HelpTip></div><strong className="analytics-primary">{value('ai.requests')} requests</strong><p>{!hasObservations || (total('ai.attempts') > 0 && !('ai.input_tokens' in totals)) ? 'Unknown' : count(total('ai.input_tokens'))} input / {!hasObservations || (total('ai.attempts') > 0 && !('ai.output_tokens' in totals)) ? 'Unknown' : count(total('ai.output_tokens'))} output tokens reported</p>{incomplete && <p className="muted">Incomplete — unknown usage, pricing or extra charges.</p>}</article>
       {balanceCard}
     </div>
+    <ChatLeaderboards key={leaderboardChannel ?? ''} channel={leaderboardChannel} />
     {data && <>
       {Object.keys(totals).length === 0 && <p role="status">No observed activity in this window. Missing coverage can also produce an empty window.</p>}
-      <div className="analytics-breakdowns">
+      <div className="analytics-breakdowns" id="analytics-breakdown">
         <article className="card"><div className="ai-state-heading"><h2>Commands breakdown</h2><HelpTip label="Commands breakdown">Names reflect current configuration, including the prefix. Counters cover the selected range; aliases share one stable command identity. Zero means no recorded attempts in this range, including for disabled commands; it does not prove inactivity during collection gaps.</HelpTip></div><div className="analytics-table analytics-command-table" tabIndex={0} role="region" aria-label="Commands breakdown, scroll for more rows"><table><thead><tr><th>Command</th><th>Attempts</th><th>Success</th><th>Errors</th><th>Skipped</th></tr></thead><tbody>{data.commands.map((row) => <tr key={row.name}><th><span className={`analytics-command-name${!row.label || row.label.startsWith('Deleted or unavailable command') ? ' analytics-command-unavailable' : ''}`} title={row.label || `Deleted or unavailable command (${row.name})`}>{row.label || `Deleted or unavailable command (${row.name})`}</span></th>{['attempts', 'success', 'error', 'skipped'].map((key) => <td key={key}>{data.available && data.channel_id ? count(row.metrics[`command.${key}`]) : 'Unavailable'}</td>)}</tr>)}</tbody></table></div>{!data.commands.length && <p>No commands configured or recorded in this range.</p>}</article>
         <article className="card"><div className="ai-state-heading"><h2>Providers / models</h2><HelpTip label="Provider costs">Known USD subtotals are dated estimates, not invoices. Unknown usage, missing prices and extra charges can make them incomplete. Rates checked {data.price_checked}.</HelpTip></div><div className="analytics-table" tabIndex={0} role="region" aria-label="Providers and models"><table><thead><tr><th>Provider / model</th><th>Attempts</th><th>Errors</th><th>Known USD</th><th>Unknown usage / pricing</th></tr></thead><tbody>{data.providers.map((row) => <tr key={row.name}><th>{row.name}</th><td>{count(row.metrics['ai.attempts'])}</td><td>{count(row.metrics['ai.errors'])}</td><td>{'ai.estimated_usd' in row.metrics ? money(row.metrics['ai.estimated_usd']) : 'Unknown'}</td><td>{count(row.metrics['ai.usage_unknown'])} / {count(row.metrics['ai.price_missing'])}</td></tr>)}</tbody></table></div>{!data.providers.length && <p>No provider observations.</p>}</article>
       </div>
-      <article className="card analytics-coverage">
+      <article className="card analytics-coverage" id="analytics-collection">
         <div className="ai-state-heading"><h2>Collection & coverage</h2><HelpTip label="Analytics coverage">Private observed aggregates for the configured channel. Opt-outs, downtime, paused collection and buffered crash losses are omitted. No historical chat is reconstructed. Reset clears every channel and Playground in this profile, including pending updates.</HelpTip></div>
         <div className="analytics-coverage-zones">
           <section className="analytics-collection" aria-label="Collection"><h3>Collection</h3><Switch checked={data.enabled} disabled={busy} ariaLabel="Collect analytics" onCheckedChange={(enabled) => void action(async () => (await waitForBridge()).configure_analytics(enabled))}><span>Collect analytics</span></Switch><p className="muted">{data.enabled ? 'Enabled' : 'Paused'}</p></section>

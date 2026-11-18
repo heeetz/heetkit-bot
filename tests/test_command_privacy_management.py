@@ -95,7 +95,7 @@ def test_legacy_numeric_login_cannot_collide_with_verified_account_id(tmp_path):
 def test_v1_optout_upgrade_rollback_retry_idempotence_and_recovery(tmp_path, journal):
     path = tmp_path / "synthetic.db"
     with sqlite3.connect(path) as connection:
-        for statement in migrations.SCHEMA_SQL:
+        for statement in migrations.SCHEMA_2_SQL:
             connection.execute(statement)
         connection.execute("DROP TABLE privacy_opt_outs")
         connection.execute("CREATE TABLE privacy_opt_outs (twitch_user_id VARCHAR(32) NOT NULL PRIMARY KEY)")

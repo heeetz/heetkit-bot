@@ -309,10 +309,12 @@ to change the settings.
 | `!followage` | Show how long you have followed the channel. | User |
 | `!fate` | Get a random prediction from the saved responses. | User |
 | `!help [page]` | List public command help. | User |
-| `!optout` | Delete your presence and AI history across the profile and stop future identifying storage. | User (self-only) |
+| `!optout` | Delete your presence, AI history and leaderboard counts across the profile and stop future identifying storage. | User (self-only) |
 | `!ping` | Check for a `pong` reply. | Moderator |
+| `!rank` | Show your place and message count in this channel’s monthly leaderboard. | User |
 | `!seen <username>` | Show when HeetKit last saw a known chatter in this channel. | User |
 | `!tg [1-20]` | Send the saved community message, with an optional repeat count. | Moderator |
+| `!top` | Show the most active chatters in this channel this month. | User |
 | `!uptime` | Show how long the current HeetKit session has run. | Moderator |
 | `!weather <city>` | Get current weather in English, Russian or Ukrainian. | User |
 
@@ -325,6 +327,35 @@ stream state. If there are more pages, follow the hint in chat, for example
 For a storage opt-out, see [Manage a storage opt-out in HeetKit](data-and-privacy.md#manage-a-storage-opt-out-in-heetkit).
 For other presence deletion requests, see [manual privacy requests](data-and-privacy.md#manual-privacy-requests).
 Fresh AI requests from opted-out viewers still reach the provider.
+
+### Chat leaderboards
+
+Analytics displays the current or last broadcast and the current calendar month side by
+side. Each shows up to 10 entries for the connected channel. Tied message counts share
+a place. The next place skips the tied positions, as in 1, 1, 3. Account ID keeps the
+order stable when a tie reaches the entry limit.
+
+HeetKit counts ordinary messages that pass its content filters, including Shared Chat
+copies delivered to the connected channel. Command invocations, the sending account,
+matched outgoing echoes, duplicate events, opted-out accounts and configured exclusions
+are excluded. Monthly collection includes offline chat while
+HeetKit is connected. It continues even when the leaderboard commands are disabled.
+
+Edit either command in **Commands** to set its own trigger, aliases, access, cooldowns,
+delivery and message template. Top defaults to five entries and accepts a saved limit
+from 1 to 10. Upgrades reserve the factory names `top` and `rank` for these built-ins.
+A previously configured command or alias using either name can lose that trigger.
+Use `{entries}` for the Top rows, `{place}` and `{messages}` for Rank,
+and `{sender}` for the caller in either message. The chat limit can reduce the number
+of complete Top rows shown. HeetKit uses the default template if the custom text cannot
+fit a row or a rank. `!rank` stays silent and uses no cooldown when the caller has no
+visible rank. An empty `!top` returns a short message.
+
+Both leaderboard tables display UTC times. The monthly leaderboard resets on the first
+day of each calendar month at 00:00 UTC. Use **Excluded bot names** below the Analytics
+tables to enter up to 50 comma-separated bot logins for the selected channel. Verified
+accounts stay excluded after a rename. Removing an exclusion reveals any retained
+counts and resumes counting. See [leaderboard storage and coverage](data-and-privacy.md#chat-leaderboards).
 
 ### Weather locations
 

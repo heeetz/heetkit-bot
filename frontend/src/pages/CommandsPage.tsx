@@ -29,6 +29,8 @@ import CommandRestrictions from '../components/CommandRestrictions'
 import OptOutManagement from '../components/OptOutManagement'
 
 interface CommandDraft {
+  entryLimit: string
+  chatTemplate: string
   primaryName: string
   enabled: boolean
   permission: string
@@ -114,6 +116,8 @@ function tgBurstMaxCount(command: CommandInfo): number {
 
 function draftFromCommand(command: CommandInfo): CommandDraft {
   return {
+    entryLimit: String(command.entry_limit ?? ''),
+    chatTemplate: command.chat_template ?? '',
     primaryName: command.primary_name ?? command.name,
     enabled: command.enabled,
     permission: command.permission,
@@ -160,6 +164,8 @@ function settingsDraftIsDirty(command: CommandInfo, draft: CommandDraft): boolea
     || draft.displayName !== (command.display_name ?? '')
     || parsedBurstInterval(draft.burstIntervalMs) !== (command.burst_interval_ms ?? 0)
     || (command.name === 'tg' && parsedBurstMaxCount(draft.burstMaxCount) !== tgBurstMaxCount(command))
+    || (command.entry_limit !== undefined && draft.entryLimit !== String(command.entry_limit))
+    || (command.chat_template !== undefined && draft.chatTemplate !== command.chat_template)
     || draft.streamAvailability !== streamAvailability(command.stream_availability)
     || draft.sendAs !== builtinSendAs(command)
 }
@@ -458,6 +464,8 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       ...(draft.sendAs !== builtinSendAs(command) ? { send_as: draft.sendAs } : {}),
       ...(canEditIdentity(command) ? { aliases: parseAliases(draft.aliases), display_name: draft.displayName } : {}),
       ...(command.name === 'tg' ? { burst_interval_ms: burstInterval!, burst_max_count: burstMaxCount! } : {}),
+      ...(command.entry_limit !== undefined ? { entry_limit: Number(draft.entryLimit) } : {}),
+      ...(command.chat_template !== undefined ? { chat_template: draft.chatTemplate } : {}),
       ...(isBrowserMode() ? { stream_availability: draft.streamAvailability } : {}),
       ...(command.removed && draft.enabled ? { reactivate_removed: true } : {}),
     }
@@ -471,7 +479,9 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     }
     if (action === 'reset' && !await confirmAction({
       title: `Reset ${data?.command_prefix ?? '!'}${command.primary_name ?? command.name} settings?`,
-      description: 'Restore the factory name, aliases, access and cooldowns. Keep the current enabled state and saved message.',
+      description: command.chat_template !== undefined
+        ? 'Restore the factory settings and message. Keep the current enabled state.'
+        : 'Restore the factory name, aliases, access and cooldowns. Keep the current enabled state and saved message.',
       danger: true,
     })) {
       return
@@ -508,7 +518,9 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       if (action === 'save') setEditingBuiltin(null)
       setNotice(action === 'save'
           ? `Saved ${data?.command_prefix ?? '!'}${draft.primaryName.trim()}${responsePool ? ' text and settings' : ''}.`
-          : `Reset !${command.name} settings to built-in defaults. Its message was kept.`)
+          : command.chat_template !== undefined
+            ? `Reset !${command.name} settings and message to built-in defaults.`
+            : `Reset !${command.name} settings to built-in defaults. Its message was kept.`)
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : 'Command could not be saved.'
       if (settingsSaved && !responsesSaved && saveResponses) {
@@ -821,7 +833,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
               <input id={`primary-name-${command.name}`} data-editor-focus disabled={busy} value={draft.primaryName} maxLength={40} onChange={(event) => updateDraft(command.name, { primaryName: event.target.value })} />
             </div>
             <Switch
-              className="toggle-field command-enabled-toggle"
+              className="custom-command-enabled"
               checked={draft.enabled}
               disabled={busy}
               ariaLabel={`Enable ${data.command_prefix}${primaryName}`}
@@ -830,11 +842,26 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
               <span>{draft.enabled ? copy.enabled : copy.disabled}</span>
             </Switch>
           </div>
-          {!responsePool && <div className="command-behavior-note command-dynamic-note">
+          {!responsePool && command.chat_template === undefined && <div className="command-behavior-note command-dynamic-note">
             <span>Dynamic response</span>
             <HelpTip label="Dynamic response">This command generates its response from its built-in behavior and cannot be edited as a text template. Enabled state, permission and cooldowns still apply.</HelpTip>
           </div>}
           {!command.available && <p className="command-unavailable"><strong>Unavailable:</strong> {command.unavailable_reason ?? 'The optional AI provider is not configured. Add a key to enable AI features.'}</p>}
+          {command.chat_template !== undefined && <div className="form-field">
+            <div className="custom-field-label"><label htmlFor={`chat-template-${command.name}`}>Command message</label>
+              <HelpTip label="Leaderboard message variables">{command.name === 'top'
+                ? <>{'{entries}'} displays place, nickname and full count for each row.</>
+                : <>{'{place}'} and {'{messages}'} show the caller’s place and full message count.</>}
+                {' Use {sender} for the caller’s nickname.'}</HelpTip></div>
+            <input id={`chat-template-${command.name}`} disabled={busy} maxLength={450} value={draft.chatTemplate}
+              onChange={(event) => updateDraft(command.name, { chatTemplate: event.target.value })} />
+          </div>}
+          {command.entry_limit !== undefined && <div className="form-field">
+            <div className="custom-field-label"><label htmlFor="leaderboard-entry-limit">Entry limit</label>
+              <HelpTip label="Leaderboard entry limit">Maximum entries in the chat reply, from 1 to 10. The Analytics table always shows up to 10.</HelpTip></div>
+            <input id="leaderboard-entry-limit" type="number" min={1} max={10} step={1} required disabled={busy}
+              value={draft.entryLimit} onChange={(event) => updateDraft(command.name, { entryLimit: event.target.value })} />
+          </div>}
           {!command.hidden && responsePool && responseDraft !== null && <div className="command-response-editor">
             <div className="custom-response-heading">
               <div>

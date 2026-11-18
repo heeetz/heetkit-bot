@@ -17,15 +17,15 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/tests/fixture.html')
 })
 
-test('the selected top-level page alone expands its submenu, and repeated clicks keep it open', async ({ page }) => {
+test('the selected page expands its submenu', async ({ page }) => {
   const nav = page.getByRole('navigation', { name: 'Main navigation' })
   await expect(nav.locator('.sidebar-subnav:visible')).toHaveCount(0)
-  for (const name of ['Commands', 'Filters', 'AI', 'Settings', 'Dashboard', 'Logs', 'About']) {
+  for (const name of ['Commands', 'Filters', 'AI', 'Settings', 'Dashboard', 'Logs', 'Analytics', 'About']) {
     const parent = nav.getByRole('button', { name, exact: true })
     await parent.click()
     await expect(page.getByRole('heading', { name, exact: true, level: 1 })).toBeVisible()
     await expect(parent).toHaveAttribute('aria-current', 'page')
-    const hasChildren = ['Commands', 'AI', 'Settings'].includes(name)
+    const hasChildren = ['Commands', 'AI', 'Settings', 'Analytics'].includes(name)
     await expect(nav.locator('.sidebar-subnav:visible')).toHaveCount(hasChildren ? 1 : 0)
     await expect(nav.locator('button[aria-expanded="true"]')).toHaveCount(hasChildren ? 1 : 0)
     if (hasChildren) {
