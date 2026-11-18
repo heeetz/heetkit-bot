@@ -257,6 +257,9 @@ def test_quick_gate_and_workload_wiring():
     assert "ci_checks.py browser" in frontend and "ci_checks.py frontend-output" in frontend
     steps = {step["id"]: step for step in jobs["frontend"]["steps"] if "id" in step}
     assert steps["browser_tests"]["env"]["BROWSER_FILES"] == "${{ needs.plan.outputs.browser_files }}"
+    input_python = next(step for step in jobs["inputs"]["steps"] if step.get("uses", "").startswith("actions/setup-python@"))
+    assert input_python["with"]["cache"] == "pip"
+    assert input_python["with"]["cache-dependency-path"] == ".github/workflows/quick.yml"
     tests = next(step for step in jobs["inputs"]["steps"] if step.get("id") == "pytest")
     assert tests["if"] == "needs.plan.outputs.orchestration == 'true'"
     assert "tests/test_ci_workflows.py tests/test_release_publication.py tests/test_release_evidence.py" in tests["run"]

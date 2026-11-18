@@ -422,8 +422,9 @@ test('identity changes explain restart before saving and do not reconnect', asyn
 for (const connection of ['stopped', 'connected']) {
   test(`configured Dashboard ${connection} fits the default window with three small panels`, async ({ page }) => {
     await page.setViewportSize({ width: 1180, height: 760 })
-    await page.goto(`/tests/fixture.html?configured&cachedToken&aiAvailable&connection=${connection}`)
+    await page.goto(`/tests/fixture.html?configured&cachedToken&authorized&aiAvailable&connection=${connection}`)
     await expect(page.locator('.dashboard-card').first().getByRole('heading')).toHaveText(connection === 'connected' ? 'Connected' : 'Stopped')
+    await expect(page.getByRole('article', { name: 'Setup checklist' })).toHaveCount(0)
     const cards = await page.locator('.dashboard-grid > .dashboard-card').all()
     expect(cards).toHaveLength(3)
     const boxes = await Promise.all(cards.map((card) => card.boundingBox()))

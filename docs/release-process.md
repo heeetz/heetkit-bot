@@ -206,8 +206,9 @@ JUnit XML and Playwright failure traces and screenshots, retained for seven days
 The upload paths are limited to synthetic test reports and attachments. The summaries
 also show observed job and check durations for the current attempt.
 
-Only pip/npm dependency downloads are cached, keyed to
-`packaging/windows/requirements.txt` and `frontend/package-lock.json` respectively.
+CI caches pip and npm downloads. Windows pip caches use the bootstrap and runtime
+requirements files, Quick's input job keys its pip cache to the workflow's pinned
+validator versions, and npm uses `frontend/package-lock.json`.
 Each selected job installs only its required tools in a clean environment; frontend
 jobs run `npm ci` once;
 virtual environments, `node_modules`, build trees, release artifacts and profiles are

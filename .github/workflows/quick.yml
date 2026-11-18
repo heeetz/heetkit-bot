@@ -181,6 +181,9 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.14.7'
+          cache: pip
+          # The lightweight tool versions are pinned in this workflow.
+          cache-dependency-path: .github/workflows/quick.yml
       - name: Install lightweight input validators
         run: python -m pip install --disable-pip-version-check PyYAML==6.0.3 packaging==26.3
       - name: 'Inputs: workflow metadata and curated release notes'
