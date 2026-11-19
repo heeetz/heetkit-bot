@@ -99,7 +99,7 @@ FRONTEND_OPERATIONS = (
     "prepare_desktop_update", "get_desktop_update_progress", "finish_desktop_update", "restart_desktop",
     "get_announcements", "save_announcements",
     "get_message_triggers", "save_message_triggers",
-    "get_analytics", "configure_analytics", "reset_analytics", "get_ai_balance", "get_leaderboards", "save_leaderboard_settings",
+    "get_analytics", "configure_analytics", "configure_leaderboard_counting", "reset_analytics", "get_ai_balance", "get_leaderboards", "save_leaderboard_settings",
     "get_ai_memory_limits", "save_ai_memory_limits",
     "get_filters", "get_ai_status", "get_personalities", "get_recent_logs",
     "start_ai_playground", "get_ai_playground_result", "cancel_ai_playground",
@@ -932,6 +932,9 @@ class WebUIBridge(ApplicationManagement):
 
     def configure_analytics(self, enabled: bool) -> dict[str, object]:
         return self._analytics_operation(self._configure_analytics(enabled), "configure_analytics")
+
+    def configure_leaderboard_counting(self, enabled: bool) -> dict[str, object]:
+        return self._analytics_operation(self._configure_leaderboard_counting(enabled), "configure_leaderboard_counting")
 
     def reset_analytics(self, confirmed: bool) -> dict[str, object]:
         return self._analytics_operation(self._reset_analytics(confirmed), "reset_analytics")

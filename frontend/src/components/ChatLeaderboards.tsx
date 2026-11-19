@@ -76,7 +76,7 @@ function LeaderboardExclusions({ data, onSave }: { data: LeaderboardSnapshot | n
   </form>
 }
 
-export default function ChatLeaderboards({ channel }: { channel?: string | null }) {
+export default function ChatLeaderboards({ channel, countingEnabled }: { channel?: string | null; countingEnabled?: boolean }) {
   const [data, setData] = useState<LeaderboardSnapshot | null>(null)
   const [unavailable, setUnavailable] = useState(false)
   const [refresh, setRefresh] = useState(0)
@@ -108,9 +108,12 @@ export default function ChatLeaderboards({ channel }: { channel?: string | null 
   const stream = data?.stream
   const date = stream ? new Date(stream.started_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }) : null
   const streamDetail = date ? `${stream?.ends_at ? 'Last broadcast' : 'Broadcast'} · ${date}` : 'No confirmed broadcast'
-  const baseState = unavailable ? 'Temporarily unavailable' : channel === null ? 'Choose a Twitch channel' : !data ? 'Loading' :
-    data.connected ? 'Collecting' : 'Disconnected'
-  const streamState = !data?.connected || unavailable ? baseState : data.stream_status === 'live' ? 'Collecting' :
+  const unavailableState = unavailable ? 'Temporarily unavailable' : channel === null ? 'Choose a Twitch channel' : !data ? 'Loading' : ''
+  const pausedState = countingEnabled === false
+    ? unavailableState ? `Counting paused · ${unavailableState}` : 'Counting paused'
+    : ''
+  const baseState = pausedState || unavailableState || (data?.connected ? 'Collecting' : 'Disconnected')
+  const streamState = pausedState || unavailableState || !data?.connected ? baseState : data.stream_status === 'live' ? 'Collecting' :
     data.stream_status === 'offline' ? 'Offline' : 'Stream status unknown'
 
   return <section id="analytics-chatters" className="leaderboard-section" aria-label="Chat leaderboards">

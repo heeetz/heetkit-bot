@@ -133,6 +133,7 @@ async def test_analytics_private_scoped_windows_controls_and_memory_limits(api):
     app = server.runtime.application
     collector = app.services.analytics
     for path, payload in (("/v1/analytics/query", {"days": 7}), ("/v1/analytics/configure", {"enabled": False}),
+                          ("/v1/leaderboards/configure", {"enabled": False}),
                           ("/v1/analytics/reset", {"confirmed": True}), ("/v1/ai/memory/limits", {"stored": 10, "context": 2}),
                           ("/v1/ai/balance", {"provider": "deepseek", "refresh": True})):
         assert (await call("POST", path, json=payload, headers={"Authorization": ""}))[0] == 401
@@ -152,6 +153,7 @@ async def test_analytics_private_scoped_windows_controls_and_memory_limits(api):
         assert "ai.attempts" not in result["totals"]
         assert result["retained_users"] == 0 and result["channel_id"] == "200"
         assert not result["connected"] and "data_start" in result["metadata"]
+        assert result["count_chat_messages"] is True
     for payload in ({"days": True}, {"days": 2}, {"days": "7"}, {"channel_id": "201"}, {"days": 7, "extra": 1}):
         assert (await call("POST", "/v1/analytics/query", json=payload))[0] == 400
     for stored, context in ((0, 1), (501, 1), (10, 51), (5, 6), (True, 1), (10, "2")):
@@ -160,12 +162,27 @@ async def test_analytics_private_scoped_windows_controls_and_memory_limits(api):
     assert (await call("GET", "/v1/ai/memory/limits"))[1] == {"ok": True, "stored": 10, "context": 2}
     saved = AppSettingsStore(RuntimePaths.default().app_settings).snapshot().ai
     assert (saved.history_max_entries, saved.context_max_entries) == (10, 2)
+    assert (await call("POST", "/v1/leaderboards/configure", json={"enabled": False}))[1]["ok"]
+    paused = (await call("POST", "/v1/analytics/query", json={}))[1]
+    assert paused["enabled"] and not paused["count_chat_messages"]
     assert (await call("POST", "/v1/analytics/configure", json={"enabled": False}))[1]["ok"]
     assert not (await call("POST", "/v1/analytics/query", json={}))[1]["enabled"]
+    both_paused = (await call("POST", "/v1/analytics/query", json={}))[1]
+    assert not both_paused["enabled"] and not both_paused["count_chat_messages"]
+    assert (await call("POST", "/v1/leaderboards/configure", json={"enabled": True}))[1]["ok"]
+    resumed = (await call("POST", "/v1/analytics/query", json={}))[1]
+    assert not resumed["enabled"] and resumed["count_chat_messages"]
+    assert (await call("POST", "/v1/analytics/configure", json={"enabled": True}))[1]["ok"]
+    both_enabled = (await call("POST", "/v1/analytics/query", json={}))[1]
+    assert both_enabled["enabled"] and both_enabled["count_chat_messages"]
     assert (await call("POST", "/v1/analytics/reset", json={"confirmed": False}))[0] == 400
     assert (await call("POST", "/v1/analytics/reset", json={"confirmed": True}))[1]["ok"]
     assert (await call("POST", "/v1/analytics/query", json={}))[1]["totals"] == {}
     assert (await collector.snapshot("playground"))["rows"] == []
+    assert (await call("POST", "/v1/leaderboards/configure", json={"enabled": "false"}))[0] == 400
+    assert (await call("POST", "/v1/leaderboards/configure", json={"enabled": False}))[1]["ok"]
+    assert (await call("POST", "/v1/analytics/reset", json={"confirmed": True}))[1]["ok"]
+    assert not (await call("POST", "/v1/analytics/query", json={}))[1]["count_chat_messages"]
     assert (await call("POST", "/v1/analytics/configure", json={"enabled": "false"}))[0] == 400
     assert (await call("POST", "/v1/analytics/configure", json={"enabled": True}))[1]["ok"]
     app.services.users.retained_count = AsyncMock(side_effect=OSError("private path"))

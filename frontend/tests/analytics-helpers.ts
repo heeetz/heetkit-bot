@@ -2,15 +2,19 @@ import { expect, type Page } from '@playwright/test'
 
 export async function mockAnalytics(page: Page, desktop = false) {
   let enabled = true, empty = false, fail = false, unavailable = false, balanceState = 'available'
-  let inventoryChanged = false
+  let inventoryChanged = false, counting = true
   let limits = { stored: 100, context: 5 }
   const calls: { path: string; body: Record<string, unknown> }[] = []
-  await page.route(/\/(v1|synthetic-analytics)\/(analytics\/|ai\/balance|ai\/memory\/limits)/, async (route) => {
+  await page.route(/\/(v1|synthetic-analytics)\/(analytics\/|leaderboards\/configure|ai\/balance|ai\/memory\/limits)/, async (route) => {
     const path = new URL(route.request().url()).pathname.replace('/synthetic-analytics/', '/v1/')
     const body = route.request().postDataJSON() || {}
     calls.push({ path, body })
     if (fail && path.endsWith('/query')) return route.abort('connectionrefused')
-    if (path.endsWith('/configure')) enabled = body.enabled
+    if (path === '/v1/analytics/configure') enabled = body.enabled
+    if (path === '/v1/leaderboards/configure') {
+      counting = body.enabled
+      return route.fulfill({ json: { ok: true } })
+    }
     if (path.endsWith('/reset')) empty = true
     if (path.endsWith('/limits')) {
       if (route.request().method() === 'POST') limits = body
@@ -21,7 +25,7 @@ export async function mockAnalytics(page: Page, desktop = false) {
     const metrics = empty ? {} : { 'command.attempts': 8, 'command.success': 2, 'command.error': 1, 'command.skipped': 5,
       'ai.requests': 2, 'ai.attempts': 3, 'ai.input_tokens': 100, 'ai.output_tokens': 20, 'ai.usage_unknown': 1, 'ai.price_missing': 1, 'ai.estimate_incomplete': 1, 'ai.estimated_usd': 0.001 }
     return route.fulfill({ json: { ok: true, days: body.days || 7, start: '2026-10-24', end: '2026-10-30', as_of: '2026-10-30T12:30:00Z', resolution: body.days === 1 ? 'hour' : 'day', channel_id: unavailable ? null : '200',
-      connected: false, retained_users: unavailable ? null : 42, enabled, available: !unavailable, pending: 2, dropped: 1, write_failures: 0,
+      connected: false, retained_users: unavailable ? null : 42, enabled, count_chat_messages: counting, available: !unavailable, pending: 2, dropped: 1, write_failures: 0,
       metadata: { data_start: '2026-10-28T12:00:00Z' }, price_checked: '2026-10-30', price_basis: 'known subtotal', totals: metrics,
       series: body.days === 1 ? Array.from({ length: 24 }, (_, hour) => ({ day: `2026-10-30T${String(hour).padStart(2, '0')}:00:00+00:00`, metrics: hour === 10 ? { ...metrics, 'users.new': 2 } : hour === 11 ? { 'connection.seconds': 3600 } : {}, coverage_seconds: hour === 10 || hour === 11 ? 3600 : 0, new_users_coverage_seconds: hour === 10 || hour === 11 ? 3600 : 0 })) : [{ day: '2026-10-24', metrics: {}, coverage_seconds: 0, new_users_coverage_seconds: 0 }, { day: '2026-10-30', metrics, coverage_seconds: 1800, new_users_coverage_seconds: 1800 }],
       commands: [...Array.from({ length: 15 }, (_, i) => ({
@@ -40,6 +44,7 @@ export async function mockAnalytics(page: Page, desktop = false) {
       get_app_status: async () => ({ ...await appStatus(), leaderboard_channel_id: null }),
       get_analytics: (days: number) => request('analytics/query', { days }),
       configure_analytics: (enabled: boolean) => request('analytics/configure', { enabled }),
+      configure_leaderboard_counting: (enabled: boolean) => request('leaderboards/configure', { enabled }),
       reset_analytics: (confirmed: boolean) => request('analytics/reset', { confirmed }),
       get_ai_balance: (provider: string, refresh: boolean) => request('ai/balance', { provider, refresh }),
       get_ai_memory_limits: () => request('ai/memory/limits'),
@@ -116,28 +121,34 @@ export async function analyticsFlow(page: Page, mock: Awaited<ReturnType<typeof 
   await expect(commands.locator('tbody tr').last()).toHaveText('!new-command0000')
   const coverage = page.locator('.analytics-coverage')
   const details = coverage.locator('details')
+  const collect = coverage.getByRole('checkbox', { name: 'Collect analytics' })
+  const countMessages = coverage.getByRole('checkbox', { name: 'Count chat messages' })
+  const reset = coverage.getByRole('button', { name: 'Reset all profile analytics', exact: true })
   await expect(details).not.toHaveAttribute('open', '')
-  await expect(coverage.getByText('Enabled', { exact: true })).toBeVisible()
+  await expect(collect).toBeChecked()
+  await expect(countMessages).toBeChecked()
   await expect(coverage.getByText('Data since:', { exact: false })).toBeVisible()
   await expect(coverage.getByText('Partial coverage', { exact: true })).toBeVisible()
   await expect(coverage.getByText(/Possible data loss/)).toBeVisible()
-  await expect(coverage.getByRole('heading', { name: 'Data management' })).toBeVisible()
-  const zones = await coverage.locator('.analytics-coverage-zones > section').evaluateAll((items) => items.map((el) => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width } }))
+  await expect(reset).toBeVisible()
+  const groups = await coverage.locator('.analytics-coverage-zones > *').evaluateAll((items) => items.map((el) => {
+    const r = el.getBoundingClientRect()
+    return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }
+  }))
   if (width >= 1280) {
-    expect(zones.map((zone) => zone.y)).toEqual([zones[0].y, zones[0].y, zones[0].y])
-    expect(zones[1].width / zones[0].width).toBeCloseTo(2, 1)
-    const button = (await coverage.getByRole('button', { name: 'Reset all profile analytics', exact: true }).boundingBox())!
-    expect(Math.abs(button.x + button.width - zones[2].x - zones[2].width)).toBeLessThan(2)
+    expect(groups[0].right).toBeLessThan(groups[1].left)
+    expect(groups[1].right).toBeLessThan(groups[2].left)
+    expect(groups[2].top).toBeLessThan(groups[1].bottom)
   } else {
-    expect(zones[0].y).toBeLessThan(zones[1].y)
-    expect(zones[1].y).toBeLessThan(zones[2].y)
+    expect(groups[0].bottom).toBeLessThan(groups[1].top)
+    expect(groups[1].bottom).toBeLessThan(groups[2].top)
   }
   await coverage.getByText('Collection details', { exact: true }).click()
   await expect(details.getByText('Pending updates', { exact: true })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await details.screenshot({ path: `node_modules/.tmp/analytics-details-${host}-${width}.png` })
   await coverage.getByText('Collection details', { exact: true }).click()
-  await expect(page.getByText(/Disconnected —/)).toBeVisible()
+  await expect(coverage.getByText('Disconnected · Coverage gap', { exact: true })).toBeVisible()
   await expect(page.getByText(/Incomplete — unknown usage/)).toBeVisible()
   const windowSelect = page.getByLabel('UTC window', { exact: true })
   for (const [label, value] of [['Today', 1], ['60 days', 60], ['7 days', 7]] as const) {
@@ -166,8 +177,22 @@ export async function analyticsFlow(page: Page, mock: Awaited<ReturnType<typeof 
   await page.getByRole('button', { name: 'Help: Newly observed users', exact: true }).click()
   await expect(page.getByText(/A viewer can count again/)).toBeVisible()
   await page.keyboard.press('Escape')
-  await page.getByRole('checkbox', { name: 'Collect analytics' }).press('Space')
-  await expect(page.locator('.analytics-collection').getByText('Paused', { exact: true })).toBeVisible()
+  await collect.press('Space')
+  await expect(collect).not.toBeChecked()
+  await expect(countMessages).toBeChecked()
+  await expect(coverage.getByText(/Collection paused/)).toBeVisible()
+  await countMessages.press('Space')
+  await expect(countMessages).not.toBeChecked()
+  await expect(collect).not.toBeChecked()
+  await collect.press('Space')
+  await expect(collect).toBeChecked()
+  await expect(countMessages).not.toBeChecked()
+  await countMessages.press('Space')
+  await expect(countMessages).toBeChecked()
+  await expect(collect).toBeChecked()
+  expect(mock.calls.filter((call) => call.path === '/v1/leaderboards/configure').map((call) => call.body)).toEqual([
+    { enabled: false }, { enabled: true },
+  ])
   await page.getByRole('button', { name: 'Refresh balance', exact: true }).click()
   await expect(page.getByText('USD 12.34', { exact: true })).toBeVisible()
   mock.setBalance('stale'); await page.getByRole('button', { name: 'Refresh balance', exact: true }).click()

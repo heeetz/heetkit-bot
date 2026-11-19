@@ -187,7 +187,7 @@ export default function AnalyticsPage({ leaderboardChannel }: { leaderboardChann
       <article className="card analytics-summary"><div className="ai-state-heading"><h2>AI usage</h2><HelpTip label="AI usage">{value('ai.attempts')} provider attempts. {value('ai.usage_unknown')} attempts with unknown/incomplete usage. Token subsets are not added twice. Spend remains available in the trend and provider breakdown; rates checked {data?.price_checked || 'unavailable'}. Playground is excluded.</HelpTip></div><strong className="analytics-primary">{value('ai.requests')} requests</strong><p>{!hasObservations || (total('ai.attempts') > 0 && !('ai.input_tokens' in totals)) ? 'Unknown' : count(total('ai.input_tokens'))} input / {!hasObservations || (total('ai.attempts') > 0 && !('ai.output_tokens' in totals)) ? 'Unknown' : count(total('ai.output_tokens'))} output tokens reported</p>{incomplete && <p className="muted">Incomplete — unknown usage, pricing or extra charges.</p>}</article>
       {balanceCard}
     </div>
-    <ChatLeaderboards key={leaderboardChannel ?? ''} channel={leaderboardChannel} />
+    <ChatLeaderboards key={leaderboardChannel ?? ''} channel={leaderboardChannel} countingEnabled={data?.count_chat_messages} />
     {data && <>
       {Object.keys(totals).length === 0 && <p role="status">No observed activity in this window. Missing coverage can also produce an empty window.</p>}
       <div className="analytics-breakdowns" id="analytics-breakdown">
@@ -195,16 +195,24 @@ export default function AnalyticsPage({ leaderboardChannel }: { leaderboardChann
         <article className="card"><div className="ai-state-heading"><h2>Providers / models</h2><HelpTip label="Provider costs">Known USD subtotals are dated estimates, not invoices. Unknown usage, missing prices and extra charges can make them incomplete. Rates checked {data.price_checked}.</HelpTip></div><div className="analytics-table" tabIndex={0} role="region" aria-label="Providers and models"><table><thead><tr><th>Provider / model</th><th>Attempts</th><th>Errors</th><th>Known USD</th><th>Unknown usage / pricing</th></tr></thead><tbody>{data.providers.map((row) => <tr key={row.name}><th>{row.name}</th><td>{count(row.metrics['ai.attempts'])}</td><td>{count(row.metrics['ai.errors'])}</td><td>{'ai.estimated_usd' in row.metrics ? money(row.metrics['ai.estimated_usd']) : 'Unknown'}</td><td>{count(row.metrics['ai.usage_unknown'])} / {count(row.metrics['ai.price_missing'])}</td></tr>)}</tbody></table></div>{!data.providers.length && <p>No provider observations.</p>}</article>
       </div>
       <article className="card analytics-coverage" id="analytics-collection">
-        <div className="ai-state-heading"><h2>Collection & coverage</h2><HelpTip label="Analytics coverage">Private observed aggregates for the configured channel. Opt-outs, downtime, paused collection and buffered crash losses are omitted. No historical chat is reconstructed. Reset clears every channel and Playground in this profile, including pending updates.</HelpTip></div>
+        <div className="ai-state-heading"><h2>Collection & coverage</h2><HelpTip label="Analytics coverage">The switches save immediately. Collect analytics controls aggregate activity. Count chat messages controls stream and monthly tops and keeps confirmed counts when paused. Coverage reflects observed aggregates for the configured channel. Reset clears aggregates for every channel and Playground in this profile, including pending updates.</HelpTip></div>
         <div className="analytics-coverage-zones">
-          <section className="analytics-collection" aria-label="Collection"><h3>Collection</h3><Switch checked={data.enabled} disabled={busy} ariaLabel="Collect analytics" onCheckedChange={(enabled) => void action(async () => (await waitForBridge()).configure_analytics(enabled))}><span>Collect analytics</span></Switch><p className="muted">{data.enabled ? 'Enabled' : 'Paused'}</p></section>
-          <section className="analytics-coverage-summary" aria-label="Coverage"><h3>Coverage</h3><p>{data.start} – {data.end} UTC</p><p className="muted">Data since: {time(data.metadata.data_start)}</p><p><strong>{!data.available || !data.channel_id ? 'Coverage unavailable' : partial ? 'Partial coverage' : 'Observed coverage'}</strong></p>{!data.enabled ? <p>Collection is paused; paused periods are missing.</p> : partial ? <p>Some of this range has no observation coverage.</p> : <p className="muted">Today is in progress.</p>}</section>
-          <section className="analytics-operations" aria-label="Data management"><h3>Data management</h3><button className="danger" disabled={busy} onClick={() => setReset(true)}>Reset all profile analytics</button></section>
+          <div className="analytics-collection" role="group" aria-label="Collection">
+            <Switch checked={data.enabled} disabled={busy} ariaLabel="Collect analytics" onCheckedChange={(enabled) => void action(async () => (await waitForBridge()).configure_analytics(enabled))}>Collect analytics</Switch>
+            <Switch checked={data.count_chat_messages} disabled={busy} ariaLabel="Count chat messages" onCheckedChange={(enabled) => void action(async () => (await waitForBridge()).configure_leaderboard_counting(enabled))}>Count chat messages</Switch>
+          </div>
+          <section className="analytics-coverage-summary" aria-label="Coverage">
+            <h3>Coverage</h3>
+            <p>{!data.available || !data.channel_id ? 'Coverage unavailable' : partial ? 'Partial coverage' : 'Observed coverage'}{!data.enabled && ' · Collection paused'}</p>
+            <p className="muted">{data.start} – {data.end} UTC</p>
+            <p className="muted">Data since: {time(data.metadata.data_start)}</p>
+          </section>
+          <button className="danger analytics-reset" disabled={busy} onClick={() => setReset(true)}>Reset all profile analytics</button>
         </div>
         <div className="analytics-coverage-status">
           {!data.available && <p role="alert" className="inline-error">Analytics storage unavailable. Displayed values may be incomplete.</p>}
           {!data.channel_id && <p role="status">No configured channel ID. Channel analytics and retained-user coverage are unavailable.</p>}
-          {!data.connected && <p>Disconnected — activity while disconnected is missing.</p>}
+          {!data.connected && <p className="muted">Disconnected · Coverage gap</p>}
           {(data.dropped > 0 || data.write_failures > 0 || Number(data.metadata.unclean_starts) > 0) && <p role="alert" className="inline-error">Possible data loss · {data.dropped} dropped updates · {data.write_failures} write failures · {data.metadata.unclean_starts || '0'} unclean starts</p>}
         </div>
         <details className="analytics-collection-details"><summary>Collection details</summary><dl>

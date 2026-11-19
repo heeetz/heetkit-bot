@@ -172,6 +172,7 @@ class ApplicationManagement:
                 "as_of": now.isoformat(), "channel_id": channel,
                 "connected": bool(app.services.twitch.chat_connected),
                 "retained_users": retained, "totals": totals,
+                "count_chat_messages": bool(app.services.twitch.leaderboards.counting_enabled),
                 "series": [{"day": day, **values} for day, values in series.items()],
                 "commands": command_rows,
                 "providers": [{"name": name, "metrics": values} for name, values in sorted(providers.items())],
@@ -179,6 +180,10 @@ class ApplicationManagement:
 
     async def _configure_analytics(self, enabled: bool) -> dict[str, object]:
         await self._backend.application.services.analytics.configure(enabled)
+        return {"ok": True}
+
+    async def _configure_leaderboard_counting(self, enabled: bool) -> dict[str, object]:
+        await self._backend.application.services.twitch.leaderboards.configure_counting(enabled)
         return {"ok": True}
 
     def _leaderboard_channel(self):

@@ -151,6 +151,7 @@ export const browserApi: PythonApi = {
   get_leaderboards: () => write('/v1/leaderboards/query', {}),
   save_leaderboard_settings: (channel_id, exclusions) => write('/v1/leaderboards/settings', { channel_id, exclusions }),
   configure_analytics: (enabled) => write('/v1/analytics/configure', { enabled }),
+  configure_leaderboard_counting: (enabled) => write('/v1/leaderboards/configure', { enabled }),
   reset_analytics: (confirmed) => write('/v1/analytics/reset', { confirmed }),
   get_ai_balance: (provider, refresh = false) => write('/v1/ai/balance', { provider, refresh }),
   get_ai_memory_limits: () => read('/v1/ai/memory/limits'),

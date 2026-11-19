@@ -195,6 +195,7 @@ WRITES = {
     "/v1/analytics/query": "_get_analytics",
     "/v1/leaderboards/query": "_get_leaderboards",
     "/v1/leaderboards/settings": "_save_leaderboard_settings",
+    "/v1/leaderboards/configure": "_configure_leaderboard_counting",
     "/v1/analytics/configure": "_configure_analytics",
     "/v1/analytics/reset": "_reset_analytics",
     "/v1/ai/balance": "_get_ai_balance",

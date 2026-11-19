@@ -60,6 +60,9 @@ def test_analytics_and_memory_desktop_adapters_share_backend_operations(tmp_path
     from app.analytics import Analytics
     from app.config.privacy import validate_memory_limits
     from app.config.profile_settings import apply_ai_app_settings
+    from app.database.database import Database
+    from app.database.repository import UserRepository
+    from app.leaderboards import Leaderboards
     store = AppSettingsStore(tmp_path / "settings.json")
     settings = Settings()
     settings = apply_ai_app_settings(settings, store.snapshot())
@@ -69,6 +72,10 @@ def test_analytics_and_memory_desktop_adapters_share_backend_operations(tmp_path
         validate_memory_limits(stored, context)
         persist()
 
+    database = Database("sqlite+aiosqlite:///:memory:")
+    twitch = SimpleNamespace(chat_connected=False, leaderboard_connection=lambda: (None, None))
+    twitch.leaderboards = Leaderboards(UserRepository(database.session_factory), twitch, settings)
+
     app = SimpleNamespace(settings=settings, ai_balance=None,
         registry=SimpleNamespace(definitions=lambda: [SimpleNamespace(name="ping")]),
         custom_commands=SimpleNamespace(list=lambda: []),
@@ -76,10 +83,11 @@ def test_analytics_and_memory_desktop_adapters_share_backend_operations(tmp_path
             runtime_state=SimpleNamespace(command_namespace_lock=threading.RLock(),
                 get_command_settings=lambda name: SimpleNamespace(primary_name=name)),
             analytics=collector, users=SimpleNamespace(retained_count=AsyncMock(return_value=9)),
-            twitch=SimpleNamespace(chat_connected=False)))
+            twitch=twitch))
     bridge = WebUIBridge(SimpleNamespace(application=app, submit=complete_bridge_coroutine), app_settings=store)
-    assert {"get_analytics", "configure_analytics", "reset_analytics", "get_ai_balance", "get_ai_memory_limits", "save_ai_memory_limits"} <= set(FRONTEND_OPERATIONS)
+    assert {"get_analytics", "configure_analytics", "configure_leaderboard_counting", "reset_analytics", "get_ai_balance", "get_ai_memory_limits", "save_ai_memory_limits"} <= set(FRONTEND_OPERATIONS)
     asyncio.run(asyncio.to_thread(collector._initialize))
+    asyncio.run(database.initialize())
     try:
         assert bridge.get_ai_memory_limits() == {"ok": True, "stored": 100, "context": 5}
         assert bridge.save_ai_memory_limits(3, 2)["ok"]
@@ -92,15 +100,20 @@ def test_analytics_and_memory_desktop_adapters_share_backend_operations(tmp_path
         assert result["ok"] and len(result["series"]) == 7
         assert result["retained_users"] is None and result["channel_id"] is None
         assert result["commands"] == [{"name": "ping", "label": settings.command_prefix + "ping", "metrics": {}}]
+        assert result["count_chat_messages"] is True
         hourly = bridge.get_analytics(1)
         assert hourly["resolution"] == "hour" and len(hourly["series"]) == 24
         assert bridge.configure_analytics(False)["ok"]
         assert not bridge.configure_analytics("false")["ok"]
+        assert bridge.configure_leaderboard_counting(False)["ok"]
+        assert bridge.get_analytics(7)["count_chat_messages"] is False
+        assert bridge.configure_leaderboard_counting("false")["ok"] is False
         assert not bridge.reset_analytics(False)["ok"]
         assert bridge.reset_analytics(True)["ok"]
         assert bridge.get_ai_balance("gemini")["state"] == "unavailable"
         assert bridge.get_ai_balance("deepseek")["state"] == "unavailable"
     finally:
+        asyncio.run(database.close())
         asyncio.run(collector.close())
 
 

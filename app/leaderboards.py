@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import logging
 
-from sqlalchemy import and_, delete, func, literal, select
+from sqlalchemy import and_, delete, func, literal, select, text, update
 from sqlalchemy.dialects.sqlite import insert
 
 from app.ai_user_blocks import normalize_ai_username
@@ -38,15 +38,25 @@ class Leaderboards:
         self._coverage_from = None
         self._stream_id = None
         self._stream_from = None
+        self._counting_enabled = True
+        self._collection_epoch = 0
         self.stream_status = "unknown"
+
+    @property
+    def counting_enabled(self):
+        return self._counting_enabled
 
     async def start(self):
         if self._worker is not None:
             return
         # A process exit cannot confirm the unclosed polling interval.
         async with self.users.policy.lock, self.sessions() as session:
+            saved = await session.scalar(text(
+                "SELECT value FROM schema_metadata WHERE name = 'leaderboard_counting_enabled'"))
             await session.execute(delete(Count).where(Count.kind == "pending"))
             await session.commit()
+            self._counting_enabled = saved != "0"
+            self.connection_changed()
         self._worker = asyncio.create_task(self._monitor(), name="heetkit-leaderboards")
 
     async def close(self):
@@ -56,33 +66,61 @@ class Leaderboards:
             self._worker = None
 
     def connection_changed(self):
+        self._collection_epoch += 1
         self._session = None
-        self._coverage_from = self.clock() if self.twitch.leaderboard_connection()[1] is not None else None
+        self._coverage_from = (
+            self.clock() if self.counting_enabled and self.twitch.leaderboard_connection()[1] is not None else None
+        )
         self._stream_id = self._stream_from = None
         self.stream_status = "unknown"
         self._changed.set()
+
+    async def configure_counting(self, enabled: bool):
+        if type(enabled) is not bool:
+            raise ValueError("Count chat messages must be a boolean.")
+        async with self.users.policy.lock, self.sessions() as session:
+            if enabled == self.counting_enabled:
+                return
+            await session.execute(text(
+                "INSERT INTO schema_metadata (name, value) VALUES ('leaderboard_counting_enabled', :value) "
+                "ON CONFLICT(name) DO UPDATE SET value = excluded.value"), {"value": "1" if enabled else "0"})
+            if not enabled:
+                now = self.clock()
+                await session.execute(update(Period).where(
+                    (Period.ends_at > now) | Period.ends_at.is_(None)).values(partial=1))
+                # The polling interval is unconfirmed once collection stops.
+                await session.execute(delete(Count).where(Count.kind == "pending"))
+            await session.commit()
+            self._counting_enabled = enabled
+            self.connection_changed()
 
     async def _monitor(self):
         while True:
             self._changed.clear()
             channel, chat_session = self.twitch.leaderboard_connection()
-            if chat_session is None:
+            if not self.counting_enabled or chat_session is None:
                 await self._changed.wait()
                 continue
+            epoch = self._collection_epoch
             try:
                 async with asyncio.timeout(POLL_TIMEOUT):
                     stream = await self.twitch.fetch_connected_broadcast(channel, chat_session)
+                if epoch != self._collection_epoch:
+                    continue
                 if stream is not None and (not isinstance(stream.id, str) or not stream.id
                                            or not isinstance(stream.started_at, datetime) or stream.started_at.tzinfo is None
                                            or stream.started_at > self.clock()):
                     raise ValueError("Invalid broadcast observation")
                 await self._observe(channel, chat_session, stream)
             except Exception:
-                self.stream_status = "unknown"
+                if epoch != self._collection_epoch:
+                    continue
                 try:
                     await self._observe(channel, chat_session, None, failed=True)
                 except Exception:
-                    self._session = self._stream_id = self._stream_from = None
+                    if epoch == self._collection_epoch:
+                        self._session = self._stream_id = self._stream_from = None
+                        self.stream_status = "unknown"
                     logger.warning("Could not record leaderboard coverage")
             try:
                 await asyncio.wait_for(self._changed.wait(), POLL_SECONDS)
@@ -90,8 +128,10 @@ class Leaderboards:
                 pass
 
     async def _observe(self, channel, chat_session, stream, *, failed=False):
+        epoch = self._collection_epoch
         async with self.users.policy.lock, self.sessions() as session:
-            if self.twitch.leaderboard_connection() != (channel, chat_session):
+            if (not self.counting_enabled or epoch != self._collection_epoch
+                    or self.twitch.leaderboard_connection() != (channel, chat_session)):
                 return
             now = self.clock()
             month = await self._month(session, channel, now)
@@ -129,7 +169,7 @@ class Leaderboards:
             if previous is not None and not failed:
                 previous.ends_at = None if broadcast else previous.ends_at or now
             await session.commit()
-            if self.twitch.leaderboard_connection() != (channel, chat_session):
+            if epoch != self._collection_epoch or self.twitch.leaderboard_connection() != (channel, chat_session):
                 return
             self._session = chat_session
             self._stream_id = broadcast
@@ -139,6 +179,8 @@ class Leaderboards:
     async def _month(self, session, channel, now):
         period = await session.get(Period, (channel, "month"))
         if period is None or now >= period.ends_at:
+            if not self.counting_enabled:
+                return None
             name, start, end = month_window(now)
             connected_channel, chat_session = self.twitch.leaderboard_connection()
             partial = (connected_channel != channel or chat_session is None
@@ -153,6 +195,8 @@ class Leaderboards:
         return period
 
     def capture(self, message):
+        if not self.counting_enabled:
+            return None
         channel, chat_session = self.twitch.leaderboard_connection()
         if (chat_session is None or chat_session is not message.send_session or channel != message.channel_id
                 or self._coverage_from is None or not valid_channel_id(message.author.twitch_user_id)):
@@ -163,9 +207,11 @@ class Leaderboards:
             return None
         stream_id = (self._stream_id if self._session is chat_session and self._stream_from is not None
                      and self._stream_from <= observed_at else None)
+        epoch = self._collection_epoch
 
         async def write(session):
-            if self.twitch.leaderboard_connection() != (channel, chat_session):
+            if (epoch != self._collection_epoch
+                    or self.twitch.leaderboard_connection() != (channel, chat_session)):
                 return
             user, name = message.author.twitch_user_id, message.author.username.casefold()
             configured = await session.get(LeaderboardSettings, channel)

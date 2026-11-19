@@ -340,9 +340,10 @@ POST writes persist and apply immediately unless stated otherwise.
 | POST `twitch/presets/switch` | `preset_id`; explicitly applies the stored target through controlled shutdown and mode reconciliation, retaining bot credentials and OAuth |
 | POST `session` | `{}` with administrator bearer only; returns `token`, `expires_in` (3600 seconds) |
 | POST `ai/playground/start` | `prompt`; starts one isolated test and returns `request_id`, `status: pending`; may consume real provider quota |
-| POST `analytics/query` | `days` = 1, 7, 30 or 60 UTC calendar days (default 7); configured-channel totals, daily series/coverage, command/provider breakdowns, current retained-user snapshot and collection/pricing metadata; Playground excluded |
+| POST `analytics/query` | `days` = 1, 7, 30 or 60 UTC calendar days (default 7); configured-channel totals, daily series/coverage, command/provider breakdowns, current retained-user snapshot, collection/pricing metadata and `count_chat_messages`; Playground excluded |
 | POST `leaderboards/query` | `{}`; returns the active channel’s monthly and current/last stream rankings together, with period, coverage and settings. Uses the configured channel when disconnected. |
 | POST `leaderboards/settings` | `channel_id`, `exclusions` (up to 50 bot logins). The channel must match the current leaderboard view. Monthly rollover uses UTC. |
+| POST `leaderboards/configure` | `enabled` boolean; immediately saves the profile-wide chat message counting setting. Independent of aggregate analytics collection. |
 | POST `analytics/configure` / `analytics/reset` | `enabled` boolean persists collection preference; reset requires `confirmed: true` and clears all profile aggregates including pending updates |
 | GET / POST `ai/memory/limits` | GET returns `stored`, `context`; POST requires integer `stored` 1–500 and `context` 1–50, no greater than stored; shared transactional prune/persist on both hosts |
 | POST `ai/balance` | `provider`, optional boolean `refresh` (default false); optional cached DeepSeek currency balances with `state` and `updated_at`; unsupported/missing connections return unavailable; never returns keys |

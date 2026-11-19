@@ -5,11 +5,13 @@ import logging
 
 import pytest
 
+from app.analytics import Analytics
 from app.command_settings import CommandNameConflict
 from app.commands.leaderboard import register_leaderboard_commands
 from app.commands.registry import CommandDispatcher, CommandRegistry
 from app.config.settings import Settings
 from app.database.database import Database
+from app.database.models import utcnow
 from app.database.repository import UserRepository
 from app.leaderboards import Leaderboards, month_window
 from app.runtime_state import RuntimeState
@@ -228,6 +230,84 @@ async def test_restart_preserves_confirmed_counts_and_discards_the_open_interval
         await restarted.close()
 
 
+async def test_pause_preserves_confirmed_counts_and_invalidates_captured_writes(setup):
+    board, users, now, connect, record = setup
+    active = connect("100")
+    stream = SimpleNamespace(id="broadcast", started_at=now.value)
+    await board._observe("100", active, stream)
+    await record("1", "viewer")
+    await board._observe("100", active, stream)
+    message = IncomingChatMessage("100", "hello", ChatAuthor("1", "viewer"), None, channel_id="100",
+                                  send_session=active, observed_at=now.value)
+    captured = board.capture(message)
+    assert captured is not None
+
+    await board.configure_counting(False)
+    assert board.capture(message) is None
+    await record("1", "viewer")
+    await board._observe("100", active, stream)
+    paused = await board.snapshot("100")
+    for period in ("month", "stream"):
+        assert paused[period]["rows"][0]["messages"] == 1
+        assert paused[period]["partial"]
+
+    await board.configure_counting(True)
+    await users.upsert_seen("1", "viewer", channel_id="100", record_leaderboard=captured)
+    await board._observe("100", active, stream)
+    await record("1", "viewer")
+    await board._observe("100", active, stream)
+    resumed = await board.snapshot("100")
+    for period in ("month", "stream"):
+        assert resumed[period]["rows"][0]["messages"] == 2
+        assert resumed[period]["partial"]
+
+    await board.configure_counting(False)
+    await users.opt_out("1", "viewer")
+    assert (await board.snapshot("100"))["month"]["rows"] == []
+    assert (await board.snapshot("100"))["stream"]["rows"] == []
+
+
+async def test_profile_reopen_keeps_pause_and_exposes_existing_rankings_without_polling(tmp_path, monkeypatch):
+    url = "sqlite+aiosqlite:///" + str(tmp_path / "profile.sqlite3")
+    settings = SimpleNamespace(twitch_bot_user_id="999")
+    for restart in (False, True):
+        database = Database(url)
+        await database.initialize()
+        twitch = TwitchAPIService()
+        users = UserRepository(database.session_factory)
+        board = twitch.leaderboards = Leaderboards(users, twitch, settings)
+        polled = asyncio.Event()
+
+        async def fetch_broadcast(*_):
+            polled.set()
+            return None
+
+        monkeypatch.setattr(twitch, "fetch_connected_broadcast", fetch_broadcast)
+        try:
+            await board.start()
+            assert board.counting_enabled is not restart
+            client = object()
+            twitch.bind(client, "100", "999")
+            twitch.set_chat_ready(client, True)
+            if not restart:
+                await asyncio.wait_for(polled.wait(), timeout=2)
+            message = IncomingChatMessage("100", "hello", ChatAuthor("1", "viewer"), None, channel_id="100",
+                                          send_session=twitch.chat_session(client), observed_at=utcnow())
+            captured = board.capture(message)
+            assert (captured is None) is restart
+            await users.upsert_seen("1", "viewer", channel_id="100", record_leaderboard=captured)
+            assert (await board.monthly("100", user="1"))[0]["messages"] == 1
+            if restart:
+                assert not polled.is_set()
+                await board.configure_counting(True)
+                await asyncio.wait_for(polled.wait(), timeout=2)
+            else:
+                await board.configure_counting(False)
+        finally:
+            await board.close()
+            await database.close()
+
+
 async def test_twitch_ingress_counts_shared_chat_without_sender_echoes_or_replays(setup):
     board, users, now, _, _ = setup
     settings = Settings(_env_file=None, twitch_client_id="synthetic", twitch_client_secret="synthetic",
@@ -240,6 +320,8 @@ async def test_twitch_ingress_counts_shared_chat_without_sender_echoes_or_replay
                                filter_manager=SimpleNamespace(filter_message=lambda text: text != "filtered"))
     bot = TwitchChatBot(settings, settings.primary_account, services, dispatcher, logger)
     board.twitch.set_chat_ready(bot, True)
+    analytics = users.analytics = Analytics(None, clock=lambda: now.value)
+    await analytics.start()
 
     async def send(text):
         return SimpleNamespace(id="correlated-output", sent=True)
@@ -258,8 +340,26 @@ async def test_twitch_ingress_counts_shared_chat_without_sender_echoes_or_replay
         await asyncio.gather(event("shared-copy", "1", source_id="origin"), event("shared-copy", "1", source_id="origin"))
         await event("command", "1", "!unknown")
         await event("filtered", "1", "filtered")
-        assert [(row["nickname"], row["messages"]) for row in await board.monthly("100", limit=10)] == [
-            ("viewer1", 1),
-        ]
+        await analytics.flush()
+        for aggregate_enabled, counting_enabled, message_count, observations in (
+            (True, True, 1, 2), (False, True, 2, 2), (False, False, 2, 2), (True, False, 2, 3),
+        ):
+            await analytics.configure(aggregate_enabled)
+            await board.configure_counting(counting_enabled)
+            if not aggregate_enabled and counting_enabled:
+                await event("count-only", "1")
+            elif not counting_enabled:
+                await event(f"paused-new-viewer-{aggregate_enabled}", "2" if aggregate_enabled else "3")
+            assert await board.monthly("100", limit=10) == [
+                {"place": 1, "nickname": "viewer1", "messages": message_count},
+            ]
+            await analytics.flush()
+            aggregate = await analytics.snapshot("100")
+            assert next(row["value"] for row in aggregate["rows"] if row["metric"] == "users.new") == observations
+        assert await users.retained_count(channel_id="100") == 4
+        await board.configure_counting(True)
+        await event("resumed", "1")
+        assert await board.monthly("100", limit=10) == [{"place": 1, "nickname": "viewer1", "messages": 3}]
     finally:
         await bot.close(save_tokens=False)
+        await analytics.close()

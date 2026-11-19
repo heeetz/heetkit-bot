@@ -133,6 +133,12 @@ immediately. To erase the totals, select **Reset all profile analytics**.
 and Playground in the profile.** Backups need separate review.
 See [daily local aggregates](#daily-local-aggregates) for what HeetKit counts.
 
+**Count chat messages** independently pauses or resumes new leaderboard counts.
+It saves immediately for the profile on Desktop and Server. Existing confirmed
+monthly and broadcast counts remain, subject to their usual rollover, retention
+and privacy rules. Paused messages are not replayed. Collection of aggregate
+analytics and user presence continues according to their own settings.
+
 ## Daily local aggregates
 
 **Analytics** on either host shows Today / 7 / 30 / 60 UTC calendar-day totals

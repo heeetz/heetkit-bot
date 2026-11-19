@@ -582,6 +582,7 @@ export interface AnalyticsResponse extends ActionResult {
   connected: boolean
   retained_users: number | null
   enabled: boolean
+  count_chat_messages: boolean
   available: boolean
   pending: number
   dropped: number
@@ -668,6 +669,7 @@ export interface PythonApi {
   get_leaderboards(): Promise<{ ok: boolean; error?: string; leaderboards?: LeaderboardSnapshot | null }>
   save_leaderboard_settings(channelId: string, exclusions: string[]): Promise<{ ok: boolean; error?: string }>
   configure_analytics(enabled: boolean): Promise<ActionResult>
+  configure_leaderboard_counting(enabled: boolean): Promise<ActionResult>
   reset_analytics(confirmed: boolean): Promise<ActionResult>
   get_ai_balance(provider: string, refresh?: boolean): Promise<AIBalanceResponse>
   get_ai_memory_limits(): Promise<ActionResult & { stored: number; context: number }>
