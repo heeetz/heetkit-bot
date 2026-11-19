@@ -413,12 +413,13 @@ async def test_real_ingress_counts_only_current_eligible_unique_human_events(rig
     from app.twitch.client import TwitchChatBot
 
     r = rig
-    services = SimpleNamespace(twitch=r.twitch, settings=SimpleNamespace(twitch_bot_user_id="100", command_prefix="!"),
+    settings = SimpleNamespace(twitch_bot_user_id="100", command_prefix="!", heetkit_command_diagnostics=False)
+    services = SimpleNamespace(twitch=r.twitch, settings=settings,
         users=SimpleNamespace(upsert_seen=AsyncMock(), is_storage_opted_out=AsyncMock(return_value=True)),
         filter_manager=SimpleNamespace(filter_message=lambda text: text != "filtered"),
         ai_request_policy=SimpleNamespace(check=lambda args: PolicyDecision.IGNORE))
     dispatcher = SimpleNamespace(dispatch=AsyncMock(), is_ai_command=lambda incoming: incoming.content.startswith("!ask"))
-    bot = SimpleNamespace(bot_id="100", _services=services, _dispatcher=dispatcher,
+    bot = SimpleNamespace(bot_id="100", _settings=settings, _services=services, _dispatcher=dispatcher,
         _chat_messages=r.twitch.chat_messages, _logger=logging.getLogger(__name__),
         _closing_requested=False, _diagnostic_id="synthetic-current-client", _connection_event=Mock())
     from types import MethodType
