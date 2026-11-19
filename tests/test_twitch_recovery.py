@@ -261,7 +261,7 @@ async def test_retired_callbacks_cannot_invalidate_new_owner(real_bot):
 async def test_retirement_drains_command_owner_before_releasing_client(real_bot):
     bot = real_bot
     entered, canceled = asyncio.Event(), asyncio.Event()
-    async def handler(message):
+    async def handler(message, receipt):
         entered.set()
         try:
             await asyncio.Event().wait()

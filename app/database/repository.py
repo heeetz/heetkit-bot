@@ -10,6 +10,7 @@ from sqlalchemy import case, delete, exists, func, insert, literal, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.commands.diagnostics import presence_lock_timer
 from app.config.privacy import AI_HISTORY_RETENTION_DAYS, USER_RETENTION_DAYS, validate_memory_limits
 from app.database.models import AIMemoryEntry, LeaderboardCount, PrivacyOptOut, User, utcnow
 from app.database.migrations import maintain_recovery, run_sqlite_work
@@ -162,14 +163,24 @@ class UserRepository:
                 User.last_seen_at > utcnow() - timedelta(days=USER_RETENTION_DAYS), storage_allowed(twitch_user_id)))
 
     async def upsert_seen(self, twitch_user_id: str, username: str, seen_at: datetime | None = None,
-                          *, channel_id: str, record_leaderboard=None) -> User | None:
+                          *, channel_id: str, record_leaderboard=None,
+                          return_user: bool = True) -> User | None:
+        """Record activity and optionally return the resulting presence row.
+
+        Chat ingress does not use the returned row. Skipping its final read
+        shortens the shared persistence lock while preserving the default
+        return contract for other callers.
+        """
         if not valid_channel_id(channel_id):
             return None
         epoch = self.policy.privacy_epochs.get(twitch_user_id, 0)
         analytics = getattr(self, "analytics", None)
         generation = analytics._generation if analytics is not None else None
         current_time = seen_at or utcnow()
+        lock_acquired = presence_lock_timer()
         async with self.policy.lock, self._session_factory() as session:
+            if lock_acquired is not None:
+                lock_acquired()
             if not ticket_current(self.policy, twitch_user_id, epoch):
                 return None
             previous_seen = await session.scalar(select(User.last_seen_at).where(
@@ -205,6 +216,8 @@ class UserRepository:
                         and twitch_user_id not in self._suppressed_ids)
                 except Exception:
                     analytics.dropped += 1
+            if not return_user:
+                return None
             return await session.scalar(select(User).where(User.channel_id == channel_id,
                 User.twitch_user_id == twitch_user_id, storage_allowed(twitch_user_id)))
 

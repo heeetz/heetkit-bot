@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from threading import RLock
 from uuid import uuid4
 
+from app.commands.diagnostics import OBSERVED_EVENTS, observe_command_event
 
 RECENT_LOG_LIMIT = 500
 RECENT_LOG_BYTES = 1024 * 1024
@@ -61,6 +62,8 @@ def event_metadata(kind: str, *, inherit_context: bool = True, **context) -> dic
     values = {**(_operator_context.get() if inherit_context else {}), **context, "event_id": uuid4().hex}
     if not _private_logs_suppressed():
         from app.analytics import observe
+        if kind in OBSERVED_EVENTS:
+            observe_command_event(kind, values)
         observe(kind, values)
     return {"event_kind": kind, **{
         f"event_{key}": _bounded_text(value, 512) if isinstance(value, str) else value

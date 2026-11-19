@@ -196,7 +196,8 @@ class RecordingUserRepository:
     def __init__(self) -> None:
         self.seen_user_ids: list[str] = []
 
-    async def upsert_seen(self, *, twitch_user_id: str, username: str, channel_id: str) -> None:
+    async def upsert_seen(self, *, twitch_user_id: str, username: str, channel_id: str, return_user: bool) -> None:
+        assert return_user is False
         self.seen_user_ids.append(twitch_user_id)
 
 

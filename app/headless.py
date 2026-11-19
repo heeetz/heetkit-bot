@@ -68,6 +68,8 @@ def secret_file_settings() -> dict[str, str]:
 class HeadlessLogFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         kind = getattr(record, "event_kind", None)
+        if kind == "command.trace" and record.name == "app.command_diagnostics":
+            return PrivacyLogFilter().filter(record)
         if kind == "twitch.socket":
             if not PrivacyLogFilter().filter(record):
                 return False

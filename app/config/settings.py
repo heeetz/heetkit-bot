@@ -75,6 +75,7 @@ class Settings(BaseSettings):
         default_factory=lambda: "sqlite+aiosqlite:///" + str(RuntimePaths.default().database)
     )
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    heetkit_command_diagnostics: bool = False
     command_prefix: str = "!"
     command_max_arguments_length: int = Field(default=300, ge=1, le=450)
 

@@ -207,6 +207,30 @@ Initial startup has a 75-second health grace; application startup defaults to 60
 seconds. Log rotation bounds retained Docker logs; no private chat text, credentials
 or raw provider errors are intentionally emitted by headless logging.
 
+### Trace a silent chat command
+
+For a local test or an operator-approved troubleshooting window, set
+`HEETKIT_COMMAND_DIAGNOSTICS=true` in the bot process environment (the `bot`
+service's `environment` for Compose). This is off by default and is read at process
+startup. In the process log at INFO level, search for `Command trace` and join `received` and
+`terminal` by `id`. Use the UTC receipt time to locate a reported attempt.
+
+The terminal record includes milliseconds from receipt to dispatch and handler
+start, time spent acquiring the presence lock, a persistence failure flag,
+the terminal reason, AI status and send counts. A missing handler timestamp
+with reason `cooldown` is an intentional skip. A confirmed send is the result
+reported by the Twitch transport. An uncertain result leaves chat delivery
+unknown. A `received` line without a terminal can result from an interruption,
+log rotation or an opt-out during the request. If a command has no receipt line, also check
+the lifecycle and correlation logs. The trace starts after transport admission
+and the privacy lookup, and records the earlier Twitch callback timestamp.
+
+The trace carries an opaque message reference, timing, and fixed command and
+reason codes. It omits usernames, channel IDs, message text, provider payloads
+and credentials. Personal diagnostics for opted-out accounts remain suppressed.
+The trace goes to process logs under existing log rotation. Disable the
+environment option at the end of the troubleshooting window.
+
 ## Backup, restore and updates
 
 Stop first so SQLite and token writes are quiescent. Back up the **whole** volume,

@@ -28,6 +28,7 @@ from twitchio.payloads import TokenRefreshedPayload
 from twitchio.web import AiohttpAdapter
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.commands.diagnostics import command_trace, current_trace, receipt_time
 from app.commands.registry import CommandContext, CommandDispatcher
 from app.config.settings import Settings, TwitchAccountSettings
 from app.config.privacy import PRIVACY_COMMAND
@@ -68,6 +69,7 @@ OAUTH_SCOPES = Scopes([*CHAT_SCOPES.selected, "moderator:manage:announcements"])
 OAUTH_STATE_TTL_SECONDS = 300.0
 _transport_origin: ContextVar[str | None] = ContextVar("twitch_transport_origin", default=None)
 _dispatch_origin: ContextVar[tuple | None] = ContextVar("twitch_dispatch_origin", default=None)
+_receipt_origin: ContextVar[tuple[float, float] | None] = ContextVar("twitch_receipt_origin", default=None)
 _socket_event: ContextVar[tuple | None] = ContextVar("twitch_socket_event", default=None)
 
 
@@ -220,6 +222,8 @@ async def process_twitch_message(
     logger: logging.Logger,
     correlation: ChatMessageCorrelation | None = None,
     send_session: ChatSendSession | None = None,
+    *,
+    receipt: tuple[float, float] | None = None,
 ) -> None:
     """Persist the chatter and route a mapped Twitch event to the dispatcher."""
 
@@ -289,7 +293,8 @@ async def process_twitch_message(
                 logger.error("Could not check storage opt-out: %s", type(error).__name__)
         def suppress_logs():
             return opted_out or getattr(services.users, "logs_suppressed", lambda _: False)(incoming.author.twitch_user_id)
-        with privacy_log_scope(suppress_logs), analytics_scope_for(services, incoming):
+        with (privacy_log_scope(suppress_logs), analytics_scope_for(services, incoming),
+              command_trace(receipt, parsed[0], incoming.message_id, suppress_logs) if parsed else nullcontext()):
             try:
                 scope = getattr(dispatcher, "event_scope", None)
                 with (scope(incoming) if scope else operator_event_scope(
@@ -347,21 +352,31 @@ async def _process_incoming_message(
 
     leaderboard = getattr(twitch, "leaderboards", None)
     record = leaderboard.capture(incoming) if leaderboard is not None and parsed is None else None
+    trace = current_trace()
     try:
         await services.users.upsert_seen(
             twitch_user_id=incoming.author.twitch_user_id,
             username=incoming.author.username,
             channel_id=incoming.channel_id,
+            return_user=False,
             **({"record_leaderboard": record} if record is not None else {}),
         )
     except SQLAlchemyError as error:
+        if trace is not None:
+            trace.db_failed = True
         logger.error("Could not persist chat user: %s", type(error).__name__)
     except Exception:
+        if trace is not None:
+            trace.db_failed = True
         logger.exception("Unexpected user persistence failure")
 
     try:
+        if trace is not None:
+            trace.dispatch_ms = trace.elapsed_ms()
         await dispatcher.dispatch(incoming, services)
     except Exception:
+        if trace is not None:
+            trace.outcome, trace.reason = "error", "handler_failed"
         logger.exception("Unexpected command dispatcher failure")
 
 
@@ -467,7 +482,10 @@ class TwitchChatBot(commands.Bot):
             snapshot = (self._socket_sequence, identifier)
         socket_token = _socket_event.set(snapshot)
         delivery = None
+        receipt = None
         if event.lower() == "message":
+            if self._settings.heetkit_command_diagnostics:
+                receipt = receipt_time()
             self._message_dispatches += 1
             subscription = notification = None
             try:
@@ -477,11 +495,13 @@ class TwitchChatBot(commands.Bot):
                 pass  # Missing SDK metadata affects diagnostics only.
             delivery = (self._message_dispatches, subscription, notification)
         delivery_token = _dispatch_origin.set(delivery)
+        receipt_token = _receipt_origin.set(receipt)
         try:
             super().dispatch(event, payload)
         finally:
             _transport_origin.reset(token)
             _dispatch_origin.reset(delivery_token)
+            _receipt_origin.reset(receipt_token)
             _socket_event.reset(socket_token)
 
     def _owns_session(self) -> bool:
@@ -832,14 +852,15 @@ class TwitchChatBot(commands.Bot):
                     self._logger.error("Could not remove private token staging file", extra={"event_kind": "twitch.failed"})
 
     async def event_message(self, message: ChatMessage) -> None:
+        receipt = (_receipt_origin.get() or receipt_time()) if self._settings.heetkit_command_diagnostics else None
         task = asyncio.current_task()
         self._ingress_tasks.add(task)
         try:
-            await self._handle_message(message)
+            await self._handle_message(message, receipt)
         finally:
             self._ingress_tasks.discard(task)
 
-    async def _handle_message(self, message: ChatMessage) -> None:
+    async def _handle_message(self, message: ChatMessage, receipt: tuple[float, float] | None) -> None:
         if self._closing_requested or self._retired:
             self._connection_event("closed_client_ingress")
             return
@@ -883,6 +904,7 @@ class TwitchChatBot(commands.Bot):
                     logger=self._logger,
                     correlation=self._chat_messages,
                     send_session=send_session,
+                    receipt=receipt,
                 )
         except Exception:
             self._logger.exception("Unexpected Twitch message processing failure")

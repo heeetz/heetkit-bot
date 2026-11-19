@@ -10,6 +10,7 @@ from app.command_settings import validate_burst_interval, validate_burst_max_cou
 from app.twitch.message_correlation import send_error_outcome
 from app.utils.logging import operator_event, operator_event_scope, send_outcome
 from app.utils.output_limiter import OutputLimiter
+from app.commands.diagnostics import current_trace
 from app.commands.outcomes import plan_sends, send_started, send_finished, skip_outcome
 
 
@@ -69,7 +70,12 @@ class ChatSender:
         with operator_event_scope(**self._context) if self._context is not None else nullcontext():
             if self._session is None:
                 return await operation()
-            return await self._session.run(operation)
+            try:
+                return await self._session.run(operation)
+            except ChatSessionClosedError:
+                if (trace := current_trace()) is not None:
+                    trace.send_session_closed = True
+                raise
 
     async def reply(self, content: str) -> bool:
         self.last_outcome = None
