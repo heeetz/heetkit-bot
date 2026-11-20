@@ -243,9 +243,10 @@ class Host:
         assert url == deploy.LOCAL + "/"
         return 200, b'<div id="root"></div>'
 
-    def execute(self, compatible=True):
+    def execute(self, compatible=True, candidate=None):
         self.before_running = self.running
-        self.deployment = deploy.Deployment(self.config, "v1.4.1", SHA, compatible)
+        release = None if candidate else "v1.4.1"
+        self.deployment = deploy.Deployment(self.config, release, SHA, compatible, candidate)
         self.deployment.execute()
         return self.record()
 
@@ -262,6 +263,36 @@ def host(tmp_path, monkeypatch):
 def test_explicit_immutable_inputs_only(tmp_path, release, sha):
     with pytest.raises(deploy.DeployError):
         deploy.Deployment({"state_dir": str(tmp_path)}, release, sha, False)
+
+
+@pytest.mark.parametrize("release,branch", [("v1.4.1", "task/2.2"), (None, "main"), (None, "../main"), (None, "task//x"),
+                                            (None, "-x"), (None, "task/2.2;rm"), (None, "task/"), (None, "")])
+def test_candidate_needs_one_safe_pushed_branch(tmp_path, release, branch):
+    with pytest.raises(deploy.DeployError):
+        deploy.Deployment({"state_dir": str(tmp_path)}, release, SHA, False, branch)
+
+
+def test_candidate_branch_uses_same_gates_without_publication(host, monkeypatch):
+    def no_release_api(url, *args, **kwargs):
+        assert not url.startswith(deploy.RELEASE_API)
+        return Host.http(host, url, *args, **kwargs)
+    monkeypatch.setattr(deploy, "http", no_release_api)
+    host.source_version = "9.9.9"
+    record = host.execute(candidate="task/2.2")
+    assert record["result"] == "deployed" and record["candidate_branch"] == "task/2.2" and record["release"] is None
+    assert record["source_version"] == "9.9.9" and record["backup"]["sqlite_integrity"] == "ok"
+    assert host.events[:4] == ["build", "stop", "backup", "candidate"]
+    fetch = next(args for args in host.calls if args[0] == "git" and "fetch" in args)
+    assert fetch[-1] == "refs/heads/task/2.2"
+    build = next(args for args in host.calls if args[:2] == ["docker", "build"])
+    assert "heetkit-headless:candidate-" + SHA in build
+
+
+def test_candidate_branch_tip_must_match(host):
+    host.release_sha = "c" * 40
+    with pytest.raises(deploy.DeployError):
+        host.execute(candidate="task/2.2")
+    assert "stop" not in host.events and "build" not in host.events
 
 
 @pytest.mark.parametrize("mode,connected", [("manual", False), ("manual", True), ("disabled", False),
