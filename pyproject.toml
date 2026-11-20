@@ -46,8 +46,8 @@ heetkit = "app.main:main"
 heetkit-headless = "app.headless:main"
 
 [project.urls]
-Repository = "https://github.com/heeetz/twitch-bot"
-Issues = "https://github.com/heeetz/twitch-bot/issues"
+Repository = "https://github.com/heeetz/heetkit-bot"
+Issues = "https://github.com/heeetz/heetkit-bot/issues"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -17,6 +17,8 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 QUICK_GROUPS = ("python", "frontend", "inputs")
 PLAN_FLAGS = (*QUICK_GROUPS, "server", "distribution", "orchestration")
+COMPARED = ("whole-push diff", "pull request diff", "branch diff from main")
+BROWSER_SHARDS = 3  # complete browser suite, split across parallel Windows jobs
 BROWSER_TEST = re.compile(r".+\.(?:spec|test)\.[cm]?[jt]sx?$")
 SERVER_TEST = "tests/browser-server.spec.ts"
 
@@ -60,9 +62,17 @@ class QuickPlan:
             reasons.add(reason)
         self.all_browser = self.distribution = self.orchestration = True
 
+    def shards(self) -> list[int]:
+        if self.all_browser:
+            count = BROWSER_SHARDS
+        else:
+            count = 2 if len(self.browser_files) > 6 else 1
+        return list(range(1, count + 1))
+
     def outputs(self) -> dict[str, str]:
         groups = {name: str(bool(reasons)).lower() for name, reasons in self.reasons.items()}
         return {**groups, "browser_files": json.dumps(None if self.all_browser else sorted(self.browser_files)),
+                "browser_shards": json.dumps(self.shards()),
                 "server": str(self.all_browser or SERVER_TEST in self.browser_files).lower(),
                 "distribution": str(self.distribution).lower(),
                 "orchestration": str(self.orchestration and not self.reasons["python"]).lower()}
@@ -109,7 +119,8 @@ def select_checks(paths: list[str], *, root: Path = ROOT, missing_base: bool = F
         elif path.startswith(("docs/releases/", ".github/ISSUE_TEMPLATE/")):
             plan.reasons["inputs"].add("machine-consumed release or issue metadata")
             plan.orchestration = True
-        elif (path in {"README.md", "CONTRIBUTING.md", "SECURITY.md", ".github/pull_request_template.md"}
+        elif (path in {"README.md", "CONTRIBUTING.md", "SECURITY.md", "AGENTS.md", "CLAUDE.md",
+                      ".github/pull_request_template.md"}
               or path.startswith("docs/") and (path.endswith(".md") or path.startswith("docs/assets/"))):
             plan.reasons["inputs"].add("lightweight documentation and metadata checks")
         else:
@@ -121,7 +132,7 @@ def select_checks(paths: list[str], *, root: Path = ROOT, missing_base: bool = F
     return plan
 
 
-def changed_paths(before: str, sha: str, *, root: Path = ROOT) -> tuple[list[str], str]:
+def changed_paths(before: str, sha: str, *, root: Path = ROOT, label: str = COMPARED[0]) -> tuple[list[str], str]:
     def git(*args: str) -> bytes:
         return subprocess.check_output(["git", *args], cwd=root, stderr=subprocess.DEVNULL)
 
@@ -131,7 +142,7 @@ def changed_paths(before: str, sha: str, *, root: Path = ROOT) -> tuple[list[str
         try:
             # Includes deleted paths and both names of renames, across the whole push.
             data = git("diff", "--no-renames", "--name-only", "-z", before, sha, "--")
-            return data.decode("utf-8").rstrip("\0").split("\0") if data else [], "whole-push diff"
+            return data.decode("utf-8").rstrip("\0").split("\0") if data else [], label
         except subprocess.CalledProcessError:
             pass
     # New branch/unavailable old commit: fail safe by selecting all tracked inputs.
@@ -139,11 +150,44 @@ def changed_paths(before: str, sha: str, *, root: Path = ROOT) -> tuple[list[str
     return data.decode("utf-8").rstrip("\0").split("\0"), "all tracked paths (base unavailable)"
 
 
-def plan_event(event: str, ref: str, before: str, sha: str, *, root: Path = ROOT) -> tuple[QuickPlan, list[str], str]:
-    if event != "push" or ref != "refs/heads/main":
-        raise ValueError("Quick accepts only main pushes")
-    paths, reason = changed_paths(before, sha, root=root)
-    return select_checks(paths, root=root, missing_base=reason != "whole-push diff"), paths, reason
+def event_base(event: str, ref: str, payload: dict, sha: str, *, root: Path = ROOT) -> tuple[str, str]:
+    """Return the comparison base and its label for a supported Quick trigger."""
+    if event == "push":
+        if ref != "refs/heads/main":
+            raise ValueError("Quick accepts only main pushes, pull requests to main and manual branch runs")
+        return payload.get("before", ""), COMPARED[0]
+    if event == "pull_request":
+        base = payload.get("pull_request", {}).get("base", {})
+        if base.get("ref") != "main":
+            raise ValueError("Quick accepts only pull requests to main")
+        return base.get("sha", ""), COMPARED[1]
+    if event == "workflow_dispatch":
+        if not ref.startswith("refs/heads/"):
+            raise ValueError("Quick accepts only manual runs on a branch")
+        try:
+            base = subprocess.check_output(["git", "merge-base", "refs/remotes/origin/main", sha], cwd=root,
+                                           stderr=subprocess.DEVNULL, text=True).strip()
+        except (subprocess.CalledProcessError, OSError):
+            base = ""
+        return base, COMPARED[2]
+    raise ValueError("Quick accepts only main pushes, pull requests to main and manual branch runs")
+
+
+def plan_event(event: str, ref: str, before: str, sha: str, *, root: Path = ROOT, payload: dict | None = None,
+               complete: bool = False) -> tuple[QuickPlan, list[str], str]:
+    if payload is None:
+        payload = {"before": before}
+    base, label = event_base(event, ref, payload, sha, root=root)
+    if complete:
+        paths, _ = changed_paths("", sha, root=root)
+        plan = QuickPlan()
+        plan.broaden("complete run requested")
+        return plan, paths, "complete run requested"
+    if label == COMPARED[2] and base == sha:
+        # A manual run on main (or an unchanged branch) has nothing to compare: run everything.
+        base = ""
+    paths, reason = changed_paths(base, sha, root=root, label=label)
+    return select_checks(paths, root=root, missing_base=reason not in COMPARED), paths, reason
 
 
 def summary(message: str) -> None:
@@ -183,12 +227,18 @@ def check_inputs(root: Path = ROOT, *, metadata_only: bool = False) -> None:
         summary("Docker context, runtime resources, Python pins and Windows notice inputs passed.")
 
 
-def browser_command(files: list[str] | None) -> list[str]:
+def browser_command(files: list[str] | None, shard: str = "") -> list[str]:
     if files == []:
         raise ValueError("An empty browser selection cannot run")
     filters = [r"[/\\]".join(map(re.escape, name.split("/"))) + "$" for name in sorted(set(files or []))]
+    sharding = []
+    if shard:
+        if not re.fullmatch(r"([1-9][0-9]*)/([1-9][0-9]*)", shard) or int(shard.split("/")[0]) > int(shard.split("/")[1]):
+            raise ValueError("Expected a browser shard such as 1/3")
+        if shard != "1/1":
+            sharding = [f"--shard={shard}"]
     return ["node", "node_modules/@playwright/test/cli.js", "test", "--reporter=line,junit", "--workers=2",
-            "--trace=retain-on-failure", *filters]
+            "--trace=retain-on-failure", *sharding, *filters]
 
 
 def check_results(results: dict, selected: dict[str, bool] | None = None, *, required: tuple[str, ...] = ()) -> bool:
@@ -251,25 +301,29 @@ def main() -> int:
     args = parser.parse_args()
     if args.mode == "plan":
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+        complete = os.environ.get("QUICK_COMPLETE", "").lower() == "true"
         plan, paths, reason = plan_event(os.environ["GITHUB_EVENT_NAME"], os.environ["GITHUB_REF"],
-                                         event.get("before", ""), os.environ["GITHUB_SHA"])
+                                         event.get("before", ""), os.environ["GITHUB_SHA"], payload=event,
+                                         complete=complete)
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
             for name, value in plan.outputs().items():
                 stream.write(f"{name}={value}\n")
         summary(f"### Quick selection for `{os.environ['GITHUB_SHA']}`\n\n{reason}.")
-        summary("\nPaths from the push comparison or fallback inventory:\n\n~~~text\n" +
+        summary("\nPaths from the comparison or fallback inventory:\n\n~~~text\n" +
                 ("\n".join(json.dumps(path) for path in paths) or "(empty comparison)") + "\n~~~")
         for name, reasons in plan.reasons.items():
             details = "; ".join(sorted(reasons)) if reasons else "no applicable changes" if paths else "empty comparison"
             summary(f"- {name}: {'run' if reasons else 'skip'} ({details})")
         if plan.reasons["frontend"]:
-            summary("- Browser files: " + ("complete suite" if plan.all_browser else ", ".join(sorted(plan.browser_files))))
+            summary("- Browser files: " + ("complete suite" if plan.all_browser else ", ".join(sorted(plan.browser_files)))
+                    + f" ({len(plan.shards())} parallel job(s))")
         if plan.reasons["inputs"]:
             summary("- Input scope: " + ("metadata and distribution" if plan.distribution else "metadata only"))
             if plan.orchestration:
                 summary("- Orchestration tests: " + ("included in the Python suite" if plan.reasons["python"] else "focused input job"))
     elif args.mode == "browser":
-        return subprocess.call(browser_command(json.loads(os.environ["BROWSER_FILES"])), cwd=ROOT / "frontend")
+        return subprocess.call(browser_command(json.loads(os.environ["BROWSER_FILES"]), os.environ.get("BROWSER_SHARD", "")),
+                               cwd=ROOT / "frontend")
     elif args.mode == "inputs":
         check_inputs(metadata_only=args.metadata_only)
     elif args.mode == "frontend-output":
