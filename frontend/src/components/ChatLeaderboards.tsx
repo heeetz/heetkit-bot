@@ -59,7 +59,7 @@ function LeaderboardExclusions({ data, onSave }: { data: LeaderboardSnapshot | n
       <div className="form-field">
         <div className="custom-field-label">
           <label htmlFor="leaderboard-bots">Excluded bot names</label>
-          <HelpTip label="How exclusions work">HeetKit automatically excludes its sending account. Verified accounts stay excluded after a rename.</HelpTip>
+          <HelpTip label="How exclusions work"><ul><li>The bot’s own account is always excluded.</li><li>Excluded accounts stay excluded after a rename.</li></ul></HelpTip>
         </div>
         <input id="leaderboard-bots" aria-describedby="leaderboard-bots-format" value={names}
           onChange={(event) => setDraft(event.target.value === saved ? null : event.target.value)}

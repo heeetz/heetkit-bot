@@ -541,7 +541,7 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
       id="ai-personalities"
       title="Personality-specific prompt"
       helpLabel="Set active and save"
-      description="Save this personality independently of profile instructions. Set active selects its applied prompt and does not save an editor draft."
+      description={<ul><li>Save stores this personality on its own.</li><li>Set active makes the bot use it. It does not save unsaved edits.</li></ul>}
       badges={(
         <span className="personality-badges">
           {personality && <span className="mini-badge">{personality.is_builtin ? 'Built-in' : 'Custom'}</span>}
@@ -677,7 +677,7 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
       id="ai-profile-instructions"
       title="Profile instructions"
       helpLabel="Which prompts use this"
-      description="Applies to every personality and follows the protected shared policy."
+      description="Added to every personality, after the protected shared policy."
       badges={(
         <span className="personality-badges">
           {data?.profile_instructions_saved && <span className="mini-badge saved-badge">Saved</span>}
@@ -722,7 +722,7 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
       id="ai-language"
       title="AI response language"
       helpLabel="How languages are chosen"
-      description="Saved changes apply to the next AI request. In Limited mode, a clear input language or majority wins. The saved fallback is used when input is tied, unsupported or unclear, including emoji-only and code-only messages. Prompt guidance cannot guarantee a response language. Playground uses the saved policy until you save a draft there."
+      description={<ul><li>Saved changes apply from the next AI request.</li><li>Limited mode answers in the message’s language, or the majority language when mixed.</li><li>If that is unclear (a tie, emoji or code only, an unsupported language), the fallback is used.</li><li>This guides the AI but cannot guarantee the language.</li><li>Playground uses the saved settings until you save there.</li></ul>}
       badges={(
         <span className="personality-badges">
           {languageSaved && <span className="mini-badge saved-badge">Saved active policy</span>}

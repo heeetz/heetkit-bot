@@ -67,8 +67,7 @@ test('hover waits 900 ms and the pointer can enter the help content', async ({ p
 test('pointer-opened help closes after leaving even when its button remains focused', async ({ page }) => {
   for (const keyboardFirst of [false, true]) {
     await page.goto('/tests/fixture.html?configured')
-    await page.getByRole('navigation').getByRole('button', { name: 'Logs', exact: true }).click()
-    const help = page.getByRole('button', { name: 'Help: What logs keep', exact: true })
+    const help = page.getByRole('button', { name: 'Help: Bot session', exact: true })
     if (keyboardFirst) {
       await page.keyboard.press('Tab')
       await help.focus()
@@ -96,15 +95,14 @@ test('pointer-opened help closes after leaving even when its button remains focu
   }
 })
 
-test('keyboard help retains focus behavior and shows the topic on its button', async ({ page }) => {
+test('keyboard help retains focus behavior while idle icons stay muted at the same size', async ({ page }) => {
   await page.goto('/tests/fixture.html?configured')
-  await page.getByRole('navigation').getByRole('button', { name: 'Logs', exact: true }).click()
-  const help = page.getByRole('button', { name: 'Help: What logs keep', exact: true })
-  await expect(help).toHaveText('What logs keep')
+  const help = page.getByRole('button', { name: 'Help: Bot session', exact: true })
   await expect(help).toHaveCSS('color', 'rgb(156, 163, 175)')
   await expect(help).toHaveCSS('border-color', 'rgb(55, 65, 81)')
-  expect((await help.boundingBox())!.height).toBeGreaterThanOrEqual(28)
-  expect(await help.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  await expect(help).toHaveCSS('font-weight', '500')
+  await expect(help).toHaveCSS('width', '24px')
+  await expect(help).toHaveCSS('height', '24px')
   await page.keyboard.press('Tab')
   await help.focus()
   await expect(page.getByRole('tooltip')).toBeVisible()

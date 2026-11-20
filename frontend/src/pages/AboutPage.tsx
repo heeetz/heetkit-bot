@@ -150,7 +150,7 @@ function AboutPage({ updates }: { updates: ReturnType<typeof useUpdateCheck> }) 
         <div className="section-heading update-heading">
           <div className="update-title">
             <h2 id="desktop-updates-title">Check for updates</h2>
-            <HelpTip label="How updates work">On Windows, HeetKit checks for the latest stable release after startup. Use Open release / downloads to install a release manually.</HelpTip>
+            <HelpTip label="How updates work"><ul><li>On Windows, HeetKit checks for a new stable release after startup.</li><li>Update &amp; restart downloads and verifies the installer before closing HeetKit.</li><li>To install manually, use Open release / downloads.</li></ul></HelpTip>
           </div>
         </div>
         <div className="update-toolbar">

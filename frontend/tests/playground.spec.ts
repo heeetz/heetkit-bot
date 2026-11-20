@@ -39,7 +39,7 @@ for (const { status, searchUsed, label } of [
     const result = playground.getByRole('status')
     await expect(result).toContainText(`Search/Fetch: ${label}`)
     if (status !== 'success') await expect(result).not.toContainText('Synthetic response')
-    if (status === 'attribution_unavailable') await expect(result).toContainText('Answer withheld because required search attribution is unavailable')
+    if (status === 'attribution_unavailable') await expect(result).toContainText('Answer withheld because this Playground cannot display the required Google Search Suggestions')
   })
 }
 
@@ -55,8 +55,8 @@ test('local Playground uses the prompt only and presents quota, active settings 
   const help = playground.getByRole('button', { name: 'Help: How to test', exact: true })
   await help.focus()
   const tip = page.getByRole('tooltip')
-  await expect(tip).toContainText('Tests skip viewer memory, stream context, chat activity, command permissions and cooldowns.')
-  await expect(tip).toContainText('saved models, active filters and personality, and applied instructions')
+  await expect(tip).toContainText('Skips viewer memory, stream context, permissions and cooldowns.')
+  await expect(tip).toContainText('Uses your saved models, filters, personality and instructions.')
   await help.press('Escape')
   await expect(tip).toHaveCount(0)
   await expect(playground.getByRole('button', { name: 'Test prompt' })).toBeDisabled()

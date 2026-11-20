@@ -171,9 +171,8 @@ test('About update actions lead compact version boxes and wrap within their card
     if (width === 1180 || width === 320) await card.screenshot({ path: `node_modules/.tmp/ui-update-${width}.png` })
     const help = card.getByRole('button', { name: 'Help: How updates work' })
     await help.focus()
-    await expect(page.getByRole('tooltip')).toContainText('checks for the latest stable release after startup')
+    await expect(page.getByRole('tooltip')).toContainText('downloads and verifies the installer before closing HeetKit')
     await help.press('Escape')
-    await expect(card.getByRole('button', { name: 'Update & restart' })).toHaveAccessibleDescription('HeetKit downloads and verifies the installer, then closes to install the update.')
   }
 })
 

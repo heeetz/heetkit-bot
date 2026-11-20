@@ -5,7 +5,7 @@ export default function AIBehaviorSection({ id, title, helpLabel, description, b
   id: string
   title: string
   helpLabel: string
-  description: string
+  description: ReactNode
   badges?: ReactNode
   className?: string
   footer?: ReactNode

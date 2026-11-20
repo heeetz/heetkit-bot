@@ -4,7 +4,7 @@ import AccordionHeader from './AccordionHeader'
 interface AccordionProps {
   id: string
   title: string
-  description?: string
+  description?: ReactNode
   helpLabel?: string
   badges?: ReactNode
   children: ReactNode

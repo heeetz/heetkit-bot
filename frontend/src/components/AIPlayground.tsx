@@ -148,11 +148,11 @@ export default function AIPlayground({ active, hasDrafts = false }: { active: bo
           <p className="section-copy">Test prompt responses with real API quota. Nothing is sent to Twitch.</p>
         </div>
         <HelpTip label="How to test">
-          <ul className="playground-help-list">
-            <li>Test one prompt at a time with your saved models, active filters and personality, and applied instructions.</li>
-            <li>The bot can be stopped and the AI command disabled. Tests skip viewer memory, stream context, chat activity, command permissions and cooldowns.</li>
-            <li>Tests use real provider API quota. Results stay in Playground. A successful test does not confirm Twitch delivery.</li>
-            <li>Choose Cancel request or leave the AI page to request cancellation. Another test can start when the current request finishes cleaning up. On Server, results are visible only to the session that ran the test.</li>
+          <ul>
+            <li>Uses your saved models, filters, personality and instructions.</li>
+            <li>Works while the bot is stopped. Skips viewer memory, stream context, permissions and cooldowns.</li>
+            <li>Uses real API quota. Nothing is sent to Twitch.</li>
+            <li>Cancel request, or leaving the page, stops the test. On Server, only your session sees the result.</li>
           </ul>
         </HelpTip>
       </div>

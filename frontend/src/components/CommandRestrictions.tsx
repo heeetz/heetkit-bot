@@ -170,7 +170,7 @@ export default function CommandRestrictions({ active, commands }: Props) {
   }
 
   return <section className="card command-editor-card restriction-panel" id="command-restrictions" aria-labelledby="restriction-title">
-    <div className="restriction-heading"><div className="settings-heading-with-help"><h2 id="restriction-title">User restrictions</h2><HelpTip label="Restriction scope">These rules apply in HeetKit. Existing rules keep their saved scope, and self-service !optout remains available.</HelpTip></div>
+    <div className="restriction-heading"><div className="settings-heading-with-help"><h2 id="restriction-title">User restrictions</h2><HelpTip label="Restriction scope">These rules work only inside HeetKit. Viewers can still use !optout themselves.</HelpTip></div>
       <button type="button" className="primary" disabled={busy || loading || channelId === undefined} onClick={() => { setError(''); setDraft(newDraft()) }}>Add restriction</button>
     </div>
     {channelId === undefined ? <p className="restriction-scope-message">{loading ? 'Loading configured channel scope…' : 'Configured channel scope could not be loaded. Retry before adding a restriction.'}</p>
@@ -202,7 +202,7 @@ export default function CommandRestrictions({ active, commands }: Props) {
     <div className="restriction-toolbar"><div className="form-field"><label htmlFor="restriction-search">Search restrictions</label><input id="restriction-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Username, ID, command, note" /></div></div>
     {loading ? <p role="status">Loading restrictions…</p> : filtered.length ? <ul className="restriction-list">{filtered.map((item) => <li className="restriction-row" key={item.id}>
       <div className="restriction-summary"><strong>{item.username}</strong><span> {item.twitch_user_id ? `Twitch user ID ${item.twitch_user_id}` : 'Identity unresolved - legacy login compatibility active'} | {item.scope === 'global_ai' ? 'Global AI: all profile channels' : item.channel_id ? `Channel ID ${item.channel_id}` : 'Channel pending configuration'}</span>
-        <p>{item.command_ids.length ? item.command_ids.map((id) => commandLabels.get(id) ?? id).join(', ') : 'All commands, including ordinary-message reactions'}</p>
+        <p>{item.command_ids.length ? item.command_ids.map((id) => commandLabels.get(id) ?? id).join(', ') : 'All commands and chat reactions'}</p>
         <p>{item.expires_at ? <><time dateTime={item.expires_at}>{new Date(item.expires_at).toLocaleString()}</time> · {remaining(item.expires_at, now)}</> : 'Permanent'}</p>
         {item.note && <p className="restriction-note">{item.note}</p>}
       </div><div className="row-actions"><button type="button" className="secondary" disabled={busy} onClick={() => edit(item)}>{item.identity_state === 'unresolved' || !item.twitch_user_id ? 'Verify / edit' : 'Edit'}</button><button type="button" className="danger" disabled={busy} onClick={() => setRemoveTarget(item)}>Remove</button></div>

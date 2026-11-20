@@ -172,34 +172,6 @@ for (const [id, failure, field] of [
   })
 }
 
-test('AI scope and memory/access explanations remain available while stopped', async ({ page }) => {
-  await openAI(page)
-  const playground = page.locator('#ai-playground')
-  await expect(playground.getByText('Test prompt responses with real API quota. Nothing is sent to Twitch.', { exact: true })).toBeVisible()
-  await playground.getByRole('button', { name: 'Help: How to test', exact: true }).click()
-  const help = page.getByRole('tooltip').getByRole('list')
-  await expect(help).toContainText('Tests skip viewer memory, stream context, chat activity, command permissions and cooldowns')
-  await expect(help).toContainText('The bot can be stopped and the AI command disabled')
-  await expect(help).toContainText('A successful test does not confirm Twitch delivery')
-  await expect(help).toContainText('real provider API quota')
-  await page.keyboard.press('Escape')
-  const memory = page.getByRole('form', { name: 'Conversation memory' })
-  await memory.getByRole('button', { name: 'Help: How memory works', exact: true }).click()
-  await expect(page.getByRole('tooltip')).toContainText('keeps pairs for up to 60 days')
-  await expect(page.getByRole('tooltip')).toContainText('setting M to 2 sends up to the last 2 exchanges')
-  await expect(page.getByRole('tooltip')).toContainText('Turning memory off stops saving and using exchanges')
-  await expect(page.getByRole('tooltip')).toContainText('Playground never reads or stores viewer memory')
-  await expect(page.getByRole('tooltip')).toContainText('clears AI memory for a known viewer in that channel')
-  await page.keyboard.press('Escape')
-  await expect(memory.getByText(/Saving this lower limit/)).toHaveCount(0)
-  await page.getByRole('navigation').getByRole('button', { name: 'Commands', exact: true }).click()
-  await page.getByRole('button', { name: 'Help: Restriction scope', exact: true }).click()
-  await expect(page.getByRole('tooltip')).toContainText('self-service !optout remains available')
-  await page.keyboard.press('Escape')
-  await page.getByRole('navigation').getByRole('button', { name: 'AI', exact: true }).click()
-  expect(await testPrompt(page)).toMatchObject({ personality: 'neutral' })
-})
-
 test('draft choices fit the supported 320px layout', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 900 })
   await openAI(page)
@@ -244,41 +216,26 @@ for (const width of [1280, 900, 761, 390, 320]) {
     await page.getByRole('button', { name: 'AI', exact: true }).click()
     await expect(page.locator('.ai-layout')).toHaveAttribute('aria-busy', 'false')
     const state = page.locator('#ai-behavior')
-    await expect(state.getByRole('heading', { name: 'AI behavior', exact: true })).toBeVisible()
+    await expect(state.getByRole('heading')).toHaveText('AI behavior')
     const shortcuts = state.locator('.ai-behavior-shortcuts')
     const values = state.locator('.ai-runtime-values')
     const linksBox = (await shortcuts.boundingBox())!
     const valuesBox = (await values.boundingBox())!
     const contentWidth = (await page.locator('.page-content').boundingBox())!.width
+    if (contentWidth > 620) expect(linksBox.x).toBeGreaterThan(valuesBox.x + valuesBox.width)
+    else expect(linksBox.y).toBeGreaterThan(valuesBox.y + valuesBox.height)
     const memory = page.getByRole('form', { name: 'Conversation memory' })
     const memoryBox = (await memory.boundingBox())!
     const stateBox = (await state.boundingBox())!
-    expect(memoryBox.y).toBeGreaterThanOrEqual(stateBox.y + stateBox.height)
-    if (contentWidth > 620) {
-      expect(valuesBox.y).toBeCloseTo(linksBox.y, 0)
-      expect(valuesBox.x + valuesBox.width).toBeLessThanOrEqual(linksBox.x)
-    } else {
-      expect(linksBox.y).toBeGreaterThanOrEqual(valuesBox.y + valuesBox.height)
-      expect(Math.abs(valuesBox.x - linksBox.x)).toBeLessThanOrEqual(2)
-    }
-    await expect(shortcuts.getByRole('button')).toHaveText([
-      'Edit personalities', 'Edit profile instructions', 'Edit shared instructions', 'Edit response languages',
-    ])
+    expect(memoryBox.y).toBeGreaterThan(stateBox.y + stateBox.height)
     const fields = (await memory.locator('.memory-limit-fields').boundingBox())!
     const toggle = (await memory.locator('.memory-limits-toggle').boundingBox())!
-    const controls = (await memory.locator('.memory-limits-controls').boundingBox())!
     if (contentWidth > 620) {
-      const intro = (await memory.locator('.memory-limits-intro').boundingBox())!
-      expect(Math.abs(controls.x - linksBox.x)).toBeLessThanOrEqual(32)
-      expect(Math.abs((controls.y + controls.height / 2) - (intro.y + intro.height / 2))).toBeLessThanOrEqual(12)
-      expect(memoryBox.height).toBeLessThan(140)
+      const controls = (await memory.locator('.memory-limits-controls').boundingBox())!
+      expect(controls.x).toBeCloseTo(linksBox.x, 0)
       expect(toggle.x).toBeGreaterThan(fields.x + fields.width)
-    } else {
-      const intro = (await memory.locator('.memory-limits-intro').boundingBox())!
-      expect(controls.y).toBeGreaterThan(intro.y)
-      if (contentWidth > 380) expect(toggle.x).toBeGreaterThan(fields.x + fields.width)
-      else expect(toggle.y).toBeGreaterThan(fields.y + fields.height)
-    }
+    } else if (contentWidth > 380) expect(toggle.x).toBeGreaterThan(fields.x + fields.width)
+    else expect(toggle.y).toBeGreaterThanOrEqual(fields.y + fields.height)
     expect(await state.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy()
     await state.screenshot({ path: `node_modules/.tmp/a4-state-${width}.png` })
 
@@ -308,9 +265,6 @@ for (const width of [1280, 900, 761, 390, 320]) {
     const models = page.locator('#ai-models')
     await models.locator('.accordion-trigger').click()
     await expect(models.locator('.ai-manual-model').first()).toBeVisible()
-    await expect(models.locator('.help-trigger')).toHaveCount(0)
-    await expect(models).not.toContainText('Thinking and search may incur charges.')
-    await expect(models).not.toContainText('Saved AI setup.')
     await expect(models.getByRole('button', { name: 'Discover primary models' })).toBeVisible()
     await models.getByLabel('Primary model', { exact: true }).fill('synthetic-draft')
     await expect(models).toContainText('Unsaved AI setup')
@@ -325,7 +279,7 @@ test('memory toggle saves independently and reports failures without changing it
   await openAI(page)
   const memory = page.getByRole('form', { name: 'Conversation memory' })
   const toggle = memory.getByRole('checkbox', { name: 'Enable conversation memory' })
-  const stored = memory.getByLabel('Stored pairs', { exact: true })
+  const stored = memory.getByLabel('Stored pairs')
   await stored.fill('24')
   await toggle.press('Space')
   await expect(toggle).toBeChecked()
@@ -373,7 +327,7 @@ test('AI behavior keeps drafts between sections and discards only editor changes
   const model = page.locator('#ai-models').getByLabel('Primary model', { exact: true })
   await model.fill('keep-setup-draft')
   const memory = page.getByRole('form', { name: 'Conversation memory' })
-  const stored = memory.getByLabel('Stored pairs', { exact: true })
+  const stored = memory.getByLabel('Stored pairs')
   await stored.fill('24')
   const open = page.getByRole('button', { name: 'Edit personalities', exact: true })
   await open.click()

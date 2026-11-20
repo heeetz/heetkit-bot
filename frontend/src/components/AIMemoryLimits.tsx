@@ -75,10 +75,13 @@ export default function AIMemoryLimits({ active, toggle, onDirty }: {
             <div className="memory-limits-title">
               <h2 id="ai-memory-title">Conversation memory</h2>
               <HelpTip label="How memory works" className="memory-limits-help">
-                <p>A pair is one question and its successful answer. HeetKit keeps pairs for up to 60 days, within the stored-pair limit (N) for each viewer and channel.</p>
-                <p>Context pairs (M) sets how many exchanges to send with the next AI request, up to N. For example, setting M to 2 sends up to the last 2 exchanges.</p>
-                <p>The switch saves immediately. Turning memory off stops saving and using exchanges. HeetKit keeps previously saved exchanges.</p>
-                <p>Playground never reads or stores viewer memory. The erase command clears AI memory for a known viewer in that channel.</p>
+                <ul>
+                  <li>A pair is one question and its successful answer.</li>
+                  <li>Stored pairs (N): how many pairs to keep per viewer and channel, for up to 60 days.</li>
+                  <li>Context pairs (M): how many recent pairs to send with the next question. For example, 2 sends the last 2.</li>
+                  <li>The switch saves at once. Off stops saving and using memory; saved pairs stay.</li>
+                  <li>Playground ignores memory. The erase command clears a viewer’s memory in this channel.</li>
+                </ul>
               </HelpTip>
             </div>
             <p className="memory-limits-hint">Use earlier exchanges in AI chat replies.</p>

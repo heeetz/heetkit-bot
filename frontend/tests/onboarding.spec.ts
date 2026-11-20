@@ -120,10 +120,10 @@ test('setup summary follows saved provider keys when returning to Dashboard', as
 })
 
 async function openTwitchSettings(page: Page) {
-  const trigger = page.locator('#twitch-settings .accordion-trigger')
+  const trigger = page.locator('#twitch-settings > .accordion-header > .accordion-trigger')
   // The independent Help button can cover the header's center; click its expand caret.
   if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.locator('.accordion-caret').click()
-  const application = page.locator('#twitch-application .accordion-trigger')
+  const application = page.locator('#twitch-application > .accordion-header > .accordion-trigger')
   if (await application.getAttribute('aria-expanded') !== 'true') await application.click()
 }
 
@@ -133,8 +133,8 @@ for (const width of [1280, 900, 390, 320]) {
     await page.goto('/tests/fixture.html')
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     const twitch = page.locator('#twitch-settings')
-    const trigger = twitch.locator('.accordion-trigger')
-    const content = twitch.locator('.accordion-content')
+    const trigger = twitch.locator(':scope > .accordion-header > .accordion-trigger')
+    const content = twitch.locator(':scope > .accordion-content')
     await expect(trigger).toHaveAttribute('aria-expanded', 'false')
     await expect(trigger).toHaveAttribute('aria-controls', 'twitch-settings-content')
     await expect(content).toBeHidden()
@@ -325,12 +325,10 @@ for (const width of [1280, 390]) {
     const connection = page.getByRole('article', { name: 'Bot session' })
     await expect(connection.getByRole('heading')).toHaveText('Stopped')
     await expect(connection).toContainText('Start Bot to connect')
-    await expect(page.locator('.dashboard-layout').getByRole('button', { name: /^Help:/ })).toHaveCount(0)
-    const aiCard = page.locator('.dashboard-ai-card')
-    const aiSummary = aiCard.locator('.dashboard-ai-summary')
-    await expect(aiSummary).toContainText('synthetic-model')
-    await expect(aiSummary).toContainText('Personality:')
-    await expect(aiCard.getByText('Changes save immediately.', { exact: true })).toHaveCount(0)
+    await connection.getByRole('button', { name: 'Help: Bot session', exact: true }).focus()
+    await expect(page.getByRole('tooltip')).toContainText('Authorization: Not verified (token cache found)')
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.dashboard-ai-card')).toContainText('synthetic-model')
     await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).not.toBeChecked()
 
     await page.getByRole('button', { name: 'Start Bot', exact: true }).click()
@@ -375,9 +373,8 @@ for (const width of [1280, 390]) {
     const help = page.getByRole('button', { name: 'Help: How Twitch setup works', exact: true })
     await help.focus()
     const tooltip = page.getByRole('tooltip')
-    await expect(tooltip).toContainText('Saved channels share the bot account and authorization')
+    await expect(tooltip).toContainText('All saved channels share one bot account and authorization.')
     await page.keyboard.press('Escape')
-    await expect(twitchSection.getByText('Secret changes save immediately.', { exact: false })).toHaveCount(0)
     await expect(twitchSection.getByRole('button', { name: 'Replace secret', exact: true })).toBeVisible()
     await expect(twitchSection.getByRole('button', { name: 'Save & apply', exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
@@ -462,7 +459,7 @@ for (const connection of ['stopped', 'connected']) {
     const activity = (await page.getByRole('heading', { name: 'Stream activity', exact: true }).boundingBox())!
     expect(commands.y).toBeGreaterThan(strip.y + strip.height)
     expect(ai.y).toBeGreaterThan(commands.y + commands.height)
-    expect(ai.y).toBeCloseTo(activity.y, 0)
+    expect(Math.abs(ai.y - activity.y)).toBeLessThanOrEqual(1)
     expect(ai.x).toBeLessThan(activity.x)
     const main = page.locator('main')
     expect(await main.evaluate((element) => element.scrollHeight <= element.clientHeight)).toBe(true)
@@ -504,7 +501,7 @@ test('fresh Dashboard shows one required setup step and no optional Gemini setup
   await expect(page.getByRole('button', { name: 'Start Bot', exact: true })).toBeDisabled()
   await expect(page.locator('.dashboard-layout')).not.toContainText('Add a Gemini')
   await notice.getByRole('button').click()
-  await expect(page.locator('#twitch-settings .accordion-trigger')).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.locator('#twitch-settings > .accordion-header > .accordion-trigger')).toHaveAttribute('aria-expanded', 'true')
   await expect(page.locator('#twitch-settings')).toBeInViewport()
 })
 
@@ -538,7 +535,7 @@ test('Dashboard exposes connection failure recovery and setup loading errors', a
   await page.goto('/tests/fixture.html?configured&setupError')
   await expect(page.locator('.dashboard-notice')).toContainText('Synthetic Twitch setup load failure')
   await page.locator('.dashboard-notice').getByRole('button').click()
-  await expect(page.locator('#twitch-settings .accordion-trigger')).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.locator('#twitch-settings > .accordion-header > .accordion-trigger')).toHaveAttribute('aria-expanded', 'true')
 })
 
 test('Dashboard loading keeps session actions and AI controls disabled', async ({ page }) => {

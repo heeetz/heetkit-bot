@@ -18,9 +18,7 @@ for (const width of [1280, 390, 320]) {
       if (action === 'create') await createEntry(page, 'custom')
       else await page.getByRole('button', { name: 'Edit !hello', exact: true }).click()
       await expect(editor.getByText('Command name', { exact: true })).toBeVisible()
-      const responseHeading = editor.locator('.custom-response-field .command-field-label')
-      await expect(responseHeading).toBeVisible()
-      await expect(responseHeading).toHaveText(/^(Message|Responses)$/)
+      await expect(editor.getByText(/^(Message|Responses)$/)).toBeVisible()
       await expect(editor.getByText('Per-user cooldown (seconds)', { exact: true })).toBeVisible()
       await expect(editor.getByText('Global cooldown (seconds)', { exact: true })).toBeVisible()
       await expect(editor.getByText('Response type', { exact: true })).toBeVisible()
@@ -32,11 +30,12 @@ for (const width of [1280, 390, 320]) {
         const name = await box(editor.locator('.custom-name-input'))
         const enabled = await box(editor.locator('.custom-command-enabled'))
         const navigation = await box(editor.getByRole('navigation', { name: 'Editor sections' }))
-        if (width >= 760) {
+        if (width > 760) {
           expect(name.x + name.width).toBeLessThan(enabled.x)
           expect(Math.abs(name.y + name.height / 2 - enabled.y - enabled.height / 2)).toBeLessThanOrEqual(2)
         } else {
-          expect(enabled.y).toBeGreaterThan(name.y + name.height)
+          expect(enabled.y).toBeGreaterThanOrEqual(name.y + name.height)
+          expect(Math.abs(enabled.x - name.x)).toBeLessThanOrEqual(2)
         }
         if (width === 1280) expect(navigation.x + navigation.width).toBeLessThan(name.x)
         else expect(navigation.y + navigation.height).toBeLessThan(name.y)

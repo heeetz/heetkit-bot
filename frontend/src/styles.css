@@ -529,8 +529,6 @@ td { color: var(--text); }
 .ai-playground .form-field textarea { min-height: 120px; }
 .playground-result { overflow-wrap: anywhere; margin-top: 16px; }
 .playground-response { white-space: pre-wrap; }
-.playground-help-list { padding-inline-start: 18px; }
-.playground-help-list li + li { margin-top: 6px; }
 .profile-instructions-editor { min-height: 0; }
 .protected-instructions-card { min-height: 0; padding: 0; overflow: hidden; }
 .protected-instructions-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: var(--space-4); cursor: pointer; list-style: none; }
@@ -849,7 +847,7 @@ td { color: var(--text); }
 .accordion-heading { flex: 1 1 0; min-width: min(60px, 100%); pointer-events: none; }
 .accordion-title { position: relative; z-index: 2; display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); color: var(--text); font-size: 20px; font-weight: 700; line-height: 1.4; }
 .accordion-title > [role="heading"] { min-width: 0; overflow-wrap: anywhere; }
-.accordion-header > .help-trigger { max-width: 48%; margin-inline-start: auto; }
+.accordion-header > .help-trigger { margin-inline-start: auto; }
 .accordion-trigger { position: absolute; z-index: 1; inset: 0; width: 100%; border: 0; padding: 0; background: transparent; color: var(--muted); text-align: right; cursor: pointer; border-radius: 8px; }
 .accordion-trigger:hover { background: var(--hover); }
 .accordion-trigger:focus-visible { outline: 2px solid var(--text); outline-offset: -3px; }
@@ -858,8 +856,11 @@ td { color: var(--text); }
 .accordion-caret { position: absolute; right: 16px; top: calc(50% - 10px); transform: rotate(0deg); transition: transform 140ms ease; }
 .accordion-trigger[aria-expanded="true"] .accordion-caret { transform: rotate(180deg); }
 .accordion-content { padding: var(--space-4); border-top: 1px solid var(--separator); }
-.help-trigger { position: relative; z-index: 3; pointer-events: auto; flex: 0 1 auto; display: inline-block; min-width: 0; max-width: 100%; min-height: 28px; padding: 3px 8px; border: 1px solid var(--separator); border-radius: 6px; color: var(--muted); background: transparent; font-size: 12px; font-weight: 600; line-height: 1.3; text-align: start; white-space: normal; overflow-wrap: anywhere; vertical-align: middle; cursor: help; }
+.help-trigger { position: relative; z-index: 3; pointer-events: auto; flex: 0 0 auto; display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 1px solid var(--separator); border-radius: 50%; color: var(--muted); background: transparent; font-size: 14px; font-weight: 500; line-height: 1; cursor: help; }
 .help-trigger:hover, .help-trigger:focus-visible { color: var(--text); border-color: var(--input-border); background: var(--hover); }
+.help-tooltip ul { margin: 0; padding-inline-start: 18px; }
+.help-tooltip li + li { margin-top: 4px; }
+.help-tooltip p + ul, .help-tooltip ul + p { margin-top: 6px; }
 .help-tooltip { z-index: 1100; padding: var(--space-3); border: 1px solid var(--input-border); border-radius: 8px; background: var(--panel); color: var(--text); font-size: 13px; font-weight: 400; line-height: 1.5; overflow-wrap: anywhere; }
 .help-tooltip > :first-child { margin-top: 0; }
 .help-tooltip > :last-child { margin-bottom: 0; }

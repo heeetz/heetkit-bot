@@ -273,7 +273,7 @@ function ServerSettings({ active, status }: { active: boolean; status: AppStatus
 
   return <div className="settings-layout">
     <FeedbackToast error={error} notice={notice} onDismiss={() => { setError(''); setNotice('') }} />
-    <Accordion id="twitch-settings" title="Twitch connection" helpLabel="How Twitch setup works" description="Save application/account/channel drafts separately from immediate secret actions. Server identity or secret changes stop the session and clear authorization; target-only changes retain authorization. Session control remains in Dashboard." className="settings-page server-settings-page">
+    <Accordion id="twitch-settings" title="Twitch connection" helpLabel="How Twitch setup works" description={<ul><li>Save stores application, account and channel changes. Secret actions apply immediately.</li><li>Changing the bot identity or secret stops the bot and clears authorization.</li><li>Changing only the channel keeps authorization.</li><li>Start and stop the bot on the Dashboard.</li></ul>} className="settings-page server-settings-page">
       {!setup ? <><p className="muted">Loading server setup…</p>{error && <button className="secondary" onClick={() => setRetry((current) => current + 1)}>Retry setup status</button>}</> : <div className="settings-list twitch-settings-list">
         <section className="twitch-connection-summary" aria-label="Twitch connection status">
           <TwitchSetupInstructions compact headingId="server-twitch-setup" host="server" callback={setup.twitch.oauth_callback_url} callbackMode={setup.twitch.authorization_mode} />
@@ -863,7 +863,7 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
         id="twitch-settings"
         title="Twitch connection"
         helpLabel="How Twitch setup works"
-        description="Save application/account/channel drafts separately from immediate secret actions. Client ID, bot identity and secret changes require an application restart. Target changes require reconnect. Saved channels share the bot account and authorization."
+        description={<ul><li>Save stores application, account and channel changes. Secret actions apply immediately.</li><li>Changing the Client ID, bot account or secret needs an app restart.</li><li>Changing the channel needs a reconnect.</li><li>All saved channels share one bot account and authorization.</li></ul>}
         badges={twitchDirty && <span className="mini-badge dirty-badge">Edited</span>}
         className="settings-page"
       >
@@ -948,7 +948,7 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
                 {status?.twitch_connected && <button className="secondary" disabled={Boolean(busy) || twitchDraft.requires_restart} onClick={() => void openTwitchLink('twitch_authorization')}>
                   {busy === 'external:twitch_authorization' ? 'Opening…' : 'Renew Twitch authorization'}
                 </button>}
-                {status?.twitch_connected && <HelpTip label="Twitch permissions">Renew to grant updated permissions, such as sending highlighted announcements. Sign in as the bot account. It must be a moderator or the broadcaster in the target channel.</HelpTip>}
+                {status?.twitch_connected && <HelpTip label="Twitch permissions"><ul><li>Renew to grant new permissions, for example for highlighted announcements.</li><li>Sign in as the bot account.</li><li>The bot must be a moderator or the broadcaster in the channel.</li></ul></HelpTip>}
                 <button className="secondary" disabled={!twitchDirty || Boolean(busy)} onClick={() => void saveTwitch(false)}>{busy === 'twitch:save' ? 'Saving…' : 'Save for later'}</button>
                 {(!pendingRestart || twitchDirty) && <button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch(true)}>{busy === 'twitch:reconnect' ? 'Saving…' : draftRequiresRestart ? 'Save & restart' : twitchRunning ? 'Save & reconnect' : 'Save & apply'}</button>}
               </div>

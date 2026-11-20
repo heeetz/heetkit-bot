@@ -207,7 +207,7 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
         </section>
       </>}
     </Accordion>
-    {instructionsTarget && createPortal(<AIBehaviorSection id="ai-shared-instructions" title="Shared instructions" helpLabel="Available placeholders" className="ai-shared-instructions" badges={instructionsDirty && <span className="mini-badge dirty-badge">Edited</span>} description="Use {current_datetime}, {ai_max_response_length} or {response_language_instruction} to insert the current time, answer limit or response-language guidance."
+    {instructionsTarget && createPortal(<AIBehaviorSection id="ai-shared-instructions" title="Shared instructions" helpLabel="Available placeholders" className="ai-shared-instructions" badges={instructionsDirty && <span className="mini-badge dirty-badge">Edited</span>} description={<ul><li><code>{'{current_datetime}'}</code>: current date and time</li><li><code>{'{ai_max_response_length}'}</code>: answer length limit</li><li><code>{'{response_language_instruction}'}</code>: response language guidance</li></ul>}
       footer={saved && <div className="editor-footer ai-editor-footer">
         <button className="secondary" disabled={Boolean(busy)} onClick={() => setInstructions(null)}>Restore default instructions</button>
         <div className="row-actions">

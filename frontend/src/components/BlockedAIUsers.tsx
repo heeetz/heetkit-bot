@@ -45,7 +45,7 @@ export default function BlockedAIUsers({ active, onOpenAsk }: { active: boolean;
     <div className="section-heading ai-access-heading">
       <div>
         <h2>AI access</h2>
-        <HelpTip label="AI access">Blocking only affects AI command requests, including all aliases. It does not ban a Twitch user or delete their messages.</HelpTip>
+        <HelpTip label="AI access">Blocks only AI commands and their aliases. It does not ban the user on Twitch or delete messages.</HelpTip>
       </div>
     </div>
     <p className="section-copy">Ignore these users' AI requests, including every alias. This does not ban them on Twitch or delete their messages.</p>

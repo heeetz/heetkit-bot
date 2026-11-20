@@ -76,13 +76,13 @@ export default function OptOutManagement({ active }: { active: boolean }) {
 
   return <article className="command-card optout-management" id="optout-management">
     <AccordionHeader ariaLabel="Manage !optout" title="Storage opt-outs" expanded={expanded} contentId="optout-management-content" onToggle={() => setExpanded(!expanded)}
-      helpLabel="How opt-outs work" help="An opt-out erases this account’s stored presence, AI history, and leaderboard counts across the profile. Withdrawing allows future storage, but does not restore erased history or replay past messages." />
+      helpLabel="How opt-outs work" help={<ul><li>An opt-out erases the account’s presence, AI history and leaderboard counts in this profile.</li><li>Withdrawing allows storage again but does not bring erased data back.</li></ul>} />
     {expanded && <div className="command-details optout-details" id="optout-management-content">
       <div className="optout-fields">
         <div className="form-field optout-field">
           <div className="custom-field-label">
             <label htmlFor="optout-username">Twitch username</label>
-            <HelpTip label="Verify account">The server must match this username to a verified Twitch account before changing its opt-out.</HelpTip>
+            <HelpTip label="Verify account">HeetKit must match this username to a real Twitch account before changing its opt-out.</HelpTip>
           </div>
           <input ref={usernameInput} id="optout-username" aria-describedby="optout-add-effect" disabled={busy} value={username} maxLength={26} autoComplete="off" placeholder="e.g. viewer_name" onChange={(event) => setUsername(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && username.trim() && !busy) { event.preventDefault(); void change('add') } }} />
           <div className="optout-field-footer">

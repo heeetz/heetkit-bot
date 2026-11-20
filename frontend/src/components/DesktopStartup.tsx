@@ -65,7 +65,7 @@ export default function DesktopStartup({ children }: { children: (windows: boole
           <label className="startup-confirmation"><input type="checkbox" checked={confirmed} disabled={busy}
             onChange={(event) => setConfirmed(event.target.checked)} />I confirm this channel for all unscoped history.</label>
           <p>HeetKit verifies a recovery backup before upgrading the database.{' '}
-            <HelpTip label="Backup and retention">The private recovery backup expires after seven days. History already assigned to a channel keeps that channel and its original dates. Existing retention and opt-out rules still apply.</HelpTip>
+            <HelpTip label="Backup and retention"><ul><li>The recovery backup is deleted after 7 days.</li><li>History already linked to a channel keeps its channel and dates.</li><li>Retention and opt-out rules still apply.</li></ul></HelpTip>
           </p>
           <div className="row-actions"><button className="secondary" type="button" disabled={busy} onClick={() => void cancel()}>Cancel and exit</button>
             <button className="primary" type="submit" disabled={busy || !confirmed || !/^[0-9]{1,32}$/.test(channelId)}>{busy ? 'Upgrading history…' : 'Confirm channel and continue'}</button></div>
