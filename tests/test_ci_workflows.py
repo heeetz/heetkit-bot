@@ -30,6 +30,7 @@ def workflow(name):
 
 @pytest.mark.parametrize("paths,expected", [
     (["README.md", "docs/development.md"], (False, False, True)),
+    (["AGENTS.md", "CLAUDE.md"], (False, False, True)),
     (["app/commands/fun.py"], (True, False, True)),
     (["tests/behavior.py"], (True, False, False)),
     (["frontend/src/pages/FiltersPage.tsx"], (False, True, True)),
@@ -155,10 +156,64 @@ def test_new_branch_or_missing_base_selects_all_groups(monkeypatch, before, fail
     assert "base unavailable" in reason
 
 
-@pytest.mark.parametrize("event,ref", [("workflow_dispatch", "refs/heads/main"), ("push", "refs/tags/v1.4.1"), ("push", "refs/heads/feature")])
-def test_quick_rejects_manual_tags_and_other_branches(event, ref):
-    with pytest.raises(ValueError, match="only main pushes"):
-        ci_checks.plan_event(event, ref, "a" * 40, "b" * 40)
+@pytest.mark.parametrize("event,ref,payload", [
+    ("push", "refs/tags/v1.4.1", {}), ("push", "refs/heads/feature", {}),
+    ("workflow_dispatch", "refs/tags/v1.4.1", {}), ("schedule", "refs/heads/main", {}),
+    ("pull_request", "refs/pull/7/merge", {"pull_request": {"base": {"ref": "release", "sha": "a" * 40}}}),
+])
+def test_quick_rejects_tags_other_branch_pushes_and_other_targets(event, ref, payload):
+    with pytest.raises(ValueError, match="Quick accepts only"):
+        ci_checks.plan_event(event, ref, "a" * 40, "b" * 40, payload=payload)
+
+
+def _history(tmp_path):
+    def git(*args):
+        return subprocess.check_output(["git", "-c", "user.email=ci@example.invalid", "-c", "user.name=CI",
+                                        *args], cwd=tmp_path, text=True).strip()
+
+    git("init", "-q", "-b", "main")
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app/core.py").write_text("# core\n", encoding="utf-8")
+    git("add", ".")
+    git("commit", "-qm", "base")
+    base = git("rev-parse", "HEAD")
+    git("update-ref", "refs/remotes/origin/main", base)
+    git("checkout", "-qb", "task/docs")
+    (tmp_path / "README.md").write_text("# docs\n", encoding="utf-8")
+    git("add", ".")
+    git("commit", "-qm", "docs")
+    return base, git("rev-parse", "HEAD")
+
+
+def test_pull_request_compares_with_its_base(tmp_path):
+    base, head = _history(tmp_path)
+    payload = {"pull_request": {"base": {"ref": "main", "sha": base}}}
+    plan, paths, reason = ci_checks.plan_event("pull_request", "refs/pull/3/merge", "", head, root=tmp_path, payload=payload)
+    assert paths == ["README.md"] and reason == "pull request diff"
+    assert plan.outputs()["python"] == "false" and plan.outputs()["inputs"] == "true"
+
+
+def test_manual_branch_run_compares_with_main_and_can_run_everything(tmp_path):
+    base, head = _history(tmp_path)
+    plan, paths, reason = ci_checks.plan_event("workflow_dispatch", "refs/heads/task/docs", "", head, root=tmp_path, payload={})
+    assert paths == ["README.md"] and reason == "branch diff from main"
+    plan, paths, reason = ci_checks.plan_event("workflow_dispatch", "refs/heads/main", "", base, root=tmp_path, payload={})
+    assert "base unavailable" in reason and plan.all_browser
+    plan, _, reason = ci_checks.plan_event("workflow_dispatch", "refs/heads/task/docs", "", head, root=tmp_path,
+                                           payload={}, complete=True)
+    assert reason == "complete run requested"
+    assert all(plan.outputs()[name] == "true" for name in ci_checks.QUICK_GROUPS)
+    assert plan.outputs()["browser_shards"] == json.dumps(list(range(1, ci_checks.BROWSER_SHARDS + 1)))
+
+
+def test_browser_shards_follow_selection_size():
+    assert ci_checks.select_checks(["frontend/src/pages/AboutPage.tsx"]).shards() == [1]
+    assert ci_checks.select_checks(["frontend/src/pages/CommandsPage.tsx"]).shards() == [1, 2]
+    assert ci_checks.select_checks(["frontend/src/bridge.ts"]).shards() == list(range(1, ci_checks.BROWSER_SHARDS + 1))
+    assert "--shard=2/3" in ci_checks.browser_command(None, "2/3")
+    assert not any(item.startswith("--shard") for item in ci_checks.browser_command(None, "1/1"))
+    with pytest.raises(ValueError, match="shard"):
+        ci_checks.browser_command(None, "4/3")
 
 
 def test_no_moving_ref_is_accepted_by_diff():
@@ -179,8 +234,8 @@ def test_plan_cli_outputs_and_summary(monkeypatch, tmp_path):
     monkeypatch.setattr("sys.argv", ["ci_checks.py", "plan"])
     assert ci_checks.main() == 0
     assert dict(line.split("=", 1) for line in output.read_text().splitlines()) == {
-        "python": "false", "frontend": "false", "inputs": "true", "browser_files": "[]", "server": "false",
-        "distribution": "false", "orchestration": "false",
+        "python": "false", "frontend": "false", "inputs": "true", "browser_files": "[]", "browser_shards": "[1]",
+        "server": "false", "distribution": "false", "orchestration": "false",
     }
     assert "python: skip (no applicable changes)" in summary.read_text()
     assert "metadata only" in summary.read_text()
@@ -229,9 +284,14 @@ def test_full_gate_only_produces_evidence_after_all_required_jobs(tmp_path, monk
         assert not target.exists()
 
 
-def test_only_quick_runs_on_main_pushes_and_only_it_cancels():
+def test_only_quick_runs_automatically_and_only_it_cancels():
     quick, full, candidate, containers = map(workflow, ("quick", "full-validation", "windows-build", "linux-container"))
-    assert quick["on"] == {"push": {"branches": ["main"]}}
+    assert set(quick["on"]) == {"push", "pull_request", "workflow_dispatch"}
+    assert quick["on"]["push"] == {"branches": ["main"]}
+    assert quick["on"]["pull_request"]["branches"] == ["main"]
+    assert "ready_for_review" in quick["on"]["pull_request"]["types"]
+    assert quick["on"]["workflow_dispatch"]["inputs"]["complete"]["type"] == "boolean"
+    assert quick["concurrency"]["group"] == "quick-${{ github.ref }}"
     assert set(full["on"]) == {"workflow_dispatch"}
     assert set(candidate["on"]) == {"workflow_dispatch"}
     assert set(workflow("publish-release")["on"]) == {"workflow_dispatch"}
@@ -245,7 +305,10 @@ def test_only_quick_runs_on_main_pushes_and_only_it_cancels():
 def test_quick_gate_and_workload_wiring():
     jobs = workflow("quick")["jobs"]
     assert jobs["complete"]["name"] == "Quick result"
-    assert jobs["complete"]["if"] == "always()"
+    assert jobs["complete"]["if"] == "always() && needs.plan.result != 'skipped'"
+    assert "pull_request.draft" in jobs["plan"]["if"]
+    assert jobs["frontend"]["strategy"]["matrix"]["shard"] == "${{ fromJSON(needs.plan.outputs.browser_shards) }}"
+    assert jobs["frontend"]["strategy"]["fail-fast"] == "false"
     assert set(jobs["complete"]["needs"]) == {"plan", *ci_checks.QUICK_GROUPS}
     for name in ci_checks.QUICK_GROUPS:
         assert jobs[name]["if"] == f"needs.plan.outputs.{name} == 'true'"
@@ -257,6 +320,7 @@ def test_quick_gate_and_workload_wiring():
     assert "ci_checks.py browser" in frontend and "ci_checks.py frontend-output" in frontend
     steps = {step["id"]: step for step in jobs["frontend"]["steps"] if "id" in step}
     assert steps["browser_tests"]["env"]["BROWSER_FILES"] == "${{ needs.plan.outputs.browser_files }}"
+    assert steps["browser_tests"]["env"]["BROWSER_SHARD"] == "${{ matrix.shard }}/${{ strategy.job-total }}"
     input_python = next(step for step in jobs["inputs"]["steps"] if step.get("uses", "").startswith("actions/setup-python@"))
     assert input_python["with"]["cache"] == "pip"
     assert input_python["with"]["cache-dependency-path"] == ".github/workflows/quick.yml"

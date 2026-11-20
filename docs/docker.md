@@ -295,9 +295,15 @@ Keep the previous image/configuration, then follow the stopped-volume backup and
 replacement procedure above, preserving the existing volume and external secrets.
 Do not run a second bot against the same account to test the candidate.
 
-The release helper below requires a published tag and deliberately rejects unpublished
-candidates. Candidate preparation does not update the running server; cutover and
-rollback compatibility still require an explicitly authorized deployment.
+For an owner-requested test of a pushed branch on the existing host before release,
+run the same helper with `--candidate-branch <branch> --sha <full tip SHA>` instead of
+`--release`. It fetches only that branch, requires its tip to equal the SHA, skips the
+publication and version-tag checks (recording the source version instead), tags the
+image `heetkit-headless:candidate-<SHA>` and applies the same backup, cutover, health and
+rollback gates. `main` is rejected; deploy main through a published release. Candidate
+preparation alone does not update the running server; cutover and rollback compatibility
+still require an explicitly authorized deployment, and a later release replaces the
+candidate through the ordinary release update.
 
 ## Repeatable release update
 

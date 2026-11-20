@@ -1,9 +1,21 @@
 name: Quick
 
-# Keep the stable required check on every push, including prose-only pushes.
+# Keep the stable required check on every main push, including prose-only pushes.
+# Pull requests to main run it for each ready (non-draft) update, and any branch
+# can be checked manually. Each ref has its own group, so branches run in parallel.
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      complete:
+        description: 'Run every Quick group and the complete browser suite'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -15,12 +27,15 @@ concurrency:
 jobs:
   plan:
     name: Select Quick checks
+    # Draft pull requests carry work-in-progress handoffs; mark ready or run manually.
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     outputs:
       python: ${{ steps.plan.outputs.python }}
       frontend: ${{ steps.plan.outputs.frontend }}
       inputs: ${{ steps.plan.outputs.inputs }}
       browser_files: ${{ steps.plan.outputs.browser_files }}
+      browser_shards: ${{ steps.plan.outputs.browser_shards }}
       server: ${{ steps.plan.outputs.server }}
       distribution: ${{ steps.plan.outputs.distribution }}
       orchestration: ${{ steps.plan.outputs.orchestration }}
@@ -30,8 +45,10 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Select checks for the whole push
+      - name: Select checks for the whole push or pull request
         id: plan
+        env:
+          QUICK_COMPLETE: ${{ inputs.complete || 'false' }}
         run: python3 scripts/ci_checks.py plan
 
   python:
@@ -81,9 +98,13 @@ jobs:
           retention-days: 7
 
   frontend:
-    name: Production frontend and selected Edge tests
+    name: Production frontend and selected Edge tests (${{ matrix.shard }}/${{ strategy.job-total }})
     needs: plan
     if: needs.plan.outputs.frontend == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.browser_shards) }}
     runs-on: windows-2022
     timeout-minutes: 20
     defaults:
@@ -149,13 +170,14 @@ jobs:
         id: browser_tests
         env:
           BROWSER_FILES: ${{ needs.plan.outputs.browser_files }}
+          BROWSER_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
           PLAYWRIGHT_JUNIT_OUTPUT_FILE: ${{ runner.temp }}/heetkit-browser-junit.xml
         run: python scripts/ci_checks.py browser
       - name: Upload browser failure reports and attachments
         if: failure() && steps.browser_tests.outcome == 'failure'
         uses: actions/upload-artifact@v6
         with:
-          name: quick-browser-diagnostics-${{ github.run_attempt }}
+          name: quick-browser-diagnostics-${{ github.run_attempt }}-${{ matrix.shard }}
           path: |
             ${{ runner.temp }}/heetkit-browser-junit.xml
             frontend/node_modules/.tmp/playwright-results/**/trace.zip
@@ -212,7 +234,8 @@ jobs:
 
   complete:
     name: Quick result
-    if: always()
+    # A skipped plan means a draft pull request; the gate then reports skipped, not failed.
+    if: always() && needs.plan.result != 'skipped'
     needs: [plan, python, frontend, inputs]
     runs-on: ubuntu-24.04
     permissions:

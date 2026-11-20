@@ -1,3 +1,6 @@
+# Store text with LF and check it out with LF on every OS, so Windows and Linux
+# agents see the same bytes and no line-ending-only changes.
+* text=auto eol=lf
 # Preserve canonical/upstream license texts, including their original whitespace.
 LICENSE -text -whitespace
 NOTICE -text -whitespace
