@@ -219,6 +219,16 @@ async function login(page: Page) {
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible()
 }
 
+// Server Settings opens Twitch connection itself on activation; expand only
+// collapsed sections so a test click never toggles an already open one closed.
+async function openTwitchApplication(page: Page) {
+  const connection = page.locator('#twitch-settings > .accordion-header > .accordion-trigger')
+  await expect(connection).toHaveAttribute('aria-expanded', 'true')
+  const application = page.locator('#twitch-application > .accordion-header > .accordion-trigger')
+  if (await application.getAttribute('aria-expanded') !== 'true') await application.click()
+  await expect(application).toHaveAttribute('aria-expanded', 'true')
+}
+
 for (const width of [1280, 320]) test(`Analytics Server windows, charts, privacy controls, balance and memory at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 1000 })
   await server(page)
@@ -412,8 +422,7 @@ test('Server instructions preserve the Twitch draft and explain callback paste m
   await page.goto('/tests/browser.fixture.html')
   await login(page)
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await page.locator('#twitch-settings > .accordion-header > .accordion-trigger').click()
-  await page.locator('#twitch-application .accordion-trigger').click()
+  await openTwitchApplication(page)
   const field = page.getByRole('textbox', { name: 'Client ID', exact: true })
   await field.fill('draft-client')
   const instructions = page.getByRole('button', { name: 'Setup guide', exact: true })
@@ -678,7 +687,7 @@ for (const width of [1280, 900, 390, 320]) {
     await expect(page.getByRole('heading', { name: 'Twitch connection' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Configuration transfer' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Save Twitch settings', exact: true })).toBeVisible()
-    await page.locator('#twitch-application .accordion-trigger').click()
+    await openTwitchApplication(page)
     const secretActions = page.locator('#twitch-settings .secret-actions-menu')
     await expect(page.getByRole('button', { name: 'Replace secret', exact: true })).toBeDisabled()
     await expect(secretActions).toHaveCount(0)
@@ -699,7 +708,7 @@ test('server settings edit Twitch identity, manage credentials and complete or c
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Twitch connection', exact: true })).toBeVisible()
 
-  await page.locator('#twitch-application .accordion-trigger').click()
+  await openTwitchApplication(page)
   await page.getByLabel('Client ID').fill('new-client')
   await page.getByLabel('Bot account login').fill('new-bot')
   await page.getByLabel('Bot account user ID').fill('101')
@@ -713,7 +722,7 @@ test('server settings edit Twitch identity, manage credentials and complete or c
   await expect(page.getByRole('status')).toContainText('current session was stopped')
 
   const application = page.locator('#twitch-application')
-  await application.locator('.accordion-trigger').click()
+  await openTwitchApplication(page)
   await expect(application.getByLabel('Client ID')).toHaveValue('new-client')
   await expect(application.getByRole('button', { name: 'Replace secret', exact: true })).toBeVisible()
   await expect(application.getByRole('button', { name: 'Test saved secret', exact: true })).toBeVisible()
@@ -771,7 +780,7 @@ for (const width of [1280, 900, 390, 320]) {
 
     const twitch = page.locator('#twitch-settings')
     const application = twitch.locator('#twitch-application')
-    await application.locator('.accordion-trigger').click()
+    await openTwitchApplication(page)
     const secret = application.locator('.twitch-secret-field')
     const clientIdField = application.getByLabel('Client ID')
     const secretInput = secret.getByLabel('Twitch client secret', { exact: true })
@@ -860,7 +869,7 @@ test('server Twitch settings keep the validation error visible while preserving 
   await login(page)
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   const twitch = page.locator('#twitch-settings')
-  await page.locator('#twitch-application .accordion-trigger').click()
+  await openTwitchApplication(page)
   const clientId = twitch.getByLabel('Client ID')
   await clientId.fill('')
   await twitch.getByRole('button', { name: 'Save Twitch settings', exact: true }).click()
@@ -1034,8 +1043,7 @@ for (const origin of ['http://localhost:8765', 'https://server.example-tailnet.t
     await page.goto('/tests/browser.fixture.html')
     await login(page)
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
-    await page.locator('#twitch-settings > .accordion-header > .accordion-trigger').click()
-    await page.locator('#twitch-application > .accordion-header > .accordion-trigger').click()
+    await openTwitchApplication(page)
     await expect(page.locator('code').filter({ hasText: `${origin}/oauth/callback` })).toBeVisible()
     await page.getByRole('button', { name: 'Connect Twitch', exact: true }).click()
     await expect(page.getByRole('status')).toContainText('Return to this signed-in tab')

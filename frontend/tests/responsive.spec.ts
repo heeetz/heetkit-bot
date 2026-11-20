@@ -215,12 +215,14 @@ test('long model, personality, alias and draft values wrap inside the 761px cont
 test('loading and a long error remain contained at the 320px minimum width', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 800 })
   await page.clock.install()
-  await page.goto('/tests/fixture.html?statusDelay&languageLoadError')
+  // A configured profile keeps the session heading on the delayed status; an
+  // unconfigured one shows Not configured as soon as setup loads.
+  await page.goto('/tests/fixture.html?configured&statusDelay&languageLoadError')
   const dashboard = page.locator('.dashboard-hero')
   await expect(dashboard.getByRole('heading')).toHaveText('Loading…')
   await expectNoHorizontalOverflow(page)
   await page.clock.runFor(800)
-  await expect(dashboard.getByRole('heading')).toHaveText('Not configured')
+  await expect(dashboard.getByRole('heading')).toHaveText('Stopped')
 
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'AI', exact: true }).click()
   const alert = page.getByRole('alert')

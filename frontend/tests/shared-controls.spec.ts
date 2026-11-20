@@ -201,7 +201,9 @@ test('shared colors, control sizes, contrast and reduced motion follow A2', asyn
   await page.getByRole('button', { name: 'Edit !ping', exact: true }).click()
   const cooldown = page.locator('#command-editor-ping input[type="number"]').first()
   await cooldown.fill('-1')
-  await expect(cooldown).toHaveCSS('border-color', 'rgb(248, 113, 113)')
+  // The refreshed number control draws its border on the wrapper around the bare input.
+  await expect(cooldown).toHaveClass('invalid')
+  await expect(cooldown.locator('xpath=parent::*[contains(@class, "command-number-control")]')).toHaveCSS('border-color', 'rgb(248, 113, 113)')
 })
 
 test('required setup, unsaved drafts and full-reset consequences stay visible', async ({ page }) => {

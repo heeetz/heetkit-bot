@@ -243,7 +243,7 @@ test('auto-start authorization stays manual, including with a stale token cache'
   expect(await page.evaluate(() => Reflect.get(window, 'opened'))).toEqual([])
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await openTwitchSettings(page)
-  await expect(page.locator('.twitch-status-grid > div').filter({ hasText: 'Twitch authorization' })).toHaveText('Twitch authorizationRequired')
+  await expect(page.locator('.twitch-status-grid > div').filter({ hasText: /^Authorization/ })).toHaveText('AuthorizationRequired')
   await page.getByRole('button', { name: 'Authorize Twitch', exact: true }).click()
   expect(await page.evaluate(() => Reflect.get(window, 'opened'))).toEqual(['twitch_authorization'])
   await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
@@ -267,31 +267,31 @@ for (const width of [1280, 900, 761, 760, 390, 320]) {
     const savedBounds = (await savedChannel.boundingBox())!
     const editorBounds = (await editor.boundingBox())!
     const name = page.getByLabel('Saved channel name', { exact: true })
-    const update = page.getByRole('button', { name: 'Update saved channel', exact: true })
+    const save = page.getByRole('button', { name: 'Save channel', exact: true })
     const remove = page.getByRole('button', { name: 'Delete saved channel', exact: true })
     await expect(name).toBeVisible()
-    await expect(update).toBeVisible()
+    await expect(save).toBeVisible()
     await expect(remove).toBeVisible()
     const nameBounds = (await name.boundingBox())!
-    const updateBounds = (await update.boundingBox())!
+    const saveBounds = (await save.boundingBox())!
     const removeBounds = (await remove.boundingBox())!
     if (width > 760) {
       expect(Math.abs(savedBounds.y - nameBounds.y)).toBeLessThanOrEqual(1)
       expect(editorBounds.x).toBeGreaterThan(savedBounds.x + savedBounds.width)
       expect(Math.abs(savedBounds.width - editorBounds.width)).toBeLessThanOrEqual(2)
-      expect(Math.abs(nameBounds.width - updateBounds.width * 2)).toBeLessThanOrEqual(2)
-      expect(Math.abs(updateBounds.width - removeBounds.width)).toBeLessThanOrEqual(2)
+      expect(Math.abs(nameBounds.width - saveBounds.width * 2)).toBeLessThanOrEqual(2)
+      expect(Math.abs(saveBounds.width - removeBounds.width)).toBeLessThanOrEqual(2)
     } else {
       expect(editorBounds.y).toBeGreaterThan(savedBounds.y + savedBounds.height)
       expect(Math.abs(editorBounds.x - savedBounds.x)).toBeLessThanOrEqual(1)
     }
     if (width <= 480) {
       expect(Math.abs(nameBounds.width - editorBounds.width)).toBeLessThanOrEqual(2)
-      expect(updateBounds.y).toBeGreaterThan(nameBounds.y + nameBounds.height)
-      expect(Math.abs(updateBounds.y - removeBounds.y)).toBeLessThanOrEqual(1)
+      expect(saveBounds.y).toBeGreaterThan(nameBounds.y + nameBounds.height)
+      expect(Math.abs(saveBounds.y - removeBounds.y)).toBeLessThanOrEqual(1)
     } else {
-      expect(Math.abs(nameBounds.y - updateBounds.y)).toBeLessThanOrEqual(1)
-      expect(Math.abs(updateBounds.y - removeBounds.y)).toBeLessThanOrEqual(1)
+      expect(Math.abs(nameBounds.y - saveBounds.y)).toBeLessThanOrEqual(1)
+      expect(Math.abs(saveBounds.y - removeBounds.y)).toBeLessThanOrEqual(1)
     }
     for (const [firstLabel, secondLabel] of [
       ['Bot account login', 'Bot account user ID'],
@@ -399,7 +399,7 @@ test('secret changes retain Twitch drafts and require restart across Settings an
   await expect(twitchSection.getByRole('button', { name: 'Authorize Twitch', exact: true })).toBeDisabled()
   await expect(twitchSection.getByRole('button', { name: 'Save & restart', exact: true })).toBeVisible()
   await twitchSection.getByLabel('Saved channel name', { exact: true }).fill('After restart')
-  await twitchSection.getByRole('button', { name: 'Update saved channel', exact: true }).click()
+  await twitchSection.getByRole('button', { name: 'Save channel', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('Restart the application to apply pending Twitch setup')
   await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
   await expect(page.locator('.setup-card')).toContainText('Restart to apply Twitch setup')
@@ -419,7 +419,7 @@ for (const running of [false, true]) {
     await twitchSection.getByLabel('Target channel login').fill('otherchannel')
     await twitchSection.getByLabel('Target channel user ID').fill('300')
     await twitchSection.getByLabel('Saved channel name', { exact: true }).fill('Other channel')
-    await twitchSection.getByRole('button', { name: 'Update saved channel', exact: true }).click()
+    await twitchSection.getByRole('button', { name: 'Save channel', exact: true }).click()
     await expect(page.getByRole('status')).toContainText(running ? 'Save & reconnect' : 'Save & apply')
     await expect(twitchSection.getByRole('combobox', { name: /^Saved channel/ })).toHaveAttribute('data-value', 'synthetic-1')
     await expect(twitchSection.getByLabel('Bot account login')).toHaveValue('testbot')
