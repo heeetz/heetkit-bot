@@ -340,10 +340,17 @@ assertions that still apply. Scope UI selectors to accessible controls. Exercise
 normal operation on both supported hosts for shared features, with synthetic state.
 Verify that the final diff routes new and changed tests into Quick.
 
-Ordinary `main` pushes run Quick over the entire push diff. Backend code and Python
-tests select the full Python suite. Frontend changes select a production build and
-feature tests or the complete Edge suite for shared or uncertain changes. Plain prose
-selects metadata checks. The selection summary lists the paths, reasons and skips.
+Quick runs automatically for every `main` push (over the entire push diff) and for
+each update of a ready pull request to `main` (over the pull request diff). Draft
+pull requests are skipped; mark one ready or start **Actions > Quick > Run workflow**
+on its branch, which compares the branch with `main` (or runs everything with
+**complete** checked). Each ref runs in its own concurrency group, so different
+branches never queue behind each other; a newer push to the same ref cancels the
+older run. Backend code and Python tests select the full Python suite. Frontend
+changes select a production build and feature tests or the complete Edge suite for
+shared or uncertain changes; larger selections are split across parallel Windows
+jobs. Plain prose selects metadata checks. The selection summary lists the paths,
+reasons, skips and the number of browser jobs.
 For workflow and input changes, run
 `python -m pytest -q tests/test_ci_workflows.py tests/test_release_publication.py tests/test_release_evidence.py`
 and `python scripts/ci_checks.py inputs` with the development environment. These checks

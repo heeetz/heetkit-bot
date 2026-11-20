@@ -1,6 +1,7 @@
-# Local-only development context (preserve working copies)
-/AGENTS.md
+# Local-only development context (private heeetz/heetkit-context checkout and
+# legacy copies). The public AGENTS.md/CLAUDE.md bootstrap is tracked.
 /TODO.md
+/.agent-local/
 /.agent/
 /.agents/
 /.codex/

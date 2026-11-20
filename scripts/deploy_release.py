@@ -1,4 +1,4 @@
-"""Explicit, serialized release updates of the existing private ARM64 Compose bot.
+"""Explicit, serialized release (or owner-requested branch test) updates of the existing private ARM64 Compose bot.
 
 No provisioning, registry, workflow dispatch, profile restore or automatic update.
 All subprocess output and private runtime data stay off the terminal.
@@ -33,6 +33,8 @@ REPOSITORY = "https://github.com/heeetz/heetkit-bot.git"
 RELEASE_API = "https://api.github.com/repos/heeetz/heetkit-bot/releases/tags/"
 VERSION = re.compile(r"v(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})(?:-(alpha|beta|rc)\.([1-9][0-9]{0,3}))?")
 SHA = re.compile(r"[0-9a-f]{40}")
+# Pushed branch names for owner-requested test updates (for example task/2.2); never main.
+BRANCH = re.compile(r"(?!main$)(?!.*\.\.)(?!.*//)[A-Za-z0-9][A-Za-z0-9._/-]{0,99}(?<![./])")
 IMAGE = re.compile(r"sha256:[0-9a-f]{64}")
 LOCAL = "http://127.0.0.1:8765"
 VOLUME = "heetkit_profile"
@@ -202,12 +204,21 @@ def projection(status):
 
 
 class Deployment:
-    def __init__(self, config, release, sha, compatible):
-        require(VERSION.fullmatch(release) and SHA.fullmatch(sha), "Expected an explicit version tag and full SHA")
+    def __init__(self, config, release, sha, compatible, candidate=None):
+        if candidate is None:
+            require(isinstance(release, str) and VERSION.fullmatch(release) and SHA.fullmatch(sha),
+                    "Expected an explicit version tag and full SHA")
+        else:
+            require(release is None and isinstance(candidate, str) and BRANCH.fullmatch(candidate) and SHA.fullmatch(sha),
+                    "Expected an explicit pushed branch and its full tip SHA")
         self.config, self.release, self.sha, self.compatible = config, release, sha, compatible
+        self.candidate = candidate
         self.state = Path(config["state_dir"])
         self.record = {"release": release, "sha": sha, "rollback_compatible": compatible,
                        "result": "preparing", "stage": "preflight"}
+        if candidate is not None:
+            # An unpublished test update of the same host: same backup, cutover and rollback gates.
+            self.record["candidate_branch"] = candidate
         self.attempt = None
         self.before = None
         self.stopping = self.cutover = False
@@ -372,20 +383,25 @@ class Deployment:
         return ids[0]
 
     def prepare(self):
-        code, body = http(RELEASE_API + self.release)
-        require(code == 200, "Requested published release is unavailable")
-        release = json.loads(body)
-        require(release["tag_name"] == self.release and not release["draft"] and release.get("published_at"),
-                "Requested tag is not a published release")
-        self.save(release_url=release["html_url"], old_image=self.old_image, was_running=self.was_running)
+        if self.candidate is None:
+            code, body = http(RELEASE_API + self.release)
+            require(code == 200, "Requested published release is unavailable")
+            release = json.loads(body)
+            require(release["tag_name"] == self.release and not release["draft"] and release.get("published_at"),
+                    "Requested tag is not a published release")
+            self.save(release_url=release["html_url"], old_image=self.old_image, was_running=self.was_running)
+        else:
+            self.save(old_image=self.old_image, was_running=self.was_running)
         info = self.command_json(["docker", "info", "--format", "{{json .}}"])
         require(info["OSType"] == "linux" and info["Architecture"] in {"aarch64", "arm64"}, "Expected native Linux ARM64 Docker")
         source = self.attempt / "source"
         source.mkdir(mode=0o755)
         run(["git", "init", source])
-        run(["git", "-C", source, "fetch", "--depth=1", REPOSITORY, "refs/tags/" + self.release], timeout=180)
+        ref = "refs/tags/" + self.release if self.candidate is None else "refs/heads/" + self.candidate
+        run(["git", "-C", source, "fetch", "--depth=1", REPOSITORY, ref], timeout=180)
         resolved = run(["git", "-C", source, "rev-parse", "FETCH_HEAD^{commit}"]).decode().strip()
-        require(resolved == self.sha, "Published tag does not match the requested full SHA")
+        require(resolved == self.sha, "Published tag does not match the requested full SHA" if self.candidate is None
+                else "Branch tip does not match the requested full SHA")
         archive_path = self.attempt / "source.tar"
         with archive_path.open("wb") as output:
             run(["git", "-C", source, "archive", self.sha], output=output)
@@ -394,7 +410,10 @@ class Deployment:
         module = ast.parse((source / "app/version.py").read_text())
         version = next(ast.literal_eval(node.value) for node in module.body if isinstance(node, ast.Assign) and
                        any(isinstance(target, ast.Name) and target.id == "VERSION" for target in node.targets))
-        require("v" + version == self.release, "Release tag does not match app/version.py")
+        if self.candidate is None:
+            require("v" + version == self.release, "Release tag does not match app/version.py")
+        else:
+            self.save(source_version=version)
         old = self.command_json(["docker", "image", "inspect", self.old_image])[0]
         if (self.was_running and old["Id"] == self.old_image and old["Architecture"] == "arm64" and
                 old["Os"] == "linux" and old["Config"].get("Labels", {}).get("org.opencontainers.image.revision") == self.sha):
@@ -409,7 +428,7 @@ class Deployment:
         require(minimum_memory > 0 and int(memory["MemAvailable"].split()[0]) * 1024 >= minimum_memory,
                 "Insufficient available memory to build while serving")
         self.save(stage="build")
-        tag = "heetkit-headless:release-" + self.sha
+        tag = ("heetkit-headless:release-" if self.candidate is None else "heetkit-headless:candidate-") + self.sha
         run(["docker", "build", "--platform", "linux/arm64", "--label", "org.opencontainers.image.revision=" + self.sha,
              "--tag", tag, source], timeout=1800)
         image = self.command_json(["docker", "image", "inspect", tag])[0]
@@ -570,15 +589,17 @@ class Deployment:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--release", required=True, help="Published tag, such as v1.4.1; never latest/main")
-    parser.add_argument("--sha", required=True, help="Full expected release commit SHA")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--release", help="Published tag, such as v1.4.1; never latest/main")
+    source.add_argument("--candidate-branch", help="Owner-requested test update from a pushed branch, such as task/2.2; never main")
+    parser.add_argument("--sha", required=True, help="Full expected commit SHA (release tag target or branch tip)")
     parser.add_argument("--rollback-compatible", action="store_true", help="Operator has checked old-code/current-profile compatibility")
     args = parser.parse_args()
     os.umask(0o077)
     try:
         require(os.name == "posix", "Deploy only on the existing Linux host")
         config = json.loads(private_file(args.config).read_text())
-        deployment = Deployment(config, args.release, args.sha, args.rollback_compatible)
+        deployment = Deployment(config, args.release, args.sha, args.rollback_compatible, args.candidate_branch)
         with deployment_lock(deployment.state):
             deployment.execute()
         print("Deployment verified; private record: " + str(deployment.attempt / "deployment.json"))

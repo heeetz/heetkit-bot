@@ -267,13 +267,15 @@ is missing or a candidate rerun encounters an existing immutable artifact name.
 3. Ensure the production publisher public key is in the source before building.
    Commit and push the release-ready state to `main`. Wait for Quick, then manually
    run Full validation with that exact SHA. After it passes, run Build candidate with
-   the same SHA. Verify the candidate artifacts and resolve the publication gates below.
-   Sign the exact verified installer manifest offline and retain both sidecars.
+   the same SHA. Verify the candidate artifacts, sign the exact verified installer
+   manifest offline and retain both sidecars.
    These are separate owner-requested operations, not automatic task completion.
-4. Create the matching tag **at that verified SHA**, for example
-   `git tag v1.4.1 <SHA>` for version `1.4.1`, then `git push origin v1.4.1`.
-   This records traceability only; it starts no workflow.
-5. After artifact/manual acceptance, explicitly run **Actions > Publish > Run workflow**
+4. With explicit owner authorization, create the matching tag **at that verified SHA**,
+   for example `git tag v1.4.1 <SHA>` for version `1.4.1`, then `git push origin v1.4.1`.
+   This records traceability and starts no workflow.
+5. Complete [artifact acceptance](#before-publication) and
+   [live Twitch acceptance](#live-twitch-acceptance) for this exact candidate.
+6. With explicit owner authorization to publish, run **Actions > Publish > Run workflow**
    from main with `sha`, `tag`, `candidate_run_id`, `full_run_id`, and Base64 of the
    two sidecar files as `installer_manifest` and `installer_signature`. Publish verifies
    the evidence, candidate and signature, then creates the release with the five
@@ -317,6 +319,46 @@ records the v1.1.0 findings. See the
 [v1.5.4 notice inventory](../THIRD_PARTY_NOTICES.md#published-windows-x64-release-v154)
 for what shipped and which redistribution questions remain open.
 
+## Live Twitch acceptance
+
+After Quick and Full pass and the candidate artifacts are verified, the release agent
+asks the owner to run that candidate during **one normal live Twitch streaming evening**.
+Give the owner the version, full source SHA, where the candidate is installed, and a
+short checklist with expected results for the affected behavior. Use a local or other
+authorized test installation suited to the changes. An update to the production VM
+requires [separate deployment authorization](docker.md#repeatable-release-update).
+
+Use this baseline and add a check for each changed feature:
+
+1. Connect the candidate bot to Twitch and confirm it responds in real chat while
+   the stream is live.
+2. From an account that can use both commands, try `!weather New York` and
+   `!ask What is the largest planet?` several times during the evening. Allow the
+   configured per-user and global cooldowns to expire before each expected reply.
+   Check that the weather reply names the requested city and that the bot answers the
+   AI question in chat.
+3. Exercise the other changed features in their normal workflows and check the
+   results specified for this release.
+4. Repeat the chat checks after a period of inactivity and, where applicable,
+   after the bot reconnects. If a reply is missing, record the exact command and
+   local time with time zone so the agent can find the event in the logs.
+
+Record the owner's result and known limits in the release record or private handoff,
+alongside the version, SHA and test installation. Hold public release and production
+rollout until the owner explicitly confirms that the check passed for that candidate.
+For a release containing only a small bugfix, the owner may explicitly approve an
+exception to the evening check for that SHA. Record the exception and any focused
+checks performed. A publish or deploy request alone does not confirm acceptance or
+grant an exception. Existing automated checks, artifact acceptance, and separate
+authorization for publication and production VM deployment still apply.
+
+Full validation, candidate builds, read-only investigations and local tests may
+proceed before live acceptance with their usual authorization. If code changes
+after the check, review the diff to decide which checks to repeat, obtain fresh Quick,
+Full and candidate evidence for the new SHA, and have the owner repeat the live checks for
+affected behavior on the new candidate. The new candidate needs its own explicit
+acceptance or applicable small-bugfix exception.
+
 ## Windows runtime and installation
 
 Target machines need .NET Framework 4.6.2+ and
@@ -346,6 +388,7 @@ user or VM without development tooling. Check startup, Twitch authorization, opt
 Gemini, saved commands/personalities/instructions/filters, restart, tray, version/icon,
 upgrade and uninstall/reinstall retention. Use synthetic data or protected backups.
 Verify checksums, complete extraction and the absence of private or development files.
+Apply the [live Twitch acceptance](#live-twitch-acceptance) rule for the same SHA.
 
 Review the actual payload against [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)
 and bundled license texts; unresolved artifact-specific redistribution reviews block
