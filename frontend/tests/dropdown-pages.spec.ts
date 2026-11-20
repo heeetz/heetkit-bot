@@ -43,7 +43,7 @@ for (const width of [1280, 390]) {
     })
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     const twitch = page.locator('#twitch-settings')
-    await twitch.locator('.accordion-caret').click()
+    await twitch.locator(':scope > .accordion-header > .accordion-trigger .accordion-caret').click()
     await selectOption(twitch.getByRole('combobox', { name: /^Saved channel/ }), 'alternate')
     await expect(twitch.getByLabel('Target channel login')).toHaveValue('otherchannel')
     await expect(twitch.getByLabel('Target channel user ID')).toHaveValue('300')

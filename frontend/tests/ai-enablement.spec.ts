@@ -70,7 +70,7 @@ test('editing Ask saves its draft enabled state together with permissions and co
   await openEditorSection(ask, 'Access & aliases')
   await selectOption(ask.getByRole('combobox', { name: 'Permission', exact: true }), 'VIP')
   await openEditorSection(ask, 'General')
-  await ask.getByLabel('Global cooldown', { exact: true }).fill('42')
+  await ask.getByLabel('Global cooldown (seconds)', { exact: true }).fill('42')
   await ask.getByRole('checkbox', { name: 'Enable !ask' }).press('Space')
   await expect(ask.getByRole('checkbox')).toBeChecked()
   expect(await page.evaluate(() => Reflect.get(window, 'aiCalls'))).toEqual([])

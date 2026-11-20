@@ -1,9 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
 
 async function openTwitchSettings(page: Page) {
-  const trigger = page.locator('#twitch-settings .accordion-trigger')
+  const trigger = page.locator('#twitch-settings > .accordion-header > .accordion-trigger')
   if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
-  const application = page.locator('#twitch-application .accordion-trigger')
+  const application = page.locator('#twitch-application > .accordion-header > .accordion-trigger')
   if (await application.getAttribute('aria-expanded') !== 'true') await application.click()
 }
 

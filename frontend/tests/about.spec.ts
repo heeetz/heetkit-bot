@@ -221,7 +221,7 @@ test('portable builds offer manual downloads', async ({ page }) => {
 test('update allows an editor draft to be saved before shutdown', async ({ page }) => {
   await page.goto('/tests/fixture.html?configured&updateNewer&verifiedUpdate')
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await page.getByRole('button', { name: 'Twitch connection', exact: true }).click()
+  await page.locator('#twitch-settings > .accordion-header > .accordion-trigger').click()
   const channel = page.getByLabel('Target channel login')
   await channel.fill('unsaved_channel')
   await page.getByRole('button', { name: 'About', exact: true }).click()

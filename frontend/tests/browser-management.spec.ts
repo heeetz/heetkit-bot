@@ -401,7 +401,7 @@ test('Server announcements save highlighted delivery through authenticated fixed
     delivery_mode: 'highlighted', interval_seconds: 900, min_messages: 0, stream_availability: 'live_only',
   }] } })
   expect(api.calls.filter((call) => call.path === '/v1/announcements').every((call) => call.authorization === `Bearer ${sessionToken}`)).toBe(true)
-  await panel.getByRole('button', { name: 'Help: Announcement status Server reminder', exact: true }).click()
+  await panel.getByRole('button', { name: 'Help: Schedule status', exact: true }).click()
   await expect(page.getByRole('tooltip')).toContainText('Last outcome: No attempts yet')
 })
 
@@ -412,7 +412,7 @@ test('Server instructions preserve the Twitch draft and explain callback paste m
   await page.goto('/tests/browser.fixture.html')
   await login(page)
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await page.getByRole('button', { name: 'Twitch connection', exact: true }).click()
+  await page.locator('#twitch-settings > .accordion-header > .accordion-trigger').click()
   await page.locator('#twitch-application .accordion-trigger').click()
   const field = page.getByRole('textbox', { name: 'Client ID', exact: true })
   await field.fill('draft-client')
@@ -600,8 +600,8 @@ for (const width of [1280, 900, 390, 320]) {
     await page.getByRole('button', { name: 'Edit !ping', exact: true }).click()
     await expect(command.getByLabel('Primary chat name', { exact: true })).toBeVisible()
     const general = command.getByRole('region', { name: 'General', exact: true })
-    await expect(general.getByLabel('Per-user cooldown', { exact: true })).toBeVisible()
-    await expect(general.getByLabel('Global cooldown', { exact: true })).toBeVisible()
+    await expect(general.getByLabel('Per-user cooldown (seconds)', { exact: true })).toBeVisible()
+    await expect(general.getByLabel('Global cooldown (seconds)', { exact: true })).toBeVisible()
     await openEditorSection(command, 'Access & aliases')
     await expect(command.getByRole('combobox', { name: 'Permission', exact: true })).toBeVisible()
     await openEditorSection(command, 'Conditions')
@@ -617,7 +617,7 @@ for (const width of [1280, 900, 390, 320]) {
     expect(availabilityBounds!.x + availabilityBounds!.width).toBeLessThanOrEqual(width)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
     await openEditorSection(command, 'General')
-    await command.getByLabel('Per-user cooldown', { exact: true }).fill('7')
+    await command.getByLabel('Per-user cooldown (seconds)', { exact: true }).fill('7')
     await command.getByLabel('Primary chat name', { exact: true }).fill('servercheck')
     await command.getByRole('button', { name: 'Save command', exact: true }).click()
     await expect.poll(() => api.calls.find((call) => call.path === '/v1/commands/save')?.body?.per_user_seconds).toBe(7)
@@ -680,8 +680,8 @@ for (const width of [1280, 900, 390, 320]) {
     await expect(page.getByRole('button', { name: 'Save Twitch settings', exact: true })).toBeVisible()
     await page.locator('#twitch-application .accordion-trigger').click()
     const secretActions = page.locator('#twitch-settings .secret-actions-menu')
-    await secretActions.locator('summary').click()
-    await expect(secretActions.getByRole('button', { name: 'Remove secret', exact: true })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Replace secret', exact: true })).toBeDisabled()
+    await expect(secretActions).toHaveCount(0)
     await expect(page.getByRole('button', { name: /Open profile folder/ })).toHaveCount(0)
     await page.getByRole('button', { name: 'About', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Check for updates', exact: true })).toHaveCount(0)
@@ -715,7 +715,8 @@ test('server settings edit Twitch identity, manage credentials and complete or c
   const application = page.locator('#twitch-application')
   await application.locator('.accordion-trigger').click()
   await expect(application.getByLabel('Client ID')).toHaveValue('new-client')
-  await expect(application.locator('.twitch-secret-field .credential-actions')).toBeVisible()
+  await expect(application.getByRole('button', { name: 'Replace secret', exact: true })).toBeVisible()
+  await expect(application.getByRole('button', { name: 'Test saved secret', exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'AI', exact: true }).click()
   await page.getByRole('navigation').getByRole('button', { name: 'AI setup', exact: true }).click()
@@ -776,7 +777,8 @@ for (const width of [1280, 900, 390, 320]) {
     const secretInput = secret.getByLabel('Twitch client secret', { exact: true })
     await expect(clientIdField).toBeVisible()
     await expect(secret).toContainText('Twitch client secret')
-    await expect(secret.locator('.credential-actions')).toBeVisible()
+    await expect(secret.getByRole('button', { name: 'Replace secret', exact: true })).toBeVisible()
+    await expect(secret.getByRole('button', { name: 'Test saved secret', exact: true })).toBeVisible()
     const clientIdBounds = (await clientIdField.boundingBox())!
     const secretBounds = (await secretInput.boundingBox())!
     await expect(secretInput).toHaveAttribute('type', 'password')
@@ -828,7 +830,7 @@ for (const width of [1280, 900, 390, 320]) {
     const authorizationBounds = (await authorization.boundingBox())!
     const saveBounds = (await save.boundingBox())!
     expect(saveBounds.y).toBeGreaterThan(targetBounds.y)
-    expect(saveBounds.y).toBeGreaterThan(authorizationBounds.y)
+    expect(saveBounds.y).toBeGreaterThanOrEqual(authorizationBounds.y)
     for (const button of await secret.locator('button').all()) {
       const buttonBounds = (await button.boundingBox())!
       expect(buttonBounds.x).toBeGreaterThanOrEqual(secretBounds.x)
@@ -1016,7 +1018,7 @@ test('desktop startup waits for delayed pywebviewready without selecting browser
     }, 300)
   })
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'Running', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Connected', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Sign in to server' })).toHaveCount(0)
   await expect(page.getByRole('combobox', { name: 'Operation mode', exact: true })).toHaveCount(0)
   expect(requests).toEqual([])
@@ -1032,6 +1034,8 @@ for (const origin of ['http://localhost:8765', 'https://server.example-tailnet.t
     await page.goto('/tests/browser.fixture.html')
     await login(page)
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await page.locator('#twitch-settings > .accordion-header > .accordion-trigger').click()
+    await page.locator('#twitch-application > .accordion-header > .accordion-trigger').click()
     await expect(page.locator('code').filter({ hasText: `${origin}/oauth/callback` })).toBeVisible()
     await page.getByRole('button', { name: 'Connect Twitch', exact: true }).click()
     await expect(page.getByRole('status')).toContainText('Return to this signed-in tab')

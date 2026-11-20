@@ -83,7 +83,7 @@ for (const { section, children } of destinations) {
       await expect(nav.locator('.sidebar-subnav:visible')).toHaveCount(1)
       await expect.poll(() => page.evaluate(() => Reflect.get(window, 'navigationScrolls').at(-1))).toEqual({ id, hidden: false, loading: false })
       if (['ai-models', 'twitch-settings'].includes(id)) {
-        await expect(page.locator(`#${id} .accordion-trigger`)).toHaveAttribute('aria-expanded', 'true')
+        await expect(page.locator(`#${id} > .accordion-header > .accordion-trigger`)).toHaveAttribute('aria-expanded', 'true')
         await expect.poll(() => page.evaluate(() => Reflect.get(window, 'navigationAccordionStates').at(-1))).toEqual({ id, open: 'true' })
       }
       await expect(page.locator(`#${id}`)).toBeInViewport()

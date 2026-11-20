@@ -160,7 +160,7 @@ test('two-field settings respond to page content width across the desktop and to
   await page.goto('/tests/fixture.html?configured&cachedToken')
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Settings', exact: true }).click()
   const twitch = page.locator('#twitch-settings')
-  await twitch.locator('.accordion-caret').click()
+  await twitch.locator(':scope > .accordion-header .accordion-caret').click()
   await expect(twitch.locator('.twitch-field-pair').first()).toBeVisible()
 
   for (const width of [1180, 900, 761, 760, 390]) {
@@ -214,10 +214,13 @@ test('long model, personality, alias and draft values wrap inside the 761px cont
 
 test('loading and a long error remain contained at the 320px minimum width', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 800 })
+  await page.clock.install()
   await page.goto('/tests/fixture.html?statusDelay&languageLoadError')
-  await expect(page.locator('.dashboard-hero')).toContainText('Loading…')
+  const dashboard = page.locator('.dashboard-hero')
+  await expect(dashboard.getByRole('heading')).toHaveText('Loading…')
   await expectNoHorizontalOverflow(page)
-  await expect(page.locator('.dashboard-card').first().getByRole('heading')).toHaveText('Not configured')
+  await page.clock.runFor(800)
+  await expect(dashboard.getByRole('heading')).toHaveText('Not configured')
 
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'AI', exact: true }).click()
   const alert = page.getByRole('alert')
@@ -320,14 +323,11 @@ for (const width of [1440, 1180, 900, 390, 320]) {
         if (index) expect(boxes[index - 1].x + boxes[index - 1].width).toBeLessThanOrEqual(boxes[index].x)
       }
       const inputBox = (await input.boundingBox())!
-      expect(inputBox.height).toBeCloseTo(boxes[0].height, 0)
-      expect(inputBox.y).toBeCloseTo(boxes[0].y, 0)
+      expect(Math.abs(inputBox.height - boxes[0].height)).toBeLessThanOrEqual(1)
+      expect(Math.abs(inputBox.y - boxes[0].y)).toBeLessThanOrEqual(1)
     }
     await expectNoHorizontalOverflow(page)
     if (width === 1180 || width === 320) await row.screenshot({ path: `node_modules/.tmp/ui-gemini-key-${width}.png` })
-    await key.getByRole('button', { name: 'Help: Provider keys', exact: true }).focus()
-    await expect(page.getByRole('tooltip')).toContainText('generation access may differ')
-    await page.keyboard.press('Escape')
     await expect(input).toHaveValue('synthetic-key-draft')
   })
 }

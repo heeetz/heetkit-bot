@@ -178,9 +178,11 @@ async def test_alias_and_account_rename_guard_precedes_every_execution_boundary(
     dispatcher._output_limiter.try_acquire.assert_not_called()
     incoming.respond.assert_not_awaited()
     entries = buffer.activity()["entries"]
-    assert len(entries) == 1
+    assert [entry["event_kind"] for entry in entries] == ["command.outcome", "command.terminal"]
     assert entries[0]["context"]["reason"] == "personal_command_restriction"
     assert entries[0]["context"]["command_id"] == "ask"
+    assert entries[1]["context"]["command_id"] == "ask"
+    assert entries[1]["context"]["outcome"] == "skipped"
     assert NOTE not in json.dumps(entries) and "PRIVATE PROMPT" not in json.dumps(entries)
 
 
