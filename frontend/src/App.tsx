@@ -12,7 +12,6 @@ import {
   getBrowserSnapshot,
   isBrowserMode,
   setBrowserOperationMode,
-  twitchAuthorizationLabel,
   twitchConnectionLabel,
   waitForBridge,
 } from './bridge'
@@ -232,11 +231,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
         <div className="dashboard-session-main">
           <div className="dashboard-session-fields">
             <div className="dashboard-connection">
-              <div className="dashboard-label">Twitch connection<HelpTip label="Bot session"><ul>
-                {status && setup && <li>Authorization: {twitchAuthorizationLabel(status.twitch_connection_state, setup.twitch.oauth_token_available)}.</li>}
-                <li>A running session may wait for authorization or reconnect.</li>
-                <li>Connected means Twitch chat is ready.</li>
-              </ul></HelpTip></div>
+              <div className="dashboard-label">Twitch connection</div>
               <h2><span aria-hidden="true" className={`status-dot ${status?.twitch_connected ? 'online' : ''}`} />
                 {needsTwitchSetup ? 'Not configured' : status ? twitchConnectionLabel(status.twitch_connection_state) : 'Loading…'}
               </h2>
@@ -296,7 +291,6 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
         <article className="card dashboard-ai-card">
           <div className="dashboard-card-heading">
             <h2>AI controls</h2>
-            <HelpTip label="AI controls"><ul><li>AI is optional.</li><li>The AI command switch saves immediately. AI and Commands share it.</li><li>AI Playground works while the bot is stopped.</li><li>Turning memory off stops new storage. Earlier exchanges stay.</li></ul></HelpTip>
           </div>
           <div className="dashboard-ai-summary">
             <span>{aiStatus ? aiStatus.available ? aiStatus.model || setup?.aiProvider.selected_model || 'Model not selected' : 'AI unavailable' : 'Loading…'}</span>
@@ -320,7 +314,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
         <article className="card dashboard-operation-card">
           <div className="dashboard-card-heading">
             <div>
-              <div className="dashboard-label">Operation mode<HelpTip label="Operation mode"><ul><li>Saved on the server. Changes apply immediately.</li><li>Twitch connection above shows the current status.</li></ul></HelpTip></div>
+              <div className="dashboard-label">Operation mode</div>
               <h2>{browserOperationModeLabel(operation.mode)}</h2>
             </div>
             <Select
@@ -332,7 +326,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
               onChange={(mode) => onChangeBrowserMode(mode as BrowserOperationMode)}
             />
           </div>
-          <p>{browserOperationDescription(operation.mode)}</p>
+          <p>{browserOperationDescription(operation.mode)} Changes save immediately. Check Twitch connection for the current status.</p>
           {operation.mode === 'stream_only' && <p>Stream changes require consecutive successful checks before the connection changes.</p>}
           <div className="twitch-status-grid dashboard-operation-status">
             <div><span>Broadcaster status</span><strong className={operation.stream_status === 'live' ? 'status-good' : ''}>{streamStatusLabel(operation.stream_status)}</strong></div>
