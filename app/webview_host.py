@@ -101,7 +101,7 @@ FRONTEND_OPERATIONS = (
     "get_message_triggers", "save_message_triggers",
     "get_analytics", "configure_analytics", "configure_leaderboard_counting", "reset_analytics", "get_ai_balance", "get_leaderboards", "save_leaderboard_settings",
     "get_ai_memory_limits", "save_ai_memory_limits",
-    "get_filters", "get_ai_status", "get_personalities", "get_recent_logs",
+    "get_filters", "get_ai_status", "get_personalities", "get_recent_logs", "get_recent_commands",
     "start_ai_playground", "get_ai_playground_result", "cancel_ai_playground",
     "apply_command_settings", "save_command_settings", "reset_command_settings",
     "remove_builtin_command", "restore_builtin_command", "save_builtin_enabled", "reset_all_builtin_commands",
@@ -1494,6 +1494,9 @@ class WebUIBridge(ApplicationManagement):
         safe_limit = limit if type(limit) is int else 200
         safe_limit = min(200, max(1, safe_limit))
         return self._log_buffer.activity(after_id=safe_after_id, limit=safe_limit, snapshot=snapshot is True and safe_after_id == 0)
+
+    def get_recent_commands(self) -> dict[str, object]:
+        return {"ok": True, "entries": self._log_buffer.recent_commands()}
 
     def export_activity(self, entry_ids: object) -> dict[str, object]:
         """Save only retained events selected by the confirmed view, via a native dialog."""

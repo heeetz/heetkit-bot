@@ -21,10 +21,9 @@ export default function TwitchSecretField({ credential, value, busy, host, onCha
   return <div className="twitch-secret-field form-field">
     <div className="twitch-secret-label">
       <label htmlFor={id}>Twitch client secret</label>
-      <span className={`state-pill ${configured ? 'enabled' : 'unconfigured'}`}>{configured ? 'Configured' : 'Unconfigured'}</span>
       <HelpTip label="Twitch client secret">
-        The field is always a new masked draft; saved secrets are never displayed. Replace/Add and Remove apply immediately.
-        Test client secret checks the saved secret with the saved Client ID, without authorizing the bot account.
+        The field is always a new masked draft; saved secrets are never displayed. Add/Replace and Remove apply immediately.
+        Test saved secret checks the stored secret with the saved Client ID, without authorizing the bot account.
         {host === 'desktop' ? ' Changes require an application restart; existing OAuth tokens are retained. A secure value overrides the environment fallback.' : ' Changes stop the current session and clear authorization. Connect Twitch again after saving a valid secret.'}
         {external && ' This secret is managed externally. Rotate its environment or secret-file value on the host.'}
       </HelpTip>
@@ -35,9 +34,14 @@ export default function TwitchSecretField({ credential, value, busy, host, onCha
     <div className="credential-actions">
       <button className="secondary" disabled={disabled || external || !value.trim()} onClick={() => onAction('replace')}>{busy === 'twitch_client_secret:replace' ? 'Saving...' : configured ? 'Replace secret' : 'Add secret'}</button>
       {host === 'desktop' && value.trim() && <button className="primary" disabled={disabled || external} onClick={() => onAction('replace', true)}>{configured ? 'Replace secret & restart' : 'Add secret & restart'}</button>}
-      <button className="secondary" disabled={disabled || !configured} onClick={() => onAction('test')}>{busy === 'twitch_client_secret:test' ? 'Testing...' : 'Test client secret'}</button>
-      <button className="ghost destructive" disabled={disabled || !removable} onClick={() => onAction('remove')}>{busy === 'twitch_client_secret:remove' ? 'Removing...' : 'Remove secret'}</button>
-      {host === 'desktop' && removable && <button className="ghost destructive" disabled={disabled} onClick={() => onAction('remove', true)}>Remove secret &amp; restart</button>}
+      <button className="secondary" disabled={disabled || !configured} onClick={() => onAction('test')}>{busy === 'twitch_client_secret:test' ? 'Testing...' : 'Test saved secret'}</button>
+      {removable && <details className="secret-actions-menu">
+        <summary>Secret actions</summary>
+        <div className="secret-actions-menu-items">
+          <button className="ghost destructive" disabled={disabled} onClick={() => onAction('remove')}>{busy === 'twitch_client_secret:remove' ? 'Removing...' : 'Remove secret'}</button>
+          {host === 'desktop' && <button className="ghost destructive" disabled={disabled} onClick={() => onAction('remove', true)}>Remove secret &amp; restart</button>}
+        </div>
+      </details>}
     </div>
     {host === 'server' && value.trim() && <p className="settings-hint">Saving stops the bot and clears authorization.</p>}
     {!credential && <p className="credential-warning" role="alert">Secret status unavailable. Reopen Settings to retry.</p>}

@@ -89,11 +89,11 @@ async function expectContentAligned(page: Page) {
 test('column and form thresholds handle fractional CSS content widths', async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 })
   await page.goto('/tests/fixture.html?configured&aiAvailable')
-  for (const [width, columns] of [[720, 3], [719.5, 2], [480, 2], [479.5, 1]]) {
+  for (const [width, columns] of [[621, 2], [620.5, 2], [620, 1], [479.5, 1]]) {
     await page.locator('.page-content').evaluate((element, width) => {
       element.style.width = `${width}px`
     }, width)
-    expect(await gridColumns(page.locator('.dashboard-grid'), ':scope > .dashboard-card')).toBe(columns)
+    expect(await gridColumns(page.locator('.dashboard-panels'), ':scope > article')).toBe(columns)
   }
   await page.getByRole('navigation').getByRole('button', { name: 'AI', exact: true }).click()
   await expect(page.locator('.ai-layout')).toHaveAttribute('aria-busy', 'false')
@@ -101,7 +101,7 @@ test('column and form thresholds handle fractional CSS content widths', async ({
     await page.locator('.page-content').evaluate((element, width) => {
       element.style.width = `${width}px`
     }, width)
-    expect(await gridColumns(page.locator('.ai-behavior-overview'), ':scope > *')).toBe(columns)
+    expect(await gridColumns(page.locator('.ai-behavior-shortcuts'), ':scope > button')).toBe(columns)
     await expectNoHorizontalOverflow(page)
   }
   const language = await openAIBehaviorSection(page, 'Response languages')
@@ -113,10 +113,9 @@ for (const viewport of viewports) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
     await page.goto(`/tests/fixture.html?${viewport.query}`)
 
-    await expect(page.locator('.dashboard-grid > .dashboard-card').first().getByRole('heading')).toHaveText(viewport.dashboardStatus)
     const contentWidth = await expectContentAligned(page)
-    expect(await gridColumns(page.locator('.dashboard-grid'), ':scope > .dashboard-card'))
-      .toBe(expectedColumns(viewport.width, contentWidth, 720))
+    await expect(page.getByRole('article', { name: 'Bot session' }).getByRole('heading')).toHaveText(viewport.dashboardStatus)
+    expect(await gridColumns(page.locator('.dashboard-panels'), ':scope > article')).toBe(contentWidth <= 620 ? 1 : 2)
     await expectNoHorizontalOverflow(page)
     if ([900, 1440, 2560].includes(viewport.width)) {
       await page.screenshot({ path: `node_modules/.tmp/a5-dashboard-${viewport.width}.png` })
@@ -125,8 +124,8 @@ for (const viewport of viewports) {
     await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'AI', exact: true }).click()
     const ai = page.locator('.ai-layout')
     await expect(ai).toHaveAttribute('aria-busy', 'false')
-    await expect(ai.locator('#ai-behavior').getByRole('heading')).toHaveText('AI behavior')
-    expect(await gridColumns(ai.locator('.ai-behavior-overview'), ':scope > *'))
+    await expect(ai.locator('#ai-behavior').getByRole('heading', { name: 'AI behavior', exact: true })).toBeVisible()
+    expect(await gridColumns(ai.locator('.ai-behavior-shortcuts'), ':scope > button'))
       .toBe(contentWidth <= 620 ? 1 : 2)
     await expect(ai.locator('#ai-behavior')).toContainText('Active personality')
 

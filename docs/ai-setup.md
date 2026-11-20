@@ -16,7 +16,7 @@ the provider's limits, charges and data-use terms before you enable AI for viewe
 
 1. Open **AI**.
 2. Expand **AI setup**.
-3. In **Connected providers**, enter your key in the field for your provider.
+3. In **Providers**, enter your key in the field for your provider.
 4. Select **Connect key**. If you already saved a key, select **Replace key**.
    This action saves the key immediately.
 5. In **Primary model**, select your **Provider**.
@@ -28,8 +28,8 @@ the provider's limits, charges and data-use terms before you enable AI for viewe
 
 ### If the provider or model is unavailable
 
-- If you need more model choices, select **Discover primary models**.
-  If you know the model ID, you can enter it under **Manual model ID**.
+- In **Primary model** or **Fallback model**, select **Discover models** to load
+  IDs for that card's provider. Enter a known ID in **Manual model ID**.
 - Select **Test connection** to check the saved key. Discovery and this check
   cannot confirm that your account can generate a reply with the selected model.
 - If the key works but the prompt fails, check model access, quota and billing
@@ -94,9 +94,9 @@ chat configured. One pair is a question and its successfully delivered answer.
 1. Open **AI**.
 2. Find **Conversation memory** below **AI behavior** and turn on the switch.
    The switch saves immediately.
-3. Set **Stored pairs (N)** to 1–500 per viewer per channel. The default is 100.
-4. Set **Context pairs (M)** to 1–50. The default is 5. This value must be at most N.
-5. Select **Save memory limits**. **A lower N immediately deletes older pairs
+3. Set **Stored pairs** to 1–500 per viewer per channel. The default is 100.
+4. Set **Pairs in context** to 1–50, up to the stored-pair limit. The default is 5.
+5. Select **Save memory limits**. **A lower stored-pair limit immediately deletes older pairs
    above the new limit, including in recovery copies.**
 
 **Check:** Reopen the AI page and check that the switch and both limits show your saved

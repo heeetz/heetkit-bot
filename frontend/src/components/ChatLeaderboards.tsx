@@ -1,5 +1,6 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { waitForBridge, type LeaderboardPeriod, type LeaderboardSnapshot } from '../bridge'
+import { leaderboardStates, useChatLeaderboards } from '../useChatLeaderboards'
 import HelpTip from './HelpTip'
 
 function LeaderboardTable({ title, period, detail, state }: {
@@ -77,50 +78,20 @@ function LeaderboardExclusions({ data, onSave }: { data: LeaderboardSnapshot | n
 }
 
 export default function ChatLeaderboards({ channel, countingEnabled }: { channel?: string | null; countingEnabled?: boolean }) {
-  const [data, setData] = useState<LeaderboardSnapshot | null>(null)
-  const [unavailable, setUnavailable] = useState(false)
   const [refresh, setRefresh] = useState(0)
-
-  useEffect(() => {
-    if (channel == null) return
-    let current = true
-    let timer = 0
-    const poll = async () => {
-      try {
-        if (document.hidden) return
-        const result = await (await waitForBridge()).get_leaderboards()
-        if (!result.ok) throw new Error('Could not refresh leaderboards.')
-        if (current && result.leaderboards?.channel_id === channel) {
-          setData(result.leaderboards)
-          setUnavailable(false)
-        }
-      } catch {
-        if (current) setUnavailable(true)
-      } finally {
-        if (current) timer = window.setTimeout(() => void poll(), 5000)
-      }
-    }
-    void poll()
-    return () => { current = false; window.clearTimeout(timer) }
-  }, [channel, refresh])
+  const { data, unavailable, setData } = useChatLeaderboards(channel, refresh)
 
   if (channel === undefined) return null
   const stream = data?.stream
   const date = stream ? new Date(stream.started_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }) : null
   const streamDetail = date ? `${stream?.ends_at ? 'Last broadcast' : 'Broadcast'} · ${date}` : 'No confirmed broadcast'
-  const unavailableState = unavailable ? 'Temporarily unavailable' : channel === null ? 'Choose a Twitch channel' : !data ? 'Loading' : ''
-  const pausedState = countingEnabled === false
-    ? unavailableState ? `Counting paused · ${unavailableState}` : 'Counting paused'
-    : ''
-  const baseState = pausedState || unavailableState || (data?.connected ? 'Collecting' : 'Disconnected')
-  const streamState = pausedState || unavailableState || !data?.connected ? baseState : data.stream_status === 'live' ? 'Collecting' :
-    data.stream_status === 'offline' ? 'Offline' : 'Stream status unknown'
+  const states = leaderboardStates(channel, data, unavailable, countingEnabled)
 
   return <section id="analytics-chatters" className="leaderboard-section" aria-label="Chat leaderboards">
     <p className="muted leaderboard-time-basis">Times shown in UTC (GMT+0). Monthly reset: 1st at 00:00 UTC.</p>
     <div className="analytics-breakdowns leaderboard-row">
-      <LeaderboardTable title="Stream top 10 chatters" period={stream} detail={streamDetail} state={streamState} />
-      <LeaderboardTable title="Monthly top 10 chatters" period={data?.month} detail={data?.month.period ?? 'Current calendar month'} state={baseState} />
+      <LeaderboardTable title="Stream top 10 chatters" period={stream} detail={streamDetail} state={states.stream} />
+      <LeaderboardTable title="Monthly top 10 chatters" period={data?.month} detail={data?.month.period ?? 'Current calendar month'} state={states.base} />
     </div>
     <LeaderboardExclusions data={data} onSave={(exclusions) => {
       setData((current) => current && { ...current, exclusions })

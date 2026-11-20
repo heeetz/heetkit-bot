@@ -41,13 +41,13 @@ for (const width of [1280, 900, 390, 320]) {
     test(`configured Dashboard hides the setup summary with ${provider === 'aiAvailable' ? 'Gemini' : 'only unselected DeepSeek'} at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 1000 })
       await page.goto(`/tests/fixture.html?configured&authorized&${provider}`)
-      await expect(page.locator('.dashboard-card').first()).toContainText('Start Bot to connect.')
+      await expect(page.getByRole('article', { name: 'Bot session' })).toContainText('Start Bot to connect.')
       await expect(page.locator('.dashboard-hero')).toContainText('Stopped')
       await expect(page.getByRole('article', { name: 'Setup checklist' })).toHaveCount(0)
       await expect(page.getByRole('button', { name: 'Resume setup guide' })).toHaveCount(0)
       if (provider === 'multipleProviders') await expect(page.locator('.dashboard-ai-card')).toContainText('AI unavailable')
       await page.reload()
-      await expect(page.locator('.dashboard-card').first()).toContainText('Start Bot to connect.')
+      await expect(page.getByRole('article', { name: 'Bot session' })).toContainText('Start Bot to connect.')
       await expect(page.getByRole('article', { name: 'Setup checklist' })).toHaveCount(0)
     })
   }
@@ -102,7 +102,7 @@ test('failed Skip AI save keeps the guidance and permits retry', async ({ page }
 test('setup summary follows saved provider keys when returning to Dashboard', async ({ page }) => {
   await page.goto('/tests/fixture.html?configured&authorized&multipleProviders')
   const checklist = page.getByRole('article', { name: 'Setup checklist' })
-  await expect(page.locator('.dashboard-card').first()).toContainText('Start Bot to connect.')
+  await expect(page.getByRole('article', { name: 'Bot session' })).toContainText('Start Bot to connect.')
   await expect(checklist).toHaveCount(0)
   await page.getByRole('button', { name: 'AI', exact: true }).click()
   await page.evaluate(() => window.pywebview!.api.remove_credential('deepseek_api_key'))
@@ -115,7 +115,7 @@ test('setup summary follows saved provider keys when returning to Dashboard', as
   await page.getByRole('button', { name: 'AI', exact: true }).click()
   await page.evaluate(() => window.pywebview!.api.replace_credential('gemini_api_key', 'synthetic-key'))
   await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
-  await expect(page.locator('.dashboard-card').first()).toContainText('Start Bot to connect.')
+  await expect(page.getByRole('article', { name: 'Bot session' })).toContainText('Start Bot to connect.')
   await expect(checklist).toHaveCount(0)
 })
 
@@ -123,6 +123,8 @@ async function openTwitchSettings(page: Page) {
   const trigger = page.locator('#twitch-settings .accordion-trigger')
   // The independent Help button can cover the header's center; click its expand caret.
   if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.locator('.accordion-caret').click()
+  const application = page.locator('#twitch-application .accordion-trigger')
+  if (await application.getAttribute('aria-expanded') !== 'true') await application.click()
 }
 
 for (const width of [1280, 900, 390, 320]) {
@@ -168,7 +170,7 @@ test('clean setup provides the developer action and copies the backend callback'
   expect(await page.evaluate(() => Reflect.get(window, 'copiedCallback'))).toBe('http://localhost:4343/oauth/callback')
   await expect(page.getByRole('status')).toHaveText(/OAuth callback URL copied/)
   await expect(page.getByRole('button', { name: 'Authorize Twitch', exact: true })).toHaveCount(0)
-  await expect(application.locator('.twitch-secret-label .state-pill')).toHaveText('Unconfigured')
+  await expect(page.locator('#twitch-application .accordion-badges .state-pill')).toHaveText('Secret missing')
   await expect(application.getByRole('button', { name: 'Add secret', exact: true })).toBeDisabled()
 })
 
@@ -179,7 +181,7 @@ for (const width of [1280, 390]) test(`Twitch instructions preserve the Desktop 
   const heading = page.getByRole('heading', { name: 'Twitch application' })
   const field = page.getByLabel('Twitch application client ID')
   await field.fill('draft-client')
-  const open = page.getByRole('button', { name: 'Setup instructions', exact: true })
+  const open = page.getByRole('button', { name: 'Setup guide', exact: true })
   expect((await open.boundingBox())!.x).toBeGreaterThan((await heading.boundingBox())!.x)
   await open.press('Enter')
   const dialog = page.getByRole('dialog', { name: 'Twitch setup instructions' })
@@ -260,8 +262,38 @@ for (const width of [1280, 900, 761, 760, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 })
     await page.goto('/tests/fixture.html?settings')
     await openTwitchSettings(page)
+    const savedChannel = page.getByRole('combobox', { name: 'Saved channel', exact: true })
+    const editor = page.locator('#twitch-settings .target-preset-editor')
+    const savedBounds = (await savedChannel.boundingBox())!
+    const editorBounds = (await editor.boundingBox())!
+    const name = page.getByLabel('Saved channel name', { exact: true })
+    const update = page.getByRole('button', { name: 'Update saved channel', exact: true })
+    const remove = page.getByRole('button', { name: 'Delete saved channel', exact: true })
+    await expect(name).toBeVisible()
+    await expect(update).toBeVisible()
+    await expect(remove).toBeVisible()
+    const nameBounds = (await name.boundingBox())!
+    const updateBounds = (await update.boundingBox())!
+    const removeBounds = (await remove.boundingBox())!
+    if (width > 760) {
+      expect(Math.abs(savedBounds.y - nameBounds.y)).toBeLessThanOrEqual(1)
+      expect(editorBounds.x).toBeGreaterThan(savedBounds.x + savedBounds.width)
+      expect(Math.abs(savedBounds.width - editorBounds.width)).toBeLessThanOrEqual(2)
+      expect(Math.abs(nameBounds.width - updateBounds.width * 2)).toBeLessThanOrEqual(2)
+      expect(Math.abs(updateBounds.width - removeBounds.width)).toBeLessThanOrEqual(2)
+    } else {
+      expect(editorBounds.y).toBeGreaterThan(savedBounds.y + savedBounds.height)
+      expect(Math.abs(editorBounds.x - savedBounds.x)).toBeLessThanOrEqual(1)
+    }
+    if (width <= 480) {
+      expect(Math.abs(nameBounds.width - editorBounds.width)).toBeLessThanOrEqual(2)
+      expect(updateBounds.y).toBeGreaterThan(nameBounds.y + nameBounds.height)
+      expect(Math.abs(updateBounds.y - removeBounds.y)).toBeLessThanOrEqual(1)
+    } else {
+      expect(Math.abs(nameBounds.y - updateBounds.y)).toBeLessThanOrEqual(1)
+      expect(Math.abs(updateBounds.y - removeBounds.y)).toBeLessThanOrEqual(1)
+    }
     for (const [firstLabel, secondLabel] of [
-      ['Saved channel', 'Saved channel name'],
       ['Bot account login', 'Bot account user ID'],
       ['Target channel login', 'Target channel user ID'],
     ]) {
@@ -290,22 +322,17 @@ for (const width of [1280, 390]) {
   test(`Dashboard separates session, authorization, connection loss and AI at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 })
     await page.goto('/tests/fixture.html?configured&cachedToken&aiAvailable')
-    const connection = page.locator('.dashboard-card').first()
-    const hero = page.locator('.dashboard-hero')
-    await expect(hero).toContainText('Bot session')
-    await expect(hero.getByRole('heading')).toHaveText('Stopped')
+    const connection = page.getByRole('article', { name: 'Bot session' })
+    await expect(connection.getByRole('heading')).toHaveText('Stopped')
     await expect(connection).toContainText('Start Bot to connect')
-    await connection.getByRole('button', { name: 'Help: Twitch connection', exact: true }).focus()
+    await connection.getByRole('button', { name: 'Help: Bot session', exact: true }).focus()
     await expect(page.getByRole('tooltip')).toContainText('Authorization: Not verified (token cache found)')
     await page.keyboard.press('Escape')
     await expect(page.locator('.dashboard-ai-card')).toContainText('synthetic-model')
     await expect(page.getByRole('checkbox', { name: 'Enable AI command', exact: true })).not.toBeChecked()
-    await page.getByRole('button', { name: 'Help: AI controls', exact: true }).focus()
-    await expect(page.getByRole('tooltip')).toContainText('Filter Tester works while stopped')
-    await page.keyboard.press('Escape')
 
     await page.getByRole('button', { name: 'Start Bot', exact: true }).click()
-    await expect(hero.getByRole('heading')).toHaveText('Running')
+    await expect(connection).toContainText('Session running.')
     await expect(connection.getByRole('heading')).toHaveText('Authorization required')
     // An existing token-cache file cannot suppress the required setup action.
     await expect(page.locator('.setup-card')).toHaveCount(0)
@@ -328,7 +355,7 @@ for (const width of [1280, 390]) {
         await expect(connection.locator('p')).toHaveCount(0)
         await expect(connection).not.toContainText('Authorization:')
       }
-      await expect(hero.getByRole('heading')).toHaveText(['failed', 'stopped'].includes(state) ? 'Stopped' : 'Running')
+      await expect(connection.getByRole('button', { name: ['failed', 'stopped'].includes(state) ? 'Start Bot' : 'Stop Bot', exact: true })).toBeEnabled()
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
     }
     await page.screenshot({ path: `node_modules/.tmp/a3-dashboard-${width}.png`, fullPage: true })
@@ -343,10 +370,9 @@ for (const width of [1280, 390]) {
     await expect(twitchSection).toContainText('Twitch client secret')
     await expect(page.locator('#credential-settings')).toHaveCount(0)
     await expect(page.locator('#nav-Settings')).not.toContainText('Gemini API key')
-    const help = page.getByRole('button', { name: 'Help: Application, account and channel', exact: true })
+    const help = page.getByRole('button', { name: 'Help: Twitch connection', exact: true })
     await help.focus()
     const tooltip = page.getByRole('tooltip')
-    await expect(tooltip).toContainText('application restart')
     await expect(tooltip).toContainText('Saved channels share the bot account and authorization')
     await page.keyboard.press('Escape')
     await expect(twitchSection.getByRole('button', { name: 'Replace secret', exact: true })).toBeVisible()
@@ -373,11 +399,11 @@ test('secret changes retain Twitch drafts and require restart across Settings an
   await expect(twitchSection.getByRole('button', { name: 'Authorize Twitch', exact: true })).toBeDisabled()
   await expect(twitchSection.getByRole('button', { name: 'Save & restart', exact: true })).toBeVisible()
   await twitchSection.getByLabel('Saved channel name', { exact: true }).fill('After restart')
-  await twitchSection.getByRole('button', { name: 'Save channel', exact: true }).click()
+  await twitchSection.getByRole('button', { name: 'Update saved channel', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('Restart the application to apply pending Twitch setup')
   await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
   await expect(page.locator('.setup-card')).toContainText('Restart to apply Twitch setup')
-  await expect(page.locator('.dashboard-card').first()).not.toContainText('Restart the application')
+  await expect(page.getByRole('article', { name: 'Bot session' })).not.toContainText('Restart the application')
   await expect(page.getByRole('button', { name: 'Stop Bot', exact: true })).toBeEnabled()
   await expect(page.getByRole('button', { name: 'Authorize Twitch', exact: true })).toBeDisabled()
   await page.getByRole('button', { name: 'Stop Bot', exact: true }).click()
@@ -393,19 +419,19 @@ for (const running of [false, true]) {
     await twitchSection.getByLabel('Target channel login').fill('otherchannel')
     await twitchSection.getByLabel('Target channel user ID').fill('300')
     await twitchSection.getByLabel('Saved channel name', { exact: true }).fill('Other channel')
-    await twitchSection.getByRole('button', { name: 'Save channel', exact: true }).click()
+    await twitchSection.getByRole('button', { name: 'Update saved channel', exact: true }).click()
     await expect(page.getByRole('status')).toContainText(running ? 'Save & reconnect' : 'Save & apply')
     await expect(twitchSection.getByRole('combobox', { name: /^Saved channel/ })).toHaveAttribute('data-value', 'synthetic-1')
     await expect(twitchSection.getByLabel('Bot account login')).toHaveValue('testbot')
     await expect(twitchSection.getByLabel('Twitch application client ID')).toHaveValue('synthetic-client')
-    await expect(twitchSection.locator('.twitch-status-grid > div').filter({ hasText: 'Active target' })).toContainText('testchannel')
+    await expect(twitchSection.locator('.twitch-status-grid > div').filter({ hasText: 'Active channel' })).toContainText('testchannel')
     expect(await page.evaluate(() => Reflect.get(window, 'twitchCalls'))).toEqual([['save_channel', 'synthetic-1']])
     await twitchSection.getByRole('button', { name: running ? 'Save & reconnect' : 'Save & apply', exact: true }).click()
-    await expect(twitchSection.locator('.twitch-status-grid > div').filter({ hasText: 'Active target' })).toContainText('otherchannel')
+    await expect(twitchSection.locator('.twitch-status-grid > div').filter({ hasText: 'Active channel' })).toContainText('otherchannel')
     expect(await page.evaluate(() => Reflect.get(window, 'credentialCalls'))).toEqual([])
     expect(await page.evaluate(() => Reflect.get(window, 'twitchCalls')).then((calls) => calls.at(-1))).toEqual(['reconnect'])
     await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
-    await expect(page.locator('.dashboard-hero').getByRole('heading')).toHaveText(running ? 'Running' : 'Stopped')
+    await expect(page.getByRole('article', { name: 'Bot session' }).getByRole('heading')).toHaveText(running ? 'Connecting' : 'Stopped')
   })
 }
 
@@ -420,19 +446,21 @@ test('identity changes explain restart before saving and do not reconnect', asyn
 })
 
 for (const connection of ['stopped', 'connected']) {
-  test(`configured Dashboard ${connection} fits the default window with three small panels`, async ({ page }) => {
+  test(`configured Dashboard ${connection} fits the default window`, async ({ page }) => {
     await page.setViewportSize({ width: 1180, height: 760 })
     await page.goto(`/tests/fixture.html?configured&cachedToken&authorized&aiAvailable&connection=${connection}`)
-    await expect(page.locator('.dashboard-card').first().getByRole('heading')).toHaveText(connection === 'connected' ? 'Connected' : 'Stopped')
+    const session = page.getByRole('article', { name: 'Bot session' })
+    await expect(session.getByRole('heading')).toHaveText(connection === 'connected' ? 'Connected' : 'Stopped')
     await expect(page.getByRole('article', { name: 'Setup checklist' })).toHaveCount(0)
-    const cards = await page.locator('.dashboard-grid > .dashboard-card').all()
-    expect(cards).toHaveLength(3)
-    const boxes = await Promise.all(cards.map((card) => card.boundingBox()))
-    for (const box of boxes) {
-      expect(box!.y).toBe(boxes[0]!.y)
-      expect(box!.height).toBeGreaterThanOrEqual(72)
-      expect(box!.height).toBeLessThanOrEqual(96)
-    }
+    for (const label of ['Channel', 'Bot account', 'Session uptime']) await expect(session.getByText(label, { exact: true })).toBeVisible()
+    const strip = (await session.boundingBox())!
+    const commands = (await page.getByRole('article', { name: 'Recent commands' }).boundingBox())!
+    const ai = (await page.getByRole('heading', { name: 'AI controls', exact: true }).boundingBox())!
+    const activity = (await page.getByRole('heading', { name: 'Stream activity', exact: true }).boundingBox())!
+    expect(commands.y).toBeGreaterThan(strip.y + strip.height)
+    expect(ai.y).toBeGreaterThan(commands.y + commands.height)
+    expect(ai.y).toBeCloseTo(activity.y, 0)
+    expect(ai.x).toBeLessThan(activity.x)
     const main = page.locator('main')
     expect(await main.evaluate((element) => element.scrollHeight <= element.clientHeight)).toBe(true)
     await expect(page.locator('.dashboard-ai-card')).toBeInViewport({ ratio: 1 })
@@ -446,7 +474,7 @@ for (const width of [900, 390, 320]) {
     await page.setViewportSize({ width, height: 760 })
     await page.goto('/tests/fixture.html?configured&auth&aiAvailable')
     await page.evaluate(() => Reflect.get(window, 'setFixtureStatus')({ channel: 'a_very_long_channel_name_that_must_wrap_without_clipping', account: 'another_long_bot_account_name_for_layout' }))
-    await expect(page.locator('.dashboard-card').nth(1)).toContainText('a_very_long_channel')
+    await expect(page.getByRole('article', { name: 'Bot session' })).toContainText('a_very_long_channel')
     for (const card of await page.locator('.dashboard-layout .card').all()) {
       const box = (await card.boundingBox())!
       expect(box.x).toBeGreaterThanOrEqual(0)
@@ -469,7 +497,7 @@ test('fresh Dashboard shows one required setup step and no optional Gemini setup
   await expect(notice.getByRole('heading')).toHaveText('Finish Twitch setup')
   await expect(notice.getByRole('button')).toHaveText('Configure Twitch')
   await expect(page.locator('.setup-card')).toHaveCount(1)
-  await expect(page.locator('.dashboard-card').first().getByRole('heading')).toHaveText('Not configured')
+  await expect(page.getByRole('article', { name: 'Bot session' }).getByRole('heading')).toHaveText('Not configured')
   await expect(page.getByRole('button', { name: 'Start Bot', exact: true })).toBeDisabled()
   await expect(page.locator('.dashboard-layout')).not.toContainText('Add a Gemini')
   await notice.getByRole('button').click()
@@ -479,7 +507,7 @@ test('fresh Dashboard shows one required setup step and no optional Gemini setup
 
 test('commands-only Dashboard stays quiet about optional Gemini and links to AI controls', async ({ page }) => {
   await page.goto('/tests/fixture.html?configured&cachedToken&connection=connected')
-  await expect(page.locator('.dashboard-card').first().getByRole('heading')).toHaveText('Connected')
+  await expect(page.getByRole('article', { name: 'Bot session' }).getByRole('heading')).toHaveText('Connected')
   await expect(page.locator('.setup-card')).toHaveCount(0)
   await expect(page.locator('.dashboard-layout')).not.toContainText('Gemini')
   await expect(page.locator('.dashboard-ai-card')).toContainText('AI unavailable')
@@ -493,14 +521,14 @@ for (const running of [false, true]) {
     const notice = page.locator('.dashboard-notice')
     await expect(notice.getByRole('heading')).toHaveText('Channel change pending')
     await expect(notice).toContainText(running ? 'Save & reconnect' : 'Save & apply')
-    await expect(page.locator('.dashboard-card').first().getByRole('heading')).toHaveText(running ? 'Connected' : 'Stopped')
+    await expect(page.getByRole('article', { name: 'Bot session' }).getByRole('heading')).toHaveText(running ? 'Connected' : 'Stopped')
     await expect(page.getByRole('button', { name: running ? 'Stop Bot' : 'Start Bot', exact: true })).toBeEnabled()
   })
 }
 
 test('Dashboard exposes connection failure recovery and setup loading errors', async ({ page }) => {
   await page.goto('/tests/fixture.html?configured&connection=failed')
-  const connection = page.locator('.dashboard-card').first()
+  const connection = page.getByRole('article', { name: 'Bot session' })
   await expect(connection).toContainText('Check Logs, then Start Bot again')
   await connection.getByRole('button', { name: 'Open Logs', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Logs', exact: true, level: 1 })).toBeVisible()
@@ -541,7 +569,7 @@ for (const width of [1280, 320]) {
     await page.evaluate(() => Reflect.get(window, 'setFixtureStatus')({
       twitch_recovery: { reason: 'retry_wait', attempt: 4, elapsed_seconds: 156, next_retry_seconds: 20 },
     }))
-    const card = page.locator('.dashboard-card').first()
+    const card = page.getByRole('article', { name: 'Bot session' })
     await expect(card).toContainText('Recovery: waiting to retry. Attempt 4, 156s elapsed. Next retry in 20s.')
     await expect(page.getByRole('button', { name: 'Stop Bot', exact: true })).toBeEnabled()
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
@@ -561,7 +589,7 @@ for (const running of [false, true]) {
     await openTwitchSettings(page)
     await page.getByLabel('Bot account login').fill('differentbot')
     await page.getByRole('button', { name: 'Save & restart', exact: true }).click()
-    await expect(page.locator('.dashboard-hero').getByRole('heading')).toHaveText(running ? 'Running' : 'Stopped')
+    await expect(page.getByRole('article', { name: 'Bot session' }).getByRole('heading')).toHaveText(running ? 'Authorization required' : 'Stopped')
     if (!running) {
       await expect(page.getByRole('button', { name: 'Authorize Twitch' })).toHaveCount(0)
       await page.getByRole('button', { name: 'Start Bot' }).click()
@@ -611,11 +639,13 @@ for (const action of ['add', 'replace', 'remove', 'test', 'failed', 'unchanged']
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     await openTwitchSettings(page)
     if (action === 'test') {
-      await page.getByRole('button', { name: 'Test client secret', exact: true }).click()
+      await page.getByRole('button', { name: 'Test saved secret', exact: true }).click()
       await expect(page.getByRole('status')).toContainText('validation passed')
     } else if (action === 'remove') {
       page.once('dialog', (dialog) => dialog.accept())
-      await page.getByRole('button', { name: 'Remove secret & restart' }).click()
+      const secretActions = page.locator('#twitch-settings .secret-actions-menu')
+      await secretActions.locator('summary').click()
+      await secretActions.getByRole('button', { name: 'Remove secret & restart' }).click()
     } else {
       await page.getByLabel('Twitch client secret', { exact: true }).fill('synthetic-secret')
       await page.getByRole('button', { name: action === 'add' ? 'Add secret & restart' : 'Replace secret & restart' }).click()

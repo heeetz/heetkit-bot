@@ -341,7 +341,7 @@ POST writes persist and apply immediately unless stated otherwise.
 | POST `session` | `{}` with administrator bearer only; returns `token`, `expires_in` (3600 seconds) |
 | POST `ai/playground/start` | `prompt`; starts one isolated test and returns `request_id`, `status: pending`; may consume real provider quota |
 | POST `analytics/query` | `days` = 1, 7, 30 or 60 UTC calendar days (default 7); configured-channel totals, daily series/coverage, command/provider breakdowns, current retained-user snapshot, collection/pricing metadata and `count_chat_messages`; Playground excluded |
-| POST `leaderboards/query` | `{}`; returns the active channel’s monthly and current/last stream rankings together, with period, coverage and settings. Uses the configured channel when disconnected. |
+| POST `leaderboards/query` | `{}`; returns the active channel’s monthly and current/last stream rankings together, with period, coverage, settings and `counting_enabled`. Uses the configured channel when disconnected. |
 | POST `leaderboards/settings` | `channel_id`, `exclusions` (up to 50 bot logins). The channel must match the current leaderboard view. Monthly rollover uses UTC. |
 | POST `leaderboards/configure` | `enabled` boolean; immediately saves the profile-wide chat message counting setting. Independent of aggregate analytics collection. |
 | POST `analytics/configure` / `analytics/reset` | `enabled` boolean persists collection preference; reset requires `confirmed: true` and clears all profile aggregates including pending updates |
@@ -404,6 +404,7 @@ POST writes persist and apply immediately unless stated otherwise.
 | POST `privacy/opt-outs/withdraw` | `twitch_user_id`, `confirmed: true`; allows future storage without restoring history or permitting old in-flight work to save. |
 | GET / POST `triggers` | GET returns reactions in execution priority order and includes their `revision`. Optional `creation_order` is for the Commands display. POST accepts the complete `triggers` list with at most 100 unique IDs. Supply the GET `revision` to reject stale edits. |
 | POST `logs/recent` | Optional integer `after_id` (default 0), `limit` (1–200, default 100). With `after_id: 0`, optional `snapshot: true` uses the bounded retained window (up to 500 events and 1 MiB before projection). Returns allowlisted operator activity and `next_after_id`, which also advances across excluded entries. Authentication required. |
+| GET `logs/commands` | Returns up to five final command outcomes from the same retained activity, newest first. Each entry includes its UTC timestamp and command, without viewer identifiers or chat text. Authentication required. |
 | GET `diagnostics` | Process uptime, desired session state and settings/restart boundaries |
 
 When a rule fails validation, `filters/save` and `filters/apply` return HTTP 400
@@ -536,6 +537,8 @@ The feed remains in memory (500 events / 1 MiB, 16 KiB per event; text capped at
 with an explicit truncation marker), independent of AI memory. Level, command, outcome,
 source and local-time range filters apply to retained entries; request details link
 related events. Cooldown remaining time and uncertain delivery stay visible.
+Dashboard shows the latest five retained final outcomes in UTC. Only a confirmed
+reply is shown as sent. It works independently of opt-in process tracing.
 Clear view is display-only. Export requires confirmation and saves only the filtered
 snapshot; the resulting private JSON copy has no automatic expiry. Desktop uses a native Save dialog;
 the authenticated Server view downloads its confirmed snapshot in the browser. See

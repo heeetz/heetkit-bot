@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { selectOption } from './select-helpers'
 
 for (const width of [1280, 390, 320]) {
-  test(`empty announcements hide the entire footer and new drafts show only example placeholders at ${width}px`, async ({ page }) => {
+  test(`empty announcements open a compact, accessible editor at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 })
     await page.goto('/tests/commands.fixture.html')
     const panel = page.locator('#announcements')
@@ -10,12 +10,20 @@ for (const width of [1280, 390, 320]) {
     await expect(panel.locator('.announcement-collection')).toHaveCount(0)
     await expect(panel.getByRole('button', { name: 'Save announcements', exact: true })).toHaveCount(0)
     await expect(panel.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0)
-    await expect(panel.getByRole('button', { name: 'Help: Saving announcements', exact: true })).toHaveCount(0)
+    await expect(panel.getByRole('heading', { name: 'Announcements', exact: true })).toBeVisible()
     await panel.screenshot({ path: `node_modules/.tmp/announcements-empty-${width}.png` })
     await panel.getByRole('button', { name: 'New announcement', exact: true }).click()
-    await expect(panel.getByLabel('Name', { exact: true })).toHaveAttribute('placeholder', 'e.g. Community reminder')
+    await expect(panel.getByLabel('Name', { exact: true })).toHaveAttribute('placeholder', 'Announcement name')
     await expect(panel.getByLabel('Name', { exact: true })).toHaveValue('')
-    await expect(panel.getByLabel('Announcement message', { exact: true })).toHaveAttribute('placeholder', 'e.g. Join our community: https://example.com')
+    await expect(panel.getByLabel('Announcement message', { exact: true })).toHaveAttribute('placeholder', 'Write an announcement')
+    await expect(panel.locator('.announcement-number-control').nth(0)).toContainText('Every')
+    await expect(panel.locator('.announcement-number-control').nth(0)).toContainText('s')
+    await expect(panel.locator('.announcement-number-control').nth(1)).toContainText('At least')
+    await expect(panel.locator('.announcement-number-control').nth(1)).toContainText('messages')
+    await expect(panel.locator('.announcement-number-control')).toHaveCount(2)
+    await expect(panel.getByText('Interval (s)', { exact: true })).toBeVisible()
+    await expect(panel.getByText('Minimum chat activity', { exact: true })).toBeVisible()
+    await expect(panel.getByRole('button', { name: 'New announcement', exact: true })).toHaveCount(0)
     await expect(panel.getByLabel('Announcement message', { exact: true })).toHaveValue('')
     await expect(panel.getByLabel('Announcement type', { exact: true })).toHaveText('Highlighted')
     await expect(panel.getByRole('button', { name: 'Remove from draft', exact: true })).toHaveCount(0)
@@ -23,7 +31,7 @@ for (const width of [1280, 390, 320]) {
     await expect(panel.getByRole('button', { name: 'Save announcements', exact: true })).toBeVisible()
     await panel.screenshot({ path: `node_modules/.tmp/announcements-new-draft-${width}.png` })
     await selectOption(panel.getByLabel('Message selection', { exact: true }), 'random')
-    await expect(panel.getByLabel('Random messages', { exact: true })).toHaveAttribute('placeholder', /community.*\nFollow/)
+    await expect(panel.getByLabel('Random messages', { exact: true })).toHaveAttribute('placeholder', 'One message per line')
     await expect(panel.getByLabel('Random messages', { exact: true })).toHaveValue('')
     await panel.getByRole('button', { name: 'Save announcements', exact: true }).click()
     await expect(panel.getByRole('alert')).toContainText('Use a name')
@@ -36,19 +44,21 @@ for (const width of [1280, 390, 320]) {
 test('saved regular announcements can change to highlighted with random messages and stream restrictions', async ({ page }) => {
   await page.goto('/tests/commands.fixture.html?announcements')
   const panel = page.locator('#announcements')
-  await panel.getByRole('button', { name: 'Help: Announcement status Community', exact: true }).click()
+  await panel.getByRole('button', { name: 'Help: Schedule status', exact: true }).click()
   await expect(page.getByRole('tooltip')).toContainText('Last outcome: Sent')
   await expect(page.getByRole('tooltip')).toContainText('Eligible messages: 2')
   await page.keyboard.press('Escape')
   await panel.getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(panel.getByText('Save to schedule this announcement.', { exact: true })).toHaveCount(0)
+  await expect(panel.locator('.announcement-status-details')).toHaveCount(0)
   await expect(panel.getByLabel('Announcement type', { exact: true })).toHaveText('Regular message')
   await selectOption(panel.getByLabel('Announcement type', { exact: true }), 'highlighted')
   await panel.getByLabel('Name', { exact: true }).fill('Community links')
   await panel.getByLabel('Interval (s)', { exact: true }).fill('1200')
   await selectOption(panel.getByLabel('Message selection', { exact: true }), 'random')
   await panel.getByLabel('Random messages', { exact: true }).fill('  First community link.\n\n Second community link. ')
-  await panel.getByLabel('Trigger after', { exact: true }).fill('8')
-  await selectOption(panel.getByLabel('Works when:', { exact: true }), 'offline_only')
+  await panel.getByLabel('Minimum chat activity', { exact: true }).fill('8')
+  await selectOption(panel.getByLabel('Stream availability', { exact: true }), 'offline_only')
   await panel.getByRole('button', { name: 'Save announcements', exact: true }).click()
   await expect(panel.getByRole('status')).toContainText('Announcements saved')
   expect(await page.evaluate(() => Reflect.get(window, 'commandCalls'))).toEqual([['save_announcements', [{
@@ -63,7 +73,7 @@ test('saved regular announcements can change to highlighted with random messages
   await expect(panel.getByLabel('Random messages', { exact: true })).toHaveValue('First community link.\nSecond community link.')
   await panel.getByLabel('Enable announcement', { exact: true }).uncheck({ force: true })
   await panel.getByRole('button', { name: 'Save announcements', exact: true }).click()
-  await expect(panel.locator('.state-pill')).toHaveText('Disabled')
+  await expect(panel.getByLabel('Enable Community links', { exact: true })).not.toBeChecked()
 })
 
 test('cancel closes unchanged editors and discards edits or new drafts without changing saved announcements', async ({ page }) => {
@@ -89,9 +99,10 @@ test('cancel closes unchanged editors and discards edits or new drafts without c
 test('saved rows use Custom command actions and delete only after confirmation without a save footer', async ({ page }) => {
   await page.goto('/tests/commands.fixture.html?announcements')
   const panel = page.locator('#announcements')
-  await expect(panel.locator('.announcement-row')).toHaveClass(/custom-command-row/)
+  await expect(panel.getByRole('table', { name: 'Announcements' }).getByRole('columnheader')).toHaveText(['Enabled', 'Name', 'Type', 'Schedule', 'Message', 'Actions'])
+  await expect(panel.locator('.announcement-row')).toHaveCount(1)
+  await expect(panel.locator('.announcement-row').locator('.announcement-enabled')).toBeVisible()
   await expect(panel.getByRole('button', { name: 'Edit', exact: true })).toHaveClass('secondary')
-  await expect(panel.getByRole('button', { name: 'Disable', exact: true })).toHaveClass('secondary')
   await expect(panel.getByRole('button', { name: 'Delete', exact: true })).toHaveClass('ghost destructive')
   await expect(panel.getByRole('button', { name: 'Save announcements', exact: true })).toHaveCount(0)
   await expect(panel.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0)
@@ -108,11 +119,11 @@ test('saved rows use Custom command actions and delete only after confirmation w
 test('saved rows disable and enable immediately while editor actions remain hidden', async ({ page }) => {
   await page.goto('/tests/commands.fixture.html?announcements')
   const panel = page.locator('#announcements')
-  await panel.getByRole('button', { name: 'Disable', exact: true }).click()
-  await expect(panel.locator('.state-pill')).toHaveText('Disabled')
+  await panel.getByLabel('Enable Community', { exact: true }).uncheck({ force: true })
+  await expect(panel.getByLabel('Enable Community', { exact: true })).not.toBeChecked()
   await expect(panel.getByRole('button', { name: 'Save announcements', exact: true })).toHaveCount(0)
-  await panel.getByRole('button', { name: 'Enable', exact: true }).click()
-  await expect(panel.locator('.state-pill')).toHaveText('Enabled')
+  await panel.getByLabel('Enable Community', { exact: true }).check({ force: true })
+  await expect(panel.getByLabel('Enable Community', { exact: true })).toBeChecked()
   const calls = await page.evaluate(() => Reflect.get(window, 'commandCalls'))
   expect(calls).toHaveLength(2)
   expect(calls[0][1][0]).toMatchObject({ enabled: false, delivery_mode: 'regular' })
@@ -178,11 +189,11 @@ test('status polling refreshes outcomes while retaining unsaved text', async ({ 
   await page.evaluate(() => Reflect.get(window, 'updateAnnouncementStatus')({ last_outcome: 'failed', eligible_messages: 7 }))
   await page.clock.fastForward(5100)
   await expect(panel).toContainText('Last outcome: Send failed')
-  await panel.getByRole('button', { name: 'Help: Announcement status Community', exact: true }).click()
+  await expect(panel.getByLabel('Announcement message', { exact: true })).toHaveValue('Unsaved reminder.')
+  await panel.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await panel.getByRole('button', { name: 'Help: Schedule status', exact: true }).click()
   await expect(page.getByRole('tooltip')).toContainText('Eligible messages: 7')
   await page.keyboard.press('Escape')
-  await expect(panel.getByLabel('Announcement message', { exact: true })).toHaveValue('Unsaved reminder.')
-  await expect(panel.getByText('Unsaved changes', { exact: true })).toBeVisible()
 })
 
 test('save failures retain drafts and remain visible after status refresh', async ({ page }) => {
@@ -245,19 +256,16 @@ test('a row removed by another operator leaves its draft cancellable without rec
 })
 
 for (const width of [1600, 1280, 900, 390, 320]) {
-  test(`announcement controls, help and menus stay within the page at ${width}px`, async ({ page }) => {
+  test(`announcement controls and menus stay within the page at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 })
     await page.goto('/tests/commands.fixture.html?announcements&shell')
     await page.getByRole('button', { name: 'Commands', exact: true }).click()
     const panel = page.locator('#announcements')
     await panel.getByRole('button', { name: 'Edit', exact: true }).click()
-    await expect(panel.getByRole('button', { name: 'New announcement', exact: true })).toHaveClass('primary')
+    await expect(panel.getByRole('button', { name: 'New announcement', exact: true })).toHaveCount(0)
     await panel.getByLabel('Name', { exact: true }).fill('Very long announcement name '.repeat(3))
-    await panel.getByRole('button', { name: 'Help: Announcement activity', exact: true }).click()
-    await expect(page.getByRole('tooltip')).toContainText('fresh activity window')
-    await expect(page.getByRole('tooltip')).toContainText('not an immediate message-count trigger')
-    await page.keyboard.press('Escape')
-    const availability = panel.getByLabel('Works when:', { exact: true })
+    await expect(panel.getByRole('button', { name: /Help: Announcement/ })).toHaveCount(0)
+    const availability = panel.getByLabel('Stream availability', { exact: true })
     await availability.focus()
     await page.keyboard.press('ArrowDown')
     await expect(page.getByRole('listbox')).toBeVisible()
@@ -268,29 +276,21 @@ for (const width of [1600, 1280, 900, 390, 320]) {
     const name = (await panel.getByLabel('Name', { exact: true }).boundingBox())!
     const enabled = (await panel.getByLabel('Enable announcement', { exact: true }).locator('..').boundingBox())!
     const interval = (await panel.getByLabel('Interval (s)', { exact: true }).boundingBox())!
-    const trigger = (await panel.getByLabel('Trigger after', { exact: true }).boundingBox())!
+    const trigger = (await panel.getByLabel('Minimum chat activity', { exact: true }).boundingBox())!
     const message = (await panel.getByLabel('Announcement message', { exact: true }).boundingBox())!
     const worksWhen = (await availability.boundingBox())!
-    const type = (await panel.getByLabel('Announcement type', { exact: true }).boundingBox())!
-    const dirty = (await panel.getByText('Unsaved changes', { exact: true }).boundingBox())!
-    const savingHelp = (await panel.getByRole('button', { name: 'Help: Saving announcements', exact: true }).boundingBox())!
+    const mode = (await panel.getByLabel('Message selection', { exact: true }).boundingBox())!
+    const delivery = (await panel.getByLabel('Announcement type', { exact: true }).boundingBox())!
     const save = (await panel.getByRole('button', { name: 'Save announcements', exact: true }).boundingBox())!
-    expect(Math.abs(dirty.y + dirty.height / 2 - savingHelp.y - savingHelp.height / 2)).toBeLessThan(2)
-    expect(dirty.x - savingHelp.x - savingHelp.width).toBeGreaterThanOrEqual(12)
-    expect(Math.abs(type.width - worksWhen.width)).toBeLessThan(2)
-    expect(Math.abs(type.x - worksWhen.x)).toBeLessThan(2)
-    expect(type.y).toBeGreaterThan(worksWhen.y + worksWhen.height)
+    expect(Math.abs(delivery.height - worksWhen.height)).toBeLessThan(2)
+    expect(Math.abs(mode.height - delivery.height)).toBeLessThan(2)
     expect(enabled.x).toBeGreaterThanOrEqual(name.x + name.width)
     if (width >= 1280) {
-      expect(Math.abs(dirty.y + dirty.height / 2 - save.y - save.height / 2)).toBeLessThan(2)
-      expect(save.x - dirty.x - dirty.width).toBeGreaterThanOrEqual(16)
-      expect(message.x).toBeGreaterThan(trigger.x + trigger.width)
-      expect(Math.abs(message.y - name.y)).toBeLessThan(12)
-      expect(Math.abs(message.y + message.height - worksWhen.y - worksWhen.height)).toBeLessThan(3)
-      expect(Math.abs(trigger.y - interval.y)).toBeLessThan(3)
+      expect(Math.abs(save.y - message.y - message.height)).toBeLessThan(60)
+      expect(message.y).toBeGreaterThan(name.y + name.height)
+      expect(Math.abs(trigger.y - interval.y)).toBeLessThan(60)
     } else {
-      expect(message.y).toBeGreaterThan(worksWhen.y + worksWhen.height)
-      expect(message.y).toBeGreaterThan(type.y + type.height)
+      expect(message.y).toBeGreaterThan(delivery.y + delivery.height)
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
     await panel.screenshot({ path: `node_modules/.tmp/announcements-layout-${width}.png` })

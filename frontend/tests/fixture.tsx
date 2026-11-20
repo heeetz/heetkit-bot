@@ -184,6 +184,7 @@ window.pywebview = { api: {
     patterns: { rules: [], defaults: [] },
   }),
   get_recent_logs: async () => ({ entries: [] }),
+  get_recent_commands: async () => ({ entries: [] }),
   export_activity: async () => ({ ok: true, saved: true }),
   get_ai_status: async () => aiStatus,
   get_ai_memory_limits: async () => ({ ok: true, stored: 100, context: 5 }),

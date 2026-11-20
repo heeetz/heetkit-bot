@@ -3,6 +3,8 @@ import { expect, test, type Page } from '@playwright/test'
 async function openTwitchSettings(page: Page) {
   const trigger = page.locator('#twitch-settings .accordion-trigger')
   if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click()
+  const application = page.locator('#twitch-application .accordion-trigger')
+  if (await application.getAttribute('aria-expanded') !== 'true') await application.click()
 }
 
 const profilePath = `C:\\Synthetic profiles\\日本語 & data\\${'long-profile-name'.repeat(12)}`

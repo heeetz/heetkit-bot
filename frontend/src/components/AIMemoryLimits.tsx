@@ -46,6 +46,7 @@ export default function AIMemoryLimits({ active, toggle, onDirty }: {
   const n = Number(stored), m = Number(context)
   const valid = /^\d+$/.test(stored) && /^\d+$/.test(context) && n >= 1 && n <= 500 && m >= 1 && m <= 50 && m <= n
   const dirty = Boolean(saved && (!valid || n !== saved[0] || m !== saved[1]))
+  const loweringStoredLimit = Boolean(saved && valid && n < saved[0])
   useEffect(() => { onDirty(dirty) }, [dirty, onDirty])
 
   const save = async () => {
@@ -68,29 +69,38 @@ export default function AIMemoryLimits({ active, toggle, onDirty }: {
   return (
     <form id="ai-memory" className="card memory-limits" aria-labelledby="ai-memory-title"
       onSubmit={(event) => { event.preventDefault(); void save() }}>
-      <div className="memory-limits-intro">
-        <div className="memory-limits-heading">
-          <h2 id="ai-memory-title">Conversation memory</h2>
-          <HelpTip label="Conversation memory">The switch saves immediately. Turning memory off stops use and storage. Previously stored pairs remain subject to count limits and 60-day expiry. One pair means one question and its successful answer. N caps stored pairs per viewer per channel. M caps pairs sent as model context. Saving a lower N immediately prunes older pairs, including recovery copies. Playground never reads or stores viewer memory. The erasure command in Administrative commands clears AI memory for a known viewer in that channel.</HelpTip>
+      <div className="memory-limits-layout">
+        <div className="memory-limits-intro">
+          <div className="memory-limits-heading">
+            <div className="memory-limits-title">
+              <h2 id="ai-memory-title">Conversation memory</h2>
+              <HelpTip label="How memory works" className="memory-limits-help">
+                <p>A pair is one question and its successful answer. HeetKit keeps pairs for up to 60 days, within the stored-pair limit (N) for each viewer and channel.</p>
+                <p>Context pairs (M) sets how many exchanges to send with the next AI request, up to N. For example, setting M to 2 sends up to the last 2 exchanges.</p>
+                <p>The switch saves immediately. Turning memory off stops saving and using exchanges. HeetKit keeps previously saved exchanges.</p>
+                <p>Playground never reads or stores viewer memory. The erase command clears AI memory for a known viewer in that channel.</p>
+              </HelpTip>
+            </div>
+            <p className="memory-limits-hint">Use earlier exchanges in AI chat replies.</p>
+          </div>
         </div>
-        <p className="muted">Use earlier exchanges in AI chat replies.</p>
+        <div className="memory-limits-controls">
+          <div className="memory-limit-fields">
+            <label className="form-field">Stored pairs (N)<input aria-label="Stored pairs" type="number" min="1" max="500" step="1" value={stored} disabled={!saved || busy} onChange={(event) => { setStored(event.target.value); setNotice('') }} /></label>
+            <label className="form-field">Context pairs (M)<input aria-label="Pairs in context" type="number" min="1" max="50" step="1" value={context} disabled={!saved || busy} onChange={(event) => { setContext(event.target.value); setNotice('') }} /></label>
+          </div>
+          <div className="memory-limits-toggle">{toggle}</div>
       </div>
-      <div className="memory-limits-controls">
-        <div className="memory-limit-fields">
-          <label className="form-field">Stored pairs (N)<input type="number" min="1" max="500" step="1" value={stored} disabled={!saved || busy} onChange={(event) => { setStored(event.target.value); setNotice('') }} /></label>
-          <label className="form-field">Context pairs (M)<input type="number" min="1" max="50" step="1" value={context} disabled={!saved || busy} onChange={(event) => { setContext(event.target.value); setNotice('') }} /></label>
-        </div>
-        <div className="memory-limits-toggle">{toggle}</div>
       </div>
       {(dirty || error || notice) && <div className="memory-limits-feedback">
         {saved && !valid && <p className="inline-error" role="alert">N must be 1–500. M must be 1–50 and no greater than N.</p>}
         {error && <p role="alert" className="inline-error">{error}</p>}
         {notice && <p role="status">{notice}</p>}
         {dirty && <div className="memory-limits-actions">
-          <p className="muted">Saving a lower N permanently removes older pairs.</p>
+          {loweringStoredLimit && <p className="settings-hint" id="ai-memory-prune-warning">Saving this lower limit can permanently delete older pairs, including recovery copies.</p>}
           <div className="row-actions">
             <button type="button" className="secondary" disabled={busy} onClick={resetDraft}>Cancel</button>
-            <button type="submit" className="primary" disabled={!valid || busy}>Save memory limits</button>
+            <button type="submit" className="primary" aria-describedby={loweringStoredLimit ? 'ai-memory-prune-warning' : undefined} disabled={!valid || busy}>Save memory limits</button>
           </div>
         </div>}
       </div>}

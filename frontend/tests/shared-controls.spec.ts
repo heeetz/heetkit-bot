@@ -126,13 +126,12 @@ for (const width of [1180, 390, 320]) {
     await page.goto('/tests/fixture.html')
     await page.getByRole('navigation').getByRole('button', { name: 'Settings', exact: true }).click()
     await page.getByRole('navigation').getByRole('button', { name: 'AI', exact: true }).click()
-    await page.getByRole('navigation').getByRole('button', { name: 'AI setup', exact: true }).click()
-    const card = page.locator('#ai-models')
+    const card = page.locator('#ai-memory')
     // Exercise the real component inside a deliberately clipped edge container.
     await card.evaluate((element) => Object.assign((element as HTMLElement).style, {
       position: 'fixed', right: '0', bottom: '0', width: '250px', height: '72px', overflow: 'hidden', zIndex: '30',
     }))
-    await card.getByRole('button', { name: 'Help: AI setup', exact: true }).focus()
+    await card.getByRole('button', { name: 'Help: How memory works', exact: true }).focus()
     const tip = page.getByRole('tooltip')
     await expect(tip).toBeVisible()
     expect(await tip.evaluate((element) => element.parentElement === document.body)).toBe(true)
@@ -154,7 +153,7 @@ test('changing pages closes help from the hidden page', async ({ page }) => {
   await page.goto('/tests/fixture.html')
   const nav = page.getByRole('navigation')
   await nav.getByRole('button', { name: 'AI', exact: true }).click()
-  await page.getByRole('button', { name: 'Help: AI setup', exact: true }).focus()
+  await page.locator('#ai-memory').getByRole('button', { name: 'Help: How memory works', exact: true }).focus()
   await expect(page.getByRole('tooltip')).toBeVisible()
   await nav.getByRole('button', { name: 'Commands', exact: true }).click()
   await expect(page.getByRole('tooltip')).toHaveCount(0)

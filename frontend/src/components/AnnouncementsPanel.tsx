@@ -4,6 +4,7 @@ import Confirmation from './Confirmation'
 import HelpTip from './HelpTip'
 import { Select } from './Select'
 import Switch from './Switch'
+import './announcement-editor.css'
 
 interface Draft {
   id: string | null
@@ -63,9 +64,9 @@ function time(value: string | null): string {
   return value ? new Date(value).toLocaleString() : '—'
 }
 
-function AnnouncementStatus({ item, name }: { item?: AnnouncementInfo; name: string }) {
+function AnnouncementStatus({ item }: { item?: AnnouncementInfo }) {
   const status = item?.status
-  return <HelpTip label={`Announcement status ${name}`}><span className="announcement-status-details">
+  return <HelpTip label="Schedule status"><span className="announcement-status-details">
     <span>Next run: {status?.next_run_at ? time(status.next_run_at) : 'Waiting for connection or disabled'}</span>
     <span>Last sent: {time(status?.last_sent_at ?? null)}</span>
     <span>Last outcome: {status?.last_outcome ? outcomeLabels[status.last_outcome] ?? status.last_outcome : 'No attempts yet'}</span>
@@ -80,6 +81,12 @@ function AnnouncementOutcome({ item }: { item?: AnnouncementInfo }) {
   return <p className={`announcement-outcome ${outcome === 'skipped_stream' ? 'muted' : 'inline-error'}`} role="status">
     Last outcome: {outcomeLabels[outcome]}
   </p>
+}
+
+function AnnouncementFailure({ item }: { item?: AnnouncementInfo }) {
+  const outcome = item?.status.last_outcome
+  if (!outcome || !['failed', 'not_confirmed', 'cancelled', 'authorization_required', 'permission_denied'].includes(outcome)) return null
+  return <p className="announcement-outcome inline-error" role="status">Last outcome: {outcomeLabels[outcome]}</p>
 }
 
 export default function AnnouncementsPanel({ active }: { active: boolean }) {
@@ -179,39 +186,27 @@ export default function AnnouncementsPanel({ active }: { active: boolean }) {
   const current = saved?.find((item) => item.id === draft?.id)
   const prefix = 'announcement-editor'
   const editor = draft && <article className="command-card announcement-card announcement-editing">
-    <div className="announcement-editor-heading"><h3>{draft.name || 'New announcement'}</h3>
-      <AnnouncementStatus item={current} name={draft.name || 'New announcement'} />
-      <span className={`state-pill ${draft.enabled ? 'enabled' : ''}`}>{draft.enabled ? 'Enabled' : 'Disabled'}</span>
-    </div>
-    <AnnouncementOutcome item={current} />
+    <AnnouncementFailure item={current} />
     <fieldset disabled={busy} id={prefix} className="announcement-editor" aria-label="Announcement settings">
       <div className="announcement-controls">
         <div className="announcement-name-row">
-          <label className="form-field" htmlFor={`${prefix}-name`}>Name<input id={`${prefix}-name`} placeholder="e.g. Community reminder" maxLength={80} value={draft.name} onChange={(event) => update({ name: event.target.value })} /></label>
-          <Switch className="announcement-enable" checked={draft.enabled} ariaLabel="Enable announcement" onCheckedChange={(enabled) => update({ enabled })}>{null}</Switch>
+          <div className="form-field"><label className="announcement-field-label" htmlFor={`${prefix}-name`}>Name</label><input id={`${prefix}-name`} aria-label="Name" placeholder="Announcement name" maxLength={80} value={draft.name} onChange={(event) => update({ name: event.target.value })} /></div>
+          <Switch className="announcement-enable" checked={draft.enabled} ariaLabel="Enable announcement" onCheckedChange={(enabled) => update({ enabled })}>{draft.enabled ? 'Enabled' : 'Disabled'}</Switch>
         </div>
-        <div className="form-field"><div className="custom-field-label"><label htmlFor={`${prefix}-interval`}>Interval (s)</label><HelpTip label="Announcement interval">Choose 60 to 86400 seconds. Startup, reconnect, channel changes and saved edits restart the full interval. Missed checks never create a catch-up backlog.</HelpTip></div>
-          <input id={`${prefix}-interval`} type="number" min={60} max={86400} step={1} value={draft.interval} aria-invalid={integer(draft.interval, 60, 86400) === null} onChange={(event) => update({ interval: event.target.value })} /></div>
-        <div className="form-field"><div className="custom-field-label"><label htmlFor={`${prefix}-minimum`}>Trigger after</label><HelpTip label="Announcement activity">At each interval check, send only if this many eligible incoming messages arrived during this announcement’s current interval. This is a minimum activity condition, not an immediate message-count trigger. Each scheduled check starts a fresh activity window, including skipped checks. Own bot output and replayed events do not count. Zero allows quiet chat.</HelpTip></div>
-          <div className="number-with-unit announcement-message-count"><input id={`${prefix}-minimum`} type="number" min={0} max={1000} step={1} value={draft.minimum} aria-invalid={integer(draft.minimum, 0, 1000) === null} onChange={(event) => update({ minimum: event.target.value })} /><span aria-hidden="true">messages</span></div></div>
-        <div className="form-field"><div className="custom-field-label"><label htmlFor={`${prefix}-availability`}>Works when:</label><HelpTip label="Announcement stream availability">Live only and Offline only require a fresh matching stream observation. Unknown or stale stream status pauses restricted sends on both Desktop and Server.</HelpTip></div>
-          <Select id={`${prefix}-availability`} aria-label="Works when:" value={draft.availability} onChange={(availability) => update({ availability: availability as StreamAvailability })} options={availabilityOptions} /></div>
-        <div className="form-field"><div className="custom-field-label"><label htmlFor={`${prefix}-mode`}>Message selection</label><HelpTip label="Announcement messages">Single sends one plain-text line. Random chooses one of 1 to 30 non-empty lines per interval. Each line allows up to 450 UTF-8 bytes. Template variables are not expanded.</HelpTip></div>
-          <Select id={`${prefix}-mode`} aria-label="Message selection" value={draft.mode} onChange={(mode) => update({ mode: mode as Draft['mode'] })} options={[{ value: 'single', label: 'Single message' }, { value: 'random', label: 'Random message' }]} /></div>
+        <div className="form-field"><label className="announcement-field-label" htmlFor={`${prefix}-interval`}>Interval (s)</label><span className="announcement-number-control"><span>Every</span><input id={`${prefix}-interval`} aria-label="Interval (s)" type="number" min={60} max={86400} step={1} value={draft.interval} aria-invalid={integer(draft.interval, 60, 86400) === null} onChange={(event) => update({ interval: event.target.value })} /><span>s</span></span></div>
+        <div className="form-field"><label className="announcement-field-label" htmlFor={`${prefix}-minimum`}>Minimum chat activity</label><span className="announcement-number-control"><span>At least</span><input id={`${prefix}-minimum`} aria-label="Minimum chat activity" type="number" min={0} max={1000} step={1} value={draft.minimum} aria-invalid={integer(draft.minimum, 0, 1000) === null} onChange={(event) => update({ minimum: event.target.value })} /><span>messages</span></span></div>
+        <div className="form-field"><label className="announcement-field-label" htmlFor={`${prefix}-availability`}>Stream availability</label><Select id={`${prefix}-availability`} aria-label="Stream availability" value={draft.availability} onChange={(availability) => update({ availability: availability as StreamAvailability })} options={availabilityOptions} /></div>
+        <div className="form-field"><label className="announcement-field-label" htmlFor={`${prefix}-mode`}>Message selection</label><Select id={`${prefix}-mode`} aria-label="Message selection" value={draft.mode} onChange={(mode) => update({ mode: mode as Draft['mode'] })} options={[{ value: 'single', label: 'Single message' }, { value: 'random', label: 'Random message' }]} /></div>
+        <div className="form-field"><label className="announcement-field-label" htmlFor={`${prefix}-delivery`}>Announcement type</label><Select id={`${prefix}-delivery`} aria-label="Announcement type" value={draft.delivery} onChange={(delivery) => update({ delivery: delivery as Draft['delivery'] })} options={[{ value: 'highlighted', label: 'Highlighted' }, { value: 'regular', label: 'Regular message' }]} /></div>
       </div>
-      <div className="form-field announcement-type"><div className="custom-field-label"><label htmlFor={`${prefix}-delivery`}>Announcement type</label><HelpTip label="Announcement type">Highlighted uses Twitch’s Announcement format in the channel’s accent color. The sending account must be a moderator or the broadcaster. If permission is missing, use Settings → Renew Twitch authorization on Desktop or Connect Twitch on Server. Regular message uses ordinary chat. Highlighted failures never fall back to regular messages. In Shared Chat, highlighted announcements reach every participating channel.</HelpTip></div>
-        <Select id={`${prefix}-delivery`} aria-label="Announcement type" value={draft.delivery} onChange={(delivery) => update({ delivery: delivery as Draft['delivery'] })} options={[{ value: 'highlighted', label: 'Highlighted' }, { value: 'regular', label: 'Regular message' }]} /></div>
       <div className="form-field announcement-message">
-        <textarea id={`${prefix}-message`} aria-label={draft.mode === 'random' ? 'Random messages' : 'Announcement message'} placeholder={draft.mode === 'random' ? 'Join our community: https://example.com\nFollow for updates and the next stream!' : 'e.g. Join our community: https://example.com'} rows={draft.mode === 'random' ? 5 : 3} value={draft.mode === 'random' ? draft.randomMessages : draft.message} onChange={(event) => update(draft.mode === 'random' ? { randomMessages: event.target.value } : { message: event.target.value })} />
+        <label className="announcement-field-label" htmlFor={`${prefix}-message`}>{draft.mode === 'random' ? 'Random messages' : 'Announcement message'}</label>
+        <textarea id={`${prefix}-message`} aria-label={draft.mode === 'random' ? 'Random messages' : 'Announcement message'} placeholder={draft.mode === 'random' ? 'One message per line' : 'Write an announcement'} rows={draft.mode === 'random' ? 3 : 2} value={draft.mode === 'random' ? draft.randomMessages : draft.message} onChange={(event) => update(draft.mode === 'random' ? { randomMessages: event.target.value } : { message: event.target.value })} />
       </div>
       <div className="row-actions announcement-actions">
-        <div className="announcement-save-state">
-          <HelpTip label="Saving announcements">Save announcements applies this edit and restarts enabled schedules with a full interval. Cancel discards the current draft. Edit, Enable or Disable, and Delete are available on each saved announcement. Scheduling status is available from (?) beside its name.</HelpTip>
-          {dirty && <span className="mini-badge dirty-badge">Unsaved changes</span>}
-        </div>
         <div className="announcement-save-buttons">
-          <button className="primary" disabled={busy || !dirty} onClick={save}>Save announcements</button>
           <button className="secondary" disabled={busy} onClick={() => { setDraft(null); setError(''); setNotice('') }}>Cancel</button>
+          <button className="primary" disabled={busy || !dirty} onClick={save}>Save announcements</button>
         </div>
       </div>
     </fieldset>
@@ -219,11 +214,11 @@ export default function AnnouncementsPanel({ active }: { active: boolean }) {
 
   return <section className="card command-editor-card announcements-panel" id="announcements" aria-busy={busy}>
     <div className="section-heading">
-      <div><h2>Announcements</h2><p className="section-copy">Send scheduled highlighted announcements or regular chat messages.</p></div>
-      <button className="primary" disabled={!saved || busy || Boolean(draft) || saved.length >= 50} onClick={() => edit({
+      <div><h2>Announcements</h2>{!draft && <p className="section-copy">Send scheduled highlighted announcements or regular chat messages.</p>}</div>
+      {!draft && <button className="primary" disabled={!saved || busy || saved.length >= 50} onClick={() => edit({
         id: null, name: '', enabled: true, message: '', randomMessages: '', mode: 'single', delivery: 'highlighted',
         interval: '900', minimum: '0', availability: 'anytime',
-      })}>New announcement</button>
+      })}>New announcement</button>}
     </div>
     {error && <p className="inline-error" role="alert">{error}</p>}
     {loadError && <p className="inline-error" role="alert">{loadError}</p>}
@@ -232,23 +227,39 @@ export default function AnnouncementsPanel({ active }: { active: boolean }) {
       {saved.length === 0 && !draft && <p className="muted">No announcements configured.</p>}
       {(saved.length > 0 || draft) && <div className="announcement-collection custom-command-list">
         {draft && (!draft.id || !current) && editor}
-        {saved.map((item) => item.id === draft?.id ? <div key={item.id}>{editor}</div> : <article className="custom-command-row announcement-row" key={item.id}>
-          <div className="custom-command-summary">
-            <div className="custom-command-heading"><strong>{item.name}</strong>
-              <span className={`state-pill ${item.enabled ? 'enabled' : ''}`}>{item.enabled ? 'Enabled' : 'Disabled'}</span>
-              <span className="mini-badge">{item.delivery_mode === 'highlighted' ? 'Highlighted' : 'Regular message'}</span>
-              <AnnouncementStatus item={item} name={item.name} />
+        {saved.length > 0 && <div className="announcement-table" role="table" aria-label="Announcements">
+          <div className="announcement-table-header" role="row">
+            <span role="columnheader">Enabled</span><span role="columnheader">Name</span>
+            <span role="columnheader">Type</span><span role="columnheader">Schedule</span>
+            <span role="columnheader">Message</span><span role="columnheader"><span className="sr-only">Actions</span></span>
+          </div>
+          {saved.map((item) => item.id === draft?.id ? <div key={item.id}>{editor}</div> : <article className="announcement-row" role="row" key={item.id}>
+            <div className="announcement-cell announcement-enabled" role="cell" data-label="Enabled">
+              <Switch checked={item.enabled} disabled={busy || Boolean(draft)} ariaLabel={`Enable ${item.name}`}
+                onCheckedChange={(enabled) => void persist(saved.map((entry) => ({ ...savedInput(entry), ...(entry.id === item.id ? { enabled } : {}) })), `${item.name} ${enabled ? 'enabled' : 'disabled'}.`)}>
+                <span className="sr-only">{item.enabled ? 'Enabled' : 'Disabled'}</span>
+              </Switch>
             </div>
-            <p className="custom-command-response">{item.messages[0]}</p>
-            <small className="muted">{item.interval_seconds}s interval{item.message_mode === 'random' ? ` · ${item.messages.length} messages · one chosen at random` : ''}</small>
-            <AnnouncementOutcome item={item} />
-          </div>
-          <div className="row-actions">
-            <button className="secondary" disabled={busy || Boolean(draft)} onClick={() => edit(fromSaved(item))}>Edit</button>
-            <button className="secondary" disabled={busy || Boolean(draft)} onClick={() => void persist(saved.map((entry) => ({ ...savedInput(entry), ...(entry.id === item.id ? { enabled: !entry.enabled } : {}) })), `${item.name} ${item.enabled ? 'disabled' : 'enabled'}.`)}>{item.enabled ? 'Disable' : 'Enable'}</button>
-            <button className="ghost destructive" disabled={busy || Boolean(draft)} onClick={() => setDeleting(item)}>Delete</button>
-          </div>
-        </article>)}
+            <div className="announcement-cell announcement-name" role="rowheader" data-label="Name"><strong>{item.name}</strong></div>
+            <div className="announcement-cell announcement-type" role="cell" data-label="Type"><span className="mini-badge">{item.delivery_mode === 'highlighted' ? 'Highlighted' : 'Regular message'}</span></div>
+            <div className="announcement-cell announcement-schedule" role="cell" data-label="Schedule">
+              <span>{item.interval_seconds}s interval</span>
+              <small className="muted">{item.min_messages > 0 ? `${item.min_messages} messages minimum · ` : ''}{item.stream_availability.replace('_', ' ')}{item.message_mode === 'random' ? ` · ${item.messages.length} random messages` : ''}</small>
+              <AnnouncementStatus item={item} />
+            </div>
+            <div className="announcement-cell announcement-message-preview" role="cell" data-label="Message">
+              <span className="custom-command-response">{item.messages[0]}</span>
+              {item.messages.length > 1 && <small className="muted">+{item.messages.length - 1} more</small>}
+              <AnnouncementOutcome item={item} />
+            </div>
+            <div className="announcement-cell announcement-actions" role="cell" data-label="Actions">
+              <div className="row-actions">
+                <button className="secondary" disabled={busy || Boolean(draft)} onClick={() => edit(fromSaved(item))}>Edit</button>
+                <button className="ghost destructive" disabled={busy || Boolean(draft)} onClick={() => setDeleting(item)}>Delete</button>
+              </div>
+            </div>
+          </article>)}
+        </div>}
       </div>}
     </>}
     {deleting && <Confirmation title={`Delete ${deleting.name}?`} description="Permanently delete this announcement. This cannot be undone." danger

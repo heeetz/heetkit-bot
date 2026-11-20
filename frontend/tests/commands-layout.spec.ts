@@ -17,6 +17,12 @@ for (const width of [1280, 390, 320]) {
     for (const action of ['create', 'edit']) {
       if (action === 'create') await createEntry(page, 'custom')
       else await page.getByRole('button', { name: 'Edit !hello', exact: true }).click()
+      await expect(editor.getByText('Command name', { exact: true })).toBeVisible()
+      await expect(editor.getByText(/^(Message|Responses)$/)).toBeVisible()
+      await expect(editor.getByText('Per-user cooldown (seconds)', { exact: true })).toBeVisible()
+      await expect(editor.getByText('Global cooldown (seconds)', { exact: true })).toBeVisible()
+      await expect(editor.getByText('Response type', { exact: true })).toBeVisible()
+      await expect(editor.getByText('Send as', { exact: true })).toBeVisible()
       for (const mode of ['single', 'random', 'burst']) {
         await selectOption(editor.getByRole('combobox', { name: 'Response type', exact: true }), mode)
         // Selecting a response type can scroll the fixed-height panel. Measure the layout from its top.
@@ -24,15 +30,19 @@ for (const width of [1280, 390, 320]) {
         const name = await box(editor.locator('.custom-name-input'))
         const enabled = await box(editor.locator('.custom-command-enabled'))
         const navigation = await box(editor.getByRole('navigation', { name: 'Editor sections' }))
-        expect(name.x + name.width).toBeLessThan(enabled.x)
-        expect(Math.abs(name.y + name.height / 2 - enabled.y - enabled.height / 2)).toBeLessThanOrEqual(2)
+        if (width > 760) {
+          expect(name.x + name.width).toBeLessThan(enabled.x)
+          expect(Math.abs(name.y + name.height / 2 - enabled.y - enabled.height / 2)).toBeLessThanOrEqual(2)
+        } else {
+          expect(enabled.y).toBeGreaterThanOrEqual(name.y + name.height)
+          expect(Math.abs(enabled.x - name.x)).toBeLessThanOrEqual(2)
+        }
         if (width === 1280) expect(navigation.x + navigation.width).toBeLessThan(name.x)
         else expect(navigation.y + navigation.height).toBeLessThan(name.y)
         const message = await box(editor.locator('textarea'))
         const cooldown = await box(editor.getByRole('spinbutton', { name: 'Per-user cooldown (seconds)', exact: true }))
         expect(message.y + message.height).toBeLessThan(cooldown.y)
-        const variables = editor.locator('.custom-variable-help')
-        await expect(variables).not.toHaveAttribute('open')
+        await expect(editor.locator('.custom-variable-help')).toHaveCount(0)
         const alias = editor.getByRole('textbox', { name: 'Aliases, separated by commas', exact: true })
         await expect(alias).toBeHidden()
         await openEditorSection(editor, 'Access & aliases')
@@ -65,21 +75,12 @@ for (const width of [1280, 390, 320]) {
   })
 }
 
-test('field help supports touch, keyboard and Escape without changing the draft', async ({ page }) => {
+test('command editor fields remain accessible without help chips', async ({ page }) => {
   await page.goto('/tests/commands.fixture.html')
   await createEntry(page, 'custom')
   const editor = page.locator('#custom-command-editor')
-  const help = editor.getByRole('button', { name: 'Help: Command name', exact: true })
-  await help.dispatchEvent('pointerdown', { pointerType: 'touch' })
-  await help.click()
-  await expect(page.getByRole('tooltip')).toContainText('40 characters')
-  await page.keyboard.press('Escape')
-  await expect(page.getByRole('tooltip')).toHaveCount(0)
-  await expect(help).toBeFocused()
-  await help.press('Enter')
-  await expect(page.getByRole('tooltip')).toBeVisible()
-  await help.press('Escape')
-  await expect(help).toBeFocused()
+  await expect(editor.getByRole('textbox', { name: 'Command name', exact: true })).toHaveAttribute('placeholder', 'hello')
+  await expect(editor.getByRole('button', { name: /Help:/ })).toHaveCount(0)
   await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
 })

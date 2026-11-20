@@ -30,6 +30,7 @@ import HelpTip from './components/HelpTip'
 import BrowserSession from './components/BrowserSession'
 import DesktopStartup from './components/DesktopStartup'
 import Confirmation from './components/Confirmation'
+import { RecentCommands, StreamActivity } from './components/DashboardActivity'
 import { restartDesktop } from './desktopRestart'
 import useUpdateCheck from './useUpdateCheck'
 import './styles.css'
@@ -116,7 +117,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
   onChangeAIState: (kind: 'enabled' | 'memory', enabled: boolean) => void
   onAuthorizeTwitch: () => void
   onChangeBrowserMode: (mode: BrowserOperationMode) => void
-  onNavigate: (section: Extract<Section, 'AI' | 'Settings' | 'Logs'>, targetId?: string) => void
+  onNavigate: (section: Extract<Section, 'AI' | 'Analytics' | 'Settings' | 'Logs'>, targetId?: string) => void
   onOpenUpdate?: () => void
   busy: string
 }) {
@@ -179,7 +180,6 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
     return () => { active = false }
   }, [connectionState])
 
-  const statusLabel = status ? (status.running ? 'Running' : 'Stopped') : 'Loading…'
   const twitchCredential = setup?.credentials.find(
     (credential) => credential.name === 'twitch_client_secret',
   )
@@ -228,28 +228,47 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
 
   return (
     <section className="dashboard-layout">
-      {setup && <SetupChecklist twitchConfigured={!needsTwitchSetup} twitchAuthorized={Boolean(setup.twitch.saved_bot_authorization)} twitchPending={needsApply} aiConfigured={aiConfigured} onTwitch={() => onNavigate('Settings', 'twitch-settings')} onAI={() => onNavigate('AI', 'ai-models')} />}
-      <article className="card dashboard-hero">
-        <div className="dashboard-hero-status">
-          <span className={`status-dot ${status?.running ? 'online' : ''}`} />
-          <div>
-            <div className="dashboard-label">Bot session<HelpTip label="Bot session">Running means the bot session has started. It can still be waiting for authorization or reconnecting. Connected below confirms Twitch chat readiness.</HelpTip></div>
-            <h2>{statusLabel}</h2>
+      <article className="card dashboard-hero" aria-label="Bot session">
+        <div className="dashboard-session-main">
+          <div className="dashboard-session-fields">
+            <div className="dashboard-connection">
+              <div className="dashboard-label">Twitch connection<HelpTip label="Bot session">
+                {status && setup ? `Authorization: ${twitchAuthorizationLabel(status.twitch_connection_state, setup.twitch.oauth_token_available)}. ` : ''}
+                A running session can be waiting for authorization or reconnecting. Connected confirms Twitch chat readiness.
+              </HelpTip></div>
+              <h2><span aria-hidden="true" className={`status-dot ${status?.twitch_connected ? 'online' : ''}`} />
+                {needsTwitchSetup ? 'Not configured' : status ? twitchConnectionLabel(status.twitch_connection_state) : 'Loading…'}
+              </h2>
+            </div>
+            <div><div className="dashboard-label">Channel</div><strong>{status?.channel || setup?.twitch.target_channel || 'Not configured'}</strong></div>
+            <div><div className="dashboard-label">Bot account</div><strong>{status?.account || setup?.twitch.bot_username || 'Not configured'}</strong></div>
+            <div><div className="dashboard-label">Session uptime</div><strong className="metric">{status ? formatUptime(status.uptime_seconds) : '—'}</strong></div>
           </div>
+          {operation?.mode !== 'disabled' && (
+            <div className="dashboard-hero-actions">
+              {onOpenUpdate && <button type="button" className="secondary dashboard-update" onClick={onOpenUpdate}>Update available</button>}
+              <button
+                className={status?.running ? 'secondary' : 'primary'}
+                disabled={!status || lifecycleBusy || (!status.running && !automaticOperation && (pendingRestart || needsTwitchSetup))}
+                onClick={() => onChangeBotState(automaticOperation ? false : !status?.running)}
+              >
+                {busy === 'bot' ? 'Working…' : operation?.pending ? 'Reconciling…' : automaticOperation ? 'Switch to Manual & disconnect' : browserManaged ? status?.running ? 'Disconnect' : 'Connect' : status?.running ? 'Stop Bot' : 'Start Bot'}
+              </button>
+            </div>
+          )}
         </div>
-        {operation?.mode !== 'disabled' && (
-          <div className="dashboard-hero-actions">
-            {onOpenUpdate && <button type="button" className="secondary dashboard-update" onClick={onOpenUpdate}>Update available</button>}
-            <button
-              className={status?.running ? 'secondary' : 'primary'}
-              disabled={!status || lifecycleBusy || (!status.running && !automaticOperation && (pendingRestart || needsTwitchSetup))}
-              onClick={() => onChangeBotState(automaticOperation ? false : !status?.running)}
-            >
-              {busy === 'bot' ? 'Working…' : operation?.pending ? 'Reconciling…' : automaticOperation ? 'Switch to Manual & disconnect' : browserManaged ? status?.running ? 'Disconnect' : 'Connect' : status?.running ? 'Stop Bot' : 'Start Bot'}
+        {(connectionHint || connectionState === 'failed' || connectionState === 'reconnecting'
+          || (connectionState === 'auth_required' && !isBrowserMode())) && <div className="dashboard-connection-actions">
+          {connectionHint && <p>{status?.running && connectionState !== 'connected' && <strong>Session running. </strong>}{connectionHint}</p>}
+          {connectionState === 'auth_required' && !isBrowserMode() && (
+            <button className="primary" disabled={Boolean(busy) || !status?.running || pendingRestart || needsTwitchSetup} onClick={onAuthorizeTwitch}>
+              {busy === 'twitch:authorize' ? 'Opening…' : 'Authorize Twitch'}
             </button>
-          </div>
-        )}
+          )}
+          {(connectionState === 'failed' || connectionState === 'reconnecting') && <button className="secondary" onClick={() => onNavigate('Logs')}>Open Logs</button>}
+        </div>}
       </article>
+      {setup && <SetupChecklist twitchConfigured={!needsTwitchSetup} twitchAuthorized={Boolean(setup.twitch.saved_bot_authorization)} twitchPending={needsApply} aiConfigured={aiConfigured} onTwitch={() => onNavigate('Settings', 'twitch-settings')} onAI={() => onNavigate('AI', 'ai-models')} />}
       {(needsTwitchSetup || pendingRestart || pendingReconnect || setupError) && (
         <article className="card dashboard-notice setup-card">
           <div>
@@ -271,11 +290,36 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
           </div>
         </article>
       )}
+      <RecentCommands onOpenLogs={() => onNavigate('Logs')} />
+      <div className="dashboard-panels">
+        <article className="card dashboard-ai-card">
+          <div className="dashboard-card-heading">
+            <h2>AI controls</h2>
+            <HelpTip label="AI controls">AI is optional. The AI command switch saves immediately across restarts and is shared with AI and Commands. AI Playground works while stopped with a provider configured. Turning memory off stops new storage and use without erasing previous exchanges.</HelpTip>
+          </div>
+          <div className="dashboard-ai-summary">
+            <span>{aiStatus ? aiStatus.available ? aiStatus.model || setup?.aiProvider.selected_model || 'Model not selected' : 'AI unavailable' : 'Loading…'}</span>
+            {aiStatus?.available && <span>Personality: {aiStatus.active_personality || 'Not selected'}</span>}
+          </div>
+          <div className="dashboard-switches">
+            <Switch checked={aiStatus?.enabled ?? false} disabled={!aiStatus || Boolean(busy)}
+              ariaLabel="Enable AI command" onCheckedChange={(enabled) => onChangeAIState('enabled', enabled)}>AI command</Switch>
+            <Switch checked={aiStatus?.memory_enabled ?? false} disabled={!aiStatus || Boolean(busy)}
+              ariaLabel="Enable conversation memory" onCheckedChange={(enabled) => onChangeAIState('memory', enabled)}>Conversation memory</Switch>
+          </div>
+          <div className="dashboard-ai-actions">
+            <button className="primary" onClick={() => onNavigate('AI', 'ai-playground')}>Open Playground</button>
+            <button className="secondary" onClick={() => onNavigate('AI', 'ai-behavior')}>Manage AI</button>
+          </div>
+        </article>
+        <StreamActivity key={status?.leaderboard_channel_id ?? ''} channel={status?.leaderboard_channel_id}
+          onOpenAnalytics={() => onNavigate('Analytics', 'analytics-chatters')} />
+      </div>
       {operation && (
         <article className="card dashboard-operation-card">
           <div className="dashboard-card-heading">
             <div>
-              <div className="dashboard-label">Operation mode<HelpTip label="Operation mode">The selected policy is persisted on the server and reconciled asynchronously. Twitch connection below reports the actual session separately.</HelpTip></div>
+              <div className="dashboard-label">Operation mode<HelpTip label="Operation mode">The selected policy is saved on the server. The session strip reports the current Twitch connection.</HelpTip></div>
               <h2>{browserOperationModeLabel(operation.mode)}</h2>
             </div>
             <Select
@@ -301,58 +345,6 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
           {operation.mode === 'disabled' && <p className="dashboard-operation-actions">Connecting is disabled. Choose Always On, Stream Only or Manual to enable it.</p>}
         </article>
       )}
-      <div className="dashboard-grid">
-        <article className="card dashboard-card">
-          <div className="dashboard-label">Twitch connection<HelpTip label="Twitch connection">{status && setup ? `Authorization: ${twitchAuthorizationLabel(status.twitch_connection_state, setup.twitch.oauth_token_available)}. ` : ''}Saved tokens are checked when connecting. A token cache alone does not confirm authorization. Gemini is optional and is not needed for Twitch commands.</HelpTip></div>
-          <h3 className={status?.twitch_connected ? 'success-text' : ''}>
-            {needsTwitchSetup ? 'Not configured' : status ? twitchConnectionLabel(status.twitch_connection_state) : 'Loading…'}
-          </h3>
-          {connectionHint && <p>{connectionHint}</p>}
-          {connectionState === 'auth_required' && !isBrowserMode() && (
-            <button className="primary" disabled={Boolean(busy) || !status?.running || pendingRestart || needsTwitchSetup} onClick={onAuthorizeTwitch}>
-              {busy === 'twitch:authorize' ? 'Opening…' : 'Authorize Twitch'}
-            </button>
-          )}
-          {(connectionState === 'failed' || connectionState === 'reconnecting') && <button className="secondary" onClick={() => onNavigate('Logs')}>Open Logs</button>}
-        </article>
-        <article className="card dashboard-card">
-          <div className="dashboard-label">Channel · Bot account</div>
-          <h3>{status?.channel || setup?.twitch.target_channel || 'Not configured'}</h3>
-          <p>Bot: {status?.account || setup?.twitch.bot_username || 'Not configured'}</p>
-        </article>
-        <article className="card dashboard-card">
-          <div className="dashboard-label">Session uptime<HelpTip label="Session uptime">Time since the current bot session started, including time spent waiting for authorization or reconnecting.</HelpTip></div>
-          <h3 className="metric">{status ? formatUptime(status.uptime_seconds) : '—'}</h3>
-        </article>
-      </div>
-      <article className="card dashboard-ai-card">
-        <div className="dashboard-card-heading">
-          <div className="dashboard-label">AI controls<HelpTip label="AI controls">Gemini is optional; other Twitch commands work without it. The AI command switch saves immediately across restarts and is shared with AI and Commands. Filter Tester works while stopped. AI Playground also works while stopped with Gemini configured. Turning memory off stops new storage and use without erasing previous exchanges.</HelpTip></div>
-          <button className="secondary" onClick={() => onNavigate('AI', 'ai-behavior')}>Manage AI</button>
-        </div>
-        <div className="dashboard-ai-summary">
-          <span>{aiStatus ? aiStatus.available ? aiStatus.model || setup?.aiProvider.selected_model || 'Model not selected' : 'AI unavailable' : 'Loading…'}</span>
-          {aiStatus?.available && <span>Personality: {aiStatus.active_personality || 'Not selected'}</span>}
-        </div>
-        <div className="dashboard-switches">
-          <Switch
-            checked={aiStatus?.enabled ?? false}
-            disabled={!aiStatus || Boolean(busy)}
-            ariaLabel="Enable AI command"
-            onCheckedChange={(enabled) => onChangeAIState('enabled', enabled)}
-          >
-            <span><strong>AI command</strong><small>{aiStatus ? aiStatus.enabled ? 'Enabled' : 'Disabled' : 'Loading…'}</small></span>
-          </Switch>
-          <Switch
-            checked={aiStatus?.memory_enabled ?? false}
-            disabled={!aiStatus || Boolean(busy)}
-            ariaLabel="Enable conversation memory"
-            onCheckedChange={(enabled) => onChangeAIState('memory', enabled)}
-          >
-            <span><strong>Conversation memory</strong><small>{aiStatus ? aiStatus.memory_enabled ? 'Enabled' : 'Disabled' : 'Loading…'}</small></span>
-          </Switch>
-        </div>
-      </article>
     </section>
   )
 }

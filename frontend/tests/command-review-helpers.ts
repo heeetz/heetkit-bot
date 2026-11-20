@@ -28,7 +28,12 @@ export async function reviewCommands(page: Page, host: 'desktop' | 'server', wid
   await expect(delivery).toHaveText('Reply to message')
   const name = (await editor.getByLabel('Command name', { exact: true }).boundingBox())!
   const enabled = (await editor.locator('.custom-command-enabled').boundingBox())!
-  expect(enabled.x).toBeGreaterThan(name.x + name.width)
+  if (width > 760) {
+    expect(enabled.x).toBeGreaterThan(name.x + name.width)
+    expect(Math.abs(name.y + name.height / 2 - enabled.y - enabled.height / 2)).toBeLessThanOrEqual(2)
+  } else {
+    expect(enabled.y).toBeGreaterThanOrEqual(name.y + name.height)
+  }
   await screenshot(editor, 'custom-editor', host, width)
   await openEditorSection(editor, 'Access & aliases')
   await expect(editor.getByRole('combobox', { name: 'Permission', exact: true })).toBeVisible()
@@ -75,13 +80,13 @@ export async function reviewCommands(page: Page, host: 'desktop' | 'server', wid
   await openEditorSection(reactions, 'Matching & priority')
   const mode = (await reactions.getByRole('combobox', { name: 'Match mode' }).boundingBox())!
   const caseControl = (await reactions.locator('.reaction-case').boundingBox())!
-  if (width >= 1280) expect(caseControl.x).toBeGreaterThan(mode.x + mode.width)
-  else expect(caseControl.y).toBeGreaterThan(mode.y)
+  expect(caseControl.x).toBeGreaterThan(mode.x + mode.width)
+  for (const field of ['Match mode', 'Case sensitivity', 'Probability (%)', 'Cooldown (seconds)']) {
+    await expect(reactions.getByText(field, { exact: true })).toBeVisible()
+  }
+  await expect(reactions.getByRole('button', { name: /Help:/ })).toHaveCount(0)
   const priority = reactions.locator('.reaction-order')
   await expect(priority.getByText('Priority 2 of 2', { exact: true })).toBeVisible()
-  await priority.getByRole('button', { name: 'Help: Reaction priority' }).press('Enter')
-  await expect(page.getByRole('tooltip')).toContainText('The first eligible reaction responds.')
-  await page.keyboard.press('Escape')
   await screenshot(reactions, 'reaction-editor', host, width)
   await priority.getByRole('button', { name: 'Move up' }).click()
   await expect(priority.getByText('Priority 1 of 2', { exact: true })).toBeVisible()

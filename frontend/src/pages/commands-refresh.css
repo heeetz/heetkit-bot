@@ -1,0 +1,57 @@
+.command-editor-dialog .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.command-editor-dialog .command-editor-stack { gap: 10px; }
+.command-editor-dialog .custom-field-label { display: contents; }
+.command-editor-dialog .custom-field-label > label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.command-editor-dialog#chat-reaction-editor .custom-field-label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 12px; font-weight: 700; line-height: 1.2; }
+.command-editor-dialog#chat-reaction-editor .custom-field-label > label { position: static; width: auto; height: auto; overflow: visible; clip-path: none; white-space: normal; }
+.command-editor-dialog#chat-reaction-editor .command-editor-identity { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+.command-editor-dialog#chat-reaction-editor .command-editor-identity .form-field { min-width: 0; }
+.command-editor-dialog#chat-reaction-editor .reaction-enabled { align-self: end; min-height: 40px; margin: 0; white-space: nowrap; }
+.command-editor-dialog#chat-reaction-editor .reaction-enabled .switch-content { font-size: 12px; }
+.command-editor-dialog#chat-reaction-editor .reaction-case { display: grid; align-content: end; gap: 7px; }
+.command-editor-dialog#chat-reaction-editor .reaction-case > .switch-control { min-height: 40px; }
+.command-editor-dialog .custom-command-fields > .form-field { grid-row: auto; grid-template-rows: none; }
+.command-editor-dialog :is(.command-fields, .custom-command-fields, .custom-burst-controls, .command-burst-controls) .form-field { min-width: 0; }
+.command-editor-dialog .number-with-unit > span { right: 10px; padding: 0; }
+.command-editor-dialog .command-response-heading { margin: 0; }
+.command-editor-dialog .command-response-field { display: grid; gap: 0; }
+.command-editor-dialog .command-response-field textarea { min-height: 100px; }
+.command-editor-dialog .custom-command-editor .form-field { grid-row: auto; }
+.command-editor-dialog .custom-command-fields { align-items: end; gap: 10px; }
+.command-editor-dialog .custom-command-fields > .form-field { grid-template-rows: auto 40px; align-content: start; }
+.command-editor-dialog .custom-command-fields .custom-field-label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 12px; line-height: 1.2; }
+.command-editor-dialog .custom-command-fields .custom-field-label > label { position: static; width: auto; height: auto; overflow: visible; clip-path: none; white-space: normal; }
+.command-editor-dialog .custom-burst-controls { align-items: start; gap: 10px; }
+.command-editor-dialog .custom-burst-controls > .form-field { grid-row: auto; grid-template-rows: auto 40px minmax(1.4em, auto); align-content: start; }
+.command-editor-dialog .custom-burst-controls input { height: 40px; }
+.command-editor-dialog .custom-field-hint { min-height: 0; margin-top: 0; }
+.command-editor-dialog .command-editor-validation { min-height: 1.4em; margin: 0; color: var(--error); font-size: 13px; }
+.command-editor-dialog .command-editor-identity input { min-width: 0; height: 40px; }
+.command-editor-dialog .form-field > .command-field-label { display: block; margin: 0 0 4px; color: var(--muted); font-size: 12px; line-height: 1.2; }
+.command-editor-dialog :is(.command-context-control, .command-number-control, .command-select-control, .command-response-control) { min-width: 0; }
+.command-editor-dialog .command-context-control { display: block; }
+.command-editor-dialog .command-context-control input { width: 100%; min-width: 0; height: 40px; }
+.command-editor-dialog .command-number-control { display: grid; grid-template-columns: minmax(38px, 1fr) auto; align-items: center; gap: 6px; height: 40px; padding-inline: 8px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--page); }
+.command-editor-dialog .command-number-control > span { white-space: nowrap; }
+.command-editor-dialog .command-fields .command-number-control input,
+.command-editor-dialog .custom-command-fields .command-number-control input { width: 100%; min-width: 0; height: 36px; padding: 0; border: 0; outline: none; background: transparent; }
+.command-number-control:has(input:focus-visible) { outline: 2px solid var(--text); outline-offset: 2px; }
+.command-number-control:has(input.invalid) { border-color: var(--error); }
+.command-editor-dialog .command-select-control { display: block; }
+.command-editor-dialog .command-select-control .select-trigger { width: 100%; min-width: 0; height: 40px; }
+.command-editor-dialog .command-response-control { display: grid; gap: 4px; }
+.command-editor-dialog .command-response-control textarea { width: 100%; min-width: 0; }
+.command-editor-dialog .custom-name-input { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; min-width: 0; height: 40px; padding-inline: 10px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--page); }
+.command-editor-dialog .custom-name-input > span { padding: 0; color: var(--muted); }
+.command-editor-dialog .form-field .custom-name-input input { width: 100%; min-width: 0; height: 36px; padding: 0; border: 0; outline: none; background: transparent; }
+@container page-content (width < 620px) {
+  .command-editor-dialog .command-editor-identity { grid-template-columns: minmax(0, 1fr); }
+  .command-editor-dialog .command-editor-identity .switch-control { justify-self: start; }
+  .command-editor-dialog#chat-reaction-editor .command-editor-identity { grid-template-columns: minmax(0, 1fr) auto; }
+  .command-editor-dialog#chat-reaction-editor .command-editor-identity .switch-control { justify-self: auto; }
+  .command-editor-dialog .custom-burst-controls { grid-template-columns: minmax(0, 1fr); }
+  .command-editor-dialog .custom-burst-controls > .custom-burst-restriction { grid-column: 1; }
+}
+@media (max-width: 520px) {
+  .command-editor-dialog#chat-reaction-editor .reaction-matching-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+}

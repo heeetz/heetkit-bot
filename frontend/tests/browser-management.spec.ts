@@ -206,6 +206,7 @@ async function server(page: Page, operationOverrides: OperationOverrides = {}, s
       const entries = logs.filter((entry) => entry.id > Number(body?.after_id ?? 0)).slice(0, body?.snapshot ? 500 : Number(body?.limit ?? 200))
       result = { ok: true, entries, next_after_id: Math.max(99, entries.at(-1)?.id ?? Number(body?.after_id ?? 0)) }
     }
+    if (path === '/v1/logs/commands') result = { ok: true, entries: logs.filter((entry) => entry.event_kind === 'command.terminal').slice(-5).reverse() }
     if (path === '/v1/about') result = { application_name: 'HeetKit', application_subtitle: 'Twitch bot controls', version: '1.3.0', author: 'heeetz', license_name: 'Apache-2.0' }
     await route.fulfill({ json: result })
   })
@@ -366,7 +367,7 @@ for (const width of [1280, 390, 320]) {
     await page.goto('/tests/browser.fixture.html')
     await login(page)
     await setupLoaded
-    await expect(page.locator('.dashboard-card').first().getByRole('heading')).toHaveText('Connected')
+    await expect(page.getByRole('article', { name: 'Bot session' }).getByRole('heading')).toHaveText('Connected')
     await expect(page.getByRole('article', { name: 'Setup checklist' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Resume setup guide' })).toHaveCount(0)
     expect(api.calls.find((call) => call.path === '/v1/setup')?.authorization).toBe(`Bearer ${sessionToken}`)
@@ -391,7 +392,7 @@ test('Server announcements save highlighted delivery through authenticated fixed
   await panel.getByRole('button', { name: 'New announcement', exact: true }).click()
   await panel.getByLabel('Name', { exact: true }).fill('Server reminder')
   await panel.getByLabel('Announcement message', { exact: true }).fill('A scheduled ordinary message.')
-  await selectOption(panel.getByLabel('Works when:', { exact: true }), 'live_only')
+  await selectOption(panel.getByLabel('Stream availability', { exact: true }), 'live_only')
   await panel.getByRole('button', { name: 'Save announcements', exact: true }).click()
   await expect(panel.getByRole('status')).toContainText('Announcements saved')
   const write = api.calls.find((call) => call.path === '/v1/announcements' && call.method === 'POST')
@@ -412,9 +413,10 @@ test('Server instructions preserve the Twitch draft and explain callback paste m
   await login(page)
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await page.getByRole('button', { name: 'Twitch connection', exact: true }).click()
+  await page.locator('#twitch-application .accordion-trigger').click()
   const field = page.getByRole('textbox', { name: 'Client ID', exact: true })
   await field.fill('draft-client')
-  const instructions = page.getByRole('button', { name: 'Setup instructions', exact: true })
+  const instructions = page.getByRole('button', { name: 'Setup guide', exact: true })
   await instructions.press('Enter')
   const dialog = page.getByRole('dialog', { name: 'Twitch setup instructions' })
   await expect(dialog).toContainText('http://localhost:8765/oauth/callback')
@@ -673,10 +675,13 @@ for (const width of [1280, 900, 390, 320]) {
     await expect.poll(() => api.calls.find((call) => call.path === '/v1/ai/instructions/save')?.body).toEqual({ prompt: 'Saved browser instructions' })
     await closeAIBehavior(page)
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
-    await expect(page.getByRole('heading', { name: 'Application, account and channel' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Twitch connection' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Configuration transfer' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Save Twitch settings', exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Remove secret', exact: true })).toBeDisabled()
+    await page.locator('#twitch-application .accordion-trigger').click()
+    const secretActions = page.locator('#twitch-settings .secret-actions-menu')
+    await secretActions.locator('summary').click()
+    await expect(secretActions.getByRole('button', { name: 'Remove secret', exact: true })).toBeDisabled()
     await expect(page.getByRole('button', { name: /Open profile folder/ })).toHaveCount(0)
     await page.getByRole('button', { name: 'About', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Check for updates', exact: true })).toHaveCount(0)
@@ -692,8 +697,9 @@ test('server settings edit Twitch identity, manage credentials and complete or c
   await page.goto('/tests/browser.fixture.html')
   await login(page)
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Application, account and channel', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Twitch connection', exact: true })).toBeVisible()
 
+  await page.locator('#twitch-application .accordion-trigger').click()
   await page.getByLabel('Client ID').fill('new-client')
   await page.getByLabel('Bot account login').fill('new-bot')
   await page.getByLabel('Bot account user ID').fill('101')
@@ -706,7 +712,8 @@ test('server settings edit Twitch identity, manage credentials and complete or c
   })
   await expect(page.getByRole('status')).toContainText('current session was stopped')
 
-  const application = page.locator('[aria-labelledby="server-twitch-application-heading"]')
+  const application = page.locator('#twitch-application')
+  await application.locator('.accordion-trigger').click()
   await expect(application.getByLabel('Client ID')).toHaveValue('new-client')
   await expect(application.locator('.twitch-secret-field .credential-actions')).toBeVisible()
 
@@ -717,7 +724,7 @@ test('server settings edit Twitch identity, manage credentials and complete or c
   await gemini.fill('synthetic-gemini-secret')
   await setup.getByRole('button', { name: 'Connect Google Gemini key', exact: true }).click()
   await expect(gemini).toHaveValue('')
-  await expect(setup.locator('.ai-provider-status .state-pill').first()).toHaveText('Configured')
+  await expect(setup.locator('.ai-provider-status .state-pill').first()).toHaveText('Key saved')
   expect(api.calls.find((call) => call.path === '/v1/credentials/replace')?.body).toEqual({ name: 'gemini_api_key', value: 'synthetic-gemini-secret' })
   await setup.getByRole('button', { name: 'Test Google Gemini connection', exact: true }).click()
   expect(api.calls.find((call) => call.path === '/v1/credentials/test')?.body).toEqual({ name: 'gemini_api_key' })
@@ -762,7 +769,8 @@ for (const width of [1280, 900, 390, 320]) {
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
 
     const twitch = page.locator('#twitch-settings')
-    const application = twitch.locator('[aria-labelledby="server-twitch-application-heading"]')
+    const application = twitch.locator('#twitch-application')
+    await application.locator('.accordion-trigger').click()
     const secret = application.locator('.twitch-secret-field')
     const clientIdField = application.getByLabel('Client ID')
     const secretInput = secret.getByLabel('Twitch client secret', { exact: true })
@@ -773,7 +781,7 @@ for (const width of [1280, 900, 390, 320]) {
     const secretBounds = (await secretInput.boundingBox())!
     await expect(secretInput).toHaveAttribute('type', 'password')
     await expect(secretInput).toBeDisabled()
-    await expect(secret.locator('.twitch-secret-label .state-pill')).toHaveText('Configured')
+    await expect(application.locator('.accordion-badges .state-pill')).toHaveText('Secret configured')
     if (width >= 900) {
       expect(secretBounds.x).toBeGreaterThan(clientIdBounds.x + clientIdBounds.width)
       expect(secretBounds.y).toBeCloseTo(clientIdBounds.y, 0)
@@ -814,7 +822,7 @@ for (const width of [1280, 900, 390, 320]) {
     const clientId = `persisted-client-${width}`
     await application.getByLabel('Client ID').fill(clientId)
     const target = twitch.locator('[aria-labelledby="server-twitch-target-heading"]')
-    const authorization = twitch.getByRole('heading', { name: 'Authorization, status and save', exact: true }).locator('..')
+    const authorization = twitch.getByRole('heading', { name: 'Save and authorize', exact: true }).locator('..')
     const save = authorization.getByRole('button', { name: 'Save Twitch settings', exact: true })
     const targetBounds = (await target.boundingBox())!
     const authorizationBounds = (await authorization.boundingBox())!
@@ -850,6 +858,7 @@ test('server Twitch settings keep the validation error visible while preserving 
   await login(page)
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   const twitch = page.locator('#twitch-settings')
+  await page.locator('#twitch-application .accordion-trigger').click()
   const clientId = twitch.getByLabel('Client ID')
   await clientId.fill('')
   await twitch.getByRole('button', { name: 'Save Twitch settings', exact: true }).click()
@@ -1152,7 +1161,7 @@ for (const width of [1280, 320]) {
     })
     await page.goto('/tests/browser.fixture.html')
     await login(page)
-    await expect(page.locator('.dashboard-card').first()).toContainText('Recovery: waiting to retry. Attempt 4, 156s elapsed. Next retry in 20s.')
+    await expect(page.getByRole('article', { name: 'Bot session' })).toContainText('Recovery: waiting to retry. Attempt 4, 156s elapsed. Next retry in 20s.')
     await expect(page.getByRole('button', { name: 'Switch to Manual & disconnect', exact: true })).toBeEnabled()
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
     await page.screenshot({ path: `node_modules/.tmp/recovery-server-${width}.png`, fullPage: true })

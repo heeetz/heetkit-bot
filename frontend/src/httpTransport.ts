@@ -164,6 +164,7 @@ export const browserApi: PythonApi = {
   unblock_ai_user: (username) => write('/v1/blocked-users/unblock', { username }),
   get_personalities: () => read('/v1/personalities'),
   get_recent_logs: (after_id = 0, limit = 100, snapshot = false) => write('/v1/logs/recent', { after_id, limit, ...(snapshot ? { snapshot } : {}) }),
+  get_recent_commands: () => read('/v1/logs/commands'),
   export_activity: unsupported,
   export_configuration: () => write('/v1/configuration/export'),
   preview_configuration_import: (archive_base64) => write('/v1/configuration/preview', { archive_base64 }),

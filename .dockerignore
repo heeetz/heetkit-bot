@@ -66,10 +66,12 @@ frontend/src/components/**
 !frontend/src/components/*.tsx
 !frontend/src/components/settings-layout.css
 !frontend/src/components/ai-setup.css
+!frontend/src/components/announcement-editor.css
 !frontend/src/pages/
 frontend/src/pages/**
 !frontend/src/pages/*.tsx
 !frontend/src/pages/analytics.css
+!frontend/src/pages/commands-refresh.css
 !frontend/public/
 frontend/public/**
 !frontend/public/icon.png

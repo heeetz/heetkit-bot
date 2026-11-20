@@ -18,6 +18,7 @@ class InvocationOutcome:
     started: bool = False
     completed: bool = False
     skip: str | None = None
+    skip_stage: str | None = None
     error: str | None = None
     planned: int = 0
     attempted: int = 0
@@ -53,9 +54,10 @@ def current_outcome():
     return state if state is not None and not state.closed else None
 
 
-def skip_outcome(reason):
+def skip_outcome(reason, *, stage=None):
     if (state := current_outcome()) is not None:
         state.skip = reason
+        state.skip_stage = stage
 
 
 def fail_outcome(reason):
@@ -95,7 +97,7 @@ def send_finished(outcome):
 
 
 @contextmanager
-def invocation_scope(message, command_id, logger):
+def invocation_scope(message, command_id, logger, *, prefix="!"):
     current = current_outcome()
     if not command_id or (current is not None and current.message is message):
         yield
@@ -111,5 +113,6 @@ def invocation_scope(message, command_id, logger):
     finally:
         outcome, reason = state.terminal()
         state.closed = True
-        operator_event(logger, "command.terminal", outcome, command_id=command_id, reason=reason)
+        operator_event(logger, "command.terminal", outcome, command_id=command_id, reason=reason,
+                       command_prefix=prefix, stage=state.skip_stage if outcome == "skipped" else None)
         _current.reset(token)

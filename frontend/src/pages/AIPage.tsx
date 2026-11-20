@@ -819,6 +819,10 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
     <section className="ai-layout" aria-busy={loading}>
       <FeedbackToast error={behaviorSection ? '' : error} notice={behaviorSection ? '' : notice}
         onDismiss={() => { setError(''); setNotice('') }} />
+      <div className="ai-page-status" aria-label="AI command status">
+        <p><strong>!ask</strong><span className={status?.enabled ? 'status-good' : ''}>{status ? status.enabled ? 'Enabled' : 'Disabled' : unavailable}</span></p>
+        <button className="secondary" type="button" onClick={onOpenPlayground}>Go to Playground</button>
+      </div>
       <AISetupPanel instructionsTarget={instructionsTarget} discardInstructions={discardVersion}
         onInstructionsDirtyChange={setInstructionsDirty} onInstructionsBusyChange={setInstructionsBusy}
         active={active} onDirtyChange={setSetupDirty}

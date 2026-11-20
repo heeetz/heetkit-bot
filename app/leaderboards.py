@@ -282,6 +282,7 @@ class Leaderboards:
             connected = self.twitch.leaderboard_connection()[0] == channel
             result = {"channel_id": channel, "connected": connected,
                       "stream_status": self.stream_status if connected else "unknown",
+                      "counting_enabled": self.counting_enabled,
                       "exclusions": list(exclusions)}
             for period in (month, stream):
                 if period is not None:

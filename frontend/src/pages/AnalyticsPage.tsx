@@ -20,6 +20,7 @@ const trends = [
 const count = (value = 0) => value.toLocaleString(undefined, { maximumFractionDigits: 0 })
 const money = (value = 0) => value.toLocaleString(undefined, { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 4 })
 const time = (value?: string | null) => value ? `${value.replace('T', ' ').replace(/(?:\.\d+)?(?:Z|\+00:00)$/, '')} UTC` : 'Unavailable'
+const dataSinceTime = (value?: string | null) => value ? `${value.replace('T', ' ').replace(/(?:Z|\+00:00)$/, '')} UTC` : 'Unavailable'
 
 type Bucket = AnalyticsResponse['series'][number]
 const bucketStart = (row: Bucket) => Date.parse(row.day.includes('T') ? row.day : row.day + 'T00:00:00Z')
@@ -195,29 +196,30 @@ export default function AnalyticsPage({ leaderboardChannel }: { leaderboardChann
         <article className="card"><div className="ai-state-heading"><h2>Providers / models</h2><HelpTip label="Provider costs">Known USD subtotals are dated estimates, not invoices. Unknown usage, missing prices and extra charges can make them incomplete. Rates checked {data.price_checked}.</HelpTip></div><div className="analytics-table" tabIndex={0} role="region" aria-label="Providers and models"><table><thead><tr><th>Provider / model</th><th>Attempts</th><th>Errors</th><th>Known USD</th><th>Unknown usage / pricing</th></tr></thead><tbody>{data.providers.map((row) => <tr key={row.name}><th>{row.name}</th><td>{count(row.metrics['ai.attempts'])}</td><td>{count(row.metrics['ai.errors'])}</td><td>{'ai.estimated_usd' in row.metrics ? money(row.metrics['ai.estimated_usd']) : 'Unknown'}</td><td>{count(row.metrics['ai.usage_unknown'])} / {count(row.metrics['ai.price_missing'])}</td></tr>)}</tbody></table></div>{!data.providers.length && <p>No provider observations.</p>}</article>
       </div>
       <article className="card analytics-coverage" id="analytics-collection">
-        <div className="ai-state-heading"><h2>Collection & coverage</h2><HelpTip label="Analytics coverage">The switches save immediately. Collect analytics controls aggregate activity. Count chat messages controls stream and monthly tops and keeps confirmed counts when paused. Coverage reflects observed aggregates for the configured channel. Reset clears aggregates for every channel and Playground in this profile, including pending updates.</HelpTip></div>
+        <div className="analytics-coverage-heading">
+          <h2>Collection & coverage</h2>
+          {(data.dropped > 0 || data.write_failures > 0 || Number(data.metadata.unclean_starts) > 0) && <p role="alert" className="analytics-data-loss">Possible data loss</p>}
+        </div>
         <div className="analytics-coverage-zones">
           <div className="analytics-collection" role="group" aria-label="Collection">
             <Switch checked={data.enabled} disabled={busy} ariaLabel="Collect analytics" onCheckedChange={(enabled) => void action(async () => (await waitForBridge()).configure_analytics(enabled))}>Collect analytics</Switch>
             <Switch checked={data.count_chat_messages} disabled={busy} ariaLabel="Count chat messages" onCheckedChange={(enabled) => void action(async () => (await waitForBridge()).configure_leaderboard_counting(enabled))}>Count chat messages</Switch>
           </div>
           <section className="analytics-coverage-summary" aria-label="Coverage">
-            <h3>Coverage</h3>
             <p>{!data.available || !data.channel_id ? 'Coverage unavailable' : partial ? 'Partial coverage' : 'Observed coverage'}{!data.enabled && ' · Collection paused'}</p>
             <p className="muted">{data.start} – {data.end} UTC</p>
-            <p className="muted">Data since: {time(data.metadata.data_start)}</p>
           </section>
-          <button className="danger analytics-reset" disabled={busy} onClick={() => setReset(true)}>Reset all profile analytics</button>
-        </div>
-        <div className="analytics-coverage-status">
           {!data.available && <p role="alert" className="inline-error">Analytics storage unavailable. Displayed values may be incomplete.</p>}
           {!data.channel_id && <p role="status">No configured channel ID. Channel analytics and retained-user coverage are unavailable.</p>}
-          {!data.connected && <p className="muted">Disconnected · Coverage gap</p>}
-          {(data.dropped > 0 || data.write_failures > 0 || Number(data.metadata.unclean_starts) > 0) && <p role="alert" className="inline-error">Possible data loss · {data.dropped} dropped updates · {data.write_failures} write failures · {data.metadata.unclean_starts || '0'} unclean starts</p>}
         </div>
+        <div className="analytics-coverage-footer">
         <details className="analytics-collection-details"><summary>Collection details</summary><dl>
+          <div><dt>Data since</dt><dd>{dataSinceTime(data.metadata.data_start)}</dd></div>
           <div><dt>Hourly data since</dt><dd>{time(data.metadata.hourly_start)}</dd></div>
           <div><dt>Newly observed users since</dt><dd>{time(data.metadata.new_users_start)}</dd></div>
+          <div><dt>Connection</dt><dd>{data.connected ? 'Connected' : 'Disconnected · Coverage gap'}</dd></div>
+          <div><dt>Channel</dt><dd>{data.channel_id || 'Unavailable · No configured channel ID'}</dd></div>
+          <div><dt>Storage</dt><dd>{data.available ? 'Available' : 'Unavailable · Displayed values may be incomplete'}</dd></div>
           <div><dt>Pending updates</dt><dd>{data.pending}</dd></div>
           <div><dt>Dropped updates</dt><dd>{data.dropped}</dd></div>
           <div><dt>Write failures</dt><dd>{data.write_failures}</dd></div>
@@ -226,6 +228,8 @@ export default function AnalyticsPage({ leaderboardChannel }: { leaderboardChann
           <div><dt>Last enabled</dt><dd>{time(data.metadata.last_enabled)}</dd></div>
           <div><dt>Snapshot</dt><dd>{time(data.as_of)}</dd></div>
         </dl></details>
+          <button className="analytics-reset" disabled={busy} onClick={() => setReset(true)}>Reset all profile analytics</button>
+        </div>
       </article>
     </>}
     {reset && <Confirmation title="Reset all profile analytics?" description="Permanently clear aggregate totals for every channel and Playground in this profile, including pending updates. Personal AI memory, presence and opt-outs are unchanged. Operator-managed backups are separate copies." danger onCancel={() => setReset(false)} onConfirm={() => { setReset(false); void action(async () => (await waitForBridge()).reset_analytics(true)) }} />}

@@ -70,8 +70,10 @@ def register_ai_commands(registry: CommandRegistry) -> None:
         )
         status = getattr(reply, "status", "success" if reply.is_available else "api_error")
         if not reply.is_available or not reply.text:
-            if status in {"output_blocked", "provider_unavailable", "question_too_long"}:
-                context.skip("filters" if status == "output_blocked" else "ai_unavailable" if status == "provider_unavailable" else "invalid_arguments")
+            if status == "output_blocked":
+                context.skip("filters", stage="output_filter")
+            elif status in {"provider_unavailable", "question_too_long"}:
+                context.skip("ai_unavailable" if status == "provider_unavailable" else "invalid_arguments")
             else:
                 context.fail("provider_failure")
         operator_event(context.logger, "ai.result",

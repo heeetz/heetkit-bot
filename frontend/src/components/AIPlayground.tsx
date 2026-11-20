@@ -144,15 +144,18 @@ export default function AIPlayground({ active, personality, hasDrafts = false }:
     <article className="card ai-playground" id="ai-playground">
       <div className="section-heading">
         <div>
-          <p className="label">OPERATOR TESTING</p>
           <h2>AI Playground</h2>
-          <p className="section-copy">Try a prompt with real provider responses. Nothing is sent to Twitch.</p>
+          <p className="section-copy">Test prompt responses with real API quota. Nothing is sent to Twitch.</p>
         </div>
-        <span className="mini-badge">Real API quota</span>
+        <HelpTip label="How to test">
+          <ul className="playground-help-list">
+            <li>Test one prompt at a time with your saved models, active filters and personality, and applied instructions.</li>
+            <li>The bot can be stopped and the AI command disabled. Tests skip viewer memory, stream context, chat activity, command permissions and cooldowns.</li>
+            <li>Tests use real provider API quota. Results stay in Playground. A successful test does not confirm Twitch delivery.</li>
+            <li>Choose Cancel request or leave the AI page to request cancellation. Another test can start when the current request finishes cleaning up. On Server, results are visible only to the session that ran the test.</li>
+          </ul>
+        </HelpTip>
       </div>
-      <p className="setting-effect">Testing may consume real provider API quota. Uses active filters, the active personality ({personality || 'not selected'}), applied profile instructions and saved primary/fallback, thinking, search and language settings. Apply or save editor changes first.</p>
-      <p className="setting-effect">Each prompt is independent: no viewer memory, stream context, chat activity, command permissions or cooldowns. The bot can be stopped and the AI command disabled. Success does not prove Twitch delivery.</p>
-      <HelpTip label="Playground request lifecycle">One request can run at a time across this application. Cancel or leave the AI page to request cancellation. The slot stays occupied until provider cleanup finishes; late results are discarded. Server results belong to the session that started them. Sign-out, session expiry or eviction and application shutdown cancel that session's work and clear access to its result. Closing a browser tab without signing out relies on the request timeout or session expiry.</HelpTip>
       {hasDrafts && <p className="setting-effect playground-draft-warning">Unsaved editor drafts are not used. Use an editor's Open Playground choices to save or apply that draft first, or test the current applied settings.</p>}
       <label className="form-field">
         Playground prompt
@@ -171,7 +174,7 @@ export default function AIPlayground({ active, personality, hasDrafts = false }:
         {pending && <p>{cancelling ? 'Cancelling…' : STATUS_LABELS.pending}</p>}
         {result?.status && <>
           <strong>{result.status === 'attribution_unavailable' && result.generation?.provider === 'Google Gemini'
-            ? 'Answer withheld because this Playground cannot display the required Google Search Suggestions.'
+            ? 'Answer withheld because required search attribution is unavailable.'
             : STATUS_LABELS[result.status]}</strong>
           {result.generation && <p className="setting-effect">
             Provider: {result.generation.provider} · Model: {result.generation.model}

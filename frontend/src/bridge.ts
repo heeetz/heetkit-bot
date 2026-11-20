@@ -25,6 +25,7 @@ export interface LeaderboardSnapshot {
   channel_id: string
   connected: boolean
   stream_status: BrowserStreamStatus
+  counting_enabled?: boolean
   exclusions: string[]
   month: LeaderboardPeriod
   stream?: LeaderboardPeriod
@@ -682,6 +683,7 @@ export interface PythonApi {
   cancel_ai_playground(requestId: string): Promise<AIPlaygroundResult>
   get_personalities(): Promise<PersonalitiesResponse>
   get_recent_logs(after_id?: number, limit?: number, snapshot?: boolean): Promise<LogsResponse>
+  get_recent_commands(): Promise<LogsResponse>
   export_activity(entryIds: number[]): Promise<ActionResult & { saved?: boolean; cancelled?: boolean }>
   apply_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string, metadata?: CommandSettingsMetadata): Promise<ActionResult>
   save_command_settings(commandName: string, enabled: boolean, perUserSeconds: number, globalSeconds: number, permission: string, metadata?: CommandSettingsMetadata): Promise<ActionResult>

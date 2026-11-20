@@ -4,11 +4,12 @@ import EditorDialog from './EditorDialog'
 
 const consoleUrl = 'https://dev.twitch.tv/console/apps'
 
-export default function TwitchSetupInstructions({ headingId, host, callback, callbackMode }: {
+export default function TwitchSetupInstructions({ headingId, host, callback, callbackMode, compact = false }: {
   headingId: string
   host: 'desktop' | 'server'
   callback: string
   callbackMode?: 'paste' | 'redirect'
+  compact?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [error, setError] = useState('')
@@ -53,14 +54,19 @@ export default function TwitchSetupInstructions({ headingId, host, callback, cal
   }
 
   return <>
-    <div className="twitch-application-heading">
+    {!compact && <div className="twitch-application-heading">
       <h3 id={headingId}>Twitch application</h3>
       <button type="button" className="secondary" aria-haspopup="dialog" onClick={() => {
         setError('')
         setCopied(false)
         setOpen(true)
-      }}>Setup instructions</button>
-    </div>
+      }}>Setup guide</button>
+    </div>}
+    {compact && <button type="button" className="secondary setup-guide-trigger" aria-haspopup="dialog" onClick={() => {
+      setError('')
+      setCopied(false)
+      setOpen(true)
+    }}>Setup guide</button>}
     {open && <EditorDialog id={dialogId} title="Twitch setup instructions" closeLabel="Close setup instructions"
       busy={false} onClose={() => setOpen(false)} error={error} className="twitch-setup-dialog">
       <div className="command-dialog-panels">

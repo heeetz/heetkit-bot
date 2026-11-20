@@ -1,0 +1,50 @@
+.announcement-editing { padding-bottom: 14px; }
+.announcement-editing .announcement-editor { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; margin: 0; padding: 12px 16px 0; border: 0; }
+.announcement-field-label { display: block; margin: 0 0 4px; color: var(--muted); font-size: 12px; line-height: 1.2; }
+.announcement-editor .announcement-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 148px), 1fr)); align-items: end; gap: 8px; min-width: 0; }
+.announcement-editor .announcement-name-row { grid-column: 1 / -1; display: flex; align-items: flex-end; gap: 12px; min-width: 0; }
+.announcement-editor .announcement-name-row > .form-field { flex: 1 1 auto; }
+.announcement-editor .announcement-name-row input, .announcement-editor .announcement-controls :is(input, .select-trigger) { height: 40px; min-width: 0; }
+.announcement-number-control { display: grid; grid-template-columns: auto 5ch auto; align-items: center; justify-content: start; gap: 4px; height: 40px; min-width: 0; border: 1px solid var(--input-border); border-radius: 8px; padding-inline: 6px; background: var(--page); }
+.announcement-number-control > span { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.announcement-editing .announcement-editor .announcement-number-control input { width: 100%; height: 36px; border: 0; padding: 0; background: transparent; appearance: textfield; }
+.announcement-number-control input::-webkit-inner-spin-button { appearance: none; }
+.announcement-editing .announcement-number-control input:focus-visible { outline: none; }
+.announcement-number-control:has(input:focus-visible) { outline: 2px solid var(--text); outline-offset: 2px; }
+.announcement-number-control:has(input[aria-invalid="true"]) { border-color: var(--error); }
+.announcement-editor .announcement-enable { flex: 0 0 auto; height: 40px; }
+.announcement-editor .announcement-enable .switch-content { display: inline; font-size: 13px; }
+.announcement-editor .announcement-message { grid-area: auto; padding-top: 0; }
+.announcement-editor .announcement-message textarea { min-height: 76px; height: 76px; resize: vertical; }
+.announcement-editor .announcement-actions { grid-area: auto; justify-content: flex-end; align-self: auto; margin: 0; }
+.announcement-save-buttons { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.announcement-table { min-width: 0; overflow: hidden; border: 1px solid var(--separator); border-radius: 11px; background: var(--panel); }
+.announcement-table-header, .announcement-row { display: grid; grid-template-columns: 62px minmax(95px, 1fr) minmax(88px, .9fr) minmax(115px, 1.1fr) minmax(125px, 1.4fr) minmax(138px, 1.2fr); align-items: center; gap: 8px; min-width: 0; padding: 12px 12px; }
+.announcement-table-header { color: var(--muted); font-size: 12px; font-weight: 700; }
+.announcement-table .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.announcement-row { border-top: 1px solid var(--separator); }
+.announcement-cell { display: grid; align-content: center; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
+.announcement-enabled { grid-template-columns: minmax(0, 1fr); align-items: center; }
+.announcement-name strong { overflow-wrap: anywhere; }
+.announcement-schedule, .announcement-message-preview { color: var(--text); font-size: 13px; }
+.announcement-message-preview .custom-command-response { display: -webkit-box; margin: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.announcement-actions { justify-items: end; min-width: 0; }
+.announcement-actions .row-actions { flex-wrap: wrap; min-width: 0; gap: 6px; }
+.announcement-actions .row-actions > button { padding-inline: 9px; }
+.announcement-schedule > .help-trigger { justify-self: start; font-size: 12px; }
+.announcement-outcome { padding: 4px 0 0; }
+@container page-content (width < 620px) {
+  .announcement-editing .announcement-editor { padding-inline: 10px; }
+  .announcement-editor .announcement-message textarea { min-height: 88px; height: 88px; }
+  .announcement-editor .announcement-actions, .announcement-save-buttons { justify-content: flex-start; }
+  .announcement-table-header { display: none; }
+  .announcement-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 12px; padding: 12px; }
+  .announcement-cell { display: flex; align-items: flex-start; flex-direction: column; }
+  .announcement-cell::before { content: attr(data-label); color: var(--muted); font-size: 11px; font-weight: 700; }
+  .announcement-enabled { grid-template-columns: minmax(0, 1fr); align-items: center; flex-direction: row; }
+  .announcement-enabled::before { width: 100%; }
+  .announcement-message-preview, .announcement-actions { grid-column: 1 / -1; }
+  .announcement-actions { align-items: flex-start; }
+  .announcement-schedule > .help-trigger { align-self: flex-start; }
+  .announcement-actions .row-actions { justify-content: flex-start; }
+}

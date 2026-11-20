@@ -673,6 +673,8 @@ class ManagementAPI:
             operation = self.service._test_filters
             inspect.signature(operation).bind(**payload)
             return await operation(**payload)
+        if method == "GET" and path == "/v1/logs/commands":
+            return {"ok": True, "entries": self.log_buffer.recent_commands() if self.log_buffer else []}
         if method == "POST" and path == "/v1/logs/recent":
             if set(payload) - {"after_id", "limit", "snapshot"}:
                 raise ValueError

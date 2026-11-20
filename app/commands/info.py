@@ -78,7 +78,7 @@ def register_weather_commands(registry: CommandRegistry) -> None:
         match = context.services.filter_manager.evaluate_message(forecast)
         if not match.allowed:
             reason = "weather_output_filter_timeout" if match.timed_out else "weather_output_blocked"
-            context.skip(reason)
+            context.skip(reason, stage="output_filter")
             operator_event(context.logger, "command.outcome", "filters", reason=reason)
             return
         try:

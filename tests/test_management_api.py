@@ -840,6 +840,36 @@ async def test_authenticated_activity_matches_desktop_without_raw_prose(api):
     assert body["entries"][1]["context"]["retry_after_seconds"] == 12.5
 
 
+async def test_recent_commands_share_logs_and_return_only_five_terminal_events(api):
+    from app.webview_host import WebUIBridge
+    from types import SimpleNamespace
+    server, call = api
+    handler = OperatorActivityHandler(server.log_buffer)
+
+    def emit(kind, outcome, **context):
+        record = logging.LogRecord("tests.activity", logging.INFO, "", 0, "PRIVATE PROSE", (), None)
+        for key, value in event_metadata(kind, outcome=outcome, **context).items():
+            setattr(record, key, value)
+        handler.emit(record)
+
+    for i in range(6):
+        name = f"test{i}"
+        emit("command.invoke", "executing", command=name)
+        emit("command.terminal", "success", command=name, reason="confirmed_delivery",
+             username="PRIVATE VIEWER", input_message_id="PRIVATE ID")
+        emit("command.complete", "handler_completed", command=name)
+    emit("command.terminal", "skipped", command="PRIVATE BLOCKED", reason="filters")
+    assert (await call("GET", "/v1/logs/commands", headers={"Authorization": ""}))[0] == 401
+    status, body, headers = await call("GET", "/v1/logs/commands")
+    assert status == 200 and headers["Cache-Control"] == "no-store"
+    assert "PRIVATE" not in json.dumps(body)
+    desktop = WebUIBridge(SimpleNamespace(), log_buffer=server.log_buffer)
+    assert body == desktop.get_recent_commands()
+    assert [entry["context"]["command"] for entry in body["entries"]] == [f"test{i}" for i in range(5, 0, -1)]
+    assert all(entry["event_kind"] == "command.terminal" for entry in body["entries"])
+    assert all(entry in desktop.get_recent_logs()["entries"] for entry in body["entries"])
+
+
 @pytest.mark.asyncio
 async def test_authenticated_correlation_and_filter_projection_is_sanitized(api):
     server, call = api
@@ -1330,6 +1360,10 @@ async def test_server_leaderboard_exclusions_are_scoped_and_month_is_utc(api):
     assert board["exclusions"] == ["otherbot"]
     assert board["month"]["started_at"].endswith("01T00:00:00+00:00")
     assert "zone" not in board and "zone" not in board["month"]
+    assert board["counting_enabled"] is True
+    assert (await call("POST", "/v1/leaderboards/configure", json={"enabled": False}))[0] == 200
+    _, paused, _ = await call("POST", "/v1/leaderboards/query", json={})
+    assert paused["leaderboards"]["counting_enabled"] is False
 
 
 @pytest.mark.parametrize("origin", [

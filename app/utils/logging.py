@@ -17,6 +17,10 @@ from app.commands.diagnostics import OBSERVED_EVENTS, observe_command_event
 RECENT_LOG_LIMIT = 500
 RECENT_LOG_BYTES = 1024 * 1024
 RECENT_LOG_ENTRY_BYTES = 16 * 1024
+RECENT_COMMAND_LIMIT = 5
+COMMAND_TERMINAL_FIELDS = frozenset({
+    "command", "command_id", "command_prefix", "invoked_name", "outcome", "reason", "request_id", "source", "stage",
+})
 EVENT_CONTEXT_ATTRIBUTES = {
     "event_username": "username",
     "event_command": "command",
@@ -32,7 +36,7 @@ EVENT_CONTEXT_ATTRIBUTES = {
     "event_action": "action",
     **{f"event_{name}": name for name in (
         "request_id", "event_id", "response_id", "input_message_id", "message_id",
-        "command_id", "invoked_name", "source", "outcome", "reason",
+        "command_id", "command_prefix", "invoked_name", "source", "outcome", "reason",
         "requested_provider", "requested_model", "attempt", "fallback",
         "input_tokens", "output_tokens", "total_tokens", "cached_input_tokens", "tool_input_tokens",
         "reasoning_tokens", "search_requests", "usage_incomplete", "error_type", "stage",
@@ -149,8 +153,15 @@ class RecentLogBuffer:
             event_kind = None
         elif event_kind:
             event_kind = _bounded_text(event_kind, 128)
+        terminal = event_kind == "command.terminal"
+        if (terminal and getattr(record, "event_reason", None) == "filters"
+                and getattr(record, "event_stage", None) != "output_filter"):
+            # Keep rejected input on the existing privacy-filtered diagnostics path.
+            return
         context: dict[str, EventContextValue] = {}
         for attribute, field_name in EVENT_CONTEXT_ATTRIBUTES.items():
+            if terminal and field_name not in COMMAND_TERMINAL_FIELDS:
+                continue
             value = getattr(record, attribute, None)
             if isinstance(value, (str, int, float, bool)) and not isinstance(value, bytes):
                 context[field_name] = _bounded_text(value, 512) if isinstance(value, str) else value
@@ -188,6 +199,18 @@ class RecentLogBuffer:
         return {"entries": [projected for entry in entries if (projected := project_activity(entry))],
                 "next_after_id": entries[-1]["id"] if entries else after_id}
 
+    def recent_commands(self) -> list[dict[str, object]]:
+        with self._lock:
+            entries = []
+            for entry, _ in reversed(self._entries):
+                if entry.event_kind != "command.terminal":
+                    continue
+                if projected := project_activity(asdict(entry)):
+                    entries.append(projected)
+                if len(entries) == RECENT_COMMAND_LIMIT:
+                    break
+            return entries
+
 
 LIFECYCLE_EVENTS = {
     "twitch.subscribe", "twitch.connected", "twitch.recovered", "twitch.disconnected",
@@ -196,7 +219,7 @@ LIFECYCLE_EVENTS = {
     "operation.poll", "operation.failed",
 }
 ACTIVITY_EVENTS = {
-    "command.input", "command.invoke", "command.outcome", "command.complete", "command.cooldown",
+    "command.input", "command.invoke", "command.outcome", "command.complete", "command.cooldown", "command.terminal",
     "chat.send", "chat.outgoing", "ai.request_start", "ai.request_finish",
     "ai.fallback", "ai.failure", "ai.result", "ai_user_blocked",
     "chat.correlation", "chat.filtered", "twitch.socket",

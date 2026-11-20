@@ -85,8 +85,8 @@ class CommandContext:
     def fail(self, reason: str) -> None:
         fail_outcome(reason)
 
-    def skip(self, reason: str) -> None:
-        skip_outcome(reason)
+    def skip(self, reason: str, *, stage: str | None = None) -> None:
+        skip_outcome(reason, stage=stage)
 
     def invocation(self, command_id: str) -> str:
         state = getattr(self.services, "runtime_state", None)
@@ -307,7 +307,8 @@ class CommandDispatcher:
         custom = (self._custom_commands.get_by_name(parsed[0])
                   if parsed and definition is None and self._custom_commands else None)
         command_id = (definition.name if definition else f"custom:{custom.id}" if custom else None)
-        return invocation_scope(message, None if message.is_outgoing else command_id, self._logger)
+        return invocation_scope(message, None if message.is_outgoing else command_id, self._logger,
+                                prefix=self._command_prefix)
 
     def is_ai_command(self, message: IncomingChatMessage) -> bool:
         parsed = parse_command(message.content, self._command_prefix)

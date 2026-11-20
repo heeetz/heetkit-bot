@@ -85,6 +85,8 @@ for (const host of ['127.0.0.1', '127.0.0.2']) {
 
       await page.getByRole('button', { name: 'Settings', exact: true }).click()
       const target = page.locator('#twitch-settings')
+      await target.getByRole('combobox', { name: 'Saved channel', exact: true }).click()
+      await page.getByRole('option', { name: 'New saved channel', exact: true }).click()
       await target.getByLabel('Target channel login', { exact: true }).fill('otherchannel')
       await target.getByLabel('Target channel user ID', { exact: true }).fill('300')
       await target.getByLabel('Saved channel name', { exact: true }).fill('Other channel')

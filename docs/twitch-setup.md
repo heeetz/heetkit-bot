@@ -14,12 +14,11 @@ Desktop profile.
 
 ## Save the details in HeetKit
 
-**In HeetKit:** **Settings > Application, account and channel** on Desktop or
-Server. On Desktop, the **Twitch connection** shortcut opens this section.
+Open **Settings > Twitch connection** on Desktop or Server.
 
 1. Open **Settings**.
-2. Expand **Application, account and channel**.
-3. Copy **OAuth callback URL** from **Twitch application**. **Setup instructions**
+2. Expand **Twitch connection**, then **Twitch application**.
+3. Copy **OAuth callback URL**. **Setup guide**
    opens the same flow in HeetKit, including the callback URL for this installation.
 4. Select **Open Twitch Developer Console**.
 5. Start registering a **Confidential** application. Follow
@@ -28,13 +27,12 @@ Server. On Desktop, the **Twitch connection** shortcut opens this section.
    `http://localhost:4343/oauth/callback`. Server uses the URL shown in Settings.
    If you use both, register both. The scheme, host, port and path must match.
 7. Copy the Client ID after you create the application.
-8. On Desktop, paste the ID into **Twitch application client ID**. On Server,
-   paste it into **Client ID**.
+8. Paste the ID into **Client ID** in **Twitch application**.
 9. Enter **Bot account login**.
 10. Enter the matching **Bot account user ID**.
 11. Enter **Target channel login**.
 12. Enter the broadcaster's numeric ID in **Target channel user ID**.
-13. In **Authorization, status and save**, save the fields.
+13. In **Save and authorize**, save the fields.
 
     - **Desktop:** Select **Save for later** if you are also about to add the
       secret. For an identity-only change, select **Save & restart** to apply it now.
@@ -53,10 +51,10 @@ Server. On Desktop, the **Twitch connection** shortcut opens this section.
     change immediately, stops the session and clears authorization. Authorize the
     account again through Settings.
 
-**Check:** On Server, check that **Setup** shows **Complete**. On Desktop, check
-the bot account, target and **Client secret** status in **Authorization, status
-and save** after restarting. On either host, **Test client secret** checks the
-saved application credentials. Continue below to authorize the bot account.
+On either host, **Test saved secret** checks the saved application credentials.
+To remove a saved secret or remove it and restart on Desktop, open **Secret actions**.
+After applying the setup, check the bot account and target in **Twitch connection**,
+and the secret status in **Twitch application**. Then authorize the bot account.
 
 ## Give the bot channel access, then connect
 
@@ -66,8 +64,8 @@ separate bot account, the broadcaster types `/mod bot_login` in the target
 channel's Twitch chat, using the sending account's Twitch login in place of
 `bot_login`.
 
-**In HeetKit:** **Dashboard** on Desktop. On Server, start in **Settings >
-Application, account and channel** and finish on **Dashboard**.
+Start in **Dashboard** on Desktop. On Server, start in **Settings > Twitch
+connection** and finish on **Dashboard**.
 
 ### Desktop
 
@@ -80,8 +78,8 @@ Application, account and channel** and finish on **Dashboard**.
 ### Server
 
 1. Open **Settings**.
-2. Expand **Application, account and channel**.
-3. Select **Connect Twitch** in **Authorization, status and save**.
+2. Expand **Twitch connection**.
+3. Select **Connect Twitch** in **Save and authorize**.
 4. Sign in to Twitch as the configured bot account.
 5. Approve access for the registered application.
 6. Return to the original signed-in Settings tab. In callback paste mode, complete
@@ -114,7 +112,7 @@ from the bot account. The example assumes the default command name and prefix.
 
 For highlighted announcements, the bot account also needs
 `moderator:manage:announcements` consent. On Desktop, while connected, select
-**Renew Twitch authorization** in **Authorization, status and save**. On Server,
+**Renew Twitch authorization** in **Save and authorize**. On Server,
 select **Connect Twitch** again. See [Scheduled announcements](commands.md#scheduled-announcements).
 
 ## Save and switch channels
@@ -122,17 +120,16 @@ select **Connect Twitch** again. See [Scheduled announcements](commands.md#sched
 Save another target to reuse its channel details. You need its login and numeric
 ID, and the same bot account needs access to the new channel.
 
-**In HeetKit:** **Settings > Application, account and channel > Saved channels**
-on Desktop or Server.
+Open **Settings > Twitch connection > Target channel** on Desktop or Server.
 
 1. Open **Settings**.
-2. Expand **Application, account and channel**.
+2. Expand **Twitch connection**.
 3. In **Saved channel**, select **Unsaved target** on Desktop or **New saved channel**
    on Server.
-4. Enter a **Saved channel name**.
+4. Enter a **Saved channel name** beside the selector.
 5. Enter **Target channel login**.
 6. Enter **Target channel user ID**.
-7. Select **Save channel** on Desktop or **Save new channel** on Server. This
+7. Select **Save**. This
    stores the preset without switching the bot.
 8. Select the preset in **Saved channel** when you want to use it.
 9. Apply the target change.
@@ -146,7 +143,7 @@ on Desktop or Server.
 **Check:** Check the channel on **Dashboard**. If the bot should be running,
 wait for **Connected** before testing a command in the new channel.
 
-**Update saved channel** and **Delete saved channel** change the preset list.
+Use **Update** and **Delete** beside the saved channel name to edit the preset list.
 The app keeps the same Twitch application and bot authorization when you change
 only the target. On Server, save or discard app/account edits before switching.
 Use separate [profiles](data-and-privacy.md#profiles) for separate credentials.

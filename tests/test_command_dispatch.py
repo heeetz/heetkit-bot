@@ -490,8 +490,10 @@ async def test_weather_filters_forecast_country_after_twitch_input_and_exports_r
     for record in caplog.records:
         handler.emit(record)
     activity = buffer.activity()["entries"]
-    blocked, = [entry for entry in activity if entry["context"].get("reason") == "weather_output_blocked"]
+    blocked, terminal = [entry for entry in activity if entry["context"].get("reason") == "weather_output_blocked"]
     assert blocked["event_kind"] == "command.outcome" and blocked["text"] is None
+    assert terminal["event_kind"] == "command.terminal" and terminal["text"] is None
+    assert terminal["context"]["stage"] == "output_filter" and terminal in buffer.recent_commands()
     destination = tmp_path / "activity.json"
     bridge = WebUIBridge(SimpleNamespace(), log_buffer=buffer)
     bridge._window = SimpleNamespace(create_file_dialog=lambda *args, **kwargs: (str(destination),))
@@ -535,7 +537,8 @@ async def test_weather_checks_regex_added_during_lookup_before_send(timed_out, r
     handler = OperatorActivityHandler(buffer)
     for record in caplog.records:
         handler.emit(record)
-    event, = [entry for entry in buffer.activity()["entries"] if entry["context"].get("reason") == reason]
+    event, = [entry for entry in buffer.activity()["entries"]
+              if entry["event_kind"] == "command.terminal" and entry["context"].get("reason") == reason]
     assert event["text"] is None and "Нигер" not in str(event)
 
 

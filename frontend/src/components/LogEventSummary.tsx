@@ -16,6 +16,7 @@ const eventLabels: Record<string, string> = {
   'command.input': 'COMMAND INPUT',
   'command.outcome': 'COMMAND OUTCOME',
   'command.complete': 'HANDLER COMPLETED',
+  'command.terminal': 'FINAL OUTCOME',
   'chat.send': 'SEND ATTEMPT',
   'ai.result': 'AI RESULT',
   'command.cooldown': 'COOLDOWN',
@@ -68,6 +69,11 @@ const eventFieldLayouts: Record<string, FieldSpec[]> = {
     { key: 'command', emphasis: 'primary' },
     { key: 'username', emphasis: 'primary' },
     { key: 'channel', emphasis: 'secondary' },
+  ],
+  'command.terminal': [
+    { key: 'command', emphasis: 'primary' },
+    { key: 'outcome', emphasis: 'primary' },
+    { key: 'reason', emphasis: 'secondary' },
   ],
   'command.cooldown': [
     { key: 'retry_after_seconds', emphasis: 'metric' },
@@ -157,6 +163,29 @@ function prefixedValue(value: LogContextValue, prefix: string) {
   return text.startsWith(prefix) ? text : `${prefix}${text}`
 }
 
+export function terminalCommandName(entry: LogEntry) {
+  const { command_prefix, invoked_name, command } = entry.context
+  const name = invoked_name ?? command
+  return typeof name === 'string' ? prefixedValue(name, String(command_prefix ?? '!')) : '—'
+}
+
+export function terminalCommandOutcome(entry: LogEntry): { label: string; tone?: 'success' | 'warning' | 'error' } {
+  const { outcome, reason, stage } = entry.context
+  switch (outcome) {
+    case 'success': return reason === 'confirmed_delivery' ? { label: 'Sent', tone: 'success' } : { label: 'Completed' }
+    case 'skipped':
+      if (reason === 'cooldown') return { label: 'Cooldown' }
+      if (stage === 'output_filter') return { label: 'Output filtered', tone: 'warning' }
+      return { label: 'Skipped' }
+    case 'partial': return { label: reason === 'uncertain_delivery' ? 'Partial, delivery uncertain' : 'Partially sent', tone: 'warning' }
+    case 'uncertain': return { label: 'Delivery uncertain', tone: 'warning' }
+    case 'error':
+      if (reason === 'cancelled' || reason === 'cancelled_or_interrupted') return { label: 'Cancelled' }
+      return { label: 'Error', tone: 'error' }
+    default: return { label: 'Outcome unknown' }
+  }
+}
+
 function formatSeconds(value: LogContextValue, suffix = '') {
   const numericValue = typeof value === 'number' ? value : Number(value)
   const formatted = Number.isFinite(numericValue) ? numericValue.toFixed(2) : String(value)
@@ -193,7 +222,7 @@ function orderedFields(entry: LogEntry): FieldSpec[] {
   return [
     ...configured,
     ...Object.keys(entry.context)
-      .filter((key) => !configuredKeys.has(key) && !key.endsWith('_id') && key !== 'invoked_name')
+      .filter((key) => !configuredKeys.has(key) && !key.endsWith('_id') && key !== 'invoked_name' && key !== 'command_prefix')
       .map((key) => ({ key, emphasis: 'secondary' as const })),
   ].filter(({ key }) => entry.context[key] !== undefined)
 }
@@ -208,7 +237,9 @@ export default function LogEventSummary({ entry }: { entry: LogEntry }) {
       <span className="log-event-kind">{eventLabel(entry.event_kind)}</span>
       {orderedFields(entry).map(({ key, emphasis }) => {
         const label = contextLabels[key] ?? key.replaceAll('_', ' ')
-        const value = formatContextValue(key, entry.context[key])
+        const value = entry.event_kind !== 'command.terminal' ? formatContextValue(key, entry.context[key])
+          : key === 'command' ? terminalCommandName(entry)
+            : key === 'outcome' ? terminalCommandOutcome(entry).label : formatContextValue(key, entry.context[key])
         return (
           <span
             className={`log-field is-${emphasis}`}

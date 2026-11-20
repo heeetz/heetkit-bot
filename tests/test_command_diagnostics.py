@@ -20,6 +20,7 @@ from app.services.contracts import WeatherReport
 from app.services.weather import WeatherServiceError
 from app.twitch.client import TwitchChatBot
 from app.utils.cooldown import CooldownPolicy
+from app.utils.logging import OperatorActivityHandler, RecentLogBuffer
 
 
 TRACE_LOGGER = "app.command_diagnostics"
@@ -202,13 +203,34 @@ async def test_cancelled_ask_distinguishes_unattempted_from_uncertain_delivery(c
 
 
 async def test_diagnostics_suppressed_for_optout_and_disabled_option(chat):
-    assert await chat.services.users.opt_out("123")
-    await chat.bot.event_message(chat.message("!weather PRIVATE-REQUEST"))
-    assert chat.traces() == []
-    chat.services.settings.heetkit_command_diagnostics = False
-    await chat.bot.event_message(chat.message("!ask Give me an example", user_id="456"))
-    assert chat.traces() == []
-    assert chat.responder.await_count == 2
+    buffer = RecentLogBuffer()
+    handler = OperatorActivityHandler(buffer)
+    logger = logging.getLogger()
+    previous_level = logger.level
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler)
+    try:
+        assert await chat.services.users.opt_out("123")
+        await chat.bot.event_message(chat.message("!weather PRIVATE-REQUEST"))
+        assert chat.traces() == [] and not buffer.recent_commands()
+        chat.services.settings.heetkit_command_diagnostics = False
+        await chat.bot.event_message(chat.message("!ask Give me an example", user_id="456"))
+        assert chat.traces() == []
+        assert chat.responder.await_count == 2
+        [entry] = buffer.recent_commands()
+        assert entry["context"]["invoked_name"] == "ask"
+        assert entry["context"]["reason"] == "confirmed_delivery"
+        assert entry["text"] is None and "username" not in entry["context"]
+        assert entry in buffer.activity()["entries"]
+        chat.services.filter_manager.add_blocked_word("answer")
+        await chat.bot.event_message(chat.message("!ask Give me an example", user_id="456"))
+        filtered, delivered = buffer.recent_commands()
+        assert filtered["context"]["stage"] == "output_filter"
+        assert filtered["context"]["outcome"] == "skipped"
+        assert delivered == entry and chat.responder.await_count == 2
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous_level)
 
 
 async def test_optout_during_provider_wait_suppresses_terminal_trace(chat):

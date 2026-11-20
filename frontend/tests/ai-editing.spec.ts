@@ -7,7 +7,7 @@ async function openAI(page: Page, query = '') {
   await page.getByRole('button', { name: 'AI', exact: true }).click()
   await expect(page.locator('.ai-layout')).toHaveAttribute('aria-busy', 'false')
   await page.locator('#ai-models .accordion-trigger').click()
-  await page.locator('#ai-models .ai-manual-model summary').first().click()
+  await expect(page.locator('#ai-models .ai-manual-model').first()).toBeVisible()
 }
 
 async function testPrompt(page: Page) {
@@ -135,7 +135,7 @@ for (const width of [1280, 390]) {
     const ask = page.locator('#command-editor-ask')
     await page.getByRole('button', { name: 'Edit !ask', exact: true }).click()
     await expect(ask).toBeInViewport()
-    await ask.getByLabel('Per-user cooldown', { exact: true }).fill('9')
+    await ask.getByLabel('Per-user cooldown (seconds)', { exact: true }).fill('9')
     await ask.getByRole('button', { name: 'Close editor' }).click()
     await page.getByRole('dialog', { name: 'Discard unsaved changes?' }).getByRole('button', { name: 'Confirm' }).click()
     await page.getByRole('button', { name: 'AI', exact: true }).click()
@@ -145,7 +145,7 @@ for (const width of [1280, 390]) {
     await page.getByRole('dialog', { name: 'Discard unsaved AI behavior changes?' }).getByRole('button', { name: 'Confirm' }).click()
     await settingsNav.getByRole('button', { name: 'Commands', exact: true }).click()
     await page.getByRole('button', { name: 'Edit !ask', exact: true }).click()
-    await expect(ask.getByLabel('Per-user cooldown', { exact: true })).not.toHaveValue('9')
+    await expect(ask.getByLabel('Per-user cooldown (seconds)', { exact: true })).not.toHaveValue('9')
   })
 }
 
@@ -171,27 +171,6 @@ for (const [id, failure, field] of [
     await expect(editor.locator('.playground-draft-choice')).toHaveCount(0)
   })
 }
-
-test('AI scope and memory/access explanations remain available while stopped', async ({ page }) => {
-  await openAI(page)
-  const playground = page.locator('#ai-playground')
-  await expect(playground).toContainText('no viewer memory, stream context, chat activity, command permissions or cooldowns')
-  await expect(playground).toContainText('The bot can be stopped and the AI command disabled')
-  await expect(playground).toContainText('Success does not prove Twitch delivery')
-  await expect(playground).toContainText('real provider API quota')
-  const memory = page.getByRole('form', { name: 'Conversation memory' })
-  await memory.getByRole('button', { name: 'Help: Conversation memory', exact: true }).click()
-  await expect(page.getByRole('tooltip')).toContainText('Previously stored pairs remain subject to count limits and 60-day expiry')
-  await expect(page.getByRole('tooltip')).toContainText('Playground never reads or stores viewer memory')
-  await expect(page.getByRole('tooltip')).toContainText('clears AI memory for a known viewer in that channel')
-  await page.keyboard.press('Escape')
-  await page.getByRole('navigation').getByRole('button', { name: 'Commands', exact: true }).click()
-  await page.getByRole('button', { name: 'Help: User command restrictions', exact: true }).click()
-  await expect(page.getByRole('tooltip')).toContainText('not Twitch bans or timeouts')
-  await page.keyboard.press('Escape')
-  await page.getByRole('navigation').getByRole('button', { name: 'AI', exact: true }).click()
-  expect(await testPrompt(page)).toMatchObject({ personality: 'neutral' })
-})
 
 test('draft choices fit the supported 320px layout', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 900 })
@@ -255,7 +234,8 @@ for (const width of [1280, 900, 761, 390, 320]) {
       const controls = (await memory.locator('.memory-limits-controls').boundingBox())!
       expect(controls.x).toBeCloseTo(linksBox.x, 0)
       expect(toggle.x).toBeGreaterThan(fields.x + fields.width)
-    } else expect(fields.y).toBeGreaterThan(toggle.y)
+    } else if (contentWidth > 380) expect(toggle.x).toBeGreaterThan(fields.x + fields.width)
+    else expect(toggle.y).toBeGreaterThanOrEqual(fields.y + fields.height)
     expect(await state.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy()
     await state.screenshot({ path: `node_modules/.tmp/a4-state-${width}.png` })
 
@@ -284,7 +264,7 @@ for (const width of [1280, 900, 761, 390, 320]) {
     await page.getByRole('dialog', { name: 'Discard unsaved AI behavior changes?' }).getByRole('button', { name: 'Confirm' }).click()
     const models = page.locator('#ai-models')
     await models.locator('.accordion-trigger').click()
-    await models.locator('.ai-manual-model summary').first().click()
+    await expect(models.locator('.ai-manual-model').first()).toBeVisible()
     await expect(models.getByRole('button', { name: 'Discover primary models' })).toBeVisible()
     await models.getByLabel('Primary model', { exact: true }).fill('synthetic-draft')
     await expect(models).toContainText('Unsaved AI setup')
@@ -299,7 +279,7 @@ test('memory toggle saves independently and reports failures without changing it
   await openAI(page)
   const memory = page.getByRole('form', { name: 'Conversation memory' })
   const toggle = memory.getByRole('checkbox', { name: 'Enable conversation memory' })
-  const stored = memory.getByLabel('Stored pairs (N)')
+  const stored = memory.getByLabel('Stored pairs')
   await stored.fill('24')
   await toggle.press('Space')
   await expect(toggle).toBeChecked()
@@ -347,7 +327,7 @@ test('AI behavior keeps drafts between sections and discards only editor changes
   const model = page.locator('#ai-models').getByLabel('Primary model', { exact: true })
   await model.fill('keep-setup-draft')
   const memory = page.getByRole('form', { name: 'Conversation memory' })
-  const stored = memory.getByLabel('Stored pairs (N)')
+  const stored = memory.getByLabel('Stored pairs')
   await stored.fill('24')
   const open = page.getByRole('button', { name: 'Edit personalities', exact: true })
   await open.click()

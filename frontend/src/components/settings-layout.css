@@ -11,16 +11,16 @@
 .twitch-setup-callback { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); margin-block-start: var(--space-2); }
 .twitch-setup-callback .settings-callback { flex: 1 1 300px; }
 .twitch-setup-callback > :is(a, button) { white-space: normal; }
-.settings-application-box { display: grid; gap: 1rem; padding: 1rem; border: 1px solid var(--separator); border-radius: 8px; min-width: 0; }
-.settings-application-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 1rem 1.5rem; min-width: 0; }
+.settings-application-box { display: grid; gap: 1rem; padding: 0; border: 0; min-width: 0; }
+.settings-application-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 7px 1.25rem; min-width: 0; }
 .application-field-label, .twitch-secret-label { display: flex; align-items: center; min-height: 30px; }
-.twitch-secret-label { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: .5rem; }
+.twitch-secret-label { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: .5rem; height: 30px; }
 .twitch-secret-label > label { min-width: 0; }
 .twitch-secret-field { min-width: 0; }
 .twitch-secret-field .credential-actions { margin-top: var(--space-1); gap: var(--space-2); }
 .twitch-secret-field .credential-actions > button { min-width: 0; min-height: 40px; white-space: normal; }
 .twitch-secret-field p { margin: 0; }
-.settings-application-footer { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--separator); }
+.settings-application-footer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--separator); }
 .settings-application-footer > .secondary { max-width: 100%; min-height: 40px; text-align: center; white-space: normal; }
 .settings-callback { display: flex; align-items: center; gap: 1rem; min-width: 0; }
 .settings-callback > div { display: grid; gap: .25rem; min-width: 0; flex: 1; }
@@ -28,11 +28,86 @@
 .settings-callback code { overflow-wrap: anywhere; }
 .settings-callback > button { flex-shrink: 0; min-height: 40px; }
 .settings-transfer-bottom { margin-top: 4px; }
+.desktop-settings-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
+.desktop-settings-list .settings-option { min-height: 68px; padding: .55rem .75rem; }
+.twitch-accordion-status { display: flex; align-items: center; gap: .5rem; }
+.twitch-connection-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .5rem; }
+.twitch-connection-summary > .twitch-status-grid { grid-column: 1; grid-row: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: stretch; gap: .5rem; min-width: 0; margin: 0; }
+.twitch-connection-summary > .twitch-status-grid > div { display: grid; align-content: center; gap: .12rem; min-width: 0; padding: .45rem .6rem; border: 1px solid var(--separator); border-radius: 7px; background: var(--panel); }
+.twitch-connection-summary > .twitch-status-grid span,
+.twitch-connection-summary > .twitch-status-grid strong { display: block; min-width: 0; margin: 0; }
+.twitch-connection-summary > .twitch-status-grid span { color: var(--muted); font-size: 11px; }
+.twitch-connection-summary > .twitch-status-grid strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; }
+.twitch-connection-summary .setup-guide-trigger { grid-column: 2; grid-row: 1; align-self: stretch; justify-self: end; white-space: nowrap; }
+.twitch-application-disclosure { grid-column: 1 / -1; }
+.twitch-application-disclosure .accordion-content { display: grid; gap: .75rem; }
+.twitch-application-disclosure .accordion-content[hidden] { display: none; }
+.twitch-application-disclosure .settings-application-footer > :last-child { justify-self: end; }
+.twitch-settings-list { grid-template-columns: minmax(0, 1fr); align-items: start; gap: 1rem; }
+.twitch-settings-list > .twitch-settings-group { grid-column: 1 / -1; }
+.twitch-settings-list > .twitch-connection-summary, .twitch-settings-list > .twitch-application-disclosure { grid-column: 1 / -1; }
+.twitch-settings-list > .twitch-settings-group + .twitch-settings-group { padding-top: 0; border-top: 0; }
+.twitch-settings-group[aria-labelledby$="target-heading"] { padding: 1rem; border: 1px solid var(--separator); border-radius: 9px; background: var(--panel); }
+.twitch-settings-group[aria-labelledby$="bot-heading"] { padding: 1rem; border: 1px solid var(--separator); border-radius: 9px; background: var(--panel); }
+.twitch-application-disclosure .accordion-header { padding-block: .7rem; }
+.twitch-application-disclosure .accordion-content { padding: 1rem; }
+.twitch-target-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem 1rem; align-items: start; }
+.target-preset-editor { grid-column: 2; grid-row: 1; display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); align-items: end; gap: .5rem; min-width: 0; }
+.target-preset-editor .preset-actions { display: contents; }
+.target-preset-editor .preset-actions > button { width: 100%; min-width: 0; min-height: 40px; padding-inline: .4rem; }
+.target-channel-login { grid-column: 1; grid-row: 2; }
+.target-channel-id { grid-column: 2; grid-row: 2; }
+.server-settings-page .twitch-settings-list > .twitch-settings-group:last-child { grid-column: 1 / -1; }
+.target-channel-state { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .65rem; margin: 0; font-size: 13px; }
+.target-channel-state span { color: var(--muted); }
+.target-channel-state strong { color: var(--text); overflow-wrap: anywhere; }
+.secret-actions-menu { position: relative; display: grid; justify-items: end; min-width: 0; }
+.secret-actions-menu summary { display: inline-flex; align-items: center; min-height: 40px; padding: 0 2.1rem 0 .7rem; border: 1px solid var(--separator); border-radius: 7px; cursor: pointer; color: var(--text); background: var(--panel); }
+.secret-actions-menu summary::after { right: 12px; width: 8px; height: 8px; top: calc(50% - 5px); }
+.secret-actions-menu-items { position: static; display: grid; gap: .25rem; min-width: 0; max-width: 100%; margin-top: .5rem; padding: .35rem; border: 1px solid var(--separator); border-radius: 8px; background: var(--panel); }
+.secret-actions-menu:not([open]) > .secret-actions-menu-items { display: none; }
+.secret-actions-menu-items button { justify-content: flex-start; }
+.twitch-application-heading { justify-content: space-between; }
+.settings-application-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 12px; }
+.settings-application-fields > .form-field:first-child { display: grid; grid-column: 1; grid-row: 1 / span 2; grid-template-rows: 30px 40px; align-content: start; }
+.settings-application-fields > .form-field:first-child > .application-field-label { grid-row: 1; }
+.settings-application-fields > .form-field:first-child > input { grid-row: 2; }
+.settings-application-fields > .twitch-secret-field { display: contents; }
+.settings-application-fields > .twitch-secret-field .twitch-secret-label { grid-column: 2; grid-row: 1; }
+.settings-application-fields > .twitch-secret-field > input { grid-column: 2; grid-row: 2; }
+.settings-application-fields > .twitch-secret-field > .credential-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-end; margin-top: 0; }
+.settings-application-fields > .twitch-secret-field > p { grid-column: 1 / -1; }
+.twitch-save-section { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .75rem 1rem; }
+.twitch-save-section > h3 { grid-column: 1; grid-row: 1; }
+.twitch-save-section > .settings-actions { grid-column: 2; grid-row: 1; margin: 0; }
+.twitch-save-section > :not(h3):not(.settings-actions) { grid-column: 1 / -1; margin-block: 0; }
+@media (max-width: 760px) {
+  .twitch-target-fields { grid-template-columns: minmax(0, 1fr); }
+  .target-preset-editor, .target-channel-login, .target-channel-id { grid-column: 1; grid-row: auto; }
+  .twitch-save-section { grid-template-columns: minmax(0, 1fr); }
+  .twitch-save-section > .settings-actions { grid-column: 1; grid-row: auto; }
+  .twitch-settings-list > .twitch-settings-group[aria-labelledby$="application-heading"],
+  .twitch-settings-list > .twitch-settings-group[aria-labelledby$="actions-heading"] { grid-column: auto; }
+  .twitch-settings-group[aria-labelledby$="bot-heading"], .twitch-settings-group[aria-labelledby$="target-heading"] { padding: .75rem; }
+  .settings-application-fields > .twitch-secret-field > .credential-actions { justify-content: flex-start; }
+}
 @media (max-width: 720px) {
   .settings-application-fields, .settings-application-footer { grid-template-columns: minmax(0, 1fr); }
-  .settings-application-box { padding: .75rem; }
+  .settings-application-fields > .form-field:first-child { grid-column: 1; grid-row: auto; }
+  .settings-application-fields > .twitch-secret-field .twitch-secret-label,
+  .settings-application-fields > .twitch-secret-field > input { grid-column: 1; grid-row: auto; }
+  .settings-application-fields > .twitch-secret-field > .credential-actions { grid-column: 1; }
+  .settings-application-box { padding: 0; }
+  .settings-application-footer > :last-child { justify-self: stretch; }
 }
 @media (max-width: 480px) {
+  .target-preset-editor { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .target-preset-editor > .form-field { grid-column: 1 / -1; }
   .twitch-secret-field .credential-actions { justify-content: flex-start; margin-left: 0; }
   .settings-callback { align-items: stretch; flex-direction: column; gap: .5rem; }
+}
+@container page-content (max-width: 620px) {
+  .twitch-connection-summary { grid-template-columns: minmax(0, 1fr); }
+  .twitch-connection-summary > .twitch-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .twitch-connection-summary .setup-guide-trigger { grid-column: 1; grid-row: 2; justify-self: end; }
 }
