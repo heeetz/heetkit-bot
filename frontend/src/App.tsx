@@ -12,7 +12,6 @@ import {
   getBrowserSnapshot,
   isBrowserMode,
   setBrowserOperationMode,
-  twitchAuthorizationLabel,
   twitchConnectionLabel,
   waitForBridge,
 } from './bridge'
@@ -232,10 +231,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
         <div className="dashboard-session-main">
           <div className="dashboard-session-fields">
             <div className="dashboard-connection">
-              <div className="dashboard-label">Twitch connection<HelpTip label="Bot session">
-                {status && setup ? `Authorization: ${twitchAuthorizationLabel(status.twitch_connection_state, setup.twitch.oauth_token_available)}. ` : ''}
-                A running session can be waiting for authorization or reconnecting. Connected confirms Twitch chat readiness.
-              </HelpTip></div>
+              <div className="dashboard-label">Twitch connection</div>
               <h2><span aria-hidden="true" className={`status-dot ${status?.twitch_connected ? 'online' : ''}`} />
                 {needsTwitchSetup ? 'Not configured' : status ? twitchConnectionLabel(status.twitch_connection_state) : 'Loading…'}
               </h2>
@@ -295,7 +291,6 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
         <article className="card dashboard-ai-card">
           <div className="dashboard-card-heading">
             <h2>AI controls</h2>
-            <HelpTip label="AI controls">AI is optional. The AI command switch saves immediately across restarts and is shared with AI and Commands. AI Playground works while stopped with a provider configured. Turning memory off stops new storage and use without erasing previous exchanges.</HelpTip>
           </div>
           <div className="dashboard-ai-summary">
             <span>{aiStatus ? aiStatus.available ? aiStatus.model || setup?.aiProvider.selected_model || 'Model not selected' : 'AI unavailable' : 'Loading…'}</span>
@@ -319,7 +314,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
         <article className="card dashboard-operation-card">
           <div className="dashboard-card-heading">
             <div>
-              <div className="dashboard-label">Operation mode<HelpTip label="Operation mode">The selected policy is saved on the server. The session strip reports the current Twitch connection.</HelpTip></div>
+              <div className="dashboard-label">Operation mode</div>
               <h2>{browserOperationModeLabel(operation.mode)}</h2>
             </div>
             <Select
@@ -331,14 +326,14 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
               onChange={(mode) => onChangeBrowserMode(mode as BrowserOperationMode)}
             />
           </div>
-          <p>{browserOperationDescription(operation.mode)}</p>
+          <p>{browserOperationDescription(operation.mode)} Changes save immediately. Check Twitch connection for the current status.</p>
           {operation.mode === 'stream_only' && <p>Stream changes require consecutive successful checks before the connection changes.</p>}
           <div className="twitch-status-grid dashboard-operation-status">
             <div><span>Broadcaster status</span><strong className={operation.stream_status === 'live' ? 'status-good' : ''}>{streamStatusLabel(operation.stream_status)}</strong></div>
             <div><span>Last known status</span><strong>{operation.last_known_stream_status ? streamStatusLabel(operation.last_known_stream_status) : 'None'}</strong></div>
             <div><span>Last checked</span><strong>{formatCheckedAt(operation.last_checked_at)}</strong></div>
           </div>
-          {operation.stream_status === 'unknown' && <p className="dashboard-operation-unknown">{operation.mode === 'stream_only' ? 'Broadcaster status is currently unknown; Stream Only will keep the last safe state until a reliable check succeeds.' : 'Broadcaster live status is currently unknown. It is only used for Stream Only; other modes do not depend on it.'}</p>}
+          {operation.stream_status === 'unknown' && <p className="dashboard-operation-unknown">{operation.mode === 'stream_only' ? 'Stream Only keeps the current connection until HeetKit can verify whether the channel is live.' : 'HeetKit could not check whether the channel is live. Only Stream Only uses this status.'}</p>}
           {operation.error === 'connection_failed' && <p className="inline-error">The latest connection attempt failed. Check Logs for details. Choose Manual and Connect to retry.</p>}
           {operation.pending && <p role="status">Applying the latest operation mode…</p>}
           {operation.mode === 'manual' && <p className="dashboard-operation-actions">Manual mode lets you connect or disconnect with the button above.</p>}
@@ -486,9 +481,17 @@ function LogsPage() {
     <section className="card logs-card">
       <div className="section-heading">
         <div><p className="label">OPERATOR ACTIVITY</p><h2>Recent activity</h2></div>
-        <span className="read-only-badge">{entries.length} / 500</span>
+        <div className="row-actions">
+          <HelpTip label="What logs keep">
+            <ul>
+              <li>Keeps the latest 500 events (up to 1 MiB) in memory.</li>
+              <li>Includes commands and bot replies, not ordinary chat.</li>
+              <li>Delivered means Twitch confirmed the send. Uncertain sends are not retried.</li>
+            </ul>
+          </HelpTip>
+          <span className="read-only-badge">{entries.length} / 500</span>
+        </div>
       </div>
-      <p className="log-policy">Commands and permitted reply text stay in memory, up to 500 events / 1 MiB. Ordinary chat is excluded. AI memory has its separate count limits and 60-day retention. Only confirmed send means delivery; uncertain sends are not retried automatically. Clear view affects this display only. Export creates a private copy with its own retention.</p>
       <div className="log-toolbar">
         <label>
           Level
@@ -518,9 +521,10 @@ function LogsPage() {
         >
           Auto-scroll
         </Switch>
-        <button className="secondary" disabled={entries.length === 0} onClick={() => setEntries([])}>Clear view</button>
-        <button className="secondary" disabled={exporting || !visibleEntries.length} onClick={() => setExportEntries([...visibleEntries])}>Export filtered…</button>
+        <button className="secondary" disabled={entries.length === 0} aria-describedby="log-action-help" onClick={() => setEntries([])}>Clear view</button>
+        <button className="secondary" disabled={exporting || !visibleEntries.length} aria-describedby="log-action-help" onClick={() => setExportEntries([...visibleEntries])}>Export filtered…</button>
       </div>
+      <p className="log-policy" id="log-action-help">Clear view only clears this screen. Export creates a private file.</p>
       {requestId && <p className="log-policy">Showing linked request {requestId}. <button className="secondary" onClick={() => setRequestId('')}>All requests</button></p>}
       {exportEntries && <Confirmation title="Export private activity?" description={`Save ${exportEntries.length} filtered events, including viewer names, command inputs and reply text. Review before sharing and delete the file when no longer needed. This copy is outside HeetKit retention.`} onConfirm={() => void downloadActivity()} onCancel={() => setExportEntries(null)} />}
       {exportNotice && <p className="log-policy" role="status">{exportNotice}</p>}
@@ -544,7 +548,7 @@ function LogsPage() {
                 {entry.message}
               </pre>
               {entry.text !== null && entry.text !== undefined && <pre className="log-raw log-content">{entry.text}</pre>}
-              {entry.text_truncated && <p className="inline-error">Text exceeded the 4 KiB limit; shown as a truncated excerpt.</p>}
+              {entry.text_truncated && <p className="inline-error">Text shortened to fit the 4 KiB limit.</p>}
               <details className="log-details"><summary>Event details</summary>
                 <dl>{Object.entries(entry.context).map(([key, value]) => <div key={key}><dt>{key.replaceAll('_', ' ')}</dt><dd>{String(value)}</dd></div>)}</dl>
                 {entry.context.request_id && <button className="secondary" onClick={() => {

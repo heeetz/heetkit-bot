@@ -119,10 +119,10 @@ test('optout add, duplicate, withdrawal confirmation, historic metadata, paging 
   await panel.getByLabel('Twitch username', { exact: true }).fill('unsaved_draft')
   await panel.getByRole('button', { name: 'Refresh', exact: true }).click()
   await expect(panel.getByLabel('Twitch username', { exact: true })).toHaveValue('unsaved_draft')
-  await panel.getByRole('button', { name: 'Help: !optout management' }).focus()
+  await panel.getByRole('button', { name: 'Help: How opt-outs work' }).focus()
   await expect(page.getByRole('tooltip')).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(panel.getByRole('button', { name: 'Help: !optout management' })).toBeFocused()
+  await expect(panel.getByRole('button', { name: 'Help: How opt-outs work' })).toBeFocused()
 })
 
 test('optout errors preserve a usable draft and list failures remain visible', async ({ page }) => {

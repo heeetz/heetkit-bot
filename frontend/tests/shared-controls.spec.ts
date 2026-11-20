@@ -67,7 +67,8 @@ test('hover waits 900 ms and the pointer can enter the help content', async ({ p
 test('pointer-opened help closes after leaving even when its button remains focused', async ({ page }) => {
   for (const keyboardFirst of [false, true]) {
     await page.goto('/tests/fixture.html?configured')
-    const help = page.getByRole('button', { name: 'Help: Bot session', exact: true })
+    await page.getByRole('navigation').getByRole('button', { name: 'Logs', exact: true }).click()
+    const help = page.getByRole('button', { name: 'Help: What logs keep', exact: true })
     if (keyboardFirst) {
       await page.keyboard.press('Tab')
       await help.focus()
@@ -97,7 +98,9 @@ test('pointer-opened help closes after leaving even when its button remains focu
 
 test('keyboard help retains focus behavior while idle icons stay muted at the same size', async ({ page }) => {
   await page.goto('/tests/fixture.html?configured')
-  const help = page.getByRole('button', { name: 'Help: Bot session', exact: true })
+  await page.getByRole('navigation').getByRole('button', { name: 'Logs', exact: true }).click()
+  const help = page.getByRole('button', { name: 'Help: What logs keep', exact: true })
+  await expect(help).toHaveText('?')
   await expect(help).toHaveCSS('color', 'rgb(156, 163, 175)')
   await expect(help).toHaveCSS('border-color', 'rgb(55, 65, 81)')
   await expect(help).toHaveCSS('font-weight', '500')

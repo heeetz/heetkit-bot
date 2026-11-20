@@ -4,7 +4,8 @@ import AccordionHeader from './AccordionHeader'
 interface AccordionProps {
   id: string
   title: string
-  description?: string
+  description?: ReactNode
+  helpLabel?: string
   badges?: ReactNode
   children: ReactNode
   className?: string
@@ -15,6 +16,7 @@ export default function Accordion({
   id,
   title,
   description,
+  helpLabel = title,
   badges,
   children,
   className = '',
@@ -40,7 +42,7 @@ export default function Accordion({
       data-accordion-open={open ? 'true' : 'false'}
     >
       <AccordionHeader title={<span role="heading" aria-level={2}>{title}</span>}
-        helpLabel={title} help={description} expanded={open} contentId={contentId}
+        helpLabel={helpLabel} help={description} expanded={open} contentId={contentId}
         onToggle={() => setOpen((current) => !current)} badges={badges} ariaLabel={title} />
       <div id={contentId} className="accordion-content" hidden={!open}>
         {children}

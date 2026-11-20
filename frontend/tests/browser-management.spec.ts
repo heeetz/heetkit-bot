@@ -273,7 +273,7 @@ test('Server restrictions use the authenticated management endpoints and exact p
   await page.getByRole('button', { name: 'Commands', exact: true }).click()
   const panel = page.locator('#command-restrictions')
   await expect(panel.getByText('No active user restrictions.')).toBeVisible()
-  await expect(panel).toContainText('New restrictions apply to configured channel ID 200.')
+  await expect(panel).toContainText('Channel restrictions use ID 200.')
   expect(api.calls.some((call) => call.path === '/v1/command-restrictions' && call.method === 'GET')).toBe(true)
   await panel.getByRole('button', { name: 'Add restriction' }).click()
   await panel.getByLabel('Twitch username').fill('httpviewer')
@@ -538,7 +538,7 @@ test('browser dashboard exposes operation policy, broadcaster uncertainty and pe
   await expect(operation.getByRole('heading', { name: 'Always On', exact: true })).toBeVisible()
   await expect(operation).toContainText('Broadcaster statusUnknown')
   await expect(operation).toContainText('Last known statusOffline')
-  await expect(operation).toContainText('Broadcaster live status is currently unknown. It is only used for Stream Only')
+  await expect(operation).toContainText('HeetKit could not check whether the channel is live. Only Stream Only uses this status.')
   await expect(page.getByRole('button', { name: 'Reconciling…', exact: true })).toBeDisabled()
 
   const mode = page.getByRole('combobox', { name: 'Operation mode', exact: true })

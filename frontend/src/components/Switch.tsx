@@ -7,6 +7,7 @@ interface SwitchProps {
   children: ReactNode
   className?: string
   ariaLabel?: string
+  ariaDescribedBy?: string
 }
 
 export default function Switch({
@@ -16,6 +17,7 @@ export default function Switch({
   children,
   className = '',
   ariaLabel,
+  ariaDescribedBy,
 }: SwitchProps) {
   const classes = ['switch-control', className, disabled ? 'is-disabled' : '']
     .filter(Boolean)
@@ -29,6 +31,7 @@ export default function Switch({
         checked={checked}
         disabled={disabled}
         aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
         onChange={(event) => onCheckedChange(event.target.checked)}
       />
       <span className="switch-track" aria-hidden="true">

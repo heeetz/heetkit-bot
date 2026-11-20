@@ -22,13 +22,18 @@ export default function TwitchSecretField({ credential, value, busy, host, onCha
     <div className="twitch-secret-label">
       <label htmlFor={id}>Twitch client secret</label>
       <HelpTip label="Twitch client secret">
-        The field is always a new masked draft; saved secrets are never displayed. Add/Replace and Remove apply immediately.
-        Test saved secret checks the stored secret with the saved Client ID, without authorizing the bot account.
-        {host === 'desktop' ? ' Changes require an application restart; existing OAuth tokens are retained. A secure value overrides the environment fallback.' : ' Changes stop the current session and clear authorization. Connect Twitch again after saving a valid secret.'}
-        {external && ' This secret is managed externally. Rotate its environment or secret-file value on the host.'}
+        <ul>
+          <li>The saved secret is never shown; the field always starts empty.</li>
+          <li>Add/Replace and Remove apply immediately.</li>
+          <li>Test saved secret checks it with the saved Client ID.</li>
+          {host === 'desktop'
+            ? <li>After a change, restart the app. Existing authorization is kept. A saved secret takes priority over the environment variable.</li>
+            : <li>A change stops the bot and clears authorization. Connect Twitch again afterwards.</li>}
+          {external && <li>This secret is set on the host (environment or secret file). Change it there.</li>}
+        </ul>
       </HelpTip>
     </div>
-    <input id={id} aria-label="Twitch client secret" type="password" autoComplete="new-password" maxLength={8192}
+    <input id={id} aria-label="Twitch client secret" aria-describedby={host === 'server' ? `${id}-effect` : undefined} type="password" autoComplete="new-password" maxLength={8192}
       value={value} disabled={disabled || external} placeholder={external ? 'Managed externally' : configured ? 'Enter replacement secret' : 'Enter client secret'}
       onChange={(event) => onChange(event.target.value)} />
     <div className="credential-actions">
@@ -43,7 +48,9 @@ export default function TwitchSecretField({ credential, value, busy, host, onCha
         </div>
       </details>}
     </div>
-    {host === 'server' && value.trim() && <p className="settings-hint">Saving stops the bot and clears authorization.</p>}
+    {host === 'server' && <p className="settings-hint" id={`${id}-effect`}>{external
+      ? 'Change this secret on the Server host.'
+      : 'Adding, replacing or removing a secret stops the bot and clears authorization. Connect Twitch again after saving a valid secret.'}</p>}
     {!credential && <p className="credential-warning" role="alert">Secret status unavailable. Reopen Settings to retry.</p>}
     {credential?.validation_status === 'validation_failed' && <p className="credential-warning" role="alert">Secret validation failed.</p>}
   </div>

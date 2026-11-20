@@ -28,7 +28,7 @@ test('Save opens the section containing an invalid reaction setting', async ({ p
 test('filters and name sort leave creation order and reaction priority intact', async ({ page }) => {
   await page.goto('/tests/commands.fixture.html?legacyRemoved')
   const list = page.getByRole('table', { name: 'Commands and chat reactions' })
-  await expect(list.getByRole('columnheader')).toHaveText(['Enabled', 'Name / Match', 'Type', 'Response / Description', 'Access', 'Actions'])
+  await expect(list.getByRole('columnheader')).toHaveText(['Enabled', 'Name / Match', 'Type', 'Response and purpose', 'Access', 'Actions'])
   await expect(row(page, '!community')).toHaveCount(0)
   const status = page.getByRole('combobox', { name: 'Status', exact: true })
   await selectOption(status, 'disabled')

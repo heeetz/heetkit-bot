@@ -54,17 +54,18 @@ export default function DesktopStartup({ children }: { children: (windows: boole
       <h1 id="startup-title">{status.state === 'failed' ? 'Startup needs attention' : status.state === 'starting' ? 'Starting HeetKit' : 'Choose a channel for existing history'}</h1>
       {status.state === 'starting' && <p role="status">Waiting for Desktop startup…</p>}
       {status.state === 'mapping_required' && <>
-        <p>Existing presence and AI history has no channel. Choose the channel that all unscoped history belongs to before continuing.</p>
+        <p>Some viewer activity and AI history was saved without a channel. Choose the Twitch channel that all of that history belongs to.</p>
         <form onSubmit={(event) => void submit(event)}>
           <label className="form-field" htmlFor="legacy-channel-id">Numeric Twitch channel ID
             <input id="legacy-channel-id" inputMode="numeric" autoComplete="off" spellCheck={false} maxLength={32}
               value={channelId} disabled={busy} onChange={(event) => { setChannelId(event.target.value); setConfirmed(false) }} />
           </label>
-          {status.suggested_channel_id && <p className="muted">Configured target: {status.suggested_channel || 'channel'} ({status.suggested_channel_id}). This suggestion does not verify where older history came from.</p>}
+          <p>Verify the numeric channel ID in Twitch before confirming. Your choice assigns all history saved without a channel to that channel.</p>
+          {status.suggested_channel_id && <p className="muted">Current target channel: {status.suggested_channel || 'channel'} ({status.suggested_channel_id}).</p>}
           <label className="startup-confirmation"><input type="checkbox" checked={confirmed} disabled={busy}
             onChange={(event) => setConfirmed(event.target.checked)} />I confirm this channel for all unscoped history.</label>
-          <p>HeetKit saves this choice for this profile, verifies a recovery backup, then upgrades the database.
-            <HelpTip label="History migration">Verify the numeric channel ID with Twitch before confirming. This is your attribution choice, not verified historical provenance. Already-scoped rows keep their channels and original dates. Existing retention and opt-out rules apply. The private recovery snapshot expires seven days after creation. Cancel leaves the channel choice unsaved.</HelpTip>
+          <p>HeetKit verifies a recovery backup before upgrading the database.{' '}
+            <HelpTip label="Backup and retention"><ul><li>The recovery backup is deleted after 7 days.</li><li>History already linked to a channel keeps its channel and dates.</li><li>Retention and opt-out rules still apply.</li></ul></HelpTip>
           </p>
           <div className="row-actions"><button className="secondary" type="button" disabled={busy} onClick={() => void cancel()}>Cancel and exit</button>
             <button className="primary" type="submit" disabled={busy || !confirmed || !/^[0-9]{1,32}$/.test(channelId)}>{busy ? 'Upgrading history…' : 'Confirm channel and continue'}</button></div>

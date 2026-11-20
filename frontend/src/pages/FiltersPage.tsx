@@ -10,6 +10,7 @@ import {
   waitForBridge,
 } from '../bridge'
 import Confirmation from '../components/Confirmation'
+import HelpTip from '../components/HelpTip'
 import EditorDialog, { EditorSections } from '../components/EditorDialog'
 import FeedbackToast from '../components/FeedbackToast'
 import { useRestartDraft } from '../desktopRestart'
@@ -23,9 +24,9 @@ type RuleError = { category: FilterCategoryName; value: string; message: string 
 
 const categoryNames = ['words', 'phrases', 'patterns'] as const
 const categoryInfo = {
-  words: { label: 'Blocked words', description: 'Matches individual words.' },
-  phrases: { label: 'Blocked phrases', description: 'Matches literal text, including punctuation.' },
-  patterns: { label: 'Regex patterns', description: 'Matches text with Python regular expressions.' },
+  words: { label: 'Blocked words', description: 'Matches whole words.' },
+  phrases: { label: 'Blocked phrases', description: 'Matches the text you enter, including punctuation.' },
+  patterns: { label: 'Regex patterns', description: 'Uses Python regular expressions.' },
 }
 
 function draftTexts(data: FiltersResponse): FilterTexts {
@@ -200,7 +201,10 @@ export default function FiltersPage({ active }: FiltersPageProps) {
     return (
       <div className="filter-text-editor" id={`filters-${name}`}>
         <div className="filter-editor-heading">
-          <h3>{info.label}</h3>
+          <div className="filter-editor-topic">
+            <h3>{info.label}</h3>
+            {name === 'patterns' && <HelpTip label="Regex example"><code>^hello\b</code> matches messages that start with the word “hello”.</HelpTip>}
+          </div>
           <span className="read-only-badge">{configured.length} {configured.length === 1 ? 'rule' : 'rules'}</span>
         </div>
         {category.load_error && <p className="filter-load-warning" role="status">{category.load_error}</p>}
@@ -213,7 +217,7 @@ export default function FiltersPage({ active }: FiltersPageProps) {
             setDrafts((current) => ({ ...current, [name]: event.target.value }))
             setEditorError('')
           }} />
-        <p className="settings-hint" id={`${inputId}-help`}>{info.description} Blank lines and lines starting with # are skipped.</p>
+        <p className="settings-hint" id={`${inputId}-help`}>{info.description} HeetKit skips blank lines and lines beginning with #.</p>
         {configured.length > 0 && <div className="filter-text-meta">
           <span className="mini-badge filter-default-badge">{defaults} built-in {defaults === 1 ? 'default' : 'defaults'}</span>
           <span className="mini-badge filter-local-badge">{configured.length - defaults} local {configured.length - defaults === 1 ? 'rule' : 'rules'}</span>
@@ -231,7 +235,7 @@ export default function FiltersPage({ active }: FiltersPageProps) {
       <section className="card filters-intro">
         <div>
           <h2>Bot filters</h2>
-          <p className="section-copy">Blocked words, phrases, and regex patterns stop matching Twitch messages from being processed by the bot and prevent matching AI replies from being sent.</p>
+          <p className="section-copy">HeetKit skips Twitch messages that match these rules and blocks matching AI replies.</p>
         </div>
         <div className="filters-intro-actions">
           <button className="primary" type="button" aria-haspopup="dialog" disabled={!data || busy} onClick={() => {
@@ -246,7 +250,7 @@ export default function FiltersPage({ active }: FiltersPageProps) {
         <div className="section-heading">
           <div>
             <h2>Filter Tester</h2>
-            <p className="section-copy">Try sample text against the current bot filters.</p>
+            <p className="section-copy">Check whether a sample matches your saved bot filters. The test runs locally.</p>
           </div>
         </div>
         <label className="form-field filter-test-text">
@@ -255,7 +259,7 @@ export default function FiltersPage({ active }: FiltersPageProps) {
             onChange={(event) => { setTestText(event.target.value); clearTestResult() }} />
         </label>
         <div className="filter-test-footer">
-          <p className="settings-hint">Runs locally and checks the editable filters only.</p>
+          <p className="settings-hint">The test checks your editable filters. AI safety checks run when you use AI.</p>
           <button className="primary" type="button" disabled={testBusy || busy || !data} onClick={() => void runFilterTest()}>
             {testBusy ? 'Testing…' : 'Test sample'}
           </button>

@@ -540,7 +540,8 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
     <AIBehaviorSection
       id="ai-personalities"
       title="Personality-specific prompt"
-      description="Save this personality independently of profile instructions. Set active selects its applied prompt and does not save an editor draft."
+      helpLabel="Set active and save"
+      description={<ul><li>Save stores this personality on its own.</li><li>Set active makes the bot use it. It does not save unsaved edits.</li></ul>}
       badges={(
         <span className="personality-badges">
           {personality && <span className="mini-badge">{personality.is_builtin ? 'Built-in' : 'Custom'}</span>}
@@ -675,7 +676,8 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
     <AIBehaviorSection
       id="ai-profile-instructions"
       title="Profile instructions"
-      description="Applies to every personality and follows the protected shared policy."
+      helpLabel="Which prompts use this"
+      description="Added to every personality, after the protected shared policy."
       badges={(
         <span className="personality-badges">
           {data?.profile_instructions_saved && <span className="mini-badge saved-badge">Saved</span>}
@@ -719,7 +721,8 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
     <AIBehaviorSection
       id="ai-language"
       title="AI response language"
-      description="Auto follows the incoming language; Limited uses this profile's allowed languages and fallback. Saved changes apply to the next AI request. Prompt guidance cannot perfectly guarantee a response language. In Limited mode, clear brief input uses its language; mixed or code-switched input uses the clear majority; uncertain, tied, unsupported, emoji-only and code-only input uses the saved fallback. Playground uses the saved policy until you explicitly save a draft."
+      helpLabel="How languages are chosen"
+      description={<ul><li>Saved changes apply from the next AI request.</li><li>Limited mode answers in the message’s language, or the majority language when mixed.</li><li>If that is unclear (a tie, emoji or code only, an unsupported language), the fallback is used.</li><li>This guides the AI but cannot guarantee the language.</li><li>Playground uses the saved settings until you save there.</li></ul>}
       badges={(
         <span className="personality-badges">
           {languageSaved && <span className="mini-badge saved-badge">Saved active policy</span>}
@@ -761,7 +764,7 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
                 onChange={(mode) => updateLanguageDraft({ mode: mode as AILanguageMode })}
                 options={[{ value: 'auto', label: 'Auto' }, { value: 'limited', label: 'Limited' }]}
               />
-              <small>Auto follows the user without language restrictions. Limited uses the allowed set below.</small>
+              <small>Auto follows the incoming message. Limited allows only the languages selected below.</small>
             </label>
             <label className="form-field">
               <span>Fallback language</span>
@@ -775,7 +778,7 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
                     || language.code === languageDraft.fallback_language)
                   .map((language) => ({ value: language.code, label: language.label }))}
               />
-              <small>Used when Limited mode cannot identify an allowed response language.</small>
+              <small>Used when Limited mode cannot identify an allowed language.</small>
             </label>
           </div>
           <fieldset className="language-picker" disabled={Boolean(busy) || languageDraft.mode !== 'limited'}>
@@ -860,7 +863,7 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
             <span>{memoryStatus}</span>
           </Switch>
         } />
-      <AIPlayground active={active} personality={data?.active_personality ?? ''} hasDrafts={hasDrafts} />
+      <AIPlayground active={active} hasDrafts={hasDrafts} />
       {active && behaviorSection && <EditorDialog id="ai-behavior-editor" title="Edit AI behavior"
         closeLabel="Close editor" dirtyLabel={behaviorDirty ? 'Unsaved changes' : undefined}
         busy={behaviorBusy} error={error} onClose={closeBehavior} className="ai-behavior-dialog">

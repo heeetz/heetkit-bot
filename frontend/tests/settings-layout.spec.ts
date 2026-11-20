@@ -161,7 +161,7 @@ test('desktop environment fallback still permits a secure override', async ({ pa
   await expect(twitch.getByRole('button', { name: 'Replace secret', exact: true })).toBeVisible()
   await expect(twitch.getByText('Secret changes save immediately.', { exact: false })).toHaveCount(0)
   await twitch.getByRole('button', { name: 'Help: Twitch client secret', exact: true }).focus()
-  await expect(page.getByRole('tooltip')).toContainText('overrides the environment fallback')
+  await expect(page.getByRole('tooltip')).toContainText('A saved secret takes priority over the environment variable.')
   await page.keyboard.press('Escape')
   await secret.fill('synthetic-secure-override')
   await twitch.getByRole('button', { name: 'Replace secret', exact: true }).click()

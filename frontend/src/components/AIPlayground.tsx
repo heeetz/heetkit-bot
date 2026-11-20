@@ -42,7 +42,7 @@ const STATUS_LABELS = {
   cancelled: 'Cancelled',
 }
 
-export default function AIPlayground({ active, personality, hasDrafts = false }: { active: boolean; personality: string; hasDrafts?: boolean }) {
+export default function AIPlayground({ active, hasDrafts = false }: { active: boolean; hasDrafts?: boolean }) {
   const [prompt, setPrompt] = useState('')
   const [pending, setPending] = useState(false)
   const [cancelling, setCancelling] = useState(false)
@@ -148,11 +148,11 @@ export default function AIPlayground({ active, personality, hasDrafts = false }:
           <p className="section-copy">Test prompt responses with real API quota. Nothing is sent to Twitch.</p>
         </div>
         <HelpTip label="How to test">
-          <ul className="playground-help-list">
-            <li>Test one prompt at a time with your saved models, active filters and personality, and applied instructions.</li>
-            <li>The bot can be stopped and the AI command disabled. Tests skip viewer memory, stream context, chat activity, command permissions and cooldowns.</li>
-            <li>Tests use real provider API quota. Results stay in Playground. A successful test does not confirm Twitch delivery.</li>
-            <li>Choose Cancel request or leave the AI page to request cancellation. Another test can start when the current request finishes cleaning up. On Server, results are visible only to the session that ran the test.</li>
+          <ul>
+            <li>Uses your saved models, filters, personality and instructions.</li>
+            <li>Works while the bot is stopped. Skips viewer memory, stream context, permissions and cooldowns.</li>
+            <li>Uses real API quota. Nothing is sent to Twitch.</li>
+            <li>Cancel request, or leaving the page, stops the test. On Server, only your session sees the result.</li>
           </ul>
         </HelpTip>
       </div>
@@ -174,7 +174,7 @@ export default function AIPlayground({ active, personality, hasDrafts = false }:
         {pending && <p>{cancelling ? 'Cancelling…' : STATUS_LABELS.pending}</p>}
         {result?.status && <>
           <strong>{result.status === 'attribution_unavailable' && result.generation?.provider === 'Google Gemini'
-            ? 'Answer withheld because required search attribution is unavailable.'
+            ? 'Answer withheld because this Playground cannot display the required Google Search Suggestions.'
             : STATUS_LABELS[result.status]}</strong>
           {result.generation && <p className="setting-effect">
             Provider: {result.generation.provider} · Model: {result.generation.model}

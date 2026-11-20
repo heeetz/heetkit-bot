@@ -143,7 +143,7 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
       {(busy === `discover:${selection.provider}` || discoveryState[selection.provider]) && <p className="settings-hint" role="status">{busy === `discover:${selection.provider}` ? 'Loading models...' : discoveryState[selection.provider]}</p>}
       {!info?.credential?.configured && <p role="alert">Unavailable: connect this provider in Providers above.</p>}
       {staleThinking && <p role="alert">Choose a supported thinking option explicitly. No automatic effort increase will be saved.</p>}
-      {selection.search && capabilities?.attribution_required ? <p className="ai-search-warning" role="alert">Gemini search answers are withheld in Twitch and Playground.</p> : !capabilities?.search_supported && <p className="settings-hint">Search unavailable for this model.</p>}
+      {selection.search && capabilities?.attribution_required ? <p className="ai-search-warning" role="alert">Gemini search answers are withheld in Twitch and Playground. Both need to display the required Google Search Suggestions.</p> : !capabilities?.search_supported && <p className="settings-hint">Search unavailable for this model.</p>}
       {selection.search && !capabilities?.search_supported && <button className="secondary" onClick={() => select(slot, { search: false })}>Turn unsupported search off</button>}
     </div>
   }
@@ -207,7 +207,7 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
         </section>
       </>}
     </Accordion>
-    {instructionsTarget && createPortal(<AIBehaviorSection id="ai-shared-instructions" title="Shared instructions" className="ai-shared-instructions" badges={instructionsDirty && <span className="mini-badge dirty-badge">Edited</span>} description="Shared text applies to every AI reply in this profile. Saving an empty field removes the shared text. Restore defaults changes the draft. Placeholders: {current_datetime}, {ai_max_response_length}, {response_language_instruction}."
+    {instructionsTarget && createPortal(<AIBehaviorSection id="ai-shared-instructions" title="Shared instructions" helpLabel="Available placeholders" className="ai-shared-instructions" badges={instructionsDirty && <span className="mini-badge dirty-badge">Edited</span>} description={<ul><li><code>{'{current_datetime}'}</code>: current date and time</li><li><code>{'{ai_max_response_length}'}</code>: answer length limit</li><li><code>{'{response_language_instruction}'}</code>: response language guidance</li></ul>}
       footer={saved && <div className="editor-footer ai-editor-footer">
         <button className="secondary" disabled={Boolean(busy)} onClick={() => setInstructions(null)}>Restore default instructions</button>
         <div className="row-actions">
@@ -218,7 +218,7 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
       {instructionsError && <p role="alert">{instructionsError}</p>}{instructionsNotice && <p role="status">{instructionsNotice}</p>}
       {!saved ? <p>{error || 'Loading shared instructions…'}</p> : <>
         <label className="form-field">Shared AI instructions<textarea aria-label="Shared AI instructions" rows={12} maxLength={20000} disabled={Boolean(busy)} value={instructions ?? data?.default_shared_instructions ?? ''} onChange={(event) => setInstructions(event.target.value)} /></label>
-        <p className="settings-hint">These instructions apply to every AI reply in this profile.</p>
+        <p className="settings-hint">Applies to every AI reply in this profile. Saving an empty field removes these instructions.</p>
       </>}
     </AIBehaviorSection>, instructionsTarget)}
   </>

@@ -150,7 +150,7 @@ function AboutPage({ updates }: { updates: ReturnType<typeof useUpdateCheck> }) 
         <div className="section-heading update-heading">
           <div className="update-title">
             <h2 id="desktop-updates-title">Check for updates</h2>
-            <HelpTip label="Check for updates">On Windows, HeetKit checks for the latest stable release after startup. You can also check manually. Update &amp; restart downloads and verifies the installer before closing HeetKit. Open release / downloads is available for manual installation.</HelpTip>
+            <HelpTip label="How updates work"><ul><li>On Windows, HeetKit checks for a new stable release after startup.</li><li>Update &amp; restart downloads and verifies the installer before closing HeetKit.</li><li>To install manually, use Open release / downloads.</li></ul></HelpTip>
           </div>
         </div>
         <div className="update-toolbar">
@@ -161,7 +161,7 @@ function AboutPage({ updates }: { updates: ReturnType<typeof useUpdateCheck> }) 
             <button className="secondary" onClick={() => void openExternal('releases')} disabled={opening === 'releases'}>
               {opening === 'releases' ? 'Opening…' : 'Open release / downloads'}
             </button>
-            {updateResult?.automatic_update && <button className="primary" disabled={installing} onClick={() => void installUpdate()}>Update &amp; restart</button>}
+            {updateResult?.automatic_update && <button className="primary" disabled={installing} aria-describedby="update-restart-effect" onClick={() => void installUpdate()}>Update &amp; restart</button>}
           </div>
           <div className="update-summary" aria-live="polite">
             <div>
@@ -176,6 +176,7 @@ function AboutPage({ updates }: { updates: ReturnType<typeof useUpdateCheck> }) 
             )}
           </div>
         </div>
+        {updateResult?.automatic_update && <p className="muted" id="update-restart-effect">HeetKit downloads and verifies the installer, then closes to install the update.</p>}
         {updateResult && (
           <div className={`update-result ${updateResult.update_available ? 'update-available' : 'update-current'}`} role="status">
             <strong>{updateResult.update_available ? 'Update available' : 'You are up to date'}</strong>

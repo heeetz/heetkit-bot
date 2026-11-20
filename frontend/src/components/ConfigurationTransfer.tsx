@@ -173,12 +173,12 @@ export default function ConfigurationTransfer() {
       <div className="section-heading">
         <div>
           <h2 id="configuration-transfer-heading">Configuration transfer</h2>
-          <p className="section-copy">Move portable, non-secret settings between HeetKit Desktop and Server. This is separate from a full private profile backup.</p>
+          <p className="section-copy">Copy settings such as commands, filters and AI preferences between HeetKit Desktop and Server.</p>
         </div>
       </div>
       <div className="configuration-transfer-warning">
         <strong>Review before sharing</strong>
-        <p>Filter text and AI block lists may contain personal or private information. Exports exclude Twitch identity and channel, secrets and authentication, databases and privacy state, desktop window and startup settings, and machine-specific paths.</p>
+        <p>Filter text and AI block lists may contain private information. Exports omit Twitch accounts and channels, credentials, private history and settings specific to this installation.</p>
       </div>
       {error && <p className="inline-error" role="alert">{error}</p>}
       {notice && <p className="configuration-transfer-notice" role="status">{notice}</p>}
@@ -190,7 +190,7 @@ export default function ConfigurationTransfer() {
           {busy === 'preview' ? 'Checking archive…' : 'Choose ZIP to import'}
           <input ref={input} type="file" accept=".zip,application/zip" disabled={Boolean(busy)} onChange={(event) => void previewImport(event)} />
         </label>
-        <span className="settings-hint">ZIP only, up to 1 MiB.</span>
+        <span className="settings-hint">Choose a configuration ZIP up to 1 MiB.</span>
       </div>
       {selection && (
         <div className="configuration-import-preview" aria-labelledby="configuration-import-preview-heading">
@@ -209,7 +209,7 @@ export default function ConfigurationTransfer() {
           </div>
           {selection.preview.effects.length > 0 && <div><strong>Effects</strong><ul>{selection.preview.effects.map((effect) => <li key={effect}>{effect}</li>)}</ul></div>}
           {selection.preview.preserved.length > 0 && <div><strong>Preserved</strong><ul>{selection.preview.preserved.map((item) => <li key={item}>{item}</li>)}</ul></div>}
-          <p className="configuration-import-confirmation">Importing replaces every supported collection shown above and applies its active settings. The app will reload afterward to clear stale editors.</p>
+          <p className="configuration-import-confirmation">Importing replaces the settings listed above. HeetKit reloads after applying them and discards any open drafts.</p>
           <div className="settings-actions">
             <button className="secondary" disabled={Boolean(busy)} onClick={cancelImport}>Cancel import</button>
             <button className="danger" disabled={Boolean(busy)} onClick={() => void applyImport()}>{busy === 'import' ? 'Importing…' : 'Confirm import and reload'}</button>

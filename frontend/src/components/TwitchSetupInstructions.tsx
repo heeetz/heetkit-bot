@@ -70,7 +70,7 @@ export default function TwitchSetupInstructions({ headingId, host, callback, cal
     {open && <EditorDialog id={dialogId} title="Twitch setup instructions" closeLabel="Close setup instructions"
       busy={false} onClose={() => setOpen(false)} error={error} className="twitch-setup-dialog">
       <div className="command-dialog-panels">
-        <p tabIndex={-1} data-editor-focus>Choose the Twitch account that will send replies and the channel where HeetKit should read and reply to chat.</p>
+        <p tabIndex={-1} data-editor-focus>The bot account sends replies. The target channel is where HeetKit reads and replies to chat.</p>
         <ol>
           <li><strong>Register your application</strong>
             <ul>
@@ -94,12 +94,11 @@ export default function TwitchSetupInstructions({ headingId, host, callback, cal
           </li>
           <li><strong>Enter the application and account details</strong>
             <ul>
-              <li>Close these instructions to edit the fields. You can reopen them while you work.</li>
               <li>Open <strong>Manage</strong> beside your registered app in Twitch.</li>
               <li>Copy its Client ID into <strong>{desktop ? 'Twitch application client ID' : 'Client ID'}</strong>.</li>
               <li>Enter the sending account’s login in <strong>Bot account login</strong>.</li>
               <li>Enter the broadcaster’s login in <strong>Target channel login</strong>.</li>
-              <li>Use a Twitch user ID lookup that accepts a login to find each account’s numeric ID.</li>
+              <li>Look up the numeric Twitch user ID for each login.</li>
               <li>Enter those IDs in <strong>Bot account user ID</strong> and <strong>Target channel user ID</strong>.</li>
             </ul>
             <p>Enter logins without an @ or URL.</p>
@@ -121,7 +120,7 @@ export default function TwitchSetupInstructions({ headingId, host, callback, cal
           <li><strong>Give the sending account channel access</strong>
             <ul>
               <li>If the sending account is the broadcaster, skip this step.</li>
-              <li>For a separate bot, the broadcaster types <code>/mod bot_login</code> in the target channel’s Twitch chat, using the sending account’s login.</li>
+              <li>For a separate bot account, the broadcaster types <code>/mod bot_login</code> in the target channel’s chat. Replace <code>bot_login</code> with the bot account’s login.</li>
             </ul>
           </li>
           <li><strong>Authorize and connect</strong>
@@ -130,14 +129,14 @@ export default function TwitchSetupInstructions({ headingId, host, callback, cal
                 <li>On Dashboard, choose <strong>Start Bot</strong>.</li>
                 <li>Choose <strong>Authorize Twitch</strong> if prompted.</li>
               </> : <li>In Settings, choose <strong>Connect Twitch</strong>.</li>}
-              <li>Sign in to Twitch as the sending account and approve access.</li>
+              <li>Sign in to Twitch as the bot account and approve access.</li>
               {!desktop && <>
                 <li>Return to the original signed-in Settings tab.</li>
                 {callbackMode === 'paste' && <li>Copy the full URL from the callback error page into that tab. Choose <strong>Complete authorization</strong> within five minutes and keep the URL private.</li>}
                 <li>On Dashboard, choose <strong>Connect</strong> in Manual mode. Always On connects automatically, Stream Only waits for a live stream, and Disabled keeps chat stopped.</li>
               </>}
               <li>Wait for Dashboard to show <strong>Connected</strong>.</li>
-              <li>Send <code>!help</code> from a permitted account in the target channel and check for a reply. This uses the default command and prefix.</li>
+              <li>Send <code>!help</code> in the target channel from an account allowed to use it. If you changed the command name or prefix, use the saved version.</li>
             </ul>
           </li>
         </ol>
