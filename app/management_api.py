@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 
 from aiohttp import web
 
+from app.ui_messages import annotate_error
 from app.app_settings import AppSettingsStore
 from app.bot_runtime import BotRuntime
 from app.operation_policy import OperationPolicy
@@ -362,7 +363,7 @@ class ManagementAPI:
 
     @staticmethod
     def response(status: int, payload: dict) -> web.Response:
-        encoded = json.dumps(payload, ensure_ascii=True, allow_nan=False)
+        encoded = json.dumps(annotate_error(payload), ensure_ascii=True, allow_nan=False)
         if len(encoded) > 2 * 1024 * 1024:
             status, encoded = 500, '{"ok":false,"error":"Response exceeds limit."}'
         response = web.Response(status=status, text=encoded, content_type="application/json",

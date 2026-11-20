@@ -1,4 +1,8 @@
+import { shell } from './i18n/app'
+import { catalogFor } from './i18n/core'
 import type { ActionResult, OptOutsResponse, CommandRestrictionsResponse, CommandSettingsMetadata, PythonApi } from './bridge'
+
+const transport = () => catalogFor(shell).transport
 
 type SessionState = { authenticated: boolean; message: string }
 let sessionToken = ''
@@ -33,7 +37,7 @@ function clearSession(message = '') {
 }
 
 async function request<T>(method: 'GET' | 'POST', path: string, token: string, payload?: object): Promise<T> {
-  if (!browserConnectionSecure()) throw new Error('Open this panel using HTTPS or a loopback address.')
+  if (!browserConnectionSecure()) throw new Error(transport().insecure)
   const controller = new AbortController()
   activeRequests.add(controller)
   const timer = window.setTimeout(() => controller.abort(), 30000)
@@ -46,16 +50,16 @@ async function request<T>(method: 'GET' | 'POST', path: string, token: string, p
       ...(method === 'POST' ? { body: JSON.stringify(payload ?? {}) } : {}),
     })
     if (response.status === 401) {
-      if (token === sessionToken && token) clearSession('Your session expired. Sign in again.')
-      throw new Error('Authentication required. Check the token and sign in again.')
+      if (token === sessionToken && token) clearSession('expired')
+      throw new Error(transport().authRequired)
     }
-    if (response.status >= 500) throw new Error('The server is unavailable. Check the connection and retry.')
-    if (response.status === 429) throw new Error('Too many requests. Wait a moment and retry.')
-    if (response.status === 403) throw new Error('The server refused this connection. Check the server access settings.')
+    if (response.status >= 500) throw new Error(transport().serverUnavailable)
+    if (response.status === 429) throw new Error(transport().tooManyRequests)
+    if (response.status === 403) throw new Error(transport().refused)
     const responseLimit = (path === '/v1/triggers' ? 3 : 2) * 1024 * 1024
     if (response.headers.get('Content-Type')?.split(';')[0].trim() !== 'application/json'
       || Number(response.headers.get('Content-Length')) > responseLimit) {
-      throw new Error('The server returned an invalid response. Retry after checking the server.')
+      throw new Error(transport().invalidResponse)
     }
     let data: unknown
     try {
@@ -63,18 +67,18 @@ async function request<T>(method: 'GET' | 'POST', path: string, token: string, p
       if (raw.length > responseLimit) throw new Error()
       data = JSON.parse(raw)
     } catch {
-      throw new Error('The server returned an invalid response. Retry after checking the server.')
+      throw new Error(transport().invalidResponse)
     }
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
-      throw new Error('The server returned an invalid response. Retry after checking the server.')
+      throw new Error(transport().invalidResponse)
     }
     if (!response.ok && (data as ActionResult).ok !== false) {
-      throw new Error('The request failed. Check the server and retry.')
+      throw new Error(transport().requestFailed)
     }
     return data as T
   } catch (error) {
     if (controller.signal.aborted || error instanceof TypeError) {
-      throw new Error('Could not reach the server. Check the connection and retry.')
+      throw new Error(transport().unreachable)
     }
     throw error
   } finally {
@@ -84,23 +88,23 @@ async function request<T>(method: 'GET' | 'POST', path: string, token: string, p
 }
 
 export async function loginBrowserSession(adminToken: string): Promise<void> {
-  if (!TOKEN_PATTERN.test(adminToken)) throw new Error('Enter the configured administrator token (43–128 URL-safe characters).')
+  if (!TOKEN_PATTERN.test(adminToken)) throw new Error(transport().invalidToken)
   const generation = sessionGeneration
   const result = await request<{ ok: boolean; token?: string; expires_in?: number }>('POST', '/v1/session', adminToken, {})
   if (generation !== sessionGeneration) return
   if (!result.ok || !result.token || !TOKEN_PATTERN.test(result.token)
     || !Number.isFinite(result.expires_in) || result.expires_in! <= 0 || result.expires_in! > 3600) {
-    throw new Error('Sign in failed. Check the server and retry.')
+    throw new Error(transport().signInFailed)
   }
   sessionToken = result.token
   sessionState = { authenticated: true, message: '' }
-  expiryTimer = window.setTimeout(() => clearSession('Your session expired. Sign in again.'), result.expires_in! * 1000)
+  expiryTimer = window.setTimeout(() => clearSession('expired'), result.expires_in! * 1000)
   for (const listener of listeners) listener()
 }
 
 export async function logoutBrowserSession(): Promise<void> {
   const token = sessionToken
-  clearSession('Signed out.')
+  clearSession('signed_out')
   if (token) {
     try { await request('POST', '/v1/session/logout', token, {}) } catch { /* Local access is already cleared. */ }
   }
@@ -108,16 +112,16 @@ export async function logoutBrowserSession(): Promise<void> {
 
 export async function browserRequest<T>(method: 'GET' | 'POST', path: string, payload?: object): Promise<T> {
   const token = sessionToken
-  if (!token) throw new Error('Sign in to manage this server.')
+  if (!token) throw new Error(transport().signInRequired)
   const result = await request<T>(method, path, token, payload)
   // A response that arrives after logout/expiry must not restore private page state.
-  if (!sessionToken || sessionToken !== token) throw new Error('Your session ended. Sign in again.')
+  if (!sessionToken || sessionToken !== token) throw new Error(transport().sessionEnded)
   return result
 }
 
 const read = <T>(path: string) => browserRequest<T>('GET', path)
 const write = <T = ActionResult>(path: string, payload: object = {}) => browserRequest<T>('POST', path, payload)
-const unsupported = async (): Promise<never> => { throw new Error('This action is available in the desktop application only. Configure this setting on the server.') }
+const unsupported = async (): Promise<never> => { throw new Error(transport().desktopOnly) }
 const commandPayload = (command_name: string, enabled: boolean, per_user_seconds: number, global_seconds: number, permission: string, options?: CommandSettingsMetadata) => ({
   command_name, enabled, per_user_seconds, global_seconds, permission,
   ...(options ? { options: { primary_name: options.primary_name, aliases: options.aliases, display_name: options.display_name,
@@ -131,6 +135,9 @@ export const browserApi: PythonApi = {
   get_desktop_startup: async () => ({ state: 'ready' }),
   confirm_legacy_channel: unsupported,
   cancel_desktop_startup: unsupported,
+  // Server keeps the UI language in this browser (localStorage), not on the server.
+  get_interface_language: async () => ({ ok: true }),
+  set_interface_language: async () => ({ ok: true }),
   get_app_status: () => read('/v1/status'),
   get_about_info: () => read('/v1/about'),
   get_commands: () => read('/v1/commands'),

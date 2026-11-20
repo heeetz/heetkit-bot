@@ -1,5 +1,7 @@
 import { type KeyboardEvent, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { common } from '../i18n/common'
+import { useCatalog } from '../i18n/core'
 
 export interface SelectOption {
   value: string
@@ -21,7 +23,8 @@ interface SelectProps {
 }
 
 /** A single-choice listbox with optional model search; navigation previews until committed. */
-export function Select({ value, onChange, options: allOptions, disabled = false, id, className = '', searchable = false, placeholder = 'Select…', ...aria }: SelectProps) {
+export function Select({ value, onChange, options: allOptions, disabled = false, id, className = '', searchable = false, placeholder, ...aria }: SelectProps) {
+  const text = useCatalog(common)
   const [query, setQuery] = useState('')
   const options = query ? allOptions.filter((option) => option.label.toLocaleLowerCase().includes(query.toLocaleLowerCase())) : allOptions
   const generatedId = useId()
@@ -211,7 +214,7 @@ export function Select({ value, onChange, options: allOptions, disabled = false,
       onClick={() => open ? dismiss() : show()}
       onKeyDown={onKeyDown}
     >
-      <span className="select-value">{selected?.label ?? placeholder}</span>
+      <span className="select-value">{selected?.label ?? placeholder ?? text.select}</span>
       <svg className="select-caret" width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m5 7.5 5 5 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
     </button>
     {open && createPortal(<div
@@ -223,7 +226,7 @@ export function Select({ value, onChange, options: allOptions, disabled = false,
       style={{ ...position, visibility: position ? 'visible' : 'hidden' }}
       onPointerDown={(event) => { if (!(event.target instanceof HTMLInputElement)) event.preventDefault() }}
     >
-      {searchable && <input className="select-search" aria-label="Search models" type="search" autoFocus value={query} onChange={(event) => { setQuery(event.target.value); setActive(null) }} onKeyDown={onKeyDown} aria-controls={listId} aria-activedescendant={activeIndex >= 0 ? `${listId}-${activeIndex}` : undefined} />}
+      {searchable && <input className="select-search" aria-label={text.searchModels} type="search" autoFocus value={query} onChange={(event) => { setQuery(event.target.value); setActive(null) }} onKeyDown={onKeyDown} aria-controls={listId} aria-activedescendant={activeIndex >= 0 ? `${listId}-${activeIndex}` : undefined} />}
       <div id={searchable ? listId : undefined} role={searchable ? 'listbox' : undefined} aria-labelledby={searchable ? triggerId : undefined} style={searchable ? { maxHeight: Math.max(0, (position?.maxHeight ?? 280) - 70), overflowY: 'auto' } : { display: 'contents' }}>
       {options.map((option, index) => <div
         key={option.value}
@@ -239,7 +242,7 @@ export function Select({ value, onChange, options: allOptions, disabled = false,
       >
         <span>{option.label}</span><span className="select-check" aria-hidden="true">{option.value === value ? '✓' : ''}</span>
       </div>)}
-      {!options.length && <div className="select-empty">No options available</div>}
+      {!options.length && <div className="select-empty">{text.noOptions}</div>}
       </div>
     </div>, trigger.current?.closest('dialog') ?? document.body)}
   </>

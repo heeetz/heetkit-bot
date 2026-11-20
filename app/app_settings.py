@@ -22,6 +22,9 @@ from app.config.ai_language import ResponseLanguageSettings, validate_response_l
 logger = logging.getLogger(__name__)
 APP_SETTINGS_VERSION = 1
 OPERATION_MODES = frozenset({"always_on", "stream_only", "manual", "disabled"})
+# Desktop UI languages (task 2.2). Server keeps its choice in the browser instead.
+INTERFACE_LANGUAGES = ("en", "uk", "ru")
+DEFAULT_INTERFACE_LANGUAGE = "en"
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,11 +82,23 @@ class TwitchSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class InterfaceSettings:
+    language: str = DEFAULT_INTERFACE_LANGUAGE
+
+
+@dataclass(frozen=True, slots=True)
 class AppSettings:
     window: WindowSettings = field(default_factory=WindowSettings)
     startup: StartupSettings = field(default_factory=StartupSettings)
     ai: AISettings = field(default_factory=AISettings)
     twitch: TwitchSettings = field(default_factory=TwitchSettings)
+    interface: InterfaceSettings = field(default_factory=InterfaceSettings)
+
+
+def validate_interface_language(language: object) -> str:
+    if not isinstance(language, str) or language not in INTERFACE_LANGUAGES:
+        raise ValueError("Choose English, Ukrainian or Russian.")
+    return language
 
 
 def _read_boolean(
@@ -268,6 +283,7 @@ def load_app_settings(path: Path) -> AppSettings:
         window_payload = payload
         startup_payload: dict[str, object] = {}
         ai_payload: dict[str, object] = {}
+        interface_payload: dict[str, object] = {}
     elif type(payload["version"]) is not int or payload["version"] != APP_SETTINGS_VERSION:
         logger.warning(
             "Unsupported application settings version=%r; using defaults",
@@ -278,6 +294,11 @@ def load_app_settings(path: Path) -> AppSettings:
         window_payload = _read_section(payload, "window")
         startup_payload = _read_section(payload, "startup")
         ai_payload = _read_section(payload, "ai")
+        interface_payload = _read_section(payload, "interface")
+    interface_language = interface_payload.get("language", DEFAULT_INTERFACE_LANGUAGE)
+    if interface_language not in INTERFACE_LANGUAGES:
+        logger.warning("Ignoring invalid application setting name=interface.language")
+        interface_language = DEFAULT_INTERFACE_LANGUAGE
     operation_mode = startup_payload.get("operation_mode", "always_on")
     if (("startup" in payload and not isinstance(payload["startup"], dict))
             or not isinstance(operation_mode, str) or operation_mode not in OPERATION_MODES):
@@ -455,6 +476,7 @@ def load_app_settings(path: Path) -> AppSettings:
             setup_guide_ai_skipped=_read_boolean(ai_payload, "ai", "setup_guide_ai_skipped", False),
         ),
         twitch=twitch,
+        interface=InterfaceSettings(language=str(interface_language)),
     )
 
 
@@ -510,6 +532,16 @@ class AppSettingsStore:
             self._settings = updated
         return updated
 
+    def update_interface_language(self, language: object) -> AppSettings:
+        parsed = validate_interface_language(language)
+        with self._lock:
+            if self._settings.interface.language == parsed:
+                return self._settings
+            updated = replace(self._settings, interface=InterfaceSettings(language=parsed))
+            save_app_settings(self._path, updated, recovered_settings=self._settings)
+            self._settings = updated
+        return updated
+
     def update_window(
         self,
         *,
@@ -526,7 +558,8 @@ class AppSettingsStore:
             close_to_tray=close_to_tray,
         )
         with self._lock:
-            updated = AppSettings(
+            updated = replace(
+                self._settings,
                 window=window,
                 startup=self._settings.startup,
                 ai=self._settings.ai,
@@ -553,7 +586,8 @@ class AppSettingsStore:
         if any(type(value) is not bool for value in values):
             raise ValueError("Desktop settings must be boolean values.")
         with self._lock:
-            updated = AppSettings(
+            updated = replace(
+                self._settings,
                 window=WindowSettings(
                     start_minimized=start_minimized,
                     minimize_to_tray=minimize_to_tray,
@@ -580,7 +614,8 @@ class AppSettingsStore:
         if type(enabled) is not bool:
             raise ValueError("AI memory setting must be a boolean value.")
         with self._lock:
-            updated = AppSettings(
+            updated = replace(
+                self._settings,
                 window=self._settings.window,
                 startup=self._settings.startup,
                 ai=replace(self._settings.ai, memory_enabled=enabled),
@@ -615,7 +650,8 @@ class AppSettingsStore:
                 configured = replace(existing, primary=compatible(existing.primary, selected),
                                      fallback=compatible(existing.fallback, fallback), cross_provider_acknowledged=False)
                 changes["setup"] = parse_ai_setup(asdict(configured))
-            updated = AppSettings(
+            updated = replace(
+                self._settings,
                 window=self._settings.window,
                 startup=self._settings.startup,
                 ai=replace(self._settings.ai, **changes),
@@ -680,7 +716,8 @@ class AppSettingsStore:
                 current = self._settings.twitch
                 client_id, bot_username, bot_user_id = current.client_id, current.bot_username, current.bot_user_id
             twitch = replace(twitch, client_id=client_id, bot_username=bot_username, bot_user_id=bot_user_id)
-            updated = AppSettings(
+            updated = replace(
+                self._settings,
                 window=self._settings.window,
                 startup=self._settings.startup,
                 ai=self._settings.ai,
@@ -729,7 +766,8 @@ class AppSettingsStore:
             )
             if not any(item.id == parsed_id for item in existing):
                 presets = (*presets, preset)
-            updated = AppSettings(
+            updated = replace(
+                self._settings,
                 window=self._settings.window,
                 startup=self._settings.startup,
                 ai=self._settings.ai,
@@ -751,7 +789,8 @@ class AppSettingsStore:
             current = self._settings.twitch
             if not any(preset.id == parsed_id for preset in current.presets):
                 raise ValueError("Unknown Twitch connection preset.")
-            updated = AppSettings(
+            updated = replace(
+                self._settings,
                 window=self._settings.window,
                 startup=self._settings.startup,
                 ai=self._settings.ai,

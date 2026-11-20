@@ -24,7 +24,7 @@ from typing import Any, Coroutine
 
 from pydantic import SecretStr, ValidationError
 
-from app.app_settings import AISettings, AppSettings, AppSettingsStore, TwitchSettings
+from app.app_settings import DEFAULT_INTERFACE_LANGUAGE, AISettings, AppSettings, AppSettingsStore, TwitchSettings
 from app.bot_runtime import BotRuntime
 from app.management import APPLICATION_NAME, APPLICATION_SUBTITLE, EXTERNAL_LINKS, ApplicationManagement
 from app.command_settings import CommandSettings
@@ -60,6 +60,7 @@ from app.runtime_paths import (
     RuntimePaths, RuntimeDataError, prepare_runtime_data,
 )
 from app.system_tray import SystemTray
+from app.ui_messages import annotate_error
 from app.services.updates import (
     DOWNLOAD_TIMEOUT_SECONDS, ReleaseAssets, UpdateCheckError, VerifiedUpdate,
     authorize_installer, check_for_updates, download_installer, publisher_key,
@@ -89,10 +90,18 @@ BRIDGE_UPDATE_CHECK_TIMEOUT_SECONDS = 15.0
 BRIDGE_BOT_START_TIMEOUT_SECONDS = 10.0
 BRIDGE_BOT_STOP_TIMEOUT_SECONDS = 20.0
 BRIDGE_TWITCH_RECONNECT_TIMEOUT_SECONDS = 30.0
+TRAY_REFRESH_INTERVAL_SECONDS = 2.0
+
+# Operations allowed while the legacy channel confirmation is pending.
+STARTUP_OPERATIONS = frozenset({
+    "get_desktop_startup", "confirm_legacy_channel", "cancel_desktop_startup",
+    "get_interface_language", "set_interface_language",
+})
 
 # Register functions by exact name; never give pywebview an object to traverse.
 FRONTEND_OPERATIONS = (
     "get_desktop_startup", "confirm_legacy_channel", "cancel_desktop_startup",
+    "get_interface_language", "set_interface_language",
     "export_activity",
     "export_configuration", "preview_configuration_import", "apply_configuration_import",
     "get_app_status", "get_about_info", "check_for_updates", "get_commands", "get_custom_commands",
@@ -434,6 +443,7 @@ class WebUIBridge(ApplicationManagement):
         self._on_startup_complete = None
         self._relaunch_ready: Path | None = None
         self._controller: DesktopController | None = None
+        self._update_available = False
         self._desktop_operation = threading.Lock()
         self._update_offer: VerifiedUpdate | None = None
         self._prepared_update: Path | None = None
@@ -669,6 +679,9 @@ class WebUIBridge(ApplicationManagement):
             return {"ok": False, "current_version": current_version, "error": "Could not check for updates. Try again later."}
         assets = release.pop("_installer", None)
         result = {"ok": True, "current_version": current_version, **release}
+        self._update_available = bool(release.get("update_available"))
+        if self._controller is not None:
+            self._controller.refresh_tray()
         if self._controller is None or not release["update_available"]:
             return result
         if desktop_relaunch.installed_directory() is None:
@@ -977,6 +990,25 @@ class WebUIBridge(ApplicationManagement):
         )
         return {"ok": True}
 
+
+    def get_interface_language(self) -> dict[str, object]:
+        if self._app_settings is None:
+            return {"ok": True, "language": DEFAULT_INTERFACE_LANGUAGE}
+        return {"ok": True, "language": self._app_settings.snapshot().interface.language}
+
+    def set_interface_language(self, language: object) -> dict[str, object]:
+        if self._app_settings is None:
+            return {"ok": False, "error": "Desktop settings are not configured."}
+        try:
+            self._app_settings.update_interface_language(language)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        except OSError:
+            self._logger.exception("Could not save the interface language")
+            return {"ok": False, "error": "Could not save the interface language."}
+        if self._controller is not None:
+            self._controller.refresh_tray()
+        return {"ok": True}
 
     def get_app_settings(self) -> dict[str, object]:
         if self._app_settings is None:
@@ -1644,9 +1676,9 @@ def expose_frontend_operations(window: Any, bridge: WebUIBridge) -> None:
             if trusted_origin is None or _frontend_origin(window.get_current_url()) != trusted_origin:
                 return {"ok": False, "error": "This page cannot access the application bridge."}
             if (getattr(bridge._backend, "startup_pending", False)
-                    and name not in {"get_desktop_startup", "confirm_legacy_channel", "cancel_desktop_startup"}):
-                return {"ok": False, "error": "Complete the channel confirmation before using HeetKit."}
-            return operation(*args, **kwargs)
+                    and name not in STARTUP_OPERATIONS):
+                return annotate_error({"ok": False, "error": "Complete the channel confirmation before using HeetKit."})
+            return annotate_error(operation(*args, **kwargs))
 
         call.__signature__ = signature(operation)
         call.__name__ = name
@@ -1688,7 +1720,14 @@ class DesktopController:
             on_toggle_bot=self.toggle_bot,
             on_exit=self.exit_application,
             is_bot_running=self.is_bot_running,
+            language=self.interface_language,
+            status=self.tray_status,
+            update_available=self.update_available,
+            on_open_update=self.open_update,
         )
+        self._tray_refresh_stop = threading.Event()
+        self._tray_refresh_thread: threading.Thread | None = None
+        self._tray_signature: tuple[object, ...] | None = None
 
     def bind_window(self, window: Any) -> None:
         self._window = window
@@ -1709,6 +1748,73 @@ class DesktopController:
                     self._window.show()
             else:
                 self._tray_started = True
+                self._start_tray_refresh()
+
+    def interface_language(self) -> str:
+        return self._app_settings.snapshot().interface.language
+
+    def update_available(self) -> bool:
+        return bool(getattr(self._bridge, "_update_available", False))
+
+    def tray_status(self) -> dict[str, object]:
+        application = self._backend.application
+        runtime_state = application.services.runtime_state
+        running, _ = runtime_state.status()
+        return {
+            "running": running,
+            "twitch_connection_state": runtime_state.twitch_connection_state,
+            "channel": application.settings.twitch_channel,
+        }
+
+    def _tray_state(self) -> tuple[object, ...]:
+        status = self.tray_status()
+        return (self.interface_language(), status.get("running"), status.get("twitch_connection_state"),
+                status.get("channel"), self.update_available())
+
+    def refresh_tray(self) -> None:
+        """Rebuild the tray menu when its language, status or update item changed."""
+        if not self._tray_started:
+            return
+        try:
+            signature = self._tray_state()
+        except Exception:
+            signature = None
+        if signature is not None and signature == self._tray_signature:
+            return
+        self._tray_signature = signature
+        try:
+            self._tray.update_menu()
+        except Exception:
+            self._logger.exception("Could not refresh the tray menu")
+
+    def _start_tray_refresh(self) -> None:
+        if self._tray_refresh_thread is not None:
+            return
+
+        def run() -> None:
+            # pystray builds the Windows menu on update_menu(), so poll the cheap
+            # status signature and rebuild only on change.
+            while not self._tray_refresh_stop.wait(TRAY_REFRESH_INTERVAL_SECONDS):
+                self.refresh_tray()
+
+        self._tray_signature = None
+        self.refresh_tray()
+        self._tray_refresh_thread = threading.Thread(target=run, name="heetkit-tray-refresh", daemon=True)
+        self._tray_refresh_thread.start()
+
+    def open_update(self) -> None:
+        """Show the window on About, where the update can be installed."""
+        self.open_window()
+        window = self._window
+        if window is None:
+            return
+        try:
+            window.evaluate_js(
+                "window.dispatchEvent(new CustomEvent('heetkit:navigate',"
+                " {detail: {section: 'About', target: 'desktop-updates'}}))"
+            )
+        except Exception:
+            self._logger.exception("Could not open About from the tray")
 
     def is_bot_running(self) -> bool:
         return bool(self._backend.application.services.runtime_state.status()[0])
@@ -1760,6 +1866,7 @@ class DesktopController:
                         self._bridge._discard_prepared_update()
                     finally:
                         self._bridge._desktop_operation.release()
+            self._tray_refresh_stop.set()
             self._tray.stop()
             if self._window is not None:
                 try:

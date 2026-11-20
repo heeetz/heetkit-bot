@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { waitForBridge, type LeaderboardSnapshot } from './bridge'
+import { dashboard } from './i18n/dashboard'
+import { catalogFor } from './i18n/core'
 
 export function useChatLeaderboards(channel?: string | null, refresh = 0) {
   const [data, setData] = useState<LeaderboardSnapshot | null>(null)
@@ -14,7 +16,7 @@ export function useChatLeaderboards(channel?: string | null, refresh = 0) {
         if (document.hidden) return
         const result = await (await waitForBridge()).get_leaderboards()
         if (!result.ok || result.leaderboards?.channel_id !== channel) {
-          throw new Error('Could not refresh leaderboards.')
+          throw new Error(catalogFor(dashboard).leaderboard.refreshFailed)
         }
         if (current) {
           setData(result.leaderboards)
@@ -35,12 +37,13 @@ export function useChatLeaderboards(channel?: string | null, refresh = 0) {
 
 export function leaderboardStates(channel: string | null | undefined, data: LeaderboardSnapshot | null,
   unavailable: boolean, countingEnabled = data?.counting_enabled) {
-  const unavailableState = channel === null ? 'Choose a Twitch channel'
-    : unavailable ? 'Temporarily unavailable' : !data ? 'Loading…' : ''
-  const paused = countingEnabled === false ? 'Counting paused' : ''
+  const text = catalogFor(dashboard).leaderboard
+  const unavailableState = channel === null ? text.chooseChannel
+    : unavailable ? text.unavailable : !data ? text.loading : ''
+  const paused = countingEnabled === false ? text.paused : ''
   const inactive = [paused, unavailableState].filter(Boolean).join(' · ')
-  const base = inactive || (data?.connected ? 'Collecting' : 'Disconnected')
-  const stream = inactive || (!data?.connected ? base : data.stream_status === 'live' ? 'Collecting'
-    : data.stream_status === 'offline' ? 'Offline' : 'Stream status unknown')
+  const base = inactive || (data?.connected ? text.collecting : text.disconnected)
+  const stream = inactive || (!data?.connected ? base : data.stream_status === 'live' ? text.collecting
+    : data.stream_status === 'offline' ? text.offline : text.unknown)
   return { base, stream }
 }

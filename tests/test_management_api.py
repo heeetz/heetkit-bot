@@ -738,6 +738,7 @@ async def test_management_applies_and_persists_existing_stores(api):
     assert rejected_rule == {
         "ok": False,
         "error": "Invalid regex rule.",
+        "error_code": "management_api.invalid_regex_rule",
         "invalid_rule": {"category": "patterns", "index": 1},
     }
     result = await save("/v1/filters/test", {"text": "syntheticblocked", "source": "active", "payload": None})

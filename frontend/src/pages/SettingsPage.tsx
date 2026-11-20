@@ -1,3 +1,4 @@
+import { InterfaceLanguageSettings } from '../components/LanguageSwitcher'
 import { useEffect, useRef, useState } from 'react'
 
 import {
@@ -273,6 +274,7 @@ function ServerSettings({ active, status }: { active: boolean; status: AppStatus
 
   return <div className="settings-layout">
     <FeedbackToast error={error} notice={notice} onDismiss={() => { setError(''); setNotice('') }} />
+    <InterfaceLanguageSettings server />
     <Accordion id="twitch-settings" title="Twitch connection" helpLabel="How Twitch setup works" description={<ul><li>Save stores application, account and channel changes. Secret actions apply immediately.</li><li>Changing the bot identity or secret stops the bot and clears authorization.</li><li>Changing only the channel keeps authorization.</li><li>Start and stop the bot on the Dashboard.</li></ul>} className="settings-page server-settings-page">
       {!setup ? <><p className="muted">Loading server setup…</p>{error && <button className="secondary" onClick={() => setRetry((current) => current + 1)}>Retry setup status</button>}</> : <div className="settings-list twitch-settings-list">
         <section className="twitch-connection-summary" aria-label="Twitch connection status">
@@ -859,6 +861,7 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
           </div>
         )}
       </section>
+      <InterfaceLanguageSettings />
       <Accordion
         id="twitch-settings"
         title="Twitch connection"

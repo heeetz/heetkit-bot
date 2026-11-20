@@ -165,6 +165,7 @@ def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
             "presets": [],
             "selected_preset_id": None,
         },
+        "interface": {"language": "en"},
     }
     assert list(tmp_path.glob(".app_settings.json.*.tmp")) == []
 
@@ -521,3 +522,34 @@ def test_bridge_does_not_change_runtime_when_ai_memory_save_fails(
         "error": "Could not save AI memory setting.",
     }
     assert runtime_state.ai_memory_enabled is True
+
+
+def test_interface_language_defaults_to_english_and_persists(tmp_path) -> None:
+    path = tmp_path / "app_settings.json"
+    store = AppSettingsStore(path)
+    assert store.snapshot().interface.language == "en"
+    store.update_desktop(start_minimized=True, minimize_to_tray=False, close_to_tray=False, auto_start_bot=False)
+    store.update_interface_language("uk")
+    # Unrelated saves keep the chosen language.
+    store.update_desktop(start_minimized=False, minimize_to_tray=False, close_to_tray=False, auto_start_bot=True)
+    reloaded = AppSettingsStore(path).snapshot()
+    assert reloaded.interface.language == "uk"
+    assert reloaded.startup.auto_start_bot is True
+    assert json.loads(path.read_text(encoding="utf-8"))["interface"] == {"language": "uk"}
+
+
+@pytest.mark.parametrize("value", ["de", "", None, 1, "EN"])
+def test_interface_language_rejects_unknown_values(tmp_path, value) -> None:
+    store = AppSettingsStore(tmp_path / "app_settings.json")
+    with pytest.raises(ValueError):
+        store.update_interface_language(value)
+    assert store.snapshot().interface.language == "en"
+
+
+def test_invalid_saved_interface_language_falls_back_to_english(tmp_path) -> None:
+    path = tmp_path / "app_settings.json"
+    path.write_text(json.dumps({"version": APP_SETTINGS_VERSION, "interface": {"language": "xx"},
+                                "startup": {"auto_start_bot": True}}), encoding="utf-8")
+    settings = load_app_settings(path)
+    assert settings.interface.language == "en"
+    assert settings.startup.auto_start_bot is True

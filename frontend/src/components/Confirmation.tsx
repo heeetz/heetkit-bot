@@ -1,4 +1,6 @@
 import { useEffect, useId, useRef, type KeyboardEvent } from 'react'
+import { common } from '../i18n/common'
+import { useCatalog } from '../i18n/core'
 
 interface ConfirmationProps {
   title: string
@@ -9,6 +11,7 @@ interface ConfirmationProps {
 }
 
 export default function Confirmation({ title, description, danger = false, onConfirm, onCancel }: ConfirmationProps) {
+  const text = useCatalog(common)
   const dialog = useRef<HTMLDialogElement>(null)
   const cancel = useRef<HTMLButtonElement>(null)
   const titleId = useId()
@@ -46,8 +49,8 @@ export default function Confirmation({ title, description, danger = false, onCon
       <h3 id={titleId}>{title}</h3>
       <p id={descriptionId}>{description}</p>
       <div className="confirmation-actions">
-        <button ref={cancel} type="button" className="secondary" onClick={onCancel}>Cancel</button>
-        <button type="button" className={danger ? 'danger' : 'primary'} onClick={onConfirm}>Confirm</button>
+        <button ref={cancel} type="button" className="secondary" onClick={onCancel}>{text.cancel}</button>
+        <button type="button" className={danger ? 'danger' : 'primary'} onClick={onConfirm}>{text.confirm}</button>
       </div>
     </dialog>
   )

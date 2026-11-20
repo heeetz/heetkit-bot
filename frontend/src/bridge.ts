@@ -1,3 +1,6 @@
+import { catalogFor } from './i18n/core'
+import { common } from './i18n/common'
+import { shell } from './i18n/app'
 export interface AppStatus {
   running: boolean
   twitch_connected: boolean
@@ -50,20 +53,14 @@ export type TwitchConnectionState =
   | 'failed'
 
 export function twitchConnectionLabel(state: TwitchConnectionState): string {
-  switch (state) {
-    case 'stopped': return 'Stopped'
-    case 'connecting': return 'Connecting'
-    case 'connected': return 'Connected'
-    case 'reconnecting': return 'Reconnecting'
-    case 'auth_required': return 'Authorization required'
-    case 'failed': return 'Connection failed'
-  }
+  return catalogFor(common).connection[state] ?? state
 }
 
 export function twitchAuthorizationLabel(state: TwitchConnectionState, tokenCacheAvailable: boolean): string {
-  if (state === 'connected') return 'Verified for this connection'
-  if (state === 'auth_required') return 'Required'
-  return tokenCacheAvailable ? 'Not verified (token cache found)' : 'Not verified'
+  const text = catalogFor(common).authorization
+  if (state === 'connected') return text.verified
+  if (state === 'auth_required') return text.required
+  return tokenCacheAvailable ? text.notVerifiedCache : text.notVerified
 }
 
 export interface CommandInfo {
@@ -645,6 +642,8 @@ export interface PythonApi {
   get_desktop_startup(): Promise<DesktopStartupStatus>
   confirm_legacy_channel(channelId: string, confirmed: boolean): Promise<ActionResult>
   cancel_desktop_startup(): Promise<ActionResult>
+  get_interface_language(): Promise<ActionResult & { language?: string }>
+  set_interface_language(language: string): Promise<ActionResult>
   get_app_status(): Promise<AppStatus>
   get_about_info(): Promise<AboutInfo>
   check_for_updates(): Promise<UpdateCheckResponse>
@@ -754,6 +753,9 @@ export interface ActionResult {
   requires_reconnect?: boolean
   requires_restart?: boolean
   error?: string
+  /** Stable code of a known backend message; the UI shows it in the selected language. */
+  error_code?: string
+  error_params?: Record<string, string>
 }
 
 export interface TwitchPresetActionResult extends ActionResult {
@@ -781,10 +783,11 @@ function readyBridge(): PythonApi | null {
 }
 
 export async function waitForBridge(): Promise<PythonApi> {
-  if (isBrowserMode()) return browserApi
+  if (isBrowserMode()) return localizedApi(browserApi)
   const ready = readyBridge()
   if (ready) {
-    return ready
+    registerDesktopLanguageBridge(ready)
+    return localizedApi(ready)
   }
   if (pendingBridge) {
     return pendingBridge
@@ -803,7 +806,7 @@ export async function waitForBridge(): Promise<PythonApi> {
     const timeout = window.setTimeout(
       () => {
         window.removeEventListener('pywebviewready', onReady)
-        reject(new Error('The desktop backend did not become available.'))
+        reject(new Error(catalogFor(shell).transport.bridgeUnavailable))
       },
       8000,
     )
@@ -812,7 +815,9 @@ export async function waitForBridge(): Promise<PythonApi> {
     onReady()
   })
   try {
-    return await pendingBridge
+    const api = await pendingBridge
+    registerDesktopLanguageBridge(api)
+    return localizedApi(api)
   } catch (error) {
     pendingBridge = null
     throw error
@@ -836,9 +841,11 @@ export interface ManagementSetup extends ActionResult {
 }
 
 import { browserApi, browserRequest } from './httpTransport'
+import { localizeResult, localizedApi } from './i18n/errors'
+import { registerDesktopLanguageBridge } from './i18n/language'
 
 export function setBrowserOperationMode(mode: BrowserOperationMode): Promise<ActionResult> {
-  return browserRequest('POST', '/v1/bot/mode', { mode })
+  return browserRequest<ActionResult>('POST', '/v1/bot/mode', { mode }).then(localizeResult)
 }
 
 export function getBrowserSnapshot(): Promise<ManagementSnapshot> {
@@ -846,5 +853,5 @@ export function getBrowserSnapshot(): Promise<ManagementSnapshot> {
 }
 
 export function getBrowserSetup(): Promise<ManagementSetup> {
-  return browserRequest('GET', '/v1/setup')
+  return browserRequest<ManagementSetup>('GET', '/v1/setup').then(localizeResult)
 }

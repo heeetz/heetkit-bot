@@ -1,4 +1,6 @@
 import { useEffect, useRef } from 'react'
+import { common } from '../i18n/common'
+import { useCatalog } from '../i18n/core'
 
 interface FeedbackToastProps {
   error?: string
@@ -7,6 +9,7 @@ interface FeedbackToastProps {
 }
 
 export default function FeedbackToast({ error = '', notice = '', onDismiss }: FeedbackToastProps) {
+  const text = useCatalog(common)
   const message = error || notice
   const dismiss = useRef(onDismiss)
 
@@ -33,7 +36,7 @@ export default function FeedbackToast({ error = '', notice = '', onDismiss }: Fe
       aria-live={error ? 'assertive' : 'polite'}
     >
       <span>{message}</span>
-      <button type="button" aria-label="Dismiss message" onClick={onDismiss}>×</button>
+      <button type="button" aria-label={text.dismissMessage} onClick={onDismiss}>×</button>
     </div>
   )
 }
