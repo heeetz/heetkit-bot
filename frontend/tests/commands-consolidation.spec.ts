@@ -57,6 +57,22 @@ for (const width of [1280, 390, 320]) {
     const optout = page.locator('#optout-management')
     await optout.getByRole('button', { name: 'Manage !optout', exact: true }).click()
     await expect(optout).toContainText('No opted-out users.')
+    const addInput = await bounds(optout.getByLabel('Twitch username', { exact: true }))
+    const searchInput = await bounds(optout.getByRole('searchbox', { name: 'Search opted-out users' }))
+    const add = await bounds(optout.getByRole('button', { name: 'Add', exact: true }))
+    const refresh = await bounds(optout.getByRole('button', { name: 'Refresh', exact: true }))
+    expect(add.x + add.width).toBeCloseTo(addInput.x + addInput.width, 0)
+    expect(refresh.x + refresh.width).toBeCloseTo(searchInput.x + searchInput.width, 0)
+    expect(add.y).toBeGreaterThan(addInput.y + addInput.height)
+    expect(refresh.y).toBeGreaterThan(searchInput.y + searchInput.height)
+    if (width === 1280) {
+      expect(searchInput.x).toBeGreaterThan(addInput.x + addInput.width)
+      expect(searchInput.y).toBe(addInput.y)
+      expect(refresh.y + refresh.height).toBeCloseTo(add.y + add.height, 0)
+    } else {
+      expect(searchInput.x).toBe(addInput.x)
+      expect(searchInput.y).toBeGreaterThan(add.y + add.height)
+    }
     await page.evaluate(() => Reflect.get(window, 'addChatOptout')())
     await optout.getByRole('button', { name: 'Refresh', exact: true }).click()
     await expect(optout.locator('tbody tr')).toHaveCount(1)
@@ -119,10 +135,10 @@ test('optout add, duplicate, withdrawal confirmation, historic metadata, paging 
   await panel.getByLabel('Twitch username', { exact: true }).fill('unsaved_draft')
   await panel.getByRole('button', { name: 'Refresh', exact: true }).click()
   await expect(panel.getByLabel('Twitch username', { exact: true })).toHaveValue('unsaved_draft')
-  await panel.getByRole('button', { name: 'Help: !optout management' }).focus()
+  await panel.getByRole('button', { name: 'Help: How opt-outs work' }).focus()
   await expect(page.getByRole('tooltip')).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(panel.getByRole('button', { name: 'Help: !optout management' })).toBeFocused()
+  await expect(panel.getByRole('button', { name: 'Help: How opt-outs work' })).toBeFocused()
 })
 
 test('optout errors preserve a usable draft and list failures remain visible', async ({ page }) => {

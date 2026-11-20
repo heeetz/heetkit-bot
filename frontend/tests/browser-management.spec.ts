@@ -273,7 +273,7 @@ test('Server restrictions use the authenticated management endpoints and exact p
   await page.getByRole('button', { name: 'Commands', exact: true }).click()
   const panel = page.locator('#command-restrictions')
   await expect(panel.getByText('No active user restrictions.')).toBeVisible()
-  await expect(panel).toContainText('New restrictions apply to configured channel ID 200.')
+  await expect(panel).toContainText('Channel restrictions use ID 200.')
   expect(api.calls.some((call) => call.path === '/v1/command-restrictions' && call.method === 'GET')).toBe(true)
   await panel.getByRole('button', { name: 'Add restriction' }).click()
   await panel.getByLabel('Twitch username').fill('httpviewer')
@@ -538,7 +538,7 @@ test('browser dashboard exposes operation policy, broadcaster uncertainty and pe
   await expect(operation.getByRole('heading', { name: 'Always On', exact: true })).toBeVisible()
   await expect(operation).toContainText('Broadcaster statusUnknown')
   await expect(operation).toContainText('Last known statusOffline')
-  await expect(operation).toContainText('Broadcaster live status is currently unknown. It is only used for Stream Only')
+  await expect(operation).toContainText('HeetKit could not check whether the channel is live. Only Stream Only uses this status.')
   await expect(page.getByRole('button', { name: 'Reconciling…', exact: true })).toBeDisabled()
 
   const mode = page.getByRole('combobox', { name: 'Operation mode', exact: true })
@@ -609,8 +609,8 @@ for (const width of [1280, 900, 390, 320]) {
     await page.getByRole('button', { name: 'Edit !ping', exact: true }).click()
     await expect(command.getByLabel('Primary chat name', { exact: true })).toBeVisible()
     const general = command.getByRole('region', { name: 'General', exact: true })
-    await expect(general.getByLabel('Per-user cooldown (seconds)', { exact: true })).toBeVisible()
-    await expect(general.getByLabel('Global cooldown (seconds)', { exact: true })).toBeVisible()
+    await expect(general.getByLabel('Per-user cooldown', { exact: true })).toBeVisible()
+    await expect(general.getByLabel('Global cooldown', { exact: true })).toBeVisible()
     await openEditorSection(command, 'Access & aliases')
     await expect(command.getByRole('combobox', { name: 'Permission', exact: true })).toBeVisible()
     await openEditorSection(command, 'Conditions')
@@ -626,7 +626,7 @@ for (const width of [1280, 900, 390, 320]) {
     expect(availabilityBounds!.x + availabilityBounds!.width).toBeLessThanOrEqual(width)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
     await openEditorSection(command, 'General')
-    await command.getByLabel('Per-user cooldown (seconds)', { exact: true }).fill('7')
+    await command.getByLabel('Per-user cooldown', { exact: true }).fill('7')
     await command.getByLabel('Primary chat name', { exact: true }).fill('servercheck')
     await command.getByRole('button', { name: 'Save command', exact: true }).click()
     await expect.poll(() => api.calls.find((call) => call.path === '/v1/commands/save')?.body?.per_user_seconds).toBe(7)
@@ -689,8 +689,8 @@ for (const width of [1280, 900, 390, 320]) {
     await expect(page.getByRole('button', { name: 'Save Twitch settings', exact: true })).toBeVisible()
     await openTwitchApplication(page)
     const secretActions = page.locator('#twitch-settings .secret-actions-menu')
-    await expect(page.getByRole('button', { name: 'Replace secret', exact: true })).toBeDisabled()
-    await expect(secretActions).toHaveCount(0)
+    await secretActions.locator('summary').click()
+    await expect(secretActions.getByRole('button', { name: 'Remove secret', exact: true })).toBeDisabled()
     await expect(page.getByRole('button', { name: /Open profile folder/ })).toHaveCount(0)
     await page.getByRole('button', { name: 'About', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Check for updates', exact: true })).toHaveCount(0)
@@ -724,8 +724,7 @@ test('server settings edit Twitch identity, manage credentials and complete or c
   const application = page.locator('#twitch-application')
   await openTwitchApplication(page)
   await expect(application.getByLabel('Client ID')).toHaveValue('new-client')
-  await expect(application.getByRole('button', { name: 'Replace secret', exact: true })).toBeVisible()
-  await expect(application.getByRole('button', { name: 'Test saved secret', exact: true })).toBeVisible()
+  await expect(application.locator('.twitch-secret-field .credential-actions')).toBeVisible()
 
   await page.getByRole('button', { name: 'AI', exact: true }).click()
   await page.getByRole('navigation').getByRole('button', { name: 'AI setup', exact: true }).click()
@@ -786,12 +785,12 @@ for (const width of [1280, 900, 390, 320]) {
     const secretInput = secret.getByLabel('Twitch client secret', { exact: true })
     await expect(clientIdField).toBeVisible()
     await expect(secret).toContainText('Twitch client secret')
-    await expect(secret.getByRole('button', { name: 'Replace secret', exact: true })).toBeVisible()
-    await expect(secret.getByRole('button', { name: 'Test saved secret', exact: true })).toBeVisible()
+    await expect(secret.locator('.credential-actions')).toBeVisible()
     const clientIdBounds = (await clientIdField.boundingBox())!
     const secretBounds = (await secretInput.boundingBox())!
     await expect(secretInput).toHaveAttribute('type', 'password')
     await expect(secretInput).toBeDisabled()
+    await expect(secretInput).toHaveAccessibleDescription('Change this secret on the Server host.')
     await expect(application.locator('.accordion-badges .state-pill')).toHaveText('Secret configured')
     if (width >= 900) {
       expect(secretBounds.x).toBeGreaterThan(clientIdBounds.x + clientIdBounds.width)
@@ -839,7 +838,7 @@ for (const width of [1280, 900, 390, 320]) {
     const authorizationBounds = (await authorization.boundingBox())!
     const saveBounds = (await save.boundingBox())!
     expect(saveBounds.y).toBeGreaterThan(targetBounds.y)
-    expect(saveBounds.y).toBeGreaterThanOrEqual(authorizationBounds.y)
+    expect(saveBounds.y).toBeGreaterThan(authorizationBounds.y)
     for (const button of await secret.locator('button').all()) {
       const buttonBounds = (await button.boundingBox())!
       expect(buttonBounds.x).toBeGreaterThanOrEqual(secretBounds.x)
@@ -1027,7 +1026,7 @@ test('desktop startup waits for delayed pywebviewready without selecting browser
     }, 300)
   })
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'Connected', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Running', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Sign in to server' })).toHaveCount(0)
   await expect(page.getByRole('combobox', { name: 'Operation mode', exact: true })).toHaveCount(0)
   expect(requests).toEqual([])

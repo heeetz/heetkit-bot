@@ -59,7 +59,7 @@ function LeaderboardExclusions({ data, onSave }: { data: LeaderboardSnapshot | n
       <div className="form-field">
         <div className="custom-field-label">
           <label htmlFor="leaderboard-bots">Excluded bot names</label>
-          <HelpTip label="How bot exclusions work">HeetKit automatically excludes the sending account. Verified accounts remain excluded after a rename. Removing an exclusion reveals retained counts and resumes counting.</HelpTip>
+          <HelpTip label="How exclusions work">HeetKit automatically excludes its sending account. Verified accounts stay excluded after a rename.</HelpTip>
         </div>
         <input id="leaderboard-bots" aria-describedby="leaderboard-bots-format" value={names}
           onChange={(event) => setDraft(event.target.value === saved ? null : event.target.value)}
@@ -72,7 +72,7 @@ function LeaderboardExclusions({ data, onSave }: { data: LeaderboardSnapshot | n
         <button className="primary" type="submit" disabled={!dirty || saving}>Save exclusions</button>
       </div>
     </div>
-    <p className="muted" id="leaderboard-bots-format">Separate up to 50 Twitch logins with commas.</p>
+    <p className="muted" id="leaderboard-bots-format">Separate up to 50 Twitch logins with commas. Removing an exclusion shows the counts HeetKit kept and resumes counting for that account.</p>
     {feedback && <p role={failed ? 'alert' : 'status'} className={failed ? 'inline-error' : undefined}>{feedback}</p>}
   </form>
 }

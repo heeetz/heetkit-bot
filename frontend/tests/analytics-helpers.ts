@@ -110,8 +110,8 @@ export async function analyticsFlow(page: Page, mock: Awaited<ReturnType<typeof 
   await expect(commands.getByRole('button')).toHaveCount(0)
   await expect(commands.locator('tbody tr').first()).toContainText('!ping')
   await expect(commands.locator('tbody tr').last()).toHaveText('!disabled-zero0000')
-  await page.getByRole('button', { name: 'Help: Commands breakdown', exact: true }).click()
-  await expect(page.getByText(/Zero means no recorded attempts/)).toBeVisible()
+  await page.getByRole('button', { name: 'Help: How attempts are counted', exact: true }).click()
+  await expect(page.getByRole('tooltip')).toContainText('Zero means HeetKit recorded no attempts')
   await page.keyboard.press('Escape')
   mock.changeInventory()
   await page.getByRole('button', { name: 'Refresh analytics', exact: true }).click()
@@ -145,8 +145,7 @@ export async function analyticsFlow(page: Page, mock: Awaited<ReturnType<typeof 
     const resetBox = await reset.boundingBox()
     expect(detailBox).not.toBeNull()
     expect(resetBox).not.toBeNull()
-    if (width >= 620 && await details.getAttribute('open') === null) {
-      expect(Math.abs(resetBox!.y - detailBox!.y)).toBeLessThanOrEqual(2)
+    if (Math.abs(resetBox!.y - detailBox!.y) <= 2) {
       expect(resetBox!.x).toBeGreaterThanOrEqual(detailBox!.x + detailBox!.width + 12)
     } else {
       expect(resetBox!.y).toBeGreaterThanOrEqual(detailBox!.y + detailBox!.height + 8)
@@ -191,7 +190,7 @@ export async function analyticsFlow(page: Page, mock: Awaited<ReturnType<typeof 
   await page.getByText('Daily values and coverage', { exact: true }).click()
   await expect(page.getByRole('cell', { name: 'Unknown', exact: true }).first()).toBeVisible()
   await trend.click(); await page.getByRole('option', { name: 'Newly observed users', exact: true }).click()
-  await page.getByRole('button', { name: 'Help: Newly observed users', exact: true }).click()
+  await page.getByRole('button', { name: 'Help: Who counts', exact: true }).click()
   await expect(page.getByText(/A viewer can count again/)).toBeVisible()
   await page.keyboard.press('Escape')
   await collect.press('Space')

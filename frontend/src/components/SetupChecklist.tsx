@@ -50,18 +50,17 @@ export default function SetupChecklist({ twitchConfigured, twitchAuthorized, twi
       <li><div className="setup-guide-step">
         <p><strong>Connect Twitch</strong> (required for chat). {twitchComplete ? 'Authorized. Use the Dashboard session controls to connect.'
           : twitchPending ? 'Apply the saved Twitch changes before connecting.'
-          : twitchConfigured ? 'Authorize the sending account to finish Twitch setup.'
-          : 'Save your Twitch settings and authorize your account.'}</p>
+          : twitchConfigured ? 'Authorize the bot account to finish Twitch setup.'
+          : 'Save your Twitch settings, then authorize the bot account.'}</p>
         <div className="row-actions"><button className="secondary" onClick={onTwitch}>Open Twitch setup</button></div>
       </div></li>
       {!preferences.ai_skipped && <li><div className="setup-guide-step">
-        <p><strong>Set up AI</strong> (optional). {aiConfigured ? 'Configured. Manage providers and models in AI setup.' : 'Configure it whenever you like.'}</p>
+        <p><strong>Set up AI</strong> (optional). {aiConfigured ? 'Configured. Manage providers and models in AI setup.' : 'Connect an AI provider to answer questions in chat.'}</p>
         <div className="row-actions">
           {!aiConfigured && <button className="ghost" disabled={saving} onClick={() => void save(false, true)}>Skip AI for now</button>}
           <button className="secondary" onClick={onAI}>Open AI setup</button>
         </div>
       </div></li>}
-      {!twitchComplete && <li><p><strong>Ready to start</strong>. Finish Twitch setup, then use the Dashboard session controls.</p></li>}
     </ol>}
   </article>
 }

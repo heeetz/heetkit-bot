@@ -173,7 +173,7 @@ export default function HelpTip({ label, children, className = '' }: HelpTipProp
         }}
         onKeyUp={(event) => event.stopPropagation()}
       >
-        <span aria-hidden="true">?</span>
+        {label}
       </button>
       {open && createPortal(
         <div

@@ -28,7 +28,7 @@ export default function TwitchSecretField({ credential, value, busy, host, onCha
         {external && ' This secret is managed externally. Rotate its environment or secret-file value on the host.'}
       </HelpTip>
     </div>
-    <input id={id} aria-label="Twitch client secret" type="password" autoComplete="new-password" maxLength={8192}
+    <input id={id} aria-label="Twitch client secret" aria-describedby={host === 'server' ? `${id}-effect` : undefined} type="password" autoComplete="new-password" maxLength={8192}
       value={value} disabled={disabled || external} placeholder={external ? 'Managed externally' : configured ? 'Enter replacement secret' : 'Enter client secret'}
       onChange={(event) => onChange(event.target.value)} />
     <div className="credential-actions">
@@ -43,7 +43,9 @@ export default function TwitchSecretField({ credential, value, busy, host, onCha
         </div>
       </details>}
     </div>
-    {host === 'server' && value.trim() && <p className="settings-hint">Saving stops the bot and clears authorization.</p>}
+    {host === 'server' && <p className="settings-hint" id={`${id}-effect`}>{external
+      ? 'Change this secret on the Server host.'
+      : 'Adding, replacing or removing a secret stops the bot and clears authorization. Connect Twitch again after saving a valid secret.'}</p>}
     {!credential && <p className="credential-warning" role="alert">Secret status unavailable. Reopen Settings to retry.</p>}
     {credential?.validation_status === 'validation_failed' && <p className="credential-warning" role="alert">Secret validation failed.</p>}
   </div>

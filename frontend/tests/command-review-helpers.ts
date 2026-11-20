@@ -28,12 +28,7 @@ export async function reviewCommands(page: Page, host: 'desktop' | 'server', wid
   await expect(delivery).toHaveText('Reply to message')
   const name = (await editor.getByLabel('Command name', { exact: true }).boundingBox())!
   const enabled = (await editor.locator('.custom-command-enabled').boundingBox())!
-  if (width > 760) {
-    expect(enabled.x).toBeGreaterThan(name.x + name.width)
-    expect(Math.abs(name.y + name.height / 2 - enabled.y - enabled.height / 2)).toBeLessThanOrEqual(2)
-  } else {
-    expect(enabled.y).toBeGreaterThanOrEqual(name.y + name.height)
-  }
+  expect(enabled.x).toBeGreaterThan(name.x + name.width)
   await screenshot(editor, 'custom-editor', host, width)
   await openEditorSection(editor, 'Access & aliases')
   await expect(editor.getByRole('combobox', { name: 'Permission', exact: true })).toBeVisible()

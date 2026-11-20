@@ -32,12 +32,6 @@ async function gridColumns(grid: Locator, childSelector: string) {
   })
 }
 
-function expectedColumns(viewportWidth: number, contentWidth: number, wideThreshold: number) {
-  if (viewportWidth <= 760) return 1
-  if (contentWidth >= wideThreshold - 1) return wideThreshold === 1000 ? 4 : 3
-  return contentWidth >= 480 - 1 ? 2 : 1
-}
-
 async function expectNoHorizontalOverflow(page: Page) {
   const failures = await page.evaluate(() => {
     const visible = (element: Element) => {
@@ -113,8 +107,8 @@ for (const viewport of viewports) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
     await page.goto(`/tests/fixture.html?${viewport.query}`)
 
-    const contentWidth = await expectContentAligned(page)
     await expect(page.getByRole('article', { name: 'Bot session' }).getByRole('heading')).toHaveText(viewport.dashboardStatus)
+    const contentWidth = await expectContentAligned(page)
     expect(await gridColumns(page.locator('.dashboard-panels'), ':scope > article')).toBe(contentWidth <= 620 ? 1 : 2)
     await expectNoHorizontalOverflow(page)
     if ([900, 1440, 2560].includes(viewport.width)) {
@@ -160,7 +154,7 @@ test('two-field settings respond to page content width across the desktop and to
   await page.goto('/tests/fixture.html?configured&cachedToken')
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Settings', exact: true }).click()
   const twitch = page.locator('#twitch-settings')
-  await twitch.locator(':scope > .accordion-header .accordion-caret').click()
+  await twitch.locator('.accordion-caret').click()
   await expect(twitch.locator('.twitch-field-pair').first()).toBeVisible()
 
   for (const width of [1180, 900, 761, 760, 390]) {
@@ -259,7 +253,7 @@ test('the side menu scrolls independently in a short viewport and keyboard help 
   await nav.getByRole('button', { name: 'AI behavior', exact: true }).click()
   await expect.poll(() => page.evaluate(() => Reflect.get(window, 'lastNavigationScroll'))).toBe('ai-behavior')
   const card = await openAIBehaviorSection(page, 'Profile instructions')
-  const help = card.getByRole('button', { name: 'Help: Profile instructions', exact: true })
+  const help = card.getByRole('button', { name: 'Help: Which prompts use this', exact: true })
   await help.focus()
   const tooltip = page.getByRole('tooltip')
   await expect(tooltip).toBeVisible()
@@ -302,8 +296,9 @@ for (const width of [1440, 1180, 900, 390, 320]) {
     const language = page.locator('#ai-language')
     await selectOption(language.getByLabel('Response language mode'), 'limited')
     await expect(language.locator('.ai-editor-footer')).toContainText('Unsaved draft')
-    await language.getByRole('button', { name: 'Help: AI response language' }).focus()
-    await expect(page.getByRole('tooltip')).toContainText('Prompt guidance cannot perfectly guarantee')
+    await language.getByRole('button', { name: 'Help: How languages are chosen' }).focus()
+    await expect(page.getByRole('tooltip')).toContainText('Prompt guidance cannot guarantee a response language')
+    await expect(page.getByRole('tooltip')).toContainText('saved fallback')
     await page.keyboard.press('Escape')
 
     await closeAIBehavior(page)
@@ -325,11 +320,12 @@ for (const width of [1440, 1180, 900, 390, 320]) {
         if (index) expect(boxes[index - 1].x + boxes[index - 1].width).toBeLessThanOrEqual(boxes[index].x)
       }
       const inputBox = (await input.boundingBox())!
-      expect(Math.abs(inputBox.height - boxes[0].height)).toBeLessThanOrEqual(1)
-      expect(Math.abs(inputBox.y - boxes[0].y)).toBeLessThanOrEqual(1)
+      expect(inputBox.height).toBeCloseTo(boxes[0].height, 0)
+      expect(inputBox.y).toBeCloseTo(boxes[0].y, 0)
     }
     await expectNoHorizontalOverflow(page)
     if (width === 1180 || width === 320) await row.screenshot({ path: `node_modules/.tmp/ui-gemini-key-${width}.png` })
+    await expect(key.locator('.help-trigger')).toHaveCount(0)
     await expect(input).toHaveValue('synthetic-key-draft')
   })
 }

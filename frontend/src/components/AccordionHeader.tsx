@@ -21,13 +21,11 @@ export default function AccordionHeader({ title, expanded, contentId, onToggle, 
   return (
     <div className="accordion-header">
       <div className="accordion-heading">
-        <span className="accordion-title" id={titleId}>
-          {title}
-          {help && <HelpTip label={helpLabel ?? (typeof title === 'string' ? title : 'Section')}>{help}</HelpTip>}
-        </span>
+        <span className="accordion-title" id={titleId}>{title}</span>
         {metadata}
       </div>
       {badges && <div className="accordion-badges">{badges}</div>}
+      {help && <HelpTip label={helpLabel ?? (typeof title === 'string' ? title : 'Section')}>{help}</HelpTip>}
       <button type="button" className="accordion-trigger" ref={triggerRef}
         aria-expanded={expanded} aria-controls={contentId}
         aria-label={ariaLabel} aria-labelledby={ariaLabel ? undefined : titleId}

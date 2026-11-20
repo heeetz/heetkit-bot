@@ -76,18 +76,32 @@ export default function OptOutManagement({ active }: { active: boolean }) {
 
   return <article className="command-card optout-management" id="optout-management">
     <AccordionHeader ariaLabel="Manage !optout" title="Storage opt-outs" expanded={expanded} contentId="optout-management-content" onToggle={() => setExpanded(!expanded)}
-      helpLabel="!optout management" help="Profile-wide storage privacy. Add erases this account's stored presence, AI history and leaderboard counts and prevents new storage in every channel. This is separate from command access restrictions. Self-service !optout is always available and appears last in public command help. Withdrawal allows future storage without restoring history or replaying old input." />
+      helpLabel="How opt-outs work" help="An opt-out erases this account’s stored presence, AI history, and leaderboard counts across the profile. Withdrawing allows future storage, but does not restore erased history or replay past messages." />
     {expanded && <div className="command-details optout-details" id="optout-management-content">
-      <div className="optout-add-row">
-        <div className="form-field"><div className="custom-field-label"><label htmlFor="optout-username">Twitch username</label><HelpTip label="Add storage opt-out">The server verifies the Twitch account. Adding deletes stored personal history and suppresses future storage across all channels in this profile.</HelpTip></div>
-          <input ref={usernameInput} id="optout-username" disabled={busy} value={username} maxLength={26} autoComplete="off" placeholder="e.g. viewer_name" onChange={(event) => setUsername(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && username.trim() && !busy) { event.preventDefault(); void change('add') } }} /></div>
-        <div className="row-actions"><button className="secondary" disabled={busy || !username} onClick={() => { setUsername(''); usernameInput.current?.focus() }}>Cancel</button><button className="primary" disabled={busy || !username.trim()} onClick={() => void change('add')}>{busy ? 'Working...' : 'Add'}</button></div>
+      <div className="optout-fields">
+        <div className="form-field optout-field">
+          <div className="custom-field-label">
+            <label htmlFor="optout-username">Twitch username</label>
+            <HelpTip label="Verify account">The server must match this username to a verified Twitch account before changing its opt-out.</HelpTip>
+          </div>
+          <input ref={usernameInput} id="optout-username" aria-describedby="optout-add-effect" disabled={busy} value={username} maxLength={26} autoComplete="off" placeholder="e.g. viewer_name" onChange={(event) => setUsername(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && username.trim() && !busy) { event.preventDefault(); void change('add') } }} />
+          <div className="optout-field-footer">
+            <span className="settings-hint" id="optout-add-effect">Adding permanently deletes this account’s stored history and prevents new storage across this profile.</span>
+            <div className="row-actions">
+              <button className="secondary" disabled={busy || !username} onClick={() => { setUsername(''); usernameInput.current?.focus() }}>Cancel</button>
+              <button className="primary" disabled={busy || !username.trim()} onClick={() => void change('add')}>{busy ? 'Working...' : 'Add'}</button>
+            </div>
+          </div>
+        </div>
+        <div className="form-field optout-field">
+          <label htmlFor="optout-search">Search opted-out users</label>
+          <input id="optout-search" type="search" disabled={busy} value={query} placeholder="Stored Twitch username" onChange={(event) => { setQuery(event.target.value); setOffset(0) }} />
+          <div className="row-actions"><button className="secondary" disabled={busy || loading} onClick={() => void load()}>Refresh</button></div>
+        </div>
       </div>
-      <p className="settings-hint">Add erases this user's stored personal history across the profile and prevents future storage.</p>
       {error && <div className="inline-error" role="alert"><span>{error}</span><button className="secondary" disabled={busy || loading} onClick={() => void load()}>Retry list</button></div>}
       {notice && <p role="status">{notice}</p>}
       <h3>Opted-out users</h3>
-      <div className="restriction-toolbar"><div className="form-field"><label htmlFor="optout-search">Search opted-out users</label><input id="optout-search" type="search" disabled={busy} value={query} placeholder="Stored Twitch username" onChange={(event) => { setQuery(event.target.value); setOffset(0) }} /></div><button className="secondary" disabled={busy || loading} onClick={() => void load()}>Refresh</button></div>
       {loading && <p role="status">Loading opted-out users...</p>}
       {loaded && users.length > 0 && <div className="optout-table-wrap"><table className="optout-table"><thead><tr><th scope="col">#</th><th scope="col">Twitch username</th><th scope="col">Opt-out date (local time)</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead><tbody>{users.map((user, index) => <tr key={user.twitch_user_id}>
         <td>{offset + index + 1}</td><td>{user.username ?? <span className="muted">Username unavailable</span>}</td><td>{user.opted_out_at ? <time dateTime={user.opted_out_at}>{new Date(user.opted_out_at).toLocaleString()}</time> : <span className="muted">Historical date unknown</span>}</td>

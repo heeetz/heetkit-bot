@@ -42,7 +42,7 @@ const STATUS_LABELS = {
   cancelled: 'Cancelled',
 }
 
-export default function AIPlayground({ active, personality, hasDrafts = false }: { active: boolean; personality: string; hasDrafts?: boolean }) {
+export default function AIPlayground({ active, hasDrafts = false }: { active: boolean; hasDrafts?: boolean }) {
   const [prompt, setPrompt] = useState('')
   const [pending, setPending] = useState(false)
   const [cancelling, setCancelling] = useState(false)
@@ -174,7 +174,7 @@ export default function AIPlayground({ active, personality, hasDrafts = false }:
         {pending && <p>{cancelling ? 'Cancelling…' : STATUS_LABELS.pending}</p>}
         {result?.status && <>
           <strong>{result.status === 'attribution_unavailable' && result.generation?.provider === 'Google Gemini'
-            ? 'Answer withheld because required search attribution is unavailable.'
+            ? 'Answer withheld because this Playground cannot display the required Google Search Suggestions.'
             : STATUS_LABELS[result.status]}</strong>
           {result.generation && <p className="setting-effect">
             Provider: {result.generation.provider} · Model: {result.generation.model}

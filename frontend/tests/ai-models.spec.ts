@@ -26,8 +26,8 @@ for (const width of [1280, 390]) {
     await selectOption(models.getByLabel('Primary provider'), 'openai')
     await expect(models.getByLabel('Primary model choices')).toHaveAttribute('data-value', 'gpt-6-luna')
     await selectOption(models.getByLabel('Primary thinking'), 'none')
-    await models.getByLabel('Primary internet search', { exact: true }).press('Space')
-    await expect(models.getByRole('button', { name: /Help: About (search|model discovery|character limits)/ })).toHaveCount(0)
+    const search = models.getByLabel('Primary internet search', { exact: true })
+    await search.press('Space')
     await models.getByRole('button', { name: 'Discover primary models' }).click()
     await expect(models).toContainText('Models discovered')
     await selectOption(models.getByLabel('Primary provider'), 'deepseek')
@@ -56,6 +56,20 @@ for (const width of [1280, 390, 320]) {
     await expect(models.getByRole('heading', { name: 'Providers', exact: true })).toBeVisible()
     await expect(models.getByRole('heading', { name: 'Models', exact: true })).toBeVisible()
     await expect(models.getByLabel('Fallback model choices')).toBeVisible()
+    await expect(models.getByRole('button', { name: /Help: About (search|model discovery|character limits)/ })).toHaveCount(0)
+    if (width === 1280) {
+      for (const slot of ['Primary', 'Fallback']) {
+        const manual = await models.locator('.ai-model-card').nth(slot === 'Primary' ? 0 : 1).locator('.ai-manual-model input').boundingBox()
+        const discover = await models.getByRole('button', { name: `Discover ${slot.toLowerCase()} models` }).boundingBox()
+        expect(Math.abs(discover!.y - manual!.y)).toBeLessThanOrEqual(2)
+        expect(discover!.x).toBeLessThan(manual!.x)
+      }
+      const [title, toggle] = await Promise.all([
+        models.locator('.ai-model-card:nth-child(2) .ai-section-title').boundingBox(),
+        models.locator('.ai-model-card:nth-child(2) .switch-control').filter({ hasText: 'Enable fallback' }).boundingBox(),
+      ])
+      expect(toggle!.x + toggle!.width).toBeCloseTo(title!.x + title!.width, 0)
+    }
     await selectOption(models.getByLabel('Primary provider'), 'deepseek')
     await selectOption(models.getByLabel('Primary thinking'), 'max')
     await models.getByLabel('Primary internet search', { exact: true }).press('Space')
@@ -63,7 +77,8 @@ for (const width of [1280, 390, 320]) {
     const instructions = await openAIBehaviorSection(page, 'Shared instructions')
     await instructions.getByLabel('Shared AI instructions', { exact: true }).fill('Owner edited shared instructions')
     await instructions.getByRole('button', { name: 'Save instructions', exact: true }).click()
-    await expect(instructions).toContainText('These instructions apply to every AI reply in this profile.')
+    await expect(instructions.getByRole('button', { name: 'Help: Available placeholders', exact: true })).toBeVisible()
+    await expect(instructions).toContainText('Applies to every AI reply in this profile. Saving an empty field removes these instructions.')
     await expect(instructions).not.toContainText('Local request and full-output checks remain enabled')
     await expect(instructions.getByRole('status')).toContainText('Shared instructions saved')
     await closeAIBehavior(page)
@@ -177,8 +192,9 @@ for (const width of [1280, 390, 320]) {
     await expect(models.locator('.ai-connection-row').first()).not.toContainText('credential_store')
     await expect(models.locator('.ai-connection-row').first()).not.toContainText('secret-file')
     await models.getByLabel('Primary internet search', { exact: true }).press('Space')
-    await expect(models).toContainText('Gemini search answers are withheld in Twitch and Playground.')
-    await expect(models.getByRole('button', { name: /Help: About (search|model discovery|character limits)/ })).toHaveCount(0)
+    const warning = models.getByRole('alert').filter({ hasText: 'Gemini search answers are withheld in Twitch and Playground.' })
+    await expect(warning).toBeVisible()
+    await expect(warning).toContainText('Google Search Suggestions')
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
   })
 }
@@ -291,9 +307,9 @@ test('shared instructions and model drafts save and cancel independently', async
   await instructions.getByLabel('Shared AI instructions', { exact: true }).fill('Keep instruction draft')
   await instructions.getByRole('button', { name: 'Cancel instruction edits', exact: true }).click()
   await expect(instructions.getByLabel('Shared AI instructions', { exact: true })).toHaveValue('Saved shared text')
-  const help = instructions.getByRole('button', { name: 'Help: Shared instructions', exact: true })
+  const help = instructions.getByRole('button', { name: 'Help: Available placeholders', exact: true })
   await help.press('Enter')
-  await expect(page.getByRole('tooltip')).toContainText('Placeholders')
+  await expect(page.getByRole('tooltip')).toContainText('{current_datetime}')
   await help.press('Escape')
   await expect(page.getByRole('tooltip')).toHaveCount(0)
 })

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { ChatReaction, CommandInfo, CustomCommandInfo } from '../bridge'
 import { Select } from './Select'
 import Switch from './Switch'
-import { commandEditorCopy as copy } from '../i18n/commands.en'
+import { builtInCommandDescriptions, commandEditorCopy as copy } from '../i18n/commands.en'
 
 export type CommandEntry =
   | { type: 'builtin'; item: CommandInfo }
@@ -21,17 +21,32 @@ function summarize(entry: CommandEntry, prefix: string) {
   if (entry.type === 'reaction') {
     const rule = entry.item
     return { id: rule.id, name: rule.text, sortName: rule.text, detail: rule.match_mode === 'exact' ? 'Exact match' : 'Contains',
-      response: rule.responses[0], access: '', enabled: rule.enabled, order: rule.creation_order ?? 0 }
+      response: rule.responses[0], description: undefined, access: '', enabled: rule.enabled, order: rule.creation_order ?? 0 }
   }
   const command = entry.item
   const builtin = entry.type === 'builtin' ? entry.item : null
   const primary = builtin?.primary_name ?? command.name
   const name = prefix + primary
+  const description = builtin
+    ? Object.hasOwn(builtInCommandDescriptions, command.name)
+      ? builtInCommandDescriptions[command.name]
+      : builtin.description || builtin.help_text
+    : undefined
+  const response = entry.type === 'custom'
+    ? entry.item.responses[0]
+    : entry.type === 'builtin'
+      ? entry.item.response_pool?.responses[0]
+      : undefined
   return {
     id: entry.type === 'custom' ? entry.item.id : command.name,
     name, sortName: primary,
     detail: [builtin?.display_name, builtin?.hidden ? 'Administrative' : '', ...command.aliases.map((alias) => prefix + alias)].filter(Boolean).join(' · '),
-    response: entry.type === 'custom' ? entry.item.responses[0] : entry.item.response_pool?.responses[0] || entry.item.description || entry.item.help_text,
+    response,
+    description: description === undefined
+      ? undefined
+      : command.name === 'weather'
+        ? `${description} Try ${name} London.`
+        : description,
     access: roleLabels[command.permission] ?? command.permission,
     enabled: command.enabled && !builtin?.removed,
     order: entry.type === 'custom' ? entry.item.creation_order ?? 0 : 0,
@@ -58,7 +73,7 @@ export default function CommandList({ entries, prefix, busy, canCreateCommand, c
   const visible = entries.map((entry) => ({ entry, ...summarize(entry, prefix) }))
     .filter((row) => (status === 'all' || row.enabled === (status === 'active'))
       && (type === 'all' || row.entry.type === type)
-      && [row.name, row.detail, row.response].some((value) => value?.toLocaleLowerCase().includes(search)))
+      && [row.name, row.detail, row.response, row.description].some((value) => value?.toLocaleLowerCase().includes(search)))
     .sort((left, right) => (sort === 'newest' ? right.order - left.order : left.sortName.localeCompare(right.sortName))
       || left.entry.type.localeCompare(right.entry.type) || left.id.localeCompare(right.id))
 
@@ -85,7 +100,7 @@ export default function CommandList({ entries, prefix, busy, canCreateCommand, c
         <colgroup><col className="command-state-column" /><col className="command-name-column" /><col className="command-type-column" /><col /><col className="command-access-column" /><col className="command-action-column" /></colgroup>
         <thead role="rowgroup"><tr role="row">
           <th scope="col" role="columnheader">Enabled</th><th scope="col" role="columnheader">Name / Match</th>
-          <th scope="col" role="columnheader">Type</th><th scope="col" role="columnheader">Response / Description</th>
+          <th scope="col" role="columnheader">Type</th><th scope="col" role="columnheader">Response and purpose</th>
           <th scope="col" role="columnheader">Access</th><th scope="col" role="columnheader"><span className="sr-only">Actions</span></th>
         </tr></thead>
         <tbody role="rowgroup">{visible.map(({ entry, ...row }) => <tr role="row" key={`${entry.type}:${row.id}`}>
@@ -96,7 +111,9 @@ export default function CommandList({ entries, prefix, busy, canCreateCommand, c
           </th>
           <td role="cell" className="command-list-type"><span className={`command-type-label type-${entry.type}`}>{types[entry.type]}</span></td>
           <td role="cell" className="command-list-response">
-            {row.response && <span title={row.response}>{row.response}</span>}{row.unavailable && <small title={row.unavailable}>Unavailable</small>}
+            {row.response && <span title={row.response}>{row.response}</span>}
+            {row.description && <small className="command-list-description">{row.description}</small>}
+            {row.unavailable && <small title={row.unavailable}>Unavailable</small>}
           </td>
           <td role="cell" className="command-list-access">{row.access || <span aria-label="No role restriction">—</span>}</td>
           <td role="cell" className="command-list-actions">

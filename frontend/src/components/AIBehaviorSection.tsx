@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react'
 import HelpTip from './HelpTip'
 
-export default function AIBehaviorSection({ id, title, description, badges, className = '', footer, children }: {
+export default function AIBehaviorSection({ id, title, helpLabel, description, badges, className = '', footer, children }: {
   id: string
   title: string
+  helpLabel: string
   description: string
   badges?: ReactNode
   className?: string
@@ -13,7 +14,7 @@ export default function AIBehaviorSection({ id, title, description, badges, clas
   return <div id={id} className={`ai-behavior-section ${className}`.trim()}>
     <div className="ai-behavior-fields">
       <div className="ai-behavior-section-heading">
-        <div><h3>{title}</h3><HelpTip label={title}>{description}</HelpTip></div>
+        <div><h3>{title}</h3><HelpTip label={helpLabel}>{description}</HelpTip></div>
         {badges}
       </div>
       {children}
