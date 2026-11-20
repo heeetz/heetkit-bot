@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from typing import Callable
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
@@ -18,6 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 QUICK_GROUPS = ("python", "frontend", "inputs")
 PLAN_FLAGS = (*QUICK_GROUPS, "server", "distribution", "orchestration")
 COMPARED = ("whole-push diff", "pull request diff", "branch diff from main")
+QUICK_WORKFLOW = ".github/workflows/quick.yml"
+VERIFIED = "already verified"
 BROWSER_SHARDS = 3  # complete browser suite, split across parallel Windows jobs
 BROWSER_TEST = re.compile(r".+\.(?:spec|test)\.[cm]?[jt]sx?$")
 SERVER_TEST = "tests/browser-server.spec.ts"
@@ -173,11 +176,61 @@ def event_base(event: str, ref: str, payload: dict, sha: str, *, root: Path = RO
     raise ValueError("Quick accepts only main pushes, pull requests to main and manual branch runs")
 
 
+def github_api(path: str) -> object:
+    """Read one repository API resource with the workflow token."""
+    base = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+    request = Request(f"{base}/repos/{os.environ['GITHUB_REPOSITORY']}/{path}",
+                      headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                               "Accept": "application/vnd.github+json"})
+    with urlopen(request, timeout=15) as response:
+        return json.load(response)
+
+
+def verified_merge(before: str, sha: str, *, root: Path = ROOT, api: Callable[[str], object] = github_api) -> str:
+    """Explain why a main push needs no new Quick run, or return "" to run the selected checks.
+
+    A squash or merge commit is already verified when its file tree is identical to the head of
+    the merged pull request, that head already contained the previous main commit, and Quick
+    passed on that head. Any missing evidence or lookup failure keeps the normal selection.
+    """
+    hexsha = re.compile(r"[0-9a-f]{40}")
+    if not (hexsha.fullmatch(before or "") and hexsha.fullmatch(sha)) or before == "0" * 40:
+        return ""
+
+    def git(*args: str) -> str:
+        return subprocess.check_output(["git", *args], cwd=root, stderr=subprocess.DEVNULL, text=True).strip()
+
+    try:
+        pulls = api(f"commits/{sha}/pulls")
+        pull = next(item for item in pulls if isinstance(item, dict) and item.get("merged_at")
+                    and item.get("merge_commit_sha") == sha and item.get("base", {}).get("ref") == "main")
+        head = pull["head"]["sha"]
+        if not hexsha.fullmatch(head):
+            return ""
+        try:
+            git("cat-file", "-e", f"{head}^{{commit}}")
+        except subprocess.CalledProcessError:
+            git("fetch", "--no-tags", "--quiet", "origin", head)
+        if git("rev-parse", f"{sha}^{{tree}}") != git("rev-parse", f"{head}^{{tree}}"):
+            return ""
+        git("merge-base", "--is-ancestor", before, head)
+        runs = api(f"actions/runs?head_sha={head}&event=pull_request&status=success&per_page=100")
+        run = next(item for item in runs["workflow_runs"] if str(item.get("path", "")).startswith(QUICK_WORKFLOW)
+                   and item.get("conclusion") == "success")
+    except (StopIteration, KeyError, TypeError, ValueError, OSError, URLError,
+            subprocess.CalledProcessError):
+        return ""
+    return (f"{VERIFIED}: identical file tree to pull request #{pull.get('number')} head `{head}`, "
+            f"which already contained the previous main commit and passed Quick ({run.get('html_url', 'run')})")
+
+
 def plan_event(event: str, ref: str, before: str, sha: str, *, root: Path = ROOT, payload: dict | None = None,
-               complete: bool = False) -> tuple[QuickPlan, list[str], str]:
+               complete: bool = False, verify: Callable[[str, str], str] | None = None) -> tuple[QuickPlan, list[str], str]:
     if payload is None:
         payload = {"before": before}
     base, label = event_base(event, ref, payload, sha, root=root)
+    if event == "push" and not complete and verify and (reason := verify(base, sha)):
+        return QuickPlan(), [], reason
     if complete:
         paths, _ = changed_paths("", sha, root=root)
         plan = QuickPlan()
@@ -304,7 +357,8 @@ def main() -> int:
         complete = os.environ.get("QUICK_COMPLETE", "").lower() == "true"
         plan, paths, reason = plan_event(os.environ["GITHUB_EVENT_NAME"], os.environ["GITHUB_REF"],
                                          event.get("before", ""), os.environ["GITHUB_SHA"], payload=event,
-                                         complete=complete)
+                                         complete=complete,
+                                         verify=verified_merge if os.environ.get("GH_TOKEN") else None)
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
             for name, value in plan.outputs().items():
                 stream.write(f"{name}={value}\n")
@@ -312,7 +366,8 @@ def main() -> int:
         summary("\nPaths from the comparison or fallback inventory:\n\n~~~text\n" +
                 ("\n".join(json.dumps(path) for path in paths) or "(empty comparison)") + "\n~~~")
         for name, reasons in plan.reasons.items():
-            details = "; ".join(sorted(reasons)) if reasons else "no applicable changes" if paths else "empty comparison"
+            details = ("; ".join(sorted(reasons)) if reasons else "no applicable changes" if paths
+                       else VERIFIED if reason.startswith(VERIFIED) else "empty comparison")
             summary(f"- {name}: {'run' if reasons else 'skip'} ({details})")
         if plan.reasons["frontend"]:
             summary("- Browser files: " + ("complete suite" if plan.all_browser else ", ".join(sorted(plan.browser_files)))

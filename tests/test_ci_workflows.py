@@ -221,6 +221,91 @@ def test_no_moving_ref_is_accepted_by_diff():
         ci_checks.changed_paths("a" * 40, "main")
 
 
+def _merged_repo(tmp_path, *, branch_has_main=True, same_tree=True):
+    def git(*args):
+        return subprocess.check_output(["git", "-c", "user.email=ci@example.invalid", "-c", "user.name=CI",
+                                        *args], cwd=tmp_path, text=True).strip()
+
+    git("init", "-q", "-b", "main")
+    (tmp_path / "README.md").write_text("base\n", encoding="utf-8")
+    git("add", ".")
+    git("commit", "-qm", "base")
+    base = git("rev-parse", "HEAD")
+    git("switch", "-qc", "task")
+    (tmp_path / "app.py").write_text("# feature\n", encoding="utf-8")
+    git("add", ".")
+    git("commit", "-qm", "feature")
+    git("switch", "-q", "main")
+    if not branch_has_main:
+        (tmp_path / "other.py").write_text("# other\n", encoding="utf-8")
+        git("add", ".")
+        git("commit", "-qm", "other main change")
+    before = git("rev-parse", "HEAD")
+    git("merge", "-q", "--squash", "task")
+    if not same_tree:
+        (tmp_path / "extra.py").write_text("# merge-time edit\n", encoding="utf-8")
+        git("add", ".")
+    git("commit", "-qm", "squash")
+    return base, before, git("rev-parse", "HEAD"), git("rev-parse", "task")
+
+
+def _api(sha, head, *, conclusion="success", path=ci_checks.QUICK_WORKFLOW, merged=True):
+    calls = []
+
+    def api(resource):
+        calls.append(resource)
+        if resource.startswith("commits/"):
+            return [{"number": 7, "merged_at": "2026-11-20T00:00:00Z" if merged else None,
+                     "merge_commit_sha": sha, "base": {"ref": "main"}, "head": {"sha": head}}]
+        assert f"head_sha={head}" in resource and "event=pull_request" in resource
+        return {"workflow_runs": [{"path": path, "conclusion": conclusion, "html_url": "https://example.invalid/run/1"}]}
+    return api, calls
+
+
+def test_main_push_reuses_quick_of_identical_merged_pull_request(tmp_path):
+    _, before, sha, head = _merged_repo(tmp_path)
+    api, _ = _api(sha, head)
+    reason = ci_checks.verified_merge(before, sha, root=tmp_path, api=api)
+    assert reason.startswith(ci_checks.VERIFIED) and "#7" in reason and head in reason
+    plan, paths, reported = ci_checks.plan_event(
+        "push", "refs/heads/main", before, sha, root=tmp_path,
+        verify=lambda b, s: ci_checks.verified_merge(b, s, root=tmp_path, api=api))
+    assert paths == [] and reported == reason
+    assert all(plan.outputs()[name] == "false" for name in ci_checks.QUICK_GROUPS)
+    complete, _, _ = ci_checks.plan_event("push", "refs/heads/main", before, sha, root=tmp_path, complete=True,
+                                          verify=lambda b, s: reason)
+    assert all(complete.outputs()[name] == "true" for name in ci_checks.QUICK_GROUPS)
+
+
+@pytest.mark.parametrize("case", ["main moved", "tree differs", "quick failed", "other workflow", "not merged", "api error"])
+def test_main_push_runs_quick_without_exact_verified_evidence(tmp_path, case):
+    _, before, sha, head = _merged_repo(tmp_path, branch_has_main=case != "main moved", same_tree=case != "tree differs")
+    api, _ = _api(sha, head, conclusion="failure" if case == "quick failed" else "success",
+                  path=".github/workflows/full-validation.yml" if case == "other workflow" else ci_checks.QUICK_WORKFLOW,
+                  merged=case != "not merged")
+    if case == "api error":
+        def api(resource):
+            raise ci_checks.URLError("offline")
+    assert ci_checks.verified_merge(before, sha, root=tmp_path, api=api) == ""
+    plan, paths, reason = ci_checks.plan_event(
+        "push", "refs/heads/main", before, sha, root=tmp_path,
+        verify=lambda b, s: ci_checks.verified_merge(b, s, root=tmp_path, api=api))
+    assert paths and reason == "whole-push diff" and plan.outputs()["python"] == "true"
+
+
+def test_only_main_pushes_look_for_a_verified_merge(tmp_path):
+    base, _, _, head = _merged_repo(tmp_path)
+    calls = []
+    payload = {"pull_request": {"base": {"ref": "main", "sha": base}}}
+    ci_checks.plan_event("pull_request", "refs/pull/7/merge", "", head, root=tmp_path, payload=payload,
+                         verify=lambda b, s: calls.append(s) or "unexpected")
+    ci_checks.plan_event("workflow_dispatch", "refs/heads/task", "", head, root=tmp_path, payload={},
+                         verify=lambda b, s: calls.append(s) or "unexpected")
+    assert calls == []
+    assert ci_checks.verified_merge("0" * 40, head, root=tmp_path, api=lambda r: calls.append(r)) == ""
+    assert calls == []
+
+
 def test_plan_cli_outputs_and_summary(monkeypatch, tmp_path):
     event = tmp_path / "event.json"
     event.write_text(json.dumps({"before": "a" * 40}), encoding="utf-8")
@@ -230,6 +315,7 @@ def test_plan_cli_outputs_and_summary(monkeypatch, tmp_path):
                        "GITHUB_STEP_SUMMARY": str(summary), "GITHUB_EVENT_NAME": "push",
                        "GITHUB_REF": "refs/heads/main", "GITHUB_SHA": "b" * 40}.items():
         monkeypatch.setenv(key, value)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
     monkeypatch.setattr(subprocess, "check_output", lambda *a, **k: b"docs/development.md\0")
     monkeypatch.setattr("sys.argv", ["ci_checks.py", "plan"])
     assert ci_checks.main() == 0
@@ -313,6 +399,9 @@ def test_quick_gate_and_workload_wiring():
     for name in ci_checks.QUICK_GROUPS:
         assert jobs[name]["if"] == f"needs.plan.outputs.{name} == 'true'"
     assert jobs["plan"]["steps"][0]["with"]["fetch-depth"] == "0"
+    assert jobs["plan"]["permissions"] == {"contents": "read", "actions": "read", "pull-requests": "read"}
+    plan_step = next(step for step in jobs["plan"]["steps"] if step.get("id") == "plan")
+    assert plan_step["env"]["GH_TOKEN"] == "${{ github.token }}"
     python = "\n".join(step.get("run", "") for step in jobs["python"]["steps"])
     assert "python -m pytest -q --junitxml" in python and "tests/" not in python
     frontend = "\n".join(step.get("run", "") for step in jobs["frontend"]["steps"])

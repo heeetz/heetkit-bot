@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test'
 
 test('Dashboard shows UTC terminal outcomes and the current stream counts', async ({ page }) => {
   await page.setViewportSize({ width: 1180, height: 760 })
+  // Install before load so the leaderboard poll timer is fake and runFor() reliably fires it.
+  await page.clock.install()
   await page.goto('/tests/fixture.html?configured&authorized&aiAvailable&connection=connected')
   await page.getByRole('navigation').getByRole('button', { name: 'About', exact: true }).click()
   await page.evaluate(() => {
@@ -51,7 +53,6 @@ test('Dashboard shows UTC terminal outcomes and the current stream counts', asyn
   for (const [index, count] of [101, 83, 41].entries()) expect(bars[index]).toBeCloseTo(count / 101 * 100, 3)
 
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.clock.install()
   await page.evaluate(() => Reflect.get(window, 'setDashboardStream')(false, false))
   await page.clock.runFor(5000)
   await expect(activity.getByText('Counting paused', { exact: true })).toBeVisible()

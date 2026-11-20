@@ -30,6 +30,11 @@ jobs:
     # Draft pull requests carry work-in-progress handoffs; mark ready or run manually.
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
+    # Read-only lookups let a main push reuse its merged pull request's passing Quick run.
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     outputs:
       python: ${{ steps.plan.outputs.python }}
       frontend: ${{ steps.plan.outputs.frontend }}
@@ -49,6 +54,7 @@ jobs:
         id: plan
         env:
           QUICK_COMPLETE: ${{ inputs.complete || 'false' }}
+          GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci_checks.py plan
 
   python:
