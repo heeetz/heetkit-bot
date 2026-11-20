@@ -346,7 +346,10 @@ pull requests are skipped; mark one ready or start **Actions > Quick > Run workf
 on its branch, which compares the branch with `main` (or runs everything with
 **complete** checked). Each ref runs in its own concurrency group, so different
 branches never queue behind each other; a newer push to the same ref cancels the
-older run. Backend code and Python tests select the full Python suite. Frontend
+older run. A `main` push that only lands an already checked pull request (its file
+tree matches the pull request head, that head already contained the previous `main`,
+and Quick passed on it) reports success without repeating the checks; otherwise the
+push diff is checked as usual. Backend code and Python tests select the full Python suite. Frontend
 changes select a production build and feature tests or the complete Edge suite for
 shared or uncertain changes; larger selections are split across parallel Windows
 jobs. Plain prose selects metadata checks. The selection summary lists the paths,
