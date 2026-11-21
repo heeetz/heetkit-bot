@@ -20,6 +20,15 @@ The rest of this file is the engineering guide. It applies to any change in this
   different results, ask; otherwise pick the likely one and say which.
 - **Smallest working change.** No features, options or abstractions nobody asked for.
   No error handling for impossible states. If 200 lines could be 50, write 50.
+- **Reuse before writing.** Take the first that fits: a helper or component already in
+  the repo, the standard library, an installed dependency, then new code. Never add a
+  dependency for a few lines.
+- **Fix the root cause once.** Before changing a function, find all its callers; fix
+  shared code, not each call site. Moved or merged code keeps its validation and
+  error handling. Never cut validation at trust boundaries, data-loss protection,
+  security or accessibility to make a diff smaller.
+- **Mark known limits.** A deliberate shortcut gets one comment:
+  `shortcut: <limit>, <when to upgrade>`. Otherwise comment only the why.
 - **Surgical diffs.** Every changed line traces to the task. Do not reformat or
   "improve" neighbouring code. Match the local style. Mention unrelated dead code,
   do not delete it. Remove only what your change made unused.
