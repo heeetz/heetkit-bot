@@ -39,16 +39,13 @@ export function InterfaceLanguageField({ id = 'interface-language' }: { id?: str
   </div>
 }
 
-/** Settings card shared by Desktop and Server. */
+/** Slim Settings row shared by Desktop and Server: title and hint on the left, menu on the right. */
 export function InterfaceLanguageSettings({ server = false }: { server?: boolean }) {
   const text = useCatalog(shell).language
-  return <section className="card settings-page" id="interface-settings" aria-labelledby="interface-settings-heading">
-    <div className="section-heading">
-      <div>
-        <h2 id="interface-settings-heading">{text.label}</h2>
-        <p className="section-copy">{text.hint} {server ? text.serverSaved : text.desktopSaved}</p>
-      </div>
-      <span className="mini-badge saved-badge">{text.autoSaved}</span>
+  return <section className="card settings-page interface-language-card" id="interface-settings" aria-labelledby="interface-settings-heading">
+    <div className="interface-language-copy">
+      <h2 id="interface-settings-heading">{text.label}</h2>
+      <p className="section-copy">{text.hint} {server ? text.serverSaved : text.desktopSaved}</p>
     </div>
     <InterfaceLanguageField />
   </section>

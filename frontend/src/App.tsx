@@ -48,7 +48,7 @@ const subsections: Partial<Record<Section, SubsectionId[]>> = {
   Commands: ['command-list', 'announcements', 'command-restrictions', 'optout-management', 'advanced-command-reset'],
   AI: ['ai-models', 'ai-behavior', 'ai-playground'],
   Analytics: ['analytics-trends', 'analytics-chatters', 'analytics-breakdown', 'analytics-collection'],
-  Settings: ['desktop-settings', 'interface-settings', 'twitch-settings', 'configuration-transfer', 'profile-location-settings'],
+  Settings: ['desktop-settings', 'twitch-settings', 'interface-settings', 'configuration-transfer', 'profile-location-settings'],
 }
 
 interface DashboardSetup {

@@ -40,7 +40,6 @@ export const shell = defineCatalog({
       hint: 'Changes only the HeetKit interface. Bot replies in chat keep their own language settings.',
       desktopSaved: 'Saved on this computer.',
       serverSaved: 'Saved in this browser.',
-      autoSaved: 'Auto-saved',
     },
     session: {
       bar: 'Server management',
@@ -137,7 +136,6 @@ export const shell = defineCatalog({
       hint: 'Змінює лише інтерфейс HeetKit. Мова відповідей бота в чаті налаштовується окремо.',
       desktopSaved: 'Зберігається на цьому комп\'ютері.',
       serverSaved: 'Зберігається в цьому браузері.',
-      autoSaved: 'Автозбереження',
     },
     session: {
       bar: 'Керування сервером',
@@ -234,7 +232,6 @@ export const shell = defineCatalog({
       hint: 'Меняет только интерфейс HeetKit. Язык ответов бота в чате настраивается отдельно.',
       desktopSaved: 'Сохраняется на этом компьютере.',
       serverSaved: 'Сохраняется в этом браузере.',
-      autoSaved: 'Автосохранение',
     },
     session: {
       bar: 'Управление сервером',

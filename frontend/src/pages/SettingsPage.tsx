@@ -283,7 +283,6 @@ function ServerSettings({ active, status }: { active: boolean; status: AppStatus
 
   return <div className="settings-layout">
     <FeedbackToast error={error} notice={notice} onDismiss={() => { setError(''); setNotice('') }} />
-    <InterfaceLanguageSettings server />
     <Accordion id="twitch-settings" title={tw.title} helpLabel={tw.helpLabel} description={<ul>{tw.serverHelp.map((item) => <li key={item}>{item}</li>)}</ul>} className="settings-page server-settings-page">
       {!setup ? <><p className="muted">{text.loading}</p>{error && <button className="secondary" onClick={() => setRetry((current) => current + 1)}>{text.retry}</button>}</> : <div className="settings-list twitch-settings-list">
         <section className="twitch-connection-summary" aria-label={tw.statusLabel}>
@@ -357,6 +356,7 @@ function ServerSettings({ active, status }: { active: boolean; status: AppStatus
 
       </div>}
     </Accordion>
+    <InterfaceLanguageSettings server />
     <div className="settings-transfer-bottom"><ConfigurationTransfer /></div>
   </div>
 }
@@ -876,7 +876,6 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
           </div>
         )}
       </section>
-      <InterfaceLanguageSettings />
       <Accordion
         id="twitch-settings"
         title={tw.title}
@@ -982,6 +981,7 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
         )}
       </Accordion>
 
+      <InterfaceLanguageSettings />
       <div className="settings-transfer-bottom"><ConfigurationTransfer /></div>
 
       <section className="card settings-page" id="profile-location-settings" aria-labelledby="profile-location-heading">
