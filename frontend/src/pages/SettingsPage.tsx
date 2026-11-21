@@ -901,12 +901,10 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
                 <label className="form-field">
                   <span>{tw.botLogin}</span>
                   <input value={twitchDraft.bot_username} disabled={Boolean(busy)} onChange={(event) => updateTwitchDraft({ bot_username: event.target.value })} placeholder="bot_name" />
-                  <small>{tw.botLoginHint}</small>
                 </label>
                 <label className="form-field">
                   <span>{tw.botUserId}</span>
                   <input inputMode="numeric" value={twitchDraft.bot_user_id} disabled={Boolean(busy)} onChange={(event) => updateTwitchDraft({ bot_user_id: event.target.value })} placeholder="123456789" />
-                  <small>{tw.botUserIdHint}</small>
                 </label>
               </div>
             </section>
@@ -921,8 +919,8 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
                     <button className="ghost destructive" aria-label={tw.deleteSavedChannel} disabled={Boolean(busy) || !twitchDraft.selected_preset_id} onClick={() => void deleteTwitchPreset()}>{busy === 'twitch:preset-delete' ? tw.deletingDots : common.delete}</button>
                   </div>
                 </div>
-                <label className="form-field target-channel-login">{tw.targetLogin}<input value={twitchDraft.target_channel} disabled={Boolean(busy)} onChange={(event) => updateTwitchDraft({ target_channel: event.target.value })} placeholder="channel_name" /><small>{tw.targetLoginHint}</small></label>
-                <label className="form-field target-channel-id">{tw.targetUserId}<input inputMode="numeric" value={twitchDraft.target_channel_user_id} disabled={Boolean(busy)} onChange={(event) => updateTwitchDraft({ target_channel_user_id: event.target.value })} placeholder="123456789" /><small>{tw.targetUserIdHint}</small></label>
+                <label className="form-field target-channel-login">{tw.targetLogin}<input value={twitchDraft.target_channel} disabled={Boolean(busy)} onChange={(event) => updateTwitchDraft({ target_channel: event.target.value })} placeholder="channel_name" /></label>
+                <label className="form-field target-channel-id">{tw.targetUserId}<input inputMode="numeric" value={twitchDraft.target_channel_user_id} disabled={Boolean(busy)} onChange={(event) => updateTwitchDraft({ target_channel_user_id: event.target.value })} placeholder="123456789" /></label>
               </div>
               <p className="target-channel-state"><span>{tw.activeChannel}</span><strong>{twitchDraft.active_channel || common.notConfigured}</strong>{draftRequiresReconnect && <><span>{tw.draftTarget}</span><strong>{twitchDraft.target_channel || common.notConfigured}</strong></>}</p>
             </section>

@@ -532,6 +532,7 @@ td { color: var(--text); }
 .ai-playground .form-field { margin: 16px 0; }
 .ai-playground .form-field textarea { min-height: 120px; }
 .playground-result { overflow-wrap: anywhere; margin-top: 16px; }
+.playground-result:empty { margin-top: 0; }
 .playground-response { white-space: pre-wrap; }
 .profile-instructions-editor { min-height: 0; }
 .protected-instructions-card { min-height: 0; padding: 0; overflow: hidden; }
@@ -600,7 +601,7 @@ td { color: var(--text); }
   .filters-intro { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .filters-intro-actions { border-inline-start: 0; border-block-start: 1px solid var(--separator); padding: 12px 0 0; }
 }
-.filter-test-footer { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); margin-top: 16px; }
+.filter-test-footer { display: flex; align-items: flex-end; justify-content: flex-end; gap: var(--space-4); margin-top: 16px; }
 .filter-test-footer button { flex: 0 0 auto; }
 .filter-test-error { margin-top: 16px; padding: 13px 14px; border: 1px solid #7e3445; border-radius: 10px; color: var(--error); background: #321721; line-height: 1.45; }
 .filter-test-result { display: grid; gap: 12px; margin-top: 16px; padding: 16px; border: 1px solid #286849; border-radius: 10px; background: #122c22; }
