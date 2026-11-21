@@ -17,9 +17,6 @@ from app.runtime_paths import RuntimePaths
 logger = logging.getLogger(__name__)
 
 CREDENTIAL_SERVICE_NAME = "heetkit"
-# Legacy compatibility only; retain originals as rollback credentials.
-LEGACY_CREDENTIAL_SERVICE_NAME = "twitch-bot"
-_MIGRATION_ENTRY_PREFIX = "legacy_migration_v1:"
 GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 DEEPSEEK_MODELS_URL = "https://api.deepseek.com/models"
 OPENAI_MODELS_URL = "https://api.openai.com/v1/models"
@@ -69,7 +66,7 @@ class CredentialStatus:
 class CredentialStore:
     """Small wrapper around the operating system credential backend."""
 
-    def __init__(self, backend: KeyringBackend | None = None, *, migrate_legacy: bool = True) -> None:
+    def __init__(self, backend: KeyringBackend | None = None) -> None:
         # Headless reuses validation without requiring the optional desktop backend.
         import keyring
         from keyring.errors import KeyringError, PasswordDeleteError
@@ -78,25 +75,13 @@ class CredentialStore:
         self._backend = backend if backend is not None else keyring
         paths = RuntimePaths.default()
         self._service_name = CREDENTIAL_SERVICE_NAME
-        self._legacy_service_name = LEGACY_CREDENTIAL_SERVICE_NAME
-        self._migrate_legacy = migrate_legacy
         if not paths.is_default_profile:
             identity = sha256(os.path.normcase(str(paths.root.resolve())).encode("utf-8")).hexdigest()
             self._service_name += ":" + identity
-            # An explicitly selected former default root previously used the
-            # unscoped service. All other alternate roots retain their hash.
-            if paths.root.resolve() != paths.former_default_root.resolve():
-                self._legacy_service_name += ":" + identity
 
     def get(self, name: CredentialName) -> str | None:
         try:
             value = self._backend.get_password(self._service_name, name.value)
-            marker = _MIGRATION_ENTRY_PREFIX + name.value
-            if not value and self._migrate_legacy and not self._backend.get_password(self._service_name, marker):
-                value = self._backend.get_password(self._legacy_service_name, name.value)
-                if value:
-                    self._backend.set_password(self._service_name, name.value, value)
-                    self._backend.set_password(self._service_name, marker, "complete")
         except self._keyring_error as error:
             raise CredentialError("Secure credential storage is unavailable.") from error
         return value or None
@@ -104,7 +89,6 @@ class CredentialStore:
     def replace(self, name: CredentialName, value: str) -> None:
         try:
             self._backend.set_password(self._service_name, name.value, value)
-            self._backend.set_password(self._service_name, _MIGRATION_ENTRY_PREFIX + name.value, "complete")
         except self._keyring_error as error:
             raise CredentialError("Could not store the credential securely.") from error
 
@@ -112,9 +96,6 @@ class CredentialStore:
         if self.get(name) is None:
             return False
         try:
-            # Retain a non-secret tombstone so Remove cannot resurrect rollback
-            # credentials on this or a later process launch.
-            self._backend.set_password(self._service_name, _MIGRATION_ENTRY_PREFIX + name.value, "complete")
             self._backend.delete_password(self._service_name, name.value)
         except self._delete_error:
             return False

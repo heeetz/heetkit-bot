@@ -21,7 +21,7 @@ NOW = datetime(2026, 10, 29, tzinfo=timezone.utc)
 
 def test_experimental_v3_resets_only_monthly_leaderboards_and_keeps_exclusions(tmp_path):
     path = tmp_path / "experiment.sqlite3"
-    migrations.initialize_schema(path, 100)
+    migrations.initialize_schema(path)
     with sqlite3.connect(path) as connection:
         connection.execute("ALTER TABLE leaderboard_periods ADD COLUMN zone TEXT")
         connection.execute("DROP TABLE leaderboard_settings")
@@ -33,8 +33,8 @@ def test_experimental_v3_resets_only_monthly_leaderboards_and_keeps_exclusions(t
         for kind, period, zone in (("stream", "123", None), ("month", "2026-11", "Europe/London")):
             connection.execute("INSERT INTO leaderboard_periods VALUES ('200', ?, ?, '2026-11-01', 1, NULL, ?)", (kind, period, zone))
             connection.execute("INSERT INTO leaderboard_counts VALUES ('200', ?, ?, '100', 10)", (kind, period))
-    assert migrations.initialize_schema(path, 100) == {"leaderboards": "experimental months reset to UTC"}
-    assert migrations.initialize_schema(path, 100) is None
+    assert migrations.initialize_schema(path) == {"leaderboards": "experimental months reset to UTC"}
+    assert migrations.initialize_schema(path) is None
     with sqlite3.connect(path) as connection:
         assert connection.execute("SELECT * FROM leaderboard_counts").fetchall() == [("200", "stream", "123", "100", 10)]
         assert connection.execute("SELECT kind, period_id FROM leaderboard_periods").fetchall() == [("stream", "123")]
@@ -49,65 +49,45 @@ def stamp(days=0):
     return (NOW - timedelta(days=days)).replace(tzinfo=None).isoformat(" ")
 
 
-def legacy(path, *, scoped=False, suppression=True):
-    with closing(sqlite3.connect(path)) as connection:
-        extra = "channel_id VARCHAR(32)," if scoped else ""
-        connection.execute(f"CREATE TABLE users (id INTEGER PRIMARY KEY, {extra} twitch_user_id VARCHAR(32), username VARCHAR(64), created_at DATETIME, last_seen_at DATETIME)")
-        connection.execute(f"CREATE TABLE ai_memory_entries (id INTEGER PRIMARY KEY, {extra} twitch_user_id VARCHAR(32), request_text VARCHAR(500), response_text VARCHAR(500), created_at DATETIME)")
-        if suppression:
-            connection.execute("CREATE TABLE privacy_opt_outs (twitch_user_id VARCHAR(32) PRIMARY KEY)")
-            connection.execute("INSERT INTO privacy_opt_outs VALUES ('999')")
-        connection.commit()
-
-
-def map_channel(path, value=OWNER_CHANNEL):
-    (path.parent / "legacy-channel-mapping.json").write_text(json.dumps({"version": 1, "channel_id": value}), encoding="utf-8")
-
-
 def read(path, sql):
     with closing(sqlite3.connect(path)) as connection:
         return connection.execute(sql).fetchall()
 
 
-def seed(path, *, scoped=False):
-    legacy(path, scoped=scoped)
-    users = [(1, "123", "viewer", stamp(120), stamp(1)),
-             (2, "456", "expired", stamp(120), stamp(60)),
-             (3, "999", "suppressed", stamp(2), stamp(1))]
-    ai = [(i, "123", f"question-{i}", f"answer-{i}", stamp(i)) for i in range(1, 5)]
-    ai += [(5, "123", "expired", "answer", stamp(60)), (6, "999", "suppressed", "answer", stamp(1))]
-    if scoped:
-        users = [(row[0], None, *row[1:]) for row in users] + [(4, "222", "123", "other_channel", stamp(20), stamp(1))]
-        ai = [(row[0], None, *row[1:]) for row in ai] + [(7, "222", "123", "scoped", "answer", stamp(1))]
-    with closing(sqlite3.connect(path)) as connection:
-        connection.executemany("INSERT INTO users VALUES (" + ",".join("?" for _ in users[0]) + ")", users)
-        connection.executemany("INSERT INTO ai_memory_entries VALUES (" + ",".join("?" for _ in ai[0]) + ")", ai)
-        connection.commit()
-
-
-def test_schema_two_leaderboard_upgrade_recovers_then_retries(tmp_path):
-    path = tmp_path / "published-schema.db"
-    upgrade_now = datetime.now(timezone.utc)
+def schema_two(path):
     with closing(sqlite3.connect(path)) as connection, connection:
         for statement in migrations.SCHEMA_2_SQL:
             connection.execute(statement)
         connection.execute("PRAGMA user_version=2")
         connection.execute("INSERT INTO schema_metadata VALUES ('schema_version', '2')")
-        connection.execute("INSERT INTO users VALUES (1, '111', '123', 'viewer', ?, ?)", (stamp(), stamp()))
-        connection.execute("INSERT INTO ai_memory_entries VALUES (1, '111', '123', 'prompt', 'reply', ?)", (stamp(),))
+
+
+def seed(path):
+    schema_two(path)
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("INSERT INTO users VALUES (1, ?, '123', 'viewer', ?, ?)", (OWNER_CHANNEL, stamp(), stamp()))
+        connection.execute("INSERT INTO ai_memory_entries VALUES (1, ?, '123', 'prompt', 'reply', ?)", (OWNER_CHANNEL, stamp()))
         connection.execute("INSERT INTO privacy_opt_outs VALUES ('777', 'suppressed', ?)", (stamp(),))
+
+
+def test_schema_two_leaderboard_upgrade_recovers_then_retries(tmp_path):
+    path = tmp_path / "published-schema.db"
+    upgrade_now = datetime.now(timezone.utc)
+    seed(path)
 
     def interrupt(connection):
         assert connection.execute("SELECT count(*) FROM leaderboard_counts").fetchone() == (0,)
         raise RuntimeError("Synthetic interruption")
 
     with pytest.raises(RuntimeError, match="Synthetic interruption"):
-        migrations.initialize_schema(path, 100, now=upgrade_now, before_commit=interrupt)
+        migrations.initialize_schema(path, now=upgrade_now, before_commit=interrupt)
     assert read(path, "PRAGMA user_version") == [(2,)]
     _, backup, manifest = migrations._recovery_paths(path, version=2)
     assert json.loads(manifest.read_text())["sha256"] == hashlib.sha256(backup.read_bytes()).hexdigest()
-    assert migrations.initialize_schema(path, 100, now=upgrade_now) == {"leaderboards": "initialized empty"}
-    assert migrations.initialize_schema(path, 100, now=upgrade_now) is None
+    assert migrations.initialize_schema(path, now=upgrade_now) == {"leaderboards": "initialized empty"}
+    migrated = path.read_bytes(), backup.read_bytes(), manifest.read_bytes()
+    assert migrations.initialize_schema(path, now=upgrade_now) is None
+    assert (path.read_bytes(), backup.read_bytes(), manifest.read_bytes()) == migrated
     for table in ("users", "ai_memory_entries", "privacy_opt_outs"):
         assert read(path, f"SELECT * FROM {table}") == read(backup, f"SELECT * FROM {table}")
     apply_request(path, "123", "opt-out")
@@ -115,131 +95,113 @@ def test_schema_two_leaderboard_upgrade_recovers_then_retries(tmp_path):
     assert read(backup, "SELECT * FROM users") == []
 
 
-@pytest.mark.parametrize("scoped", [False, True])
-def test_verified_adoption_preserves_fields_dates_scope_suppression_and_counts(tmp_path, scoped):
-    path = tmp_path / "synthetic.db"
-    seed(path, scoped=scoped)
-    map_channel(path)
-    report = migrations.initialize_schema(path, 2, now=NOW)
-    assert report["users"] == dict(source=4 if scoped else 3, retained=2 if scoped else 1, opted_out=1, expired=1, count_cap=0)
-    assert report["ai_memory_entries"] == dict(source=7 if scoped else 6, retained=3 if scoped else 2, opted_out=1, expired=1, count_cap=2)
-    users = read(path, "SELECT id, channel_id, twitch_user_id, username, created_at, last_seen_at FROM users ORDER BY id")
-    assert users[0] == (1, OWNER_CHANNEL, "123", "viewer", stamp(120), stamp(1))
-    if scoped:
-        assert users[1][1] == "222"
-    assert read(path, "SELECT request_text, created_at FROM ai_memory_entries WHERE channel_id='512901888' ORDER BY id") == [("question-1", stamp(1)), ("question-2", stamp(2))]
-    assert read(path, "SELECT * FROM privacy_opt_outs") == [("999", None, None)]
-    assert read(path, "PRAGMA user_version") == [(migrations.SCHEMA_VERSION,)]
-    folder, backup, manifest = migrations._recovery_paths(path)
-    metadata = json.loads(manifest.read_text())
-    assert metadata["sha256"] == hashlib.sha256(backup.read_bytes()).hexdigest()
-    assert metadata["counts"]["ai_memory_entries"] == (7 if scoped else 6)
-    assert read(backup, "PRAGMA integrity_check") == [("ok",)]
-    before = (backup.read_bytes(), manifest.read_bytes())
-    assert migrations.initialize_schema(path, 2, now=NOW + timedelta(days=1)) is None
-    assert (backup.read_bytes(), manifest.read_bytes()) == before
-    assert len(list(folder.glob("*.sqlite3"))) == 1
-
-
 @pytest.mark.parametrize("mode", ["delete", "wal"])
 def test_wal_backup_and_ddl_rollback_are_atomic_and_retryable(tmp_path, mode):
     path = tmp_path / "synthetic.db"
     seed(path)
-    map_channel(path)
     with closing(sqlite3.connect(path)) as keeper:
         keeper.execute("PRAGMA journal_mode=" + mode)
         keeper.execute("UPDATE users SET username='wal_preserved' WHERE id=1")
         keeper.commit()
         def fail(connection):
             assert connection.execute("PRAGMA user_version").fetchone()[0] == migrations.SCHEMA_VERSION
-            assert "channel_id" in [row[1] for row in connection.execute("PRAGMA table_info(users)")]
+            assert connection.execute("SELECT COUNT(*) FROM leaderboard_counts").fetchone() == (0,)
             raise RuntimeError("synthetic crash before commit")
         with pytest.raises(RuntimeError):
-            migrations.initialize_schema(path, 2, now=NOW, before_commit=fail)
-        assert read(path, "PRAGMA user_version") == [(0,)]
-        assert "channel_id" not in [row[1] for row in read(path, "PRAGMA table_info(users)")]
-        assert read(path, "SELECT COUNT(*) FROM users") == [(3,)]
-        backup = migrations._recovery_paths(path)[1]
+            migrations.initialize_schema(path, now=NOW, before_commit=fail)
+        assert read(path, "PRAGMA user_version") == [(2,)]
+        assert not read(path, "PRAGMA table_info(leaderboard_counts)")
+        assert read(path, "SELECT COUNT(*) FROM users") == [(1,)]
+        backup = migrations._recovery_paths(path, version=2)[1]
         assert read(backup, "SELECT username FROM users WHERE id=1") == [("wal_preserved",)]
-        migrations.initialize_schema(path, 2, now=NOW)
+        migrations.initialize_schema(path, now=NOW)
         assert read(path, "SELECT username FROM users WHERE id=1") == [("wal_preserved",)]
 
 
-def test_process_exit_before_commit_leaves_complete_legacy_schema(tmp_path):
+def test_process_exit_before_commit_leaves_schema_two_intact(tmp_path):
     path = tmp_path / "synthetic.db"
     seed(path)
-    map_channel(path)
     program = ("import os,sys; from datetime import datetime,timezone; from pathlib import Path; "
                "from app.database.migrations import initialize_schema; "
-               "initialize_schema(Path(sys.argv[1]),2,now=datetime(2026,10,29,tzinfo=timezone.utc),before_commit=lambda c:os._exit(17))")
+               "initialize_schema(Path(sys.argv[1]),now=datetime(2026,10,29,tzinfo=timezone.utc),before_commit=lambda c:os._exit(17))")
     result = subprocess.run([sys.executable, "-c", program, str(path)], timeout=15)
     assert result.returncode == 17
-    assert read(path, "PRAGMA user_version") == [(0,)]
-    assert read(path, "SELECT COUNT(*) FROM ai_memory_entries") == [(6,)]
-    migrations.initialize_schema(path, 2, now=NOW)
-    assert read(path, "SELECT COUNT(*) FROM ai_memory_entries") == [(2,)]
+    assert read(path, "PRAGMA user_version") == [(2,)]
+    assert read(path, "SELECT COUNT(*) FROM ai_memory_entries") == [(1,)]
+    migrations.initialize_schema(path, now=NOW)
+    assert read(path, "SELECT COUNT(*) FROM ai_memory_entries") == [(1,)]
+    assert read(path, "PRAGMA user_version") == [(3,)]
 
 
-@pytest.mark.parametrize("fault", ["mapping", "malformed", "future", "unknown", "corrupt"])
+@pytest.mark.parametrize("fault", ["future", "unknown", "corrupt"])
 def test_unsupported_and_malformed_databases_stop_without_reset(tmp_path, fault):
     path = tmp_path / "synthetic.db"
     seed(path)
-    if fault != "mapping":
-        map_channel(path)
     if fault == "corrupt":
-        path.write_bytes(b"not a sqlite database")
-    elif fault != "mapping":
-        statement = {"malformed": "UPDATE ai_memory_entries SET created_at='PRIVATE invalid date' WHERE id=1",
-                     "future": "PRAGMA user_version=999", "unknown": "CREATE TABLE unrelated(value TEXT)"}[fault]
-        with closing(sqlite3.connect(path)) as connection:
+        path.write_bytes(b"PRIVATE invalid database bytes")
+    else:
+        statement = {"future": "PRAGMA user_version=999", "unknown": "CREATE TABLE unrelated(value TEXT)"}[fault]
+        with closing(sqlite3.connect(path)) as connection, connection:
             connection.execute(statement)
-            connection.commit()
     before = path.read_bytes()
     with pytest.raises(migrations.DatabaseMigrationError) as error:
-        migrations.initialize_schema(path, 2, now=NOW)
+        migrations.initialize_schema(path, now=NOW)
     assert "PRIVATE" not in str(error.value)
     assert path.read_bytes() == before
+
+
+def test_rejecting_unscoped_database_does_not_checkpoint_its_wal(tmp_path):
+    path = tmp_path / "unscoped.db"
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.setconfig(sqlite3.SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, True)
+        connection.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, twitch_user_id VARCHAR(32))")
+        connection.execute("INSERT INTO users VALUES (1, '123')")
+    wal = path.with_name(path.name + "-wal")
+    before = path.read_bytes(), wal.read_bytes()
+
+    with pytest.raises(migrations.DatabaseMigrationError, match="Install HeetKit 1.6 once"):
+        migrations.initialize_schema(path)
+    assert (path.read_bytes(), wal.read_bytes()) == before
 
 
 def test_backup_verification_failure_aborts_before_ddl(tmp_path, monkeypatch):
     path = tmp_path / "synthetic.db"
     seed(path)
-    map_channel(path)
     original = migrations._check_integrity
     def fail_backup(connection):
-        if str(connection.execute("PRAGMA database_list").fetchone()[2]).endswith("schema-0.sqlite3"):
+        if str(connection.execute("PRAGMA database_list").fetchone()[2]).endswith("schema-2.sqlite3"):
             raise migrations.DatabaseMigrationError("Synthetic verification failure")
         original(connection)
     monkeypatch.setattr(migrations, "_check_integrity", fail_backup)
     with pytest.raises(migrations.DatabaseMigrationError):
-        migrations.initialize_schema(path, 2, now=NOW)
-    assert read(path, "PRAGMA user_version") == [(0,)]
-    assert read(path, "SELECT COUNT(*) FROM users") == [(3,)]
-    assert not migrations._recovery_paths(path)[1].exists()
+        migrations.initialize_schema(path, now=NOW)
+    assert read(path, "PRAGMA user_version") == [(2,)]
+    assert read(path, "SELECT COUNT(*) FROM users") == [(1,)]
+    assert not migrations._recovery_paths(path, version=2)[1].exists()
 
 
 def test_fresh_schema_and_missing_constraints_are_detected(tmp_path):
     path = tmp_path / "fresh.db"
-    migrations.initialize_schema(path, 100, now=NOW)
-    assert not migrations._recovery_paths(path)[0].exists()
+    migrations.initialize_schema(path, now=NOW)
+    assert not migrations._recovery_paths(path, version=2)[0].exists()
     with closing(sqlite3.connect(path)) as connection:
         connection.execute("DELETE FROM schema_metadata")
         connection.commit()
     with pytest.raises(migrations.DatabaseMigrationError, match="completion marker"):
-        migrations.initialize_schema(path, 100, now=NOW)
+        migrations.initialize_schema(path, now=NOW)
 
 
 def test_active_sqlite_writer_refuses_migration_without_backup(tmp_path):
     path = tmp_path / "synthetic.db"
     seed(path)
-    map_channel(path)
     with closing(sqlite3.connect(path)) as writer:
         writer.execute("BEGIN IMMEDIATE")
         with pytest.raises(migrations.DatabaseMigrationError):
-            migrations.initialize_schema(path, 2, now=NOW)
-        assert not migrations._recovery_paths(path)[1].exists()
+            migrations.initialize_schema(path, now=NOW)
+        assert not migrations._recovery_paths(path, version=2)[1].exists()
         writer.rollback()
-    assert read(path, "PRAGMA user_version") == [(0,)]
+    assert read(path, "PRAGMA user_version") == [(2,)]
 
 
 @pytest.mark.asyncio
@@ -250,14 +212,14 @@ async def test_migrated_seen_memory_and_optout_on_both_host_lifecycles(tmp_path,
     import logging
     path = tmp_path / "synthetic.db"
     # Recent timestamps relative to actual startup, without real data/providers.
-    legacy(path)
+    schema_two(path)
     recent = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(" ")
     with closing(sqlite3.connect(path)) as connection:
-        connection.execute("INSERT INTO users VALUES (1,'123','viewer',?,?)", (recent, recent))
-        connection.execute("INSERT INTO ai_memory_entries VALUES (1,'123','question','answer',?)", (recent,))
+        connection.execute("INSERT INTO users VALUES (1,?,'123','viewer',?,?)", (OWNER_CHANNEL, recent, recent))
+        connection.execute("INSERT INTO ai_memory_entries VALUES (1,?,'123','question','answer',?)", (OWNER_CHANNEL, recent))
         connection.commit()
-    map_channel(path)
     monkeypatch.setenv("HEETKIT_DATA_DIR", str(tmp_path / "profile"))
+    migrated = None
     for headless in (False, True):
         app = build_application(Settings(database_url="sqlite+aiosqlite:///" + str(path), gemini_api_key=None,
                                          deepseek_api_key=None, openai_api_key=None, twitch_client_secret=None))
@@ -269,11 +231,15 @@ async def test_migrated_seen_memory_and_optout_on_both_host_lifecycles(tmp_path,
             assert await app.services.memory.get_recent("123", channel_id="222") == []
         finally:
             await runtime.shutdown()
+        if migrated is None:
+            migrated = path.read_bytes()
+        else:
+            assert path.read_bytes() == migrated
     apply_request(path, "123", "opt-out")
-    backup = migrations._recovery_paths(path)[1]
+    backup = migrations._recovery_paths(path, version=2)[1]
     assert read(backup, "SELECT COUNT(*) FROM users") == [(0,)]
     assert read(backup, "SELECT COUNT(*) FROM ai_memory_entries") == [(0,)]
-    assert ("123",) in read(backup, "SELECT * FROM privacy_opt_outs")
+    assert ("123",) in read(backup, "SELECT twitch_user_id FROM privacy_opt_outs")
     migrations.maintain_recovery(path, now=datetime.now(timezone.utc) + timedelta(days=7, seconds=1))
     assert not backup.exists()
 
@@ -310,15 +276,14 @@ async def test_exclusive_database_guard_and_restart_catchup(tmp_path):
 def test_recovery_privacy_actions_preserve_their_exact_scope_and_fixed_expiry(tmp_path, action):
     path = tmp_path / "synthetic.db"
     seed(path)
-    map_channel(path)
-    migrations.initialize_schema(path, 100, now=datetime.now(timezone.utc))
-    backup = migrations._recovery_paths(path)[1]
-    manifest = migrations._recovery_paths(path)[2]
+    migrations.initialize_schema(path, now=datetime.now(timezone.utc))
+    backup = migrations._recovery_paths(path, version=2)[1]
+    manifest = migrations._recovery_paths(path, version=2)[2]
     expiry = json.loads(manifest.read_text())["expires_at"]
     if action == "opt-in":
         apply_request(path, "123", "opt-out")
     apply_request(path, "123", action)
-    assert ("123",) not in read(backup, "SELECT * FROM privacy_opt_outs")
+    assert ("123",) not in read(backup, "SELECT twitch_user_id FROM privacy_opt_outs")
     assert read(backup, "SELECT COUNT(*) FROM ai_memory_entries WHERE twitch_user_id='123'") == [(0,)]
     metadata = json.loads(manifest.read_text())
     assert metadata["expires_at"] == expiry
@@ -372,9 +337,8 @@ async def test_database_beside_settings_does_not_collide_with_own_profile_guard(
 def test_expired_recovery_cleanup_only_removes_verified_owned_files(tmp_path):
     path = tmp_path / "synthetic.db"
     seed(path)
-    map_channel(path)
-    migrations.initialize_schema(path, 100, now=NOW)
-    folder, backup, manifest = migrations._recovery_paths(path)
+    migrations.initialize_schema(path, now=NOW)
+    folder, backup, manifest = migrations._recovery_paths(path, version=2)
     unrelated = folder / "operator-notes.txt"
     unrelated.write_text("keep this manually owned file")
     source = path.read_bytes()
@@ -389,9 +353,8 @@ def test_cleanup_refuses_unowned_or_unverifiable_recovery_files(tmp_path, fault)
     import os
     path = tmp_path / "synthetic.db"
     seed(path)
-    map_channel(path)
-    migrations.initialize_schema(path, 100, now=NOW)
-    _, backup, manifest = migrations._recovery_paths(path)
+    migrations.initialize_schema(path, now=NOW)
+    _, backup, manifest = migrations._recovery_paths(path, version=2)
     metadata = json.loads(manifest.read_text())
     if fault == "version":
         metadata["version"] = 99
@@ -414,15 +377,14 @@ def test_cleanup_refuses_unowned_or_unverifiable_recovery_files(tmp_path, fault)
 def test_failed_upgrade_retry_reuses_existing_cleanup_for_expired_snapshot(tmp_path):
     path = tmp_path / "synthetic.db"
     seed(path)
-    map_channel(path)
     def fail(_):
         raise RuntimeError("synthetic interruption")
     with pytest.raises(RuntimeError):
-        migrations.initialize_schema(path, 100, now=NOW, before_commit=fail)
-    folder, _, manifest = migrations._recovery_paths(path)
+        migrations.initialize_schema(path, now=NOW, before_commit=fail)
+    folder, _, manifest = migrations._recovery_paths(path, version=2)
     (folder / "operator-notes.txt").write_text("keep")
     later = NOW + timedelta(days=8)
-    migrations.initialize_schema(path, 100, now=later)
+    migrations.initialize_schema(path, now=later)
     assert json.loads(manifest.read_text())["created_at"] == later.isoformat()
     assert (folder / "operator-notes.txt").read_text() == "keep"
 
@@ -431,9 +393,8 @@ def test_failed_upgrade_retry_reuses_existing_cleanup_for_expired_snapshot(tmp_p
 def test_recovery_cleanup_resumes_after_only_expired_snapshot_was_removed(tmp_path, expired):
     path = tmp_path / "synthetic.db"
     seed(path)
-    map_channel(path)
-    migrations.initialize_schema(path, 100, now=NOW)
-    _, backup, manifest = migrations._recovery_paths(path)
+    migrations.initialize_schema(path, now=NOW)
+    _, backup, manifest = migrations._recovery_paths(path, version=2)
     backup.unlink()
     if expired:
         migrations.maintain_recovery(path, now=NOW + timedelta(days=7))

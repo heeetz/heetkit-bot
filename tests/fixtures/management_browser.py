@@ -29,7 +29,7 @@ async def main():
         twitch_bot_username="syntheticbot", twitch_bot_user_id="100",
         twitch_channel="syntheticchannel", twitch_channel_user_id="200",
         twitch_token_file=str(paths.tokens), database_url="sqlite+aiosqlite:///" + str(paths.database))
-    prepare_runtime_data(value.twitch_token_file, value.database_url)
+    prepare_runtime_data(value.database_url)
     # Synthetic preauthorization for lifecycle checks; provider I/O is forbidden.
     paths.tokens.write_text('{"100":{"token":"synthetic-access","refresh":"synthetic-refresh"}}', encoding="utf-8")
     store = AppSettingsStore(paths.app_settings)

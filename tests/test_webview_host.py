@@ -223,38 +223,6 @@ def test_duplicate_desktop_launch_fails_before_loading_local_state(
     assert "already running" in capsys.readouterr().err
 
 
-def test_default_brand_migration_refuses_a_running_former_desktop(monkeypatch, tmp_path):
-    from app import runtime_paths
-
-    monkeypatch.delenv(runtime_paths.DATA_DIR_ENV, raising=False)
-    monkeypatch.delenv(runtime_paths.LEGACY_DATA_DIR_ENV, raising=False)
-    monkeypatch.setattr(runtime_paths, "user_data_path", lambda name, **kwargs: tmp_path / name)
-    former = tmp_path / runtime_paths.LEGACY_APP_NAME
-    former.mkdir()
-    monkeypatch.setattr("app.webview_host.notify_existing_desktop", lambda message: None)
-    monkeypatch.setattr("app.webview_host.load_settings_with_credentials", lambda: pytest.fail("loaded state while former desktop was running"))
-    monkeypatch.setattr(sys, "argv", ["heetkit", "--stopped"])
-    with desktop_instance_guard(former / "config" / "app_settings.json", legacy_identity=True):
-        with pytest.raises(SystemExit) as error:
-            main()
-        assert error.value.code == 1
-    assert not (tmp_path / "HeetKit" / ".heetkit-migration-v1").exists()
-
-
-@pytest.mark.skipif(sys.platform != "win32", reason="POSIX reuses the same advisory profile lock")
-def test_explicit_profile_migration_refuses_former_windows_mutex(monkeypatch, tmp_path):
-    root = tmp_path / "explicit"
-    monkeypatch.setenv(DATA_DIR_ENV, str(root))
-    monkeypatch.setattr("app.webview_host.notify_existing_desktop", lambda message: None)
-    monkeypatch.setattr("app.webview_host.load_settings_with_credentials", lambda: pytest.fail("loaded an in-use explicit profile"))
-    monkeypatch.setattr(sys, "argv", ["heetkit", "--data-dir", str(root)])
-    with desktop_instance_guard(root / "config" / "app_settings.json", legacy_identity=True):
-        with pytest.raises(SystemExit) as error:
-            main()
-        assert error.value.code == 1
-    assert not (root / ".heetkit-migration-v1").exists()
-
-
 def test_configuration_check_does_not_acquire_desktop_instance_guard(monkeypatch) -> None:
     monkeypatch.setattr(sys, "argv", ["heetkit", "--check", "--dev-url", "http://localhost:5173"])
     monkeypatch.setattr(

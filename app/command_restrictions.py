@@ -56,10 +56,10 @@ class CommandRestriction:
 
 
 def parse_restriction(raw: object) -> CommandRestriction:
-    fields = {"id", "channel_id", "twitch_user_id", "username", "command_ids", "expires_at", "note"}
-    if not isinstance(raw, dict) or not fields <= set(raw) or set(raw) - fields - {"scope", "legacy_ai"}:
+    fields = {"id", "channel_id", "twitch_user_id", "username", "command_ids", "expires_at", "note", "scope", "legacy_ai"}
+    if not isinstance(raw, dict) or set(raw) != fields:
         raise ValueError("Unexpected or missing restriction fields.")
-    scope, legacy = raw.get("scope", "channel"), raw.get("legacy_ai", False)
+    scope, legacy = raw["scope"], raw["legacy_ai"]
     if scope not in ("channel", "global_ai") or type(legacy) is not bool:
         raise ValueError("Select channel scope or global AI questions scope.")
     if not isinstance(raw["id"], str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,40}", raw["id"]):
@@ -114,12 +114,10 @@ class CommandRestrictionStore:
                 raise ValueError
             payload = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object)
             if (not isinstance(payload, dict) or set(payload) != {"version", "restrictions"}
-                    or type(payload["version"]) is not int or payload["version"] not in (1, 2)
+                    or type(payload["version"]) is not int or payload["version"] != 2
                     or not isinstance(payload["restrictions"], list) or len(payload["restrictions"]) > MAX_RULES):
                 raise ValueError
             rules = tuple(parse_restriction(row) for row in payload["restrictions"])
-            if payload["version"] == 1 and any(set(row) & {"scope", "legacy_ai"} for row in payload["restrictions"]):
-                raise ValueError
             if len({rule.id for rule in rules}) != len(rules):
                 raise ValueError
             self._rules = rules
@@ -229,15 +227,7 @@ class CommandRestrictionStore:
                 output.write(encoded)
                 output.flush()
                 os.fsync(output.fileno())
-            recovered = payload(self._rules)
-            # Version 1 has no scope/legacy fields; represent the loaded source
-            # exactly during the non-lossy in-place version upgrade.
-            if self._path.exists():
-                original = json.loads(self._path.read_text(encoding="utf-8"))
-                if original.get("version") == 1:
-                    recovered = {"version": 1, "restrictions": [{key: value for key, value in row.items()
-                        if key not in {"scope", "legacy_ai"}} for row in recovered["restrictions"]]}
-            preserve_settings_recovery(self._path, recovered, version=(1, 2))
+            preserve_settings_recovery(self._path, payload(self._rules), version=2)
             temporary.replace(self._path)
             self._rules = rules
         finally:

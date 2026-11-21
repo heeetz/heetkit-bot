@@ -147,29 +147,6 @@ async def test_manual_deletion_and_persistent_opt_out(tmp_path, action):
 
 
 @pytest.mark.asyncio
-async def test_existing_database_adds_suppression_table_and_cleans_at_startup(tmp_path):
-    path = tmp_path / "old-synthetic.db"
-    with closing(sqlite3.connect(path)) as connection:
-        connection.executescript("""
-            CREATE TABLE users (id INTEGER PRIMARY KEY, twitch_user_id VARCHAR(32) UNIQUE,
-                username VARCHAR(64), created_at DATETIME, last_seen_at DATETIME);
-            CREATE TABLE ai_memory_entries (id INTEGER PRIMARY KEY, twitch_user_id VARCHAR(32),
-                request_text VARCHAR(500), response_text VARCHAR(500), created_at DATETIME);
-            INSERT INTO users VALUES (1, '123', 'expired', '2020-01-01', '2020-01-01');
-            INSERT INTO ai_memory_entries VALUES (1, '123', 'synthetic', 'reply', '2020-01-01');
-        """)
-    (tmp_path / "legacy-channel-mapping.json").write_text('{"version":1,"channel_id":"100"}')
-    database = Database("sqlite+aiosqlite:///" + str(path))
-    await database.initialize()
-    try:
-        assert await stored(database, User) == []
-        assert await stored(database, AIMemoryEntry) == []
-        assert await stored(database, PrivacyOptOut) == []
-    finally:
-        await database.close()
-
-
-@pytest.mark.asyncio
 async def test_periodic_cleanup_runs_without_chat_and_task_stops_on_close(monkeypatch):
     monkeypatch.setattr("app.database.database.RETENTION_CHECK_SECONDS", 0.01)
     database = Database("sqlite+aiosqlite:///:memory:")

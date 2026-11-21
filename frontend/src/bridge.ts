@@ -631,17 +631,12 @@ export interface AIPlaygroundResult {
 }
 
 export interface DesktopStartupStatus {
-  state: 'starting' | 'mapping_required' | 'failed' | 'ready'
+  state: 'ready'
   windows?: boolean
-  suggested_channel?: string
-  suggested_channel_id?: string
-  error?: string | null
 }
 
 export interface PythonApi {
   get_desktop_startup(): Promise<DesktopStartupStatus>
-  confirm_legacy_channel(channelId: string, confirmed: boolean): Promise<ActionResult>
-  cancel_desktop_startup(): Promise<ActionResult>
   get_interface_language(): Promise<ActionResult & { language?: string }>
   set_interface_language(language: string): Promise<ActionResult>
   get_app_status(): Promise<AppStatus>

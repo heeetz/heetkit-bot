@@ -34,12 +34,12 @@ def save(path, *triggers):
 def test_local_defaults_seed_and_remain_editable(tmp_path):
     paths = RuntimePaths(tmp_path / "appdata")
     assert not paths.root.exists()
-    prepare_runtime_data("missing-tokens", "sqlite+aiosqlite:///:memory:", paths=paths, legacy_data=tmp_path)
+    prepare_runtime_data("sqlite+aiosqlite:///:memory:", paths=paths)
     seeded = MessageTriggerStore(paths.message_triggers).list()
     assert seeded == ()
     assert paths.message_triggers.read_bytes() == DEFAULT_TRIGGERS.read_bytes()
     save(paths.message_triggers, trigger(enabled=False))
-    prepare_runtime_data("missing-tokens", "sqlite+aiosqlite:///:memory:", paths=paths, legacy_data=tmp_path)
+    prepare_runtime_data("sqlite+aiosqlite:///:memory:", paths=paths)
     assert MessageTriggerStore(paths.message_triggers).list()[0].enabled is False
 
 
@@ -78,7 +78,7 @@ def test_corrupt_files_disable_reactions_preserve_bytes_and_log_json_location(
     paths.config.mkdir(parents=True)
     path = paths.message_triggers
     path.write_bytes(contents)
-    prepare_runtime_data("missing-tokens", "sqlite+aiosqlite:///:memory:", paths=paths, legacy_data=None)
+    prepare_runtime_data("sqlite+aiosqlite:///:memory:", paths=paths)
     with pytest.raises(json.JSONDecodeError) as decoded:
         json.loads(contents)
 

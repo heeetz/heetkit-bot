@@ -15,7 +15,6 @@ from app.config.privacy import (AI_HISTORY_RETENTION_DAYS, RETENTION_CHECK_SECON
                                 AI_HISTORY_MAX_ENTRIES, AI_CONTEXT_MAX_ENTRIES, validate_memory_limits)
 from app.database.models import AIMemoryEntry, LeaderboardCount, PrivacyOptOut, User, utcnow
 from app.database.migrations import SCHEMA_SQL, SCHEMA_VERSION, initialize_schema, maintain_recovery, DatabaseMigrationError, run_sqlite_work
-from app.database.migrations import save_legacy_channel_mapping, validate_legacy_channel_choice
 from app.desktop_instance import desktop_instance_guard, DesktopAlreadyRunningError
 
 
@@ -53,7 +52,7 @@ class Database:
                     guard = desktop_instance_guard(self.path, database=True)
                     guard.__enter__()
                     self._guard = guard
-                report = await run_sqlite_work(initialize_schema, self.path, self.memory_policy.stored)
+                report = await run_sqlite_work(initialize_schema, self.path)
                 if report:
                     logging.getLogger(__name__).info("Database migration verified: %s", report)
             else:
@@ -105,16 +104,6 @@ class Database:
     async def configure_memory_limits(self, stored, context, *, persist=None):
         from app.database.repository import AIMemoryRepository
         await AIMemoryRepository(self.session_factory).configure_limits(stored, context, persist=persist)
-
-    async def confirm_legacy_channel(self, channel_id, confirmed):
-        validate_legacy_channel_choice(channel_id, confirmed)
-        if self.path is None:
-            raise DatabaseMigrationError("Legacy mapping requires an existing profile database.")
-        try:
-            with desktop_instance_guard(self.path, database=True):
-                await run_sqlite_work(save_legacy_channel_mapping, self.path, channel_id)
-        except DesktopAlreadyRunningError:
-            raise DatabaseMigrationError("Database is in use. Stop the other profile process, then restart and confirm the channel.") from None
 
     async def _maintain_retention(self) -> None:
         while True:

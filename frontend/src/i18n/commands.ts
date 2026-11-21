@@ -32,7 +32,6 @@ export const commandsText = defineCatalog({
     /** Operator-facing descriptions. Twitch replies and public command help use their own copy. */
     builtInDescriptions: {
       ask: 'Answer a question with AI.',
-      commands: 'Show available public commands.',
       erase: 'Delete a viewer’s saved AI conversation for this channel.',
       fate: 'Get a random prediction.',
       followage: 'Show how long a viewer has followed the channel.',
@@ -454,7 +453,6 @@ export const commandsText = defineCatalog({
     },
     builtInDescriptions: {
       ask: 'Відповісти на питання за допомогою AI.',
-      commands: 'Показати доступні публічні команди.',
       erase: 'Видалити збережений AI-діалог глядача в цьому каналі.',
       fate: 'Отримати випадкове передбачення.',
       followage: 'Показати, як довго глядач стежить за каналом.',
@@ -876,7 +874,6 @@ export const commandsText = defineCatalog({
     },
     builtInDescriptions: {
       ask: 'Ответить на вопрос с помощью AI.',
-      commands: 'Показать доступные публичные команды.',
       erase: 'Удалить сохраненный AI-диалог зрителя в этом канале.',
       fate: 'Получить случайное предсказание.',
       followage: 'Показать, как долго зритель отслеживает канал.',

@@ -132,7 +132,7 @@ async def test_dispatch_selects_from_entire_thirty_template_pool(tmp_path, monke
 def test_malformed_file_skips_bad_entries_and_never_blocks_builtins(tmp_path) -> None:
     path = tmp_path / "custom_commands.json"
     good = CustomCommandStore(path, set()).save(payload())
-    path.write_text(json.dumps({"version": 1, "commands": [{**good.to_json(), "name": "ping"},
+    path.write_text(json.dumps({"version": 2, "commands": [{**good.to_json(), "name": "ping"},
                                                   good.to_json(), {**good.to_json(), "id": "bad"}]}), encoding="utf-8")
     store = CustomCommandStore(path, {"ping"})
     assert store.list() == (good,)
@@ -142,46 +142,8 @@ def test_malformed_file_skips_bad_entries_and_never_blocks_builtins(tmp_path) ->
     assert CustomCommandStore(path, {"ping"}).list() == ()
     path.write_text('{"version": true, "commands": []}', encoding="utf-8")
     assert CustomCommandStore(path, {"ping"}).list() == ()
-    path.write_text(json.dumps({"version": 1, "commands": [{**good.to_json(), "per_user_seconds": 10 ** 1000}]}), encoding="utf-8")
+    path.write_text(json.dumps({"version": 2, "commands": [{**good.to_json(), "per_user_seconds": 10 ** 1000}]}), encoding="utf-8")
     assert CustomCommandStore(path, {"ping"}).list() == ()
-
-
-def test_version_one_modes_do_not_change_or_rewrite_at_load(tmp_path):
-    from uuid import uuid4
-
-    path = tmp_path / "commands.json"
-    single = payload(id=str(uuid4()), name="single", aliases=[], responses=["Hello {sender}"])
-    random = payload(id=str(uuid4()), name="random", aliases=[], responses=["One", "Two"])
-    # New field names in old unknown data must never activate a legacy burst.
-    legacy_extra = payload(id=str(uuid4()), name="legacy", aliases=[], responses=["Old"],
-                           response_mode="burst", burst_count=10, burst_allow_override=True)
-    original = json.dumps({"version": 1, "commands": [single, random, legacy_extra]}, indent=3).encode()
-    path.write_bytes(original)
-    store = CustomCommandStore(path, set())
-    assert store.get_by_name("single").response_mode == "single"
-    assert store.get_by_name("random").response_mode == "random"
-    assert store.get_by_name("legacy").response_mode == "single"
-    assert path.read_bytes() == original
-    assert list(tmp_path.glob("*.recovery")) == []
-    store.save(payload(name="new", aliases=[]))
-    assert json.loads(path.read_text())["version"] == 2
-    assert CustomCommandStore(path, set()).list() == store.list()
-    assert [copy.read_bytes() for copy in tmp_path.glob("*.recovery")] == [original]
-
-
-def test_ordinary_version_one_upgrade_has_no_recovery_churn(tmp_path):
-    from uuid import uuid4
-
-    path = tmp_path / "commands.json"
-    raw = payload(id=str(uuid4()), name="greet")
-    path.write_text(json.dumps({"version": 1, "commands": [raw]}), encoding="utf-8")
-    store = CustomCommandStore(path, set())
-    saved = store.save({**store.list()[0].to_json(), "responses": ["Updated"]})
-    assert json.loads(path.read_text())["version"] == 2
-    restarted = CustomCommandStore(path, set())
-    assert restarted.list() == (saved,)
-    restarted.save({**saved.to_json(), "enabled": False})
-    assert list(tmp_path.glob("*.recovery")) == []
 
 
 @pytest.mark.parametrize("mode,responses", [("single", ["Hello"]), ("random", ["Only one"]),

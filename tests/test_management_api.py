@@ -51,7 +51,7 @@ def settings():
         twitch_bot_username="syntheticbot", twitch_bot_user_id="100",
         twitch_channel="syntheticchannel", twitch_channel_user_id="200",
         twitch_token_file=str(paths.tokens), database_url="sqlite+aiosqlite:///" + str(paths.database))
-    prepare_runtime_data(value.twitch_token_file, value.database_url)
+    prepare_runtime_data(value.database_url)
     paths.tokens.write_text(json.dumps({"100": {"token": "synthetic-access", "refresh": "synthetic-refresh"}}), encoding="utf-8")
     return value
 
@@ -304,7 +304,8 @@ async def test_command_restrictions_authenticated_identity_errors_private_notes_
     result = (await call("POST", "/v1/command-restrictions/save", json={"data": raw}))[1]
     assert result["ok"]
     assert {row["id"] for row in result["commands"]} == {row.name for row in app.registry.definitions()}
-    assert {"ask", "tg", "erase", "seen", "commands", "help", "fate"} <= {row["id"] for row in result["commands"]}
+    assert {"ask", "tg", "erase", "seen", "help", "fate"} <= {row["id"] for row in result["commands"]}
+    assert "commands" not in {row["id"] for row in result["commands"]}
     assert next(row["label"] for row in result["commands"] if row["id"] == "ask") == "!question"
     rule = result["restrictions"][0]
     assert rule["channel_id"] == "200" and rule["twitch_user_id"] == "123"

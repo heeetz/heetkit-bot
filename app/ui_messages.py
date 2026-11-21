@@ -15,6 +15,7 @@ import re
 from typing import Any
 
 MESSAGES: dict[str, str] = {
+    "database.update_through_1_6": "This profile was created by a HeetKit version older than 1.5.1. Install HeetKit 1.6 once to update it, then install this version.",
     "ai_balance.balance_request_failed": "Balance request failed.",
     "ai_balance.balance_response_contained_no_supported_balances": "Balance response contained no supported balances.",
     "ai_balance.balance_response_exceeded_size_limit": "Balance response exceeded its size limit.",
@@ -294,15 +295,11 @@ MESSAGES: dict[str, str] = {
     "webview_host.blocking_ai_user_cancelled_reopen_ai": "Blocking the AI user was cancelled. Reopen the AI page and try again.",
     "webview_host.blocking_ai_user_timed_out_check": "Blocking the AI user timed out. Check Logs and reopen the AI page before trying again.",
     "webview_host.build_has_no_trusted_update_publisher": "This build has no trusted update publisher key. Install the update manually.",
-    "webview_host.channel_confirmation_unavailable_close_heetkit_review": "Channel confirmation is unavailable. Close HeetKit and review the startup error before retrying.",
     "webview_host.check_selected_window_confirmation_memory_limits": "Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N).",
     "webview_host.check_verified_update_first": "Check for a verified update first.",
-    "webview_host.close_desktop_window_exit": "Close the Desktop window to exit.",
-    "webview_host.complete_channel_confirmation_before_using_heetkit": "Complete the channel confirmation before using HeetKit.",
     "webview_host.configuration_transfer_failed_inspect_current_settings": "Configuration transfer failed. Inspect current settings and private backups before retrying.",
     "webview_host.could_not_begin_twitch_authorization": "Could not begin Twitch authorization.",
     "webview_host.could_not_check_updates_try_again": "Could not check for updates. Try again later.",
-    "webview_host.could_not_complete_startup_close_heetkit": "Could not complete startup. Close HeetKit and check profile permissions and startup diagnostics.",
     "webview_host.could_not_delete_twitch_preset": "Could not delete Twitch preset.",
     "webview_host.could_not_discover_ai_models": "Could not discover AI models.",
     "webview_host.could_not_open_external_link": "Could not open the external link.",
@@ -358,7 +355,6 @@ MESSAGES: dict[str, str] = {
     "webview_host.some_selected_events_have_expired_clear": "Some selected events have expired. Clear the view and select recent events.",
     "webview_host.start_bot_before_authorizing_twitch": "Start Bot before authorizing Twitch.",
     "webview_host.starting_bot_timed_out_check_logs": "Starting the bot timed out. Check Logs for details.",
-    "webview_host.startup_confirmation_did_not_complete_close": "Startup confirmation did not complete. Close HeetKit and restart; check the saved mapping before retrying.",
     "webview_host.stopping_bot_timed_out_check_logs": "Stopping the bot timed out. Check Logs for details.",
     "webview_host.there_no_twitch_changes_requiring_desktop": "There are no Twitch changes requiring a Desktop restart.",
     "webview_host.twitch_authorization_not_ready": "Twitch authorization is not ready.",

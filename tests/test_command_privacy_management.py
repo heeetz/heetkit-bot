@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import sqlite3
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -11,7 +10,6 @@ import pytest
 
 from app.ai_user_blocks import AIUserBlocklist
 from app.command_restrictions import CommandRestrictionStore
-from app.database import migrations
 from app.database.database import Database
 from app.database.models import PrivacyOptOut
 from app.database.repository import AIMemoryRepository, UserRepository
@@ -21,24 +19,6 @@ from app.webview_host import FRONTEND_OPERATIONS, WebUIBridge
 
 def rule(**changes):
     return {"username": "viewer", "command_ids": ["ask"], "expires_at": None, "note": "private", **changes}
-
-
-def test_v1_restrictions_upgrade_retains_note_and_identity(tmp_path):
-    path = tmp_path / "rules.json"
-    raw = {"id": "original", "channel_id": "200", "twitch_user_id": "123", **rule()}
-    path.write_text(json.dumps({"version": 1, "restrictions": [raw]}))
-    store = CommandRestrictionStore(path)
-    store.save(rule(scope="global_ai"), channel_id=None, user_id="123", valid_command_ids={"ask"})
-    assert store.get("original").note == "private"
-    assert store.get("original").channel_id == "200"
-    assert json.loads(path.read_text())["version"] == 2
-    restarted = CommandRestrictionStore(path)
-    assert restarted.match("999", "123", "ask")
-    assert not restarted.match("999", "123", "ping")
-    store.remove("original")
-    assert store.match("200", "123", "ask")  # The global rule remains.
-    with pytest.raises(ValueError, match="only"):
-        store.save(rule(scope="global_ai", command_ids=[]), channel_id=None, user_id="123", valid_command_ids={"ask"})
 
 
 def test_ai_move_repeatable_interrupted_and_unresolved_compatibility(tmp_path, monkeypatch):
@@ -89,34 +69,6 @@ def test_legacy_numeric_login_cannot_collide_with_verified_account_id(tmp_path):
     assert len(store.list()) == 2
     assert store.match("200", "123", "ask", "viewer")
     assert store.match("200", "456", "ask", "123")
-
-
-@pytest.mark.parametrize("journal", ["delete", "wal"])
-def test_v1_optout_upgrade_rollback_retry_idempotence_and_recovery(tmp_path, journal):
-    path = tmp_path / "synthetic.db"
-    with sqlite3.connect(path) as connection:
-        for statement in migrations.SCHEMA_2_SQL:
-            connection.execute(statement)
-        connection.execute("DROP TABLE privacy_opt_outs")
-        connection.execute("CREATE TABLE privacy_opt_outs (twitch_user_id VARCHAR(32) NOT NULL PRIMARY KEY)")
-        connection.execute("INSERT INTO privacy_opt_outs VALUES ('123')")
-        connection.execute("INSERT INTO schema_metadata VALUES ('schema_version', '1')")
-        connection.execute("PRAGMA user_version=1")
-        connection.commit()
-        connection.execute("PRAGMA journal_mode=" + journal)
-        with pytest.raises(RuntimeError):
-            migrations.initialize_schema(path, 100, before_commit=lambda _: (_ for _ in ()).throw(RuntimeError()))
-        assert connection.execute("PRAGMA user_version").fetchone() == (1,)
-        assert connection.execute("SELECT * FROM privacy_opt_outs").fetchall() == [("123",)]
-        migrations.initialize_schema(path, 100)
-        assert connection.execute("SELECT * FROM privacy_opt_outs").fetchall() == [("123", None, None)]
-        assert migrations.initialize_schema(path, 100) is None
-    backup = migrations._recovery_paths(path, 1)[1]
-    assert backup.exists()
-    migrations.maintain_recovery(path, ("456",), withdrawn=("123",))
-    with sqlite3.connect(backup) as connection:
-        assert connection.execute("SELECT * FROM privacy_opt_outs").fetchall() == [("456",)]
-        assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)
 
 
 @pytest.fixture

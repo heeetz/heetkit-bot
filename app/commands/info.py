@@ -2,7 +2,6 @@
 
 from app.commands.registry import CommandRegistry
 from app.config.commands import (
-    COMMANDS_COOLDOWN_SECONDS,
     HELP_COOLDOWN_SECONDS,
     UPTIME_COOLDOWN_SECONDS,
     WEATHER_COOLDOWN_SECONDS,
@@ -90,33 +89,21 @@ def register_weather_commands(registry: CommandRegistry) -> None:
 
 
 def register_info_commands(registry: CommandRegistry) -> None:
-    async def reply_with_help(context, arguments: str, command: str) -> None:
+    @registry.command(
+        "help",
+        aliases=("commands",),
+        description="List public command help.",
+        help_text="!help [page]",
+        cooldown=CooldownPolicy(global_seconds=HELP_COOLDOWN_SECONDS),
+    )
+    async def help_command(context, arguments: str) -> None:
         prefix = getattr(getattr(context.services, "settings", None), "command_prefix", "!")
         entries = registry.help_entries(
             getattr(context.services, "runtime_state", None),
             getattr(context.services, "custom_commands", None),
             prefix,
         )
-        await context.reply(command_help_page(entries, context.invocation(command), arguments))
-
-    @registry.command(
-            "help",
-            description="List public command help.",
-            help_text="!help [page]",
-            cooldown=CooldownPolicy(global_seconds=HELP_COOLDOWN_SECONDS),
-        )
-    async def help_command(context, arguments: str) -> None:
-        await reply_with_help(context, arguments, "help")
-
-    @registry.command(
-        "commands",
-        description="List public command help.",
-        help_text="!commands [page]",
-        required_permission=Permission.MODERATOR,
-        cooldown=CooldownPolicy(global_seconds=COMMANDS_COOLDOWN_SECONDS),
-    )
-    async def commands_command(context, arguments: str) -> None:
-        await reply_with_help(context, arguments, "commands")
+        await context.reply(command_help_page(entries, context.invocation("help"), arguments))
 
     @registry.command(
         "uptime",

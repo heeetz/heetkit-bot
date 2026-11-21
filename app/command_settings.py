@@ -8,13 +8,13 @@ import math
 import os
 import tempfile
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
 
 from app.config.commands import BURST_HARD_MAX_COUNT, TG_DEFAULT_MAX_COUNT
 from app.twitch.permissions import Permission
-from app.settings_recovery import migrate_settings_key, preserve_settings_recovery
+from app.settings_recovery import preserve_settings_recovery
 from app.utils.cooldown import CooldownPolicy
 from app.utils.text import normalize_command_name
 from app.utils.text import validate_chat_template
@@ -251,22 +251,39 @@ def load_command_overrides(
         logger.warning("Command settings file must contain a JSON object; using defaults")
         return {}
 
-    if "fate" in defaults:
-        payload = migrate_settings_key(path, payload, "forecast", "fate")
-
     overrides: dict[str, CommandSettingsOverride] = {}
     for command_name, raw_override in payload.items():
-        if command_name not in defaults:
+        old_commands = command_name == "commands" and "help" in defaults and command_name not in defaults
+        if command_name not in defaults and not old_commands:
             logger.warning("Ignoring settings for unknown command name=%r", command_name)
             continue
         if not isinstance(raw_override, dict):
             logger.warning("Ignoring malformed settings for command name=%s", command_name)
             continue
 
-        override = _parse_override(command_name, raw_override, defaults[command_name])
-        if not override.is_empty:
+        if old_commands:
+            raw_override = {key: value for key, value in raw_override.items()
+                            if key in {"enabled", "removed", "aliases", "primary_name"}}
+        override = _parse_override(command_name, raw_override, defaults["help" if old_commands else command_name])
+        if old_commands or not override.is_empty:
             overrides[command_name] = override
     return overrides
+
+
+def merge_commands_into_help(
+    help_settings: CommandSettings,
+    old_commands: CommandSettings | CommandSettingsOverride,
+    used_names: set[str],
+) -> CommandSettings:
+    aliases = tuple(alias for alias in help_settings.aliases if alias != "commands")
+    if old_commands.enabled is not False and not old_commands.removed:
+        used_names = used_names | {help_settings.primary_name}
+        aliases = tuple(dict.fromkeys(("commands", *aliases, old_commands.primary_name,
+                                       *(old_commands.aliases or ()))))
+        aliases = tuple(alias for alias in aliases if alias and alias not in used_names)
+        if len(aliases) > 10:
+            logger.warning("Dropping %d aliases when merging !commands into !help (limit: 10)", len(aliases) - 10)
+    return replace(help_settings, aliases=aliases[:10])
 
 
 def save_command_overrides(

@@ -201,7 +201,7 @@ def stopped_backend(tmp_path, monkeypatch):
     paths = RuntimePaths(tmp_path / "profile")
     monkeypatch.setenv("HEETKIT_DATA_DIR", str(paths.root))
     settings = Settings()
-    prepare_runtime_data(settings.twitch_token_file, settings.database_url, paths=paths, legacy_data=None)
+    prepare_runtime_data(settings.database_url, paths=paths)
     backend = AsyncioBackendHost(settings)
     try:
         backend.start()

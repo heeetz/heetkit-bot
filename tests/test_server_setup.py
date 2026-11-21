@@ -49,7 +49,7 @@ def isolated(tmp_path, monkeypatch):
 async def api(unused_tcp_port):
     paths = RuntimePaths.default()
     settings = Settings(twitch_token_file=str(paths.tokens), database_url="sqlite+aiosqlite:///" + str(paths.database))
-    prepare_runtime_data(settings.twitch_token_file, settings.database_url)
+    prepare_runtime_data(settings.database_url)
     store = AppSettingsStore(paths.app_settings)
     store.update_operation_mode("manual")
     runtime = BotRuntime(build_application(settings), logging.getLogger("test"), headless=True)

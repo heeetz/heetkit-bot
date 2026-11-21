@@ -279,22 +279,16 @@ def load_app_settings(path: Path) -> AppSettings:
         logger.warning("Application settings file must contain a JSON object; using defaults")
         return unsafe_defaults
 
-    if "version" not in payload:
-        window_payload = payload
-        startup_payload: dict[str, object] = {}
-        ai_payload: dict[str, object] = {}
-        interface_payload: dict[str, object] = {}
-    elif type(payload["version"]) is not int or payload["version"] != APP_SETTINGS_VERSION:
+    if type(payload.get("version")) is not int or payload["version"] != APP_SETTINGS_VERSION:
         logger.warning(
             "Unsupported application settings version=%r; using defaults",
-            payload["version"],
+            payload.get("version"),
         )
         return unsafe_defaults
-    else:
-        window_payload = _read_section(payload, "window")
-        startup_payload = _read_section(payload, "startup")
-        ai_payload = _read_section(payload, "ai")
-        interface_payload = _read_section(payload, "interface")
+    window_payload = _read_section(payload, "window")
+    startup_payload = _read_section(payload, "startup")
+    ai_payload = _read_section(payload, "ai")
+    interface_payload = _read_section(payload, "interface")
     interface_language = interface_payload.get("language", DEFAULT_INTERFACE_LANGUAGE)
     if interface_language not in INTERFACE_LANGUAGES:
         logger.warning("Ignoring invalid application setting name=interface.language")
@@ -304,9 +298,7 @@ def load_app_settings(path: Path) -> AppSettings:
             or not isinstance(operation_mode, str) or operation_mode not in OPERATION_MODES):
         logger.warning("Invalid headless operation mode; keeping Twitch disabled")
         operation_mode = "disabled"
-    twitch_payload = (
-        {} if "version" not in payload else _read_section(payload, "twitch")
-    )
+    twitch_payload = _read_section(payload, "twitch")
     twitch_channel = _read_optional_string(twitch_payload, "twitch", "channel")
     twitch_channel_user_id = _read_optional_string(
         twitch_payload,
@@ -504,7 +496,6 @@ def save_app_settings(
             path,
             None if recovered_settings is None else {"version": APP_SETTINGS_VERSION, **asdict(recovered_settings)},
             version=APP_SETTINGS_VERSION,
-            allow_legacy=True,
         )
         os.replace(temporary_path, path)
         temporary_path = None

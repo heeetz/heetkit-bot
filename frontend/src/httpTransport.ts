@@ -133,8 +133,6 @@ const commandPayload = (command_name: string, enabled: boolean, per_user_seconds
 // Fixed methods and named payloads only: no HTTP access to arbitrary bridge names.
 export const browserApi: PythonApi = {
   get_desktop_startup: async () => ({ state: 'ready' }),
-  confirm_legacy_channel: unsupported,
-  cancel_desktop_startup: unsupported,
   // Server keeps the UI language in this browser (localStorage), not on the server.
   get_interface_language: async () => ({ ok: true }),
   set_interface_language: async () => ({ ok: true }),

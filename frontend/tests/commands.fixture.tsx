@@ -138,8 +138,6 @@ function responseAction(action: string, name: string, responses?: string[]) {
 
 window.pywebview = { api: {
   get_desktop_startup: async () => ({ state: 'ready' }),
-  confirm_legacy_channel: async () => ({ ok: false }),
-  cancel_desktop_startup: async () => ({ ok: true }),
   get_message_triggers: async () => ({ ok: true, triggers: structuredClone(reactions), revision: String(reactionRevision) }),
   save_message_triggers: async (triggers: ChatReaction[], revision: string) => {
     if (revision !== String(reactionRevision)) return { ok: false, error: 'Chat reactions changed.' }

@@ -67,34 +67,6 @@ def test_partial_and_invalid_app_settings_fall_back_individually(
     assert "invalid application setting" in caplog.text
 
 
-def test_legacy_flat_window_settings_remain_compatible(tmp_path) -> None:
-    settings_path = tmp_path / "app_settings.json"
-    settings_path.write_text(
-        json.dumps(
-            {
-                "start_minimized": True,
-                "minimize_to_tray": True,
-                "close_to_tray": False,
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    assert load_app_settings(settings_path) == AppSettings(
-        window=WindowSettings(start_minimized=True, minimize_to_tray=True)
-    )
-    store = AppSettingsStore(settings_path)
-    updated = store.update_ai_memory(enabled=False)
-
-    assert updated.window == WindowSettings(
-        start_minimized=True,
-        minimize_to_tray=True,
-    )
-    assert json.loads(settings_path.read_text(encoding="utf-8"))["version"] == (
-        APP_SETTINGS_VERSION
-    )
-
-
 @pytest.mark.parametrize("file_content", ["", "[]", "{not-json"])
 def test_malformed_app_settings_file_does_not_block_startup(
     tmp_path,

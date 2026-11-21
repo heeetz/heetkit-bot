@@ -35,7 +35,7 @@ def source_payload(kind):
             "active_personality": "neutral", "overrides": {"neutral": "Original prompt"},
             "profile_instructions": "Original profile instructions",
         },
-        "custom": {"version": 1, "commands": [custom_payload()]},
+        "custom": {"version": 2, "commands": [custom_payload()]},
     }[kind]
 
 

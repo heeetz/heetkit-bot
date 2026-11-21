@@ -21,10 +21,10 @@ ALREADY_RUNNING_MESSAGE = (
 
 
 @contextmanager
-def desktop_instance_guard(settings_path: Path, *, legacy_identity: bool = False, database: bool = False) -> Iterator[None]:
+def desktop_instance_guard(settings_path: Path, *, database: bool = False) -> Iterator[None]:
     """Keep one normal desktop process per resolved local settings path."""
     if sys.platform == "win32":
-        with _windows_mutex(settings_path, legacy_identity=legacy_identity):
+        with _windows_mutex(settings_path):
             yield
     else:
         with _posix_file_lock(settings_path, database=database):
@@ -32,11 +32,9 @@ def desktop_instance_guard(settings_path: Path, *, legacy_identity: bool = False
 
 
 @contextmanager
-def _windows_mutex(settings_path: Path, *, legacy_identity: bool = False) -> Iterator[None]:
+def _windows_mutex(settings_path: Path) -> Iterator[None]:
     identity = str(settings_path.resolve()).casefold().encode("utf-8")
-    # Legacy compatibility: block a still-running former desktop during copying.
-    prefix = "TwitchBotDesktop" if legacy_identity else "HeetKitDesktop"
-    name = f"Global\\{prefix}-{hashlib.sha256(identity).hexdigest()[:32]}"
+    name = f"Global\\HeetKitDesktop-{hashlib.sha256(identity).hexdigest()[:32]}"
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     create_mutex = kernel32.CreateMutexW
     create_mutex.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p)

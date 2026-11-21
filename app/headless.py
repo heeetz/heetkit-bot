@@ -14,6 +14,7 @@ import sys
 from contextlib import ExitStack
 from pathlib import Path
 
+from app.database.migrations import DatabaseMigrationError
 from app.app_settings import AppSettings, AppSettingsStore
 from app.bot_runtime import BotRuntime
 from app.config.profile_settings import apply_ai_app_settings, apply_twitch_app_settings
@@ -229,6 +230,9 @@ async def run_headless(
             await worker
         elif stop_waiter not in done:
             raise HeadlessError("Headless supervision stopped unexpectedly.")
+    except DatabaseMigrationError as error:
+        logger.error("%s", error.operator_message)
+        result = 1
     except HeadlessError as error:
         logger.error("%s", error)
         result = 1
@@ -329,14 +333,10 @@ def main(argv: list[str] | None = None) -> int:
         paths = RuntimePaths.default()
         # Use the identical desktop identity before migrations or stores load.
         guards.enter_context(desktop_instance_guard(paths.app_settings))
-        if sys.platform == "win32" and not paths.brand_migration_marker.exists():
-            guards.enter_context(desktop_instance_guard(paths.app_settings, legacy_identity=True))
-        if paths.is_default_profile and not paths.brand_migration_marker.exists() and paths.former_default_root.is_dir():
-            guards.enter_context(desktop_instance_guard(paths.former_default_root / "config" / "app_settings.json", legacy_identity=True))
         # Headless credentials use private environment/file inputs: never discover
         # or prompt an OS keyring, and never accept secrets on the command line.
         settings = Settings(twitch_token_file=str(paths.tokens), database_url="sqlite+aiosqlite:///" + str(paths.database), **secret_file_settings())
-        token_file, database_url = prepare_runtime_data(settings.twitch_token_file, settings.database_url)
+        token_file, database_url = prepare_runtime_data(settings.database_url)
         settings = settings.model_copy(update={"twitch_token_file": token_file, "database_url": database_url})
         from app.server_setup import credential_manager
         credentials = credential_manager(settings)

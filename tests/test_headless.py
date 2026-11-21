@@ -36,7 +36,7 @@ def settings():
     value = Settings(twitch_client_id="synthetic-client", twitch_client_secret="synthetic-secret",
                      twitch_bot_user_id="100", twitch_bot_username="testbot",
                      twitch_channel_user_id="200", twitch_channel="testchannel")
-    prepare_runtime_data(value.twitch_token_file, value.database_url)
+    prepare_runtime_data(value.database_url)
     return value
 
 

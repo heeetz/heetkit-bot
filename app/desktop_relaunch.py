@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import ctypes
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, closing, contextmanager
 import hashlib
 import json
 import os
@@ -17,7 +17,7 @@ import tempfile
 import time
 
 from app.desktop_instance import DesktopAlreadyRunningError, desktop_instance_guard, notify_existing_desktop
-from app.runtime_paths import RuntimePaths, _backup_sqlite_if_missing, _is_link
+from app.runtime_paths import RuntimePaths
 from app.services.updates import (
     ReleaseAssets, UpdateCheckError, VerifiedUpdate, publisher_key, verify_installer_file, verify_manifest,
 )
@@ -54,6 +54,29 @@ def work_root() -> Path:
     # LOCALAPPDATA inherits the current user's private Windows ACL. POSIX
     # source restarts use a 0700 mkdtemp directory under the system temp root.
     return Path(os.environ["LOCALAPPDATA"]) / "HeetKit Update Work"
+
+
+def _backup_sqlite_if_missing(source: Path, destination: Path) -> None:
+    if destination.exists() or not source.is_file() or source.resolve() == destination.resolve():
+        return
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=destination.parent, suffix=".db", delete=False) as output:
+            temporary = Path(output.name)
+        with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as old:
+            with closing(sqlite3.connect(temporary)) as new:
+                old.backup(new)
+                new.commit()
+        if not destination.exists():
+            temporary.replace(destination)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _is_link(path: Path) -> bool:
+    return path.is_symlink() or path.is_junction()
 
 
 def _overlap(left: Path, right: Path) -> bool:

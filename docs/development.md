@@ -58,12 +58,8 @@ install the project and frontend, then use the same Python entry point.
 window or creating/migrating profile files. Twitch setup is checked when connecting;
 the desktop can open before it is configured. `--stopped` forces a disconnected launch
 even when automatic startup is saved. Use a separate `--data-dir` for test profiles.
-An absent legacy channel mapping opens a one-time Desktop confirmation form before
-normal controls, Twitch or cleanup workers start. Confirm the proposed configured
-target or enter another verified numeric channel ID, acknowledge the attribution and
-continue. Cancel exits without saving a choice. Existing invalid mappings and other
-migration failures show recovery guidance instead of silently replacing input; see
-[database upgrade and recovery](data-and-privacy.md#versioned-database-upgrade-and-recovery).
+Databases from before HeetKit 1.5.1 must be updated using HeetKit 1.6 first.
+See [database upgrade and recovery](data-and-privacy.md#versioned-database-upgrade-and-recovery).
 See [Twitch setup](twitch-setup.md), [AI setup](ai-setup.md) and
 [data and privacy](data-and-privacy.md).
 
@@ -167,7 +163,7 @@ keyring before intentional environment fallbacks. Headless uses environment or b
 `_FILE` inputs without keyring discovery; file contents are not exported to the
 environment. OAuth access/refresh tokens belong to the private profile cache, not
 ordinary settings or the keyring. SQLite holds users, AI history and durable privacy
-opt-out IDs. Recovery originals, migration markers and mutable config remain private
+opt-out IDs. Recovery originals and mutable config remain private
 profile data. See [profiles, retention and deletion](data-and-privacy.md) and
 [Docker storage, secrets and recovery](docker.md) for operational procedures.
 
@@ -478,7 +474,6 @@ For saved settings, profile paths and recovery, see
 | Variable | Purpose |
 | --- | --- |
 | `HEETKIT_DATA_DIR` | Independent profile root; `--data-dir` takes priority. |
-| `TWITCH_BOT_DATA_DIR` | Legacy profile override, used only without `HEETKIT_DATA_DIR`. |
 | `TWITCH_CLIENT_ID` | Twitch Developer application client ID. |
 | `TWITCH_CLIENT_SECRET` | Client secret fallback when no keyring value exists. |
 | `TWITCH_BOT_USERNAME`, `TWITCH_BOT_USER_ID` | Bot login and numeric user ID. |
@@ -492,12 +487,10 @@ For saved settings, profile paths and recovery, see
 | `LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL`. |
 | `COMMAND_PREFIX` | Command prefix, default `!`. |
 | `COMMAND_MAX_ARGUMENTS_LENGTH` | Argument limit from 1 to 450, default 300. |
-| `TWITCH_TOKEN_FILE` | Legacy OAuth file to import on the first normal launch. |
-| `DATABASE_URL` | Legacy SQLite import source or explicit non-SQLite database URL. |
+| `DATABASE_URL` | Selects the database backend for Desktop. File-backed SQLite uses the selected profile. |
 
 Starting Twitch needs complete identity/channel values and a client secret supplied
-through Settings/keyring or the environment. Gemini is optional. Explicit profiles use
-their own OAuth/database paths rather than the legacy file/database overrides.
+through Settings/keyring or the environment. Gemini is optional. Each profile stores its own OAuth tokens and SQLite database.
 
 ## Headless runtime
 
@@ -538,8 +531,7 @@ keyring only for Desktop. Without management, use the preauthorized path below:
    desktop keyring secrets are not part of a copied profile. Do not put secrets in
    command-line arguments, ordinary settings, shell history or logs.
 
-`--data-dir` wins over `HEETKIT_DATA_DIR`, the legacy `TWITCH_BOT_DATA_DIR`, and the
-platform default. The existing profile guard is acquired before migration or store
+`--data-dir` takes priority over `HEETKIT_DATA_DIR` and the platform default. The existing profile guard is acquired before migration or store
 loading and held through cleanup; a desktop or headless process already using that
 profile causes exit code 1. This is a local profile lock, not an account-wide or
 cross-host lease. Operate only one active instance per Twitch account.

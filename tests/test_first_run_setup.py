@@ -28,7 +28,6 @@ def clear_environment(monkeypatch):
     for name in Settings.model_fields:
         monkeypatch.delenv(name.upper(), raising=False)
     monkeypatch.delenv("HEETKIT_DATA_DIR", raising=False)
-    monkeypatch.delenv("TWITCH_BOT_DATA_DIR", raising=False)  # Legacy compatibility alias.
 
 
 def test_normal_profile_ignores_all_legacy_dotenv_locations(tmp_path, monkeypatch):
@@ -59,7 +58,7 @@ def test_clean_profile_setup_restart_and_start_without_checkout_data(tmp_path, m
     monkeypatch.chdir(tmp_path)
     credential_store = CredentialStore(MemoryKeyring())
     settings, manager = load_settings_with_credentials(credential_store)
-    prepare_runtime_data(settings.twitch_token_file, settings.database_url, paths=paths)
+    prepare_runtime_data(settings.database_url, paths=paths)
     backend = webview_host.AsyncioBackendHost(settings)
     try:
         backend.start()
@@ -174,15 +173,15 @@ def test_existing_owner_profile_and_keyring_survive_without_legacy_files(tmp_pat
     }), encoding="utf-8")
     paths.command_settings.write_text(json.dumps({"ask": {"enabled": False}}), encoding="utf-8")
     fun_path = paths.config / "fun_settings.json"
-    fun_path.write_text(json.dumps({"version": 1, "tg_message": "Local link", "forecasts": ["Local forecast"]}), encoding="utf-8")
+    fun_path.write_text(json.dumps({"version": 1, "tg_message": "Local link", "fates": ["Local fortune"]}), encoding="utf-8")
     before = {path: path.read_bytes() for path in paths.config.iterdir()}
     monkeypatch.setenv("TWITCH_BOT_USERNAME", "processbot")
     monkeypatch.setenv("GEMINI_MODEL", "gemini-process")
     monkeypatch.setenv("AI_COOLDOWN_BYPASS_USER_ID", "999")
     keyring = MemoryKeyring()
-    # Legacy compatibility fixture: former unscoped keyring service.
-    keyring.values = {("twitch-bot", "twitch_client_secret"): "synthetic-owner-secret",
-                      ("twitch-bot", "gemini_api_key"): "synthetic-owner-key"}
+    # Canonical keyring service for the default profile.
+    keyring.values = {("heetkit", "twitch_client_secret"): "synthetic-owner-secret",
+                      ("heetkit", "gemini_api_key"): "synthetic-owner-key"}
     settings, manager = load_settings_with_credentials(CredentialStore(keyring))
     app_settings = AppSettingsStore(paths.app_settings).snapshot()
     settings = webview_host.apply_twitch_app_settings(settings, app_settings)
@@ -206,12 +205,7 @@ def test_existing_owner_profile_and_keyring_survive_without_legacy_files(tmp_pat
         assert state.get_command_settings("ask").enabled is False
     finally:
         backend.close()
-    assert all(path.read_bytes() == content for path, content in before.items() if path != fun_path)
-    assert json.loads(fun_path.read_text(encoding="utf-8")) == {
-        "version": 1, "tg_message": "Local link", "fates": ["Local forecast"],
-    }
-    copies = list(paths.config.glob("fun_settings.json.*.recovery"))
-    assert len(copies) == 1 and copies[0].read_bytes() == before[fun_path]
+    assert all(path.read_bytes() == content for path, content in before.items())
     assert not list(tmp_path.rglob(".env"))
 
 

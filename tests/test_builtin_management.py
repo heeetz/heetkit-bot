@@ -75,10 +75,8 @@ def chat(content, respond, **roles):
 @pytest.mark.asyncio
 async def test_command_help_tracks_custom_edits_builtin_aliases_removal_and_restart(tmp_path):
     registry, state, custom, _, bridge, dispatcher, services = setup_commands(tmp_path)
-    for name in ("commands", "help"):
-        state.apply_command_settings(name, cooldown=CooldownPolicy())
-    state.apply_command_settings("commands", primary_name="catalog", aliases=["commands"])
-    state.apply_command_settings("help", primary_name="guide", aliases=["help"])
+    state.apply_command_settings("help", primary_name="guide", aliases=["help", "commands"],
+                                 cooldown=CooldownPolicy())
 
     async def listing():
         response = AsyncMock()
@@ -136,10 +134,8 @@ async def test_command_help_tracks_custom_edits_builtin_aliases_removal_and_rest
 async def test_command_help_pages_preserve_utf8_limits_permissions_and_output_limiter(tmp_path):
     registry, state, custom, _, _, _, services = setup_commands(tmp_path)
     services.settings.command_prefix = "?"
-    for name in ("commands", "help"):
-        state.apply_command_settings(name, cooldown=CooldownPolicy())
-    state.apply_command_settings("commands", primary_name="catalog", aliases=["commands"])
-    state.apply_command_settings("help", primary_name="guide", aliases=["help"])
+    state.apply_command_settings("help", primary_name="guide", aliases=["help", "commands"],
+                                 cooldown=CooldownPolicy(), permission=Permission.MODERATOR)
     for index in range(12):
         custom.save(custom_payload(name=f"{index}雪" + "😀" * 35, aliases=[f"alias{index}"]))
     expected = registry.help_entries(state, custom, "?")
@@ -161,7 +157,7 @@ async def test_command_help_pages_preserve_utf8_limits_permissions_and_output_li
         observed.extend(part.split(" ", 1)[0] for part in body.split("?")[1:])
         if " | Next:" not in text:
             break
-        assert text.endswith(f"?catalog {page + 1}")
+        assert text.endswith(f"?guide {page + 1}")
         page += 1
         assert page <= len(expected)
     assert page > 1
@@ -170,13 +166,14 @@ async def test_command_help_pages_preserve_utf8_limits_permissions_and_output_li
     assert observed.count("optout") == 1 and observed[-1] == "optout"
     response.reset_mock()
     await dispatcher.dispatch(chat("?commands nonsense", response, is_moderator=True), services)
-    assert response.await_args.args[0] == "Usage: ?catalog [page]"
+    assert response.await_args.args[0] == "Usage: ?guide [page]"
     response.reset_mock()
-    await dispatcher.dispatch(chat("?guide nonsense", response), services)
+    await dispatcher.dispatch(chat("?guide nonsense", response, is_moderator=True), services)
     assert response.await_args.args[0] == "Usage: ?guide [page]"
 
     # Public !help uses the same entries; ordinary help requests still acquire
     # the shared limiter per message rather than bypassing it with a burst.
+    state.apply_command_settings("help", permission=Permission.USER)
     dispatcher._output_limiter = OutputLimiter(interval=5)
     response.reset_mock()
     await dispatcher.dispatch(chat("?help", response), services)
