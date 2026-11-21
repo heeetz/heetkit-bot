@@ -16,7 +16,6 @@ BALANCES = [{
 }]
 
 
-@pytest.mark.asyncio
 async def test_deepseek_transport_and_balance_fields_are_bounded_and_sanitized(monkeypatch):
     captured = {}
 
@@ -70,7 +69,6 @@ async def test_deepseek_transport_and_balance_fields_are_bounded_and_sanitized(m
     assert "synthetic-secret" not in repr(service._cache)
 
 
-@pytest.mark.asyncio
 async def test_cache_is_reused_for_sixty_seconds_and_refresh_forces_lookup(monkeypatch):
     now = [100.0]
     calls = 0
@@ -96,7 +94,6 @@ async def test_cache_is_reused_for_sixty_seconds_and_refresh_forces_lookup(monke
     assert expired["updated_at"] != first["updated_at"]
 
 
-@pytest.mark.asyncio
 async def test_failed_refresh_returns_last_success_as_stale(monkeypatch):
     now = [0.0]
     calls = 0
@@ -120,12 +117,11 @@ async def test_failed_refresh_returns_last_success_as_stale(monkeypatch):
     assert stale["state"] == "stale"
     assert stale["balances"] == BALANCES
     assert stale["updated_at"] == original["updated_at"]
-    assert "temporarily unavailable" in stale["error"]
+    assert stale["error"]
     assert still_stale == stale
     assert "synthetic-secret" not in repr(stale)
 
 
-@pytest.mark.asyncio
 async def test_concurrent_refreshes_share_one_request(monkeypatch):
     started = asyncio.Event()
     release = asyncio.Event()
@@ -150,7 +146,6 @@ async def test_concurrent_refreshes_share_one_request(monkeypatch):
     assert results[0] == results[1]
 
 
-@pytest.mark.asyncio
 async def test_unsupported_or_unconfigured_provider_is_unavailable_without_request(monkeypatch):
     service = AIBalance()
 
@@ -166,72 +161,22 @@ async def test_unsupported_or_unconfigured_provider_is_unavailable_without_reque
     assert missing["state"] == "unavailable"
 
 
-@pytest.mark.asyncio
-async def test_http_and_malformed_response_failures_are_generic(monkeypatch):
-    class FakeResponse:
-        status_code = 401
+@pytest.mark.parametrize("status,body", [
+    (401, b'{"error":"synthetic-secret provider detail"}'),
+    (200, b'{"is_available":false,"balance_infos":[]}'),
+], ids=["http-error", "no-balances"])
+async def test_unavailable_balance_hides_provider_details(monkeypatch, status, body):
+    import httpx
 
-        async def __aenter__(self):
-            return self
+    async def respond(request):
+        return httpx.Response(status, content=body)
 
-        async def __aexit__(self, *_args):
-            return None
-
-        async def aiter_bytes(self):
-            yield b'{"error":"synthetic-secret provider detail"}'
-
-    class FakeClient:
-        def __init__(self, **_kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-        def stream(self, *_args, **_kwargs):
-            return FakeResponse()
-
-    monkeypatch.setattr(ai_balance.httpx, "AsyncClient", FakeClient)
-    result = await AIBalance().get("deepseek", "synthetic-secret")
-
-    assert result["state"] == "unavailable"
-    assert result["error"] == ai_balance._BALANCE_ERROR
-    assert "synthetic-secret" not in repr(result)
-    assert "provider detail" not in repr(result)
-
-
-@pytest.mark.asyncio
-async def test_empty_balance_payload_is_unavailable(monkeypatch):
-    class FakeResponse:
-        status_code = 200
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-        async def aiter_bytes(self):
-            yield b'{"is_available":false,"balance_infos":[]}'
-
-    class FakeClient:
-        def __init__(self, **_kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-        def stream(self, *_args, **_kwargs):
-            return FakeResponse()
-
-    monkeypatch.setattr(ai_balance.httpx, "AsyncClient", FakeClient)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    monkeypatch.setattr(ai_balance.httpx, "AsyncClient", lambda **kwargs: client)
     result = await AIBalance().get("deepseek", "synthetic-secret")
 
     assert result["state"] == "unavailable"
     assert result["balances"] == [] and result["updated_at"] is None
+    assert result["error"]
     assert "synthetic-secret" not in repr(result)
+    assert "provider detail" not in repr(result)

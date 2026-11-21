@@ -1,601 +1,100 @@
-import { StrictMode, useState } from 'react'
+import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from '../src/App'
-import AboutPage from '../src/pages/AboutPage'
-import FeedbackToast from '../src/components/FeedbackToast'
-import SettingsPage from '../src/pages/SettingsPage'
-import useUpdateCheck from '../src/useUpdateCheck'
-import type {
-  AILanguageInfo,
-  AILanguageSettings,
-  AISetupSettings,
-  BlockedAIUser,
-  AppStatus,
-  CommandInfo,
-  PersonalitiesResponse,
-  TwitchConnectionSettings,
-  waitForBridge,
-} from '../src/bridge'
+import type { AppStatus, CredentialInfo, PythonApi, TwitchConnectionSettings } from '../src/bridge'
 
 const query = new URLSearchParams(window.location.search)
-const configured = query.has('configured')
-const authRequired = query.has('auth')
-const initialConnection = (query.get('connection') ?? (authRequired ? 'auth_required' : 'stopped')) as AppStatus['twitch_connection_state']
-const sessionRunning = authRequired || ['connecting', 'connected', 'reconnecting'].includes(initialConnection)
+const status: AppStatus = {
+  running: false, twitch_connected: false, twitch_connection_state: 'stopped',
+  uptime_seconds: 0, channel: 'testchannel', account: 'testbot',
+}
 const twitch: TwitchConnectionSettings = {
-  client_id: configured ? 'synthetic-client' : '',
-  bot_username: configured ? 'testbot' : '',
-  bot_user_id: configured ? '100' : '',
-  active_client_id: configured ? 'synthetic-client' : '',
-  active_bot_username: configured ? 'testbot' : '',
-  active_bot_user_id: configured ? '100' : '',
-  requires_secret_restart: query.has('restartRequired'),
-  target_channel: configured ? 'testchannel' : '',
-  target_channel_user_id: configured ? '200' : '',
-  active_channel: configured ? 'testchannel' : '',
-  active_channel_user_id: configured ? '200' : '',
-  presets: [], selected_preset_id: null, active_preset_id: null,
-  requires_restart: query.has('restartRequired'), requires_reconnect: query.has('reconnectRequired'),
-  running: sessionRunning, connected: initialConnection === 'connected',
-  oauth_token_available: query.has('cachedToken'),
-  saved_bot_authorization: query.has('authorized'),
-  oauth_callback_url: 'http://localhost:4343/oauth/callback',
-  has_local_override: false,
+  client_id: 'synthetic-client', bot_username: 'testbot', bot_user_id: '100',
+  active_client_id: 'synthetic-client', active_bot_username: 'testbot', active_bot_user_id: '100',
+  target_channel: 'testchannel', target_channel_user_id: '200', active_channel: 'testchannel',
+  active_channel_user_id: '200', presets: [], selected_preset_id: null, active_preset_id: null,
+  running: false, connected: false, oauth_token_available: true, saved_bot_authorization: true,
+  oauth_callback_url: 'http://localhost:4343/oauth/callback', has_local_override: false,
+  requires_restart: false, requires_reconnect: false,
 }
-let status: AppStatus = {
-  running: sessionRunning, twitch_connected: twitch.connected,
-  twitch_connection_state: initialConnection,
-  uptime_seconds: 0, channel: twitch.active_channel, account: twitch.bot_username,
-}
-let aiStatus = {
-  enabled: query.has('askToggle') ? JSON.parse(sessionStorage.getItem('askEnabled') ?? 'false') as boolean : false,
-  available: query.has('aiAvailable'), memory_enabled: false,
-  active_personality: 'neutral', available_personalities: ['neutral'], provider: 'Google Gemini', model: query.has('a4Models') ? 'synthetic-primary' : query.has('aiAvailable') ? 'synthetic-model' : '',
-}
-let personalities: PersonalitiesResponse = {
-  active_personality: 'neutral',
-  active_personality_saved: true,
-  personalities: [{
-    name: 'neutral', prompt: 'Synthetic neutral prompt.', built_in_prompt: 'Synthetic neutral prompt.',
-    is_builtin: true, prompt_saved: true, has_saved_override: false,
-  }],
-  profile_instructions: '', profile_instructions_saved: true,
-  protected_shared_instructions: 'Synthetic shared instructions.',
-}
-const languageCatalogue: AILanguageInfo[] = [
-  { code: 'en', label: 'English' },
-  { code: 'uk', label: 'Ukrainian' },
-  { code: 'ru', label: 'Russian' },
-  { code: 'de', label: 'German' },
-  { code: 'fr', label: 'French' },
-]
-let languageSettings: AILanguageSettings = {
-  mode: 'auto', allowed_languages: ['en', 'uk', 'ru'], fallback_language: 'en',
-}
-let activeLanguagePolicy = 'Auto — match the incoming language without restrictions.'
-let blockedAIUsers: BlockedAIUser[] = JSON.parse(sessionStorage.getItem('blockedAIUsers') ?? '[]')
-const aiBlockCalls: unknown[][] = []
-Object.assign(window, { aiBlockCalls })
-const credentials = [
-  { name: 'twitch_client_secret', label: 'Twitch client secret', configured, source: configured ? 'credential_store' : 'missing', secure_storage_available: true },
-  { name: 'gemini_api_key', label: 'Gemini API key', configured: aiStatus.available, source: aiStatus.available ? 'credential_store' : 'missing', secure_storage_available: true },
-  { name: 'deepseek_api_key', label: 'DeepSeek API key', configured: query.has('multipleProviders'), source: query.has('multipleProviders') ? 'credential_store' : 'missing', secure_storage_available: true },
-  { name: 'openai_api_key', label: 'OpenAI API key', configured: query.has('multipleProviders'), source: query.has('multipleProviders') ? 'credential_store' : 'missing', secure_storage_available: true },
-]
-let aiSetup: AISetupSettings = JSON.parse(sessionStorage.getItem('aiSetup') ?? 'null') ?? {
-  primary: { provider: 'gemini', model: 'gemini-2.5-flash', thinking: 'default', search: false },
-  fallback: { provider: 'gemini', model: 'gemini-2.5-pro', thinking: 'default', search: false },
-  cross_provider_acknowledged: false, max_question_length: 300, max_answer_length: 220,
-  shared_instructions: null, provider_drafts: {},
-}
-const setupCapabilities = (provider: string, options: string[]) => ({ known: true,
-  thinking_options: options.map((value) => ({ value, label: value === 'default' ? 'Provider default' : value })),
-  search_supported: true, search_reason: provider === 'gemini' ? 'Google Search Suggestions cannot be rendered in Twitch.' : provider === 'openai' ? 'OpenAI Web Search: two calls, inline source URLs must fit.' : 'Bounded DeepSeek Search/Fetch.',
-  attribution_required: provider === 'gemini',
-})
-let setupGuide = JSON.parse(sessionStorage.getItem('setupGuide') ?? '{"dismissed":false,"ai_skipped":false}')
-const activeIdentity = { client_id: twitch.client_id, bot_username: twitch.bot_username, bot_user_id: twitch.bot_user_id }
-let secretRestartRequired = query.has('restartRequired')
-const credentialCalls: unknown[][] = []
-const twitchCalls: unknown[][] = []
-Object.assign(window, { credentialCalls, twitchCalls, setFixtureStatus: (values: Partial<AppStatus>) => {
-  status = { ...status, ...values }
-  twitch.running = status.running
-  twitch.connected = status.twitch_connected
-} })
-const opened: string[] = []
-const aiCalls: unknown[][] = []
-const playgroundCalls: unknown[][] = []
-const playgroundSettings: unknown[] = []
-let playgroundId = 0
-let playgroundCancelled = false
-let playgroundStartedAt = 0
+const credentials: CredentialInfo[] = [{ name: 'twitch_client_secret', label: 'Twitch client secret', configured: true, source: 'credential_store', secure_storage_available: true }]
 const updateCalls: unknown[][] = []
-const configurationTransferCalls: unknown[][] = []
-Object.assign(window, { opened, aiCalls, updateCalls, playgroundCalls, playgroundSettings, configurationTransferCalls })
-const toggleCommands: CommandInfo[] = ['ask', 'ping'].map((name) => ({
-  name, enabled: name === 'ask' ? aiStatus.enabled : true,
-  permission: 'USER', cooldown: { per_user_seconds: 3, global_seconds: 15 },
-  aliases: [], hidden: false, available: true, unavailable_reason: null,
-  removed: false, identity_editable: true, minimum_permission: 'USER',
-  display_name: '', burst_interval_ms: 0, response_pool: null,
-  default_settings: { enabled: true, permission: 'USER', cooldown: { per_user_seconds: 3, global_seconds: 15 } },
-  saved: true, has_saved_override: true,
-}))
-async function persistAskEnabled(enabled: boolean) {
-    if (query.has('askSaveDelay')) await new Promise((resolve) => window.setTimeout(resolve, 800))
-    if (query.has('askSaveError')) return { ok: false, error: 'Could not save AI command enabled setting.', error_code: 'management.could_not_save_ai_command_enabled' }
-    aiStatus = { ...aiStatus, enabled }
-    toggleCommands[0].enabled = enabled
-    sessionStorage.setItem('askEnabled', JSON.stringify(enabled))
-    return { ok: true }
-}
+const bridgeCalls: unknown[][] = []
+const opened: string[] = []
+let aiEnabled = false
+let verificationFailed = false
+Object.assign(window, { updateCalls, bridgeCalls, opened })
 
-const languageCalls: string[] = []
-Reflect.set(window, 'languageCalls', languageCalls)
-
-window.pywebview = { api: {
+const api: Partial<PythonApi> = {
   get_desktop_startup: async () => {
     if (query.has('startupFailure')) throw new Error('Synthetic startup failure')
-    if (query.has('startupDelay')) await new Promise((resolve) => window.setTimeout(resolve, 800))
-    return { state: 'ready', windows: !query.has('nonWindows') }
+    if (query.has('startupDelay')) await new Promise((resolve) => setTimeout(resolve, 800))
+    return { state: 'ready', windows: !query.has('manualUpdate') }
   },
-  // Desktop keeps the UI language in app settings; sessionStorage stands in for the profile.
-  get_interface_language: async () => ({ ok: true, language: sessionStorage.getItem('uiLanguage') ?? query.get('lang') ?? 'en' }),
-  set_interface_language: async (language: string) => {
-    languageCalls.push(language)
-    if (query.has('languageSaveError')) return { ok: false, error: 'Could not save the interface language.', error_code: 'webview_host.could_not_save_interface_language' }
-    sessionStorage.setItem('uiLanguage', language)
-    return { ok: true }
+  get_interface_language: async () => ({ ok: true, language: 'en' }),
+  get_app_status: async () => status,
+  get_twitch_settings: async () => ({ ok: true, settings: structuredClone(twitch) }),
+  get_credentials: async () => ({ ok: true, credentials }),
+  replace_credential: async (name, value) => {
+    bridgeCalls.push(['replace_credential', name, value])
+    twitch.requires_restart = twitch.requires_secret_restart = true
+    return { ok: true, changed: true, requires_restart: true }
   },
-  get_app_status: async () => {
-    if (query.has('statusDelay')) await new Promise((resolve) => window.setTimeout(resolve, 800))
-    return status
-  },
-  get_commands: async () => ({ command_prefix: '!', permissions: ['USER', 'VIP', 'MODERATOR'], commands: query.has('askToggle') ? structuredClone(toggleCommands) : [] }),
-  set_ai_enabled: async (enabled: boolean) => {
-    aiCalls.push(['set_ai_enabled', enabled])
-    return persistAskEnabled(enabled)
-  },
-  save_builtin_enabled: async (name: string, enabled: boolean) => {
-    aiCalls.push(['save_builtin_enabled', name, enabled])
-    return persistAskEnabled(enabled)
-  },
-  set_ai_memory_enabled: async (enabled: boolean) => {
-    aiCalls.push(['set_ai_memory_enabled', enabled])
-    if (query.has('memorySaveError')) return { ok: false, error: 'Could not save conversation memory setting.' }
-    aiStatus = { ...aiStatus, memory_enabled: enabled }
-    return { ok: true }
-  },
-  save_command_settings: async (name: string, enabled: boolean, perUser: number, global: number, permission: string) => {
-    aiCalls.push(['save_command_settings', name, enabled, perUser, global, permission])
-    const command = toggleCommands.find((item) => item.name === name)!
-    Object.assign(command, { enabled, permission, cooldown: { per_user_seconds: perUser, global_seconds: global } })
-    if (name === 'ask') aiStatus = { ...aiStatus, enabled }
-    return { ok: true }
-  },
-  get_command_restrictions: async () => ({ ok: true, channel_id: '200', commands: toggleCommands.map((command) => ({ id: command.name, label: `!${command.primary_name ?? command.name}` })), restrictions: [] }),
-  get_custom_commands: async () => ({ command_prefix: '!', permissions: ['USER'], variables: ['sender'], commands: [] }),
-  get_message_triggers: async () => ({ ok: true, triggers: [], revision: '0' }),
-  get_announcements: async () => ({ ok: true, announcements: [] }),
-  save_announcements: async () => ({ ok: true }),
-  get_filters: async () => ({
-    words: { rules: [], defaults: [] },
-    phrases: { rules: [], defaults: [] },
-    patterns: { rules: [], defaults: [] },
-  }),
-  get_recent_logs: async () => ({ entries: [] }),
-  get_recent_commands: async () => ({ entries: [] }),
-  export_activity: async () => ({ ok: true, saved: true }),
-  get_ai_status: async () => aiStatus,
-  get_ai_memory_limits: async () => ({ ok: true, stored: 100, context: 5 }),
-  save_ai_memory_limits: async () => ({ ok: true }),
-  get_blocked_ai_users: async () => ({ ok: true, users: structuredClone(blockedAIUsers) }),
-  block_ai_user: async (input: string) => {
-    aiBlockCalls.push(['block', input])
-    if (query.has('aiBlockReject')) throw new Error('Could not reach the desktop backend. Reopen the AI page and try again.')
-    if (query.has('aiBlockTimeout')) return { ok: false, error: 'Blocking the AI user timed out. Check Logs and reopen the AI page before trying again.' }
-    if (query.has('aiBlockError')) return { ok: false, error: 'Synthetic AI block save failure.' }
-    const username = input.trim().replace(/^@/, '').toLowerCase()
-    if (!/^[a-z0-9_]{1,25}$/.test(username)) return { ok: false, error: 'Use a Twitch login of up to 25 letters, numbers or underscores.' }
-    if (blockedAIUsers.some((user) => user.username === username)) return { ok: false, error: 'This Twitch user is already blocked from AI requests.' }
-    blockedAIUsers = [...blockedAIUsers, { username, has_user_id: username === 'viewer' }]
-    sessionStorage.setItem('blockedAIUsers', JSON.stringify(blockedAIUsers))
-    return { ok: true, users: structuredClone(blockedAIUsers) }
-  },
-  unblock_ai_user: async (username: string) => {
-    aiBlockCalls.push(['unblock', username])
-    if (query.has('aiBlockReject')) throw new Error('Could not reach the desktop backend. Reopen the AI page and try again.')
-    if (query.has('aiBlockError')) return { ok: false, error: 'Synthetic AI block save failure.' }
-    blockedAIUsers = blockedAIUsers.filter((user) => user.username !== username)
-    sessionStorage.setItem('blockedAIUsers', JSON.stringify(blockedAIUsers))
-    return { ok: true, users: structuredClone(blockedAIUsers) }
-  },
-  start_ai_playground: async (prompt: string) => {
-    playgroundCalls.push(['start', prompt])
-    playgroundSettings.push(structuredClone({
-      personality: personalities.active_personality,
-      personalityPrompt: personalities.personalities.find((item) => item.name === personalities.active_personality)?.prompt,
-      profile: personalities.profile_instructions,
-      language: languageSettings,
-      model: aiStatus.model,
-    }))
-    if (query.has('playgroundStartDelay')) await new Promise((resolve) => window.setTimeout(resolve, 350))
-    if (query.has('playgroundStartError')) return { ok: false, error: 'A Playground request is already running.' }
-    playgroundCancelled = false
-    playgroundStartedAt = Date.now()
-    return { ok: true, request_id: String(++playgroundId), status: 'pending' }
-  },
-  get_ai_playground_result: async (requestId: string) => {
-    if (query.has('playgroundReadError')) throw new Error('Read failed')
-    if (playgroundCancelled) return { ok: true, request_id: requestId, status: 'cancelled' }
-    if (query.has('playgroundWait') && Date.now() - playgroundStartedAt < 60000) return { ok: true, status: 'pending' }
-    return {
-      ok: true, request_id: requestId, status: query.get('playgroundStatus') ?? 'success',
-      text: 'Synthetic response <strong>plain text</strong>.',
-      moderation_source: query.get('playgroundSource'), matched_category: 'phrases', matched_rule: 'synthetic rule',
-      generation: { provider: 'Google Gemini', model: 'gemini-2.5-flash', thinking: 'off',
-        fallback_used: false, search_enabled: false, search_requested: false, search_used: false },
-    }
-  },
-  cancel_ai_playground: async (requestId: string) => {
-    playgroundCalls.push(['cancel', requestId])
-    if (query.has('playgroundCancelError') && playgroundCalls.filter((call) => call[0] === 'cancel').length === 1) return { ok: false }
-    playgroundCancelled = true
-    return { ok: true, status: 'pending' }
-  },
-  get_personalities: async () => personalities,
+  restart_desktop: async () => { bridgeCalls.push(['restart_desktop']); return { ok: true } },
   get_app_settings: async () => ({ ok: true, settings: {
-    auto_start_bot: authRequired, start_minimized: false, minimize_to_tray: false,
-    close_to_tray: false, tray_available: false,
+    auto_start_bot: false, start_minimized: false, minimize_to_tray: false, close_to_tray: false, tray_available: false,
   } }),
-  get_profile_info: async () => {
-    if (query.has('profileLocationError')) throw new Error('The profile location is unavailable.')
-    return { path: query.get('profilePath') ?? 'C:\\Synthetic profiles\\HeetKit' }
-  },
-  open_profile_folder: async () => {
-    opened.push('profile_folder')
-    return query.has('folderOpenError') ? { ok: false, error: 'Could not open the profile folder in the system file manager.' } : { ok: true }
-  },
-  export_configuration: async () => {
-    configurationTransferCalls.push(['export'])
-    if (query.has('configurationExportDelay')) await new Promise((resolve) => window.setTimeout(resolve, 350))
-    if (query.has('configurationExportError')) return { ok: false, error: 'Synthetic export failure.' }
-    if (query.has('configurationExportSaved')) return { ok: true, saved: true }
-    if (query.has('configurationExportCancelled')) return { ok: true, cancelled: true }
-    return {
-      ok: true,
-      filename: query.has('configurationUnsafeFilename') ? '../unsafe.zip' : 'heetkit-config-1.2.3.zip',
-      archive_base64: window.btoa('synthetic portable configuration'),
-    }
-  },
-  preview_configuration_import: async (archiveBase64: string) => {
-    configurationTransferCalls.push(['preview', archiveBase64])
-    if (query.has('configurationPreviewDelay')) await new Promise((resolve) => window.setTimeout(resolve, 350))
-    if (query.has('configurationPreviewError')) return { ok: false, error: 'Synthetic preview failure.' }
-    return {
-      ok: true,
-      preview_token: 'synthetic-preview-token',
-      application_version: '1.2.3',
-      format_version: 1,
-      sections: [
-        { name: 'Custom commands', incoming_count: 3, current_count: 1, details: ['hello', 'quote', '<script>plain text</script>'] },
-        { name: 'Personalities', incoming_count: 2, current_count: 4, details: ['neutral', 'chaotic'] },
-      ],
-      effects: ['Active command and AI settings will be applied immediately.'],
-      preserved: ['Twitch identity, authorization, secrets and private databases.'],
-    }
-  },
-  apply_configuration_import: async (archiveBase64: string, previewToken: string, confirmed: boolean) => {
-    configurationTransferCalls.push(['apply', archiveBase64, previewToken, confirmed])
-    if (query.has('configurationImportError')) return { ok: false, error: 'Synthetic import failure.' }
-    sessionStorage.setItem('configurationImportApplied', String(Number(sessionStorage.getItem('configurationImportApplied') ?? '0') + 1))
-    return { ok: true, effects: ['Applied active settings.'] }
-  },
-  get_twitch_settings: async () => query.has('setupError')
-    ? { ok: false, error: 'Synthetic Twitch setup load failure.' }
-    : { ok: true, settings: structuredClone(twitch) },
-  update_twitch_settings: async (channel: string, channelId: string, presetId: string | null, clientId: string, botUsername: string, botId: string) => {
-    twitchCalls.push(['save', channel, channelId, presetId, clientId, botUsername, botId])
-    if (query.has('twitchSaveError')) return { ok: false, error: 'Twitch settings could not be saved.' }
-    Object.assign(twitch, { target_channel: channel.toLowerCase(), target_channel_user_id: channelId,
-      selected_preset_id: presetId, client_id: clientId, bot_username: botUsername, bot_user_id: botId,
-      requires_restart: secretRestartRequired || clientId !== activeIdentity.client_id || botUsername !== activeIdentity.bot_username || botId !== activeIdentity.bot_user_id,
-      requires_reconnect: channel.toLowerCase() !== twitch.active_channel || channelId !== twitch.active_channel_user_id,
-    })
-    return { ok: true, requires_restart: twitch.requires_restart, requires_reconnect: twitch.requires_reconnect }
-  },
-  reconnect_twitch: async () => {
-    twitchCalls.push(['reconnect'])
-    Object.assign(twitch, { active_channel: twitch.target_channel, active_channel_user_id: twitch.target_channel_user_id,
-      active_preset_id: twitch.selected_preset_id, requires_reconnect: false })
-    status = { ...status, channel: twitch.active_channel }
-    if (status.running) {
-      status = { ...status, twitch_connected: false, twitch_connection_state: 'connecting' }
-      twitch.connected = false
-    }
-    return { ok: true, changed: status.running }
-  },
-  restart_desktop: async () => {
-    twitchCalls.push(['restart', status.running])
-    if (query.has('relaunchFixture')) {
-      const next = new URL(window.location.href)
-      next.searchParams.delete('relaunchFixture')
-      next.searchParams.delete('connection')
-      if (status.running) next.searchParams.set('auth', '')
-      window.setTimeout(() => window.location.assign(next), 0)
-    }
-    return { ok: true }
-  },
-  save_twitch_preset: async (presetId: string | null, displayName: string, channel: string, channelId: string) => {
-    const id = presetId ?? `synthetic-${twitch.presets.length + 1}`
-    twitchCalls.push(['save_channel', id])
-    twitch.presets = [...twitch.presets.filter((preset) => preset.id !== id), { id, display_name: displayName, target_channel: channel, target_channel_user_id: channelId }]
-    Object.assign(twitch, { selected_preset_id: id, target_channel: channel, target_channel_user_id: channelId,
-      requires_reconnect: channel !== twitch.active_channel || channelId !== twitch.active_channel_user_id })
-    return { ok: true, preset_id: id, requires_reconnect: twitch.requires_reconnect }
-  },
-  delete_twitch_preset: async (presetId: string) => {
-    twitchCalls.push(['delete_channel', presetId])
-    twitch.presets = twitch.presets.filter((preset) => preset.id !== presetId)
-    twitch.selected_preset_id = null
-    return { ok: true }
-  },
-  get_credentials: async () => ({ ok: true, credentials: structuredClone(credentials) }),
-  get_setup_guide: async () => ({ ok: true, ...setupGuide }),
-  save_setup_guide: async (dismissed: boolean, ai_skipped: boolean) => {
-    setupGuide = { dismissed, ai_skipped }; sessionStorage.setItem('setupGuide', JSON.stringify(setupGuide)); return { ok: true, ...setupGuide }
-  },
-  get_ai_setup: async () => ({ ok: true, settings: structuredClone(aiSetup),
-    providers: [
-      { id: 'gemini', label: 'Google Gemini', credential: query.has('environmentGeminiKey') ? { ...credentials[1], source: 'environment' } : credentials[1], models: ['gemini-2.5-flash', 'gemini-2.5-pro'], selected_model: 'gemini-2.5-flash', fallback_model: 'gemini-2.5-pro' },
-      { id: 'deepseek', label: 'DeepSeek', credential: credentials[2], models: ['deepseek-flash', 'deepseek-v4-pro'], selected_model: 'deepseek-flash', fallback_model: 'deepseek-v4-pro' },
-      { id: 'openai', label: 'OpenAI', credential: credentials[3], models: ['gpt-6-luna', 'gpt-6.1-sol'], selected_model: 'gpt-6-luna', fallback_model: 'gpt-6.1-sol' },
-    ],
-    capabilities: { gemini: { 'gemini-2.5-flash': setupCapabilities('gemini', ['default', 'off', 'budget:24576']), 'gemini-2.5-pro': setupCapabilities('gemini', ['default', 'budget:128', 'budget:32768']) },
-      deepseek: { 'deepseek-flash': setupCapabilities('deepseek', ['default', 'off', 'low', 'high', 'max']), 'deepseek-v4-pro': setupCapabilities('deepseek', ['default', 'off', 'low', 'high', 'max']) },
-      openai: { 'gpt-6-luna': setupCapabilities('openai', ['default', 'none', 'low', 'medium', 'high', 'xhigh', 'max']), 'gpt-6.1-sol': setupCapabilities('openai', ['default', 'low', 'medium', 'high', 'xhigh', 'max']) } },
-    default_shared_instructions: 'Synthetic shared defaults.', retained_restrictions: 'Local request and full-output checks remain enabled. Provider policies and transport limits apply.',
+  get_profile_info: async () => ({ path: 'C:/Synthetic/HeetKit' }),
+  open_profile_folder: async () => { bridgeCalls.push(['open_profile_folder']); return { ok: true } },
+  get_setup_guide: async () => ({ ok: true, ai_skipped: false, dismissed: false }),
+  get_ai_provider_settings: async () => ({ ok: true, settings: { provider: 'Gemini', selected_model: 'test-model', fallback_model: '', credential: null, presets: [] } }),
+  get_ai_status: async () => ({
+    enabled: aiEnabled, available: true, memory_enabled: false,
+    active_personality: 'neutral', available_personalities: ['neutral'], model: 'test-model',
   }),
-  save_ai_setup: async (settings: AISetupSettings) => {
-    aiCalls.push(['save_ai_setup', settings])
-    if (query.has('modelSaveError')) return { ok: false, error: 'Synthetic setup save failure.' }
-    if (settings.primary.model === settings.fallback?.model && settings.primary.provider === settings.fallback?.provider) return { ok: false, error: 'Fallback must differ from primary.' }
-    aiSetup = structuredClone(settings); sessionStorage.setItem('aiSetup', JSON.stringify(aiSetup)); aiStatus.model = aiSetup.primary.model; return { ok: true }
-  },
-  discover_ai_models: async (provider: string) => ({ ok: true, provider_id: provider, models: [`${provider}-discovered-model`] }),
-  replace_credential: async (name: string) => {
-    credentialCalls.push(['replace', name])
-    if (query.has('credentialSaveError')) return { ok: false, error: 'Could not store the credential securely.' }
-    Object.assign(credentials.find((credential) => credential.name === name)!, { configured: true, source: 'credential_store' })
-    if (name === 'twitch_client_secret') {
-      if (query.has('credentialUnchanged')) return { ok: true, changed: false, requires_restart: twitch.requires_restart }
-      secretRestartRequired = twitch.requires_secret_restart = twitch.requires_restart = true
-      return { ok: true, changed: true, requires_restart: true }
-    }
-    aiStatus = { ...aiStatus, available: true }
-    return { ok: true }
-  },
-  remove_credential: async (name: string) => {
-    credentialCalls.push(['remove', name])
-    if (query.has('credentialSaveError')) return { ok: false, error: 'Could not remove the credential securely.' }
-    Object.assign(credentials.find((credential) => credential.name === name)!, { configured: false, source: 'missing' })
-    if (name === 'twitch_client_secret') {
-      secretRestartRequired = twitch.requires_secret_restart = twitch.requires_restart = true
-      return { ok: true, changed: true, requires_restart: true }
-    }
-    aiStatus = { ...aiStatus, available: false }
-    return { ok: true, changed: true }
-  },
-  test_credential: async (name: string) => { credentialCalls.push(['test', name]); return { ok: true } },
-  get_ai_provider_settings: async () => ({ ok: true, settings: {
-    provider: 'Gemini', selected_model: query.has('a4Models') && !aiStatus.model ? 'synthetic-primary' : aiStatus.model,
-    fallback_model: query.has('a4Models') ? 'synthetic-fallback' : '',
-    presets: query.has('a4Models') ? ['synthetic-primary', 'synthetic-fallback'].map((id) => ({ id, label: id, description: '' })) : [],
-    credential: credentials[1],
-  } }),
-  get_ai_language_settings: async () => {
-    if (query.has('languageLoadError')) return { ok: false, error: 'AI language settings are unavailable.' }
-    return { ok: true, settings: languageSettings, languages: languageCatalogue, active_policy: activeLanguagePolicy }
-  },
-  update_ai_language_settings: async (mode: string, allowedLanguages: string[], fallbackLanguage: string) => {
-    aiCalls.push(['update_ai_language_settings', mode, allowedLanguages, fallbackLanguage])
-    if (query.has('languageSaveError')) return { ok: false, error: 'AI language settings could not be saved.' }
-    if (allowedLanguages.length === 0) return { ok: false, error: 'At least one allowed language is required.' }
-    if (!allowedLanguages.includes(fallbackLanguage)) return { ok: false, error: 'Fallback language must be allowed.' }
-    languageSettings = {
-      mode: mode as AILanguageSettings['mode'],
-      allowed_languages: [...allowedLanguages],
-      fallback_language: fallbackLanguage,
-    }
-    const labels = allowedLanguages.map((code) => languageCatalogue.find((language) => language.code === code)?.label ?? code).join(', ')
-    activeLanguagePolicy = mode === 'auto'
-      ? 'Auto — match the incoming language without restrictions.'
-      : `Limited — ${labels}; fallback ${languageCatalogue.find((language) => language.code === fallbackLanguage)?.label ?? fallbackLanguage}.`
-    personalities = {
-      ...personalities,
-      protected_shared_instructions: `Synthetic shared instructions. Active language policy: ${activeLanguagePolicy}`,
-    }
+  get_recent_commands: async () => ({ entries: [] }),
+  set_ai_enabled: async (value: boolean) => {
+    bridgeCalls.push(['set_ai_enabled', value])
+    aiEnabled = value
     return { ok: true }
   },
   get_about_info: async () => ({
-    application_name: 'HeetKit', version: '0.1.0', author: 'heeetz', repository_url: 'https://github.com/heeetz/heetkit-bot',
-    application_subtitle: 'Desktop control center for Twitch chat', author_twitch: '@heet_ok',
-    discord_contact: 'de.tected', license_name: 'Apache-2.0', license_url: 'https://www.apache.org/licenses/LICENSE-2.0',
+    application_name: 'HeetKit', application_subtitle: 'Twitch bot controls', version: '0.1.0',
+    author: 'heeetz', author_twitch: '@heet_ok', discord_contact: 'de.tected', license_name: 'Apache-2.0',
+    repository_url: 'https://github.com/heeetz/heetkit-bot', license_url: 'https://www.apache.org/licenses/LICENSE-2.0',
     third_party_notices_url: 'https://github.com/heeetz/heetkit-bot/blob/main/THIRD_PARTY_NOTICES.md',
   }),
   check_for_updates: async () => {
     updateCalls.push(['check_for_updates'])
-    const sequence = query.get('updateSequence')?.split(',') ?? []
-    const outcome = sequence[updateCalls.length - 1] ?? ''
-    if (query.has('updateDelay')) {
-      await new Promise((resolve) => window.setTimeout(resolve, Number(query.get('updateDelay')) || 250))
-    }
-    if (outcome === 'reject' || query.has('updateReject') || query.has('updateRejection')) {
-      throw new Error('Update service is unavailable.')
-    }
-    if (outcome === 'error' || query.has('updateError') || query.has('updateFailure')) {
-      return { ok: false, error: 'Could not reach the update service.', current_version: '0.1.0' }
-    }
-    const newer = outcome === 'newer' || query.has('updateNewer') || query.has('updateAvailable')
+    if (query.has('failStartupCheck') && updateCalls.length === 1) throw new Error('Synthetic update service failure')
     return {
-      ok: true,
-      current_version: '0.1.0',
-      latest_version: newer ? '0.2.0' : '0.1.0',
-      update_available: newer,
-      automatic_update: newer && query.has('verifiedUpdate'),
-      automatic_update_reason: newer && !query.has('verifiedUpdate') ? 'Use Open release / downloads to update this portable or source copy.' : undefined,
-      release_name: newer ? 'HeetKit 0.2.0' : 'HeetKit 0.1.0',
-      release_notes: query.has('notesMarkup')
-        ? 'Fixes <strong>markup</strong> & **formatting**.'
-        : 'Bug fixes and reliability improvements.',
-      published_at: '2026-10-09',
+      ok: true, current_version: '0.1.0', latest_version: '0.2.0',
+      update_available: true, automatic_update: !query.has('portable'),
+      release_notes: 'Fixes <strong>markup</strong>.',
     }
   },
   prepare_desktop_update: async (version: string) => {
     updateCalls.push(['prepare', version])
-    if (query.has('holdDownload')) {
-      await new Promise<void>((resolve) => Object.assign(window, { finishUpdateDownload: resolve }))
-    } else {
-      await new Promise((resolve) => window.setTimeout(resolve, 700))
+    await new Promise<void>((resolve) => Reflect.set(window, 'finishUpdateDownload', resolve))
+    if (query.has('failVerification') && !verificationFailed) {
+      verificationFailed = true
+      return { ok: false, error: 'Synthetic installer verification failure' }
     }
-    return query.has('badDownload') ? { ok: false, error: 'Installer verification failed.' } : { ok: true }
+    return { ok: true }
   },
   get_desktop_update_progress: async () => ({ phase: 'downloading', downloaded: 30, total: 60 }),
   finish_desktop_update: async (version: string) => { updateCalls.push(['finish', version]); return { ok: true } },
-  start_bot: async () => {
-    status = { ...status, running: true, twitch_connection_state: 'auth_required' }
-    return { ok: true }
-  },
-  stop_bot: async () => {
-    status = { ...status, running: false }
-    return { ok: true }
-  },
-  apply_personality: async (name: string, prompt: string) => {
-    aiCalls.push(['apply_personality', name, prompt])
-    personalities = {
-      ...personalities,
-      active_personality: name,
-      personalities: personalities.personalities.map((item) => item.name === name ? {
-        ...item, prompt, prompt_saved: false,
-      } : item),
-    }
-    return { ok: true }
-  },
-  create_personality: async (name: string, prompt: string) => {
-    if (query.has('createPersonalityError')) return { ok: false, error: 'Personality could not be created.' }
-    const normalizedName = name.trim()
-    personalities = {
-      ...personalities,
-      personalities: [...personalities.personalities, {
-        name: normalizedName, prompt, built_in_prompt: '', is_builtin: false,
-        prompt_saved: true, has_saved_override: true,
-      }],
-    }
-    aiStatus = { ...aiStatus, available_personalities: personalities.personalities.map((item) => item.name) }
-    aiCalls.push(['create_personality', normalizedName, prompt])
-    return { ok: true, name: normalizedName }
-  },
-  rename_personality: async (oldName: string, newName: string) => {
-    if (query.has('renamePersonalityError')) return { ok: false, error: 'Personality could not be renamed.' }
-    const normalizedName = newName.trim()
-    personalities = {
-      ...personalities,
-      active_personality: personalities.active_personality === oldName ? normalizedName : personalities.active_personality,
-      personalities: personalities.personalities.map((item) => item.name === oldName ? { ...item, name: normalizedName } : item),
-    }
-    aiStatus = {
-      ...aiStatus,
-      active_personality: aiStatus.active_personality === oldName ? normalizedName : aiStatus.active_personality,
-      available_personalities: personalities.personalities.map((item) => item.name),
-    }
-    aiCalls.push(['rename_personality', oldName, normalizedName])
-    return { ok: true, name: normalizedName }
-  },
-  delete_personality: async (name: string) => {
-    if (query.has('deletePersonalityError')) return { ok: false, error: 'Personality could not be deleted.' }
-    personalities = {
-      ...personalities,
-      active_personality: personalities.active_personality === name ? 'neutral' : personalities.active_personality,
-      personalities: personalities.personalities.filter((item) => item.name !== name),
-    }
-    aiStatus = { ...aiStatus, active_personality: personalities.active_personality, available_personalities: personalities.personalities.map((item) => item.name) }
-    aiCalls.push(['delete_personality', name])
-    return { ok: true }
-  },
-  set_active_personality: async (name: string) => {
-    if (query.has('activePersonalityError')) return { ok: false, error: 'Personality could not be activated.' }
-    personalities = { ...personalities, active_personality: name, active_personality_saved: true }
-    aiStatus = { ...aiStatus, active_personality: name }
-    aiCalls.push(['set_active_personality', name])
-    return { ok: true }
-  },
-  save_personality: async (name: string, prompt: string) => {
-    if (query.has('savePersonalityError')) return { ok: false, error: 'Personality could not be saved.' }
-    aiCalls.push(['save_personality', name, prompt])
-    personalities = {
-      ...personalities,
-      personalities: personalities.personalities.map((item) => item.name === name ? {
-        ...item, prompt, prompt_saved: true, has_saved_override: !item.is_builtin || prompt !== item.built_in_prompt,
-      } : item),
-    }
-    return { ok: true }
-  },
-  reset_personality: async (name: string) => {
-    if (query.has('resetPersonalityError')) return { ok: false, error: 'Personality could not be reset.' }
-    aiCalls.push(['reset_personality', name])
-    personalities = {
-      ...personalities,
-      personalities: personalities.personalities.map((item) => item.name === name ? {
-        ...item, prompt: item.built_in_prompt, prompt_saved: true, has_saved_override: false,
-      } : item),
-    }
-    return { ok: true }
-  },
-  apply_profile_instructions: async (prompt: string) => {
-    aiCalls.push(['apply_profile_instructions', prompt])
-    if (query.has('profileError')) return { ok: false, error: 'Profile instructions could not be updated.' }
-    personalities = { ...personalities, profile_instructions: prompt, profile_instructions_saved: false }
-    return { ok: true }
-  },
-  save_profile_instructions: async (prompt: string) => {
-    aiCalls.push(['save_profile_instructions', prompt])
-    if (query.has('profileError')) return { ok: false, error: 'Profile instructions could not be saved.' }
-    personalities = { ...personalities, profile_instructions: prompt, profile_instructions_saved: true }
-    return { ok: true }
-  },
-  reset_profile_instructions: async () => {
-    aiCalls.push(['reset_profile_instructions'])
-    if (query.has('profileError')) return { ok: false, error: 'Profile instructions could not be reset.' }
-    personalities = { ...personalities, profile_instructions: '', profile_instructions_saved: true }
-    return { ok: true }
-  },
-  open_external_link: async (destination: string) => {
-    opened.push(destination)
-    return query.has('openError') ? { ok: false, error: 'Could not open the external link.' } : { ok: true }
-  },
-} as unknown as Awaited<ReturnType<typeof waitForBridge>> }
-
-function ToastFixture() {
-  const [error, setError] = useState(query.has('error') ? 'Initial error' : '')
-  const [notice, setNotice] = useState(query.has('error') ? '' : 'Initial success')
-  const [renders, setRenders] = useState(0)
-  return <>
-    <FeedbackToast error={error} notice={notice} onDismiss={() => { setError(''); setNotice('') }} />
-    <button onClick={() => setRenders(renders + 1)}>Rerender {renders}</button>
-    <button onClick={() => setNotice('Changed success')}>Change notice</button>
-    <button onClick={() => setError('Changed error')}>Change error</button>
-  </>
+  open_external_link: async (destination: string) => { opened.push(destination); return { ok: true } },
 }
 
-function AboutFixture() {
-  const updates = useUpdateCheck()
-  return <main><div className="page-content"><AboutPage updates={updates} /></div></main>
+const bridge = { api: api as PythonApi }
+if (query.has('lateBridge')) {
+  window.setTimeout(() => {
+    window.pywebview = bridge
+    window.dispatchEvent(new Event('pywebviewready'))
+  }, 300)
+} else {
+  window.pywebview = bridge
 }
 
-createRoot(document.getElementById('root')!).render(
-  query.has('toast') ? <ToastFixture />
-    : query.has('about') ? <AboutFixture />
-    : query.has('settings') ? <main><SettingsPage active status={status} /></main>
-    : query.has('strict') ? <StrictMode><App /></StrictMode> : <App />,
-)
+createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>)

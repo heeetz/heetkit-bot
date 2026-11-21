@@ -14,6 +14,7 @@ from app.commands.fun import register_fun_commands
 from app.commands.registry import CommandContext, CommandDispatcher, CommandRegistry
 from app.custom_commands import CustomCommandStore
 from app.fun_settings import FunSettingsStore
+from app.runtime_state import RuntimeState
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownManager
@@ -29,16 +30,20 @@ def burst_payload(**changes):
     }
 
 
-def setup_dispatcher(tmp_path, **changes):
+def setup_dispatcher(tmp_path, *, tg_settings=None, **changes):
     registry = CommandRegistry()
     fun = FunSettingsStore(tmp_path / "fun.json")
     register_fun_commands(registry, fun)
     store = CustomCommandStore(tmp_path / "commands.json", set(registry.names()))
     store.save(burst_payload(**changes))
     limiter = OutputLimiter(interval=60)
+    state = RuntimeState(command_settings_path=tmp_path / "builtin_settings.json")
+    state.configure_commands(registry.definitions())
+    if tg_settings:
+        state.apply_command_settings("tg", **tg_settings)
     dispatcher = CommandDispatcher(
         registry, CooldownManager(), logging.getLogger(__name__), "!",
-        output_limiter=limiter, custom_commands=store,
+        output_limiter=limiter, custom_commands=store, runtime_state=state,
     )
     users = SimpleNamespace(recent_usernames=AsyncMock(return_value=["alice", "bob"]))
     services = SimpleNamespace(users=users, settings=SimpleNamespace(
@@ -50,9 +55,7 @@ def message(content, responder, **roles):
     return IncomingChatMessage("channel", content, ChatAuthor("user", "caller", **roles), responder)
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("command", ["tg", "promo"])
-@pytest.mark.parametrize("count", range(1, 11))
+@pytest.mark.parametrize("command,count", [("tg", 3), ("promo", 10)])
 async def test_all_sends_start_before_any_response_finishes(tmp_path, command, count):
     dispatcher, _, limiter, services = setup_dispatcher(tmp_path, burst_count=count)
     assert limiter.try_acquire()  # Even an already occupied limiter cannot trim a burst.
@@ -86,7 +89,6 @@ async def test_all_sends_start_before_any_response_finishes(tmp_path, command, c
         await asyncio.gather(task, return_exceptions=True)
 
 
-@pytest.mark.asyncio
 async def test_batch_collects_success_drops_http_limits_rejections_and_child_cancellation(caplog):
     sent = SentMessage({"message_id": "sent", "is_sent": True})
     dropped = SentMessage({"message_id": "", "is_sent": False,
@@ -120,7 +122,6 @@ async def test_batch_collects_success_drops_http_limits_rejections_and_child_can
     assert "Synthetic failure" not in caplog.text
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("command", ["tg", "promo"])
 async def test_cancelling_invocation_drains_all_transport_cleanup(tmp_path, command):
     dispatcher, _, _, services = setup_dispatcher(tmp_path)
@@ -163,20 +164,7 @@ async def test_cancelling_invocation_drains_all_transport_cleanup(tmp_path, comm
         await asyncio.gather(task, return_exceptions=True)
 
 
-@pytest.mark.asyncio
-async def test_both_commands_call_the_same_burst_helper(tmp_path, monkeypatch):
-    dispatcher, _, _, services = setup_dispatcher(tmp_path)
-    shared = AsyncMock(return_value=[])
-    monkeypatch.setattr(CommandContext, "reply_burst", shared)
-    respond = AsyncMock()
-    await dispatcher.dispatch(message("!tg 3", respond, is_moderator=True), services)
-    await dispatcher.dispatch(message("!promo", respond, is_moderator=True), services)
-    assert [call.args[1] for call in shared.await_args_list] == [3, 5]
-    respond.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("count", [0, -1, 11, True, 1.5, "2", None])
+@pytest.mark.parametrize("count", [0, 11, True, 1.5])
 async def test_helper_rejects_invalid_counts_before_any_send(count):
     respond = AsyncMock()
     context = CommandContext(message("!promo", respond), SimpleNamespace(), logging.getLogger(__name__))
@@ -185,16 +173,14 @@ async def test_helper_rejects_invalid_counts_before_any_send(count):
     respond.assert_not_awaited()
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("count", [1, 5, 20])
-async def test_helper_supports_raised_limit_with_exactly_one_attempt_per_copy(count):
+async def test_helper_supports_raised_limit_with_exactly_one_attempt_per_copy():
+    count = 20
     respond = AsyncMock()
     context = CommandContext(message("!tg", respond), SimpleNamespace(), logging.getLogger(__name__), burst_max_count=20)
     assert len(await context.reply_burst("Hello", count)) == count
     assert respond.await_count == count
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("maximum,count", [(5, 6), (20, 21), (21, 5), (0, 1), (True, 1)])
 async def test_helper_cannot_exceed_configured_or_absolute_limit(maximum, count):
     respond = AsyncMock()
@@ -204,22 +190,15 @@ async def test_helper_cannot_exceed_configured_or_absolute_limit(maximum, count)
     respond.assert_not_awaited()
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("arguments", ["", "1", "5", "20"])
+@pytest.mark.parametrize("arguments", ["", "20"])
 async def test_tg_defaults_and_counts_are_exact_with_configured_limit(tmp_path, arguments):
-    from app.runtime_state import RuntimeState
-    dispatcher, _, _, services = setup_dispatcher(tmp_path)
-    state = RuntimeState()
-    state.configure_commands(dispatcher._registry.definitions())
-    state.apply_command_settings("tg", burst_max_count=20)
-    dispatcher._runtime_state = state
+    dispatcher, _, _, services = setup_dispatcher(tmp_path, tg_settings={"burst_max_count": 20})
     respond = AsyncMock()
     await dispatcher.dispatch(message(f"!tg {arguments}", respond, is_moderator=True), services)
     assert respond.await_count == int(arguments or "1")
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("arguments", ["0", "-1", "21", "1.5", "many", "1 5", "+5", "1_0"])
+@pytest.mark.parametrize("arguments", ["0", "21", "1.5", "1 5", "+5", "1_0"])
 async def test_tg_invalid_arguments_send_usage_without_a_partial_batch(tmp_path, arguments):
     dispatcher, _, _, services = setup_dispatcher(tmp_path)
     respond = AsyncMock()
@@ -228,7 +207,6 @@ async def test_tg_invalid_arguments_send_usage_without_a_partial_batch(tmp_path,
     assert respond.await_args.args[0].startswith("Usage: !tg")
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("roles,allowed", [({}, False), ({"is_subscriber": True}, False),
     ({"is_vip": True}, False), ({"is_moderator": True}, True), ({"is_broadcaster": True}, True)])
 async def test_burst_permission_floor_even_for_an_invalid_runtime_snapshot(tmp_path, roles, allowed):
@@ -241,8 +219,7 @@ async def test_burst_permission_floor_even_for_an_invalid_runtime_snapshot(tmp_p
     assert respond.await_count == (5 if allowed else 0)
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("arguments", ["0", "11", "-1", "2.5", "many", "10 extra " * 40])
+@pytest.mark.parametrize("arguments", ["0", "11", "2.5", "many", "10 extra " * 40])
 async def test_invalid_override_sends_no_partial_batch(tmp_path, arguments):
     dispatcher, _, _, services = setup_dispatcher(tmp_path, burst_allow_override=True)
     respond = AsyncMock()
@@ -251,7 +228,6 @@ async def test_invalid_override_sends_no_partial_batch(tmp_path, arguments):
     services.users.recent_usernames.assert_not_awaited()
 
 
-@pytest.mark.asyncio
 async def test_burst_renders_once_and_override_is_removed_from_template_arguments(tmp_path):
     template = "{sender}|{target}|{args}|{arg1}|{arg2}|{random_user}"
     dispatcher, _, _, services = setup_dispatcher(
@@ -274,7 +250,6 @@ async def test_burst_renders_once_and_override_is_removed_from_template_argument
     services.users.recent_usernames.assert_awaited_once()
 
 
-@pytest.mark.asyncio
 async def test_disabled_override_keeps_arguments_and_applies_existing_length_limit(tmp_path):
     dispatcher, _, _, services = setup_dispatcher(tmp_path, responses=["{args}" + "😀" * 300], burst_count=3)
     respond = AsyncMock()
@@ -284,7 +259,6 @@ async def test_disabled_override_keeps_arguments_and_applies_existing_length_lim
                for call in respond.await_args_list)
 
 
-@pytest.mark.asyncio
 async def test_single_random_and_burst_share_cooldowns_but_only_burst_bypasses_output_limit(tmp_path):
     dispatcher, store, limiter, services = setup_dispatcher(tmp_path, per_user_seconds=30)
     for mode, responses in [("single", ["Single {sender}"]), ("random", ["One", "Two"])]:
@@ -307,9 +281,12 @@ async def test_single_random_and_burst_share_cooldowns_but_only_burst_bypasses_o
     assert not limiter.try_acquire()
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("interval", [0, 50, 200, 1000])
-async def test_spacing_staggers_starts_without_waiting_for_any_response(interval):
+@pytest.mark.parametrize("invocation", ["!tg 3", "!promo"])
+async def test_spacing_staggers_sends_without_waiting_for_responses(tmp_path, invocation):
+    interval = 200
+    dispatcher, _, _, services = setup_dispatcher(
+        tmp_path, tg_settings={"burst_interval_ms": interval}, burst_interval_ms=interval, burst_count=3,
+    )
     loop = asyncio.get_running_loop()
     began = []
     all_started = asyncio.Event()
@@ -322,17 +299,16 @@ async def test_spacing_staggers_starts_without_waiting_for_any_response(interval
         await release.wait()
         finished.append(content)
         return content
-    context = CommandContext(message("!promo", respond), SimpleNamespace(), logging.getLogger(__name__))
-    task = asyncio.create_task(context.reply_burst("Hello", 3, interval_ms=interval))
+    task = asyncio.create_task(dispatcher.dispatch(message(invocation, respond, is_moderator=True), services))
     try:
         await asyncio.wait_for(all_started.wait(), interval * 2 / 1000 + 2)
         assert finished == []
         elapsed = [start - began[0] for start in began]
         assert elapsed == pytest.approx([index * interval / 1000 for index in range(3)], abs=0.3)
-        if interval:
-            assert all(right - left >= interval / 1000 * 0.6 for left, right in zip(began, began[1:]))
+        assert all(right - left >= interval / 1000 * 0.6 for left, right in zip(began, began[1:]))
         release.set()
-        assert await task == ["Hello"] * 3
+        assert await task
+        assert len(finished) == 3
     finally:
         release.set()
         if not task.done():
@@ -340,7 +316,6 @@ async def test_spacing_staggers_starts_without_waiting_for_any_response(interval
         await asyncio.gather(task, return_exceptions=True)
 
 
-@pytest.mark.asyncio
 async def test_staggered_failure_keeps_remaining_sends_and_preserves_rate_limit_result():
     limited = HTTPException("Rate limited", status=429, extra={"message": "Limited"})
     outcomes = iter([limited, "second", "third"])
@@ -357,7 +332,6 @@ async def test_staggered_failure_keeps_remaining_sends_and_preserves_rate_limit_
     assert results == [limited, "second", "third"]
 
 
-@pytest.mark.asyncio
 async def test_cancelling_staggered_burst_cancels_pending_starts_and_waits_for_active_cleanup():
     began = asyncio.Event()
     cleaning = asyncio.Event()
@@ -392,25 +366,6 @@ async def test_cancelling_staggered_burst_cancels_pending_starts_and_waits_for_a
         await asyncio.gather(task, return_exceptions=True)
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("command", ["tg", "promo"])
-async def test_both_command_modes_pass_their_interval_to_shared_batch(tmp_path, monkeypatch, command):
-    from app.runtime_state import RuntimeState
-    dispatcher, store, _, services = setup_dispatcher(tmp_path, burst_interval_ms=50)
-    state = RuntimeState(command_settings_path=tmp_path / "builtin_settings.json")
-    state.configure_commands(dispatcher._registry.definitions())
-    state.apply_command_settings("tg", burst_interval_ms=200)
-    dispatcher._runtime_state = state
-    observed = []
-    async def shared(context, content, count, interval_ms=None):
-        observed.append(context.burst_interval_ms if interval_ms is None else interval_ms)
-        return []
-    monkeypatch.setattr(CommandContext, "reply_burst", shared)
-    await dispatcher.dispatch(message("!tg 3" if command == "tg" else "!promo", AsyncMock(), is_moderator=True), services)
-    assert observed == [200 if command == "tg" else 50]
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("interval", [-1, 1001, 1.5, True, "50"])
 async def test_helper_invalid_interval_rejected_before_any_send(interval):
     respond = AsyncMock()

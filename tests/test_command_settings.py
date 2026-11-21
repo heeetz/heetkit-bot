@@ -87,80 +87,37 @@ def test_settings_derive_from_registry_and_apply_runtime_changes() -> None:
     assert updated.permission is Permission.VIP
 
 
-def test_saved_override_loads_and_reset_restores_defaults(tmp_path) -> None:
-    settings_path = tmp_path / "command_settings.json"
-    registry = build_registry()
-    runtime_state = RuntimeState(command_settings_path=settings_path)
-    runtime_state.configure_commands(registry.definitions())
-    runtime_state.apply_command_settings(
-        "ping",
-        enabled=False,
-        cooldown=CooldownPolicy(per_user_seconds=1.0, global_seconds=2.0),
-        permission=Permission.BROADCASTER,
+@pytest.mark.parametrize("apply_first", [False, True], ids=["save", "apply-then-save"])
+def test_settings_persist_only_on_save_and_reset_clears_override(tmp_path, apply_first):
+    path = tmp_path / "command_settings.json"
+    definitions = build_registry().definitions()
+    state = RuntimeState(command_settings_path=path)
+    state.configure_commands(definitions)
+    defaults = state.get_command_settings("ping")
+    changes = dict(
+        enabled=False, permission=Permission.BROADCASTER,
+        cooldown=CooldownPolicy(per_user_seconds=1, global_seconds=2),
     )
+    if apply_first:
+        state.apply_command_settings("ping", **changes)
+        assert not state.command_settings_are_saved("ping")
+        assert not state.has_saved_command_override("ping")
+        assert not path.exists()
+        state.save_command_override("ping")
+    else:
+        state.save_command_settings("ping", **changes)
 
-    runtime_state.save_command_override("ping")
-
-    saved_payload = json.loads(settings_path.read_text(encoding="utf-8"))
-    assert saved_payload == {
-        "ping": {
-            "cooldown": {"global_seconds": 2.0, "per_user_seconds": 1.0},
-            "enabled": False,
-            "permission": "BROADCASTER",
-        }
-    }
-    assert list(tmp_path.glob(".command_settings.json.*.tmp")) == []
-
-    restored_state = RuntimeState(command_settings_path=settings_path)
-    restored_state.configure_commands(registry.definitions())
-    assert restored_state.get_command_settings("ping") == runtime_state.get_command_settings(
-        "ping"
-    )
-
-    reset_settings = restored_state.reset_command_settings("ping")
-    assert reset_settings == registry.get("ping").default_settings
-    assert json.loads(settings_path.read_text(encoding="utf-8")) == {}
-
-
-def test_save_explicit_settings_applies_and_persists_atomically(tmp_path) -> None:
-    settings_path = tmp_path / "command_settings.json"
-    registry = build_registry()
-    runtime_state = RuntimeState(command_settings_path=settings_path)
-    runtime_state.configure_commands(registry.definitions())
-
-    saved = runtime_state.save_command_settings(
-        "ping",
-        enabled=False,
-        cooldown=CooldownPolicy(per_user_seconds=6.0, global_seconds=7.0),
-        permission=Permission.SUBSCRIBER,
-    )
-
-    assert runtime_state.get_command_settings("ping") == saved
-    assert runtime_state.command_settings_are_saved("ping") is True
-    assert runtime_state.has_saved_command_override("ping") is True
-    restored = RuntimeState(command_settings_path=settings_path)
-    restored.configure_commands(registry.definitions())
-    assert restored.get_command_settings("ping") == saved
-
-
-def test_apply_is_runtime_only_until_saved_and_reset_clears_override(tmp_path) -> None:
-    settings_path = tmp_path / "command_settings.json"
-    registry = build_registry()
-    runtime_state = RuntimeState(command_settings_path=settings_path)
-    runtime_state.configure_commands(registry.definitions())
-
-    runtime_state.apply_command_settings("ping", enabled=False)
-    assert runtime_state.command_settings_are_saved("ping") is False
-    assert runtime_state.has_saved_command_override("ping") is False
-
-    runtime_state.save_command_override("ping")
-    assert runtime_state.command_settings_are_saved("ping") is True
-    assert runtime_state.has_saved_command_override("ping") is True
-
-    runtime_state.reset_command_settings("ping")
-    assert runtime_state.get_command_settings("ping") == registry.get("ping").default_settings
-    assert runtime_state.command_settings_are_saved("ping") is True
-    assert runtime_state.has_saved_command_override("ping") is False
+    saved = state.get_command_settings("ping")
+    assert not saved.enabled
+    assert saved.permission is changes["permission"] and saved.cooldown == changes["cooldown"]
+    assert state.command_settings_are_saved("ping") and state.has_saved_command_override("ping")
+    assert list(tmp_path.iterdir()) == [path]
+    reopened = RuntimeState(command_settings_path=path)
+    reopened.configure_commands(definitions)
+    assert reopened.get_command_settings("ping") == saved
+    assert reopened.reset_command_settings("ping") == defaults
+    assert reopened.command_settings_are_saved("ping") and not reopened.has_saved_command_override("ping")
+    assert json.loads(path.read_text(encoding="utf-8")) == {}
 
 
 def test_failed_explicit_save_does_not_apply_runtime_change(tmp_path, monkeypatch) -> None:

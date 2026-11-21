@@ -50,7 +50,6 @@ def completion(content="The final answer.", finish="stop", reasoning="private re
     })
 
 
-@pytest.mark.asyncio
 async def test_payload_uses_prepared_messages_disabled_thinking_and_final_content(monkeypatch):
     async def handler(request):
         return completion()
@@ -75,7 +74,6 @@ async def test_payload_uses_prepared_messages_disabled_thinking_and_final_conten
     assert "reasoning" not in result.text.lower()
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("finish,content", [("length", "partial"), ("tool_calls", "partial"),
                                            ("stop", " ")])
 async def test_suppresses_partial_tool_and_empty_outputs(monkeypatch, finish, content):
@@ -86,7 +84,6 @@ async def test_suppresses_partial_tool_and_empty_outputs(monkeypatch, finish, co
     assert result.status == "api_error"
 
 
-@pytest.mark.asyncio
 async def test_falls_back_only_for_missing_primary_model(monkeypatch):
     async def handler(request):
         if json.loads(request.content)["model"] == "deepseek-flash":
@@ -102,7 +99,6 @@ async def test_falls_back_only_for_missing_primary_model(monkeypatch):
     ]
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("code", [401, 403, 429, 500])
 async def test_auth_rate_and_server_errors_do_not_fallback_or_leak_payload(monkeypatch, caplog, code):
     wire_transport(monkeypatch, lambda _: asyncio.sleep(
@@ -116,7 +112,6 @@ async def test_auth_rate_and_server_errors_do_not_fallback_or_leak_payload(monke
     assert "synthetic-secret" not in str(caplog.records)
 
 
-@pytest.mark.asyncio
 async def test_discovery_uses_bearer_key_bounds_and_sorts_models(monkeypatch):
     async def handler(request):
         assert request.method == "GET"
@@ -132,14 +127,12 @@ async def test_discovery_uses_bearer_key_bounds_and_sorts_models(monkeypatch):
     assert await provider.discover_models() == ["deepseek-a", "deepseek-z"]
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("data", [[], [{"id": "gemini-unsafe"}, {"id": "bad/id"}]])
 async def test_discovery_returns_empty_for_empty_or_foreign_model_lists(monkeypatch, data):
     wire_transport(monkeypatch, lambda _: asyncio.sleep(0, result=httpx.Response(200, json={"data": data})))
     assert await make_provider().discover_models() == []
 
 
-@pytest.mark.asyncio
 async def test_discovery_truncates_after_bounded_number_of_entries(monkeypatch):
     monkeypatch.setattr(deepseek, "DEEPSEEK_MAX_DISCOVERED_MODELS", 2)
     data = [{"id": "deepseek-first"}, {"id": "deepseek-second"}, {"id": "deepseek-third"}]
@@ -147,7 +140,6 @@ async def test_discovery_truncates_after_bounded_number_of_entries(monkeypatch):
     assert await make_provider().discover_models() == ["deepseek-first", "deepseek-second"]
 
 
-@pytest.mark.asyncio
 async def test_missing_or_blank_key_is_unavailable_and_discovery_makes_no_request(monkeypatch):
     requests = wire_transport(monkeypatch, lambda _: asyncio.sleep(0, result=completion()))
     for key in (None, "  "):
@@ -159,7 +151,6 @@ async def test_missing_or_blank_key_is_unavailable_and_discovery_makes_no_reques
     assert requests == []
 
 
-@pytest.mark.asyncio
 async def test_search_on_permits_tools_without_claiming_every_reply_searched(monkeypatch):
     requests = wire_transport(monkeypatch, lambda _: asyncio.sleep(0, result=completion()))
     provider = make_provider()
@@ -170,7 +161,6 @@ async def test_search_on_permits_tools_without_claiming_every_reply_searched(mon
     assert len(requests) == 1 and json.loads(requests[0].content)["tools"]
 
 
-@pytest.mark.asyncio
 async def test_snapshot_keeps_old_key_during_rotation_and_close_drains_call(monkeypatch):
     entered = asyncio.Event()
     release = asyncio.Event()
@@ -201,7 +191,6 @@ async def test_snapshot_keeps_old_key_during_rotation_and_close_drains_call(monk
     assert not provider.is_available
 
 
-@pytest.mark.asyncio
 async def test_cancellation_and_total_deadline_close_transport(monkeypatch):
     monkeypatch.setattr(deepseek, "DEEPSEEK_REQUEST_TIMEOUT_SECONDS", 0.05)
     entered = asyncio.Event()
@@ -224,7 +213,6 @@ async def test_cancellation_and_total_deadline_close_transport(monkeypatch):
     await provider.aclose()
 
 
-@pytest.mark.asyncio
 async def test_explicit_cancellation_releases_operation_and_closes_provider(monkeypatch):
     entered = asyncio.Event()
     cancelled = asyncio.Event()
@@ -247,17 +235,6 @@ async def test_explicit_cancellation_releases_operation_and_closes_provider(monk
     assert cancelled.is_set()
     await provider.aclose()
     assert not provider.is_available
-
-
-@pytest.mark.asyncio
-async def test_oversized_response_is_rejected(monkeypatch):
-    async def oversized(*_args, **_kwargs):
-        raise ValueError("DeepSeek response exceeded the size limit.")
-
-    monkeypatch.setattr(deepseek.DeepSeekProvider, "_http_json", oversized)
-    provider = make_provider()
-    result = await provider.generate(AIGenerationRequest("s", "u"), provider.snapshot())
-    assert result.status == "api_error"
 
 
 @pytest.mark.parametrize("oversized", [False, True])

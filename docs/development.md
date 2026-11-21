@@ -388,14 +388,14 @@ Start with the listed source and run the tests that cover the behavior you chang
 
 | Feature | Source entry points | Focused checks | Behavior to preserve |
 | --- | --- | --- | --- |
-| Twitch setup and Server modes | [SettingsPage](../frontend/src/pages/SettingsPage.tsx), [Server setup](../app/server_setup.py), [operation policy](../app/operation_policy.py) | [Desktop onboarding](../frontend/tests/onboarding.spec.ts), [Server setup](../tests/test_server_setup.py), [operation policy](../tests/test_operation_policy.py) | Save identity and credentials separately. Target-only changes keep bot authorization. Treat a running process and a ready chat connection as separate states. |
-| AI setup and Playground | [AISetupPanel](../frontend/src/components/AISetupPanel.tsx), [AI service](../app/services/ai_service.py), [Playground](../app/services/ai_playground.py) | [Model setup](../frontend/tests/ai-models.spec.ts), [AI setup](../tests/test_ai_setup.py), [Playground](../tests/test_ai_playground.py) | Use saved model settings and applied prompts. Keep viewer memory out of Playground. Require consent for cross-provider fallback. |
-| Commands and weather | [CommandsPage](../frontend/src/pages/CommandsPage.tsx), [custom commands](../app/custom_commands.py), [registry](../app/commands/registry.py), [weather](../app/services/weather.py) | [Commands UI](../frontend/tests/commands.spec.ts), [dispatch](../tests/test_command_dispatch.py), [weather lookup](../tests/test_weather_service.py) | Keep stable command IDs across renames. Start the global weather cooldown only on confirmed delivery. |
-| Filters and chat reactions | [FiltersPage](../frontend/src/pages/FiltersPage.tsx), [filter settings](../app/filter_settings.py), [reactions](../app/message_triggers.py) | [Filters UI](../frontend/tests/filters.spec.ts), [filter settings](../tests/test_filter_settings.py), [reactions](../tests/test_message_triggers.py) | The panel saves rules from the editor and tests the current bot filters. Keep protected AI safety separate from editable filters. |
-| Announcements | [AnnouncementsPanel](../frontend/src/components/AnnouncementsPanel.tsx), [scheduler](../app/announcements.py) | [Announcement UI](../frontend/tests/announcements.spec.ts), [scheduler](../tests/test_announcements.py) | Restart a full interval after reconnect or saved edits. Never fall back to an ordinary message if highlighted delivery fails. |
+| Twitch setup and Server modes | [SettingsPage](../frontend/src/pages/SettingsPage.tsx), [Server setup](../app/server_setup.py), [operation policy](../app/operation_policy.py) | [Settings UI](../frontend/tests/browser-settings.spec.ts), [Server setup](../tests/test_server_setup.py), [operation policy](../tests/test_operation_policy.py) | Save identity and credentials separately. Target-only changes keep bot authorization. Treat a running process and a ready chat connection as separate states. |
+| AI setup and Playground | [AISetupPanel](../frontend/src/components/AISetupPanel.tsx), [AI service](../app/services/ai_service.py), [Playground](../app/services/ai_playground.py) | [AI UI](../frontend/tests/browser-ai.spec.ts), [AI setup](../tests/test_ai_setup.py), [Playground](../tests/test_ai_playground.py) | Use saved model settings and applied prompts. Keep viewer memory out of Playground. Require consent for cross-provider fallback. |
+| Commands and weather | [CommandsPage](../frontend/src/pages/CommandsPage.tsx), [custom commands](../app/custom_commands.py), [registry](../app/commands/registry.py), [weather](../app/services/weather.py) | [Commands UI](../frontend/tests/browser-commands.spec.ts), [dispatch](../tests/test_command_dispatch.py), [weather lookup](../tests/test_weather_service.py) | Keep stable command IDs across renames. Start the global weather cooldown only on confirmed delivery. |
+| Filters and chat reactions | [FiltersPage](../frontend/src/pages/FiltersPage.tsx), [filter settings](../app/filter_settings.py), [reactions](../app/message_triggers.py) | [Filters UI](../frontend/tests/browser-filters.spec.ts), [filter settings](../tests/test_filter_settings.py), [reactions](../tests/test_message_triggers.py) | The panel saves rules from the editor and tests the current bot filters. Keep protected AI safety separate from editable filters. |
+| Announcements | [AnnouncementsPanel](../frontend/src/components/AnnouncementsPanel.tsx), [scheduler](../app/announcements.py) | [Announcement UI](../frontend/tests/browser-announcements.spec.ts), [scheduler](../tests/test_announcements.py) | Restart a full interval after reconnect or saved edits. Never fall back to an ordinary message if highlighted delivery fails. |
 | Restrictions and opt-outs | [Restrictions UI](../frontend/src/components/CommandRestrictions.tsx), [restriction store](../app/command_restrictions.py), [registry](../app/commands/registry.py) | [Restrictions](../tests/test_command_restrictions.py), [command privacy](../tests/test_command_privacy_management.py) | Apply rules by stable identities. Keep self-service opt-out available under local command restrictions. |
-| Analytics and logs | [AnalyticsPage](../frontend/src/pages/AnalyticsPage.tsx), [collector](../app/analytics.py), [logging](../app/utils/logging.py) | [Analytics UI](../frontend/tests/analytics.spec.ts), [aggregates](../tests/test_analytics.py), [logging](../tests/test_logging.py) | Keep missing coverage distinct from observed zero. Keep Playground totals separate and the activity feed private. |
-| Configuration transfer | [ConfigurationTransfer](../frontend/src/components/ConfigurationTransfer.tsx), [transfer service](../app/configuration_transfer.py) | [Transfer UI](../frontend/tests/configuration-transfer.spec.ts), [transfer and rollback](../tests/test_configuration_transfer.py) | Validate the whole preview before replacement. Exclude credentials and private history. |
+| Analytics and logs | [AnalyticsPage](../frontend/src/pages/AnalyticsPage.tsx), [collector](../app/analytics.py), [logging](../app/utils/logging.py) | [Analytics UI](../frontend/tests/browser-analytics.spec.ts), [aggregates](../tests/test_analytics.py), [logging](../tests/test_logging.py) | Keep missing coverage distinct from observed zero. Keep Playground totals separate and the activity feed private. |
+| Configuration transfer | [ConfigurationTransfer](../frontend/src/components/ConfigurationTransfer.tsx), [transfer service](../app/configuration_transfer.py) | [Transfer UI](../frontend/tests/browser-configuration-transfer.spec.ts), [transfer and rollback](../tests/test_configuration_transfer.py) | Validate the whole preview before replacement. Exclude credentials and private history. |
 
 ### Desktop layout checks
 
@@ -406,19 +406,9 @@ three panels from 720px, two from 480px, then one. Two-field forms stack at 620p
 The existing browser layout at 760px and below keeps its top navigation and single
 columns. On desktop, the sidebar menu scrolls independently of the brand and page.
 
-Run the focused viewport matrix in `frontend/`:
-
-```powershell
-npm test -- tests/responsive.spec.ts
-```
-
-The matrix covers 900×620, 1180×760, 1440×900, 1920×1080 and 2560×1440 CSS-pixel
-viewports, plus the 761/760px navigation boundary and 390/320px narrow layouts.
-Synthetic fixtures cover fresh setup, configured stopped/connected sessions,
-missing Gemini, loading, errors, drafts and long names. Checks include content and
-control bounds, form/action order, independent menu scrolling and keyboard help.
-It also checks aligned AI editor/key/access footers. About checks cover compact
-manual-update actions and version boxes through loading, results and failures.
+Each page spec in `frontend/tests/browser-*.spec.ts` checks that its page fits a
+390px viewport without horizontal overflow. Check other widths by hand when a
+layout rule changes.
 
 Browser viewport checks do not establish Windows DPI acceptance. Separately launch
 the native application stopped with an isolated `--data-dir`, keeping the default

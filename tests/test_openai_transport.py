@@ -56,7 +56,6 @@ def response(text="The final answer.", *, model="gpt-6-luna", annotations=None, 
     })
 
 
-@pytest.mark.asyncio
 async def test_responses_payload_is_bounded_private_and_uses_captured_key(monkeypatch):
     requests = wire_transport(monkeypatch, lambda _: asyncio.sleep(0, result=response()))
     provider = make_provider()
@@ -77,7 +76,6 @@ async def test_responses_payload_is_bounded_private_and_uses_captured_key(monkey
     assert "conversation" not in payload and "background" not in payload
 
 
-@pytest.mark.asyncio
 async def test_none_reasoning_uses_small_output_bound(monkeypatch):
     requests = wire_transport(monkeypatch, lambda _: asyncio.sleep(0, result=response()))
     provider = make_provider()
@@ -88,7 +86,6 @@ async def test_none_reasoning_uses_small_output_bound(monkeypatch):
     assert json.loads(requests[0].content)["max_output_tokens"] == 1024
 
 
-@pytest.mark.asyncio
 async def test_multi_part_text_and_reasoning_are_handled_without_returning_non_text(monkeypatch):
     output = [
         {"type": "reasoning", "summary": [{"type": "summary_text", "text": "PRIVATE reasoning"}]},
@@ -103,27 +100,21 @@ async def test_multi_part_text_and_reasoning_are_handled_without_returning_non_t
     assert "PRIVATE" not in result.text
 
 
-@pytest.mark.asyncio
-async def test_refusal_is_safety_blocked_without_refusal_body(monkeypatch):
-    output = [{"type": "message", "role": "assistant", "status": "completed",
-               "content": [{"type": "refusal", "refusal": "PRIVATE refusal detail"}]}]
-    wire_transport(monkeypatch, lambda _: asyncio.sleep(0, result=response(output=output)))
+@pytest.mark.parametrize("payload", [
+    {"status": "completed", "output": [
+        {"type": "message", "role": "assistant", "status": "completed",
+         "content": [{"type": "refusal", "refusal": "PRIVATE refusal detail"}]},
+    ]},
+    {"status": "incomplete", "incomplete_details": {"reason": "content_filter"}, "output": []},
+], ids=["refusal", "content-filter"])
+async def test_safety_refusals_suppress_response_text(monkeypatch, payload):
+    wire_transport(monkeypatch, lambda _: asyncio.sleep(0, result=httpx.Response(200, json=payload)))
     provider = make_provider()
     result = await provider.generate(AIGenerationRequest("s", "u"), provider.snapshot())
     assert result.safety_blocked and result.text == ""
     assert "PRIVATE" not in repr(result)
 
 
-@pytest.mark.asyncio
-async def test_content_filter_incomplete_is_safety_blocked(monkeypatch):
-    filtered = {"status": "incomplete", "incomplete_details": {"reason": "content_filter"}, "output": []}
-    wire_transport(monkeypatch, lambda _: asyncio.sleep(0, result=httpx.Response(200, json=filtered)))
-    provider = make_provider()
-    result = await provider.generate(AIGenerationRequest("s", "u"), provider.snapshot())
-    assert result.safety_blocked and result.text == ""
-
-
-@pytest.mark.asyncio
 async def test_incomplete_billed_response_keeps_safe_usage_without_partial_text(monkeypatch, caplog):
     payload = {"status": "incomplete", "model": "gpt-6-luna",
                "incomplete_details": {"reason": "max_output_tokens"},
@@ -141,7 +132,6 @@ async def test_incomplete_billed_response_keeps_safe_usage_without_partial_text(
     assert "PRIVATE" not in str([vars(record) for record in caplog.records])
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("code,status", [
     ("model_not_found", "model_unavailable"), ("invalid_api_key", "api_error"),
     ("rate_limit_exceeded", "api_error"), ("server_error", "api_error"),
@@ -158,7 +148,6 @@ async def test_http_failures_are_sanitized_and_only_model_not_found_is_classifie
     assert "PRIVATE" not in str(caplog.records) and "synthetic-secret" not in str(caplog.records)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("payload", [
     None, [], {"status": "failed", "output": []},
     {"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}, "output": []},
@@ -174,7 +163,6 @@ async def test_malformed_failed_or_incomplete_responses_do_not_return_partial_te
     assert result.status == "api_error" and result.text == ""
 
 
-@pytest.mark.asyncio
 async def test_search_payload_tool_budget_and_valid_citations(monkeypatch):
     citation = {"type": "url_citation", "url": "https://example.test/a", "title": "Example",
                 "start_index": 9, "end_index": 15}
@@ -212,7 +200,6 @@ def test_native_citation_markers_become_inline_urls_without_removing_the_claim(m
     assert used and not blocked and sources[0].url == "https://example.test/a"
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("output", [
     [{"type": "web_search_call", "status": "failed"}],
     [{"type": "web_search_call", "status": "completed"}],
@@ -230,7 +217,6 @@ async def test_search_failure_missing_citations_or_invalid_citation_suppresses_a
     assert result.status == "search_error" and result.text == "" and result.sources == ()
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("annotations", [
     [{"type": "url_citation", "url": "https://example.test/a", "title": "A",
       "start_index": 0, "end_index": 100}],
@@ -249,7 +235,6 @@ async def test_search_citations_with_invalid_or_overlapping_ranges_fail_closed(m
     assert result.status == "search_error" and result.text == ""
 
 
-@pytest.mark.asyncio
 async def test_unexpected_search_call_without_search_request_is_rejected(monkeypatch):
     output = [{"type": "web_search_call", "status": "completed"},
               {"type": "message", "role": "assistant", "status": "completed",
@@ -260,7 +245,6 @@ async def test_unexpected_search_call_without_search_request_is_rejected(monkeyp
     assert result.status == "search_error" and result.text == ""
 
 
-@pytest.mark.asyncio
 async def test_search_request_without_completed_search_call_is_rejected(monkeypatch):
     requests = wire_transport(monkeypatch, lambda _: asyncio.sleep(0, result=response("Unverified answer")))
     provider = make_provider()
@@ -269,7 +253,6 @@ async def test_search_request_without_completed_search_call_is_rejected(monkeypa
     assert result.status == "search_error" and result.text == ""
 
 
-@pytest.mark.asyncio
 async def test_search_bounds_reject_too_many_citations_and_calls(monkeypatch):
     citations = [{"type": "url_citation", "url": f"https://example.test/{n}", "title": str(n),
                   "start_index": n, "end_index": n + 1}
@@ -284,7 +267,6 @@ async def test_search_bounds_reject_too_many_citations_and_calls(monkeypatch):
     assert result.status == "search_error" and result.text == ""
 
 
-@pytest.mark.asyncio
 async def test_discovery_is_bounded_and_model_ids_are_validated(monkeypatch):
     async def handler(request):
         assert request.method == "GET" and request.url.path == "/v1/models"
@@ -295,7 +277,6 @@ async def test_discovery_is_bounded_and_model_ids_are_validated(monkeypatch):
     assert await make_provider().discover_models() == ["gpt-a", "gpt-z"]
 
 
-@pytest.mark.asyncio
 async def test_missing_key_makes_no_request_and_key_is_secret_str(monkeypatch):
     requests = wire_transport(monkeypatch, lambda _: asyncio.sleep(0, result=response()))
     for key in (None, "  "):
@@ -307,7 +288,6 @@ async def test_missing_key_makes_no_request_and_key_is_secret_str(monkeypatch):
     assert requests == []
 
 
-@pytest.mark.asyncio
 async def test_generation_timeout_and_explicit_cancellation_release_active_lease(monkeypatch):
     entered = asyncio.Event()
     async def timeout(*_args, **_kwargs):
@@ -320,7 +300,6 @@ async def test_generation_timeout_and_explicit_cancellation_release_active_lease
     await provider.aclose()
 
 
-@pytest.mark.asyncio
 async def test_close_waits_for_inflight_generation_and_cancellation_closes_transport(monkeypatch):
     entered, release, disconnected = asyncio.Event(), asyncio.Event(), asyncio.Event()
     async def handler(_request):
@@ -365,7 +344,6 @@ async def test_close_waits_for_inflight_generation_and_cancellation_closes_trans
 
 
 @pytest.mark.parametrize("oversized", [False, True])
-@pytest.mark.asyncio
 async def test_real_httpx_path_uses_fixed_host_no_redirects_no_env_and_response_limit(monkeypatch, oversized):
     original_client = httpx.AsyncClient
     clients = []

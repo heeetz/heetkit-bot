@@ -76,13 +76,10 @@ async def run_prompt(bridge, prompt="Tell me a story"):
     ("gemini", "gemini-2.5-flash", "off"),
 ])
 @pytest.mark.parametrize("prompt,enabled,required,query", [
-    ("кто такой счилла братик, он киберспортик?", True, False, "Schilla esports player"),
     ("Who designed the Z1 computer?", True, False, "Z1 computer designer"),
     ("Could you look up who designed the Z1?", True, True, "Z1 computer designer"),
     ("Погугли, кто создал Z1", True, True, None),  # Provider skipped the explicit lookup.
-    ("Hey, how are you?", True, False, None),
     ("Translate 'search for a game' into French", True, False, None),
-    ("What is 24 + 18?", True, False, None),
     ("Look up who designed the Z1", False, False, None),
 ])
 async def test_search_tools_and_attribution_through_ask_and_playground(

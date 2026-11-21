@@ -10,7 +10,7 @@ import sys
 import pytest
 
 
-pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows batch launcher")
+pytestmark = pytest.mark.windows
 
 
 @pytest.fixture

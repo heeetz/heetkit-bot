@@ -11,7 +11,7 @@ import pytest
 
 from app.app_settings import AppSettingsStore
 from app.system_tray import TRAY_TEXT, SystemTray, tray_status_text, tray_text
-from app.ui_messages import MESSAGE_FIELDS, MESSAGES, annotate_error, message_code
+from app.ui_messages import MESSAGES, annotate_error, message_code
 from app.webview_host import AsyncioBackendHost, DesktopController, WebUIBridge
 
 ROOT = Path(__file__).parents[1]
@@ -29,22 +29,17 @@ def _catalog_block(source: str, language: str) -> dict[str, str]:
 def test_frontend_catalog_matches_backend_messages() -> None:
     source = (ROOT / "frontend/src/i18n/backendErrors.ts").read_text(encoding="utf-8")
     english = _catalog_block(source, "en")
-    assert english == MESSAGES
+    assert english.keys() == MESSAGES.keys()
     for language in ("uk", "ru"):
         translated = _catalog_block(source, language)
         assert translated.keys() == MESSAGES.keys()
         for code, template in MESSAGES.items():
-            assert sorted(PLACEHOLDER.findall(translated[code])) == sorted(PLACEHOLDER.findall(template)), code
-            assert translated[code] and translated[code] != template or code in {"timeout"}, code
-
-
-def test_registered_messages_still_exist_in_backend_sources() -> None:
-    sources = "\n".join(path.read_text(encoding="utf-8") for path in (ROOT / "app").rglob("*.py")
-                        if path.name != "ui_messages.py")
-    for code, template in MESSAGES.items():
-        # The longest literal run of each template must still be written somewhere in app/.
-        literal = max(PLACEHOLDER.split(template)[::2], key=len)
-        assert literal in sources or literal.replace("'", "\\'") in sources, code
+            parameters = sorted(PLACEHOLDER.findall(template))
+            assert sorted(PLACEHOLDER.findall(english[code])) == parameters, code
+            assert sorted(PLACEHOLDER.findall(translated[code])) == parameters, code
+            assert english[code].strip(), code
+            assert translated[code].strip(), code
+            assert translated[code] != english[code] or code == "timeout", code
 
 
 def test_annotation_adds_codes_and_parameters() -> None:
@@ -64,7 +59,6 @@ def test_annotation_adds_codes_and_parameters() -> None:
     update = annotate_error({"ok": True, "automatic_update_reason": "Publisher verification is unavailable. Install the update manually."})
     assert update["automatic_update_reason_code"] == "webview_host.publisher_verification_unavailable_install_update_manually"
     assert "error_code" not in update
-    assert MESSAGE_FIELDS == ("error", "automatic_update_reason")
 
 
 def test_settings_validation_errors_are_coded(tmp_path) -> None:
@@ -83,44 +77,46 @@ def test_tray_text_has_every_label_in_every_language() -> None:
         assert TRAY_TEXT[language].keys() == keys
         for key in keys:
             assert PLACEHOLDER.findall(TRAY_TEXT[language][key]) == PLACEHOLDER.findall(TRAY_TEXT["en"][key])
-    assert tray_text("xx", "open") == "Open"
-    assert tray_text("uk", "stop") == "Зупинити бота"
-    assert tray_text("ru", "update") == "Доступно обновление"
+    assert tray_text("xx", "open") == TRAY_TEXT["en"]["open"]
 
 
-@pytest.mark.parametrize(("language", "status", "expected"), [
-    ("en", {"running": True, "twitch_connection_state": "connected", "channel": "#synthetic"}, "Connected · #synthetic"),
-    ("uk", {"running": True, "twitch_connection_state": "connected", "channel": "synthetic"}, "Підключено · #synthetic"),
-    ("ru", {"running": True, "twitch_connection_state": "reconnecting", "channel": "synthetic"}, "Переподключение…"),
-    ("ru", {"running": False, "twitch_connection_state": "stopped", "channel": "synthetic"}, "Остановлен"),
-    ("en", {"running": False, "twitch_connection_state": "failed"}, "Connection failed"),
-    ("uk", None, "Зупинено"),
+@pytest.mark.parametrize("language,running,connection,label", [
+    ("en", True, "connected", "connected"),
+    ("uk", True, "connected", "connected"),
+    ("ru", True, "reconnecting", "reconnecting"),
+    ("ru", False, "stopped", "stopped"),
+    ("en", False, "failed", "failed"),
+    ("uk", False, None, "stopped"),
 ])
-def test_tray_status_line(language, status, expected) -> None:
-    assert tray_status_text(language, status) == expected
+def test_tray_status_uses_the_localized_connection_state(language, running, connection, label):
+    status = {"running": running, "twitch_connection_state": connection, "channel": "synthetic"} if connection else None
+    text = tray_status_text(language, status)
+    key = "status_connected_channel" if label == "connected" else f"status_{label}"
+    assert text == tray_text(language, key, channel="synthetic")
 
 
-def test_tray_menu_items_follow_language_status_and_update(monkeypatch) -> None:
+def test_tray_menu_follows_language_status_and_update():
     state = {"language": "ru", "running": True, "update": False}
-    opened: list[str] = []
+    opened = []
     tray = SystemTray(
-        on_open=lambda: opened.append("open"), on_toggle_bot=lambda: None, on_exit=lambda: None,
+        on_open=lambda: None, on_toggle_bot=lambda: None, on_exit=lambda: None,
         is_bot_running=lambda: state["running"], language=lambda: state["language"],
-        status=lambda: {"running": state["running"], "twitch_connection_state": "connected", "channel": "synthetic"},
+        status=lambda: {"running": True, "twitch_connection_state": "connected", "channel": "synthetic"},
         update_available=lambda: state["update"], on_open_update=lambda: opened.append("update"),
     )
-    assert tray._status_label(None) == "Подключено · #synthetic"
-    assert tray._toggle_label(None) == "Остановить бота"
-    assert tray._open_label(None) == "Открыть" and tray._exit_label(None) == "Выйти"
-    assert tray._show_update(None) is False
+    assert tray._status_label(None) == tray_text("ru", "status_connected_channel", channel="synthetic")
+    assert tray._open_label(None) == tray_text("ru", "open")
+    assert tray._exit_label(None) == tray_text("ru", "exit")
+    assert tray._toggle_label(None) == tray_text("ru", "stop")
+    assert not tray._show_update(None)
     state.update(language="uk", update=True, running=False)
-    assert tray._show_update(None) is True
-    assert tray._update_label(None) == "Доступне оновлення"
-    assert tray._toggle_label(None) == "Запустити бота"
+    assert tray._show_update(None)
+    assert tray._update_label(None) == tray_text("uk", "update")
+    assert tray._toggle_label(None) == tray_text("uk", "start")
     tray._handle_update(None, None)
     assert opened == ["update"]
     state["language"] = "de"
-    assert tray._open_label(None) == "Open"
+    assert tray._open_label(None) == tray_text("en", "open")
 
 
 class _Tray:

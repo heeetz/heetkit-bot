@@ -20,6 +20,9 @@ from app.credentials import (
 from app.webview_host import AsyncioBackendHost, WebUIBridge
 
 
+pytestmark = pytest.mark.usefixtures("synthetic_default_profile")
+
+
 class FakeKeyring:
     def __init__(self) -> None:
         self.values: dict[tuple[str, str], str] = {}
