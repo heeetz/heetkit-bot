@@ -273,7 +273,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
               ariaLabel={text.ai.enableMemory} onCheckedChange={(enabled) => onChangeAIState('memory', enabled)}>{text.ai.memory}</Switch>
           </div>
           <div className="dashboard-ai-actions">
-            <button className="primary" onClick={() => onNavigate('AI', 'ai-playground')}>{text.ai.openPlayground}</button>
+            <button className="secondary" onClick={() => onNavigate('AI', 'ai-playground')}>{text.ai.openPlayground}</button>
             <button className="secondary" onClick={() => onNavigate('AI', 'ai-behavior')}>{text.ai.manage}</button>
           </div>
         </article>

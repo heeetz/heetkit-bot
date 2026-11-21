@@ -215,3 +215,27 @@ test('Server sign-in uses the language saved in this browser', async ({ page }) 
   await expect(page.getByRole('heading', { name: 'Вхід на сервер' })).toBeVisible()
   await expect(page.locator('html')).toHaveAttribute('lang', 'uk')
 })
+
+for (const language of ['uk', 'ru'] as const) {
+  test(`${language} saved channel row stays level in the default Desktop window`, async ({ page }) => {
+    await page.setViewportSize({ width: 1164, height: 900 })
+    await page.addInitScript((value) => sessionStorage.setItem('uiLanguage', value), language)
+    await openDesktop(page)
+    await expect(page.locator('html')).toHaveAttribute('lang', language)
+    await page.getByRole('navigation').getByRole('button', { name: language === 'uk' ? 'Налаштування' : 'Настройки', exact: true }).click()
+    const trigger = page.locator('#twitch-settings > .accordion-header > .accordion-trigger')
+    if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.locator('.accordion-caret').click()
+    const editor = page.locator('#twitch-settings .target-preset-editor')
+    const saved = await page.locator('#twitch-settings .target-saved-channel .select-trigger').boundingBox()
+    const name = await editor.locator('input').boundingBox()
+    const buttons = editor.locator('.preset-actions > button')
+    expect(saved && name).toBeTruthy()
+    // A wrapped label would push the name field below the saved channel menu.
+    expect(Math.abs(saved!.y - name!.y)).toBeLessThanOrEqual(1)
+    for (const button of await buttons.all()) {
+      const bounds = (await button.boundingBox())!
+      expect(bounds.width).toBeLessThan(name!.width)
+      expect(Math.abs(bounds.y + bounds.height - (name!.y + name!.height))).toBeLessThanOrEqual(1)
+    }
+  })
+}

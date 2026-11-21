@@ -86,6 +86,15 @@ export default function TwitchSetupInstructions({ headingId, host, callback, cal
       <div className="command-dialog-panels">
         <p tabIndex={-1} data-editor-focus>{text.intro}</p>
         <ol>
+          <li><strong>{text.accountsTitle}</strong>
+            <ul>
+              <li>{rich(text.botLogin, { field: s(all.twitch.botLogin) })}</li>
+              <li>{rich(text.targetLogin, { field: s(all.twitch.targetLogin) })}</li>
+              <li>{text.lookUp}</li>
+              <li>{rich(text.ids, { bot: s(all.twitch.botUserId), target: s(all.twitch.targetUserId) })}</li>
+            </ul>
+            <p>{text.noAt}</p>
+          </li>
           <li><strong>{text.registerTitle}</strong>
             <ul>
               <li>{text.register[0]}</li>
@@ -110,12 +119,7 @@ export default function TwitchSetupInstructions({ headingId, host, callback, cal
             <ul>
               <li>{rich(text.manage, { manage: s('Manage') })}</li>
               <li>{rich(text.clientId, { field: s(desktop ? all.twitch.clientIdAria : 'Client ID') })}</li>
-              <li>{rich(text.botLogin, { field: s(all.twitch.botLogin) })}</li>
-              <li>{rich(text.targetLogin, { field: s(all.twitch.targetLogin) })}</li>
-              <li>{text.lookUp}</li>
-              <li>{rich(text.ids, { bot: s(all.twitch.botUserId), target: s(all.twitch.targetUserId) })}</li>
             </ul>
-            <p>{text.noAt}</p>
           </li>
           <li><strong>{text.secretTitle}</strong>
             <ul>

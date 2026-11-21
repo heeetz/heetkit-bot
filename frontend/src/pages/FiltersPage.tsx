@@ -268,7 +268,6 @@ export default function FiltersPage({ active }: FiltersPageProps) {
             onChange={(event) => { setTestText(event.target.value); clearTestResult() }} />
         </label>
         <div className="filter-test-footer">
-          <p className="settings-hint">{text.testerHint}</p>
           <button className="primary" type="button" disabled={testBusy || busy || !data} onClick={() => void runFilterTest()}>
             {testBusy ? text.testing : text.test}
           </button>

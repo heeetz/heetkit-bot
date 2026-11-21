@@ -37,7 +37,7 @@ export const shell = defineCatalog({
     language: {
       label: 'Interface language',
       saveFailed: 'The language changed, but HeetKit could not save it. It resets after a restart.',
-      hint: 'Changes only the HeetKit interface. Bot replies in chat keep their own language settings.',
+      hint: 'Bot replies in chat have their own language setting.',
       desktopSaved: 'Saved on this computer.',
       serverSaved: 'Saved in this browser.',
     },
@@ -133,7 +133,7 @@ export const shell = defineCatalog({
     language: {
       label: 'Мова інтерфейсу',
       saveFailed: 'Мову змінено, але HeetKit не зміг її зберегти. Після перезапуску вона скинеться.',
-      hint: 'Змінює лише інтерфейс HeetKit. Мова відповідей бота в чаті налаштовується окремо.',
+      hint: 'Мова відповідей бота налаштовується окремо.',
       desktopSaved: 'Зберігається на цьому комп\'ютері.',
       serverSaved: 'Зберігається в цьому браузері.',
     },
@@ -229,7 +229,7 @@ export const shell = defineCatalog({
     language: {
       label: 'Язык интерфейса',
       saveFailed: 'Язык изменен, но HeetKit не смог его сохранить. После перезапуска он сбросится.',
-      hint: 'Меняет только интерфейс HeetKit. Язык ответов бота в чате настраивается отдельно.',
+      hint: 'Язык ответов бота настраивается отдельно.',
       desktopSaved: 'Сохраняется на этом компьютере.',
       serverSaved: 'Сохраняется в этом браузере.',
     },

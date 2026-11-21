@@ -279,8 +279,11 @@ for (const width of [1280, 900, 761, 760, 390, 320]) {
       expect(Math.abs(savedBounds.y - nameBounds.y)).toBeLessThanOrEqual(1)
       expect(editorBounds.x).toBeGreaterThan(savedBounds.x + savedBounds.width)
       expect(Math.abs(savedBounds.width - editorBounds.width)).toBeLessThanOrEqual(2)
-      expect(Math.abs(nameBounds.width - saveBounds.width * 2)).toBeLessThanOrEqual(2)
-      expect(Math.abs(saveBounds.width - removeBounds.width)).toBeLessThanOrEqual(2)
+      // Buttons hug their text and the name field takes the remaining width.
+      expect(saveBounds.width).toBeLessThan(nameBounds.width)
+      expect(removeBounds.width).toBeLessThan(nameBounds.width)
+      expect(Math.abs(removeBounds.x + removeBounds.width - (editorBounds.x + editorBounds.width))).toBeLessThanOrEqual(2)
+      expect(Math.abs(nameBounds.x - editorBounds.x)).toBeLessThanOrEqual(2)
     } else {
       expect(editorBounds.y).toBeGreaterThan(savedBounds.y + savedBounds.height)
       expect(Math.abs(editorBounds.x - savedBounds.x)).toBeLessThanOrEqual(1)
