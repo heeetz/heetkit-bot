@@ -49,7 +49,7 @@ def workflow(name):
     (["app/version.py"], (True, False, True)),
     (["Dockerfile"], (True, True, True)),
     ([".dockerignore"], (True, True, True)),
-    (["frontend/src/i18n/commands.en.ts"], (False, True, True)),
+    (["frontend/src/i18n/commands.ts"], (False, True, True)),
     (["frontend/src/pages/analytics.css"], (False, True, True)),
     (["scripts/build_windows.py"], (True, True, True)),
     (["frontend/tests/browser-server.spec.ts", "app/config/settings.py"], (True, True, True)),
@@ -81,7 +81,7 @@ def test_named_feature_and_changed_or_new_tests_are_combined_once(tmp_path):
     frontend_tests = tmp_path / "frontend/tests"
     frontend_tests.mkdir(parents=True)
     for name in ("filters.spec.ts", "navigation.spec.ts", "browser-management.spec.ts", "responsive.spec.ts",
-                 "browser-server.spec.ts", "new[scenario].test.mts"):
+                 "i18n.spec.ts", "browser-server.spec.ts", "new[scenario].test.mts"):
         (frontend_tests / name).touch()
     plan = ci_checks.select_checks([
         "frontend/src/pages/FiltersPage.tsx", "frontend/tests/filters.spec.ts",
@@ -91,7 +91,7 @@ def test_named_feature_and_changed_or_new_tests_are_combined_once(tmp_path):
     assert plan.outputs()["server"] == "true"
     assert set(json.loads(plan.outputs()["browser_files"])) == {
         "tests/filters.spec.ts", "tests/navigation.spec.ts", "tests/browser-management.spec.ts",
-        "tests/responsive.spec.ts", "tests/browser-server.spec.ts", "tests/new[scenario].test.mts",
+        "tests/responsive.spec.ts", "tests/i18n.spec.ts", "tests/browser-server.spec.ts", "tests/new[scenario].test.mts",
     }
     command = ci_checks.browser_command(list(plan.browser_files) + ["tests/filters.spec.ts"])
     filters = command[len(ci_checks.browser_command(None)):]

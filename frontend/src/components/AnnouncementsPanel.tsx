@@ -5,6 +5,8 @@ import HelpTip from './HelpTip'
 import { Select } from './Select'
 import Switch from './Switch'
 import './announcement-editor.css'
+import { commandsText } from '../i18n/commands'
+import { catalogFor, useCatalog, useI18n } from '../i18n/core'
 
 interface Draft {
   id: string | null
@@ -19,17 +21,9 @@ interface Draft {
   availability: StreamAvailability
 }
 
-const availabilityOptions = [
-  { value: 'anytime', label: 'Anytime' },
-  { value: 'live_only', label: 'Live only' },
-  { value: 'offline_only', label: 'Offline only' },
-]
-const outcomeLabels: Record<string, string> = {
-  sent: 'Sent', skipped_activity: 'Waiting for chat activity', skipped_stream: 'Waiting for stream availability',
-  not_confirmed: 'Delivery not confirmed', failed: 'Send failed', cancelled: 'Send cancelled',
-  authorization_required: 'Authorize Twitch again to allow highlighted announcements.',
-  permission_denied: 'Twitch denied the announcement. The sending account must be a moderator or the broadcaster.',
-}
+type Labels = Record<string, string>
+
+const availabilityValues: StreamAvailability[] = ['anytime', 'live_only', 'offline_only']
 
 function fromSaved(item: AnnouncementInfo): Draft {
   return { id: item.id, name: item.name, enabled: item.enabled,
@@ -60,36 +54,49 @@ function savedInput(item: AnnouncementInfo): AnnouncementInput {
     min_messages: item.min_messages, stream_availability: item.stream_availability }
 }
 
-function time(value: string | null): string {
-  return value ? new Date(value).toLocaleString() : '—'
+function useAnnouncementText() {
+  const text = useCatalog(commandsText).announcements
+  const outcomeLabels: Labels = text.outcomes
+  return { text, outcomeLabels }
 }
 
 function AnnouncementStatus({ item }: { item?: AnnouncementInfo }) {
+  const { text, outcomeLabels } = useAnnouncementText()
+  const { fmt, dateTime } = useI18n()
+  const time = (value: string | null): string => value ? dateTime(value) : '—'
   const status = item?.status
-  return <HelpTip label="Schedule status"><span className="announcement-status-details">
-    <span>Next run: {status?.next_run_at ? time(status.next_run_at) : 'Waiting for connection or disabled'}</span>
-    <span>Last sent: {time(status?.last_sent_at ?? null)}</span>
-    <span>Last outcome: {status?.last_outcome ? outcomeLabels[status.last_outcome] ?? status.last_outcome : 'No attempts yet'}</span>
-    <span>Eligible messages: {status?.eligible_messages ?? 0}</span>
-    {!item && <span>Save to schedule this announcement.</span>}
+  return <HelpTip label={text.statusLabel}><span className="announcement-status-details">
+    <span>{fmt(text.nextRun, { value: status?.next_run_at ? time(status.next_run_at) : text.nextRunWaiting })}</span>
+    <span>{fmt(text.lastSent, { value: time(status?.last_sent_at ?? null) })}</span>
+    <span>{fmt(text.lastOutcome, { value: status?.last_outcome ? outcomeLabels[status.last_outcome] ?? status.last_outcome : text.noAttempts })}</span>
+    <span>{fmt(text.eligible, { count: String(status?.eligible_messages ?? 0) })}</span>
+    {!item && <span>{text.saveToSchedule}</span>}
   </span></HelpTip>
 }
 
 function AnnouncementOutcome({ item }: { item?: AnnouncementInfo }) {
+  const { text, outcomeLabels } = useAnnouncementText()
+  const { fmt } = useI18n()
   const outcome = item?.status.last_outcome
   if (!outcome || !['failed', 'not_confirmed', 'cancelled', 'skipped_stream', 'authorization_required', 'permission_denied'].includes(outcome)) return null
   return <p className={`announcement-outcome ${outcome === 'skipped_stream' ? 'muted' : 'inline-error'}`} role="status">
-    Last outcome: {outcomeLabels[outcome]}
+    {fmt(text.lastOutcome, { value: outcomeLabels[outcome] })}
   </p>
 }
 
 function AnnouncementFailure({ item }: { item?: AnnouncementInfo }) {
+  const { text, outcomeLabels } = useAnnouncementText()
+  const { fmt } = useI18n()
   const outcome = item?.status.last_outcome
   if (!outcome || !['failed', 'not_confirmed', 'cancelled', 'authorization_required', 'permission_denied'].includes(outcome)) return null
-  return <p className="announcement-outcome inline-error" role="status">Last outcome: {outcomeLabels[outcome]}</p>
+  return <p className="announcement-outcome inline-error" role="status">{fmt(text.lastOutcome, { value: outcomeLabels[outcome] })}</p>
 }
 
 export default function AnnouncementsPanel({ active }: { active: boolean }) {
+  const { text } = useAnnouncementText()
+  const { fmt, plural } = useI18n()
+  const availabilityOptions = availabilityValues.map((value) => ({ value, label: text.availability[value] }))
+  const availabilityInline: Labels = text.availabilityInline
   const [saved, setSaved] = useState<AnnouncementInfo[] | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const baseline = useRef('')
@@ -114,11 +121,11 @@ export default function AnnouncementsPanel({ active }: { active: boolean }) {
         const api = await waitForBridge()
         const result = await api.get_announcements()
         if (!mounted || started !== revision.current || writing.current) return
-        if (!result.ok || !Array.isArray(result.announcements)) throw new Error('Could not load announcements.')
+        if (!result.ok || !Array.isArray(result.announcements)) throw new Error(catalogFor(commandsText).announcements.loadFailed)
         setSaved(result.announcements)
         setLoadError('')
       } catch {
-        if (mounted && started === revision.current) setLoadError('Could not refresh announcements. Check the connection and try again.')
+        if (mounted && started === revision.current) setLoadError(catalogFor(commandsText).announcements.refreshFailed)
       } finally {
         if (mounted) timer = setTimeout(() => void load(), 5000)
       }
@@ -148,18 +155,18 @@ export default function AnnouncementsPanel({ active }: { active: boolean }) {
     try {
       const api = await waitForBridge()
       const result = await api.save_announcements(payload)
-      if (!result.ok) throw new Error(result.error || 'Could not save announcements.')
+      if (!result.ok) throw new Error(result.error || text.saveFailed)
       // The write has committed. Until fresh IDs load, prevent a retry or a new
       // collection write based on stale rows from duplicating/removing that save.
       setDraft(null)
       setSaved(null)
       const refreshed = await api.get_announcements()
-      if (!refreshed.ok) throw new Error('Announcements were saved, but the updated status could not be loaded. Refresh before editing again.')
+      if (!refreshed.ok) throw new Error(text.statusFailed)
       setSaved(refreshed.announcements)
       setDraft(null)
       setNotice(success)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not save announcements.')
+      setError(reason instanceof Error ? reason.message : text.saveFailed)
     } finally {
       revision.current += 1
       writing.current = false
@@ -170,43 +177,43 @@ export default function AnnouncementsPanel({ active }: { active: boolean }) {
   function save() {
     if (!draft || !saved) return
     if (draft.id && !saved.some((item) => item.id === draft.id)) {
-      setError('This announcement was removed. Cancel this draft before creating a new announcement.')
+      setError(text.removed)
       return
     }
     const entry = input(draft)
     if (!entry) {
-      setError('Use a name of at most 80 UTF-8 bytes, 1–30 single-line messages of at most 450 UTF-8 bytes, an interval of 60–86400 seconds and a minimum of 0–1000 messages. Names and messages cannot contain control characters.')
+      setError(text.invalid)
       return
     }
     const payload = saved.map((item) => item.id === draft.id ? entry : savedInput(item))
     if (!draft.id) payload.push(entry)
-    void persist(payload, 'Announcements saved.')
+    void persist(payload, text.saved)
   }
 
   const current = saved?.find((item) => item.id === draft?.id)
   const prefix = 'announcement-editor'
   const editor = draft && <article className="command-card announcement-card announcement-editing">
     <AnnouncementFailure item={current} />
-    <fieldset disabled={busy} id={prefix} className="announcement-editor" aria-label="Announcement settings">
+    <fieldset disabled={busy} id={prefix} className="announcement-editor" aria-label={text.settings}>
       <div className="announcement-controls">
         <div className="announcement-name-row">
-          <div className="form-field"><label className="announcement-field-label" htmlFor={`${prefix}-name`}>Name</label><input id={`${prefix}-name`} aria-label="Name" placeholder="Announcement name" maxLength={80} value={draft.name} onChange={(event) => update({ name: event.target.value })} /></div>
-          <Switch className="announcement-enable" checked={draft.enabled} ariaLabel="Enable announcement" onCheckedChange={(enabled) => update({ enabled })}>{draft.enabled ? 'Enabled' : 'Disabled'}</Switch>
+          <div className="form-field"><label className="announcement-field-label" htmlFor={`${prefix}-name`}>{text.name}</label><input id={`${prefix}-name`} aria-label={text.name} placeholder={text.namePlaceholder} maxLength={80} value={draft.name} onChange={(event) => update({ name: event.target.value })} /></div>
+          <Switch className="announcement-enable" checked={draft.enabled} ariaLabel={text.enable} onCheckedChange={(enabled) => update({ enabled })}>{draft.enabled ? text.enabled : text.disabled}</Switch>
         </div>
-        <div className="form-field"><label className="announcement-field-label" htmlFor={`${prefix}-interval`}>Interval (s)</label><span className="announcement-number-control"><span>Every</span><input id={`${prefix}-interval`} aria-label="Interval (s)" type="number" min={60} max={86400} step={1} value={draft.interval} aria-invalid={integer(draft.interval, 60, 86400) === null} onChange={(event) => update({ interval: event.target.value })} /><span>s</span></span></div>
-        <div className="form-field"><label className="announcement-field-label" htmlFor={`${prefix}-minimum`}>Minimum chat activity</label><span className="announcement-number-control"><span>At least</span><input id={`${prefix}-minimum`} aria-label="Minimum chat activity" type="number" min={0} max={1000} step={1} value={draft.minimum} aria-invalid={integer(draft.minimum, 0, 1000) === null} onChange={(event) => update({ minimum: event.target.value })} /><span>messages</span></span></div>
-        <div className="form-field"><label className="announcement-field-label" htmlFor={`${prefix}-availability`}>Stream availability</label><Select id={`${prefix}-availability`} aria-label="Stream availability" value={draft.availability} onChange={(availability) => update({ availability: availability as StreamAvailability })} options={availabilityOptions} /></div>
-        <div className="form-field"><label className="announcement-field-label" htmlFor={`${prefix}-mode`}>Message selection</label><Select id={`${prefix}-mode`} aria-label="Message selection" value={draft.mode} onChange={(mode) => update({ mode: mode as Draft['mode'] })} options={[{ value: 'single', label: 'Single message' }, { value: 'random', label: 'Random message' }]} /></div>
-        <div className="form-field"><label className="announcement-field-label" htmlFor={`${prefix}-delivery`}>Announcement type</label><Select id={`${prefix}-delivery`} aria-label="Announcement type" value={draft.delivery} onChange={(delivery) => update({ delivery: delivery as Draft['delivery'] })} options={[{ value: 'highlighted', label: 'Highlighted' }, { value: 'regular', label: 'Regular message' }]} /></div>
+        <div className="form-field"><label className="announcement-field-label" htmlFor={`${prefix}-interval`}>{text.interval}</label><span className="announcement-number-control"><span>{text.every}</span><input id={`${prefix}-interval`} aria-label={text.interval} type="number" min={60} max={86400} step={1} value={draft.interval} aria-invalid={integer(draft.interval, 60, 86400) === null} onChange={(event) => update({ interval: event.target.value })} /><span>{text.secondsUnit}</span></span></div>
+        <div className="form-field"><label className="announcement-field-label" htmlFor={`${prefix}-minimum`}>{text.minimum}</label><span className="announcement-number-control"><span>{text.atLeast}</span><input id={`${prefix}-minimum`} aria-label={text.minimum} type="number" min={0} max={1000} step={1} value={draft.minimum} aria-invalid={integer(draft.minimum, 0, 1000) === null} onChange={(event) => update({ minimum: event.target.value })} /><span>{text.messagesUnit}</span></span></div>
+        <div className="form-field"><label className="announcement-field-label" htmlFor={`${prefix}-availability`}>{text.availabilityLabel}</label><Select id={`${prefix}-availability`} aria-label={text.availabilityLabel} value={draft.availability} onChange={(availability) => update({ availability: availability as StreamAvailability })} options={availabilityOptions} /></div>
+        <div className="form-field"><label className="announcement-field-label" htmlFor={`${prefix}-mode`}>{text.selection}</label><Select id={`${prefix}-mode`} aria-label={text.selection} value={draft.mode} onChange={(mode) => update({ mode: mode as Draft['mode'] })} options={[{ value: 'single', label: text.singleMessage }, { value: 'random', label: text.randomMessage }]} /></div>
+        <div className="form-field"><label className="announcement-field-label" htmlFor={`${prefix}-delivery`}>{text.type}</label><Select id={`${prefix}-delivery`} aria-label={text.type} value={draft.delivery} onChange={(delivery) => update({ delivery: delivery as Draft['delivery'] })} options={[{ value: 'highlighted', label: text.highlighted }, { value: 'regular', label: text.regular }]} /></div>
       </div>
       <div className="form-field announcement-message">
-        <label className="announcement-field-label" htmlFor={`${prefix}-message`}>{draft.mode === 'random' ? 'Random messages' : 'Announcement message'}</label>
-        <textarea id={`${prefix}-message`} aria-label={draft.mode === 'random' ? 'Random messages' : 'Announcement message'} placeholder={draft.mode === 'random' ? 'One message per line' : 'Write an announcement'} rows={draft.mode === 'random' ? 3 : 2} value={draft.mode === 'random' ? draft.randomMessages : draft.message} onChange={(event) => update(draft.mode === 'random' ? { randomMessages: event.target.value } : { message: event.target.value })} />
+        <label className="announcement-field-label" htmlFor={`${prefix}-message`}>{draft.mode === 'random' ? text.randomMessages : text.message}</label>
+        <textarea id={`${prefix}-message`} aria-label={draft.mode === 'random' ? text.randomMessages : text.message} placeholder={draft.mode === 'random' ? text.onePerLine : text.writeAnnouncement} rows={draft.mode === 'random' ? 3 : 2} value={draft.mode === 'random' ? draft.randomMessages : draft.message} onChange={(event) => update(draft.mode === 'random' ? { randomMessages: event.target.value } : { message: event.target.value })} />
       </div>
       <div className="row-actions announcement-actions">
         <div className="announcement-save-buttons">
-          <button className="secondary" disabled={busy} onClick={() => { setDraft(null); setError(''); setNotice('') }}>Cancel</button>
-          <button className="primary" disabled={busy || !dirty} onClick={save}>Save announcements</button>
+          <button className="secondary" disabled={busy} onClick={() => { setDraft(null); setError(''); setNotice('') }}>{text.cancel}</button>
+          <button className="primary" disabled={busy || !dirty} onClick={save}>{text.save}</button>
         </div>
       </div>
     </fieldset>
@@ -214,58 +221,58 @@ export default function AnnouncementsPanel({ active }: { active: boolean }) {
 
   return <section className="card command-editor-card announcements-panel" id="announcements" aria-busy={busy}>
     <div className="section-heading">
-      <div><h2>Announcements</h2>{!draft && <p className="section-copy">Send scheduled highlighted announcements or regular chat messages.</p>}</div>
+      <div><h2>{text.title}</h2>{!draft && <p className="section-copy">{text.intro}</p>}</div>
       {!draft && <button className="primary" disabled={!saved || busy || saved.length >= 50} onClick={() => edit({
         id: null, name: '', enabled: true, message: '', randomMessages: '', mode: 'single', delivery: 'highlighted',
         interval: '900', minimum: '0', availability: 'anytime',
-      })}>New announcement</button>}
+      })}>{text.new}</button>}
     </div>
     {error && <p className="inline-error" role="alert">{error}</p>}
     {loadError && <p className="inline-error" role="alert">{loadError}</p>}
     {notice && <p role="status">{notice}</p>}
-    {saved === null ? <p className="muted">Loading announcements…</p> : <>
-      {saved.length === 0 && !draft && <p className="muted">No announcements configured.</p>}
+    {saved === null ? <p className="muted">{text.loading}</p> : <>
+      {saved.length === 0 && !draft && <p className="muted">{text.empty}</p>}
       {(saved.length > 0 || draft) && <div className="announcement-collection custom-command-list">
         {draft && (!draft.id || !current) && editor}
-        {saved.length > 0 && <div className="announcement-table" role="table" aria-label="Announcements">
+        {saved.length > 0 && <div className="announcement-table" role="table" aria-label={text.table}>
           <div className="announcement-table-header" role="row">
-            <span role="columnheader">Enabled</span><span role="columnheader">Name</span>
-            <span role="columnheader">Type</span><span role="columnheader">Schedule</span>
-            <span role="columnheader">Message</span><span role="columnheader"><span className="sr-only">Actions</span></span>
+            <span role="columnheader">{text.columnEnabled}</span><span role="columnheader">{text.columnName}</span>
+            <span role="columnheader">{text.columnType}</span><span role="columnheader">{text.columnSchedule}</span>
+            <span role="columnheader">{text.columnMessage}</span><span role="columnheader"><span className="sr-only">{text.columnActions}</span></span>
           </div>
           {saved.map((item) => item.id === draft?.id ? <div key={item.id}>{editor}</div> : <article className="announcement-row" role="row" key={item.id}>
-            <div className="announcement-cell announcement-enabled" role="cell" data-label="Enabled">
-              <Switch checked={item.enabled} disabled={busy || Boolean(draft)} ariaLabel={`Enable ${item.name}`}
-                onCheckedChange={(enabled) => void persist(saved.map((entry) => ({ ...savedInput(entry), ...(entry.id === item.id ? { enabled } : {}) })), `${item.name} ${enabled ? 'enabled' : 'disabled'}.`)}>
-                <span className="sr-only">{item.enabled ? 'Enabled' : 'Disabled'}</span>
+            <div className="announcement-cell announcement-enabled" role="cell" data-label={text.columnEnabled}>
+              <Switch checked={item.enabled} disabled={busy || Boolean(draft)} ariaLabel={fmt(text.enableNamed, { name: item.name })}
+                onCheckedChange={(enabled) => void persist(saved.map((entry) => ({ ...savedInput(entry), ...(entry.id === item.id ? { enabled } : {}) })), fmt(enabled ? text.namedEnabled : text.namedDisabled, { name: item.name }))}>
+                <span className="sr-only">{item.enabled ? text.enabled : text.disabled}</span>
               </Switch>
             </div>
-            <div className="announcement-cell announcement-name" role="rowheader" data-label="Name"><strong>{item.name}</strong></div>
-            <div className="announcement-cell announcement-type" role="cell" data-label="Type"><span className="mini-badge">{item.delivery_mode === 'highlighted' ? 'Highlighted' : 'Regular message'}</span></div>
-            <div className="announcement-cell announcement-schedule" role="cell" data-label="Schedule">
-              <span>{item.interval_seconds}s interval</span>
-              <small className="muted">{item.min_messages > 0 ? `${item.min_messages} messages minimum · ` : ''}{item.stream_availability.replace('_', ' ')}{item.message_mode === 'random' ? ` · ${item.messages.length} random messages` : ''}</small>
+            <div className="announcement-cell announcement-name" role="rowheader" data-label={text.columnName}><strong>{item.name}</strong></div>
+            <div className="announcement-cell announcement-type" role="cell" data-label={text.columnType}><span className="mini-badge">{item.delivery_mode === 'highlighted' ? text.highlighted : text.regular}</span></div>
+            <div className="announcement-cell announcement-schedule" role="cell" data-label={text.columnSchedule}>
+              <span>{fmt(text.intervalValue, { seconds: String(item.interval_seconds) })}</span>
+              <small className="muted">{item.min_messages > 0 ? plural(text.minimumValue, item.min_messages, { count: String(item.min_messages) }) : ''}{availabilityInline[item.stream_availability] ?? item.stream_availability.replace('_', ' ')}{item.message_mode === 'random' ? fmt(text.randomCount, { count: String(item.messages.length) }) : ''}</small>
               <AnnouncementStatus item={item} />
             </div>
-            <div className="announcement-cell announcement-message-preview" role="cell" data-label="Message">
+            <div className="announcement-cell announcement-message-preview" role="cell" data-label={text.columnMessage}>
               <span className="custom-command-response">{item.messages[0]}</span>
-              {item.messages.length > 1 && <small className="muted">+{item.messages.length - 1} more</small>}
+              {item.messages.length > 1 && <small className="muted">{fmt(text.more, { count: String(item.messages.length - 1) })}</small>}
               <AnnouncementOutcome item={item} />
             </div>
-            <div className="announcement-cell announcement-actions" role="cell" data-label="Actions">
+            <div className="announcement-cell announcement-actions" role="cell" data-label={text.actions}>
               <div className="row-actions">
-                <button className="secondary" disabled={busy || Boolean(draft)} onClick={() => edit(fromSaved(item))}>Edit</button>
-                <button className="ghost destructive" disabled={busy || Boolean(draft)} onClick={() => setDeleting(item)}>Delete</button>
+                <button className="secondary" disabled={busy || Boolean(draft)} onClick={() => edit(fromSaved(item))}>{text.edit}</button>
+                <button className="ghost destructive" disabled={busy || Boolean(draft)} onClick={() => setDeleting(item)}>{text.delete}</button>
               </div>
             </div>
           </article>)}
         </div>}
       </div>}
     </>}
-    {deleting && <Confirmation title={`Delete ${deleting.name}?`} description="Permanently delete this announcement. This cannot be undone." danger
+    {deleting && <Confirmation title={fmt(text.deleteTitle, { name: deleting.name })} description={text.deleteDescription} danger
       onCancel={() => setDeleting(null)} onConfirm={() => {
         setDeleting(null)
-        if (saved) void persist(saved.filter((item) => item.id !== deleting.id).map(savedInput), `Deleted ${deleting.name}.`)
+        if (saved) void persist(saved.filter((item) => item.id !== deleting.id).map(savedInput), fmt(text.deleted, { name: deleting.name }))
       }} />}
   </section>
 }

@@ -1,6 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { waitForBridge } from '../bridge'
 import HelpTip from './HelpTip'
+import { aiText } from '../i18n/ai'
+import { common as commonText } from '../i18n/common'
+import { catalogFor, useCatalog } from '../i18n/core'
 
 export default function AIMemoryLimits({ active, toggle, onDirty }: {
   active: boolean
@@ -13,6 +16,8 @@ export default function AIMemoryLimits({ active, toggle, onDirty }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const text = useCatalog(aiText).memory
+  const common = useCatalog(commonText)
 
   useEffect(() => {
     if (!active || saved) return
@@ -20,7 +25,7 @@ export default function AIMemoryLimits({ active, toggle, onDirty }: {
     void (async () => {
       try {
         const result = await (await waitForBridge()).get_ai_memory_limits()
-        if (!result.ok) throw new Error(result.error || 'Memory limits unavailable.')
+        if (!result.ok) throw new Error(result.error || catalogFor(aiText).memory.unavailable)
         if (current) {
           setSaved([result.stored, result.context])
           setStored(String(result.stored))
@@ -28,7 +33,7 @@ export default function AIMemoryLimits({ active, toggle, onDirty }: {
           setError('')
         }
       } catch {
-        if (current) setError('Could not load memory limits. Reopen AI to retry.')
+        if (current) setError(catalogFor(aiText).memory.loadFailed)
       }
     })()
     return () => { current = false }
@@ -56,11 +61,11 @@ export default function AIMemoryLimits({ active, toggle, onDirty }: {
     setNotice('')
     try {
       const result = await (await waitForBridge()).save_ai_memory_limits(n, m)
-      if (!result.ok) throw new Error(result.error || 'Could not save memory limits.')
+      if (!result.ok) throw new Error(result.error || text.saveFailed)
       setSaved([n, m])
-      setNotice('Memory limits saved.')
+      setNotice(text.saved)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not save memory limits.')
+      setError(reason instanceof Error ? reason.message : text.saveFailed)
     } finally {
       setBusy(false)
     }
@@ -73,37 +78,31 @@ export default function AIMemoryLimits({ active, toggle, onDirty }: {
         <div className="memory-limits-intro">
           <div className="memory-limits-heading">
             <div className="memory-limits-title">
-              <h2 id="ai-memory-title">Conversation memory</h2>
-              <HelpTip label="How memory works" className="memory-limits-help">
-                <ul>
-                  <li>A pair is one question and its successful answer.</li>
-                  <li>Stored pairs (N): how many pairs to keep per viewer and channel, for up to 60 days.</li>
-                  <li>Context pairs (M): how many recent pairs to send with the next question. For example, 2 sends the last 2.</li>
-                  <li>The switch saves at once. Off stops saving and using memory; saved pairs stay.</li>
-                  <li>Playground ignores memory. The erase command clears a viewer’s memory in this channel.</li>
-                </ul>
+              <h2 id="ai-memory-title">{text.title}</h2>
+              <HelpTip label={text.helpLabel} className="memory-limits-help">
+                <ul>{text.help.map((item) => <li key={item}>{item}</li>)}</ul>
               </HelpTip>
             </div>
-            <p className="memory-limits-hint">Use earlier exchanges in AI chat replies.</p>
+            <p className="memory-limits-hint">{text.hint}</p>
           </div>
         </div>
         <div className="memory-limits-controls">
           <div className="memory-limit-fields">
-            <label className="form-field">Stored pairs (N)<input aria-label="Stored pairs" type="number" min="1" max="500" step="1" value={stored} disabled={!saved || busy} onChange={(event) => { setStored(event.target.value); setNotice('') }} /></label>
-            <label className="form-field">Context pairs (M)<input aria-label="Pairs in context" type="number" min="1" max="50" step="1" value={context} disabled={!saved || busy} onChange={(event) => { setContext(event.target.value); setNotice('') }} /></label>
+            <label className="form-field">{text.storedField}<input aria-label={text.storedAria} type="number" min="1" max="500" step="1" value={stored} disabled={!saved || busy} onChange={(event) => { setStored(event.target.value); setNotice('') }} /></label>
+            <label className="form-field">{text.contextField}<input aria-label={text.contextAria} type="number" min="1" max="50" step="1" value={context} disabled={!saved || busy} onChange={(event) => { setContext(event.target.value); setNotice('') }} /></label>
           </div>
           <div className="memory-limits-toggle">{toggle}</div>
       </div>
       </div>
       {(dirty || error || notice) && <div className="memory-limits-feedback">
-        {saved && !valid && <p className="inline-error" role="alert">N must be 1–500. M must be 1–50 and no greater than N.</p>}
+        {saved && !valid && <p className="inline-error" role="alert">{text.invalid}</p>}
         {error && <p role="alert" className="inline-error">{error}</p>}
         {notice && <p role="status">{notice}</p>}
         {dirty && <div className="memory-limits-actions">
-          {loweringStoredLimit && <p className="settings-hint" id="ai-memory-prune-warning">Saving this lower limit can permanently delete older pairs, including recovery copies.</p>}
+          {loweringStoredLimit && <p className="settings-hint" id="ai-memory-prune-warning">{text.pruneWarning}</p>}
           <div className="row-actions">
-            <button type="button" className="secondary" disabled={busy} onClick={resetDraft}>Cancel</button>
-            <button type="submit" className="primary" aria-describedby={loweringStoredLimit ? 'ai-memory-prune-warning' : undefined} disabled={!valid || busy}>Save memory limits</button>
+            <button type="button" className="secondary" disabled={busy} onClick={resetDraft}>{common.cancel}</button>
+            <button type="submit" className="primary" aria-describedby={loweringStoredLimit ? 'ai-memory-prune-warning' : undefined} disabled={!valid || busy}>{text.save}</button>
           </div>
         </div>}
       </div>}

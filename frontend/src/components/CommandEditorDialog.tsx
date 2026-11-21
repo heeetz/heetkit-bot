@@ -1,9 +1,10 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import EditorDialog, { EditorSections } from './EditorDialog'
-import { commandEditorCopy as copy } from '../i18n/commands.en'
+import { commandsText } from '../i18n/commands'
+import { useCatalog } from '../i18n/core'
 
 export interface CommandEditorSection {
-  id: keyof typeof copy.sections
+  id: keyof typeof commandsText.en.editor.sections
   body: ReactNode
 }
 
@@ -19,6 +20,7 @@ export default function CommandEditorDialog({ id, title, dirty, busy, error, sec
   onSave: () => void
   onClose: () => void
 }) {
+  const copy = useCatalog(commandsText).editor
   const [section, setSection] = useState<CommandEditorSection['id']>('general')
   const [validationError, setValidationError] = useState('')
   const activeSection = sections.some((item) => item.id === section) ? section : 'general'

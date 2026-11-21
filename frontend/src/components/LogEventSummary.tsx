@@ -169,20 +169,26 @@ export function terminalCommandName(entry: LogEntry) {
   return typeof name === 'string' ? prefixedValue(name, String(command_prefix ?? '!')) : '—'
 }
 
-export function terminalCommandOutcome(entry: LogEntry): { label: string; tone?: 'success' | 'warning' | 'error' } {
+export type TerminalOutcomeKey = 'sent' | 'completed' | 'cooldown' | 'outputFiltered' | 'skipped'
+  | 'partialUncertain' | 'partial' | 'uncertain' | 'cancelled' | 'error' | 'unknown'
+
+/** Logs keep English labels; the Dashboard translates the outcome by key. */
+export function terminalCommandOutcome(entry: LogEntry): { key: TerminalOutcomeKey; label: string; tone?: 'success' | 'warning' | 'error' } {
   const { outcome, reason, stage } = entry.context
   switch (outcome) {
-    case 'success': return reason === 'confirmed_delivery' ? { label: 'Sent', tone: 'success' } : { label: 'Completed' }
+    case 'success': return reason === 'confirmed_delivery' ? { key: 'sent', label: 'Sent', tone: 'success' } : { key: 'completed', label: 'Completed' }
     case 'skipped':
-      if (reason === 'cooldown') return { label: 'Cooldown' }
-      if (stage === 'output_filter') return { label: 'Output filtered', tone: 'warning' }
-      return { label: 'Skipped' }
-    case 'partial': return { label: reason === 'uncertain_delivery' ? 'Partial, delivery uncertain' : 'Partially sent', tone: 'warning' }
-    case 'uncertain': return { label: 'Delivery uncertain', tone: 'warning' }
+      if (reason === 'cooldown') return { key: 'cooldown', label: 'Cooldown' }
+      if (stage === 'output_filter') return { key: 'outputFiltered', label: 'Output filtered', tone: 'warning' }
+      return { key: 'skipped', label: 'Skipped' }
+    case 'partial': return reason === 'uncertain_delivery'
+      ? { key: 'partialUncertain', label: 'Partial, delivery uncertain', tone: 'warning' }
+      : { key: 'partial', label: 'Partially sent', tone: 'warning' }
+    case 'uncertain': return { key: 'uncertain', label: 'Delivery uncertain', tone: 'warning' }
     case 'error':
-      if (reason === 'cancelled' || reason === 'cancelled_or_interrupted') return { label: 'Cancelled' }
-      return { label: 'Error', tone: 'error' }
-    default: return { label: 'Outcome unknown' }
+      if (reason === 'cancelled' || reason === 'cancelled_or_interrupted') return { key: 'cancelled', label: 'Cancelled' }
+      return { key: 'error', label: 'Error', tone: 'error' }
+    default: return { key: 'unknown', label: 'Outcome unknown' }
   }
 }
 

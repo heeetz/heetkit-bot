@@ -435,6 +435,30 @@ Check actions, navigation, help near edges and keyboard interaction in those act
 bounds; record unavailable scales or scenarios as unverified. Use synthetic profiles
 and do not connect Twitch or call Gemini for layout validation.
 
+### Interface languages
+
+The UI is available in English, Ukrainian and Russian. The EN/UA/RU switcher sits
+next to About in the navigation, and Settings has an Interface language field.
+Desktop saves the choice in `app_settings.json` (`interface.language`), and the
+tray menu follows it. The Server browser keeps it in that browser's local storage.
+
+- Text lives in typed catalogs under `frontend/src/i18n/`, one file per feature:
+  `defineCatalog({ en, uk, ru })`. TypeScript rejects a language that misses or
+  adds a key. Components read text with `useCatalog(catalog)`; formatting helpers
+  (`fmt`, `plural`, `number`, `dateTime`, `date`, `time`) come from `useI18n()`.
+- Write `{name}` placeholders instead of joining translated fragments. Plurals are
+  `{ one, other }` in English and `{ one, few, many, other }` in Ukrainian and
+  Russian. Catalogs hold no HTML.
+- Backend messages a user can see carry a stable `error_code` with `error_params`
+  ([`app/ui_messages.py`](../app/ui_messages.py)). The frontend translates them from
+  `frontend/src/i18n/backendErrors.ts`; unknown codes show the English text.
+  Logs, console output and what the bot writes in Twitch chat stay English.
+- When you add or change a user-visible backend message, add it to the registry and
+  translate it in `backendErrors.ts`; `tests/test_ui_messages.py` checks both.
+- `frontend/tests/i18n.spec.ts` checks catalog keys, placeholders and plural forms,
+  flags literal text left in components, and covers switching, persistence and
+  Ukrainian and Russian layout at 1180px and 390px.
+
 ## Advanced process configuration
 
 Configure ordinary desktop use in Settings. Saved non-secret profile values override

@@ -1,8 +1,18 @@
-import { useState } from 'react'
+import { Fragment, useState, type ReactNode } from 'react'
 import { waitForBridge } from '../bridge'
 import EditorDialog from './EditorDialog'
+import { common as commonText } from '../i18n/common'
+import { useCatalog } from '../i18n/core'
+import { settingsText } from '../i18n/settings'
 
 const consoleUrl = 'https://dev.twitch.tv/console/apps'
+
+/** Fill {name} placeholders with React nodes, keeping the surrounding text. */
+function rich(template: string, values: Record<string, ReactNode>): ReactNode[] {
+  return template.split(/\{(\w+)\}/g).map((part, index) => index % 2
+    ? <Fragment key={index}>{values[part] ?? `{${part}}`}</Fragment>
+    : part)
+}
 
 export default function TwitchSetupInstructions({ headingId, host, callback, callbackMode, compact = false }: {
   headingId: string
@@ -16,6 +26,9 @@ export default function TwitchSetupInstructions({ headingId, host, callback, cal
   const [copied, setCopied] = useState(false)
   const desktop = host === 'desktop'
   const dialogId = `${headingId}-instructions`
+  const all = useCatalog(settingsText)
+  const text = all.guide
+  const common = useCatalog(commonText)
 
   const copy = async (button: HTMLButtonElement) => {
     setError('')
@@ -39,7 +52,7 @@ export default function TwitchSetupInstructions({ headingId, host, callback, cal
       }
       setCopied(true)
     } catch {
-      setError('Could not copy the callback URL. Select the URL in the instructions and copy it manually.')
+      setError(text.copyFailed)
     }
   }
 
@@ -49,94 +62,95 @@ export default function TwitchSetupInstructions({ headingId, host, callback, cal
       const result = await (await waitForBridge()).open_external_link('twitch_developer_console')
       if (!result.ok) throw new Error(result.error)
     } catch (reason) {
-      setError(reason instanceof Error && reason.message ? reason.message : 'Could not open Twitch Developer Console. Try again.')
+      setError(reason instanceof Error && reason.message ? reason.message : text.consoleFailed)
     }
   }
 
+  const s = (value: ReactNode) => <strong>{value}</strong>
   return <>
     {!compact && <div className="twitch-application-heading">
-      <h3 id={headingId}>Twitch application</h3>
+      <h3 id={headingId}>{text.application}</h3>
       <button type="button" className="secondary" aria-haspopup="dialog" onClick={() => {
         setError('')
         setCopied(false)
         setOpen(true)
-      }}>Setup guide</button>
+      }}>{text.open}</button>
     </div>}
     {compact && <button type="button" className="secondary setup-guide-trigger" aria-haspopup="dialog" onClick={() => {
       setError('')
       setCopied(false)
       setOpen(true)
-    }}>Setup guide</button>}
-    {open && <EditorDialog id={dialogId} title="Twitch setup instructions" closeLabel="Close setup instructions"
+    }}>{text.open}</button>}
+    {open && <EditorDialog id={dialogId} title={text.title} closeLabel={text.close}
       busy={false} onClose={() => setOpen(false)} error={error} className="twitch-setup-dialog">
       <div className="command-dialog-panels">
-        <p tabIndex={-1} data-editor-focus>The bot account sends replies. The target channel is where HeetKit reads and replies to chat.</p>
+        <p tabIndex={-1} data-editor-focus>{text.intro}</p>
         <ol>
-          <li><strong>Register your application</strong>
+          <li><strong>{text.registerTitle}</strong>
             <ul>
-              <li>Sign in to Twitch Developer Console with two-factor authentication enabled.</li>
-              <li>Under Applications, choose <strong>Register Your Application</strong>.</li>
-              <li>Enter a name and select the <strong>Confidential</strong> client type.</li>
-              <li>Add the exact callback below under <strong>OAuth Redirect URLs</strong>.</li>
-              <li>Choose a category and create the app.</li>
+              <li>{text.register[0]}</li>
+              <li>{rich(text.register[1], { register: s('Register Your Application') })}</li>
+              <li>{rich(text.register[2], { confidential: s('Confidential') })}</li>
+              <li>{rich(text.register[3], { redirects: s('OAuth Redirect URLs') })}</li>
+              <li>{text.register[4]}</li>
             </ul>
             <div className="twitch-setup-callback">
               <div className="settings-callback">
-                <div><span>OAuth callback URL</span><code>{callback || 'Unavailable'}</code></div>
-                <button type="button" className="secondary" aria-label="Copy OAuth callback URL" disabled={!callback}
-                  onClick={(event) => void copy(event.currentTarget)}>Copy</button>
+                <div><span>{all.twitch.callbackUrl}</span><code>{callback || text.unavailable}</code></div>
+                <button type="button" className="secondary" aria-label={all.twitch.copyCallback} disabled={!callback}
+                  onClick={(event) => void copy(event.currentTarget)}>{all.twitch.copy}</button>
               </div>
               {desktop
-                ? <button type="button" className="secondary" onClick={() => void openConsole()}>Open Twitch Developer Console</button>
-                : <a className="secondary" href={consoleUrl} target="_blank" rel="noopener noreferrer">Open Twitch Developer Console</a>}
+                ? <button type="button" className="secondary" onClick={() => void openConsole()}>{all.twitch.openConsole}</button>
+                : <a className="secondary" href={consoleUrl} target="_blank" rel="noopener noreferrer">{all.twitch.openConsole}</a>}
             </div>
-            {copied && <p role="status">OAuth callback URL copied.</p>}
+            {copied && <p role="status">{text.copied}</p>}
           </li>
-          <li><strong>Enter the application and account details</strong>
+          <li><strong>{text.detailsTitle}</strong>
             <ul>
-              <li>Open <strong>Manage</strong> beside your registered app in Twitch.</li>
-              <li>Copy its Client ID into <strong>{desktop ? 'Twitch application client ID' : 'Client ID'}</strong>.</li>
-              <li>Enter the sending account’s login in <strong>Bot account login</strong>.</li>
-              <li>Enter the broadcaster’s login in <strong>Target channel login</strong>.</li>
-              <li>Look up the numeric Twitch user ID for each login.</li>
-              <li>Enter those IDs in <strong>Bot account user ID</strong> and <strong>Target channel user ID</strong>.</li>
+              <li>{rich(text.manage, { manage: s('Manage') })}</li>
+              <li>{rich(text.clientId, { field: s(desktop ? all.twitch.clientIdAria : 'Client ID') })}</li>
+              <li>{rich(text.botLogin, { field: s(all.twitch.botLogin) })}</li>
+              <li>{rich(text.targetLogin, { field: s(all.twitch.targetLogin) })}</li>
+              <li>{text.lookUp}</li>
+              <li>{rich(text.ids, { bot: s(all.twitch.botUserId), target: s(all.twitch.targetUserId) })}</li>
             </ul>
-            <p>Enter logins without an @ or URL.</p>
+            <p>{text.noAt}</p>
           </li>
-          <li><strong>Save the settings and apply the secret</strong>
+          <li><strong>{text.secretTitle}</strong>
             <ul>
-              <li>Under <strong>Authorization, status and save</strong>, choose {desktop ? <strong>Save for later</strong> : <strong>Save Twitch settings</strong>}.</li>
-              <li>On the application’s Twitch <strong>Manage</strong> page, choose <strong>New Secret</strong>.</li>
-              <li>Paste it into <strong>Twitch client secret</strong> and keep it private. Generating a new secret invalidates the old one.</li>
+              <li>{rich(text.saveStep, { section: s(text.saveSection), button: s(desktop ? all.twitch.saveForLater : all.twitch.saveTwitch) })}</li>
+              <li>{rich(text.newSecret, { manage: s('Manage'), newSecret: s('New Secret') })}</li>
+              <li>{rich(text.paste, { field: s(all.secret.label) })}</li>
               {desktop ? <>
-                <li>Choose <strong>Add secret &amp; restart</strong> or <strong>Replace secret &amp; restart</strong>.</li>
-                <li>If you saved the secret separately, choose <strong>Restart now</strong> to apply pending changes.</li>
+                <li>{rich(text.desktopChoose, { add: s(all.secret.addRestart), replace: s(all.secret.replaceRestart) })}</li>
+                <li>{rich(text.desktopRestart, { restart: s(all.twitch.restartNow) })}</li>
               </> : <>
-                <li>Choose <strong>Add secret</strong> or <strong>Replace secret</strong>. This stops the session and clears prior authorization.</li>
-                <li>If the secret is managed externally, set it on the Server host and restart the Server.</li>
+                <li>{rich(text.serverChoose, { add: s(all.secret.add), replace: s(all.secret.replace) })}</li>
+                <li>{text.serverExternal}</li>
               </>}
             </ul>
           </li>
-          <li><strong>Give the sending account channel access</strong>
+          <li><strong>{text.accessTitle}</strong>
             <ul>
-              <li>If the sending account is the broadcaster, skip this step.</li>
-              <li>For a separate bot account, the broadcaster types <code>/mod bot_login</code> in the target channel’s chat. Replace <code>bot_login</code> with the bot account’s login.</li>
+              <li>{text.accessSkip}</li>
+              <li>{rich(text.accessMod, { command: <code>/mod bot_login</code>, login: <code>bot_login</code> })}</li>
             </ul>
           </li>
-          <li><strong>Authorize and connect</strong>
+          <li><strong>{text.connectTitle}</strong>
             <ul>
               {desktop ? <>
-                <li>On Dashboard, choose <strong>Start Bot</strong>.</li>
-                <li>Choose <strong>Authorize Twitch</strong> if prompted.</li>
-              </> : <li>In Settings, choose <strong>Connect Twitch</strong>.</li>}
-              <li>Sign in to Twitch as the bot account and approve access.</li>
+                <li>{rich(text.startBot, { button: s(text.startBotLabel) })}</li>
+                <li>{rich(text.authorizePrompt, { button: s(all.twitch.authorizeTwitch) })}</li>
+              </> : <li>{rich(text.serverConnect, { button: s(all.twitch.connectTwitch) })}</li>}
+              <li>{text.signIn}</li>
               {!desktop && <>
-                <li>Return to the original signed-in Settings tab.</li>
-                {callbackMode === 'paste' && <li>Copy the full URL from the callback error page into that tab. Choose <strong>Complete authorization</strong> within five minutes and keep the URL private.</li>}
-                <li>On Dashboard, choose <strong>Connect</strong> in Manual mode. Always On connects automatically, Stream Only waits for a live stream, and Disabled keeps chat stopped.</li>
+                <li>{text.returnTab}</li>
+                {callbackMode === 'paste' && <li>{rich(text.pasteUrl, { button: s(all.twitch.completeAuthorization) })}</li>}
+                <li>{rich(text.manualConnect, { button: s(text.connectLabel) })}</li>
               </>}
-              <li>Wait for Dashboard to show <strong>Connected</strong>.</li>
-              <li>Send <code>!help</code> in the target channel from an account allowed to use it. If you changed the command name or prefix, use the saved version.</li>
+              <li>{rich(text.waitConnected, { status: s(common.connection.connected) })}</li>
+              <li>{rich(text.sendHelp, { command: <code>!help</code> })}</li>
             </ul>
           </li>
         </ol>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import {
   type FilterCategoryName,
@@ -14,6 +14,9 @@ import HelpTip from '../components/HelpTip'
 import EditorDialog, { EditorSections } from '../components/EditorDialog'
 import FeedbackToast from '../components/FeedbackToast'
 import { useRestartDraft } from '../desktopRestart'
+import { common as commonText } from '../i18n/common'
+import { catalogFor, useCatalog, useI18n } from '../i18n/core'
+import { filtersText } from '../i18n/filters'
 
 interface FiltersPageProps {
   active: boolean
@@ -23,10 +26,12 @@ type FilterTexts = Record<FilterCategoryName, string>
 type RuleError = { category: FilterCategoryName; value: string; message: string }
 
 const categoryNames = ['words', 'phrases', 'patterns'] as const
-const categoryInfo = {
-  words: { label: 'Blocked words', description: 'Matches whole words.' },
-  phrases: { label: 'Blocked phrases', description: 'Matches the text you enter, including punctuation.' },
-  patterns: { label: 'Regex patterns', description: 'Uses Python regular expressions.' },
+
+/** Fill {name} placeholders with React nodes, keeping the surrounding text. */
+function rich(template: string, values: Record<string, ReactNode>): ReactNode[] {
+  return template.split(/\{(\w+)\}/g).map((part, index) => index % 2
+    ? <Fragment key={index}>{values[part] ?? `{${part}}`}</Fragment>
+    : part)
 }
 
 function draftTexts(data: FiltersResponse): FilterTexts {
@@ -78,6 +83,10 @@ export default function FiltersPage({ active }: FiltersPageProps) {
   const [testBusy, setTestBusy] = useState(false)
   const testBusyRef = useRef(false)
   const testRequestVersion = useRef(0)
+  const text = useCatalog(filtersText)
+  const common = useCatalog(commonText)
+  const { fmt, plural } = useI18n()
+  const categoryInfo = text.categories
 
   useEffect(() => {
     if (!active || data) return
@@ -92,7 +101,7 @@ export default function FiltersPage({ active }: FiltersPageProps) {
           setError('')
         }
       } catch (reason) {
-        if (current) setError(reason instanceof Error ? reason.message : 'Could not load filters.')
+        if (current) setError(reason instanceof Error ? reason.message : catalogFor(filtersText).loadFailed)
       } finally {
         if (current) setLoading(false)
       }
@@ -136,7 +145,7 @@ export default function FiltersPage({ active }: FiltersPageProps) {
       const api = await waitForBridge()
       const result = await api.save_filters(payload)
       if (!result.ok) {
-        const message = result.error ?? 'Filters could not be saved.'
+        const message = result.error ?? text.saveFailed
         if (result.invalid_rule) {
           const { category, index } = result.invalid_rule
           const value = payload[category][index]
@@ -152,9 +161,9 @@ export default function FiltersPage({ active }: FiltersPageProps) {
       setData(response)
       setDrafts(draftTexts(response))
       setSection(null)
-      setNotice('Filters saved.')
+      setNotice(text.saved)
     } catch (reason) {
-      setEditorError(reason instanceof Error ? reason.message : 'Filters could not be saved.')
+      setEditorError(reason instanceof Error ? reason.message : text.saveFailed)
     } finally {
       setBusy(false)
     }
@@ -174,7 +183,7 @@ export default function FiltersPage({ active }: FiltersPageProps) {
       else setTestError(result.error)
     } catch (reason) {
       if (requestVersion === testRequestVersion.current) {
-        setTestError(reason instanceof Error ? reason.message : 'The filter test could not be completed.')
+        setTestError(reason instanceof Error ? reason.message : text.testFailed)
       }
     } finally {
       testBusyRef.current = false
@@ -190,7 +199,7 @@ export default function FiltersPage({ active }: FiltersPageProps) {
     const configured = name === 'patterns' ? values : [...new Set(values)]
     const defaults = configured.filter((value) => category.defaults.includes(value)).length
     const invalid = new Map(category.rules.filter((rule) => !rule.valid || rule.error)
-      .map(({ value, error }) => [value, error ?? 'Invalid rule.']))
+      .map(({ value, error }) => [value, error ?? text.invalidRule]))
     if (invalidRule?.category === name) invalid.set(invalidRule.value, invalidRule.message)
     const errors = drafts[name].split(/\r?\n/).flatMap((line, index) => {
       const message = invalid.get(line.trim())
@@ -203,12 +212,12 @@ export default function FiltersPage({ active }: FiltersPageProps) {
         <div className="filter-editor-heading">
           <div className="filter-editor-topic">
             <h3>{info.label}</h3>
-            {name === 'patterns' && <HelpTip label="Regex example"><code>^hello\b</code> matches messages that start with the word “hello”.</HelpTip>}
+            {name === 'patterns' && <HelpTip label={text.regexExample}>{rich(text.regexExampleText, { code: <code>^hello\b</code> })}</HelpTip>}
           </div>
-          <span className="read-only-badge">{configured.length} {configured.length === 1 ? 'rule' : 'rules'}</span>
+          <span className="read-only-badge">{plural(text.rules, configured.length)}</span>
         </div>
         {category.load_error && <p className="filter-load-warning" role="status">{category.load_error}</p>}
-        <label className="form-field" htmlFor={inputId}>{info.label}, one rule per line</label>
+        <label className="form-field" htmlFor={inputId}>{fmt(text.fieldLabel, { label: info.label })}</label>
         <textarea id={inputId} className={`filter-textarea${errors.length ? ' invalid' : ''}`} rows={9}
           data-editor-focus={name === 'words' ? true : undefined}
           aria-invalid={errors.length > 0} aria-describedby={`${inputId}-help${errors.length ? ` ${inputId}-errors` : ''}`}
@@ -217,13 +226,13 @@ export default function FiltersPage({ active }: FiltersPageProps) {
             setDrafts((current) => ({ ...current, [name]: event.target.value }))
             setEditorError('')
           }} />
-        <p className="settings-hint" id={`${inputId}-help`}>{info.description} HeetKit skips blank lines and lines beginning with #.</p>
+        <p className="settings-hint" id={`${inputId}-help`}>{info.description} {text.skipHint}</p>
         {configured.length > 0 && <div className="filter-text-meta">
-          <span className="mini-badge filter-default-badge">{defaults} built-in {defaults === 1 ? 'default' : 'defaults'}</span>
-          <span className="mini-badge filter-local-badge">{configured.length - defaults} local {configured.length - defaults === 1 ? 'rule' : 'rules'}</span>
+          <span className="mini-badge filter-default-badge">{plural(text.defaults, defaults)}</span>
+          <span className="mini-badge filter-local-badge">{plural(text.localRules, configured.length - defaults)}</span>
         </div>}
         {errors.length > 0 && <ul className="filter-text-errors" id={`${inputId}-errors`}>
-          {errors.map(({ line, message }) => <li key={line}>Line {line}: {message}</li>)}
+          {errors.map(({ line, message }) => <li key={line}>{fmt(text.lineError, { line: String(line), message })}</li>)}
         </ul>}
       </div>
     )
@@ -234,8 +243,8 @@ export default function FiltersPage({ active }: FiltersPageProps) {
       <FeedbackToast error={error} notice={notice} onDismiss={() => { setError(''); setNotice('') }} />
       <section className="card filters-intro">
         <div>
-          <h2>Bot filters</h2>
-          <p className="section-copy">HeetKit skips Twitch messages that match these rules and blocks matching AI replies.</p>
+          <h2>{text.title}</h2>
+          <p className="section-copy">{text.intro}</p>
         </div>
         <div className="filters-intro-actions">
           <button className="primary" type="button" aria-haspopup="dialog" disabled={!data || busy} onClick={() => {
@@ -243,61 +252,61 @@ export default function FiltersPage({ active }: FiltersPageProps) {
             setInvalidRule(null)
             setNotice('')
             setSection('words')
-          }}>Edit filters</button>
+          }}>{text.edit}</button>
         </div>
       </section>
       <section className="card filter-tester-card" id="filter-tester">
         <div className="section-heading">
           <div>
-            <h2>Filter Tester</h2>
-            <p className="section-copy">Check whether a sample matches your saved bot filters. The test runs locally.</p>
+            <h2>{text.testerTitle}</h2>
+            <p className="section-copy">{text.testerIntro}</p>
           </div>
         </div>
         <label className="form-field filter-test-text">
-          Sample text
-          <textarea rows={4} value={testText} placeholder="Enter a message to test"
+          {text.sample}
+          <textarea rows={4} value={testText} placeholder={text.samplePlaceholder}
             onChange={(event) => { setTestText(event.target.value); clearTestResult() }} />
         </label>
         <div className="filter-test-footer">
-          <p className="settings-hint">The test checks your editable filters. AI safety checks run when you use AI.</p>
+          <p className="settings-hint">{text.testerHint}</p>
           <button className="primary" type="button" disabled={testBusy || busy || !data} onClick={() => void runFilterTest()}>
-            {testBusy ? 'Testing…' : 'Test sample'}
+            {testBusy ? text.testing : text.test}
           </button>
         </div>
         {testError && <div className="filter-test-error" role="alert">{testError}</div>}
         {testResult && (
           <div className={`filter-test-result ${testResult.decision.toLowerCase()}${testResult.timed_out ? ' timed-out' : ''}`} role="status" aria-live="polite">
             <div className="filter-test-decision">
-              <span>{testResult.timed_out ? 'Regex timeout' : testResult.decision === 'ALLOW' ? 'User filters passed' : 'User filter matched'}</span>
+              <span>{testResult.timed_out ? text.regexTimeout : testResult.decision === 'ALLOW' ? text.passed : text.matched}</span>
               <strong>{testResult.decision}</strong>
             </div>
             {testResult.timed_out ? (
-              <p>Regex evaluation timed out. The sample was blocked as a precaution.</p>
+              <p>{text.timedOut}</p>
             ) : testResult.decision === 'BLOCK' ? (
               <dl>
-                <div><dt>Category</dt><dd>{testResult.category ? categoryInfo[testResult.category].label : 'Not reported'}</dd></div>
-                <div><dt>Editable rule</dt><dd>{testResult.rule ? <code>{testResult.rule}</code> : 'Not available'}</dd></div>
+                <div><dt>{text.category}</dt><dd>{testResult.category ? categoryInfo[testResult.category].label : text.notReported}</dd></div>
+                <div><dt>{text.editableRule}</dt><dd>{testResult.rule ? <code>{testResult.rule}</code> : text.notAvailable}</dd></div>
               </dl>
             ) : (
-              <p>Protected AI safety may still block an AI request or reply.</p>
+              <p>{text.protectedSafety}</p>
             )}
           </div>
         )}
       </section>
-      {active && section && <EditorDialog id="filters-editor" title="Edit filters" closeLabel="Close editor"
-        dirtyLabel={dirty ? 'Unsaved changes' : undefined} busy={busy} error={editorError} onClose={closeEditor}
+      {active && section && <EditorDialog id="filters-editor" title={text.edit} closeLabel={text.closeEditor}
+        dirtyLabel={dirty ? common.unsavedChanges : undefined} busy={busy} error={editorError} onClose={closeEditor}
         className="filters-editor-dialog">
-        <EditorSections id="filters-editor" label="Filter sections" active={section} onSelect={setSection}
+        <EditorSections id="filters-editor" label={text.sections} active={section} onSelect={setSection}
           sections={categoryNames.map((name) => ({ id: name, label: categoryInfo[name].label, body: renderSection(name) }))} />
         <div className="command-dialog-footer">
-          <button className="secondary" type="button" disabled={busy} onClick={closeEditor}>Cancel</button>
+          <button className="secondary" type="button" disabled={busy} onClick={closeEditor}>{common.cancel}</button>
           <button className="primary" type="button" disabled={busy || !dirty} onClick={() => void saveFilters()}>
-            {busy ? 'Saving…' : 'Save filters'}
+            {busy ? common.saving : text.save}
           </button>
         </div>
       </EditorDialog>}
-      {active && confirmDiscard && <Confirmation title="Discard unsaved changes?"
-        description="The current bot filters will stay in effect." danger onConfirm={discardEdits} onCancel={() => setConfirmDiscard(false)} />}
+      {active && confirmDiscard && <Confirmation title={text.discardTitle}
+        description={text.discardDescription} danger onConfirm={discardEdits} onCancel={() => setConfirmDiscard(false)} />}
     </div>
   )
 }

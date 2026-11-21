@@ -203,3 +203,7 @@
   .ai-shared-instructions .editor-footer,
   .ai-shared-instructions .row-actions { flex-direction: column; align-items: stretch; width: 100%; }
 }
+/* Long uk/ru labels wrap differently; keep both inputs on one line and put the
+   switch state under the switch so it does not squeeze the fields. */
+.ai-layout .memory-limit-fields { align-items: end; }
+.ai-layout .memory-limits-toggle .switch-control { flex-direction: column; gap: 4px; font-size: 12px; text-align: center; }

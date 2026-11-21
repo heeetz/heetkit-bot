@@ -23,7 +23,8 @@ import AnnouncementsPanel from '../components/AnnouncementsPanel'
 import ChatReactions, { newReactionDraft, probabilityText, reactionDraftFrom, type ReactionDraft } from '../components/ChatReactions'
 import CommandList, { type CommandEntry } from '../components/CommandList'
 import CommandEditorDialog, { type CommandEditorSection } from '../components/CommandEditorDialog'
-import { commandEditorCopy as copy } from '../i18n/commands.en'
+import { commandsText } from '../i18n/commands'
+import { useCatalog, useI18n } from '../i18n/core'
 import CommandRestrictions from '../components/CommandRestrictions'
 import OptOutManagement from '../components/OptOutManagement'
 import './commands-refresh.css'
@@ -79,22 +80,17 @@ interface CommandConfirmation {
 
 const DEFAULT_TG_BURST_MAX_COUNT = 10
 
-const streamAvailabilityOptions: { value: StreamAvailability; label: string }[] = [
-  { value: 'anytime', label: 'Anytime' },
-  { value: 'live_only', label: 'Live only' },
-  { value: 'offline_only', label: 'Offline only' },
-]
+type Labels = Record<string, string>
 
-const sendAsOptions: { value: SendAs; label: string }[] = [
-  { value: 'chat', label: 'Chat message' },
-  { value: 'mention', label: 'Mention sender' },
-  { value: 'reply', label: 'Reply to message' },
-]
+const streamAvailabilityValues: StreamAvailability[] = ['anytime', 'live_only', 'offline_only']
+const sendAsValues: SendAs[] = ['chat', 'mention', 'reply']
 
 function SendAsField({ id, value, onChange, disabled }: { id: string; value: SendAs; onChange: (value: SendAs) => void; disabled?: boolean }) {
+  const text = useCatalog(commandsText).page
+  const sendAsOptions = sendAsValues.map((option) => ({ value: option, label: text.sendAsOptions[option] }))
   return <div className="form-field">
-    <label className="command-field-label" htmlFor={id}>Send as</label>
-    <span className="command-select-control"><Select id={id} aria-label="Send as" value={value} onChange={(next) => onChange(next as SendAs)} options={sendAsOptions} disabled={disabled} /></span>
+    <label className="command-field-label" htmlFor={id}>{text.sendAs}</label>
+    <span className="command-select-control"><Select id={id} aria-label={text.sendAs} value={value} onChange={(next) => onChange(next as SendAs)} options={sendAsOptions} disabled={disabled} /></span>
   </div>
 }
 
@@ -254,6 +250,13 @@ function commandPermissions(data: CommandsResponse, command: CommandInfo): strin
 }
 
 export default function CommandsPage({ active, revealCommand, onAIEnabledChanged }: CommandsPageProps) {
+  const strings = useCatalog(commandsText)
+  const copy = strings.editor
+  const text = strings.page
+  const { fmt, plural } = useI18n()
+  const streamAvailabilityOptions = streamAvailabilityValues.map((value) => ({ value, label: text.streamAvailability[value] }))
+  const permissionLabels: Labels = text.permissions
+  const permissionLabel = (permission: string) => permissionLabels[permission] ?? permission.toLowerCase()
   const [data, setData] = useState<CommandsResponse | null>(null)
   const [customData, setCustomData] = useState<CustomCommandsResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -362,7 +365,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         const [response, customResponse, reactionResponse] = await Promise.all([
           api.get_commands(),
           api.get_custom_commands(),
-          api.get_message_triggers().catch((reason: unknown) => ({ ok: false, triggers: [], revision: '', error: reason instanceof Error ? reason.message : 'Could not load chat reactions.' })),
+          api.get_message_triggers().catch((reason: unknown) => ({ ok: false, triggers: [], revision: '', error: reason instanceof Error ? reason.message : text.loadReactionsFailed })),
         ])
         if (mounted) {
           setData(response)
@@ -379,11 +382,11 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
             return [command.name, draft]
           })))
           commandSnapshot.current = Object.fromEntries(response.commands.map((command) => [command.name, command]))
-          setError(reactionResponse.ok ? '' : reactionResponse.error ?? 'Could not load chat reactions.')
+          setError(reactionResponse.ok ? '' : reactionResponse.error ?? text.loadReactionsFailed)
         }
       } catch (reason) {
         if (mounted) {
-          setError(reason instanceof Error ? reason.message : 'Could not load commands.')
+          setError(reason instanceof Error ? reason.message : text.loadFailed)
         }
       } finally {
         if (mounted) setLoading(false)
@@ -413,11 +416,11 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     try {
       const api = await waitForBridge()
       const result = await api.save_builtin_enabled(command.name, enabled)
-      if (!result.ok) throw new Error(result.error ?? 'Could not change command status.')
+      if (!result.ok) throw new Error(result.error ?? text.statusFailed)
       await loadCommands()
-      setNotice(`${data?.command_prefix ?? '!'}${command.primary_name ?? command.name} ${enabled ? 'enabled' : 'disabled'}.`)
+      setNotice(fmt(enabled ? text.commandEnabled : text.commandDisabled, { name: `${data?.command_prefix ?? '!'}${command.primary_name ?? command.name}` }))
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not change command status.')
+      setError(reason instanceof Error ? reason.message : text.statusFailed)
     } finally {
       setBusyCommand('')
       focusListIfNeeded()
@@ -435,17 +438,17 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     const perUserSeconds = parsedCooldown(draft.perUserSeconds)
     const globalSeconds = parsedCooldown(draft.globalSeconds)
     if (action !== 'reset' && (perUserSeconds === null || globalSeconds === null)) {
-      setError('Cooldown values must be non-negative numbers.')
+      setError(text.cooldownInvalid)
       return
     }
     const burstInterval = parsedBurstInterval(draft.burstIntervalMs)
     if (action !== 'reset' && command.name === 'tg' && burstInterval === null) {
-      setError('Burst interval must be a whole number from 0 to 1000 ms.')
+      setError(text.burstIntervalInvalid)
       return
     }
     const burstMaxCount = parsedBurstMaxCount(draft.burstMaxCount)
     if (action !== 'reset' && command.name === 'tg' && burstMaxCount === null) {
-      setError('Maximum repeat count must be a whole number from 1 to 20.')
+      setError(text.maxCountInvalid)
       return
     }
     const metadata = {
@@ -463,14 +466,14 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       && (responseDraftIsDirty(command, draft) || !responsePool.saved)
     const responses = responsePool && draft.responsePool !== null ? parseResponsePool(responsePool, draft.responsePool) : []
     if (saveResponses && responses.length === 0) {
-      setError('Keep at least one non-empty response or message.')
+      setError(text.responseRequired)
       return
     }
     if (action === 'reset' && !await confirmAction({
-      title: `Reset ${data?.command_prefix ?? '!'}${command.primary_name ?? command.name} settings?`,
+      title: fmt(text.resetSettingsTitle, { name: `${data?.command_prefix ?? '!'}${command.primary_name ?? command.name}` }),
       description: command.chat_template !== undefined
-        ? 'Restore the factory settings and message. Keep the current enabled state.'
-        : 'Restore the factory name, aliases, access and cooldowns. Keep the current enabled state and saved message.',
+        ? text.resetSettingsWithMessage
+        : text.resetSettingsDescription,
       danger: true,
     })) {
       return
@@ -485,7 +488,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       const api = await waitForBridge()
       if (action === 'reset') {
         const result = await api.reset_command_settings(command.name, true)
-        if (!result.ok) throw new Error(result.error ?? 'Command settings could not be updated.')
+        if (!result.ok) throw new Error(result.error ?? text.settingsUpdateFailed)
       } else if (settingsDraftIsDirty(command, draft) || !command.saved) {
         const result = await api.save_command_settings(
           command.name,
@@ -495,29 +498,27 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           draft.permission,
           metadata,
         )
-        if (!result.ok) throw new Error(result.error ?? 'Command settings could not be saved.')
+        if (!result.ok) throw new Error(result.error ?? text.settingsSaveFailed)
         settingsSaved = true
       }
       if (saveResponses) {
         const result = await api.save_command_responses(command.name, responses)
-        if (!result.ok) throw new Error(result.error ?? 'Command text could not be saved.')
+        if (!result.ok) throw new Error(result.error ?? text.textSaveFailed)
         responsesSaved = true
       }
       await loadCommands(command.name, action === 'reset' ? 'settings' : undefined)
       if (action === 'save') setEditingBuiltin(null)
       setNotice(action === 'save'
-          ? `Saved ${data?.command_prefix ?? '!'}${draft.primaryName.trim()}${responsePool ? ' text and settings' : ''}.`
-          : command.chat_template !== undefined
-            ? `Reset !${command.name} settings and message to built-in defaults.`
-            : `Reset !${command.name} settings to built-in defaults. Its message was kept.`)
+          ? fmt(responsePool ? text.savedWithText : text.saved, { name: `${data?.command_prefix ?? '!'}${draft.primaryName.trim()}` })
+          : fmt(command.chat_template !== undefined ? text.resetWithMessage : text.resetKeptMessage, { name: `!${command.name}` }))
     } catch (reason) {
-      const message = reason instanceof Error ? reason.message : 'Command could not be saved.'
+      const message = reason instanceof Error ? reason.message : text.saveFailed
       if (settingsSaved && !responsesSaved && saveResponses) {
-        setError(`Saved ${data?.command_prefix ?? '!'}${draft.primaryName.trim()} settings, but its text could not be saved. ${message} Your text draft is kept; use Save command to retry.`)
+        setError(fmt(text.textNotSaved, { name: `${data?.command_prefix ?? '!'}${draft.primaryName.trim()}`, message }))
         // Refresh the committed settings while retaining this command's text and other drafts.
         try { await loadCommands(command.name, 'settings') } catch { /* Keep the drafts if refreshing also fails. */ }
       } else if (settingsSaved || responsesSaved) {
-        setError(`Saved ${data?.command_prefix ?? '!'}${draft.primaryName.trim()}, but could not refresh it. ${message} Reopen Commands to check the saved values.`)
+        setError(fmt(text.refreshFailed, { name: `${data?.command_prefix ?? '!'}${draft.primaryName.trim()}`, message }))
       } else {
         setError(message)
       }
@@ -535,10 +536,12 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     if (!draft || !responsePool || draft.responsePool === null) {
       return
     }
-    const responseNoun = responsePool.response_mode === 'random' ? 'responses' : 'message'
+    const random = responsePool.response_mode === 'random'
+    const commandName = `${data?.command_prefix ?? '!'}${command.primary_name ?? command.name}`
+    const updateFailed = random ? text.responsesUpdateFailed : text.messageUpdateFailed
     if (!await confirmAction({
-      title: `Reset ${data?.command_prefix ?? '!'}${command.primary_name ?? command.name} ${responseNoun}?`,
-      description: 'Replace saved responses with factory defaults. Other command settings are kept.',
+      title: fmt(random ? text.resetResponsesTitle : text.resetMessageTitle, { name: commandName }),
+      description: text.resetResponsesDescription,
       danger: true,
     })) {
       return
@@ -551,12 +554,12 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       const api = await waitForBridge()
       const result = await api.reset_command_responses(command.name)
       if (!result.ok) {
-        throw new Error(result.error ?? `Command ${responseNoun} could not be updated.`)
+        throw new Error(result.error ?? updateFailed)
       }
       await loadCommands(command.name, 'responses')
-      setNotice(`Reset ${data?.command_prefix ?? '!'}${command.primary_name ?? command.name} ${responseNoun} to built-in defaults.`)
+      setNotice(fmt(random ? text.responsesReset : text.messageReset, { name: commandName }))
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : `Command ${responseNoun} could not be updated.`)
+      setError(reason instanceof Error ? reason.message : updateFailed)
     } finally {
       setBusyCommand('')
     }
@@ -586,7 +589,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     const builtin = editingBuiltin ? commandSnapshot.current[editingBuiltin] : undefined
     const builtinDraft = builtin && drafts[builtin.name]
     if ((customDirty || reactionDirty || (builtin && builtinDraft && draftIsDirty(builtin, builtinDraft)))
-      && !await confirmAction({ title: 'Discard unsaved changes?', description: 'Your changes in this editor will be lost.', danger: true })) return
+      && !await confirmAction({ title: text.discardTitle, description: text.discardDescription, danger: true })) return
     if (builtin) setDrafts((current) => ({ ...current, [builtin.name]: draftFromCommand(builtin) }))
     setEditingBuiltin(null)
     setCustomDraft(null)
@@ -615,21 +618,21 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     const perUserSeconds = parsedCooldown(customDraft.perUserSeconds)
     const globalSeconds = parsedCooldown(customDraft.globalSeconds)
     if (!name || responses.length === 0 || perUserSeconds === null || globalSeconds === null) {
-      setError('Enter a command name, at least one response, and non-negative cooldowns.')
+      setError(text.customInvalid)
       return
     }
     if (responses.length > 30) {
-      setError('Keep 1 to 30 response templates.')
+      setError(text.customTooMany)
       return
     }
     const burstCount = parsedBurstCount(customDraft.burstCount)
     const burstInterval = parsedBurstInterval(customDraft.burstIntervalMs)
     if (customDraft.responseMode === 'burst' && (burstCount === null || !burstPermissions.includes(customDraft.permission))) {
-      setError('Burst requires a whole repeat count from 1 to 10 and Moderator or Broadcaster permission.')
+      setError(text.burstInvalid)
       return
     }
     if (customDraft.responseMode === 'burst' && burstInterval === null) {
-      setError('Burst interval must be a whole number from 0 to 1000 ms.')
+      setError(text.burstIntervalInvalid)
       return
     }
 
@@ -653,13 +656,13 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     try {
       const api = await waitForBridge()
       const result = await api.save_custom_command(command)
-      if (!result.ok) throw new Error(result.error ?? 'Could not save custom command.')
+      if (!result.ok) throw new Error(result.error ?? text.customSaveFailed)
       await loadCustomCommands()
       setCustomDraft(null)
       customBaseline.current = null
-      setNotice(`Saved ${customData?.command_prefix ?? '!'}${name}.`)
+      setNotice(fmt(text.saved, { name: `${customData?.command_prefix ?? '!'}${name}` }))
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not save custom command.')
+      setError(reason instanceof Error ? reason.message : text.customSaveFailed)
     } finally {
       setBusyCustom(false)
       focusListIfNeeded()
@@ -686,13 +689,13 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         ...(isBrowserMode() ? { stream_availability: streamAvailability(command.stream_availability) } : {}),
         ...(command.response_mode === 'burst' ? { burst_count: command.burst_count ?? 1, burst_allow_override: command.burst_allow_override ?? false, burst_interval_ms: command.burst_interval_ms ?? 0 } : {}),
       })
-      if (!result.ok) throw new Error(result.error ?? 'Could not update custom command.')
+      if (!result.ok) throw new Error(result.error ?? text.customUpdateFailed)
       await loadCustomCommands()
       setCustomDraft((current) => current?.id === command.id ? { ...current, enabled: !command.enabled } : current)
       if (customBaseline.current?.id === command.id) customBaseline.current = { ...customBaseline.current, enabled: !command.enabled }
-      setNotice(`${customData?.command_prefix ?? '!'}${command.name} ${command.enabled ? 'disabled' : 'enabled'}.`)
+      setNotice(fmt(command.enabled ? text.commandDisabled : text.commandEnabled, { name: `${customData?.command_prefix ?? '!'}${command.name}` }))
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not update custom command.')
+      setError(reason instanceof Error ? reason.message : text.customUpdateFailed)
     } finally {
       setBusyCustom(false)
       focusListIfNeeded()
@@ -701,8 +704,8 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
 
   const deleteCustom = async (command: CustomCommandInfo) => {
     if (!await confirmAction({
-      title: `Delete ${customData?.command_prefix ?? '!'}${command.name}?`,
-      description: 'Permanently delete this custom command. This cannot be undone.',
+      title: fmt(text.deleteTitle, { name: `${customData?.command_prefix ?? '!'}${command.name}` }),
+      description: text.deleteDescription,
       danger: true,
     })) return
     setBusyCustom(true)
@@ -711,11 +714,11 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     try {
       const api = await waitForBridge()
       const result = await api.delete_custom_command(command.id)
-      if (!result.ok) throw new Error(result.error ?? 'Could not delete custom command.')
+      if (!result.ok) throw new Error(result.error ?? text.customDeleteFailed)
       await loadCustomCommands()
-      setNotice(`Deleted ${customData?.command_prefix ?? '!'}${command.name}.`)
+      setNotice(fmt(text.deleted, { name: `${customData?.command_prefix ?? '!'}${command.name}` }))
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not delete custom command.')
+      setError(reason instanceof Error ? reason.message : text.customDeleteFailed)
     } finally {
       setBusyCustom(false)
       focusListIfNeeded()
@@ -729,11 +732,11 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     setBusyReaction(true)
     try {
       const result = await (await waitForBridge()).save_message_triggers(rules, reactionData.revision)
-      if (!result.ok) throw new Error(result.error ?? 'Could not save chat reactions.')
+      if (!result.ok) throw new Error(result.error ?? text.reactionsSaveFailed)
       setReactionData(result)
       setReactionDraft(null)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not save chat reactions.')
+      setError(reason instanceof Error ? reason.message : text.reactionsSaveFailed)
     } finally {
       setBusyReaction(false)
       focusListIfNeeded()
@@ -759,15 +762,15 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
 
   const deleteReaction = async (reaction: ChatReaction) => {
     if (!reactionData) return
-    if (await confirmAction({ title: 'Delete chat reaction?', description: `Permanently delete the reaction for “${reaction.text}”?`, danger: true })) {
+    if (await confirmAction({ title: text.deleteReactionTitle, description: fmt(text.deleteReactionDescription, { text: reaction.text }), danger: true })) {
       await persistReactions(reactionData.triggers.filter((item) => item.id !== reaction.id))
     }
   }
 
   const resetAllBuiltins = async () => {
     if (!await confirmAction({
-      title: 'Restore all factory defaults?',
-      description: 'Restore built-in settings and messages. Each command keeps its current enabled state.',
+      title: text.restoreAllTitle,
+      description: text.restoreAllDescription,
       danger: true,
     })) return
     setBusyCommand('factory')
@@ -776,10 +779,10 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     try {
       const result = await (await waitForBridge()).reset_all_builtin_commands(true)
       await loadCommands()
-      if (!result.ok) throw new Error(result.error ?? 'Could not reset all built-ins.')
-      setNotice('Restored all built-in settings and messages.')
+      if (!result.ok) throw new Error(result.error ?? text.restoreAllFailed)
+      setNotice(text.restoredAll)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not reset all built-ins.')
+      setError(reason instanceof Error ? reason.message : text.restoreAllFailed)
     } finally {
       setBusyCommand('')
     }
@@ -804,12 +807,12 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     const isRandom = responsePool?.response_mode === 'random'
     const busy = busyCommand !== ''
     const aliasField = canEditIdentity(command) && <div className="form-field command-aliases">
-      <label className="command-field-label" htmlFor={`aliases-${command.name}`}>Aliases</label>
-      <span className="command-context-control"><input id={`aliases-${command.name}`} aria-label="Aliases, separated by commas" disabled={busy} value={draft.aliases} onChange={(event) => updateDraft(command.name, { aliases: event.target.value })} placeholder="Comma separated" /></span>
+      <label className="command-field-label" htmlFor={`aliases-${command.name}`}>{text.aliases}</label>
+      <span className="command-context-control"><input id={`aliases-${command.name}`} aria-label={text.aliasesInput} disabled={busy} value={draft.aliases} onChange={(event) => updateDraft(command.name, { aliases: event.target.value })} placeholder={text.commaSeparated} /></span>
     </div>
     const displayField = canEditIdentity(command) && <div className="form-field command-display-label">
-      <label className="command-field-label" htmlFor={`display-name-${command.name}`}>Name in UI</label>
-      <span className="command-context-control"><input id={`display-name-${command.name}`} aria-label="Name in UI" disabled={busy} value={draft.displayName} maxLength={80} onChange={(event) => updateDraft(command.name, { displayName: event.target.value })} placeholder="Name in UI" /></span>
+      <label className="command-field-label" htmlFor={`display-name-${command.name}`}>{text.nameInUI}</label>
+      <span className="command-context-control"><input id={`display-name-${command.name}`} aria-label={text.nameInUI} disabled={busy} value={draft.displayName} maxLength={80} onChange={(event) => updateDraft(command.name, { displayName: event.target.value })} placeholder={text.nameInUI} /></span>
     </div>
     const supportsSendAs = command.supports_send_as ?? !['tg', 'erase'].includes(command.name)
     const sections: CommandEditorSection[] = [
@@ -817,64 +820,64 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         id: 'general', body: <div className="command-editor-stack">
           <div className="command-editor-identity">
             <div className="form-field">
-              <label className="command-field-label" htmlFor={`primary-name-${command.name}`}>Primary chat name</label>
-              <span className="custom-name-input"><span aria-hidden="true">{data.command_prefix}</span><input id={`primary-name-${command.name}`} aria-label="Primary chat name" data-editor-focus disabled={busy} value={draft.primaryName} maxLength={40} onChange={(event) => updateDraft(command.name, { primaryName: event.target.value })} /></span>
+              <label className="command-field-label" htmlFor={`primary-name-${command.name}`}>{text.primaryName}</label>
+              <span className="custom-name-input"><span aria-hidden="true">{data.command_prefix}</span><input id={`primary-name-${command.name}`} aria-label={text.primaryName} data-editor-focus disabled={busy} value={draft.primaryName} maxLength={40} onChange={(event) => updateDraft(command.name, { primaryName: event.target.value })} /></span>
             </div>
             <Switch
               className="custom-command-enabled"
               checked={draft.enabled}
               disabled={busy}
-              ariaLabel={`Enable ${data.command_prefix}${primaryName}`}
+              ariaLabel={fmt(text.enableNamed, { name: `${data.command_prefix}${primaryName}` })}
               onCheckedChange={(enabled) => updateDraft(command.name, { enabled })}
             >
               <span>{draft.enabled ? copy.enabled : copy.disabled}</span>
             </Switch>
           </div>
-          {!responsePool && command.chat_template === undefined && <div className="command-behavior-note command-dynamic-note"><span>Dynamic response</span></div>}
-          {!command.available && <p className="command-unavailable"><strong>Unavailable:</strong> {command.unavailable_reason ?? 'The optional AI provider is not configured. Add a key to enable AI features.'}</p>}
+          {!responsePool && command.chat_template === undefined && <div className="command-behavior-note command-dynamic-note"><span>{text.dynamicResponse}</span></div>}
+          {!command.available && <p className="command-unavailable"><strong>{text.unavailable}</strong> {command.unavailable_reason ?? text.aiNotConfigured}</p>}
           {command.chat_template !== undefined && <div className="form-field">
-              <label className="command-field-label" htmlFor={`chat-template-${command.name}`}>Command message</label>
-            <span className="command-context-control"><input id={`chat-template-${command.name}`} aria-label="Command message" placeholder="Command message" disabled={busy} maxLength={450} value={draft.chatTemplate}
+              <label className="command-field-label" htmlFor={`chat-template-${command.name}`}>{text.commandMessage}</label>
+            <span className="command-context-control"><input id={`chat-template-${command.name}`} aria-label={text.commandMessage} placeholder={text.commandMessage} disabled={busy} maxLength={450} value={draft.chatTemplate}
               onChange={(event) => updateDraft(command.name, { chatTemplate: event.target.value })} /></span>
           </div>}
           {command.entry_limit !== undefined && <div className="form-field">
-            <label className="command-field-label" htmlFor="leaderboard-entry-limit">Entry limit</label>
-            <span className="command-context-control"><input id="leaderboard-entry-limit" aria-label="Entry limit" placeholder="1–10" type="number" min={1} max={10} step={1} required disabled={busy}
+            <label className="command-field-label" htmlFor="leaderboard-entry-limit">{text.entryLimit}</label>
+            <span className="command-context-control"><input id="leaderboard-entry-limit" aria-label={text.entryLimit} placeholder="1–10" type="number" min={1} max={10} step={1} required disabled={busy}
               value={draft.entryLimit} onChange={(event) => updateDraft(command.name, { entryLimit: event.target.value })} /></span>
           </div>}
           {!command.hidden && responsePool && responseDraft !== null && <div className="command-response-editor">
             <div className="custom-response-heading">
               <div>
-                <h3>{isRandom ? 'Response pool' : 'Command message'}</h3>
+                <h3>{isRandom ? text.responsePool : text.commandMessage}</h3>
               </div>
               <div className="command-response-badges">
-                {responsePool.has_saved_override && <span className="mini-badge saved-badge">Saved override</span>}
-                {!responsePool.saved && <span className="mini-badge runtime-badge">Runtime only</span>}
-                {responseDirty && <span className="mini-badge dirty-badge">Edited</span>}
+                {responsePool.has_saved_override && <span className="mini-badge saved-badge">{text.savedOverride}</span>}
+                {!responsePool.saved && <span className="mini-badge runtime-badge">{text.runtimeOnly}</span>}
+                {responseDirty && <span className="mini-badge dirty-badge">{text.edited}</span>}
               </div>
             </div>
             <div className="form-field command-response-field">
               <div className="command-response-control"><textarea
-                aria-label={isRandom ? 'Responses' : 'Message'}
+                aria-label={isRandom ? text.responses : text.message}
                 className="command-response-textarea"
                 disabled={busy}
                 rows={isRandom ? 7 : 5}
                 value={responseDraft}
                 onChange={(event) => updateDraft(command.name, { responsePool: event.target.value })}
-                placeholder={isRandom ? 'One response per line' : 'Command message'}
+                placeholder={isRandom ? text.onePerLine : text.commandMessage}
               /></div>
             </div>
-            <p className="command-meta">{isRandom ? `${parsedResponses.length} responses ready` : responseValid ? 'Message ready' : 'Message required'}</p>
+            <p className="command-meta">{isRandom ? plural(text.responsesReady, parsedResponses.length) : responseValid ? text.messageReady : text.messageRequired}</p>
           </div>}
-          {!command.hidden && responsePool && responseDraft !== null && <button type="button" className="ghost" disabled={busy || (!responseDirty && !responsePool.has_saved_override && responsePool.saved)} onClick={() => void runResponseAction(command)}>{isRandom ? 'Reset responses' : 'Reset message'}</button>}
+          {!command.hidden && responsePool && responseDraft !== null && <button type="button" className="ghost" disabled={busy || (!responseDirty && !responsePool.has_saved_override && responsePool.saved)} onClick={() => void runResponseAction(command)}>{isRandom ? text.resetResponses : text.resetMessage}</button>}
           <div className="command-fields">
             <div className="form-field">
-              <label className="command-field-label" htmlFor={`per-user-${command.name}`}>Per-user cooldown (seconds)</label>
-              <span className="command-number-control"><input id={`per-user-${command.name}`} aria-label="Per-user cooldown (seconds)" disabled={busy} className={perUserValid ? '' : 'invalid'} type="number" min="0" step="any" value={draft.perUserSeconds} onChange={(event) => updateDraft(command.name, { perUserSeconds: event.target.value })} /><span>s</span></span>
+              <label className="command-field-label" htmlFor={`per-user-${command.name}`}>{text.perUserCooldown}</label>
+              <span className="command-number-control"><input id={`per-user-${command.name}`} aria-label={text.perUserCooldown} disabled={busy} className={perUserValid ? '' : 'invalid'} type="number" min="0" step="any" value={draft.perUserSeconds} onChange={(event) => updateDraft(command.name, { perUserSeconds: event.target.value })} /><span>{text.secondsUnit}</span></span>
             </div>
             <div className="form-field">
-              <label className="command-field-label" htmlFor={`global-${command.name}`}>Global cooldown (seconds)</label>
-              <span className="command-number-control"><input id={`global-${command.name}`} aria-label="Global cooldown (seconds)" disabled={busy} className={globalValid ? '' : 'invalid'} type="number" min="0" step="any" value={draft.globalSeconds} onChange={(event) => updateDraft(command.name, { globalSeconds: event.target.value })} /><span>s</span></span>
+              <label className="command-field-label" htmlFor={`global-${command.name}`}>{text.globalCooldown}</label>
+              <span className="command-number-control"><input id={`global-${command.name}`} aria-label={text.globalCooldown} disabled={busy} className={globalValid ? '' : 'invalid'} type="number" min="0" step="any" value={draft.globalSeconds} onChange={(event) => updateDraft(command.name, { globalSeconds: event.target.value })} /><span>{text.secondsUnit}</span></span>
             </div>
           </div>
           {supportsSendAs && <SendAsField id={`send-as-${command.name}`} value={draft.sendAs} disabled={busy} onChange={(sendAs) => updateDraft(command.name, { sendAs })} />}
@@ -884,34 +887,34 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         id: 'access', body: <div className="command-editor-stack">
           <div className="custom-command-fields">
             <div className="form-field">
-              <label className="command-field-label" htmlFor={`permission-${command.name}`}>Permission</label>
-              <span className="command-select-control"><Select id={`permission-${command.name}`} aria-label="Permission" disabled={busy} value={draft.permission} onChange={(value) => updateDraft(command.name, { permission: value })} options={commandPermissions(data, command).map((permission) => ({ value: permission, label: permission.toLowerCase() }))} /></span>
+              <label className="command-field-label" htmlFor={`permission-${command.name}`}>{text.permission}</label>
+              <span className="command-select-control"><Select id={`permission-${command.name}`} aria-label={text.permission} disabled={busy} value={draft.permission} onChange={(value) => updateDraft(command.name, { permission: value })} options={commandPermissions(data, command).map((permission) => ({ value: permission, label: permissionLabel(permission) }))} /></span>
             </div>
             {displayField}
             {aliasField}
           </div>
-          <button type="button" className="ghost" disabled={busy || (!settingsDirty && !command.has_saved_override && command.saved)} onClick={() => void runAction(command, 'reset')}>Reset settings</button>
+          <button type="button" className="ghost" disabled={busy || (!settingsDirty && !command.has_saved_override && command.saved)} onClick={() => void runAction(command, 'reset')}>{text.resetSettings}</button>
         </div>
       },
     ]
     if (isBrowserMode() || command.name === 'tg') sections.push({
       id: 'conditions', body: <div className="command-editor-stack">
         <div className="command-fields">
-          {isBrowserMode() && <div className="form-field"><label className="command-field-label" htmlFor={`builtin-stream-${command.name}`}>Stream availability</label><span className="command-select-control"><Select id={`builtin-stream-${command.name}`} value={draft.streamAvailability} aria-label="Stream availability" disabled={busy} onChange={(value) => updateDraft(command.name, { streamAvailability: value as StreamAvailability })} options={streamAvailabilityOptions} /></span></div>}
+          {isBrowserMode() && <div className="form-field"><label className="command-field-label" htmlFor={`builtin-stream-${command.name}`}>{text.streamAvailabilityLabel}</label><span className="command-select-control"><Select id={`builtin-stream-${command.name}`} value={draft.streamAvailability} aria-label={text.streamAvailabilityLabel} disabled={busy} onChange={(value) => updateDraft(command.name, { streamAvailability: value as StreamAvailability })} options={streamAvailabilityOptions} /></span></div>}
         </div>
         {command.name === 'tg' && <div className="command-burst-controls">
           <div className="form-field command-burst-interval">
-            <label className="command-field-label" htmlFor="tg-burst-interval">Burst interval (ms)</label>
-            <input id="tg-burst-interval" aria-label="Burst interval (ms)" placeholder="Interval · ms" disabled={busy} type="number" min="0" max="1000" step="1" aria-invalid={!intervalValid} className={intervalValid ? '' : 'invalid'} value={draft.burstIntervalMs} onChange={(event) => updateDraft(command.name, { burstIntervalMs: event.target.value })} />
+            <label className="command-field-label" htmlFor="tg-burst-interval">{text.burstInterval}</label>
+            <input id="tg-burst-interval" aria-label={text.burstInterval} placeholder={text.intervalPlaceholder} disabled={busy} type="number" min="0" max="1000" step="1" aria-invalid={!intervalValid} className={intervalValid ? '' : 'invalid'} value={draft.burstIntervalMs} onChange={(event) => updateDraft(command.name, { burstIntervalMs: event.target.value })} />
           </div>
           <div className="form-field command-burst-max-count">
-            <label className="command-field-label" htmlFor="tg-burst-max-count">Maximum repeat count</label>
-            <input id="tg-burst-max-count" aria-label="Maximum repeat count" placeholder="Max copies" disabled={busy} type="number" min="1" max="20" step="1" aria-invalid={!maxCountValid} className={maxCountValid ? '' : 'invalid'} value={draft.burstMaxCount} onChange={(event) => updateDraft(command.name, { burstMaxCount: event.target.value })} />
+            <label className="command-field-label" htmlFor="tg-burst-max-count">{text.maxRepeatCount}</label>
+            <input id="tg-burst-max-count" aria-label={text.maxRepeatCount} placeholder={text.maxCopies} disabled={busy} type="number" min="1" max="20" step="1" aria-invalid={!maxCountValid} className={maxCountValid ? '' : 'invalid'} value={draft.burstMaxCount} onChange={(event) => updateDraft(command.name, { burstMaxCount: event.target.value })} />
           </div>
         </div>}
       </div>
     })
-    return <CommandEditorDialog id={`command-editor-${command.name}`} title={copy.editNamedCommand(data.command_prefix + primaryName)}
+    return <CommandEditorDialog id={`command-editor-${command.name}`} title={fmt(copy.editNamedCommand, { name: data.command_prefix + primaryName })}
       busy={busy} dirty={dirty} error={error} sections={sections}
       saveLabel={responsePool ? copy.saveCommand : copy.save}
       saveDisabled={(!dirty && command.saved && (!responsePool || responsePool.saved)) || !perUserValid || !globalValid || !intervalValid || !maxCountValid || (responsePool !== null && !responseValid)}
@@ -945,19 +948,19 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         id: 'general', body: <div className="command-editor-stack">
           <div className="command-editor-identity">
             <div className="form-field">
-              <label className="command-field-label" htmlFor="custom-name">Command name</label>
-              <span className="custom-name-input"><span>{customData.command_prefix}</span><input aria-label="Command name" data-editor-focus id="custom-name" value={customDraft.name} onChange={(event) => updateCustomDraft({ name: event.target.value })} placeholder="hello" /></span>
+              <label className="command-field-label" htmlFor="custom-name">{text.commandName}</label>
+              <span className="custom-name-input"><span>{customData.command_prefix}</span><input aria-label={text.commandName} data-editor-focus id="custom-name" value={customDraft.name} onChange={(event) => updateCustomDraft({ name: event.target.value })} placeholder={text.commandNamePlaceholder} /></span>
             </div>
-            <Switch className="custom-command-enabled" checked={customDraft.enabled} ariaLabel="Enable custom command" onCheckedChange={(enabled) => updateCustomDraft({ enabled })}>
+            <Switch className="custom-command-enabled" checked={customDraft.enabled} ariaLabel={text.enableCustom} onCheckedChange={(enabled) => updateCustomDraft({ enabled })}>
               <span>{customDraft.enabled ? copy.enabled : copy.disabled}</span>
             </Switch>
           </div>
           <div className="form-field custom-response-field">
-            <label className="command-field-label" htmlFor="custom-response">{customDraft.responseMode === 'random' ? 'Responses' : 'Message'}</label>
-            <div className="command-response-control"><textarea aria-label={customDraft.responseMode === 'random' ? 'Responses' : 'Message'} ref={customResponse} id="custom-response" className="custom-response-textarea" rows={customDraft.responseMode === 'random' ? 7 : 4} value={customDraft.responseMode === 'random' ? customDraft.responses : customDraft.message} onChange={(event) => updateCustomDraft(customDraft.responseMode === 'random' ? { responses: event.target.value } : { message: event.target.value })} placeholder="Write a response" /></div>
+            <label className="command-field-label" htmlFor="custom-response">{customDraft.responseMode === 'random' ? text.responses : text.message}</label>
+            <div className="command-response-control"><textarea aria-label={customDraft.responseMode === 'random' ? text.responses : text.message} ref={customResponse} id="custom-response" className="custom-response-textarea" rows={customDraft.responseMode === 'random' ? 7 : 4} value={customDraft.responseMode === 'random' ? customDraft.responses : customDraft.message} onChange={(event) => updateCustomDraft(customDraft.responseMode === 'random' ? { responses: event.target.value } : { message: event.target.value })} placeholder={text.writeResponse} /></div>
           </div>
           {customDraft.responseMode === 'random' && <div className="custom-random-actions">
-            <span className="muted">{customResponseCount} / 30 responses</span>
+            <span className="muted">{plural(text.responseCount, customResponseCount)}</span>
             <button type="button" className="secondary" disabled={busyCustom || customResponseCount >= 30} onClick={() => {
               updateCustomDraft({ responses: customDraft.responses.trimEnd() + (customDraft.responses.trim() ? '\n' : '') })
               requestAnimationFrame(() => {
@@ -965,34 +968,34 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
                 field?.focus()
                 field?.setSelectionRange(field.value.length, field.value.length)
               })
-            }}>Add response</button>
+            }}>{text.addResponse}</button>
             <button type="button" className="secondary" disabled={busyCustom || !customDraft.responses.trim()} onClick={() => {
               const responses = customDraft.responses.trimEnd().split(/\r?\n/)
               responses.pop()
               updateCustomDraft({ responses: responses.join('\n') })
               customResponse.current?.focus()
-            }}>Remove last response</button>
+            }}>{text.removeLastResponse}</button>
           </div>}
           <div className="custom-command-fields">
             <div className="form-field">
-              <label className="command-field-label" htmlFor="custom-per-user">Per-user cooldown (seconds)</label>
-              <span className="command-number-control"><input id="custom-per-user" aria-label="Per-user cooldown (seconds)" type="number" min="0" step="0.5" aria-invalid={parsedCooldown(customDraft.perUserSeconds) === null} value={customDraft.perUserSeconds} onChange={(event) => updateCustomDraft({ perUserSeconds: event.target.value })} /><span>s</span></span>
+              <label className="command-field-label" htmlFor="custom-per-user">{text.perUserCooldown}</label>
+              <span className="command-number-control"><input id="custom-per-user" aria-label={text.perUserCooldown} type="number" min="0" step="0.5" aria-invalid={parsedCooldown(customDraft.perUserSeconds) === null} value={customDraft.perUserSeconds} onChange={(event) => updateCustomDraft({ perUserSeconds: event.target.value })} /><span>{text.secondsUnit}</span></span>
             </div>
             <div className="form-field">
-              <label className="command-field-label" htmlFor="custom-global">Global cooldown (seconds)</label>
-              <span className="command-number-control"><input id="custom-global" aria-label="Global cooldown (seconds)" type="number" min="0" step="0.5" aria-invalid={parsedCooldown(customDraft.globalSeconds) === null} value={customDraft.globalSeconds} onChange={(event) => updateCustomDraft({ globalSeconds: event.target.value })} /><span>s</span></span>
+              <label className="command-field-label" htmlFor="custom-global">{text.globalCooldown}</label>
+              <span className="command-number-control"><input id="custom-global" aria-label={text.globalCooldown} type="number" min="0" step="0.5" aria-invalid={parsedCooldown(customDraft.globalSeconds) === null} value={customDraft.globalSeconds} onChange={(event) => updateCustomDraft({ globalSeconds: event.target.value })} /><span>{text.secondsUnit}</span></span>
             </div>
           </div>
           <div className="custom-command-fields">
             <div className="form-field">
-              <label className="command-field-label" htmlFor="custom-mode">Response type</label>
-              <span className="command-select-control"><Select id="custom-mode" aria-label="Response type"
+              <label className="command-field-label" htmlFor="custom-mode">{text.responseType}</label>
+              <span className="command-select-control"><Select id="custom-mode" aria-label={text.responseType}
                 value={customDraft.responseMode}
                 onChange={(value) => changeCustomMode(value as CustomResponseMode)}
                 options={[
-                  { value: 'single', label: 'Single' },
-                  { value: 'random', label: 'Random' },
-                  { value: 'burst', label: 'Burst' },
+                  { value: 'single', label: text.modeSingle },
+                  { value: 'random', label: text.modeRandom },
+                  { value: 'burst', label: text.modeBurst },
                 ]}
               /></span>
             </div>
@@ -1003,13 +1006,13 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       {
         id: 'access', body: <div className="custom-command-fields">
           <div className="form-field">
-            <label className="command-field-label" htmlFor="custom-permission">Permission</label>
-            <span className="command-select-control"><Select id="custom-permission" aria-label="Permission" value={customDraft.permission} onChange={(value) => updateCustomDraft({ permission: value })}
-              options={customData.permissions.filter((permission) => customDraft.responseMode !== 'burst' || burstPermissions.includes(permission)).map((permission) => ({ value: permission, label: permission.toLowerCase() }))} /></span>
+            <label className="command-field-label" htmlFor="custom-permission">{text.permission}</label>
+            <span className="command-select-control"><Select id="custom-permission" aria-label={text.permission} value={customDraft.permission} onChange={(value) => updateCustomDraft({ permission: value })}
+              options={customData.permissions.filter((permission) => customDraft.responseMode !== 'burst' || burstPermissions.includes(permission)).map((permission) => ({ value: permission, label: permissionLabel(permission) }))} /></span>
           </div>
           <div className="form-field">
-            <label className="command-field-label" htmlFor="custom-aliases">Aliases</label>
-            <span className="command-context-control"><input id="custom-aliases" aria-label="Aliases, separated by commas" value={customDraft.aliases} onChange={(event) => updateCustomDraft({ aliases: event.target.value })} placeholder="Comma separated" /></span>
+            <label className="command-field-label" htmlFor="custom-aliases">{text.aliases}</label>
+            <span className="command-context-control"><input id="custom-aliases" aria-label={text.aliasesInput} value={customDraft.aliases} onChange={(event) => updateCustomDraft({ aliases: event.target.value })} placeholder={text.commaSeparated} /></span>
           </div>
         </div>
       },
@@ -1017,22 +1020,22 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     if (isBrowserMode() || customDraft.responseMode === 'burst') sections.push({
       id: 'conditions', body: <div className="command-editor-stack">
         {isBrowserMode() && <div className="form-field">
-          <label className="command-field-label" htmlFor="custom-stream">Stream availability</label>
-          <span className="command-select-control"><Select id="custom-stream" aria-label="Stream availability" value={customDraft.streamAvailability} onChange={(value) => updateCustomDraft({ streamAvailability: value as StreamAvailability })} options={streamAvailabilityOptions} /></span>
+          <label className="command-field-label" htmlFor="custom-stream">{text.streamAvailabilityLabel}</label>
+          <span className="command-select-control"><Select id="custom-stream" aria-label={text.streamAvailabilityLabel} value={customDraft.streamAvailability} onChange={(value) => updateCustomDraft({ streamAvailability: value as StreamAvailability })} options={streamAvailabilityOptions} /></span>
         </div>}
         {customDraft.responseMode === 'burst' && <div className="custom-burst-controls">
           <div className="form-field">
-            <label className="command-field-label" htmlFor="custom-burst-count">Default repeat count</label>
-            <input id="custom-burst-count" aria-label="Default repeat count" placeholder="Copies" type="number" min="1" max="10" step="1" className={parsedBurstCount(customDraft.burstCount) === null ? 'invalid' : ''} aria-invalid={parsedBurstCount(customDraft.burstCount) === null} value={customDraft.burstCount} onChange={(event) => updateCustomDraft({ burstCount: event.target.value })} />
-            {parsedBurstCount(customDraft.burstCount) === null && <span className="custom-field-hint command-editor-validation" role="alert">Enter 1–10 copies.</span>}
+            <label className="command-field-label" htmlFor="custom-burst-count">{text.defaultRepeatCount}</label>
+            <input id="custom-burst-count" aria-label={text.defaultRepeatCount} placeholder={text.copies} type="number" min="1" max="10" step="1" className={parsedBurstCount(customDraft.burstCount) === null ? 'invalid' : ''} aria-invalid={parsedBurstCount(customDraft.burstCount) === null} value={customDraft.burstCount} onChange={(event) => updateCustomDraft({ burstCount: event.target.value })} />
+            {parsedBurstCount(customDraft.burstCount) === null && <span className="custom-field-hint command-editor-validation" role="alert">{text.copiesHint}</span>}
           </div>
           <div className="form-field">
-            <label className="command-field-label" htmlFor="custom-burst-interval">Burst interval (ms)</label>
-            <input id="custom-burst-interval" aria-label="Burst interval (ms)" placeholder="Interval · ms" type="number" min="0" max="1000" step="1" className={parsedBurstInterval(customDraft.burstIntervalMs) === null ? 'invalid' : ''} aria-invalid={parsedBurstInterval(customDraft.burstIntervalMs) === null} value={customDraft.burstIntervalMs} onChange={(event) => updateCustomDraft({ burstIntervalMs: event.target.value })} />
-            {parsedBurstInterval(customDraft.burstIntervalMs) === null && <span className="custom-field-hint command-editor-validation" role="alert">Enter 0–1000 ms.</span>}
+            <label className="command-field-label" htmlFor="custom-burst-interval">{text.burstInterval}</label>
+            <input id="custom-burst-interval" aria-label={text.burstInterval} placeholder={text.intervalPlaceholder} type="number" min="0" max="1000" step="1" className={parsedBurstInterval(customDraft.burstIntervalMs) === null ? 'invalid' : ''} aria-invalid={parsedBurstInterval(customDraft.burstIntervalMs) === null} value={customDraft.burstIntervalMs} onChange={(event) => updateCustomDraft({ burstIntervalMs: event.target.value })} />
+            {parsedBurstInterval(customDraft.burstIntervalMs) === null && <span className="custom-field-hint command-editor-validation" role="alert">{text.intervalHint}</span>}
           </div>
           <div className="custom-field-label">
-            <Switch checked={customDraft.burstAllowOverride} ariaLabel="Allow argument count override" onCheckedChange={(burstAllowOverride) => updateCustomDraft({ burstAllowOverride })}><span>Allow argument count override</span></Switch>
+            <Switch checked={customDraft.burstAllowOverride} ariaLabel={text.allowOverride} onCheckedChange={(burstAllowOverride) => updateCustomDraft({ burstAllowOverride })}><span>{text.allowOverride}</span></Switch>
           </div>
         </div>}
       </div>
@@ -1079,9 +1082,9 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       {data && <OptOutManagement active={active} />}
       {data && <section className="card command-editor-card">
         <details className="factory-commands advanced-command-reset" id="advanced-command-reset">
-          <summary>Advanced: reset all built-ins</summary>
+          <summary>{text.advancedReset}</summary>
           <div className="command-reset-row">
-            <button className="ghost destructive" disabled={editorBusy} onClick={() => void resetAllBuiltins()}>Restore all factory defaults</button>
+            <button className="ghost destructive" disabled={editorBusy} onClick={() => void resetAllBuiltins()}>{text.restoreAll}</button>
           </div>
         </details>
       </section>}

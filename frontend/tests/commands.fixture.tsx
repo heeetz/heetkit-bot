@@ -3,6 +3,7 @@ import App from '../src/App'
 import type { ChatReaction, AnnouncementInfo, AnnouncementInput, CommandInfo, CommandRestriction, CommandRestrictionInput, CommandSettingsMetadata, CustomCommandInfo, CustomCommandInput, OptOutUser, waitForBridge } from '../src/bridge'
 import CommandsPage from '../src/pages/CommandsPage'
 import '../src/styles.css'
+import { applyLanguage, isLanguage } from '../src/i18n/core'
 
 const defaults = {
   enabled: true, permission: 'USER', cooldown: { per_user_seconds: 0, global_seconds: 15 },
@@ -253,6 +254,10 @@ window.pywebview = { api: {
     return { ok: true }
   },
 } as unknown as Awaited<ReturnType<typeof waitForBridge>> }
+
+// ?lang=uk|ru previews the page in another interface language.
+const fixtureLanguage = new URLSearchParams(window.location.search).get('lang')
+if (isLanguage(fixtureLanguage)) applyLanguage(fixtureLanguage)
 
 createRoot(document.getElementById('root')!).render(
   new URLSearchParams(window.location.search).has('shell')

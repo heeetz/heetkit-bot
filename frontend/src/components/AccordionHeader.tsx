@@ -1,5 +1,7 @@
 import { type ReactNode, type Ref, useId } from 'react'
 import HelpTip from './HelpTip'
+import { controlsText } from '../i18n/controls'
+import { useCatalog } from '../i18n/core'
 
 interface AccordionHeaderProps {
   title: ReactNode
@@ -18,6 +20,7 @@ interface AccordionHeaderProps {
 export default function AccordionHeader({ title, expanded, contentId, onToggle, help,
   helpLabel, badges, metadata, ariaLabel, triggerRef }: AccordionHeaderProps) {
   const titleId = useId()
+  const text = useCatalog(controlsText)
   return (
     <div className="accordion-header">
       <div className="accordion-heading">
@@ -25,7 +28,7 @@ export default function AccordionHeader({ title, expanded, contentId, onToggle, 
         {metadata}
       </div>
       {badges && <div className="accordion-badges">{badges}</div>}
-      {help && <HelpTip label={helpLabel ?? (typeof title === 'string' ? title : 'Section')}>{help}</HelpTip>}
+      {help && <HelpTip label={helpLabel ?? (typeof title === 'string' ? title : text.section)}>{help}</HelpTip>}
       <button type="button" className="accordion-trigger" ref={triggerRef}
         aria-expanded={expanded} aria-controls={contentId}
         aria-label={ariaLabel} aria-labelledby={ariaLabel ? undefined : titleId}

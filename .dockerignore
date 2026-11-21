@@ -60,7 +60,7 @@ frontend/src/**
 !frontend/src/*.css
 !frontend/src/i18n/
 frontend/src/i18n/**
-!frontend/src/i18n/commands.en.ts
+!frontend/src/i18n/*.ts
 !frontend/src/components/
 frontend/src/components/**
 !frontend/src/components/*.tsx

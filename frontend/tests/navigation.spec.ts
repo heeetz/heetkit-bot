@@ -50,6 +50,7 @@ const destinations = [
   { section: 'Settings', children: [
     ['Desktop behavior', 'desktop-settings'],
     ['Twitch connection', 'twitch-settings'],
+    ['Interface language', 'interface-settings'],
     ['Configuration transfer', 'configuration-transfer'],
     ['Data & diagnostics', 'profile-location-settings'],
   ] },

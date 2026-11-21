@@ -32,36 +32,23 @@ import Confirmation from './components/Confirmation'
 import { RecentCommands, StreamActivity } from './components/DashboardActivity'
 import { restartDesktop } from './desktopRestart'
 import useUpdateCheck from './useUpdateCheck'
+import LanguageSwitcher from './components/LanguageSwitcher'
+import { shell } from './i18n/app'
+import { common } from './i18n/common'
+import { dashboard } from './i18n/dashboard'
+import { logs as logsCatalog } from './i18n/logs'
+import { catalogFor, useCatalog, useI18n } from './i18n/core'
 import './styles.css'
 
 const sections = ['Dashboard', 'Commands', 'Filters', 'AI', 'Logs', 'Analytics', 'Settings', 'About'] as const
 type Section = (typeof sections)[number]
 
-const subsections: Partial<Record<Section, { label: string; targetId: string }[]>> = {
-  Commands: [
-    { label: 'Command list', targetId: 'command-list' },
-    { label: 'Announcements', targetId: 'announcements' },
-    { label: 'User restrictions', targetId: 'command-restrictions' },
-    { label: 'Storage opt-outs', targetId: 'optout-management' },
-    { label: 'Advanced: reset all built-ins', targetId: 'advanced-command-reset' },
-  ],
-  AI: [
-    { label: 'AI setup', targetId: 'ai-models' },
-    { label: 'AI behavior', targetId: 'ai-behavior' },
-    { label: 'Playground', targetId: 'ai-playground' },
-  ],
-  Analytics: [
-    { label: 'Trends', targetId: 'analytics-trends' },
-    { label: 'Chatters', targetId: 'analytics-chatters' },
-    { label: 'Breakdown', targetId: 'analytics-breakdown' },
-    { label: 'Collection', targetId: 'analytics-collection' },
-  ],
-  Settings: [
-    { label: 'Desktop behavior', targetId: 'desktop-settings' },
-    { label: 'Twitch connection', targetId: 'twitch-settings' },
-    { label: 'Configuration transfer', targetId: 'configuration-transfer' },
-    { label: 'Data & diagnostics', targetId: 'profile-location-settings' },
-  ],
+type SubsectionId = keyof typeof shell.en.subsections
+const subsections: Partial<Record<Section, SubsectionId[]>> = {
+  Commands: ['command-list', 'announcements', 'command-restrictions', 'optout-management', 'advanced-command-reset'],
+  AI: ['ai-models', 'ai-behavior', 'ai-playground'],
+  Analytics: ['analytics-trends', 'analytics-chatters', 'analytics-breakdown', 'analytics-collection'],
+  Settings: ['desktop-settings', 'twitch-settings', 'interface-settings', 'configuration-transfer', 'profile-location-settings'],
 }
 
 interface DashboardSetup {
@@ -79,35 +66,7 @@ function formatUptime(totalSeconds: number): string {
     .join(':')
 }
 
-const browserOperationModes: { value: BrowserOperationMode; label: string }[] = [
-  { value: 'always_on', label: 'Always On' },
-  { value: 'stream_only', label: 'Stream Only' },
-  { value: 'manual', label: 'Manual' },
-  { value: 'disabled', label: 'Disabled' },
-]
-
-function browserOperationModeLabel(mode: BrowserOperationMode): string {
-  return browserOperationModes.find((option) => option.value === mode)?.label ?? mode
-}
-
-function streamStatusLabel(status: 'live' | 'offline' | 'unknown'): string {
-  return status === 'live' ? 'Live' : status === 'offline' ? 'Offline' : 'Unknown'
-}
-
-function browserOperationDescription(mode: BrowserOperationMode): string {
-  switch (mode) {
-    case 'always_on': return 'The bot connects on startup and stays active regardless of broadcaster live status.'
-    case 'stream_only': return 'The bot connects when the broadcaster is live and disconnects when the stream ends. An unknown status does not force a disconnect.'
-    case 'manual': return 'The bot stays stopped across restarts until you explicitly connect it from this dashboard.'
-    case 'disabled': return 'The bot stays disconnected across restarts. Choose another mode before connecting it.'
-  }
-}
-
-function formatCheckedAt(value: string | null): string {
-  if (!value) return 'Not checked yet'
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? 'Unavailable' : date.toLocaleString()
-}
+const browserOperationModeValues: BrowserOperationMode[] = ['always_on', 'stream_only', 'manual', 'disabled']
 
 function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuthorizeTwitch, onChangeBrowserMode, onNavigate, onOpenUpdate, busy }: {
   status: AppStatus | null
@@ -120,6 +79,16 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
   onOpenUpdate?: () => void
   busy: string
 }) {
+  const text = useCatalog(dashboard)
+  const commonText = useCatalog(common)
+  const { fmt, dateTime } = useI18n()
+  const operationText = text.operation
+  const browserOperationModes = browserOperationModeValues.map((value) => ({ value, label: operationText.modes[value] }))
+  const formatCheckedAt = (value: string | null): string => {
+    if (!value) return operationText.notChecked
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? commonText.unavailable : dateTime(date)
+  }
   const [setup, setSetup] = useState<DashboardSetup | null>(null)
   const [setupError, setSetupError] = useState('')
   const [restartError, setRestartError] = useState('')
@@ -132,7 +101,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
     try {
       if (await restartDesktop()) return
     } catch (reason) {
-      setRestartError(reason instanceof Error ? reason.message : 'HeetKit could not restart.')
+      setRestartError(reason instanceof Error ? reason.message : catalogFor(dashboard).restartFailed)
     }
     setRestarting(false)
   }
@@ -153,13 +122,13 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
           api.get_ai_provider_settings(),
         ])
         if (!twitchResponse.ok || !twitchResponse.settings) {
-          throw new Error(twitchResponse.error ?? 'Twitch setup status is unavailable.')
+          throw new Error(twitchResponse.error ?? catalogFor(dashboard).setupUnavailable.twitch)
         }
         if (!credentialResponse.ok || !credentialResponse.credentials) {
-          throw new Error(credentialResponse.error ?? 'Credential status is unavailable.')
+          throw new Error(credentialResponse.error ?? catalogFor(dashboard).setupUnavailable.credentials)
         }
         if (!aiResponse.ok || !aiResponse.settings) {
-          throw new Error(aiResponse.error ?? 'AI setup status is unavailable.')
+          throw new Error(aiResponse.error ?? catalogFor(dashboard).setupUnavailable.ai)
         }
         if (active) {
           setSetup({
@@ -171,7 +140,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
         }
       } catch (reason) {
         if (active) {
-          setSetupError(reason instanceof Error ? reason.message : 'Setup status is unavailable.')
+          setSetupError(reason instanceof Error ? reason.message : catalogFor(dashboard).setupUnavailable.any)
         }
       }
     }
@@ -197,92 +166,93 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
   const browserManaged = Boolean(operation)
   const lifecycleBusy = Boolean(busy) || Boolean(operation?.pending)
   const recovery = status?.twitch_recovery
-  const recoveryCause = recovery?.cause === 'rate_limited' ? ' Twitch rate limit.'
-    : recovery?.cause === 'service_unavailable' ? ' Twitch service unavailable.'
-    : recovery?.cause === 'protocol_deadline' ? ' Session recovery timed out.'
-    : recovery?.cause === 'network_failure' ? ' Network unavailable.' : ''
+  const recoveryCause = recovery?.cause && Object.hasOwn(text.recoveryCause, recovery.cause)
+    ? text.recoveryCause[recovery.cause as keyof typeof text.recoveryCause] : ''
   const recoveryHint = recovery
-    ? `Recovery: ${recovery.reason === 'retry_wait' ? 'waiting to retry' : recovery.reason === 'sdk_recovery' ? 'restoring session' : 'connecting'}.${recoveryCause} Attempt ${recovery.attempt}, ${recovery.elapsed_seconds}s elapsed.${recovery.next_retry_seconds == null ? '' : ` Next retry in ${recovery.next_retry_seconds}s.`}`
+    ? fmt(text.recovery, {
+      reason: recovery.reason === 'retry_wait' ? text.recoveryReason.retry_wait : recovery.reason === 'sdk_recovery' ? text.recoveryReason.sdk_recovery : text.recoveryReason.connecting,
+      cause: recoveryCause, attempt: recovery.attempt, elapsed: recovery.elapsed_seconds,
+    }) + (recovery.next_retry_seconds == null ? '' : fmt(text.nextRetry, { seconds: recovery.next_retry_seconds }))
     : ''
   const connectionHint = !status || !setup || needsTwitchSetup || pendingRestart
     ? ''
     : connectionState === 'auth_required'
       ? isBrowserMode()
-        ? operation?.mode === 'disabled' ? 'Bot operation is disabled. Choose another mode after authorizing the configured bot account.' : 'Authorize the configured bot account on the server, then use the selected operation mode to connect.'
-        : status.running ? 'Sign in as the configured bot account.' : 'Start Bot again to authorize Twitch.'
+        ? operation?.mode === 'disabled' ? text.hints.serverAuthDisabled : text.hints.serverAuth
+        : status.running ? text.hints.signInBot : text.hints.startToAuthorize
       : recoveryHint ? recoveryHint
       : connectionState === 'connecting'
-        ? 'Waiting for Twitch…'
+        ? text.hints.waiting
         : connectionState === 'reconnecting'
-          ? isBrowserMode() ? 'Connection lost. Automatic recovery is in progress.' : 'Connection lost. Reconnecting automatically.'
+          ? isBrowserMode() ? text.hints.serverReconnecting : text.hints.reconnecting
           : connectionState === 'failed'
             ? isBrowserMode()
-              ? operation?.mode === 'disabled' ? 'Bot operation is disabled. Choose another mode to connect.' : operation?.mode === 'manual' ? 'Check Logs, then Connect again.' : 'Automatic operation is paused after a connection failure. Check Logs, then choose Manual and Connect to retry.'
-              : status.running ? 'Check Logs, then stop and start the bot.' : 'Check Logs, then Start Bot again.'
+              ? operation?.mode === 'disabled' ? text.hints.disabled : operation?.mode === 'manual' ? text.hints.manualFailed : text.hints.automaticFailed
+              : status.running ? text.hints.runningFailed : text.hints.failed
             : connectionState === 'connected'
               ? ''
               : isBrowserMode()
-                ? operation?.mode === 'disabled' ? 'Bot operation is disabled. Choose another mode to connect.' : operation?.mode === 'manual' ? 'Connect when you are ready.' : 'Waiting for the selected automatic operation policy.'
-                : 'Start Bot to connect.'
+                ? operation?.mode === 'disabled' ? text.hints.disabled : operation?.mode === 'manual' ? text.hints.manualReady : text.hints.automaticWaiting
+                : text.hints.startToConnect
 
   return (
     <section className="dashboard-layout">
-      <article className="card dashboard-hero" aria-label="Bot session">
+      <article className="card dashboard-hero" aria-label={text.botSession}>
         <div className="dashboard-session-main">
           <div className="dashboard-session-fields">
             <div className="dashboard-connection">
-              <div className="dashboard-label">Twitch connection</div>
+              <div className="dashboard-label">{text.twitchConnection}</div>
               <h2><span aria-hidden="true" className={`status-dot ${status?.twitch_connected ? 'online' : ''}`} />
-                {needsTwitchSetup ? 'Not configured' : status ? twitchConnectionLabel(status.twitch_connection_state) : 'Loading…'}
+                {needsTwitchSetup ? commonText.notConfigured : status ? twitchConnectionLabel(status.twitch_connection_state) : commonText.loading}
               </h2>
             </div>
-            <div><div className="dashboard-label">Channel</div><strong>{status?.channel || setup?.twitch.target_channel || 'Not configured'}</strong></div>
-            <div><div className="dashboard-label">Bot account</div><strong>{status?.account || setup?.twitch.bot_username || 'Not configured'}</strong></div>
-            <div><div className="dashboard-label">Session uptime</div><strong className="metric">{status ? formatUptime(status.uptime_seconds) : '—'}</strong></div>
+            <div><div className="dashboard-label">{text.channel}</div><strong>{status?.channel || setup?.twitch.target_channel || commonText.notConfigured}</strong></div>
+            <div><div className="dashboard-label">{text.botAccount}</div><strong>{status?.account || setup?.twitch.bot_username || commonText.notConfigured}</strong></div>
+            <div><div className="dashboard-label">{text.sessionUptime}</div><strong className="metric">{status ? formatUptime(status.uptime_seconds) : '—'}</strong></div>
           </div>
           {operation?.mode !== 'disabled' && (
             <div className="dashboard-hero-actions">
-              {onOpenUpdate && <button type="button" className="secondary dashboard-update" onClick={onOpenUpdate}>Update available</button>}
+              {onOpenUpdate && <button type="button" className="secondary dashboard-update" onClick={onOpenUpdate}>{text.updateAvailable}</button>}
               <button
                 className={status?.running ? 'secondary' : 'primary'}
                 disabled={!status || lifecycleBusy || (!status.running && !automaticOperation && (pendingRestart || needsTwitchSetup))}
                 onClick={() => onChangeBotState(automaticOperation ? false : !status?.running)}
               >
-                {busy === 'bot' ? 'Working…' : operation?.pending ? 'Reconciling…' : automaticOperation ? 'Switch to Manual & disconnect' : browserManaged ? status?.running ? 'Disconnect' : 'Connect' : status?.running ? 'Stop Bot' : 'Start Bot'}
+                {busy === 'bot' ? commonText.working : operation?.pending ? text.reconciling : automaticOperation ? text.switchToManual : browserManaged ? status?.running ? text.disconnect : text.connect : status?.running ? text.stopBot : text.startBot}
               </button>
             </div>
           )}
         </div>
         {(connectionHint || connectionState === 'failed' || connectionState === 'reconnecting'
           || (connectionState === 'auth_required' && !isBrowserMode())) && <div className="dashboard-connection-actions">
-          {connectionHint && <p>{status?.running && connectionState !== 'connected' && <strong>Session running. </strong>}{connectionHint}</p>}
+          {connectionHint && <p>{status?.running && connectionState !== 'connected' && <strong>{text.sessionRunning}</strong>}{connectionHint}</p>}
           {connectionState === 'auth_required' && !isBrowserMode() && (
             <button className="primary" disabled={Boolean(busy) || !status?.running || pendingRestart || needsTwitchSetup} onClick={onAuthorizeTwitch}>
-              {busy === 'twitch:authorize' ? 'Opening…' : 'Authorize Twitch'}
+              {busy === 'twitch:authorize' ? text.opening : text.authorizeTwitch}
             </button>
           )}
-          {(connectionState === 'failed' || connectionState === 'reconnecting') && <button className="secondary" onClick={() => onNavigate('Logs')}>Open Logs</button>}
+          {(connectionState === 'failed' || connectionState === 'reconnecting') && <button className="secondary" onClick={() => onNavigate('Logs')}>{text.openLogs}</button>}
         </div>}
       </article>
       {setup && <SetupChecklist twitchConfigured={!needsTwitchSetup} twitchAuthorized={Boolean(setup.twitch.saved_bot_authorization)} twitchPending={needsApply} aiConfigured={aiConfigured} onTwitch={() => onNavigate('Settings', 'twitch-settings')} onAI={() => onNavigate('AI', 'ai-models')} />}
       {(needsTwitchSetup || pendingRestart || pendingReconnect || setupError) && (
         <article className="card dashboard-notice setup-card">
           <div>
-            <h2>{setupError ? 'Setup status needs attention' : pendingRestart ? 'Restart to apply Twitch setup' : needsTwitchSetup ? 'Finish Twitch setup' : 'Channel change pending'}</h2>
+            <h2>{setupError ? text.notice.attention : pendingRestart ? text.notice.restart : needsTwitchSetup ? text.notice.finish : text.notice.pending}</h2>
             <p>{setupError || (pendingRestart
-              ? setup?.twitch.requires_restart ? 'Restart to apply the saved client ID, bot identity or secret.' : 'Twitch cleanup needs an application restart before connecting.'
-              : isBrowserMode() ? 'Save Twitch setup in Settings, then authorize the configured bot account.'
-                : needsTwitchSetup ? 'Enter the client ID, bot account, channel and client secret in Settings.'
+              ? setup?.twitch.requires_restart ? text.notice.restartIdentity : text.notice.restartCleanup
+              : isBrowserMode() ? text.notice.serverSetup
+                : needsTwitchSetup ? text.notice.enterSetup
                   : status?.running
-                  ? 'Use Save & reconnect in Settings to switch the running bot to the saved channel.'
-                  : 'Use Save & apply in Settings to switch to the saved channel.')}</p>
+                  ? text.notice.reconnect
+                  : text.notice.apply)}</p>
             {restartError && <p className="inline-error" role="alert">{restartError}</p>}
           </div>
           <div className="row-actions">
             <button className="secondary" onClick={() => onNavigate('Settings', 'twitch-settings')}>
-              {needsTwitchSetup ? 'Configure Twitch' : 'Review Twitch setup'}
+              {needsTwitchSetup ? text.notice.configure : text.notice.review}
             </button>
-            {pendingRestart && <button className="primary" disabled={restarting || Boolean(busy)} onClick={() => void restartTwitch()}>{restarting ? 'Restarting…' : 'Restart now'}</button>}
+            {pendingRestart && <button className="primary" disabled={restarting || Boolean(busy)} onClick={() => void restartTwitch()}>{restarting ? text.notice.restarting : text.notice.restartNow}</button>}
           </div>
         </article>
       )}
@@ -290,21 +260,21 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
       <div className="dashboard-panels">
         <article className="card dashboard-ai-card">
           <div className="dashboard-card-heading">
-            <h2>AI controls</h2>
+            <h2>{text.ai.title}</h2>
           </div>
           <div className="dashboard-ai-summary">
-            <span>{aiStatus ? aiStatus.available ? aiStatus.model || setup?.aiProvider.selected_model || 'Model not selected' : 'AI unavailable' : 'Loading…'}</span>
-            {aiStatus?.available && <span>Personality: {aiStatus.active_personality || 'Not selected'}</span>}
+            <span>{aiStatus ? aiStatus.available ? aiStatus.model || setup?.aiProvider.selected_model || text.ai.modelNotSelected : text.ai.unavailable : commonText.loading}</span>
+            {aiStatus?.available && <span>{fmt(text.ai.personality, { name: aiStatus.active_personality || commonText.notSelected })}</span>}
           </div>
           <div className="dashboard-switches">
             <Switch checked={aiStatus?.enabled ?? false} disabled={!aiStatus || Boolean(busy)}
-              ariaLabel="Enable AI command" onCheckedChange={(enabled) => onChangeAIState('enabled', enabled)}>AI command</Switch>
+              ariaLabel={text.ai.enableCommand} onCheckedChange={(enabled) => onChangeAIState('enabled', enabled)}>{text.ai.command}</Switch>
             <Switch checked={aiStatus?.memory_enabled ?? false} disabled={!aiStatus || Boolean(busy)}
-              ariaLabel="Enable conversation memory" onCheckedChange={(enabled) => onChangeAIState('memory', enabled)}>Conversation memory</Switch>
+              ariaLabel={text.ai.enableMemory} onCheckedChange={(enabled) => onChangeAIState('memory', enabled)}>{text.ai.memory}</Switch>
           </div>
           <div className="dashboard-ai-actions">
-            <button className="primary" onClick={() => onNavigate('AI', 'ai-playground')}>Open Playground</button>
-            <button className="secondary" onClick={() => onNavigate('AI', 'ai-behavior')}>Manage AI</button>
+            <button className="primary" onClick={() => onNavigate('AI', 'ai-playground')}>{text.ai.openPlayground}</button>
+            <button className="secondary" onClick={() => onNavigate('AI', 'ai-behavior')}>{text.ai.manage}</button>
           </div>
         </article>
         <StreamActivity key={status?.leaderboard_channel_id ?? ''} channel={status?.leaderboard_channel_id}
@@ -314,30 +284,30 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
         <article className="card dashboard-operation-card">
           <div className="dashboard-card-heading">
             <div>
-              <div className="dashboard-label">Operation mode</div>
-              <h2>{browserOperationModeLabel(operation.mode)}</h2>
+              <div className="dashboard-label">{operationText.label}</div>
+              <h2>{operationText.modes[operation.mode] ?? operation.mode}</h2>
             </div>
             <Select
               id="operation-mode"
               value={operation.mode}
-              aria-label="Operation mode"
+              aria-label={operationText.label}
               options={browserOperationModes}
               disabled={busy === 'operation-mode'}
               onChange={(mode) => onChangeBrowserMode(mode as BrowserOperationMode)}
             />
           </div>
-          <p>{browserOperationDescription(operation.mode)} Changes save immediately. Check Twitch connection for the current status.</p>
-          {operation.mode === 'stream_only' && <p>Stream changes require consecutive successful checks before the connection changes.</p>}
+          <p>{operationText.descriptions[operation.mode]}{operationText.saveNote}</p>
+          {operation.mode === 'stream_only' && <p>{operationText.streamChecks}</p>}
           <div className="twitch-status-grid dashboard-operation-status">
-            <div><span>Broadcaster status</span><strong className={operation.stream_status === 'live' ? 'status-good' : ''}>{streamStatusLabel(operation.stream_status)}</strong></div>
-            <div><span>Last known status</span><strong>{operation.last_known_stream_status ? streamStatusLabel(operation.last_known_stream_status) : 'None'}</strong></div>
-            <div><span>Last checked</span><strong>{formatCheckedAt(operation.last_checked_at)}</strong></div>
+            <div><span>{operationText.broadcasterStatus}</span><strong className={operation.stream_status === 'live' ? 'status-good' : ''}>{operationText.stream[operation.stream_status]}</strong></div>
+            <div><span>{operationText.lastKnown}</span><strong>{operation.last_known_stream_status ? operationText.stream[operation.last_known_stream_status] : commonText.none}</strong></div>
+            <div><span>{operationText.lastChecked}</span><strong>{formatCheckedAt(operation.last_checked_at)}</strong></div>
           </div>
-          {operation.stream_status === 'unknown' && <p className="dashboard-operation-unknown">{operation.mode === 'stream_only' ? 'Stream Only keeps the current connection until HeetKit can verify whether the channel is live.' : 'HeetKit could not check whether the channel is live. Only Stream Only uses this status.'}</p>}
-          {operation.error === 'connection_failed' && <p className="inline-error">The latest connection attempt failed. Check Logs for details. Choose Manual and Connect to retry.</p>}
-          {operation.pending && <p role="status">Applying the latest operation mode…</p>}
-          {operation.mode === 'manual' && <p className="dashboard-operation-actions">Manual mode lets you connect or disconnect with the button above.</p>}
-          {operation.mode === 'disabled' && <p className="dashboard-operation-actions">Connecting is disabled. Choose Always On, Stream Only or Manual to enable it.</p>}
+          {operation.stream_status === 'unknown' && <p className="dashboard-operation-unknown">{operation.mode === 'stream_only' ? operationText.unknownStreamOnly : operationText.unknownOther}</p>}
+          {operation.error === 'connection_failed' && <p className="inline-error">{operationText.connectionFailed}</p>}
+          {operation.pending && <p role="status">{operationText.applying}</p>}
+          {operation.mode === 'manual' && <p className="dashboard-operation-actions">{operationText.manualNote}</p>}
+          {operation.mode === 'disabled' && <p className="dashboard-operation-actions">{operationText.disabledNote}</p>}
         </article>
       )}
     </section>
@@ -361,6 +331,8 @@ function boundedActivity(entries: LogEntry[]) {
 }
 
 function LogsPage() {
+  const text = useCatalog(logsCatalog)
+  const { fmt, plural, time } = useI18n()
   const [entries, setEntries] = useState<LogEntry[]>([])
   const [level, setLevel] = useState<(typeof logLevels)[number]>('ALL')
   const [search, setSearch] = useState('')
@@ -392,7 +364,7 @@ function LogsPage() {
         if (!active) return
         const response = await api.get_recent_logs(cursor.current, 200, initial)
         if (!active) return
-        if (response.ok === false) throw new Error(response.error || 'Could not load application logs.')
+        if (response.ok === false) throw new Error(response.error || catalogFor(logsCatalog).loadFailed)
         const fresh = response.entries.filter((entry) => {
           if (entry.id <= cursor.current) return false
           cursor.current = entry.id
@@ -404,7 +376,7 @@ function LogsPage() {
         setError('')
       } catch (reason) {
         if (active) {
-          setError(reason instanceof Error ? reason.message : 'Could not load application logs.')
+          setError(reason instanceof Error ? reason.message : catalogFor(logsCatalog).loadFailed)
         }
       } finally {
         if (active) {
@@ -441,7 +413,7 @@ function LogsPage() {
       && (!requestId || entry.context.request_id === requestId)
   })
 
-  const filterOptions = (values: string[]) => [{ value: 'ALL', label: 'ALL' },
+  const filterOptions = (values: string[]) => [{ value: 'ALL', label: text.all },
     ...[...new Set(values)].sort().map((value) => ({ value, label: value.replaceAll('_', ' ') }))]
 
   const downloadActivity = async () => {
@@ -453,8 +425,8 @@ function LogsPage() {
       if (!isBrowserMode()) {
         const api = await waitForBridge()
         const result = await api.export_activity((snapshot ?? []).map((entry) => entry.id))
-        if (!result.ok) throw new Error(result.error ?? 'Activity export failed.')
-        setExportNotice(result.cancelled ? 'Export cancelled. No file was saved.' : 'Private activity saved.')
+        if (!result.ok) throw new Error(result.error ?? text.exportFailed)
+        setExportNotice(result.cancelled ? text.exportCancelled : text.exportSaved)
         return
       }
       const url = URL.createObjectURL(new Blob([JSON.stringify({ exported_at: new Date().toISOString(), entries: snapshot }, null, 2)], { type: 'application/json' }))
@@ -463,9 +435,9 @@ function LogsPage() {
       link.download = 'heetkit-activity.json'
       link.click()
       window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-      setExportNotice('Private activity exported.')
+      setExportNotice(text.exportDone)
     } catch (reason) {
-      setExportNotice(reason instanceof Error ? reason.message : 'Activity export failed.')
+      setExportNotice(reason instanceof Error ? reason.message : text.exportFailed)
     } finally {
       setExporting(false)
     }
@@ -480,38 +452,34 @@ function LogsPage() {
   return (
     <section className="card logs-card">
       <div className="section-heading">
-        <div><p className="label">OPERATOR ACTIVITY</p><h2>Recent activity</h2></div>
+        <div><p className="label">{text.eyebrow}</p><h2>{text.title}</h2></div>
         <div className="row-actions">
-          <HelpTip label="What logs keep">
-            <ul>
-              <li>Keeps the latest 500 events (up to 1 MiB) in memory.</li>
-              <li>Includes commands and bot replies, not ordinary chat.</li>
-              <li>Delivered means Twitch confirmed the send. Uncertain sends are not retried.</li>
-            </ul>
+          <HelpTip label={text.helpLabel}>
+            <ul>{text.help.map((item) => <li key={item}>{item}</li>)}</ul>
           </HelpTip>
           <span className="read-only-badge">{entries.length} / 500</span>
         </div>
       </div>
       <div className="log-toolbar">
         <label>
-          Level
+          {text.level}
           <Select
             value={level}
             onChange={(value) => setLevel(value as typeof level)}
-            options={logLevels.map((item) => ({ value: item, label: item }))}
+            options={logLevels.map((item) => ({ value: item, label: item === 'ALL' ? text.all : item }))}
           />
         </label>
-        <label>Command<input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Name, alias or ID" /></label>
-        <label>Outcome<Select value={outcome} onChange={setOutcome} options={filterOptions(entries.flatMap((entry) => entry.context.outcome ? [String(entry.context.outcome)] : []))} /></label>
-        <label>Source<Select value={source} onChange={setSource} options={filterOptions(entries.map((entry) => String(entry.context.source ?? entry.source)))} /></label>
-        <label>From<input type="datetime-local" value={since} onChange={(event) => setSince(event.target.value)} /></label>
-        <label>Until<input type="datetime-local" value={until} onChange={(event) => setUntil(event.target.value)} /></label>
+        <label>{text.command}<input value={command} onChange={(event) => setCommand(event.target.value)} placeholder={text.commandPlaceholder} /></label>
+        <label>{text.outcome}<Select value={outcome} onChange={setOutcome} options={filterOptions(entries.flatMap((entry) => entry.context.outcome ? [String(entry.context.outcome)] : []))} /></label>
+        <label>{text.source}<Select value={source} onChange={setSource} options={filterOptions(entries.map((entry) => String(entry.context.source ?? entry.source)))} /></label>
+        <label>{text.from}<input type="datetime-local" value={since} onChange={(event) => setSince(event.target.value)} /></label>
+        <label>{text.until}<input type="datetime-local" value={until} onChange={(event) => setUntil(event.target.value)} /></label>
         <label className="search-field">
-          Search
+          {text.search}
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Message or source"
+            placeholder={text.searchPlaceholder}
           />
         </label>
         <Switch
@@ -519,27 +487,27 @@ function LogsPage() {
           checked={autoScroll}
           onCheckedChange={setAutoScroll}
         >
-          Auto-scroll
+          {text.autoScroll}
         </Switch>
-        <button className="secondary" disabled={entries.length === 0} aria-describedby="log-action-help" onClick={() => setEntries([])}>Clear view</button>
-        <button className="secondary" disabled={exporting || !visibleEntries.length} aria-describedby="log-action-help" onClick={() => setExportEntries([...visibleEntries])}>Export filtered…</button>
+        <button className="secondary" disabled={entries.length === 0} aria-describedby="log-action-help" onClick={() => setEntries([])}>{text.clearView}</button>
+        <button className="secondary" disabled={exporting || !visibleEntries.length} aria-describedby="log-action-help" onClick={() => setExportEntries([...visibleEntries])}>{text.export}</button>
       </div>
-      <p className="log-policy" id="log-action-help">Clear view only clears this screen. Export creates a private file.</p>
-      {requestId && <p className="log-policy">Showing linked request {requestId}. <button className="secondary" onClick={() => setRequestId('')}>All requests</button></p>}
-      {exportEntries && <Confirmation title="Export private activity?" description={`Save ${exportEntries.length} filtered events, including viewer names, command inputs and reply text. Review before sharing and delete the file when no longer needed. This copy is outside HeetKit retention.`} onConfirm={() => void downloadActivity()} onCancel={() => setExportEntries(null)} />}
+      <p className="log-policy" id="log-action-help">{text.actionHelp}</p>
+      {requestId && <p className="log-policy">{fmt(text.linkedRequest, { id: requestId })}<button className="secondary" onClick={() => setRequestId('')}>{text.allRequests}</button></p>}
+      {exportEntries && <Confirmation title={text.exportTitle} description={plural(text.exportDescription, exportEntries.length)} onConfirm={() => void downloadActivity()} onCancel={() => setExportEntries(null)} />}
       {exportNotice && <p className="log-policy" role="status">{exportNotice}</p>}
       {error && <div className="inline-error log-error">{error}</div>}
       <div className="log-console">
         {visibleEntries.length === 0 && (
           <p className="log-empty">
             {entries.length === 0
-              ? 'No activity yet. Start the bot to see lifecycle, command and reply events.'
-              : 'No events match the current filters.'}
+              ? text.emptyNone
+              : text.emptyFiltered}
           </p>
         )}
         {visibleEntries.map((entry) => (
           <div className={`log-row ${logEventClassNames(entry.event_kind)}`} key={entry.id}>
-            <time dateTime={entry.timestamp}>{new Date(entry.timestamp).toLocaleTimeString()}</time>
+            <time dateTime={entry.timestamp}>{time(entry.timestamp)}</time>
             <span className={`log-level level-${entry.level.toLowerCase()}`}>{entry.level}</span>
             <span className="log-source" title={entry.source}>{entry.source}</span>
             <div className="log-message">
@@ -548,14 +516,14 @@ function LogsPage() {
                 {entry.message}
               </pre>
               {entry.text !== null && entry.text !== undefined && <pre className="log-raw log-content">{entry.text}</pre>}
-              {entry.text_truncated && <p className="inline-error">Text shortened to fit the 4 KiB limit.</p>}
-              <details className="log-details"><summary>Event details</summary>
+              {entry.text_truncated && <p className="inline-error">{text.truncated}</p>}
+              <details className="log-details"><summary>{text.details}</summary>
                 <dl>{Object.entries(entry.context).map(([key, value]) => <div key={key}><dt>{key.replaceAll('_', ' ')}</dt><dd>{String(value)}</dd></div>)}</dl>
                 {entry.context.request_id && <button className="secondary" onClick={() => {
                   setRequestId(String(entry.context.request_id))
                   setLevel('ALL'); setCommand(''); setOutcome('ALL'); setSource('ALL')
                   setSearch(''); setSince(''); setUntil('')
-                }}>Show related events</button>}
+                }}>{text.related}</button>}
               </details>
             </div>
           </div>
@@ -577,12 +545,27 @@ function ManagementApp({ windowsDesktop = false }: { windowsDesktop?: boolean })
   const [error, setError] = useState('')
   const [actionBusy, setActionBusy] = useState('')
   const updates = useUpdateCheck(windowsDesktop)
+  const shellText = useCatalog(shell)
+  const commonText = useCatalog(common)
+  const dashboardText = useCatalog(dashboard)
 
   const navigate = (nextSection: Section, targetId?: string) => {
     if (nextSection === 'About') setAboutVisited(true)
     setSection(nextSection)
     setNavigationTarget({ id: targetId })
   }
+
+  useEffect(() => {
+    // The Desktop tray opens About when an update is available.
+    const onNavigate = (event: Event) => {
+      const detail = (event as CustomEvent<{ section?: string; target?: string }>).detail
+      if (detail?.section && (sections as readonly string[]).includes(detail.section)) {
+        navigate(detail.section as Section, detail.target)
+      }
+    }
+    window.addEventListener('heetkit:navigate', onNavigate)
+    return () => window.removeEventListener('heetkit:navigate', onNavigate)
+  })
 
   useLayoutEffect(() => {
     if (!navigationTarget || !main.current) return
@@ -652,7 +635,7 @@ function ManagementApp({ windowsDesktop = false }: { windowsDesktop?: boolean })
         }
       } catch (reason) {
         if (active) {
-          setError(reason instanceof Error ? reason.message : 'Backend request failed.')
+          setError(reason instanceof Error ? reason.message : commonText.backendFailed)
         }
       } finally {
         if (active) {
@@ -668,7 +651,7 @@ function ManagementApp({ windowsDesktop = false }: { windowsDesktop?: boolean })
         }
       } catch (reason) {
         if (active) {
-          setError(reason instanceof Error ? reason.message : 'Backend request failed.')
+          setError(reason instanceof Error ? reason.message : commonText.backendFailed)
         }
       }
     }
@@ -686,11 +669,11 @@ function ManagementApp({ windowsDesktop = false }: { windowsDesktop?: boolean })
       const api = await waitForBridge()
       const result = shouldRun ? await api.start_bot() : await api.stop_bot()
       if (!result.ok) {
-        throw new Error(result.error ?? 'The bot state could not be changed.')
+        throw new Error(result.error ?? dashboardText.errors.botState)
       }
       setStatus(await api.get_app_status())
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Backend request failed.')
+      setError(reason instanceof Error ? reason.message : commonText.backendFailed)
     } finally {
       setActionBusy('')
     }
@@ -703,12 +686,12 @@ function ManagementApp({ windowsDesktop = false }: { windowsDesktop?: boolean })
     try {
       const result = await setBrowserOperationMode(mode)
       if (!result.ok) {
-        throw new Error(result.error ?? 'The operation mode could not be changed.')
+        throw new Error(result.error ?? dashboardText.errors.operationMode)
       }
       const api = await waitForBridge()
       setStatus(await api.get_app_status())
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Backend request failed.')
+      setError(reason instanceof Error ? reason.message : commonText.backendFailed)
     } finally {
       setActionBusy('')
     }
@@ -723,11 +706,11 @@ function ManagementApp({ windowsDesktop = false }: { windowsDesktop?: boolean })
         ? await api.set_ai_enabled(enabled)
         : await api.set_ai_memory_enabled(enabled)
       if (!result.ok) {
-        throw new Error(result.error ?? 'The AI state could not be changed.')
+        throw new Error(result.error ?? dashboardText.errors.aiState)
       }
       setAIStatus(await api.get_ai_status())
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Backend request failed.')
+      setError(reason instanceof Error ? reason.message : commonText.backendFailed)
     } finally {
       setActionBusy('')
     }
@@ -740,10 +723,10 @@ function ManagementApp({ windowsDesktop = false }: { windowsDesktop?: boolean })
       const api = await waitForBridge()
       const result = await api.open_external_link('twitch_authorization')
       if (!result.ok) {
-        throw new Error(result.error ?? 'Could not open Twitch authorization.')
+        throw new Error(result.error ?? dashboardText.errors.authorization)
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not open Twitch authorization.')
+      setError(reason instanceof Error ? reason.message : dashboardText.errors.authorization)
     } finally {
       setActionBusy('')
     }
@@ -756,8 +739,8 @@ function ManagementApp({ windowsDesktop = false }: { windowsDesktop?: boolean })
   return (
     <div className="app-shell">
       <aside className="sidebar" ref={sidebar}>
-        <div className="brand"><img className="brand-mark" src="./icon.png" alt="" /><div><strong>HeetKit</strong><small>Twitch bot controls</small></div></div>
-        <nav aria-label="Main navigation">
+        <div className="brand"><img className="brand-mark" src="./icon.png" alt="" /><div><strong>HeetKit</strong><small>{shellText.tagline}</small></div></div>
+        <nav aria-label={shellText.mainNavigation}>
           {sections.map((item) => (
             <div className={`nav-section${item === 'About' ? ' nav-about' : ''}`} key={item}>
               <button
@@ -767,17 +750,18 @@ function ManagementApp({ windowsDesktop = false }: { windowsDesktop?: boolean })
                 aria-expanded={subsections[item] ? section === item : undefined}
                 aria-controls={subsections[item] ? `nav-${item}` : undefined}
                 onClick={() => navigate(item)}
-              >{item}</button>
+              >{shellText.sections[item]}</button>
+              {item === 'About' && <LanguageSwitcher />}
               {subsections[item] && (
                 <ul className="sidebar-subnav" id={`nav-${item}`} hidden={section !== item}>
-                  {subsections[item].filter((child) => !isBrowserMode() || !['desktop-settings', 'profile-location-settings'].includes(child.targetId)).map((child) => (
-                    <li key={child.targetId}>
+                  {subsections[item].filter((child) => !isBrowserMode() || !['desktop-settings', 'profile-location-settings'].includes(child)).map((child) => (
+                    <li key={child}>
                       <button
                         type="button"
-                        className={navigationTarget?.id === child.targetId ? 'active' : ''}
-                        aria-current={section === item && navigationTarget?.id === child.targetId ? 'location' : undefined}
-                        onClick={() => navigate(item, child.targetId)}
-                      >{child.label}</button>
+                        className={navigationTarget?.id === child ? 'active' : ''}
+                        aria-current={section === item && navigationTarget?.id === child ? 'location' : undefined}
+                        onClick={() => navigate(item, child)}
+                      >{shellText.subsections[child]}</button>
                     </li>
                   ))}
                 </ul>
@@ -788,7 +772,7 @@ function ManagementApp({ windowsDesktop = false }: { windowsDesktop?: boolean })
       </aside>
       <main ref={main}>
         <div className="page-content">
-          <header><h1>{section}</h1></header>
+          <header><h1>{shellText.sections[section]}</h1></header>
           <FeedbackToast error={error} onDismiss={() => setError('')} />
           {section === 'Dashboard' && (
             <Dashboard
