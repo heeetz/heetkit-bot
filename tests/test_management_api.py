@@ -629,6 +629,24 @@ async def test_strict_bounded_json_and_no_partial_mutation(api):
     assert (await call("POST", "/v1/ai/enabled", data="{}"))[0] == 415
 
 
+async def test_operations_endpoint_validates_names_fields_and_method(api):
+    server, call = api
+    status, body, _ = await call("POST", "/v1/ops/get_app_status", json={})
+    assert status == 200 and body["account"] == "syntheticbot" and "operation" in body
+    assert (await call("POST", "/v1/ops/set_ai_enabled", json={"enabled": False}))[0] == 200
+    assert (await call("POST", "/v1/ops/get_ai_status", json={}))[1]["enabled"] is False
+    for path, payload, expected in [
+        ("/v1/ops/no_such_operation", {}, 404),
+        ("/v1/ops/_backend", {}, 404),
+        ("/v1/ops/get_credentials", {}, 404),  # Desktop-only
+        ("/v1/ops/set_ai_enabled", {"enabled": True, "extra": 1}, 400),
+        ("/v1/ops/set_ai_enabled", {}, 400),
+        ("/v1/ops/begin_twitch_authorization", {"owner": "x"}, 400),  # host context never comes from input
+    ]:
+        assert (await call("POST", path, json=payload))[0] == expected, path
+    assert (await call("GET", "/v1/ops/get_app_status"))[0] == 404
+
+
 async def test_operation_mode_auth_validation_persistence_and_disabled_start(api, monkeypatch):
     server, call = api
     for headers, expected in (({"Authorization": ""}, 401), ({"Origin": "http://evil.test"}, 403)):

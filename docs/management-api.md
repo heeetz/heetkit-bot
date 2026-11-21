@@ -329,6 +329,13 @@ print(request("bot/stop", {}))  # API stays available; profile stays locked
 print(request("bot/start", {}))
 ```
 
+Every panel operation is also available as `POST /v1/ops/<name>` with its arguments
+as a JSON object, for example `POST /v1/ops/set_ai_memory_enabled` with
+`{"enabled": false}`. Names match the panel's operation names (`get_app_status`,
+`save_personality`, `start_bot`, ...); unknown names return 404 and unknown arguments
+400. The panel uses only this form. The per-resource paths below remain for now and
+will be removed once every client has moved.
+
 All paths below start with `/v1/`. GET results retain the shared application's
 resource shape. Successful POST operations return `ok: true`; reads may omit `ok`.
 POST writes persist and apply immediately unless stated otherwise.
