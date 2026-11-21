@@ -442,6 +442,13 @@ next to About in the navigation, and Settings has an Interface language field.
 Desktop saves the choice in `app_settings.json` (`interface.language`), and the
 tray menu follows it. The Server browser keeps it in that browser's local storage.
 
+Windows Setup asks for English, Ukrainian or Russian (English preselected) and shows
+the wizard and uninstaller in that language. It writes the choice to
+`HKCU\Software\HeetKit\InitialUiLanguage`; an installed copy applies it once at start-up,
+only while no interface language is saved, so upgrades never change a saved choice.
+A silent update without `/LANG=` keeps the value an earlier install wrote, and the
+uninstaller removes it. Portable copies ignore it and start in English.
+
 - Text lives in typed catalogs under `frontend/src/i18n/`, one file per feature:
   `defineCatalog({ en, uk, ru })`. TypeScript rejects a language that misses or
   adds a key. Components read text with `useCatalog(catalog)`; formatting helpers

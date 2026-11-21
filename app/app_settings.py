@@ -513,11 +513,22 @@ def save_app_settings(
             temporary_path.unlink(missing_ok=True)
 
 
+def _has_saved_interface_language(path: Path) -> bool:
+    """True when the settings file already records a valid interface language."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return False
+    section = payload.get("interface") if isinstance(payload, dict) else None
+    return isinstance(section, dict) and section.get("language") in INTERFACE_LANGUAGES
+
+
 class AppSettingsStore:
     def __init__(self, path: str | Path) -> None:
         self._path = Path(path)
         self._lock = RLock()
         self._settings = load_app_settings(self._path)
+        self._interface_language_saved = _has_saved_interface_language(self._path)
 
     def snapshot(self) -> AppSettings:
         with self._lock:
@@ -535,12 +546,25 @@ class AppSettingsStore:
     def update_interface_language(self, language: object) -> AppSettings:
         parsed = validate_interface_language(language)
         with self._lock:
-            if self._settings.interface.language == parsed:
+            if self._settings.interface.language == parsed and self._interface_language_saved:
                 return self._settings
             updated = replace(self._settings, interface=InterfaceSettings(language=parsed))
             save_app_settings(self._path, updated, recovered_settings=self._settings)
             self._settings = updated
+            self._interface_language_saved = True
         return updated
+
+    def seed_interface_language(self, language: object) -> bool:
+        """Apply the installer's language once, only while no language has been saved."""
+        with self._lock:
+            if self._interface_language_saved or language not in INTERFACE_LANGUAGES:
+                return False
+            parsed = validate_interface_language(language)
+            updated = replace(self._settings, interface=InterfaceSettings(language=parsed))
+            save_app_settings(self._path, updated, recovered_settings=self._settings)
+            self._settings = updated
+            self._interface_language_saved = True
+        return True
 
     def update_window(
         self,
