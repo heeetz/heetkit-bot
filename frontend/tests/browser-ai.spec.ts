@@ -272,7 +272,7 @@ test('personality edits, activation and renaming preserve the right drafts', asy
   const activated = page.waitForResponse('**/v1/personalities/activate')
   await activate.click()
   await activated
-  await expect(activate).toHaveCount(0)
+  await expect(activate).toBeDisabled()
   await expect(prompt).toHaveValue('Draft stays after activation')
   expect(api.calls.find(({ path }) => path === '/v1/personalities/save')?.body)
     .toEqual({ personality: 'Focused helper', prompt: 'Saved custom prompt' })
