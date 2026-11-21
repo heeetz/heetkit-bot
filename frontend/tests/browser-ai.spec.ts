@@ -263,11 +263,15 @@ test('personality edits, activation and renaming preserve the right drafts', asy
   const prompt = panel.getByLabel('Editable prompt')
   await expect(prompt).toHaveValue('New helper prompt')
   await prompt.fill('Saved custom prompt')
+  const saved = page.waitForResponse('**/v1/personalities/save')
   await panel.getByRole('button', { name: 'Save', exact: true }).click()
+  await saved
   const activate = panel.getByRole('button', { name: 'Set active', exact: true })
   await expect(activate).toBeEnabled()
   await prompt.fill('Draft stays after activation')
+  const activated = page.waitForResponse('**/v1/personalities/activate')
   await activate.click()
+  await activated
   await expect(activate).toHaveCount(0)
   await expect(prompt).toHaveValue('Draft stays after activation')
   expect(api.calls.find(({ path }) => path === '/v1/personalities/save')?.body)
