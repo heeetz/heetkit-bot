@@ -89,7 +89,6 @@ async def test_expired_data_is_hidden_before_sweep_and_active_user_refresh_survi
             session.add(AIMemoryEntry(twitch_user_id="123", request_text="expired", response_text="reply",
                                       created_at=utcnow() - timedelta(days=91), channel_id="100"))
             await session.commit()
-        assert await users.get_by_twitch_user_id("123", channel_id="100") is None
         assert await users.get_by_username("oldname", channel_id="100") is None
         assert await memory.get_recent("123", 5, channel_id="100") == []
         await users.upsert_seen("123", "renamed", channel_id="100")
@@ -118,20 +117,20 @@ async def test_manual_deletion_and_persistent_opt_out(tmp_path, action):
     try:
         users = UserRepository(database.session_factory)
         memory = AIMemoryService(AIMemoryRepository(database.session_factory))
-        assert await users.get_by_twitch_user_id("123", channel_id="100") is None
+        assert await users.get_by_username("viewer123", channel_id="100") is None
         assert await memory.get_recent("123", channel_id="100") == []
-        assert (await users.get_by_twitch_user_id("456", channel_id="100")).username == "viewer456"
+        assert (await users.get_by_username("viewer456", channel_id="100")).twitch_user_id == "456"
         assert len(await memory.get_recent("456", channel_id="100")) == 1
         await users.upsert_seen("123", "renamed_account", channel_id="100")
         await memory.save_exchange("123", "late reply or new request", "reply", channel_id="100")
         if action == "opt-out":
             assert await stored(database, PrivacyOptOut)
-            assert await users.get_by_twitch_user_id("123", channel_id="100") is None
+            assert await users.get_by_username("renamed_account", channel_id="100") is None
             assert await memory.get_recent("123", channel_id="100") == []
             assert len(await stored(database, User)) == 1
             assert len(await stored(database, AIMemoryEntry)) == 1
         else:
-            assert await users.get_by_twitch_user_id("123", channel_id="100") is not None
+            assert (await users.get_by_username("renamed_account", channel_id="100")).twitch_user_id == "123"
             assert len(await memory.get_recent("123", channel_id="100")) == 1
     finally:
         await database.close()
@@ -145,29 +144,6 @@ async def test_manual_deletion_and_persistent_opt_out(tmp_path, action):
             assert await UserRepository(database.session_factory).upsert_seen("123", "new_activity", channel_id="100") is not None
         finally:
             await database.close()
-
-
-@pytest.mark.asyncio
-async def test_existing_database_adds_suppression_table_and_cleans_at_startup(tmp_path):
-    path = tmp_path / "old-synthetic.db"
-    with closing(sqlite3.connect(path)) as connection:
-        connection.executescript("""
-            CREATE TABLE users (id INTEGER PRIMARY KEY, twitch_user_id VARCHAR(32) UNIQUE,
-                username VARCHAR(64), created_at DATETIME, last_seen_at DATETIME);
-            CREATE TABLE ai_memory_entries (id INTEGER PRIMARY KEY, twitch_user_id VARCHAR(32),
-                request_text VARCHAR(500), response_text VARCHAR(500), created_at DATETIME);
-            INSERT INTO users VALUES (1, '123', 'expired', '2020-01-01', '2020-01-01');
-            INSERT INTO ai_memory_entries VALUES (1, '123', 'synthetic', 'reply', '2020-01-01');
-        """)
-    (tmp_path / "legacy-channel-mapping.json").write_text('{"version":1,"channel_id":"100"}')
-    database = Database("sqlite+aiosqlite:///" + str(path))
-    await database.initialize()
-    try:
-        assert await stored(database, User) == []
-        assert await stored(database, AIMemoryEntry) == []
-        assert await stored(database, PrivacyOptOut) == []
-    finally:
-        await database.close()
 
 
 @pytest.mark.asyncio
@@ -250,7 +226,7 @@ async def test_chat_storage_memory_off_opt_out_and_erase_remain_scoped(tmp_path,
         expected_history = 0 if opted_out else 2 if memory_enabled and delivered else 1
         assert len(await memory.get_recent("123", channel_id="100")) == expected_history
         if opted_out:
-            assert await users.get_by_twitch_user_id("123", channel_id="100") is None
+            assert await users.get_by_username("viewer", channel_id="100") is None
             assert buffer.recent() == []
         else:
             assert buffer.recent()
@@ -264,7 +240,7 @@ async def test_chat_storage_memory_off_opt_out_and_erase_remain_scoped(tmp_path,
         assert await memory.get_recent("123", channel_id="100") == []
         assert len(await memory.get_recent("456", channel_id="100")) == 1
         if not opted_out:
-            assert await users.get_by_twitch_user_id("123", channel_id="100") is not None
+            assert (await users.get_by_username("viewer", channel_id="100")).twitch_user_id == "123"
     finally:
         logger.removeHandler(handler)
         logger.setLevel(original_level)
@@ -347,9 +323,9 @@ async def test_channel_membership_rename_expiry_and_independent_profile(tmp_path
         other_users = UserRepository(databases[1].session_factory)
         await other_users.upsert_seen("123", "independent", channel_id="100")
         await users.opt_out("123")
-        assert await users.get_by_twitch_user_id("123", channel_id="100") is None
-        assert await users.get_by_twitch_user_id("123", channel_id="200") is None
-        assert (await other_users.get_by_twitch_user_id("123", channel_id="100")).username == "independent"
+        assert await users.get_by_username("new_name", channel_id="100") is None
+        assert await users.get_by_username("other_name", channel_id="200") is None
+        assert (await other_users.get_by_username("independent", channel_id="100")).twitch_user_id == "123"
     finally:
         for database in databases:
             await database.close()

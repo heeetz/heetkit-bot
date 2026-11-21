@@ -39,10 +39,9 @@ def test_clean_cli_launch_reaches_desktop_with_disconnected_backend(tmp_path, mo
     monkeypatch.setenv('HEETKIT_DATA_DIR', str(tmp_path / 'unused'))
     root = tmp_path / 'clean'
     monkeypatch.chdir(tmp_path)
-    # Neither checkout deployment nor legacy default keyring may leak into this profile.
+    # Checkout deployment settings must stay outside this profile.
     (tmp_path / '.env').write_text('TWITCH_BOT_USERNAME=owner\nTWITCH_CLIENT_SECRET=owner-secret\n')
-    monkeypatch.setattr(keyring, 'get_password',
-                        lambda service, name: 'owner-secret' if service == 'twitch-bot' else None)
+    monkeypatch.setattr(keyring, 'get_password', lambda service, name: None)
     monkeypatch.setattr(sys, 'argv', ['heetkit', '--data-dir', str(root)])
     monkeypatch.setattr(webview_host, 'resolve_frontend_url', lambda dev_url: 'frontend/index.html')
     monkeypatch.setattr(webview_host, 'configure_logging', lambda level: None)
@@ -81,8 +80,8 @@ def test_clean_cli_launch_reaches_desktop_with_disconnected_backend(tmp_path, mo
 
 
 def prepare(paths, legacy):
-    return prepare_runtime_data(str(legacy / 'tokens.json'), f'sqlite+aiosqlite:///{legacy / "old.db"}',
-                                paths=paths, legacy_data=legacy)
+    return prepare_runtime_data(f'sqlite+aiosqlite:///{legacy / "old.db"}',
+                                paths=paths)
 
 
 def test_clean_profile_never_imports_checkout_state_and_config_reset_preserves_auth_and_db(tmp_path):
@@ -220,7 +219,7 @@ def test_fun_responses_are_local_and_neutral_when_missing_or_invalid(tmp_path, m
     assert load_fun_settings()[1] == FATES
     path = tmp_path / 'config' / 'fun_settings.json'
     path.parent.mkdir()
-    path.write_text(json.dumps({'version': 1, 'tg_message': 'community link', 'forecasts': ['local forecast']}))
+    path.write_text(json.dumps({'version': 1, 'tg_message': 'community link', 'fates': ['local forecast']}))
     assert load_fun_settings() == ('community link', ('local forecast',))
     path.write_text('{broken')
     assert load_fun_settings()[1] == FATES

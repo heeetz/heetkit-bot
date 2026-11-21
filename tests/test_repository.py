@@ -19,11 +19,11 @@ async def test_user_repository_creates_and_updates_user() -> None:
 
     created = await repository.upsert_seen("42", "first_name", first_seen, channel_id="100")
     updated = await repository.upsert_seen("42", "renamed", second_seen, channel_id="100")
-    found = await repository.get_by_twitch_user_id("42", channel_id="100")
+    found = await repository.get_by_username("renamed", channel_id="100")
 
     assert created.id == updated.id
     assert updated.username == "renamed"
-    assert found is not None
+    assert found is not None and found.twitch_user_id == "42"
     assert found.last_seen_at == second_seen
     await database.close()
 

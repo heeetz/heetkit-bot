@@ -185,20 +185,22 @@ async def test_ping_cooldown_is_enforced_per_user(
 
 
 @pytest.mark.asyncio
-async def test_help_uses_registered_command_names_and_commands_alias() -> None:
+async def test_help_and_commands_dispatch_with_shared_permission_cooldown_and_output() -> None:
     registry = CommandRegistry()
     register_fun_commands(registry)
     register_info_commands(registry)
-    transport = FakeChatTransport("!commands", is_moderator=True)
+    services = cast(ApplicationServices, object())
+    help_viewer = FakeChatTransport("!help 1")
+    alias_viewer = FakeChatTransport("!commands 1")
+    assert await build_dispatcher(registry).dispatch(help_viewer.message, services)
+    dispatcher = build_dispatcher(registry)
+    assert await dispatcher.dispatch(alias_viewer.message, services)
 
-    handled = await build_dispatcher(registry).dispatch(
-        transport.message,
-        cast(ApplicationServices, object()),
-    )
-
-    assert handled is True
-    assert transport.replies == [command_help_page(registry.help_entries(), "!commands", "")]
-    assert "!8ball" not in transport.replies[0]
+    assert alias_viewer.replies == help_viewer.replies == [command_help_page(registry.help_entries(), "!help", "1")]
+    assert "!8ball" not in alias_viewer.replies[0]
+    cooldown_viewer = FakeChatTransport("!help")
+    assert await dispatcher.dispatch(cooldown_viewer.message, services)
+    assert not cooldown_viewer.replies
 
 
 @pytest.mark.asyncio
@@ -692,7 +694,9 @@ def test_application_registers_phase_two_commands() -> None:
 
     application = build_application(settings)
 
-    assert {"ping", "help", "commands", "uptime", "fate", "weather"} <= set(application.registry.names())
+    assert {"ping", "help", "uptime", "fate", "weather"} <= set(application.registry.names())
+    assert "commands" not in application.registry.names()
+    assert application.registry.get("commands") is application.registry.get("help")
     assert "forecast" not in application.registry.names()
     assert "percent" not in application.registry.names()
     assert "c" not in application.registry.names()
@@ -1287,7 +1291,7 @@ async def test_moderator_only_commands_reject_regular_users() -> None:
     dispatcher = build_dispatcher(registry)
 
     # Regular viewer tries moderator commands
-    for cmd in ("!ping", "!uptime", "!commands"):
+    for cmd in ("!ping", "!uptime"):
         transport = FakeChatTransport(cmd, is_moderator=False)
         services = cast(
             ApplicationServices,
@@ -1298,7 +1302,7 @@ async def test_moderator_only_commands_reject_regular_users() -> None:
         assert transport.replies == []
 
     # Moderator tries moderator commands
-    for cmd in ("!ping", "!uptime", "!commands"):
+    for cmd in ("!ping", "!uptime"):
         transport = FakeChatTransport(cmd, is_moderator=True)
         services = cast(
             ApplicationServices,

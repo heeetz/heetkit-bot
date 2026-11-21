@@ -142,7 +142,6 @@ def build_application(settings: Settings) -> Application:
     register_ai_commands(registry)
     register_social_commands(registry)
     register_leaderboard_commands(registry)
-    runtime_state.configure_commands(registry.definitions())
     creation_order = CommandCreationOrder()
     custom_commands = CustomCommandStore(
         paths.custom_commands,
@@ -151,6 +150,7 @@ def build_application(settings: Settings) -> Application:
         creation_order=creation_order,
     )
     runtime_state.bind_custom_commands(custom_commands)
+    runtime_state.configure_commands(registry.definitions())
     services = ApplicationServices(
         users=user_repository,
         memory=memory,

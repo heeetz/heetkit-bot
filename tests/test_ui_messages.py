@@ -150,7 +150,7 @@ def _controller(tmp_path):
     backend = SimpleNamespace(
         application=SimpleNamespace(services=SimpleNamespace(runtime_state=runtime_state),
                                     settings=SimpleNamespace(twitch_channel="synthetic")),
-        startup_pending=False, close=lambda: None,
+        close=lambda: None,
     )
     store = AppSettingsStore(tmp_path / "app_settings.json")
     bridge = WebUIBridge.__new__(WebUIBridge)

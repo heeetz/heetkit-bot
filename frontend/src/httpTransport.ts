@@ -133,8 +133,6 @@ const commandPayload = (command_name: string, enabled: boolean, per_user_seconds
 // Fixed methods and named payloads only: no HTTP access to arbitrary bridge names.
 export const browserApi: PythonApi = {
   get_desktop_startup: async () => ({ state: 'ready' }),
-  confirm_legacy_channel: unsupported,
-  cancel_desktop_startup: unsupported,
   // Server keeps the UI language in this browser (localStorage), not on the server.
   get_interface_language: async () => ({ ok: true }),
   set_interface_language: async () => ({ ok: true }),
@@ -215,10 +213,8 @@ export const browserApi: PythonApi = {
   save_ai_setup: (settings) => write('/v1/ai/setup', { settings }),
   get_setup_guide: () => read('/v1/setup/guide'),
   save_setup_guide: (dismissed, ai_skipped) => write('/v1/setup/guide', { dismissed, ai_skipped }),
-  update_ai_provider_settings: (selected_model, fallback_model, provider = 'gemini') => write('/v1/ai/models', { selected_model, fallback_model, provider }),
   get_ai_language_settings: () => read('/v1/ai/language'),
   update_ai_language_settings: (mode, allowed_languages, fallback_language) => write('/v1/ai/language', { mode, allowed_languages, fallback_language }),
-  discover_gemini_models: () => write('/v1/ai/models/discover', { provider: 'gemini' }),
   discover_ai_models: (provider) => write('/v1/ai/models/discover', { provider }),
   start_bot: () => write('/v1/bot/start'),
   stop_bot: () => write('/v1/bot/stop'),
@@ -248,11 +244,11 @@ export const browserApi: PythonApi = {
   cancel_twitch_authorization: () => write('/v1/twitch/authorization/cancel'),
   open_external_link: async (destination) => {
     const links: Partial<Record<typeof destination, string>> = {
-      repository: 'https://github.com/heeetz/twitch-bot',
-      license: 'https://github.com/heeetz/twitch-bot/blob/main/LICENSE',
-      third_party_notices: 'https://github.com/heeetz/twitch-bot/blob/main/THIRD_PARTY_NOTICES.md',
+      repository: 'https://github.com/heeetz/heetkit-bot',
+      license: 'https://github.com/heeetz/heetkit-bot/blob/main/LICENSE',
+      third_party_notices: 'https://github.com/heeetz/heetkit-bot/blob/main/THIRD_PARTY_NOTICES.md',
       author_twitch: 'https://www.twitch.tv/heet_ok',
-      releases: 'https://github.com/heeetz/twitch-bot/releases',
+      releases: 'https://github.com/heeetz/heetkit-bot/releases',
     }
     const url = links[destination]
     if (!url) return unsupported()

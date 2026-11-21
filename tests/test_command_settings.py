@@ -6,6 +6,7 @@ import logging
 import pytest
 
 from app.command_settings import save_command_overrides
+from app.commands.info import register_info_commands
 from app.commands.registry import CommandRegistry
 from app.runtime_state import RuntimeState
 from app.twitch.permissions import Permission
@@ -28,6 +29,40 @@ def build_registry() -> CommandRegistry:
         return None
 
     return registry
+
+
+@pytest.mark.parametrize(("old", "help_aliases", "expected", "overflow"), [
+    ({"removed": True, "aliases": ["catalog"]}, ["guide"], ("guide",), False),
+    ({"enabled": False}, ["commands", "guide"], ("guide",), False),
+    ({"permission": "MODERATOR", "cooldown": {"global_seconds": 45}}, [], ("commands",), False),
+    ({"primary_name": "catalog", "aliases": ["guide", "ping", "help", "taken", "pages"]},
+     ["guide"], ("commands", "guide", "catalog", "pages"), False),
+    ({"aliases": [f"page{index}" for index in range(10)]}, ["guide"],
+     ("commands", "guide", *(f"page{index}" for index in range(8))), True),
+])
+def test_saved_commands_settings_convert_on_next_write(tmp_path, caplog, old, help_aliases, expected, overflow):
+    path = tmp_path / "command_settings.json"
+    original = json.dumps({"commands": old, "help": {"aliases": help_aliases}, "weather": {"aliases": ["taken"]}})
+    path.write_text(original, encoding="utf-8")
+    registry = build_registry()
+    register_info_commands(registry)
+    state = RuntimeState(path)
+    state.configure_commands(registry.definitions())
+
+    help_settings = state.get_command_settings("help")
+    assert help_settings.aliases == expected
+    assert help_settings.permission == Permission.USER
+    assert help_settings.cooldown == state.get_command_default_settings("help").cooldown
+    assert state.resolve_command_alias("commands") == ("help" if "commands" in expected else None)
+    assert "commands" not in state.runtime_toggleable_commands
+    assert ("Dropping 2 aliases" in caplog.text) is overflow
+    assert path.read_text(encoding="utf-8") == original
+
+    state.save_command_override("weather")
+    assert "commands" not in json.loads(path.read_text(encoding="utf-8"))
+    restarted = RuntimeState(path)
+    restarted.configure_commands(registry.definitions())
+    assert restarted.get_command_settings("help") == help_settings
 
 
 def test_settings_derive_from_registry_and_apply_runtime_changes() -> None:

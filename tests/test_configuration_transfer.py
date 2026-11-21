@@ -54,6 +54,30 @@ async def profiles(tmp_path, monkeypatch):
         await app.shutdown()
 
 
+async def test_import_published_commands_entry_merges_into_help(profiles):
+    source, target = profiles("source-1-6"), profiles("destination")
+    payload, _, _ = unpack_configuration(source.export()["archive_base64"])
+    help_settings = payload["commands"]["help"]
+    help_settings["aliases"] = ["guide"]
+    payload["commands"]["commands"] = {
+        **help_settings, "primary_name": "catalog", "aliases": ["pages"],
+        "permission": "MODERATOR", "cooldown": {"per_user_seconds": 0, "global_seconds": 15},
+    }
+    encoded = pack_configuration(payload)
+    preview = target.preview(encoded)
+    commands_preview = next(section for section in preview["sections"] if section["name"] == "commands")
+    assert "!commands" not in commands_preview["details"]
+    target.apply(encoded, preview["preview_token"], True)
+
+    settings = target.state.get_command_settings("help")
+    assert settings.aliases == ("commands", "guide", "catalog", "pages")
+    assert settings.permission.name == help_settings["permission"]
+    assert settings.cooldown.global_seconds == help_settings["cooldown"]["global_seconds"]
+    saved = json.loads(target.state._command_settings_path.read_text(encoding="utf-8"))
+    assert "commands" not in saved
+    assert saved["help"]["aliases"] == list(settings.aliases)
+
+
 async def test_openai_transfer_retains_options_clears_consent_excludes_keys_and_rolls_back(profiles, monkeypatch):
     from dataclasses import asdict
     from pydantic import SecretStr
@@ -82,14 +106,6 @@ async def test_openai_transfer_retains_options_clears_consent_excludes_keys_and_
         with pytest.raises(OSError):
             target.apply(encoded, target.preview(encoded)["preview_token"], True)
     assert target.app.settings.openai_model == "gpt-destination"
-    payload["ai"].pop("openai_selected_model")
-    payload["ai"].pop("openai_fallback_model")
-    payload["ai"]["setup"] = None
-    payload["ai"]["provider"] = "gemini"
-    legacy = pack_configuration(payload)
-    target.apply(legacy, target.preview(legacy)["preview_token"], True)
-    assert target.app.settings.ai_provider == "gemini"
-    assert target.app.settings.openai_model == "gpt-destination"
 
 
 async def test_announcements_transfer_both_hosts_legacy_preservation_and_rollback(profiles, monkeypatch):
@@ -115,13 +131,6 @@ async def test_announcements_transfer_both_hosts_legacy_preservation_and_rollbac
     legacy_encoded = pack_configuration(legacy_payload)
     legacy_target.apply(legacy_encoded, legacy_target.preview(legacy_encoded)["preview_token"], True)
     assert legacy_target.announcements.list()[0].delivery_mode == "regular"
-    # A legacy archive preserves destination schedules; no misleading replacement preview.
-    payload.pop("announcements")
-    legacy = pack_configuration(payload)
-    preview = target.preview(legacy)
-    assert not any(section["name"] == "announcements" for section in preview["sections"])
-    target.apply(legacy, preview["preview_token"], True)
-    assert target.announcements.list()[0].to_json() == raw
     payload["announcements"] = []
     clearing = pack_configuration(payload)
     before = file_state(target)
@@ -198,9 +207,13 @@ def file_state(transfer):
 async def test_both_provider_choices_transfer_without_credentials_and_legacy_stays_gemini(profiles):
     from app.config.profile_settings import apply_ai_app_settings
     source, target = profiles("source-providers"), profiles("target-providers")
-    management = ApplicationManagement(source.app, source.settings)
-    await management._save_ai_provider_models("gemini-custom", "gemini-backup")
-    await management._save_ai_provider_models("deepseek-custom", "deepseek-backup", "deepseek")
+    path = source.settings._path
+    path.write_text(json.dumps({"version": 1, "ai": {
+        "provider": "deepseek", "selected_model": "gemini-custom", "fallback_model": "gemini-backup",
+        "deepseek_selected_model": "deepseek-custom", "deepseek_fallback_model": "deepseek-backup",
+    }}), encoding="utf-8")
+    source.settings = AppSettingsStore(path)
+    source.app.settings = apply_ai_app_settings(source.app.settings, source.settings.snapshot())
     source.app.settings.deepseek_api_key = "PRIVATE-DEEPSEEK-KEY"
     target.app.settings.deepseek_api_key = "PRIVATE-DESTINATION-KEY"
     encoded = source.export()["archive_base64"]
@@ -211,13 +224,6 @@ async def test_both_provider_choices_transfer_without_credentials_and_legacy_sta
     assert reloaded.ai_provider == "deepseek" and reloaded.deepseek_model == "deepseek-custom"
     assert reloaded.gemini_model == "gemini-custom"
     assert target.app.settings.deepseek_api_key == "PRIVATE-DESTINATION-KEY"
-    for field in ("provider", "deepseek_selected_model", "deepseek_fallback_model", "openai_selected_model", "openai_fallback_model"):
-        payload["ai"].pop(field)
-    legacy = pack_configuration(payload)
-    target.apply(legacy, target.preview(legacy)["preview_token"], True)
-    assert target.app.settings.ai_provider == "gemini"
-    assert target.app.settings.gemini_model == "gemini-custom"
-    assert target.app.settings.deepseek_model == "deepseek-custom"
     payload["ai"]["selected_model"] = "deepseek-flash"
     with pytest.raises(ValueError):
         target.preview(pack_configuration(payload))

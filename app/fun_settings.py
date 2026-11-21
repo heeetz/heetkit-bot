@@ -10,7 +10,7 @@ from pathlib import Path
 from threading import RLock
 
 from app.config.commands import TG_MESSAGE
-from app.settings_recovery import migrate_settings_key, preserve_settings_recovery
+from app.settings_recovery import preserve_settings_recovery
 
 FATES = ("Tomorrow brings a new opportunity.",)
 
@@ -52,7 +52,7 @@ class FunSettingsStore:
                 if (not isinstance(payload, dict) or type(payload.get("version")) is not int
                         or payload["version"] != 1):
                     raise ValueError("Unsupported fun settings")
-                self._payload = migrate_settings_key(path, payload, "forecasts", "fates", version=1)
+                self._payload = payload
             except (OSError, UnicodeError, ValueError):
                 self._load_error = True
                 logging.getLogger(__name__).warning("Could not load local fun settings; using neutral defaults")

@@ -36,7 +36,7 @@ def settings():
     value = Settings(twitch_client_id="synthetic-client", twitch_client_secret="synthetic-secret",
                      twitch_bot_user_id="100", twitch_bot_username="testbot",
                      twitch_channel_user_id="200", twitch_channel="testchannel")
-    prepare_runtime_data(value.twitch_token_file, value.database_url)
+    prepare_runtime_data(value.database_url)
     return value
 
 
@@ -73,7 +73,7 @@ async def test_real_core_restarts_with_saved_profile_and_sqlite(monkeypatch):
         assert not services.runtime_state.ai_memory_enabled
         assert not services.filter_manager.filter_message("syntheticblocked")
         if sessions:
-            assert await services.users.get_by_twitch_user_id("300", channel_id=value.twitch_channel_user_id) is not None
+            assert (await services.users.get_by_username("syntheticviewer", channel_id=value.twitch_channel_user_id)).twitch_user_id == "300"
         await services.users.upsert_seen(twitch_user_id="300", username="syntheticviewer", channel_id=value.twitch_channel_user_id)
         sessions.append(services)
         services.runtime_state.set_twitch_connection_state("connected")

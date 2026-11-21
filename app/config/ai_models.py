@@ -65,17 +65,6 @@ def validate_gemini_model_id(value: object, field_name: str = "Gemini model") ->
     return parsed
 
 
-def validate_gemini_model_settings(
-    selected_model: object,
-    fallback_model: object,
-) -> tuple[str, str]:
-    selected = validate_gemini_model_id(selected_model, "Selected Gemini model")
-    fallback = validate_gemini_model_id(fallback_model, "Fallback Gemini model")
-    if selected == fallback:
-        raise ValueError("Selected and fallback Gemini models must be different.")
-    return selected, fallback
-
-
 def _load_gemini_model_config() -> tuple[str, tuple[GeminiModelPreset, ...], str]:
     resource = files("app.resources").joinpath(GEMINI_MODELS_RESOURCE)
     try:

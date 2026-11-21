@@ -91,8 +91,7 @@ selected at launch:
 ```
 
 For source launches, use `python -m app.main` with the same options. `--stopped` prevents
-automatic connection. `--data-dir` takes priority over `HEETKIT_DATA_DIR`; the legacy
-`TWITCH_BOT_DATA_DIR` override is used only when the HeetKit variable is absent.
+automatic connection. `--data-dir` takes priority over `HEETKIT_DATA_DIR`.
 Each alternate profile needs its own setup. Desktop keyring credentials are associated
 with its resolved location, so moving it requires entering them again. The local guard
 allows only one Desktop or Headless process per profile. Desktop authorization flows
@@ -104,11 +103,6 @@ does not transfer settings or credentials. Upgrades, same-version reinstalls and
 uninstall retain the profile and OS-stored credentials. On Desktop, quit using **tray
 Exit** before upgrading, uninstalling or making a backup. For Server, stop the running
 process/service or container; see [Docker backup and recovery](docker.md#backup-restore-and-updates).
-
-Older default `TwitchBot` profiles are imported once into HeetKit, with existing HeetKit
-files taking priority. The old profile is retained. Alternate profiles do not import
-the old default profile. If migration fails, keep both profiles backed up and resolve
-the reported conflict with the application stopped.
 
 ## View and manage Analytics
 
@@ -592,43 +586,19 @@ channel-specific leaderboard exclusions. Operator-managed backups stay under the
 
 Desktop and Server run the same versioned SQLite upgrade before Twitch, requests or
 cleanup workers start. Fresh databases use schema version 3. Version 2, shipped with
-v1.5.4 and v1.5.5, receives empty leaderboard tables in one transaction after a verified
-`schema-2.sqlite3` backup. Version 1 also receives nullable opt-out username/date metadata
-and keeps its verified `schema-1.sqlite3` backup under the same seven-day privacy rules.
+HeetKit 1.5.1 through 1.5.5, receives empty leaderboard tables in one transaction after a verified
+`schema-2.sqlite3` backup. HeetKit validates schema 3 on subsequent launches.
 New chat/operator opt-outs store authenticated/resolved usernames and actual UTC dates;
 repeated requests preserve the original date, including unknown historical dates.
 The management list formats dates in the operator's local time and marks unavailable
 historical usernames honestly. Confirmed withdrawal permits only future storage;
 captured requests retain invalidated storage/log tickets after withdrawal.
-Existing unversioned
-presence/AI tables require an explicit mapping for their unscoped rows; the selected
-startup channel is never used as a guess. **Desktop** opens a one-time confirmation
-form only when recognized legacy history needs a mapping and the input file is absent.
-The configured target is offered as a suggestion; it requires an explicit acknowledgement
-and confirmation, or you can enter another numeric channel ID verified with Twitch.
-**Confirm channel and continue** saves the private profile-local choice and resumes
-the normal verified upgrade. **Cancel and exit** leaves the choice unsaved. Normal
-controls, Twitch and cleanup workers remain blocked until startup succeeds. Existing
-invalid mappings, backup failures and other migration errors show actionable guidance;
-they do not trigger an inferred mapping or overwrite an existing choice.
-
-**Server**, or optional manual Desktop preparation: with all profile processes stopped,
-create `data/legacy-channel-mapping.json` beside the actual database, for example:
-
-```json
-{"version": 1, "channel_id": "123456"}
-```
-
-Use the channel's verified numeric Twitch ID and keep this input private. A historical
-attribution approximation must be an explicit operator decision. Already-scoped rows
-keep their channels. The upgrade preserves original timestamps/text/IDs, retains every
-suppression ID, excludes opted-out/expired/over-count rows with separate aggregate
-counts, checks fields/uniqueness/relationships, and commits data plus version together.
-It does not fabricate command executions or analytics. Unsupported/corrupt schemas,
-unexplained loss or failed backups stop startup without resetting the database.
+To upgrade a database from before HeetKit 1.5.1, install HeetKit 1.6 and let it
+update the profile first. This includes unscoped databases without schema metadata.
+Unsupported or corrupt schemas and failed backups stop startup with the source preserved.
 
 Before transformation, SQLite's backup API creates one verified recovery database
-under `data/<database-name>.recovery/schema-0.sqlite3`, with private JSON counts,
+under `data/<database-name>.recovery/schema-2.sqlite3`, with private JSON counts,
 checksum and fixed expiry. WAL contents are included. Failed transactions roll back;
 the verified backup remains available. Successful restarts do not remigrate or make
 another migration backup. Resolve any incomplete/unverifiable recovery copy while
@@ -638,8 +608,8 @@ This recovery copy has a **seven-day acceptance window**, fixed from creation an
 never extended by startup, use or a privacy request. Startup/hourly cleanup removes
 it at expiry (catch-up after downtime); do not restore/use an expired snapshot.
 The same cleanup also handles an expired verified snapshot when retrying an interrupted
-upgrade. Only the owned, manifest-verified `schema-0` through `schema-2` SQLite/JSON pairs are
-removed; unrelated files and unverifiable copies are retained for operator review.
+upgrade. Cleanup verifies ownership using the manifest before removing a recovery
+pair, including `schema-0` and `schema-1` pairs created by earlier releases.
 `!optout` and the offline privacy tool scrub applicable personal rows in that copy;
 opt-out preserves suppression, deletion alone adds no suppression, and verified
 opt-in removes only the marker. A failed recovery scrub leaves live suppression in
@@ -654,20 +624,6 @@ writers stopped. Preserve the current database first; account for post-upgrade w
 and reapply current deletions/suppression before any connection. Do not overwrite
 unrelated settings, credentials or token rotations with an old whole-profile copy.
 These steps describe a controlled recovery operation, not an automatic downgrade.
-
-### Existing prediction settings
-
-`!fate` replaces `!forecast`. The old name has no alias. At normal startup,
-HeetKit renames `forecast` to `fate` in `config/command_settings.json` and
-`forecasts` to `fates` in version-1 `config/fun_settings.json`. It preserves
-the saved settings, response text and unrelated JSON fields.
-
-If both keys exist, the complete new value wins, even if empty or invalid.
-Invalid settings use the normal default fallback. HeetKit saves an exact
-recovery copy beside each file before replacing it. `--check` skips the
-migration. HeetKit leaves malformed and unsupported files intact. If backup
-or replacement fails, HeetKit uses the renamed values for that session and
-keeps the original file. Stop HeetKit before correcting the reported problem.
 
 ### Whole-profile and settings copies
 

@@ -6,12 +6,10 @@ import json
 import os
 from pathlib import Path
 import shutil
-import sqlite3
 import subprocess
 import sys
 import tomllib
 
-from sqlalchemy.engine import make_url
 from app.config.settings import Settings
 from app.version import VERSION
 
@@ -19,11 +17,8 @@ from app.runtime_paths import (
     DEFAULT_FILTERS,
     DEFAULT_TRIGGERS,
     FILTER_NAMES,
-    LEGACY_DATA,
     PACKAGED_FRONTEND,
     SOURCE_ROOT,
-    RuntimePaths,
-    prepare_runtime_data,
 )
 
 
@@ -110,7 +105,6 @@ def test_runtime_resources_are_declared_and_source_defaults_are_package_local() 
     assert DEFAULT_TRIGGERS == REPOSITORY_ROOT / "app" / "resources" / "default_triggers.json"
     assert PACKAGED_FRONTEND == REPOSITORY_ROOT / "app" / "resources" / "frontend" / "index.html"
     assert SOURCE_ROOT == REPOSITORY_ROOT
-    assert LEGACY_DATA == REPOSITORY_ROOT / "data"
 
     assert DEFAULT_TRIGGERS.is_file()
     assert json.loads(DEFAULT_TRIGGERS.read_text(encoding="utf-8"))["triggers"] == []
@@ -178,21 +172,20 @@ import sys
 from app.config.settings import load_settings_with_credentials
 from app.app_settings import AppSettingsStore
 from app import runtime_paths, webview_host
-from app.runtime_paths import DEFAULT_FILTERS, LEGACY_DATA, PACKAGED_FRONTEND, SOURCE_ROOT, RuntimePaths, prepare_runtime_data
+from app.runtime_paths import DEFAULT_FILTERS, PACKAGED_FRONTEND, SOURCE_ROOT, RuntimePaths, prepare_runtime_data
 
-# Exercise an installed normal profile, including its usual legacy-migration flag.
+# Exercise an installed normal profile.
 profile = Path(os.environ["HEETKIT_DATA_DIR"])
 runtime_paths.user_data_path = lambda *args, **kwargs: profile
 settings, credentials = load_settings_with_credentials(SimpleNamespace(get=lambda name: None))
 assert SOURCE_ROOT is None
-assert LEGACY_DATA is None
 assert PACKAGED_FRONTEND.is_file()
 assert settings.twitch_client_id == ""
 assert settings.twitch_bot_username == ""
 assert all(not status.configured for status in credentials.statuses())
 paths = RuntimePaths.default()
 assert paths.is_default_profile
-prepare_runtime_data(settings.twitch_token_file, settings.database_url)
+prepare_runtime_data(settings.database_url)
 backend = webview_host.AsyncioBackendHost(settings)
 try:
     backend.start()
@@ -201,14 +194,17 @@ try:
     assert bridge.get_twitch_settings()["settings"]["client_id"] == ""
     assert bridge.update_twitch_settings("target", "200", None, "client-id", "bot", "100")["ok"]
     assert bridge.get_twitch_settings()["settings"]["requires_restart"]
-    assert bridge.update_ai_provider_settings("gemini-installed", "gemini-installed-fallback")["ok"]
+    assert bridge.save_ai_setup({
+        "primary": {"provider": "gemini", "model": "gemini-installed", "thinking": "default", "search": False},
+        "fallback": {"provider": "gemini", "model": "gemini-installed-fallback", "thinking": "default", "search": False},
+    })["ok"]
 finally:
     backend.close()
 saved = AppSettingsStore(paths.app_settings).snapshot()
 applied = webview_host.apply_twitch_app_settings(settings, saved)
 applied = webview_host.apply_ai_app_settings(applied, saved)
 assert applied.twitch_bot_username == "bot"
-assert applied.gemini_model == "gemini-installed"
+assert applied.ai_setup.primary.model == "gemini-installed"
 assert "config" not in __import__("sys").modules
 install_root = Path(os.environ["PYTHONPATH"]).resolve()
 for name, module in tuple(sys.modules.items()):
@@ -236,39 +232,3 @@ assert DEFAULT_FILTERS.is_dir()
     assert profile.exists()
     after = {path.relative_to(install_root): path.read_bytes() for path in install_root.rglob("*") if path.is_file()}
     assert after == before
-
-
-def test_relative_legacy_candidates_ignore_unrelated_working_directory(
-    tmp_path: Path, monkeypatch
-) -> None:
-    legacy = tmp_path / "legacy"
-    legacy.mkdir()
-    (legacy / "filters").mkdir()
-    (legacy / "twitchio_tokens.json").write_text("legacy-token", encoding="utf-8")
-    with sqlite3.connect(legacy / "twitch_bot.db") as connection:
-        connection.execute("CREATE TABLE source (value TEXT)")
-        connection.execute("INSERT INTO source VALUES ('legacy')")
-        connection.commit()
-
-    unrelated = tmp_path / "unrelated"
-    unrelated.mkdir()
-    (unrelated / "twitchio_tokens.json").write_text("unrelated-token", encoding="utf-8")
-    with sqlite3.connect(unrelated / "twitch_bot.db") as connection:
-        connection.execute("CREATE TABLE source (value TEXT)")
-        connection.execute("INSERT INTO source VALUES ('unrelated')")
-        connection.commit()
-    monkeypatch.chdir(unrelated)
-
-    paths = RuntimePaths(tmp_path / "profile")
-    token_file, database_url = prepare_runtime_data(
-        "twitchio_tokens.json",
-        "sqlite+aiosqlite:///twitch_bot.db",
-        paths=paths,
-        legacy_data=legacy,
-        migrate_legacy=True,
-    )
-
-    assert Path(token_file).read_text(encoding="utf-8") == "legacy-token"
-    assert make_url(database_url).database == str(paths.database)
-    with sqlite3.connect(paths.database) as connection:
-        assert connection.execute("SELECT value FROM source").fetchone() == ("legacy",)

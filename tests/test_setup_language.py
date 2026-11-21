@@ -92,7 +92,7 @@ def test_installer_has_no_untranslated_literal_text_in_code() -> None:
     code = re.sub(r"\{[^}]*\}", "", SCRIPT.split("[Code]", 1)[1])  # drop { comments }
     literals = [text for text in re.findall(r"'([^'\n]*)'", code) if re.search(r"[A-Za-z]{3,}", text)]
     technical = re.compile(r"^(https?://|\\|Software\\|SOFTWARE\\|/LANG=|open|pv|Release|InstallLocation|InitialUiLanguage|"
-                           r"HEETKIT_DATA_DIR|TWITCH_BOT_DATA_DIR|\{|\w+$)")
+                           r"HEETKIT_DATA_DIR|\{|\w+$)")
     assert [text for text in literals if not technical.match(text)] == []
 
 

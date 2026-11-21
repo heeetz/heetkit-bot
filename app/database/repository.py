@@ -156,12 +156,6 @@ class UserRepository:
                 .order_by(PrivacyOptOut.opted_out_at.desc(), PrivacyOptOut.twitch_user_id).offset(offset).limit(limit))).all())
             return rows, total
 
-    async def get_by_twitch_user_id(self, twitch_user_id: str, *, channel_id: str) -> User | None:
-        async with self._session_factory() as session:
-            return await session.scalar(select(User).where(
-                User.channel_id == channel_id, User.twitch_user_id == twitch_user_id,
-                User.last_seen_at > utcnow() - timedelta(days=USER_RETENTION_DAYS), storage_allowed(twitch_user_id)))
-
     async def upsert_seen(self, twitch_user_id: str, username: str, seen_at: datetime | None = None,
                           *, channel_id: str, record_leaderboard=None,
                           return_user: bool = True) -> User | None:

@@ -42,7 +42,7 @@ def seed():
     for name in ("data", "resources/private.json", "resources/icon.png", "resources/icon.ico", "resources/icon.icns", "resources/tray.png"):
         assert not Path("/opt/heetkit/app", name).exists(), "Excluded image content: " + name
     assert not any(Path("/opt/heetkit", name).exists() for name in (".git", "data", "frontend", "tests", "build", ".env"))
-    prepare_runtime_data(str(paths.tokens), "sqlite+aiosqlite:///" + str(paths.database))
+    prepare_runtime_data("sqlite+aiosqlite:///" + str(paths.database))
     paths.app_settings.write_text(json.dumps({"version": 1, "twitch": {
         "client_id": "synthetic-client", "bot_user_id": "100", "bot_username": "syntheticbot",
         "channel_user_id": "200", "channel": "syntheticchannel"}, "ai": {
@@ -103,7 +103,7 @@ async def session(**kwargs):
     counter = paths.data / "probe-starts"
     previous = int(counter.read_text()) if counter.exists() else 0
     if previous:
-        assert await services.users.get_by_twitch_user_id("300", channel_id=settings.twitch_channel_user_id) is not None
+        assert (await services.users.get_by_username("syntheticviewer", channel_id=settings.twitch_channel_user_id)).twitch_user_id == "300"
     await services.users.upsert_seen(twitch_user_id="300", username="syntheticviewer", channel_id=settings.twitch_channel_user_id)
     bot = TwitchChatBot(settings, settings.primary_account, services, kwargs["dispatcher"], logging.getLogger("probe"))
 

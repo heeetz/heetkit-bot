@@ -28,7 +28,7 @@ from types import SimpleNamespace
 from app.ai_user_blocks import BlockedAIUser, normalize_ai_username, verified_user_id
 from app.app_settings import APP_SETTINGS_VERSION
 from app.announcements import parse_announcements
-from app.command_settings import CommandSettings, CommandSettingsOverride
+from app.command_settings import CommandSettings, CommandSettingsOverride, merge_commands_into_help
 from app.config.ai_language import validate_response_language
 from app.config.ai_models import validate_ai_provider, validate_provider_models
 from app.config.ai_setup import parse_ai_setup
@@ -222,12 +222,12 @@ class ConfigurationTransfer:
     def validate(self, payload):
         from app.management import ApplicationManagement
 
-        # Older format-1 archives know nothing about schedules. Preserve the
-        # destination collection; explicit [] in a new archive clears it.
-        _fields(payload, SECTIONS if isinstance(payload, dict) and "announcements" in payload else SECTIONS[:-1])
-        optional_commands = {"top", "rank"} & set(self.state.runtime_toggleable_commands)
-        optional_commands -= payload["commands"].keys() if isinstance(payload["commands"], dict) else set()
-        _fields(payload["commands"], set(self.state.runtime_toggleable_commands) - optional_commands)
+        _fields(payload, SECTIONS)
+        command_names = set(self.state.runtime_toggleable_commands)
+        incoming_names = payload["commands"].keys() if isinstance(payload["commands"], dict) else set()
+        optional_commands = ({"top", "rank"} & command_names) - incoming_names
+        has_old_commands = "commands" in incoming_names and "commands" not in command_names
+        _fields(payload["commands"], (command_names - optional_commands) | ({"commands"} if has_old_commands else set()))
         commands = {}
         for name, value in payload["commands"].items():
             optional_fields = {"stream_availability", "primary_name", "send_as", "entry_limit", "chat_template"}
@@ -240,7 +240,7 @@ class ConfigurationTransfer:
             # Same finite/nonnegative and administrative bounds as management edits.
             _, policy, permission = ApplicationManagement._parse_command_settings(
                 value["enabled"], cooldown["per_user_seconds"], cooldown["global_seconds"], value["permission"])
-            current = self.state.get_command_settings(name)
+            current = self.state.get_command_settings("help" if has_old_commands and name == "commands" else name)
             commands[name] = CommandSettings(**{"primary_name": name,
                                                  "stream_availability": current.stream_availability,
                                                  "entry_limit": current.entry_limit, "chat_template": current.chat_template,
@@ -273,8 +273,11 @@ class ConfigurationTransfer:
         # with destination commands that this import will itself replace.
         candidate = RuntimeState()
         candidate.configure_commands(self.app.registry.definitions())
+        old_commands = commands.pop("commands") if has_old_commands else None
         candidate._command_settings = commands
         candidate._custom_commands = SimpleNamespace(list=lambda: tuple(customs.values()))
+        if old_commands is not None:
+            commands["help"] = merge_commands_into_help(commands["help"], old_commands, candidate._used_command_names("help"))
         for name, value in commands.items():
             if candidate._validated_command_settings(name, value) != value:
                 raise ValueError("Removed commands must be disabled.")
@@ -303,18 +306,9 @@ class ConfigurationTransfer:
             raise ValueError("Unknown active personality.")
         validate_profile_instructions(personality["profile_instructions"])
         ai = payload["ai"]
-        legacy_ai_fields = {"memory_enabled", "selected_model", "fallback_model", "response_language"}
-        provider_fields = {"provider", "deepseek_selected_model", "deepseek_fallback_model"}
-        if set(ai) - {"setup"} == legacy_ai_fields:
-            # Format-1 Gemini archives must never reinterpret their model choices.
-            ai = {**ai, "provider": "gemini", "deepseek_selected_model": self.app.settings.deepseek_model,
-                  "deepseek_fallback_model": self.app.settings.deepseek_fallback_model}
-        openai_fields = {"openai_selected_model", "openai_fallback_model"}
-        if not (set(ai) & openai_fields):
-            ai = {**ai, "openai_selected_model": self.app.settings.openai_model,
-                  "openai_fallback_model": self.app.settings.openai_fallback_model}
-        ai = {"setup": None, **ai}
-        _fields(ai, legacy_ai_fields | provider_fields | openai_fields | {"setup"})
+        _fields(ai, {"memory_enabled", "selected_model", "fallback_model", "response_language", "provider",
+                     "deepseek_selected_model", "deepseek_fallback_model", "openai_selected_model",
+                     "openai_fallback_model", "setup"})
         setup = parse_ai_setup(ai["setup"], require_consent=False) if ai["setup"] is not None else None
         if setup and setup.fallback and setup.fallback.provider != setup.primary.provider:
             # Portable consent never grants a new destination permission to route.
@@ -355,8 +349,7 @@ class ConfigurationTransfer:
         return SimpleNamespace(commands=commands, customs=customs, responses=responses,
                                personality=personality, ai=ai, setup=setup, language=language, filters=filters,
                                users=tuple(users), triggers=tuple(triggers),
-                               announcements=parse_announcements(payload["announcements"])
-                                   if "announcements" in payload else self.announcements.list())
+                               announcements=parse_announcements(payload["announcements"]))
 
     def paths(self):
         return [self.state._command_settings_path, self.custom._path, self.state._personality_settings_path,
@@ -409,7 +402,9 @@ class ConfigurationTransfer:
     def preview(self, encoded):
         payload, manifest, digest = unpack_configuration(encoded)
         with self.locked():
-            self.validate(payload)
+            parsed = self.validate(payload)
+            if "commands" not in parsed.commands:
+                payload["commands"].pop("commands", None)
             fingerprint = self.fingerprint(self.originals())
             current = self.snapshot()
             now = time.monotonic()
@@ -422,7 +417,7 @@ class ConfigurationTransfer:
                 "application_version": manifest["application_version"],
                 "sections": [{"name": name, "incoming_count": self.count(name, payload[name]),
                               "current_count": self.count(name, current[name]), "details": self.details(name, payload[name])}
-                             for name in SECTIONS if name in payload], "effects": EFFECTS, "preserved": PRESERVED}
+                             for name in SECTIONS], "effects": EFFECTS, "preserved": PRESERVED}
 
     @staticmethod
     def count(name, value):
@@ -494,9 +489,7 @@ class ConfigurationTransfer:
                          response_language=parsed.language, setup=parsed.setup)
         app_payload = {"version": APP_SETTINGS_VERSION, **asdict(old_app)}
         if originals[self.settings._path] is not None:
-            existing = _json(originals[self.settings._path])
-            if "version" in existing:
-                app_payload = existing
+            app_payload = _json(originals[self.settings._path])
         app_payload = {**app_payload, "ai": {**app_payload.get("ai", {}), **asdict(new_ai)}}
         old_fun = (self.fun._payload if originals[self.fun.path] is None else _json(originals[self.fun.path]))
         fun_payload = {**old_fun, "fates": list(parsed.responses["fate"]),
@@ -512,8 +505,8 @@ class ConfigurationTransfer:
         # Existing recovery rules refuse corrupt/future local stores. Exact import
         # backups additionally preserve every affected file, even fully valid ones.
         for index, path in enumerate(self.paths()[:8]):
-            preserve_settings_recovery(path, None, version={1: (1, 2), 3: 1, 4: 1, 5: 1, 6: 1, 7: 1}.get(index),
-                                       allow_legacy=index == 4, encoding="utf-8-sig" if index == 6 else "utf-8")
+            preserve_settings_recovery(path, None, version={1: 2, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1}.get(index),
+                                       encoding="utf-8-sig" if index == 6 else "utf-8")
         files = dict(zip(self.paths()[:8], map(_encode, values)))
         for path, rules in zip(self.paths()[8:11], (parsed.filters[0], parsed.filters[1], [rule.pattern for rule in parsed.filters[2]])):
             files[path] = "".join(f"{rule}\n" for rule in rules).encode("utf-8")
@@ -613,7 +606,6 @@ class ConfigurationTransfer:
         state._profile_instructions = state._persisted_profile_instructions = parsed.personality["profile_instructions"]
         state.set_ai_memory_enabled(parsed.ai["memory_enabled"])
         self.custom._publish(parsed.customs)
-        self.custom._schema_version = 2
         self.fun._payload = fun_payload
         for name, responses in parsed.responses.items():
             self.fun._set_responses(name, responses, saved=True)

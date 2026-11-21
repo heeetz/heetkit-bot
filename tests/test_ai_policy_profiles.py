@@ -84,7 +84,6 @@ async def test_local_protection_filters_chat_and_ai_replies_without_leaking_to_c
     for paths, protected in ((configured, True), (clean, False)):
         monkeypatch.setenv("HEETKIT_DATA_DIR", str(paths.root))
         token_file, database_url = prepare_runtime_data(
-            str(tmp_path / "unused-tokens.json"),
             f"sqlite+aiosqlite:///{tmp_path / 'unused.db'}",
             paths=paths,
         )

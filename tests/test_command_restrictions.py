@@ -93,8 +93,8 @@ def test_reject_invalid_inputs_without_mutation(tmp_path, clock, changes):
 
 
 @pytest.mark.parametrize("payload", ["{", '{"version":3,"restrictions":[]}',
-    '{"version":true,"restrictions":[]}', '{"version":1,"restrictions":[{}]}',
-    '{"version":1,"version":1,"restrictions":[]}', '{"version":1,"restrictions":[],"unknown":1}'])
+    '{"version":true,"restrictions":[]}', '{"version":1,"restrictions":[]}', '{"version":2,"restrictions":[{}]}',
+    '{"version":2,"version":2,"restrictions":[]}', '{"version":2,"restrictions":[],"unknown":1}'])
 def test_invalid_policy_refuses_startup_without_overwrite_or_private_error(tmp_path, payload):
     path = tmp_path / "policy.json"
     path.write_text(payload)

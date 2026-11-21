@@ -73,14 +73,6 @@ class DatabaseMigrationError(RuntimeError):
                 "See Data and privacy: Versioned database upgrade and recovery.")
 
 
-class LegacyChannelMappingRequired(DatabaseMigrationError):
-    """Only absent input for recognized unscoped legacy rows opens the Desktop form."""
-
-    def __init__(self):
-        super().__init__("Legacy history needs an explicit channel choice. Confirm its numeric Twitch channel ID in Desktop, "
-                         "or provide legacy-channel-mapping.json beside the database for Server.")
-
-
 async def run_sqlite_work(operation, *args, **kwargs):
     """Retain caller-owned guards/locks until a cancelled worker really finishes."""
     task = asyncio.create_task(asyncio.to_thread(operation, *args, **kwargs))
@@ -127,16 +119,16 @@ def _private_json(path, payload):
         os.fsync(stream.fileno())
 
 
-def _recovery_paths(path, version=0):
+def _recovery_paths(path, version):
     folder = path.parent / (path.name + ".recovery")
     if folder.is_symlink() or folder.is_junction() or (folder.exists() and folder.resolve() != folder.absolute()):
         raise DatabaseMigrationError("Unsafe database recovery directory; startup stopped.")
     return folder, folder / f"schema-{version}.sqlite3", folder / f"schema-{version}.json"
 
 
-def _backup(path, connection, now, version=0):
+def _backup(path, connection, now):
     maintain_recovery(path, now=now)
-    folder, target, manifest = _recovery_paths(path, version)
+    folder, target, manifest = _recovery_paths(path, 2)
     folder.mkdir(mode=0o700, exist_ok=True)
     if target.is_symlink() or manifest.is_symlink():
         raise DatabaseMigrationError("Unsafe database recovery file; startup stopped.")
@@ -183,51 +175,6 @@ def _date(value):
     return result.replace(tzinfo=timezone.utc) if result.tzinfo is None else result.astimezone(timezone.utc)
 
 
-def _identifier(value):
-    return isinstance(value, str) and re.fullmatch(r"[0-9]{1,32}", value) is not None
-
-
-def _mapping(path):
-    try:
-        payload = json.loads((path.parent / "legacy-channel-mapping.json").read_text(encoding="utf-8"))
-        if type(payload.get("version")) is not int or payload["version"] != 1 or not _identifier(payload.get("channel_id")):
-            raise ValueError
-        return payload["channel_id"]
-    except FileNotFoundError:
-        raise LegacyChannelMappingRequired() from None
-    except (OSError, ValueError, AttributeError):
-        raise DatabaseMigrationError("Cannot read a valid legacy-channel-mapping.json (version 1, numeric channel_id). "
-                                     "Correct the existing profile-local mapping or its permissions, then restart.") from None
-
-
-def validate_legacy_channel_choice(channel_id, confirmed):
-    if confirmed is not True:
-        raise ValueError("Confirm that all unscoped legacy history belongs to the chosen channel.")
-    if not _identifier(channel_id):
-        raise ValueError("Enter the numeric Twitch channel ID (1–32 ASCII digits), verified separately with Twitch.")
-
-
-def save_legacy_channel_mapping(path: Path, channel_id: str):
-    """Caller holds the database guard. Create once; never replace existing input."""
-    validate_legacy_channel_choice(channel_id, True)
-    target = path.resolve().parent / "legacy-channel-mapping.json"
-    staged = target.with_name(".legacy-channel-mapping-" + secrets.token_hex(8) + ".tmp")
-    try:
-        _private_json(staged, {"version": 1, "channel_id": channel_id})
-        # Atomic create-if-absent on the same filesystem; unlike replace this
-        # cannot overwrite a mapping supplied while the form was open.
-        os.link(staged, target)
-    except FileExistsError:
-        raise DatabaseMigrationError("A legacy channel mapping already exists. Review it with HeetKit stopped, then restart; it was not overwritten.") from None
-    except OSError:
-        raise DatabaseMigrationError("Could not save the legacy channel choice. Check write permissions beside the profile database, then restart.") from None
-    finally:
-        try:
-            staged.unlink(missing_ok=True)
-        except OSError:
-            pass
-
-
 def _validate_schema(connection, version, *, experimental=False):
     expected_columns = SCHEMA_2_COLUMNS if version == 2 else EXPERIMENTAL_V3_COLUMNS if experimental else TABLE_COLUMNS
     if _tables(connection) != expected_columns:
@@ -265,115 +212,33 @@ def _create(connection):
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 
-def _upgrade(connection, path, tables, stored_limit, now):
-    rows = {}
-    for name in ("users", "ai_memory_entries"):
-        rows[name] = [dict(zip(tables[name], row)) for row in connection.execute(f'SELECT * FROM "{name}"')]
-    suppressed = {row[0] for row in connection.execute("SELECT twitch_user_id FROM privacy_opt_outs")} if "privacy_opt_outs" in tables else set()
-    if any(not _identifier(value) for value in suppressed):
-        raise DatabaseMigrationError("Malformed legacy suppression record; startup stopped.")
-    mapping = _mapping(path) if any(not row.get("channel_id") for values in rows.values() for row in values) else None
-    report = {}
-    kept = {}
-    for name, values in rows.items():
-        counts = dict(source=len(values), retained=0, opted_out=0, expired=0, count_cap=0)
-        candidates = []
-        identities = set()
-        for row in values:
-            channel = row.get("channel_id") or mapping
-            if not _identifier(row["twitch_user_id"]) or not _identifier(channel) or type(row["id"]) is not int:
-                raise DatabaseMigrationError("Malformed legacy identity; startup stopped.")
-            row["channel_id"] = channel
-            try:
-                created = _date(row["created_at"])
-                observed = _date(row["last_seen_at"]) if name == "users" else created
-                if name == "users" and observed < created:
-                    raise ValueError
-                row["created_at"] = created.replace(tzinfo=None).isoformat(" ")
-                if name == "users":
-                    row["last_seen_at"] = observed.replace(tzinfo=None).isoformat(" ")
-                fields = ("username",) if name == "users" else ("request_text", "response_text")
-                if any(not isinstance(row[field], str) or not row[field] or len(row[field]) > (64 if field == "username" else 500) for field in fields):
-                    raise ValueError
-            except (TypeError, ValueError):
-                raise DatabaseMigrationError("Malformed legacy personal row; startup stopped.") from None
-            identity = (channel, row["twitch_user_id"]) if name == "users" else row["id"]
-            if identity in identities:
-                raise DatabaseMigrationError("Duplicate legacy identity; startup stopped.")
-            identities.add(identity)
-            if row["twitch_user_id"] in suppressed:
-                counts["opted_out"] += 1
-            elif observed <= now - timedelta(days=60):
-                counts["expired"] += 1
-            else:
-                candidates.append(row)
-        if name == "ai_memory_entries":
-            groups = {}
-            retained = []
-            for row in sorted(candidates, key=lambda row: (_date(row["created_at"]), row["id"]), reverse=True):
-                key = (row["channel_id"], row["twitch_user_id"])
-                groups[key] = groups.get(key, 0) + 1
-                if groups[key] <= stored_limit:
-                    retained.append(row)
-                else:
-                    counts["count_cap"] += 1
-            candidates = retained
-        counts["retained"] = len(candidates)
-        if counts["source"] != sum(counts[key] for key in ("retained", "opted_out", "expired", "count_cap")):
-            raise DatabaseMigrationError("Legacy row reconciliation failed.")
-        report[name] = counts
-        kept[name] = candidates
-    _backup(path, connection, now)
-    for table in tables:
-        connection.execute(f'DROP TABLE "{table}"')
-    _create(connection)
-    connection.executemany("INSERT INTO privacy_opt_outs (twitch_user_id) VALUES (?)", [(value,) for value in sorted(suppressed)])
-    for name, values in kept.items():
-        columns = TABLE_COLUMNS[name]
-        expected = sorted(tuple(row[column] for column in columns) for row in values)
-        connection.executemany(f'INSERT INTO "{name}" VALUES ({",".join("?" for _ in columns)})', expected)
-        if sorted(connection.execute(f'SELECT * FROM "{name}"').fetchall()) != expected:
-            raise DatabaseMigrationError("Migrated field preservation verification failed.")
-    if {row[0] for row in connection.execute("SELECT twitch_user_id FROM privacy_opt_outs")} != suppressed:
-        raise DatabaseMigrationError("Migrated suppression verification failed.")
-    connection.execute("INSERT INTO schema_metadata VALUES ('legacy_migration', ?)",
-                       (json.dumps({"channel_id": mapping, "completed_at": now.isoformat(), "counts": report}),))
-    return report
-
-
-def initialize_schema(path: Path, stored_limit: int, *, now=None, before_commit=None):
+def initialize_schema(path: Path, *, now=None, before_commit=None):
     """All DDL/data/version changes share an explicit, tested SQLite transaction."""
     path = path.resolve()
     now = now or datetime.now(timezone.utc)
     try:
         with closing(sqlite3.connect(path, timeout=0, isolation_level=None)) as connection:
+            # Closing a rejected database must not checkpoint its pending WAL.
+            connection.setconfig(sqlite3.SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, True)
             connection.execute("PRAGMA secure_delete=ON")
             connection.execute("BEGIN IMMEDIATE")
             try:
-                _check_integrity(connection)
                 tables = _tables(connection)
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
+                if (version or tables) and (version < 2 or "schema_metadata" not in tables):
+                    raise DatabaseMigrationError("This profile was created by a HeetKit version older than 1.5.1. Install HeetKit 1.6 once to update it, then install this version.")
+                _check_integrity(connection)
                 if connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type IN ('trigger','view')").fetchone()[0]:
                     raise DatabaseMigrationError("Unsupported database objects; startup stopped.")
-                version = connection.execute("PRAGMA user_version").fetchone()[0]
                 report = None
-                if version in (1, 2):
-                    if version == 1:
-                        expected = {**SCHEMA_2_COLUMNS, "privacy_opt_outs": ("twitch_user_id",)}
-                        if tables != expected or connection.execute("SELECT value FROM schema_metadata WHERE name='schema_version'").fetchone() != ('1',):
-                            raise DatabaseMigrationError("Unsupported version-1 database schema; startup stopped.")
-                    else:
-                        _validate_schema(connection, version)
-                    _backup(path, connection, now, version=version)
-                    if version == 1:
-                        connection.execute("ALTER TABLE privacy_opt_outs ADD COLUMN username VARCHAR(64)")
-                        connection.execute("ALTER TABLE privacy_opt_outs ADD COLUMN opted_out_at DATETIME")
+                if version == 2:
+                    _validate_schema(connection, version)
+                    _backup(path, connection, now)
                     for statement in LEADERBOARD_SQL:
                         connection.execute(statement)
                     connection.execute("UPDATE schema_metadata SET value=? WHERE name='schema_version'", (str(SCHEMA_VERSION),))
                     connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
                     report = {"leaderboards": "initialized empty"}
-                    if version == 1:
-                        report["opt_out_metadata"] = "upgraded; historical names and dates remain unknown"
                 elif version == SCHEMA_VERSION:
                     if tables == EXPERIMENTAL_V3_COLUMNS:
                         _validate_schema(connection, version, experimental=True)
@@ -388,19 +253,12 @@ def initialize_schema(path: Path, stored_limit: int, *, now=None, before_commit=
                     raise DatabaseMigrationError("Unsupported database version; use a compatible application.")
                 elif not tables:
                     _create(connection)
-                else:
-                    if set(tables) - {"users", "ai_memory_entries", "privacy_opt_outs"} or not {"users", "ai_memory_entries"} <= tables.keys():
-                        raise DatabaseMigrationError("Unrecognized legacy database; startup stopped.")
-                    for name, columns in tables.items():
-                        expected = ("twitch_user_id",) if name == "privacy_opt_outs" else TABLE_COLUMNS[name]
-                        if set(columns) not in (set(expected), set(expected) - {"channel_id"}):
-                            raise DatabaseMigrationError("Unrecognized legacy columns; startup stopped.")
-                    report = _upgrade(connection, path, tables, stored_limit, now)
                 _validate_schema(connection, SCHEMA_VERSION)
                 _check_integrity(connection)
                 if before_commit is not None:
                     before_commit(connection)
                 connection.commit()
+                connection.setconfig(sqlite3.SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, False)
                 return report
             except BaseException:
                 connection.rollback()
@@ -416,7 +274,7 @@ def maintain_recovery(path: Path, suppressed=(), *, deleted=(), withdrawn=(), no
         _maintain_recovery(path, suppressed, deleted=deleted, withdrawn=withdrawn, now=now, version=version)
 
 
-def _maintain_recovery(path: Path, suppressed=(), *, deleted=(), withdrawn=(), now=None, version=0):
+def _maintain_recovery(path: Path, suppressed=(), *, deleted=(), withdrawn=(), now=None, version):
     """Expire only our fixed recovery files; scrub known deletions before restore."""
     now = now or datetime.now(timezone.utc)
     folder, target, manifest = _recovery_paths(path.resolve(), version)

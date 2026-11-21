@@ -24,13 +24,12 @@ from typing import Any, Coroutine
 
 from pydantic import SecretStr, ValidationError
 
-from app.app_settings import DEFAULT_INTERFACE_LANGUAGE, AISettings, AppSettings, AppSettingsStore, TwitchSettings
+from app.app_settings import DEFAULT_INTERFACE_LANGUAGE, AppSettings, AppSettingsStore, TwitchSettings
 from app.bot_runtime import BotRuntime
 from app.management import APPLICATION_NAME, APPLICATION_SUBTITLE, EXTERNAL_LINKS, ApplicationManagement
 from app.command_settings import CommandSettings
 from app.commands.registry import command_unavailable_reason
 from app.custom_commands import VARIABLES
-from app.config.ai_models import GEMINI_MODEL_PRESETS, GEMINI_PROVIDER_NAME, AI_PROVIDERS
 from app.ai_user_blocks import normalize_ai_username, verified_user_id
 from app.config.ai_language import (
     RESPONSE_LANGUAGES, build_response_language_instruction,
@@ -39,8 +38,8 @@ from app.config.personalities import AI_PERSONALITY_PROMPTS, build_protected_sha
 from app.config.profile_settings import apply_ai_app_settings, apply_twitch_app_settings
 from app.config.settings import Settings, TwitchConfigurationError, load_settings_with_credentials
 from app.container import Application, build_application
-from app.database.migrations import DatabaseMigrationError, LegacyChannelMappingRequired, validate_legacy_channel_choice
-from app.credentials import CredentialError, CredentialManager, CredentialName, CredentialStore
+from app.database.migrations import DatabaseMigrationError
+from app.credentials import CredentialError, CredentialManager, CredentialName
 from app.desktop_instance import (
     DesktopAlreadyRunningError,
     desktop_instance_guard,
@@ -92,15 +91,9 @@ BRIDGE_BOT_STOP_TIMEOUT_SECONDS = 20.0
 BRIDGE_TWITCH_RECONNECT_TIMEOUT_SECONDS = 30.0
 TRAY_REFRESH_INTERVAL_SECONDS = 2.0
 
-# Operations allowed while the legacy channel confirmation is pending.
-STARTUP_OPERATIONS = frozenset({
-    "get_desktop_startup", "confirm_legacy_channel", "cancel_desktop_startup",
-    "get_interface_language", "set_interface_language",
-})
-
 # Register functions by exact name; never give pywebview an object to traverse.
 FRONTEND_OPERATIONS = (
-    "get_desktop_startup", "confirm_legacy_channel", "cancel_desktop_startup",
+    "get_desktop_startup",
     "get_interface_language", "set_interface_language",
     "export_activity",
     "export_configuration", "preview_configuration_import", "apply_configuration_import",
@@ -123,7 +116,7 @@ FRONTEND_OPERATIONS = (
     "get_profile_info", "open_profile_folder", "update_app_settings",
     "get_twitch_settings", "update_twitch_settings", "save_twitch_preset",
     "delete_twitch_preset", "reconnect_twitch", "get_credentials",
-    "get_ai_provider_settings", "update_ai_provider_settings", "discover_gemini_models", "discover_ai_models",
+    "get_ai_provider_settings", "discover_ai_models",
     "get_ai_setup", "save_ai_setup",
     "get_setup_guide", "save_setup_guide",
     "get_blocked_ai_users", "block_ai_user", "unblock_ai_user",
@@ -166,19 +159,6 @@ class AsyncioBackendHost:
         self._bot_runtime: BotRuntime | None = None
         self._close_lock = threading.Lock()
         self._shutdown_future: Future[Any] | None = None
-        self._startup_state = "starting"
-        self._migration_error: str | None = None
-        self._resume_startup_task: asyncio.Task | None = None
-
-    @property
-    def startup_pending(self) -> bool:
-        return self._startup_state != "ready"
-
-    def startup_status(self) -> dict[str, object]:
-        return {"state": self._startup_state, "error": self._migration_error,
-                "suggested_channel": self._settings.twitch_channel,
-                "suggested_channel_id": self._settings.twitch_channel_user_id}
-
     @property
     def application(self) -> Application:
         if self._application is None:
@@ -215,41 +195,6 @@ class AsyncioBackendHost:
             except TwitchConfigurationError as error:
                 self.run_intent = False
                 self._logger.warning("Automatic Twitch start skipped: %s", error)
-        self._startup_state = "ready"
-
-    async def confirm_legacy_channel(self, channel_id, confirmed) -> dict[str, object]:
-        validate_legacy_channel_choice(channel_id, confirmed)
-        if self._startup_state != "mapping_required":
-            return {"ok": False, "error": "Channel confirmation is unavailable. Close HeetKit and review the startup error before retrying."}
-        self._startup_state = "starting"
-        self._resume_startup_task = asyncio.current_task()
-        try:
-            await self.application.database.confirm_legacy_channel(channel_id, confirmed)
-            await self._complete_startup()
-            return {"ok": True}
-        except DatabaseMigrationError as error:
-            self._migration_error = error.operator_message
-        except asyncio.CancelledError:
-            self._migration_error = "Startup was cancelled. Close HeetKit and restart to continue using the saved channel choice."
-            raise
-        except Exception as error:
-            self._logger.error("Desktop startup resume failed: %s", type(error).__name__)
-            self._migration_error = "Desktop startup could not complete. Close HeetKit and review its startup diagnostics before retrying."
-        finally:
-            self._resume_startup_task = None
-            if self._startup_state != "ready":
-                self._startup_state = "failed"
-        return {"ok": False, "error": self._migration_error}
-
-    async def _shutdown_backend(self) -> None:
-        pending = self._resume_startup_task
-        if pending is not None and pending is not asyncio.current_task():
-            pending.cancel()
-            try:
-                await pending
-            except asyncio.CancelledError:
-                pass
-        await self.bot_runtime.shutdown()
 
     def _run(self) -> None:
         loop = asyncio.new_event_loop()
@@ -264,11 +209,7 @@ class AsyncioBackendHost:
             bot_runtime = BotRuntime(application, get_logger("app.twitch"))
             self._application = application
             self._bot_runtime = bot_runtime
-            try:
-                loop.run_until_complete(self._complete_startup())
-            except LegacyChannelMappingRequired:
-                # Keep only the bridge alive. No Twitch/cleanup workers have started.
-                self._startup_state = "mapping_required"
+            loop.run_until_complete(self._complete_startup())
             self._ready.set()
             loop.run_forever()
         except Exception as error:
@@ -292,7 +233,7 @@ class AsyncioBackendHost:
         if self._bot_runtime is None:
             return
         task = loop.create_task(
-            self._shutdown_backend(),
+            self.bot_runtime.shutdown(),
             name="desktop-backend-shutdown",
         )
         loop.run_until_complete(
@@ -370,7 +311,7 @@ class AsyncioBackendHost:
                 and self._bot_runtime is not None
             ):
                 if self._shutdown_future is None:
-                    self._shutdown_future = self.submit(self._shutdown_backend())
+                    self._shutdown_future = self.submit(self.bot_runtime.shutdown())
                 try:
                     self._shutdown_future.result(timeout=timeout)
                 except FutureTimeoutError:
@@ -440,7 +381,6 @@ class WebUIBridge(ApplicationManagement):
         self._twitch_secret_requires_restart = False
         self._profile_root = RuntimePaths.default().root.resolve()
         self._window: Any | None = None
-        self._on_startup_complete = None
         self._relaunch_ready: Path | None = None
         self._controller: DesktopController | None = None
         self._update_available = False
@@ -450,35 +390,13 @@ class WebUIBridge(ApplicationManagement):
         self._update_progress: dict[str, object] = {}
 
     def get_desktop_startup(self) -> dict[str, object]:
-        status = self._backend.startup_status()
-        if self._relaunch_ready is not None and status["state"] in {"ready", "mapping_required"}:
+        if self._relaunch_ready is not None:
             try:
                 desktop_relaunch.report_desktop_ready(self._relaunch_ready)
                 self._relaunch_ready = None
             except OSError:
                 self._logger.warning("Could not report Desktop relaunch readiness")
-        return {**status, "windows": sys.platform == "win32"}
-
-    def confirm_legacy_channel(self, channel_id: object, confirmed: object) -> dict[str, object]:
-        try:
-            validate_legacy_channel_choice(channel_id, confirmed)
-            result = self._wait_for_backend(self._backend.confirm_legacy_channel(channel_id, confirmed),
-                                           operation="confirm_legacy_channel", timeout=120.0)
-            if result.get("ok") and self._on_startup_complete is not None:
-                self._on_startup_complete()
-            return result
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
-        except (BridgeOperationTimedOut, FutureCancelledError):
-            return {"ok": False, "error": "Startup confirmation did not complete. Close HeetKit and restart; check the saved mapping before retrying."}
-        except Exception:
-            return {"ok": False, "error": "Could not complete startup. Close HeetKit and check profile permissions and startup diagnostics."}
-
-    def cancel_desktop_startup(self) -> dict[str, object]:
-        if not self._backend.startup_pending or self._window is None:
-            return {"ok": False, "error": "Close the Desktop window to exit."}
-        self._window.destroy()
-        return {"ok": True}
+        return {"state": "ready", "windows": sys.platform == "win32"}
 
     def _wait_for_backend(
         self,
@@ -1317,48 +1235,6 @@ class WebUIBridge(ApplicationManagement):
         except Exception:
             return {"ok": False, "error": "Could not save AI setup. Reload saved state before retrying."}
 
-    def update_ai_provider_settings(
-        self,
-        selected_model: object = None,
-        fallback_model: object = None,
-        provider: object = "gemini",
-    ) -> dict[str, object]:
-        if self._app_settings is None:
-            return {"ok": False, "error": "Desktop settings are not configured."}
-        try:
-            updated = self._wait_for_backend(
-                self._save_ai_provider_models(selected_model, fallback_model, provider),
-                operation="save_ai_models",
-                timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
-            )
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
-        except BridgeOperationTimedOut:
-            return {
-                "ok": False,
-                "error": "Saving AI model settings timed out. Check Logs for details.",
-            }
-        except OSError:
-            self._logger.warning("Could not save AI model settings")
-            return {"ok": False, "error": "Could not save AI model settings."}
-        except Exception:
-            self._logger.warning("Could not save AI model settings")
-            return {"ok": False, "error": "Could not save AI model settings."}
-        self._logger.info(
-            "AI provider model settings saved",
-            extra={
-                "event_kind": "settings.ai_model",
-                "event_provider": AI_PROVIDERS[updated.provider],
-                "event_action": "save",
-            },
-        )
-        return {"ok": True}
-
-    def discover_gemini_models(self) -> dict[str, object]:
-        """Compatibility entry point; legacy callers always request Gemini."""
-        result = self.discover_ai_models("gemini")
-        return {key: value for key, value in result.items() if key != "provider_id"}
-
     def discover_ai_models(self, provider: object = None) -> dict[str, object]:
         from app.config.ai_models import validate_ai_provider
         from app.services.ai_provider import AIModelDiscoveryError
@@ -1675,9 +1551,6 @@ def expose_frontend_operations(window: Any, bridge: WebUIBridge) -> None:
         def call(*args: Any, **kwargs: Any) -> Any:
             if trusted_origin is None or _frontend_origin(window.get_current_url()) != trusted_origin:
                 return {"ok": False, "error": "This page cannot access the application bridge."}
-            if (getattr(bridge._backend, "startup_pending", False)
-                    and name not in STARTUP_OPERATIONS):
-                return annotate_error({"ok": False, "error": "Complete the channel confirmation before using HeetKit."})
             return annotate_error(operation(*args, **kwargs))
 
         call.__signature__ = signature(operation)
@@ -1737,8 +1610,7 @@ class DesktopController:
 
     def start_tray(self) -> None:
         with self._exit_lock:
-            if (not self._tray_supported or self._tray_started or self._exit_requested
-                    or getattr(self._backend, "startup_pending", False)):
+            if not self._tray_supported or self._tray_started or self._exit_requested:
                 return
             try:
                 self._tray.start()
@@ -1993,7 +1865,7 @@ def run_desktop_host(
             width=1180,
             height=760,
             min_size=(900, 620),
-            hidden=relaunch_ready is None and settings_snapshot.window.start_minimized and sys.platform == "win32" and not backend.startup_pending,
+            hidden=relaunch_ready is None and settings_snapshot.window.start_minimized and sys.platform == "win32",
             background_color="#0b0f17",
             text_select=True,
         )
@@ -2004,7 +1876,6 @@ def run_desktop_host(
         if sys.platform == "win32":
             window.events.shown += configure_windows_taskbar
         controller.bind_window(window)
-        bridge._on_startup_complete = controller.start_tray
         controller.start_tray()
         icon_name = (
             "icon.ico" if sys.platform == "win32" else
@@ -2064,23 +1935,9 @@ def main() -> None:
                     guards.enter_context(desktop_relaunch.installation_access(install))
                     desktop_relaunch.remove_finished_runners()
                 guards.enter_context(desktop_instance_guard(paths.app_settings))
-                if sys.platform == "win32" and not paths.brand_migration_marker.exists():
-                    # Legacy compatibility: the former desktop could also be
-                    # running against this same explicit profile directory.
-                    guards.enter_context(desktop_instance_guard(paths.app_settings, legacy_identity=True))
-                if paths.is_default_profile and not paths.brand_migration_marker.exists() and paths.former_default_root.is_dir():
-                    guards.enter_context(desktop_instance_guard(
-                        paths.former_default_root / "config" / "app_settings.json",
-                        legacy_identity=True,
-                    ))
-            settings, credential_manager = (
-                load_settings_with_credentials(CredentialStore(migrate_legacy=False))
-                if arguments.check else load_settings_with_credentials()
-            )
+            settings, credential_manager = load_settings_with_credentials()
             if not arguments.check:
-                token_file, database_url = prepare_runtime_data(
-                    settings.twitch_token_file, settings.database_url
-                )
+                token_file, database_url = prepare_runtime_data(settings.database_url)
                 settings = settings.model_copy(
                     update={"twitch_token_file": token_file, "database_url": database_url}
                 )

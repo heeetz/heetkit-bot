@@ -8,13 +8,12 @@ from dataclasses import asdict
 from types import SimpleNamespace
 
 from app.ai_user_blocks import normalize_ai_username, verified_user_id
-from app.app_settings import AISettings, AppSettingsStore
+from app.app_settings import AppSettingsStore
 from app.command_settings import CommandNameConflict, CommandSettings
 from app.commands.registry import command_unavailable_reason
 from app.config.ai_language import RESPONSE_LANGUAGES, build_response_language_instruction
 from app.config.ai_models import (GEMINI_MODEL_PRESETS, AI_PROVIDERS, DEFAULT_DEEPSEEK_MODEL,
     DEFAULT_DEEPSEEK_FALLBACK_MODEL, DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL, validate_ai_provider)
-from app.config.profile_settings import apply_ai_app_settings
 from app.config.personalities import AI_PERSONALITY_PROMPTS, build_protected_shared_instructions
 from app.container import Application
 from app.custom_commands import VARIABLES
@@ -31,9 +30,9 @@ from app.version import VERSION
 APPLICATION_NAME = "HeetKit"
 APPLICATION_SUBTITLE = "Desktop control center for Twitch chat"
 EXTERNAL_LINKS = {
-    "repository": "https://github.com/heeetz/twitch-bot",
-    "license": "https://github.com/heeetz/twitch-bot/blob/main/LICENSE",
-    "third_party_notices": "https://github.com/heeetz/twitch-bot/blob/main/THIRD_PARTY_NOTICES.md",
+    "repository": "https://github.com/heeetz/heetkit-bot",
+    "license": "https://github.com/heeetz/heetkit-bot/blob/main/LICENSE",
+    "third_party_notices": "https://github.com/heeetz/heetkit-bot/blob/main/THIRD_PARTY_NOTICES.md",
     "author_twitch": "https://www.twitch.tv/heet_ok",
     "twitch_developer_console": "https://dev.twitch.tv/console/apps",
     "releases": RELEASE_PAGE_URL,
@@ -385,26 +384,6 @@ class ApplicationManagement:
             self._logger.exception("Could not remove AI user block")
             return {"ok": False, "error": "Could not remove AI user block. Check the profile file and try again."}
         return self.get_blocked_ai_users()
-
-    async def _save_ai_provider_models(
-        self,
-        selected_model: object = None,
-        fallback_model: object = None,
-        provider: object = "gemini",
-    ) -> AISettings:
-        """Persist provider-scoped choices before publishing on the backend loop."""
-        if self._app_settings is None:
-            raise RuntimeError("Desktop settings are not configured.")
-        updated = self._app_settings.update_ai_models(
-            selected_model=selected_model,
-            fallback_model=fallback_model,
-            provider=provider,
-        )
-        application_settings = self._backend.application.settings
-        effective = apply_ai_app_settings(application_settings, updated)
-        for name in ("ai_provider", "gemini_model", "gemini_fallback_model", "deepseek_model", "deepseek_fallback_model", "openai_model", "openai_fallback_model", "ai_setup"):
-            setattr(application_settings, name, getattr(effective, name))
-        return updated.ai
 
     async def _save_ai_response_language(
         self, mode: object, allowed_languages: object, fallback_language: object,

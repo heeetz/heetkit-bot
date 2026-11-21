@@ -16,7 +16,7 @@ from app.config.ai_models import validate_ai_provider, validate_provider_models
 from app.settings_recovery import preserve_settings_recovery
 from app.config.ai import AI_MEMORY_ENABLED
 from app.config.privacy import AI_HISTORY_MAX_ENTRIES, AI_CONTEXT_MAX_ENTRIES, validate_memory_limits
-from app.config.ai_setup import AIModelSelection, AISetup, parse_ai_setup
+from app.config.ai_setup import AISetup, parse_ai_setup
 from app.config.ai_language import ResponseLanguageSettings, validate_response_language
 
 logger = logging.getLogger(__name__)
@@ -279,22 +279,16 @@ def load_app_settings(path: Path) -> AppSettings:
         logger.warning("Application settings file must contain a JSON object; using defaults")
         return unsafe_defaults
 
-    if "version" not in payload:
-        window_payload = payload
-        startup_payload: dict[str, object] = {}
-        ai_payload: dict[str, object] = {}
-        interface_payload: dict[str, object] = {}
-    elif type(payload["version"]) is not int or payload["version"] != APP_SETTINGS_VERSION:
+    if type(payload.get("version")) is not int or payload["version"] != APP_SETTINGS_VERSION:
         logger.warning(
             "Unsupported application settings version=%r; using defaults",
-            payload["version"],
+            payload.get("version"),
         )
         return unsafe_defaults
-    else:
-        window_payload = _read_section(payload, "window")
-        startup_payload = _read_section(payload, "startup")
-        ai_payload = _read_section(payload, "ai")
-        interface_payload = _read_section(payload, "interface")
+    window_payload = _read_section(payload, "window")
+    startup_payload = _read_section(payload, "startup")
+    ai_payload = _read_section(payload, "ai")
+    interface_payload = _read_section(payload, "interface")
     interface_language = interface_payload.get("language", DEFAULT_INTERFACE_LANGUAGE)
     if interface_language not in INTERFACE_LANGUAGES:
         logger.warning("Ignoring invalid application setting name=interface.language")
@@ -304,9 +298,7 @@ def load_app_settings(path: Path) -> AppSettings:
             or not isinstance(operation_mode, str) or operation_mode not in OPERATION_MODES):
         logger.warning("Invalid headless operation mode; keeping Twitch disabled")
         operation_mode = "disabled"
-    twitch_payload = (
-        {} if "version" not in payload else _read_section(payload, "twitch")
-    )
+    twitch_payload = _read_section(payload, "twitch")
     twitch_channel = _read_optional_string(twitch_payload, "twitch", "channel")
     twitch_channel_user_id = _read_optional_string(
         twitch_payload,
@@ -504,7 +496,6 @@ def save_app_settings(
             path,
             None if recovered_settings is None else {"version": APP_SETTINGS_VERSION, **asdict(recovered_settings)},
             version=APP_SETTINGS_VERSION,
-            allow_legacy=True,
         )
         os.replace(temporary_path, path)
         temporary_path = None
@@ -566,33 +557,6 @@ class AppSettingsStore:
             self._interface_language_saved = True
         return True
 
-    def update_window(
-        self,
-        *,
-        start_minimized: object,
-        minimize_to_tray: object,
-        close_to_tray: object,
-    ) -> AppSettings:
-        values = (start_minimized, minimize_to_tray, close_to_tray)
-        if any(type(value) is not bool for value in values):
-            raise ValueError("Application window settings must be boolean values.")
-        window = WindowSettings(
-            start_minimized=start_minimized,
-            minimize_to_tray=minimize_to_tray,
-            close_to_tray=close_to_tray,
-        )
-        with self._lock:
-            updated = replace(
-                self._settings,
-                window=window,
-                startup=self._settings.startup,
-                ai=self._settings.ai,
-                twitch=self._settings.twitch,
-            )
-            save_app_settings(self._path, updated, recovered_settings=self._settings)
-            self._settings = updated
-        return updated
-
     def update_desktop(
         self,
         *,
@@ -643,42 +607,6 @@ class AppSettingsStore:
                 window=self._settings.window,
                 startup=self._settings.startup,
                 ai=replace(self._settings.ai, memory_enabled=enabled),
-                twitch=self._settings.twitch,
-            )
-            save_app_settings(self._path, updated, recovered_settings=self._settings)
-            self._settings = updated
-        return updated
-
-    def update_ai_models(
-        self,
-        *,
-        selected_model: object = None,
-        fallback_model: object = None,
-        provider: object = "gemini",
-    ) -> AppSettings:
-        provider = validate_ai_provider(provider)
-        changes = {"provider": provider}
-        if selected_model is not None or fallback_model is not None:
-            selected, fallback = validate_provider_models(provider, selected_model, fallback_model)
-            prefix = provider + "_" if provider != "gemini" else ""
-            changes.update({prefix + "selected_model": selected, prefix + "fallback_model": fallback})
-        with self._lock:
-            if self._settings.ai.setup is not None:
-                existing = self._settings.ai.setup
-                if selected_model is None and fallback_model is None:
-                    raise ValueError("Choose both models when changing a configured AI setup through the legacy model operation.")
-                def compatible(previous, model):
-                    if previous and previous.provider == provider and previous.model == model:
-                        return previous
-                    return AIModelSelection(provider, model, "off" if provider == "deepseek" else "default")
-                configured = replace(existing, primary=compatible(existing.primary, selected),
-                                     fallback=compatible(existing.fallback, fallback), cross_provider_acknowledged=False)
-                changes["setup"] = parse_ai_setup(asdict(configured))
-            updated = replace(
-                self._settings,
-                window=self._settings.window,
-                startup=self._settings.startup,
-                ai=replace(self._settings.ai, **changes),
                 twitch=self._settings.twitch,
             )
             save_app_settings(self._path, updated, recovered_settings=self._settings)

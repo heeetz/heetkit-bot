@@ -99,7 +99,7 @@ def _response(value: object) -> str:
     return value.strip()
 
 
-def parse_custom_command(raw: object, *, command_id: str | None = None, legacy: bool = False) -> CustomCommand:
+def parse_custom_command(raw: object, *, command_id: str | None = None) -> CustomCommand:
     if not isinstance(raw, dict):
         raise ValueError("Custom command must be an object.")
     identifier = command_id if command_id is not None else raw.get("id")
@@ -119,7 +119,7 @@ def parse_custom_command(raw: object, *, command_id: str | None = None, legacy: 
     if not isinstance(permission, str) or permission not in Permission.__members__:
         raise ValueError("Permission must be a valid user level.")
     inferred_mode = "random" if len(parsed_responses) > 1 else "single"
-    response_mode = inferred_mode if legacy else raw.get("response_mode", inferred_mode)
+    response_mode = raw.get("response_mode", inferred_mode)
     if response_mode not in ("single", "random", "burst"):
         raise ValueError("Response mode must be Single, Random or Burst.")
     if response_mode != "random" and len(parsed_responses) != 1:
@@ -137,7 +137,7 @@ def parse_custom_command(raw: object, *, command_id: str | None = None, legacy: 
         if type(burst_allow_override) is not bool:
             raise ValueError("Burst argument override must be a boolean.")
         burst_interval_ms = validate_burst_interval(raw.get("burst_interval_ms", 0))
-    elif not legacy and any(key in raw for key in ("burst_count", "burst_allow_override", "burst_interval_ms")):
+    elif any(key in raw for key in ("burst_count", "burst_allow_override", "burst_interval_ms")):
         raise ValueError("Burst settings require Burst response mode.")
     aliases = raw.get("aliases")
     if not isinstance(aliases, list) or len(aliases) > 10:
@@ -188,7 +188,6 @@ class CustomCommandStore:
         self._lock = namespace_lock if namespace_lock is not None else RLock()
         self._commands: dict[str, CustomCommand] = {}
         self._lookup: dict[str, str] = {}
-        self._schema_version = SCHEMA_VERSION
         self._creation_order = creation_order or CommandCreationOrder()
         self._load()
 
@@ -254,15 +253,14 @@ class CustomCommandStore:
         except (OSError, UnicodeError, json.JSONDecodeError) as error:
             logger.warning("Could not load custom commands: %s", type(error).__name__)
             return
-        if not isinstance(payload, dict) or type(payload.get("version")) is not int or payload["version"] not in (1, SCHEMA_VERSION) or not isinstance(payload.get("commands"), list):
+        if not isinstance(payload, dict) or type(payload.get("version")) is not int or payload["version"] != SCHEMA_VERSION or not isinstance(payload.get("commands"), list):
             logger.warning("Ignoring unsupported or malformed custom command data")
             return
-        self._schema_version = payload["version"]
         commands: dict[str, CustomCommand] = {}
         used = set(self._built_in_names)
         for raw in payload["commands"]:
             try:
-                command = parse_custom_command(raw, legacy=self._schema_version == 1)
+                command = parse_custom_command(raw)
                 if command.id in commands or any(name in used for name in (command.name, *command.aliases)):
                     raise ValueError("Duplicate command ID, name, or alias")
             except ValueError as error:
@@ -285,11 +283,10 @@ class CustomCommandStore:
                 os.fsync(output.fileno())
             preserve_settings_recovery(
                 self._path,
-                {"version": self._schema_version, "commands": [command.to_json() for command in self._commands.values()]},
-                version=(1, SCHEMA_VERSION),
+                {"version": SCHEMA_VERSION, "commands": [command.to_json() for command in self._commands.values()]},
+                version=SCHEMA_VERSION,
             )
             temporary_path.replace(self._path)
-            self._schema_version = SCHEMA_VERSION
         finally:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)

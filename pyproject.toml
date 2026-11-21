@@ -9,7 +9,7 @@ description = "HeetKit — Desktop control center for Twitch chat"
 authors = [{name = "heeetz"}]
 license = {text = "Apache-2.0"}
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "aiohttp>=3.14.4,<4.0",
     "aiosqlite>=0.20,<1.0",

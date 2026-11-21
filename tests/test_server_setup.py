@@ -49,7 +49,7 @@ def isolated(tmp_path, monkeypatch):
 async def api(unused_tcp_port):
     paths = RuntimePaths.default()
     settings = Settings(twitch_token_file=str(paths.tokens), database_url="sqlite+aiosqlite:///" + str(paths.database))
-    prepare_runtime_data(settings.twitch_token_file, settings.database_url)
+    prepare_runtime_data(settings.database_url)
     store = AppSettingsStore(paths.app_settings)
     store.update_operation_mode("manual")
     runtime = BotRuntime(build_application(settings), logging.getLogger("test"), headless=True)
@@ -320,7 +320,6 @@ async def test_direct_backend_setup_discovery_rotation_and_removal(api, monkeypa
     from app.config.profile_settings import apply_ai_app_settings
     server, call = api
     settings = server.runtime.application.settings
-    assert (await call("/v1/ai/models", {"provider": provider}))[0] == 200
     assert (await call("/v1/ai/models/discover", {"provider": provider}))[0] == 400
     for value in ("PRIVATE-FIRST-KEY", "PRIVATE-ROTATED-KEY"):
         assert (await call("/v1/credentials/replace", {"name": credential, "value": value}))[0] == 200
@@ -334,8 +333,11 @@ async def test_direct_backend_setup_discovery_rotation_and_removal(api, monkeypa
     assert (await call("/v1/credentials/test", {"name": credential}))[0] == 200
     status, result = await call("/v1/ai/models/discover", {"provider": provider})
     assert status == 200 and result == {"ok": True, "models": [model], "provider_id": provider}
-    assert (await call("/v1/ai/models", {"provider": provider, "selected_model": custom,
-                                             "fallback_model": backup}))[0] == 200
+    setup = {
+        "primary": {"provider": provider, "model": custom, "thinking": "default", "search": False},
+        "fallback": {"provider": provider, "model": backup, "thinking": "default", "search": False},
+    }
+    assert (await call("/v1/ai/setup", {"settings": setup}))[0] == 200
     provider_info = (await call("/v1/ai/models"))[1]["settings"]
     assert provider_info["provider_id"] == provider and provider_info["selected_model"] == custom
     assert provider_info["credential"]["name"] == credential
@@ -346,12 +348,12 @@ async def test_direct_backend_setup_discovery_rotation_and_removal(api, monkeypa
     monkeypatch.setattr("httpx.AsyncClient.send", reject)
     status, error = await call("/v1/ai/models/discover", {"provider": provider})
     assert status == 400 and error["error_code"] == "rate_limited"
-    assert getattr(settings, provider + "_model") == custom and "PRIVATE" not in json.dumps(error)
+    assert settings.ai_setup.primary.model == custom and "PRIVATE" not in json.dumps(error)
     reloaded = apply_ai_app_settings(Settings(), AppSettingsStore(RuntimePaths.default().app_settings).snapshot())
-    assert reloaded.ai_provider == provider and getattr(reloaded, provider + "_model") == custom
-    assert (await call("/v1/ai/models", {"provider": provider, "selected_model": "gemini-wrong",
-                                             "fallback_model": "gemini-also-wrong"}))[0] == 400
-    assert getattr(settings, provider + "_model") == custom
+    assert reloaded.ai_provider == provider and reloaded.ai_setup.primary.model == custom
+    invalid_setup = {**setup, "primary": {**setup["primary"], "model": "gemini-wrong"}}
+    assert (await call("/v1/ai/setup", {"settings": invalid_setup}))[0] == 400
+    assert settings.ai_setup.primary.model == custom
     assert (await call("/v1/credentials/remove", {"name": credential}))[0] == 200
     assert getattr(settings, credential) is None
     assert credential_manager(Settings()).effective_value(key_name) is None

@@ -24,7 +24,6 @@ HeetKit.exe --check loads the desktop DLLs without opening a window or modifying
 profile files. If it still fails, retain the full loader detail for a bug report.
 
 Settings and private state live under %LOCALAPPDATA%\HeetKit, outside this folder.
-Legacy %LOCALAPPDATA%\TwitchBot state imports once; the old folder remains as rollback.
 Use HeetKit.exe --stopped for a disconnected launch, or
 HeetKit.exe --data-dir C:\path\to\new-profile --stopped for an isolated profile.
 Configure Twitch identity, client secret and optional Gemini key in Settings.

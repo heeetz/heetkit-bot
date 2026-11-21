@@ -38,8 +38,8 @@ async def test_upsert_seen_keeps_default_return_and_skips_final_presence_read(tm
     finally:
         event.remove(database.engine.sync_engine, "before_cursor_execute", observe_sql)
 
-    stored = await users.get_by_twitch_user_id("43", channel_id="100")
-    assert stored is not None and stored.username == "ingress"
+    stored = await users.get_by_username("ingress", channel_id="100")
+    assert stored is not None and stored.twitch_user_id == "43"
     await database.close()
 
 
@@ -72,7 +72,7 @@ async def test_skipped_return_preserves_counts_optout_and_file_backed_recovery(t
 
         await users.upsert_seen("43", "retained", channel_id="100", return_user=False)
         assert await users.opt_out("42", "viewer")
-        assert await users.get_by_twitch_user_id("42", channel_id="100") is None
+        assert await users.get_by_username("viewer", channel_id="100") is None
         async with database.session_factory() as session:
             assert await session.get(LeaderboardCount, ("100", "month", "2026-11", "42")) is None
         await database.close()
@@ -81,10 +81,10 @@ async def test_skipped_return_preserves_counts_optout_and_file_backed_recovery(t
         await reopened.initialize()
         recovered_users = UserRepository(reopened.session_factory)
         try:
-            retained = await recovered_users.get_by_twitch_user_id("43", channel_id="100")
-            assert retained is not None and retained.username == "retained"
+            retained = await recovered_users.get_by_username("retained", channel_id="100")
+            assert retained is not None and retained.twitch_user_id == "43"
             assert await recovered_users.is_storage_opted_out("42")
-            assert await recovered_users.get_by_twitch_user_id("42", channel_id="100") is None
+            assert await recovered_users.get_by_username("viewer", channel_id="100") is None
             async with reopened.session_factory() as session:
                 assert await session.get(LeaderboardCount, ("100", "month", "2026-11", "42")) is None
         finally:

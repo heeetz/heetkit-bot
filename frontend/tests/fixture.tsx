@@ -11,7 +11,6 @@ import type {
   AISetupSettings,
   BlockedAIUser,
   AppStatus,
-  DesktopStartupStatus,
   CommandInfo,
   PersonalitiesResponse,
   TwitchConnectionSettings,
@@ -19,9 +18,6 @@ import type {
 } from '../src/bridge'
 
 const query = new URLSearchParams(window.location.search)
-let startupState: DesktopStartupStatus['state'] = query.has('legacyMapping') ? 'mapping_required' : 'ready'
-const startupCalls: unknown[] = []
-Object.assign(window, { startupCalls })
 const configured = query.has('configured')
 const authRequired = query.has('auth')
 const initialConnection = (query.get('connection') ?? (authRequired ? 'auth_required' : 'stopped')) as AppStatus['twitch_connection_state']
@@ -139,16 +135,11 @@ const languageCalls: string[] = []
 Reflect.set(window, 'languageCalls', languageCalls)
 
 window.pywebview = { api: {
-  get_desktop_startup: async () => ({ state: startupState, windows: !query.has('nonWindows'), suggested_channel: 'syntheticchannel',
-    suggested_channel_id: query.has('noSuggestedChannel') ? '' : '200',
-    error: startupState === 'failed' ? 'Recovery backup could not be verified. Keep the database and recovery copies; close HeetKit and review the recovery guide.' : null }),
-  confirm_legacy_channel: async (channelId: string, confirmed: boolean) => {
-    startupCalls.push(['confirm', channelId, confirmed])
-    if (query.has('migrationDelay')) await new Promise((resolve) => window.setTimeout(resolve, 600))
-    startupState = query.has('migrationFailure') ? 'failed' : 'ready'
-    return startupState === 'ready' ? { ok: true } : { ok: false, error: 'Recovery backup could not be verified. Keep the database and recovery copies; close HeetKit and review the recovery guide.' }
+  get_desktop_startup: async () => {
+    if (query.has('startupFailure')) throw new Error('Synthetic startup failure')
+    if (query.has('startupDelay')) await new Promise((resolve) => window.setTimeout(resolve, 800))
+    return { state: 'ready', windows: !query.has('nonWindows') }
   },
-  cancel_desktop_startup: async () => { startupCalls.push(['cancel']); return { ok: true } },
   // Desktop keeps the UI language in app settings; sessionStorage stands in for the profile.
   get_interface_language: async () => ({ ok: true, language: sessionStorage.getItem('uiLanguage') ?? query.get('lang') ?? 'en' }),
   set_interface_language: async (language: string) => {
@@ -158,7 +149,6 @@ window.pywebview = { api: {
     return { ok: true }
   },
   get_app_status: async () => {
-    if (startupState !== 'ready') throw new Error('Normal operations must wait for startup confirmation')
     if (query.has('statusDelay')) await new Promise((resolve) => window.setTimeout(resolve, 800))
     return status
   },
@@ -400,17 +390,10 @@ window.pywebview = { api: {
   test_credential: async (name: string) => { credentialCalls.push(['test', name]); return { ok: true } },
   get_ai_provider_settings: async () => ({ ok: true, settings: {
     provider: 'Gemini', selected_model: query.has('a4Models') && !aiStatus.model ? 'synthetic-primary' : aiStatus.model,
-    fallback_model: sessionStorage.getItem('a4Fallback') ?? (query.has('a4Models') ? 'synthetic-fallback' : ''),
+    fallback_model: query.has('a4Models') ? 'synthetic-fallback' : '',
     presets: query.has('a4Models') ? ['synthetic-primary', 'synthetic-fallback'].map((id) => ({ id, label: id, description: '' })) : [],
     credential: credentials[1],
   } }),
-  update_ai_provider_settings: async (primary: string, fallback: string) => {
-    aiCalls.push(['update_ai_provider_settings', primary, fallback])
-    if (query.has('modelSaveError')) return { ok: false, error: 'AI model settings could not be saved.' }
-    aiStatus = { ...aiStatus, model: primary }
-    sessionStorage.setItem('a4Fallback', fallback)
-    return { ok: true }
-  },
   get_ai_language_settings: async () => {
     if (query.has('languageLoadError')) return { ok: false, error: 'AI language settings are unavailable.' }
     return { ok: true, settings: languageSettings, languages: languageCatalogue, active_policy: activeLanguagePolicy }
@@ -436,10 +419,10 @@ window.pywebview = { api: {
     return { ok: true }
   },
   get_about_info: async () => ({
-    application_name: 'HeetKit', version: '0.1.0', author: 'heeetz', repository_url: 'https://github.com/heeetz/twitch-bot',
+    application_name: 'HeetKit', version: '0.1.0', author: 'heeetz', repository_url: 'https://github.com/heeetz/heetkit-bot',
     application_subtitle: 'Desktop control center for Twitch chat', author_twitch: '@heet_ok',
     discord_contact: 'de.tected', license_name: 'Apache-2.0', license_url: 'https://www.apache.org/licenses/LICENSE-2.0',
-    third_party_notices_url: 'https://github.com/heeetz/twitch-bot/blob/main/THIRD_PARTY_NOTICES.md',
+    third_party_notices_url: 'https://github.com/heeetz/heetkit-bot/blob/main/THIRD_PARTY_NOTICES.md',
   }),
   check_for_updates: async () => {
     updateCalls.push(['check_for_updates'])

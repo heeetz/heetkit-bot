@@ -14,6 +14,7 @@ from app.command_settings import (
     CommandSettingsDefinition,
     CommandSettingsOverride,
     load_command_overrides,
+    merge_commands_into_help,
     save_command_overrides,
     validate_command_aliases,
     validate_display_name,
@@ -111,6 +112,8 @@ class RuntimeState:
                     self._command_defaults,
                 )
             )
+            old_commands = (self._persisted_command_overrides.pop("commands", None)
+                            if "commands" not in self._command_defaults else None)
             self._command_settings = {
                 name: self._persisted_command_overrides.get(
                     name,
@@ -118,6 +121,13 @@ class RuntimeState:
                 ).apply(defaults)
                 for name, defaults in self._command_defaults.items()
             }
+            if old_commands is not None:
+                help_settings = merge_commands_into_help(
+                    self._command_settings["help"], old_commands, self._used_command_names("help"),
+                )
+                self._command_settings["help"] = help_settings
+                override = self._persisted_command_overrides.get("help", CommandSettingsOverride())
+                self._persisted_command_overrides["help"] = replace(override, aliases=help_settings.aliases)
             self._apply_loaded_command_policies()
 
     @property
@@ -205,19 +215,7 @@ class RuntimeState:
         # different command now owns one of their names.
         if settings.removed:
             return settings
-        used = (set(self._command_defaults) - {name}) | {"optout"}
-        current = self._command_settings[name]
-        current_saved = self._persisted_command_overrides.get(name, CommandSettingsOverride()).apply(defaults)
-        existing_identity = {current.primary_name, *current.aliases, current_saved.primary_name, *current_saved.aliases}
-        for other, other_defaults in self._command_defaults.items():
-            if other != name:
-                used.update(other_defaults.aliases)
-                saved = self._persisted_command_overrides.get(other, CommandSettingsOverride()).apply(other_defaults)
-                for other_settings in (self._command_settings[other], saved):
-                    identity = {other_settings.primary_name, *other_settings.aliases}
-                    used.update(identity - existing_identity if other_settings.removed else identity)
-        if self._custom_commands is not None:
-            used.update(alias for command in self._custom_commands.list() for alias in (command.name, *command.aliases))
+        used = self._used_command_names(name)
         if settings.primary_name in used:
             if not loading:
                 raise CommandNameConflict(settings.primary_name)
@@ -230,6 +228,22 @@ class RuntimeState:
             logging.getLogger(__name__).warning("Ignoring colliding aliases for command=%s", name)
             settings = replace(settings, aliases=defaults.aliases)
         return settings
+
+    def _used_command_names(self, name: str) -> set[str]:
+        used = (set(self._command_defaults) - {name}) | {"optout"}
+        current = self._command_settings[name]
+        current_saved = self._persisted_command_overrides.get(name, CommandSettingsOverride()).apply(self._command_defaults[name])
+        existing_identity = {current.primary_name, *current.aliases, current_saved.primary_name, *current_saved.aliases}
+        for other, other_defaults in self._command_defaults.items():
+            if other != name:
+                used.update(other_defaults.aliases)
+                saved = self._persisted_command_overrides.get(other, CommandSettingsOverride()).apply(other_defaults)
+                for other_settings in (self._command_settings[other], saved):
+                    identity = {other_settings.primary_name, *other_settings.aliases}
+                    used.update(identity - existing_identity if other_settings.removed else identity)
+        if self._custom_commands is not None:
+            used.update(alias for command in self._custom_commands.list() for alias in (command.name, *command.aliases))
+        return used
 
     def get_command_settings(self, command_name: str) -> CommandSettings:
         with self._lock:

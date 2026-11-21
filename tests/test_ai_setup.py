@@ -1,6 +1,7 @@
 """Task-5 saved choices and shared request routing use synthetic providers only."""
 
 import asyncio
+import json
 import logging
 from dataclasses import asdict, replace
 from unittest.mock import AsyncMock
@@ -73,17 +74,6 @@ def test_invalid_setup_is_atomic(tmp_path, patch):
         store.update_ai_setup({**asdict(setup()), **patch})
     assert store.snapshot() == before
     assert not store._path.exists()
-
-
-def test_legacy_model_pair_updates_advanced_setup_without_losing_instructions(tmp_path):
-    store = AppSettingsStore(tmp_path / "settings.json")
-    store.update_ai_setup(asdict(setup(shared_instructions="Saved custom", max_answer_length=70)))
-    updated = store.update_ai_models(provider="deepseek", selected_model="deepseek-v4-pro", fallback_model="deepseek-flash")
-    assert updated.ai.setup.primary.model == "deepseek-v4-pro"
-    assert updated.ai.setup.fallback.provider == "deepseek"
-    assert updated.ai.setup.shared_instructions == "Saved custom" and updated.ai.setup.max_answer_length == 70
-    with pytest.raises(ValueError):
-        store.update_ai_models(provider="gemini")
 
 
 async def test_cross_provider_single_fallback_snapshots_keys_options_and_instructions():
@@ -218,8 +208,11 @@ async def test_openai_cross_provider_fallback_keeps_independent_options_and_cons
 
 
 def test_openai_setup_and_legacy_models_reload_without_changing_other_providers(tmp_path):
-    store = AppSettingsStore(tmp_path / "settings.json")
-    store.update_ai_models(provider="openai", selected_model="gpt-6-luna", fallback_model="gpt-6.1-sol")
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"version": 1, "ai": {
+        "provider": "openai", "openai_selected_model": "gpt-6-luna", "openai_fallback_model": "gpt-6.1-sol",
+    }}), encoding="utf-8")
+    store = AppSettingsStore(path)
     runtime = apply_ai_app_settings(Settings(), AppSettingsStore(store._path).snapshot())
     assert runtime.ai_provider == "openai" and runtime.openai_model == "gpt-6-luna"
     assert runtime.gemini_model == Settings().gemini_model

@@ -304,7 +304,6 @@ to change the settings.
 | Command | Purpose | Default permission |
 | --- | --- | --- |
 | `!ask <question>` | Get an AI reply. See [AI setup](ai-setup.md). | User |
-| `!commands [page]` | List public command help. | Moderator |
 | `!erase <username>` | Delete a known user's AI memory in this channel. Hidden from help. | Broadcaster (minimum Moderator) |
 | `!followage` | Show how long you have followed the channel. | User |
 | `!fate` | Get a random prediction from the saved responses. | User |
@@ -317,6 +316,12 @@ to change the settings.
 | `!top` | Show the most active chatters in this channel this month. | User |
 | `!uptime` | Show how long the current HeetKit session has run. | Moderator |
 | `!weather <city>` | Get current weather in English, Russian or Ukrainian. | User |
+
+`!commands [page]` is a default alias for `!help [page]`. Both names use the
+Help command's access, cooldown and output. When saved settings or an imported
+configuration contain the former Commands built-in, active aliases and its
+renamed chat name move to Help where available, up to 10 aliases total. A saved
+disabled or removed Commands built-in leaves Help without the `commands` alias.
 
 Help lists enabled public commands once under their primary names. An alias
 still works in chat. Server help omits commands that conflict with a confirmed

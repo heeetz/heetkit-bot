@@ -67,10 +67,6 @@ def _load_builtin_personality_prompts() -> dict[str, str]:
 # Personality styles are editable. Protected system and safety instructions are
 # owned by application code and exposed to the desktop only as read-only text.
 AI_PERSONALITY_PROMPTS = _load_builtin_personality_prompts()
-AI_PERSONALITY_PRESETS = {
-    name: SHARED_AI_INSTRUCTIONS + prompt
-    for name, prompt in AI_PERSONALITY_PROMPTS.items()
-}
 
 
 def build_protected_shared_instructions(
