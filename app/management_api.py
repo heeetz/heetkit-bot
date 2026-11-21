@@ -25,9 +25,9 @@ from app.ui_messages import annotate_error
 from app.app_settings import AppSettingsStore
 from app.bot_runtime import BotRuntime
 from app.operation_policy import OperationPolicy
-from app.configuration_transfer import MAX_TRANSFER_BODY
 from app.filter_settings import FilterValidationError
 from app.management import ApplicationManagement
+from app.operations import SERVER, collect, operation, private_context
 from app.runtime_paths import PACKAGED_FRONTEND, SOURCE_ROOT, RuntimePaths
 from app.utils.logging import RecentLogBuffer
 from app.twitch.client import has_saved_bot_authorization
@@ -37,8 +37,6 @@ from app.server_setup import ServerSetup
 
 
 MAX_BODY = 65536
-MAX_TRIGGERS_BODY = 3 * 1024 * 1024  # 100 rules with up to ten 450-byte lines and JSON escaping.
-MAX_AI_SETUP_BODY = 256 * 1024  # 20k Unicode instructions, including JSON escaping.
 REQUEST_SECONDS = 25
 CONNECTION_SECONDS = 35
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{43,128}\Z")
@@ -172,74 +170,245 @@ def load_management_token() -> str:
     return token
 
 
-# Explicit transport contract. These operations cannot traverse Python attributes,
-# credentials, local paths, desktop actions, provider clients or the pywebview bridge.
-READS = {
-    "/v1/ai/memory/limits": "get_ai_memory_limits",
-    "/v1/status": "get_app_status",
-    "/v1/commands": "get_commands",
-    "/v1/custom-commands": "get_custom_commands",
-    "/v1/announcements": "_get_announcements",
-    "/v1/triggers": "get_message_triggers",
-    "/v1/filters": "get_filters",
-    "/v1/ai": "get_ai_status",
-    "/v1/ai/models": "get_ai_provider_settings",
-    "/v1/ai/setup": "get_ai_setup",
-    "/v1/setup/guide": "get_setup_guide",
-    "/v1/ai/language": "get_ai_language_settings",
-    "/v1/personalities": "get_personalities",
-    "/v1/blocked-users": "get_blocked_ai_users",
-    "/v1/command-restrictions": "get_command_restrictions",
+# 1.3B removes this: old /v1 paths still used by the frontend, mapped to operations.
+COMPAT_PATHS = {
+    ("GET", "/v1/ai/memory/limits"): "get_ai_memory_limits", ("GET", "/v1/status"): "get_app_status",
+    ("GET", "/v1/commands"): "get_commands", ("GET", "/v1/custom-commands"): "get_custom_commands",
+    ("GET", "/v1/announcements"): "get_announcements", ("GET", "/v1/triggers"): "get_message_triggers",
+    ("GET", "/v1/filters"): "get_filters", ("GET", "/v1/ai"): "get_ai_status",
+    ("GET", "/v1/ai/models"): "get_ai_provider_settings", ("GET", "/v1/ai/setup"): "get_ai_setup",
+    ("GET", "/v1/setup/guide"): "get_setup_guide", ("GET", "/v1/ai/language"): "get_ai_language_settings",
+    ("GET", "/v1/personalities"): "get_personalities", ("GET", "/v1/blocked-users"): "get_blocked_ai_users",
+    ("GET", "/v1/command-restrictions"): "get_command_restrictions", ("GET", "/v1/snapshot"): "get_snapshot",
+    ("GET", "/v1/about"): "get_about_info", ("GET", "/v1/setup"): "get_management_setup",
+    ("GET", "/v1/diagnostics"): "get_diagnostics", ("GET", "/v1/logs/commands"): "get_recent_commands",
+    ("POST", "/v1/triggers"): "save_message_triggers", ("POST", "/v1/analytics/query"): "get_analytics",
+    ("POST", "/v1/leaderboards/query"): "get_leaderboards", ("POST", "/v1/leaderboards/settings"): "save_leaderboard_settings",
+    ("POST", "/v1/leaderboards/configure"): "configure_leaderboard_counting",
+    ("POST", "/v1/analytics/configure"): "configure_analytics", ("POST", "/v1/analytics/reset"): "reset_analytics",
+    ("POST", "/v1/ai/balance"): "get_ai_balance", ("POST", "/v1/ai/memory/limits"): "save_ai_memory_limits",
+    ("POST", "/v1/privacy/opt-outs/list"): "get_opt_outs", ("POST", "/v1/privacy/opt-outs/add"): "add_opt_out",
+    ("POST", "/v1/privacy/opt-outs/withdraw"): "withdraw_opt_out",
+    ("POST", "/v1/configuration/export"): "export_configuration",
+    ("POST", "/v1/configuration/preview"): "preview_configuration_import",
+    ("POST", "/v1/configuration/import"): "apply_configuration_import",
+    ("POST", "/v1/commands/apply"): "apply_command_settings", ("POST", "/v1/commands/reset-all"): "reset_all_builtin_commands",
+    ("POST", "/v1/commands/save"): "save_command_settings", ("POST", "/v1/commands/reset"): "reset_command_settings",
+    ("POST", "/v1/commands/remove"): "remove_builtin_command", ("POST", "/v1/commands/restore"): "restore_builtin_command",
+    ("POST", "/v1/commands/enabled"): "save_builtin_enabled",
+    ("POST", "/v1/commands/responses/save"): "save_command_responses",
+    ("POST", "/v1/commands/responses/apply"): "apply_command_responses",
+    ("POST", "/v1/commands/responses/reset"): "reset_command_responses",
+    ("POST", "/v1/custom-commands/save"): "save_custom_command", ("POST", "/v1/custom-commands/delete"): "delete_custom_command",
+    ("POST", "/v1/announcements"): "save_announcements", ("POST", "/v1/ai/enabled"): "set_ai_enabled",
+    ("POST", "/v1/ai/memory"): "set_ai_memory_enabled", ("POST", "/v1/ai/setup"): "save_ai_setup",
+    ("POST", "/v1/setup/guide"): "save_setup_guide", ("POST", "/v1/ai/language"): "update_ai_language_settings",
+    ("POST", "/v1/personalities/create"): "create_personality", ("POST", "/v1/personalities/rename"): "rename_personality",
+    ("POST", "/v1/personalities/delete"): "delete_personality", ("POST", "/v1/personalities/activate"): "set_active_personality",
+    ("POST", "/v1/personalities/save"): "save_personality", ("POST", "/v1/personalities/apply"): "apply_personality",
+    ("POST", "/v1/personalities/reset"): "reset_personality",
+    ("POST", "/v1/ai/instructions/save"): "save_profile_instructions",
+    ("POST", "/v1/ai/instructions/apply"): "apply_profile_instructions",
+    ("POST", "/v1/ai/instructions/reset"): "reset_profile_instructions",
+    ("POST", "/v1/blocked-users/block"): "block_ai_user_only", ("POST", "/v1/blocked-users/unblock"): "unblock_ai_user",
+    ("POST", "/v1/command-restrictions/save"): "save_command_restriction",
+    ("POST", "/v1/command-restrictions/remove"): "remove_command_restriction",
+    ("POST", "/v1/ai/playground/start"): "start_ai_playground",
+    ("POST", "/v1/ai/playground/result"): "get_ai_playground_result",
+    ("POST", "/v1/ai/playground/cancel"): "cancel_ai_playground",
+    ("POST", "/v1/twitch/settings"): "update_server_twitch_settings", ("POST", "/v1/twitch/presets/save"): "save_twitch_preset",
+    ("POST", "/v1/twitch/presets/delete"): "delete_twitch_preset",
+    ("POST", "/v1/twitch/presets/switch"): "switch_server_twitch_preset",
+    ("POST", "/v1/credentials/replace"): "replace_credential", ("POST", "/v1/credentials/remove"): "remove_credential",
+    ("POST", "/v1/credentials/test"): "test_credential",
+    ("POST", "/v1/twitch/authorization/begin"): "begin_twitch_authorization",
+    ("POST", "/v1/twitch/authorization/complete"): "complete_twitch_authorization",
+    ("POST", "/v1/twitch/authorization/cancel"): "cancel_twitch_authorization",
+    ("POST", "/v1/ai/models/discover"): "discover_ai_models", ("POST", "/v1/bot/start"): "start_bot",
+    ("POST", "/v1/bot/stop"): "stop_bot", ("POST", "/v1/bot/mode"): "set_bot_mode",
+    ("POST", "/v1/filters/save"): "save_filters", ("POST", "/v1/filters/apply"): "apply_filters",
+    ("POST", "/v1/filters/test"): "test_filters", ("POST", "/v1/logs/recent"): "get_recent_logs",
 }
-WRITES = {
-    "/v1/triggers": "save_message_triggers",
-    "/v1/analytics/query": "_get_analytics",
-    "/v1/leaderboards/query": "_get_leaderboards",
-    "/v1/leaderboards/settings": "_save_leaderboard_settings",
-    "/v1/leaderboards/configure": "_configure_leaderboard_counting",
-    "/v1/analytics/configure": "_configure_analytics",
-    "/v1/analytics/reset": "_reset_analytics",
-    "/v1/ai/balance": "_get_ai_balance",
-    "/v1/ai/memory/limits": "_save_ai_memory_limits",
-    "/v1/privacy/opt-outs/list": "_get_opt_outs",
-    "/v1/privacy/opt-outs/add": "_add_opt_out",
-    "/v1/privacy/opt-outs/withdraw": "_withdraw_opt_out",
-    "/v1/configuration/export": "export_configuration",
-    "/v1/configuration/preview": "preview_configuration_import",
-    "/v1/configuration/import": "apply_configuration_import",
-    "/v1/commands/apply": "apply_command_settings",
-    "/v1/commands/reset-all": "reset_all_builtin_commands",
-    "/v1/commands/save": "save_command_settings",
-    "/v1/commands/reset": "reset_command_settings",
-    "/v1/commands/remove": "remove_builtin_command",
-    "/v1/commands/restore": "restore_builtin_command",
-    "/v1/commands/enabled": "save_builtin_enabled",
-    "/v1/commands/responses/save": "save_command_responses",
-    "/v1/commands/responses/apply": "apply_command_responses",
-    "/v1/commands/responses/reset": "reset_command_responses",
-    "/v1/custom-commands/save": "save_custom_command",
-    "/v1/custom-commands/delete": "delete_custom_command",
-    "/v1/announcements": "_save_announcements",
-    "/v1/ai/enabled": "set_ai_enabled",
-    "/v1/ai/memory": "_save_ai_memory_enabled",
-    "/v1/ai/setup": "_save_ai_setup",
-    "/v1/setup/guide": "save_setup_guide",
-    "/v1/ai/language": "_save_ai_response_language",
-    "/v1/personalities/create": "create_personality",
-    "/v1/personalities/rename": "rename_personality",
-    "/v1/personalities/delete": "delete_personality",
-    "/v1/personalities/activate": "set_active_personality",
-    "/v1/personalities/save": "save_personality",
-    "/v1/personalities/apply": "apply_personality",
-    "/v1/personalities/reset": "reset_personality",
-    "/v1/ai/instructions/save": "save_profile_instructions",
-    "/v1/ai/instructions/apply": "apply_profile_instructions",
-    "/v1/ai/instructions/reset": "reset_profile_instructions",
-    "/v1/blocked-users/block": "_block_ai_user",
-    "/v1/blocked-users/unblock": "unblock_ai_user",
-    "/v1/command-restrictions/save": "_save_command_restriction",
-    "/v1/command-restrictions/remove": "remove_command_restriction",
-}
+OPERATIONS_PREFIX = "/v1/ops/"
+SERVER_ONLY = {SERVER}
+
+
+class ServerOperations:
+    """Server-host operations and Server-specific views of shared ones."""
+
+    def __init__(self, api: "ManagementAPI") -> None:
+        self.api = api
+
+    @property
+    def service(self) -> ApplicationManagement:
+        return self.api.service
+
+    @operation(write=False, hosts=SERVER_ONLY)
+    def get_app_status(self) -> dict:
+        return self.api.app_status()
+
+    @operation(write=False, hosts=SERVER_ONLY)
+    def get_ai_provider_settings(self, provider: object = None) -> dict:
+        result = self.service.get_ai_provider_settings(provider)
+        result["settings"]["credential"] = self.api.ai_credential_status(result["settings"]["provider_id"])
+        return result
+
+    @operation(write=False, hosts=SERVER_ONLY, passthrough_errors=True)
+    def get_ai_setup(self) -> dict:
+        result = self.service.get_ai_setup()
+        if result.get("ok") is not False:
+            for provider in result["providers"]:
+                provider["credential"] = self.api.ai_credential_status(provider["id"])
+        return result
+
+    @operation(write=True, hosts=SERVER_ONLY)
+    async def block_ai_user(self, username: object) -> dict:
+        await self.service._block_ai_user(username)
+        return self.service.get_blocked_ai_users()
+
+    @operation(write=True, hosts=SERVER_ONLY)
+    async def block_ai_user_only(self, username: object) -> None:
+        await self.service._block_ai_user(username)
+
+    @operation(write=False, hosts=SERVER_ONLY)
+    def get_snapshot(self) -> dict:
+        return {"status": self.api.app_status(), "ai_status": self.service.get_ai_status()}
+
+    @operation(write=False, hosts=SERVER_ONLY, passthrough_errors=True)
+    def get_management_setup(self, *, owner: bytes) -> dict:
+        return self.api.setup_status(owner)
+
+    @operation(write=False, hosts=SERVER_ONLY)
+    def get_diagnostics(self) -> dict:
+        policy = self.api.policy
+        return {"ok": True, "process_uptime_seconds": int(time.monotonic() - self.api.started),
+                "desired_running": policy.desired_running, "operation": policy.snapshot(),
+                "settings_effect": {"commands_filters_ai_personalities_triggers": "immediate",
+                    "twitch_target": "save and reconnect",
+                    "twitch_identity_secret": "save, authorize and reconnect",
+                    "gemini_key": "immediate",
+                    "deepseek_key": "immediate",
+                    "privacy_api_bind": "process_restart (configure outside API)"}}
+
+    @operation(write=True, hosts=SERVER_ONLY, passthrough_errors=True)
+    async def discover_ai_models(self, provider: object = None) -> dict:
+        from app.config.ai_models import validate_ai_provider
+        from app.services.ai_provider import AIModelDiscoveryError
+        application = self.api.runtime.application
+        provider = validate_ai_provider(application.settings.ai_provider if provider is None else provider)
+        try:
+            models = await application.services.ai.discover_models(provider)
+        except AIModelDiscoveryError as error:
+            return {"ok": False, "error": str(error), "error_code": error.code, "provider_id": provider}
+        return {"ok": True, "models": models, "provider_id": provider}
+
+    @operation(write=True, hosts=SERVER_ONLY)
+    def start_bot(self) -> dict:
+        self.api.setup.require_ready()
+        return {"ok": True, "changed": self.api.policy.connect(), "operation": self.api.policy.snapshot()}
+
+    @operation(write=True, hosts=SERVER_ONLY)
+    def stop_bot(self) -> dict:
+        return {"ok": True, "changed": self.api.policy.disconnect(), "operation": self.api.policy.snapshot()}
+
+    @operation(write=True, hosts=SERVER_ONLY)
+    def set_bot_mode(self, mode: object) -> dict:
+        return {"ok": True, "changed": self.api.policy.set_mode(mode), "operation": self.api.policy.snapshot()}
+
+    async def _change_filters(self, payload: object, *, save: bool) -> dict:
+        try:
+            await self.service._change_filters(payload, save=save)
+        except FilterValidationError as error:
+            return {"ok": False,
+                    "error": "Invalid regex rule." if error.category == "patterns" else "Invalid filter rule text.",
+                    "invalid_rule": {"category": error.category, "index": error.index}}
+        return {"ok": True}
+
+    @operation(write=True, hosts=SERVER_ONLY, passthrough_errors=True)
+    async def save_filters(self, payload: object) -> dict:
+        return await self._change_filters(payload, save=True)
+
+    @operation(write=True, hosts=SERVER_ONLY, passthrough_errors=True)
+    async def apply_filters(self, payload: object) -> dict:
+        return await self._change_filters(payload, save=False)
+
+    @operation(write=True, hosts=SERVER_ONLY, passthrough_errors=True)
+    async def test_filters(self, text: object, source: object, payload: object) -> dict:
+        return await self.service._test_filters(text, source, payload)
+
+    @operation(write=False, hosts=SERVER_ONLY)
+    def get_recent_commands(self) -> dict:
+        buffer = self.api.log_buffer
+        return {"ok": True, "entries": buffer.recent_commands() if buffer else []}
+
+    @operation(write=True, hosts=SERVER_ONLY)
+    def get_recent_logs(self, after_id: object = 0, limit: object = 100, snapshot: object = False) -> dict:
+        if (type(after_id) is not int or after_id < 0 or type(limit) is not int or not 1 <= limit <= 200
+                or type(snapshot) is not bool or (snapshot and after_id != 0)):
+            raise ValueError
+        buffer = self.api.log_buffer
+        return {"ok": True, **(buffer.activity(after_id=after_id, limit=limit, snapshot=snapshot)
+                               if buffer else {"entries": [], "next_after_id": after_id})}
+
+    @operation(write=True, hosts=SERVER_ONLY, passthrough_errors=True)
+    async def start_ai_playground(self, prompt: object, *, owner: bytes) -> dict:
+        return await self.service._start_ai_playground(prompt, owner=owner, expires_at=self.api.sessions.get(owner))
+
+    @operation(write=True, hosts=SERVER_ONLY, passthrough_errors=True)
+    async def get_ai_playground_result(self, request_id: object, *, owner: bytes) -> dict:
+        return await self.service._get_ai_playground_result(request_id, owner=owner)
+
+    @operation(write=True, hosts=SERVER_ONLY, passthrough_errors=True)
+    async def cancel_ai_playground(self, request_id: object, *, owner: bytes) -> dict:
+        return await self.service._cancel_ai_playground(request_id, owner=owner)
+
+    @operation(write=True, hosts=SERVER_ONLY, passthrough_errors=True)
+    async def update_server_twitch_settings(self, client_id, bot_username, bot_user_id, channel, channel_user_id):
+        return await self.api.setup.save_twitch(client_id=client_id, bot_username=bot_username,
+            bot_user_id=bot_user_id, channel=channel, channel_user_id=channel_user_id)
+
+    @operation(write=True, hosts=SERVER_ONLY, passthrough_errors=True)
+    def save_twitch_preset(self, preset_id, display_name, channel, channel_user_id):
+        return self.api.setup.save_preset(preset_id=preset_id, display_name=display_name,
+                                          channel=channel, channel_user_id=channel_user_id)
+
+    @operation(write=True, hosts=SERVER_ONLY, passthrough_errors=True)
+    def delete_twitch_preset(self, preset_id):
+        return self.api.setup.delete_preset(preset_id=preset_id)
+
+    @operation(write=True, hosts=SERVER_ONLY, passthrough_errors=True)
+    async def switch_server_twitch_preset(self, preset_id):
+        return await self.api.setup.switch_preset(preset_id=preset_id)
+
+    @operation(write=True, hosts=SERVER_ONLY, passthrough_errors=True)
+    async def replace_credential(self, name, value):
+        # Fixed fields: no caller may smuggle the internal remove flag.
+        return await self.api.setup.change_credential(name, value)
+
+    @operation(write=True, hosts=SERVER_ONLY, passthrough_errors=True)
+    async def remove_credential(self, name):
+        return await self.api.setup.change_credential(name, remove=True)
+
+    @operation(write=True, hosts=SERVER_ONLY, passthrough_errors=True)
+    async def test_credential(self, name):
+        return await self.api.setup.test_credential(name)
+
+    @operation(write=True, hosts=SERVER_ONLY, passthrough_errors=True)
+    async def begin_twitch_authorization(self, *, owner: bytes):
+        return await self.api.setup.begin(owner)
+
+    @operation(write=True, hosts=SERVER_ONLY, passthrough_errors=True)
+    async def complete_twitch_authorization(self, callback_url, *, owner: bytes):
+        return await self.api.setup.complete(owner, callback_url)
+
+    @operation(write=True, hosts=SERVER_ONLY, passthrough_errors=True)
+    def cancel_twitch_authorization(self, *, owner: bytes):
+        return self.api.setup.cancel(owner)
+
+
+SHARED_OPERATIONS = {name: op for name, op in collect(ApplicationManagement).items()}
+SERVER_OPERATIONS = collect(ServerOperations)
+OPERATIONS = {**{name: op for name, op in SHARED_OPERATIONS.items() if SERVER in op.hosts}, **SERVER_OPERATIONS}
 
 
 def _unique_object(pairs):
@@ -267,6 +436,7 @@ class ManagementAPI:
         self.setup = ServerSetup(runtime, self.policy, store, credentials,
             redirect_uri=config.oauth_redirect_uri,
             owner_active=self.owner_active)
+        self.operations = ServerOperations(self)
         self._owns_policy = policy is None
         self.lock = asyncio.Lock()
         self.runner: web.ServerRunner | None = None
@@ -485,14 +655,8 @@ class ManagementAPI:
                     if request.content_type != "application/json":
                         return reject(415, "Use application/json.")
                     length = request.content_length
-                    maximum = MAX_TRANSFER_BODY if request.path in (
-                        "/v1/configuration/preview", "/v1/configuration/import") else MAX_BODY
-                    if request.path == "/v1/ai/setup":
-                        maximum = MAX_AI_SETUP_BODY
-                    if request.path == "/v1/triggers":
-                        maximum = MAX_TRIGGERS_BODY
-                    if request.path == "/v1/announcements":
-                        maximum = 768 * 1024
+                    operation = self.operation_for(request.method, request.path)
+                    maximum = operation.max_body if operation is not None else MAX_BODY
                     if length is None or length < 2 or length > maximum:
                         return reject(413, "JSON body exceeds this operation's size limit.")
                     async with asyncio.timeout(5):
@@ -548,144 +712,40 @@ class ManagementAPI:
         finally:
             self.active -= 1
 
+    @staticmethod
+    def operation_for(method: str, path: str):
+        """The operation a request addresses, or None for session paths; LookupError if unknown."""
+        if path.startswith(OPERATIONS_PREFIX):
+            operation = OPERATIONS.get(path.removeprefix(OPERATIONS_PREFIX)) if method == "POST" else None
+        elif path in ("/v1/session", "/v1/session/logout"):
+            return None
+        else:
+            operation = OPERATIONS.get(COMPAT_PATHS.get((method, path), ""))
+        if operation is None:
+            raise LookupError
+        return operation
+
     async def dispatch(self, method: str, path: str, payload: dict, *, owner: bytes = b"") -> dict:
-        if method == "POST" and path in (
-            "/v1/ai/playground/start", "/v1/ai/playground/result", "/v1/ai/playground/cancel",
-        ):
-            if path.endswith("/start"):
-                if set(payload) != {"prompt"}:
-                    raise ValueError
-                return await self.service._start_ai_playground(
-                    payload["prompt"], owner=owner, expires_at=self.sessions.get(owner),
-                )
-            if set(payload) != {"request_id"}:
-                raise ValueError
-            operation = (self.service._cancel_ai_playground if path.endswith("/cancel")
-                         else self.service._get_ai_playground_result)
-            return await operation(payload["request_id"], owner=owner)
-        if method == "POST" and path.startswith(("/v1/credentials/", "/v1/twitch/")):
-            operations = {
-                "/v1/twitch/settings": self.setup.save_twitch,
-                "/v1/twitch/presets/save": self.setup.save_preset,
-                "/v1/twitch/presets/delete": self.setup.delete_preset,
-                "/v1/twitch/presets/switch": self.setup.switch_preset,
-                "/v1/credentials/replace": self.setup.change_credential,
-                "/v1/credentials/remove": lambda name: self.setup.change_credential(name, remove=True),
-                "/v1/credentials/test": self.setup.test_credential,
-                "/v1/twitch/authorization/begin": lambda: self.setup.begin(owner),
-                "/v1/twitch/authorization/complete": lambda callback_url: self.setup.complete(owner, callback_url),
-                "/v1/twitch/authorization/cancel": lambda: self.setup.cancel(owner),
-            }
-            operation = operations.get(path)
-            if operation is None:
-                raise LookupError
-            # Fixed fields, including replace's required value: no caller may
-            # smuggle the internal remove flag through a different endpoint.
-            fields = {"/v1/twitch/settings": {"client_id", "bot_username", "bot_user_id", "channel", "channel_user_id"},
-                "/v1/twitch/presets/save": {"preset_id", "display_name", "channel", "channel_user_id"},
-                "/v1/twitch/presets/delete": {"preset_id"}, "/v1/twitch/presets/switch": {"preset_id"},
-                "/v1/credentials/replace": {"name", "value"}, "/v1/credentials/remove": {"name"},
-                "/v1/credentials/test": {"name"}, "/v1/twitch/authorization/complete": {"callback_url"}}
-            if set(payload) != fields.get(path, set()):
-                raise ValueError
-            result = operation(**payload)
-            return await result if inspect.isawaitable(result) else result
-        operations = READS if method == "GET" else WRITES
-        if path in operations:
-            operation = getattr(self.service, operations[path])
-            inspect.signature(operation).bind(**payload)
-            result = operation(**payload)
-            if inspect.isawaitable(result):
-                result = await result
-            if not isinstance(result, dict):
-                result = {"ok": True}
-            # Domain validators remain authoritative; never echo their exception
-            # text (some legacy validators interpolate supplied values).
-            if result.get("ok") is False:
-                if path in {"/v1/commands/save", "/v1/commands/enabled"} and result.get("code") == "command_name_conflict":
-                    return result
-                if path.startswith("/v1/privacy/opt-outs/") or path in {"/v1/ai/setup", "/v1/setup/guide", "/v1/leaderboards/settings",
-                            "/v1/triggers", "/v1/command-restrictions",
-                            "/v1/command-restrictions/save", "/v1/command-restrictions/remove"}:
-                    return result
-                return {"ok": False, "error": "Operation rejected; check input, profile storage and current state."}
-            if method == "POST":
-                self.policy.refresh_command_monitoring()
-            if method == "GET" and path == "/v1/ai/models":
-                result["settings"]["credential"] = self.ai_credential_status(result["settings"]["provider_id"])
-            if method == "GET" and path == "/v1/ai/setup":
-                for provider in result["providers"]:
-                    provider["credential"] = self.ai_credential_status(provider["id"])
-            if method == "GET" and path == "/v1/status":
-                result["operation"] = self.policy.snapshot()
-            return result
-        if method == "GET" and path == "/v1/snapshot":
-            return {"status": self.app_status(), "ai_status": self.service.get_ai_status()}
-        if method == "GET" and path == "/v1/about":
-            return self.service.get_about_info()
-        if method == "GET" and path == "/v1/setup":
-            return self.setup_status(owner)
-        if method == "POST" and path == "/v1/ai/models/discover":
-            from app.config.ai_models import validate_ai_provider
-            from app.services.ai_provider import AIModelDiscoveryError
-            if set(payload) - {"provider"}:
-                raise ValueError
-            provider = validate_ai_provider(payload.get("provider", self.runtime.application.settings.ai_provider))
-            try:
-                models = await self.runtime.application.services.ai.discover_models(provider)
-            except AIModelDiscoveryError as error:
-                return {"ok": False, "error": str(error), "error_code": error.code, "provider_id": provider}
-            return {"ok": True, "models": models, "provider_id": provider}
-        if method == "GET" and path == "/v1/diagnostics":
-            return {"ok": True, "process_uptime_seconds": int(time.monotonic() - self.started),
-                    "desired_running": self.policy.desired_running, "operation": self.policy.snapshot(),
-                    "settings_effect": {"commands_filters_ai_personalities_triggers": "immediate",
-                        "twitch_target": "save and reconnect",
-                        "twitch_identity_secret": "save, authorize and reconnect",
-                        "gemini_key": "immediate",
-                        "deepseek_key": "immediate",
-                        "privacy_api_bind": "process_restart (configure outside API)"}}
-        if method == "POST" and path in ("/v1/bot/start", "/v1/bot/stop"):
-            if payload:
-                raise ValueError
-            if path.endswith("/start"):
-                self.setup.require_ready()
-            changed = self.policy.connect() if path.endswith("/start") else self.policy.disconnect()
-            return {"ok": True, "changed": changed, "operation": self.policy.snapshot()}
-        if method == "POST" and path == "/v1/bot/mode":
-            if set(payload) != {"mode"}:
-                raise ValueError
-            changed = self.policy.set_mode(payload["mode"])
-            return {"ok": True, "changed": changed, "operation": self.policy.snapshot()}
-        if method == "POST" and path in ("/v1/filters/save", "/v1/filters/apply", "/v1/filters/test"):
-            if not path.endswith("/test"):
-                if set(payload) != {"payload"}:
-                    raise ValueError
-                try:
-                    await self.service._change_filters(payload["payload"], save=path.endswith("/save"))
-                except FilterValidationError as error:
-                    return {
-                        "ok": False,
-                        "error": "Invalid regex rule." if error.category == "patterns" else "Invalid filter rule text.",
-                        "invalid_rule": {"category": error.category, "index": error.index},
-                    }
-                return {"ok": True}
-            operation = self.service._test_filters
-            inspect.signature(operation).bind(**payload)
-            return await operation(**payload)
-        if method == "GET" and path == "/v1/logs/commands":
-            return {"ok": True, "entries": self.log_buffer.recent_commands() if self.log_buffer else []}
-        if method == "POST" and path == "/v1/logs/recent":
-            if set(payload) - {"after_id", "limit", "snapshot"}:
-                raise ValueError
-            after, limit = payload.get("after_id", 0), payload.get("limit", 100)
-            snapshot = payload.get("snapshot", False)
-            if (type(after) is not int or after < 0 or type(limit) is not int or not 1 <= limit <= 200
-                    or type(snapshot) is not bool or (snapshot and after != 0)):
-                raise ValueError
-            return {"ok": True, **(self.log_buffer.activity(after_id=after, limit=limit, snapshot=snapshot)
-                    if self.log_buffer else {"entries": [], "next_after_id": after})}
-        raise LookupError
+        return await self.call(self.operation_for(method, path), payload, owner=owner)
+
+    async def call(self, operation, payload: dict, *, owner: bytes = b"") -> dict:
+        arguments = operation.bind(payload)
+        server_owned = operation.name in SERVER_OPERATIONS
+        method = getattr(self.operations if server_owned else self.service, operation.attribute)
+        result = method(**arguments, **private_context(method, owner=owner))
+        if inspect.isawaitable(result):
+            result = await result
+        if not isinstance(result, dict):
+            result = {"ok": True}
+        # Domain validators remain authoritative; never echo their exception
+        # text (some legacy validators interpolate supplied values).
+        if result.get("ok") is False:
+            if operation.passthrough_errors or result.get("code") == "command_name_conflict":
+                return result
+            return {"ok": False, "error": "Operation rejected; check input, profile storage and current state."}
+        if operation.write and not server_owned:
+            self.policy.refresh_command_monitoring()
+        return result
 
     def credential_statuses(self) -> list[dict]:
         """Presence/source only; never read values back to the browser."""
