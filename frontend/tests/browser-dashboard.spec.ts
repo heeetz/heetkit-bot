@@ -22,7 +22,7 @@ test('Dashboard renders recent commands in local time and switches offline autom
   await page.getByRole('button', { name: 'Switch to Manual & disconnect', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Manual', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeEnabled()
-  expect(api.calls.find(({ path }) => path === '/v1/bot/stop')).toMatchObject({ method: 'POST', body: {} })
+  expect(api.calls.find(({ path }) => path === '/v1/ops/stop_bot')).toMatchObject({ method: 'POST', body: {} })
   await recent.getByRole('button', { name: 'View logs' }).click()
   await expect(page.getByRole('heading', { name: 'Logs', level: 1 })).toBeVisible()
 })
@@ -32,7 +32,7 @@ test('Dashboard status polls switch from current counts to paused and then to th
   await server(page)
   let countingEnabled = true
   let live = true
-  await page.route('**/v1/leaderboards/query', async (route) => {
+  await page.route('**/v1/ops/get_leaderboards', async (route) => {
     const ranking = {
       started_at: '2026-11-19T12:00:00Z', partial: false, ends_at: null,
       rows: [101, 83, 41, 15].map((messages, index) => ({ place: index + 1, nickname: 'chatter_' + index, messages })),
@@ -80,7 +80,7 @@ test('the mode Select commits with Enter and dismisses with Escape', async ({ pa
   await expect(list).toBeHidden()
   await expect(mode).toBeFocused()
   await expect(mode).toHaveText('Stream Only')
-  expect(api.calls.filter(({ path }) => path === '/v1/bot/mode').map(({ body }) => body)).toEqual([{ mode: 'stream_only' }])
+  expect(api.calls.filter(({ path }) => path === '/v1/ops/set_bot_mode').map(({ body }) => body)).toEqual([{ mode: 'stream_only' }])
 })
 
 test('a pending Server operation can be changed to Manual after a failed save', async ({ page }) => {
@@ -90,14 +90,14 @@ test('a pending Server operation can be changed to Manual after a failed save', 
   const operation = page.getByRole('article').filter({ has: mode })
   await expect(operation.getByRole('heading', { name: 'Always On' })).toBeVisible()
   await expect(page.getByRole('button', { name: /Reconciling/ })).toBeDisabled()
-  api.fail('/v1/bot/mode')
+  api.fail('/v1/ops/set_bot_mode')
   await selectOption(mode, 'manual')
   await expect(page.getByRole('alert')).toBeVisible()
   await expect(operation.getByRole('heading', { name: 'Always On' })).toBeVisible()
   api.fail('')
   await selectOption(mode, 'manual')
   await expect(operation.getByRole('heading', { name: 'Manual' })).toBeVisible()
-  expect(api.calls.filter(({ path }) => path === '/v1/bot/mode').map(({ body }) => body)).toEqual(Array(2).fill({ mode: 'manual' }))
+  expect(api.calls.filter(({ path }) => path === '/v1/ops/set_bot_mode').map(({ body }) => body)).toEqual(Array(2).fill({ mode: 'manual' }))
 })
 
 test('a failed Ask write keeps its value and a successful write reaches Commands', async ({ page }) => {
@@ -105,14 +105,14 @@ test('a failed Ask write keeps its value and a successful write reaches Commands
   await signIn(page)
   const dashboard = page.getByRole('checkbox', { name: 'Enable AI command' })
   await expect(dashboard).toBeChecked()
-  api.fail('/v1/ai/enabled')
+  api.fail('/v1/ops/set_ai_enabled')
   await dashboard.press('Space')
   await expect(page.getByRole('alert')).toBeVisible()
   await expect(dashboard).toBeChecked()
   api.fail('')
   await dashboard.press('Space')
   await expect(dashboard).not.toBeChecked()
-  expect(api.calls.filter(({ path }) => path === '/v1/ai/enabled').at(-1)?.body).toEqual({ enabled: false })
+  expect(api.calls.filter(({ path }) => path === '/v1/ops/set_ai_enabled').at(-1)?.body).toEqual({ enabled: false })
 
   await navigate(page, 'Commands')
   await selectOption(page.getByRole('combobox', { name: 'Status', exact: true }), 'all')
@@ -122,6 +122,6 @@ test('a failed Ask write keeps its value and a successful write reaches Commands
   await expect(command).toBeChecked()
   await navigate(page, 'Dashboard')
   await expect(dashboard).toBeChecked()
-  expect(api.calls.find(({ path }) => path === '/v1/commands/enabled')?.body)
+  expect(api.calls.find(({ path }) => path === '/v1/ops/save_builtin_enabled')?.body)
     .toEqual({ command_name: 'ask', enabled: true })
 })

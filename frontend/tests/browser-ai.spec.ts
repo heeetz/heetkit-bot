@@ -4,7 +4,7 @@ import { expectNoOverflow, closeAIBehavior, login, navigate, openAIBehaviorSecti
 test('AI connects a key, saves provider settings and runs Playground with the saved setup', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 })
   const api = await server(page)
-  const writes = () => api.calls.filter(({ method, path }) => method === 'POST' && path === '/v1/ai/setup')
+  const writes = () => api.calls.filter(({ method, path }) => method === 'POST' && path === '/v1/ops/save_ai_setup')
   await signIn(page)
   await navigate(page, 'AI')
   await expect(page.getByRole('heading', { name: 'AI', level: 1, exact: true })).toBeVisible()
@@ -14,11 +14,11 @@ test('AI connects a key, saves provider settings and runs Playground with the sa
   await key.fill('synthetic-gemini-key')
   await setup.getByRole('button', { name: 'Connect Google Gemini key' }).click()
   await expect(key).toHaveValue('')
-  expect(api.calls.find(({ path }) => path === '/v1/credentials/replace')?.body).toEqual({
+  expect(api.calls.find(({ path }) => path === '/v1/ops/replace_credential')?.body).toEqual({
     name: 'gemini_api_key', value: 'synthetic-gemini-key',
   })
   await setup.getByRole('button', { name: 'Test Google Gemini connection' }).click()
-  await expect.poll(() => api.calls.find(({ path }) => path === '/v1/credentials/test')?.body)
+  await expect.poll(() => api.calls.find(({ path }) => path === '/v1/ops/test_credential')?.body)
     .toEqual({ name: 'gemini_api_key' })
 
   await selectOption(setup.getByLabel('Primary provider'), 'openai')
@@ -51,7 +51,7 @@ test('AI connects a key, saves provider settings and runs Playground with the sa
   const result = playground.getByRole('status')
   await expect(result.getByRole('link', { name: 'https://example.test/facts' })).toHaveAttribute('href', 'https://example.test/facts')
   await expect(result).toContainText('gpt-6-luna')
-  expect(api.calls.find(({ path }) => path === '/v1/ai/playground/start')).toMatchObject({
+  expect(api.calls.find(({ path }) => path === '/v1/ops/start_ai_playground')).toMatchObject({
     method: 'POST', authorization: 'Bearer ' + sessionToken, body: { prompt: 'Latest fact?' },
   })
 
@@ -62,7 +62,7 @@ test('AI connects a key, saves provider settings and runs Playground with the sa
   await playground.getByRole('button', { name: 'Cancel request' }).click()
   await expect(run).toBeEnabled()
   await expect(prompt).toHaveValue('Latest fact?')
-  expect(api.calls.find(({ path }) => path === '/v1/ai/playground/cancel')?.body).toEqual({ request_id: 'server-playground' })
+  expect(api.calls.find(({ path }) => path === '/v1/ops/cancel_ai_playground')?.body).toEqual({ request_id: 'server-playground' })
 })
 
 test('AI clears an unsent key when leaving and keeps the non-secret provider draft', async ({ page }) => {
@@ -78,7 +78,7 @@ test('AI clears an unsent key when leaving and keeps the non-secret provider dra
   await navigate(page, 'AI setup')
   await expect(setup.getByLabel('gemini API key', { exact: true })).toHaveValue('')
   await expect(setup.getByLabel('Primary provider')).toHaveAttribute('data-value', 'openai')
-  expect(api.calls.some(({ path, method }) => method === 'POST' && ['/v1/credentials/replace', '/v1/ai/setup'].includes(path))).toBe(false)
+  expect(api.calls.some(({ path, method }) => method === 'POST' && ['/v1/ops/replace_credential', '/v1/ops/save_ai_setup'].includes(path))).toBe(false)
 })
 
 test('Playground hides unsafe results and retains the prompt for the next request', async ({ page }) => {
@@ -103,7 +103,7 @@ test('Playground hides unsafe results and retains the prompt for the next reques
 test('a failed Playground start shows an error, keeps the prompt and allows a retry', async ({ page }) => {
   await server(page)
   let failStart = true
-  await page.route('**/v1/ai/playground/start', async (route) => {
+  await page.route('**/v1/ops/start_ai_playground', async (route) => {
     if (!failStart) return route.fallback()
     failStart = false
     await route.fulfill({ json: { ok: false, error: 'Synthetic start failure' } })
@@ -130,13 +130,13 @@ test('removing the active provider key warns first and leaves the provider uncon
   const setup = page.locator('#ai-models')
   await selectOption(setup.getByLabel('Primary provider'), 'deepseek')
   await setup.getByRole('button', { name: 'Save AI setup' }).click()
-  await expect.poll(() => api.calls.some(({ method, path }) => method === 'POST' && path === '/v1/ai/setup')).toBe(true)
+  await expect.poll(() => api.calls.some(({ method, path }) => method === 'POST' && path === '/v1/ops/save_ai_setup')).toBe(true)
   const remove = setup.getByRole('button', { name: 'Remove DeepSeek key', exact: true })
   let warning = ''
   page.once('dialog', async (dialog) => { warning = dialog.message(); await dialog.accept() })
   await remove.click()
   await expect.poll(() => warning).toContain('in use')
-  await expect.poll(() => api.calls.find(({ path }) => path === '/v1/credentials/remove')?.body)
+  await expect.poll(() => api.calls.find(({ path }) => path === '/v1/ops/remove_credential')?.body)
     .toEqual({ name: 'deepseek_api_key' })
   await expect(setup.getByRole('button', { name: 'Connect DeepSeek key', exact: true })).toBeVisible()
 })
@@ -164,13 +164,13 @@ test('browser AI setup saves typed selections, explicit fallback consent and sha
   await setup.getByLabel('Maximum question length', { exact: true }).fill('800')
   await setup.getByRole('button', { name: 'Save AI setup' }).click()
   await expect(setup.getByRole('button', { name: 'Save AI setup' })).toBeDisabled()
-  await expect.poll(() => api.calls.filter((call) => call.path === '/v1/ai/setup' && call.method === 'POST').at(-1)?.body).toMatchObject({ settings: {
+  await expect.poll(() => api.calls.filter((call) => call.path === '/v1/ops/save_ai_setup' && call.method === 'POST').at(-1)?.body).toMatchObject({ settings: {
     primary: { provider: 'deepseek', model: 'deepseek-flash', thinking: 'high', search: false },
     fallback: { provider: 'gemini', thinking: 'off' }, cross_provider_acknowledged: true,
     max_question_length: 800, shared_instructions: 'Owner shared instructions',
   } })
   await setup.getByRole('button', { name: 'Discover primary models' }).click()
-  expect(api.calls.filter((call) => call.path === '/v1/ai/models/discover').at(-1)?.body).toEqual({ provider: 'deepseek' })
+  expect(api.calls.filter((call) => call.path === '/v1/ops/discover_ai_models').at(-1)?.body).toEqual({ provider: 'deepseek' })
 })
 
 test('leaving AI cancels a pending Playground request and discards its result', async ({ page }) => {
@@ -184,7 +184,7 @@ test('leaving AI cancels a pending Playground request and discards its result', 
   await playground.getByRole('button', { name: 'Test prompt' }).click()
   await expect(playground.getByRole('button', { name: 'Cancel request' })).toBeEnabled()
   await navigate(page, 'Commands')
-  await expect.poll(() => api.calls.find(({ path }) => path === '/v1/ai/playground/cancel')?.body)
+  await expect.poll(() => api.calls.find(({ path }) => path === '/v1/ops/cancel_ai_playground')?.body)
     .toEqual({ request_id: 'server-playground' })
   await navigate(page, 'AI')
   await expect(playground.getByRole('status')).toBeEmpty()
@@ -196,8 +196,8 @@ test('response language rejects an excluded fallback and saves a corrected polic
   type Policy = { mode: string; allowed_languages: string[]; fallback_language: string }
   let settings: Policy = { mode: 'auto', allowed_languages: ['en', 'uk'], fallback_language: 'en' }
   let writes = 0
-  await page.route('**/v1/ai/language', async (route) => {
-    if (route.request().method() === 'POST') {
+  await page.route(/\/v1\/ops\/(get_ai_language_settings|update_ai_language_settings)$/, async (route) => {
+    if (route.request().url().endsWith('/update_ai_language_settings')) {
       writes += 1
       settings = route.request().postDataJSON()
     }
@@ -233,7 +233,7 @@ test('conversation memory saves independently and retains the saved value after 
   await navigate(page, 'AI')
   const memory = page.getByRole('checkbox', { name: 'Enable conversation memory', exact: true })
   await expect(memory).not.toBeChecked()
-  api.fail('/v1/ai/memory')
+  api.fail('/v1/ops/set_ai_memory_enabled')
   await memory.press('Space')
   await expect(page.getByRole('alert')).toBeVisible()
   await expect(memory).not.toBeChecked()
@@ -256,27 +256,27 @@ test('personality edits, activation and renaming preserve the right drafts', asy
   await panel.getByLabel('Prompt', { exact: true }).fill('New helper prompt')
   await create.click()
   await expect(page.getByRole('dialog', { name: 'Edit AI behavior' }).getByRole('alert')).toBeVisible()
-  expect(api.calls.some(({ path }) => path === '/v1/personalities/create')).toBe(false)
+  expect(api.calls.some(({ path }) => path === '/v1/ops/create_personality')).toBe(false)
   await panel.getByLabel('Name', { exact: true }).fill('Focused helper')
   await create.click()
   await expect(selection).toHaveAttribute('data-value', 'Focused helper')
   const prompt = panel.getByLabel('Editable prompt')
   await expect(prompt).toHaveValue('New helper prompt')
   await prompt.fill('Saved custom prompt')
-  const saved = page.waitForResponse('**/v1/personalities/save')
+  const saved = page.waitForResponse('**/v1/ops/save_personality')
   await panel.getByRole('button', { name: 'Save', exact: true }).click()
   await saved
   const activate = panel.getByRole('button', { name: 'Set active', exact: true })
   await expect(activate).toBeEnabled()
   await prompt.fill('Draft stays after activation')
-  const activated = page.waitForResponse('**/v1/personalities/activate')
+  const activated = page.waitForResponse('**/v1/ops/set_active_personality')
   await activate.click()
   await activated
   await expect(activate).toBeDisabled()
   await expect(prompt).toHaveValue('Draft stays after activation')
-  expect(api.calls.find(({ path }) => path === '/v1/personalities/save')?.body)
+  expect(api.calls.find(({ path }) => path === '/v1/ops/save_personality')?.body)
     .toEqual({ personality: 'Focused helper', prompt: 'Saved custom prompt' })
-  expect(api.calls.find(({ path }) => path === '/v1/personalities/activate')?.body)
+  expect(api.calls.find(({ path }) => path === '/v1/ops/set_active_personality')?.body)
     .toEqual({ personality: 'Focused helper' })
 
   await panel.getByRole('button', { name: 'Rename', exact: true }).click()
@@ -288,7 +288,7 @@ test('personality edits, activation and renaming preserve the right drafts', asy
   const remove = panel.getByRole('button', { name: 'Delete', exact: true })
   await remove.click()
   await expect(selection).toHaveAttribute('data-value', 'Renamed helper')
-  expect(api.calls.some(({ path }) => path === '/v1/personalities/delete')).toBe(false)
+  expect(api.calls.some(({ path }) => path === '/v1/ops/delete_personality')).toBe(false)
   page.once('dialog', (dialog) => dialog.accept())
   await remove.click()
   await expect(selection).toHaveAttribute('data-value', 'neutral')
@@ -323,7 +323,7 @@ test('discarding AI behavior drafts leaves the unrelated setup and memory drafts
   await expect(maximum).toHaveValue('444')
   await openAIBehaviorSection(page, 'Profile instructions')
   await expect(draft).toHaveValue('Saved instructions')
-  expect(api.calls.some(({ path }) => path === '/v1/ai/instructions/save')).toBe(false)
+  expect(api.calls.some(({ path }) => path === '/v1/ops/save_profile_instructions')).toBe(false)
 })
 
 test('conversation memory validates bounds and saves the corrected limits', async ({ page }) => {
@@ -344,7 +344,7 @@ test('conversation memory validates bounds and saves the corrected limits', asyn
   await context.fill('2')
   await save.click()
   await expect(save).toHaveCount(0)
-  expect(api.calls.find(({ method, path }) => method === 'POST' && path === '/v1/ai/memory/limits')?.body)
+  expect(api.calls.find(({ method, path }) => method === 'POST' && path === '/v1/ops/save_ai_memory_limits')?.body)
     .toEqual({ stored: 3, context: 2 })
   await expect(stored).toHaveValue('3')
   await expect(context).toHaveValue('2')
@@ -363,7 +363,7 @@ test('Playground offers explicit draft use and keeps unrelated personality edits
   const open = profile.getByRole('button', { name: 'Open Playground' })
   await open.click()
   await profile.getByRole('button', { name: 'Use current applied settings' }).click()
-  expect(api.calls.some(({ path }) => path.startsWith('/v1/ai/instructions/'))).toBe(false)
+  expect(api.calls.some(({ path }) => /_profile_instructions$/.test(path))).toBe(false)
   await openAIBehaviorSection(page, 'Profile instructions')
   await expect(profilePrompt).toHaveValue('New profile instructions')
   await open.click()
@@ -372,18 +372,18 @@ test('Playground offers explicit draft use and keeps unrelated personality edits
   await playground.getByLabel('Playground prompt').fill('Synthetic test')
   await playground.getByRole('button', { name: 'Test prompt' }).click()
   await expect(playground.getByText('Synthetic server answer <b>plain text</b>', { exact: true })).toBeVisible()
-  const apply = api.calls.findIndex(({ path }) => path === '/v1/ai/instructions/apply')
+  const apply = api.calls.findIndex(({ path }) => path === '/v1/ops/apply_profile_instructions')
   expect(api.calls[apply]?.body).toEqual({ prompt: 'New profile instructions' })
-  expect(api.calls.findIndex(({ path }) => path === '/v1/ai/playground/start')).toBeGreaterThan(apply)
+  expect(api.calls.findIndex(({ path }) => path === '/v1/ops/start_ai_playground')).toBeGreaterThan(apply)
   await openAIBehaviorSection(page, 'Personalities')
   await expect(personalityPrompt).toHaveValue('Unsaved personality')
-  expect(api.calls.some(({ path }) => path === '/v1/personalities/save')).toBe(false)
+  expect(api.calls.some(({ path }) => path === '/v1/ops/save_personality')).toBe(false)
 })
 
 test('failed key storage clears the sensitive draft and allows a retry', async ({ page }) => {
   await server(page)
   let fail = true
-  await page.route('**/v1/credentials/replace', async (route) => {
+  await page.route('**/v1/ops/replace_credential', async (route) => {
     if (!fail) return route.fallback()
     return route.fulfill({ json: { ok: false, error: 'Synthetic credential write failure' } })
   })

@@ -50,30 +50,30 @@ test('status and logs poll at most every five seconds, use cursor and pause whil
   await page.clock.install()
   await page.goto('/tests/browser.fixture.html')
   await login(page)
-  await expect.poll(() => api.calls.filter((call) => call.path === '/v1/snapshot').length).toBeGreaterThan(0)
-  const snapshots = api.calls.filter((call) => call.path === '/v1/snapshot').length
+  await expect.poll(() => api.calls.filter((call) => call.path === '/v1/ops/get_snapshot').length).toBeGreaterThan(0)
+  const snapshots = api.calls.filter((call) => call.path === '/v1/ops/get_snapshot').length
   await page.clock.fastForward(4900)
-  expect(api.calls.filter((call) => call.path === '/v1/snapshot')).toHaveLength(snapshots)
+  expect(api.calls.filter((call) => call.path === '/v1/ops/get_snapshot')).toHaveLength(snapshots)
   await page.getByRole('button', { name: 'Logs', exact: true }).click()
-  await expect.poll(() => api.calls.filter((call) => call.path === '/v1/logs/recent').length).toBe(1)
+  await expect.poll(() => api.calls.filter((call) => call.path === '/v1/ops/get_recent_logs').length).toBe(1)
   await expect(page.getByText('!activity-450', { exact: true })).toBeVisible()
-  expect(api.calls.filter((call) => call.path === '/v1/logs/recent')[0].body)
+  expect(api.calls.filter((call) => call.path === '/v1/ops/get_recent_logs')[0].body)
     .toEqual({ after_id: 0, limit: 200, snapshot: true })
   await page.clock.fastForward(5100)
-  await expect.poll(() => api.calls.filter((call) => call.path === '/v1/logs/recent').length).toBe(2)
-  expect(api.calls.filter((call) => call.path === '/v1/logs/recent').at(-1)?.body).toEqual({ after_id: 450, limit: 200 })
+  await expect.poll(() => api.calls.filter((call) => call.path === '/v1/ops/get_recent_logs').length).toBe(2)
+  expect(api.calls.filter((call) => call.path === '/v1/ops/get_recent_logs').at(-1)?.body).toEqual({ after_id: 450, limit: 200 })
   await page.evaluate(() => Object.defineProperty(document, 'hidden', { value: true, configurable: true }))
   const count = api.calls.length
   await page.clock.fastForward(15000)
   expect(api.calls).toHaveLength(count)
   await page.evaluate(() => Object.defineProperty(document, 'hidden', { value: false, configurable: true }))
   await page.clock.fastForward(5100)
-  await expect.poll(() => api.calls.filter((call) => call.path === '/v1/logs/recent').length).toBe(3)
+  await expect.poll(() => api.calls.filter((call) => call.path === '/v1/ops/get_recent_logs').length).toBe(3)
   await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
   await page.clock.fastForward(5100)
-  const logs = api.calls.filter((call) => call.path === '/v1/logs/recent').length
+  const logs = api.calls.filter((call) => call.path === '/v1/ops/get_recent_logs').length
   await page.clock.fastForward(5100)
-  expect(api.calls.filter((call) => call.path === '/v1/logs/recent')).toHaveLength(logs)
+  expect(api.calls.filter((call) => call.path === '/v1/ops/get_recent_logs')).toHaveLength(logs)
 })
 
 test('Server Logs ignores a stale opening request and picks up traffic during the next snapshot', async ({ page }) => {
@@ -86,7 +86,7 @@ test('Server Logs ignores a stale opening request and picks up traffic during th
     message: 'command.input', event_kind: 'command.input', text: `!activity-${id}`, context: {},
   })
   let latest: LogEntry[] = []
-  await page.route('**/v1/logs/recent', async (route) => {
+  await page.route('**/v1/ops/get_recent_logs', async (route) => {
     const request = route.request().postDataJSON()
     const index = requests.push(request)
     if (request.snapshot) await new Promise<void>((resume) => pending.push(resume))
@@ -105,7 +105,7 @@ test('Server Logs ignores a stale opening request and picks up traffic during th
   pending[1]()
   await expect(page.getByText('!activity-410', { exact: true })).toBeVisible()
   expect(requests.slice(0, 2)).toEqual(Array(2).fill({ after_id: 0, limit: 200, snapshot: true }))
-  const abandoned = page.waitForResponse('**/v1/logs/recent')
+  const abandoned = page.waitForResponse('**/v1/ops/get_recent_logs')
   pending[0]()
   await abandoned
   await page.clock.fastForward(5100)

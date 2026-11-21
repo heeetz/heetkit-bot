@@ -25,7 +25,13 @@ from app.utils.cooldown import CooldownPolicy
 from app.utils.logging import RecentLogBuffer, get_logger
 from app.services.updates import RELEASE_PAGE_URL
 from app.version import VERSION
+from app.operations import operation
+from app.configuration_transfer import MAX_TRANSFER_BODY as TRANSFER_BODY
 
+# Per-operation JSON body limits for the Server transport.
+AI_SETUP_BODY = 256 * 1024  # 20k Unicode instructions, including JSON escaping.
+TRIGGERS_BODY = 3 * 1024 * 1024  # 100 rules with up to ten 450-byte lines and JSON escaping.
+ANNOUNCEMENTS_BODY = 768 * 1024
 
 APPLICATION_NAME = "HeetKit"
 APPLICATION_SUBTITLE = "Desktop control center for Twitch chat"
@@ -78,23 +84,28 @@ class ApplicationManagement:
         except OSError:
             return {"ok": False, "error": "Configuration storage failed. Inspect the private profile and config/import-backups before retrying; restore affected files while stopped if rollback could not finish."}
 
+    @operation(write=True)
     async def export_configuration(self) -> dict[str, object]:
         return await self._configuration_action("export")
 
+    @operation(write=True, max_body=TRANSFER_BODY)
     async def preview_configuration_import(self, archive_base64: object) -> dict[str, object]:
         return await self._configuration_action("preview", archive_base64)
 
+    @operation(write=True, max_body=TRANSFER_BODY)
     async def apply_configuration_import(
         self, archive_base64: object, preview_token: object, confirmed: object,
     ) -> dict[str, object]:
         return await self._configuration_action("apply", archive_base64, preview_token, confirmed)
 
+    @operation("set_ai_memory_enabled", write=True)
     async def _save_ai_memory_enabled(self, enabled: bool) -> None:
         """Persist and apply AI memory as one backend-loop transaction."""
         if self._app_settings is not None:
             self._app_settings.update_ai_memory(enabled=enabled)
         self._backend.application.services.runtime_state.set_ai_memory_enabled(enabled)
 
+    @operation(write=True)
     async def _save_ai_memory_limits(self, stored: object, context: object) -> None:
         """Persist and prune count settings on the shared backend loop."""
         if self._app_settings is None:
@@ -105,11 +116,13 @@ class ApplicationManagement:
         settings.ai_history_max_entries = stored
         settings.ai_context_max_entries = context
 
+    @operation(write=False)
     def get_ai_memory_limits(self) -> dict[str, object]:
         settings = self._backend.application.settings
         return {"ok": True, "stored": settings.ai_history_max_entries,
                 "context": settings.ai_context_max_entries}
 
+    @operation(write=True)
     async def _get_ai_balance(self, provider: str, refresh: bool = False) -> dict[str, object]:
         from app.services.ai_balance import AIBalance
         provider = validate_ai_provider(provider)
@@ -122,6 +135,7 @@ class ApplicationManagement:
         secret = getattr(app.settings, provider + "_api_key", None)
         return await app.ai_balance.get(provider, secret.get_secret_value() if secret else None, refresh=refresh)
 
+    @operation(write=True)
     async def _get_analytics(self, days: int = 7) -> dict[str, object]:
         if type(days) is not int or days not in (1, 7, 30, 60):
             raise ValueError("Select Today, 7, 30 or 60 UTC calendar days.")
@@ -177,10 +191,12 @@ class ApplicationManagement:
                 "providers": [{"name": name, "metrics": values} for name, values in sorted(providers.items())],
                 **{key: snapshot[key] for key in ("metadata", "enabled", "available", "pending", "dropped", "write_failures", "price_checked", "price_basis")}}
 
+    @operation(write=True)
     async def _configure_analytics(self, enabled: bool) -> dict[str, object]:
         await self._backend.application.services.analytics.configure(enabled)
         return {"ok": True}
 
+    @operation(write=True)
     async def _configure_leaderboard_counting(self, enabled: bool) -> dict[str, object]:
         await self._backend.application.services.twitch.leaderboards.configure_counting(enabled)
         return {"ok": True}
@@ -191,6 +207,7 @@ class ApplicationManagement:
         active, _ = twitch.leaderboard_connection() if getattr(twitch, "leaderboards", None) else (None, None)
         return active or verified_user_id(getattr(app.settings, "twitch_channel_user_id", None))
 
+    @operation(write=True)
     async def _get_leaderboards(self):
         leaderboards = self._backend.application.services.twitch.leaderboards
         channel = self._leaderboard_channel()
@@ -203,6 +220,7 @@ class ApplicationManagement:
             return {"ok": False, "error": "The Twitch channel changed. Refresh leaderboards."}
         return {"ok": True, "leaderboards": snapshot}
 
+    @operation(write=True, passthrough_errors=True)
     async def _save_leaderboard_settings(self, channel_id, exclusions):
         if channel_id != self._leaderboard_channel():
             return {"ok": False, "error": "The Twitch channel changed. Reload its leaderboard settings."}
@@ -212,12 +230,14 @@ class ApplicationManagement:
             return {"ok": False, "error": str(error)}
         return {"ok": True}
 
+    @operation(write=True)
     async def _reset_analytics(self, confirmed: bool) -> dict[str, object]:
         if confirmed is not True:
             raise ValueError("Confirm clearing all profile analytics.")
         await self._backend.application.services.analytics.reset()
         return {"ok": True}
 
+    @operation(write=False)
     def get_blocked_ai_users(self) -> dict[str, object]:
         services = self._backend.application.services
         if getattr(services, "command_restrictions", None) is not None:
@@ -243,6 +263,7 @@ class ApplicationManagement:
                 {"id": f"custom:{command.id}", "label": prefix + command.name}
                 for command in app.custom_commands.list()]
 
+    @operation(write=False, passthrough_errors=True)
     def get_command_restrictions(self) -> dict[str, object]:
         try:
             services = self._backend.application.services
@@ -257,6 +278,7 @@ class ApplicationManagement:
         except (OSError, ValueError):
             return {"ok": False, "error": "Could not load private restrictions. Check the profile policy file."}
 
+    @operation(write=True, passthrough_errors=True)
     async def _save_command_restriction(self, data: object) -> dict[str, object]:
         try:
             fields = {"username", "command_ids", "expires_at", "note"}
@@ -305,6 +327,7 @@ class ApplicationManagement:
             raise ValueError("Could not resolve this login to a verified Twitch user ID. Connect Twitch or wait for this user to chat, then retry. No change was saved.")
         return user_id
 
+    @operation(write=True, passthrough_errors=True)
     async def _get_opt_outs(self, query="", offset=0, limit=50) -> dict[str, object]:
         try:
             users, total = await self._backend.application.services.users.list_opt_outs(query, offset, limit)
@@ -316,6 +339,7 @@ class ApplicationManagement:
         except Exception:
             return {"ok": False, "error": "Could not load opt-outs. Check profile storage and retry."}
 
+    @operation(write=True, passthrough_errors=True)
     async def _add_opt_out(self, username: object) -> dict[str, object]:
         try:
             username = normalize_ai_username(username)
@@ -329,6 +353,7 @@ class ApplicationManagement:
             return {"ok": False, "error": "Opt-out could not complete. Refresh and retry; inspect private recovery copies before restoring."}
         return await self._get_opt_outs()
 
+    @operation(write=True, passthrough_errors=True)
     async def _withdraw_opt_out(self, twitch_user_id: object, confirmed: object) -> dict[str, object]:
         try:
             if confirmed is not True or verified_user_id(twitch_user_id) is None:
@@ -340,6 +365,7 @@ class ApplicationManagement:
             return {"ok": False, "error": "Withdrawal could not complete. Refresh and retry; inspect private recovery copies before restoring."}
         return await self._get_opt_outs()
 
+    @operation(write=True, passthrough_errors=True)
     def remove_command_restriction(self, restriction_id: object) -> dict[str, object]:
         try:
             self._backend.application.services.command_restrictions.remove(restriction_id)
@@ -349,6 +375,7 @@ class ApplicationManagement:
             return {"ok": False, "error": "Could not remove the private restriction. Check the profile storage and retry."}
         return self.get_command_restrictions()
 
+    @operation(write=True)
     async def _block_ai_user(self, username: object) -> None:
         username = normalize_ai_username(username)
         services = self._backend.application.services
@@ -365,6 +392,7 @@ class ApplicationManagement:
         if getattr(services, "command_restrictions", None) is not None:
             services.command_restrictions.migrate_ai_blocks(services.ai_user_blocks, services.settings.twitch_channel_user_id)
 
+    @operation(write=True)
     def unblock_ai_user(self, username: object) -> dict[str, object]:
         try:
             username = normalize_ai_username(username)
@@ -385,6 +413,7 @@ class ApplicationManagement:
             return {"ok": False, "error": "Could not remove AI user block. Check the profile file and try again."}
         return self.get_blocked_ai_users()
 
+    @operation("update_ai_language_settings", write=True)
     async def _save_ai_response_language(
         self, mode: object, allowed_languages: object, fallback_language: object,
     ) -> None:
@@ -396,6 +425,7 @@ class ApplicationManagement:
         )
         self._backend.application.settings.ai_response_language = updated.ai.response_language
 
+    @operation(write=False)
     def get_app_status(self) -> dict[str, object]:
         application = self._backend.application
         runtime_state = application.services.runtime_state
@@ -411,6 +441,7 @@ class ApplicationManagement:
             "account": application.settings.twitch_bot_username,
         }
 
+    @operation(write=False)
     def get_about_info(self) -> dict[str, str]:
         return {
             "application_name": APPLICATION_NAME, "application_subtitle": APPLICATION_SUBTITLE,
@@ -420,6 +451,7 @@ class ApplicationManagement:
             "third_party_notices_url": EXTERNAL_LINKS["third_party_notices"],
         }
 
+    @operation(write=False)
     def get_commands(self) -> dict[str, object]:
         application = self._backend.application
         runtime_state = application.services.runtime_state
@@ -492,15 +524,19 @@ class ApplicationManagement:
             return {"ok": False, "error": "Could not save command responses."}
         return {"ok": True}
 
+    @operation(write=True)
     def apply_command_responses(self, name: object, responses: object) -> dict[str, object]:
         return self._command_response_action(name, responses, "apply")
 
+    @operation(write=True)
     def save_command_responses(self, name: object, responses: object) -> dict[str, object]:
         return self._command_response_action(name, responses, "save")
 
+    @operation(write=True)
     def reset_command_responses(self, name: object) -> dict[str, object]:
         return self._command_response_action(name, None, "reset")
 
+    @operation(write=False)
     def get_custom_commands(self) -> dict[str, object]:
         application = self._backend.application
         server = getattr(getattr(getattr(application, "services", None), "runtime_state", None), "server_runtime", False)
@@ -522,9 +558,11 @@ class ApplicationManagement:
         return {"ok": True, "triggers": [trigger.to_json() for trigger in triggers],
                 "revision": trigger_revision(triggers)}
 
+    @operation(write=False)
     def get_message_triggers(self) -> dict[str, object]:
         return self._trigger_snapshot(self._backend.application.dispatcher._message_triggers.list())
 
+    @operation(write=True, passthrough_errors=True, max_body=TRIGGERS_BODY)
     def save_message_triggers(self, triggers: object, revision: str | None = None) -> dict[str, object]:
         try:
             saved = self._backend.application.dispatcher._message_triggers.save(triggers, revision=revision)
@@ -534,10 +572,12 @@ class ApplicationManagement:
             return {"ok": False, "error": "Could not save chat reactions. Check profile storage."}
         return self._trigger_snapshot(saved)
 
+    @operation(write=False)
     async def _get_announcements(self) -> dict[str, object]:
         scheduler = self._backend.application.announcement_scheduler
         return {"ok": True, "announcements": scheduler.snapshot()}
 
+    @operation(write=True, max_body=ANNOUNCEMENTS_BODY)
     async def _save_announcements(self, announcements: object) -> dict[str, object]:
         application = self._backend.application
         try:
@@ -550,6 +590,7 @@ class ApplicationManagement:
         self._logger.info("Announcement settings saved", extra={"event_kind": "settings.announcements"})
         return {"ok": True}
 
+    @operation(write=False)
     def get_filters(self) -> dict[str, object]:
         return get_filter_settings(self._backend.application.services.filter_manager)
 
@@ -569,6 +610,7 @@ class ApplicationManagement:
             self._backend.application.services.filter_manager, text, source, payload
         )
 
+    @operation(write=True)
     def save_custom_command(self, command: object) -> dict[str, object]:
         try:
             if isinstance(command, dict) and "stream_availability" in command and not self._backend.application.services.runtime_state.server_runtime:
@@ -582,6 +624,7 @@ class ApplicationManagement:
         self._logger.info("Custom command saved name=%s", saved.name)
         return {"ok": True}
 
+    @operation(write=True)
     def delete_custom_command(self, identifier: str) -> dict[str, object]:
         try:
             self._backend.application.custom_commands.delete(identifier)
@@ -646,6 +689,7 @@ class ApplicationManagement:
             parsed_permission,
         )
 
+    @operation(write=True)
     def apply_command_settings(
         self,
         command_name: str,
@@ -684,6 +728,7 @@ class ApplicationManagement:
         )
         return {"ok": True}
 
+    @operation(write=True)
     def save_command_settings(
         self,
         command_name: str,
@@ -727,6 +772,7 @@ class ApplicationManagement:
         )
         return {"ok": True}
 
+    @operation(write=True)
     def reset_command_settings(self, command_name: str, preserve_enabled: bool = False) -> dict[str, object]:
         if type(preserve_enabled) is not bool:
             return {"ok": False, "error": "Preserve enabled must be a boolean."}
@@ -768,6 +814,7 @@ class ApplicationManagement:
             raise ValueError("Reactivate removed must be a boolean.")
         return options
 
+    @operation(write=True)
     def remove_builtin_command(self, command_name: str) -> dict[str, object]:
         try:
             self._backend.application.services.runtime_state.remove_builtin_command(command_name)
@@ -780,9 +827,11 @@ class ApplicationManagement:
             return {"ok": False, "error": "Could not remove command."}
         return {"ok": True}
 
+    @operation(write=True)
     def restore_builtin_command(self, command_name: str) -> dict[str, object]:
         return self.reset_command_settings(command_name)
 
+    @operation(write=True)
     def save_builtin_enabled(self, command_name: str, enabled: object) -> dict[str, object]:
         if type(enabled) is not bool:
             return {"ok": False, "error": "Enabled must be a boolean."}
@@ -799,6 +848,7 @@ class ApplicationManagement:
             return {"ok": False, "error": "Could not save command status."}
         return {"ok": True}
 
+    @operation(write=True)
     def reset_all_builtin_commands(self, preserve_enabled: bool = False) -> dict[str, object]:
         if type(preserve_enabled) is not bool:
             return {"ok": False, "error": "Preserve enabled must be a boolean."}
@@ -816,6 +866,7 @@ class ApplicationManagement:
             return {"ok": False, "error": "Factory command settings were restored, but responses could not be restored. Retry after repairing the response profile file."}
         return {"ok": True}
 
+    @operation(write=False)
     def get_ai_status(self) -> dict[str, object]:
         application = self._backend.application
         runtime_state = application.services.runtime_state
@@ -830,6 +881,7 @@ class ApplicationManagement:
                       else getattr(application.settings, application.settings.ai_provider + "_model")),
         }
 
+    @operation(write=False)
     def get_personalities(self) -> dict[str, object]:
         runtime_state = self._backend.application.services.runtime_state
         current, saved = runtime_state.get_personality_settings_snapshot()
@@ -854,6 +906,7 @@ class ApplicationManagement:
             ],
         }
 
+    @operation(write=True)
     def apply_profile_instructions(self, prompt: object) -> dict[str, object]:
         try:
             self._backend.application.services.runtime_state.apply_profile_instructions(prompt)
@@ -862,6 +915,7 @@ class ApplicationManagement:
         self._log_profile_instructions_action("apply")
         return {"ok": True}
 
+    @operation(write=True)
     def save_profile_instructions(self, prompt: object) -> dict[str, object]:
         try:
             self._backend.application.services.runtime_state.save_profile_instructions(prompt)
@@ -873,6 +927,7 @@ class ApplicationManagement:
         self._log_profile_instructions_action("save")
         return {"ok": True}
 
+    @operation(write=True)
     def reset_profile_instructions(self) -> dict[str, object]:
         try:
             self._backend.application.services.runtime_state.reset_profile_instructions()
@@ -900,6 +955,7 @@ class ApplicationManagement:
             raise ValueError("Enabled must be a boolean.")
         return enabled
 
+    @operation(write=True)
     def set_ai_enabled(self, enabled: object) -> dict[str, object]:
         try:
             parsed_enabled = self._validate_toggle(enabled)
@@ -922,6 +978,7 @@ class ApplicationManagement:
         )
         return {"ok": True}
 
+    @operation(write=True)
     def apply_personality(self, personality: object, prompt: object) -> dict[str, object]:
         try:
             if not isinstance(personality, str):
@@ -943,6 +1000,7 @@ class ApplicationManagement:
         )
         return {"ok": True}
 
+    @operation(write=True)
     def create_personality(self, name: object, prompt: object) -> dict[str, object]:
         try:
             name = self._backend.application.services.runtime_state.create_ai_personality(name, prompt)
@@ -953,6 +1011,7 @@ class ApplicationManagement:
             return {"ok": False, "error": "Could not create AI personality."}
         return {"ok": True, "name": name}
 
+    @operation(write=True)
     def rename_personality(self, personality: object, name: object) -> dict[str, object]:
         try:
             if not isinstance(personality, str):
@@ -965,6 +1024,7 @@ class ApplicationManagement:
             return {"ok": False, "error": "Could not rename AI personality."}
         return {"ok": True, "name": name}
 
+    @operation(write=True)
     def delete_personality(self, personality: object) -> dict[str, object]:
         try:
             if not isinstance(personality, str):
@@ -977,6 +1037,7 @@ class ApplicationManagement:
             return {"ok": False, "error": "Could not delete AI personality."}
         return {"ok": True}
 
+    @operation(write=True)
     def set_active_personality(self, personality: object) -> dict[str, object]:
         try:
             if not isinstance(personality, str):
@@ -989,6 +1050,7 @@ class ApplicationManagement:
             return {"ok": False, "error": "Could not set active AI personality."}
         return {"ok": True}
 
+    @operation(write=True)
     def save_personality(self, personality: object, prompt: object) -> dict[str, object]:
         try:
             if not isinstance(personality, str):
@@ -1013,6 +1075,7 @@ class ApplicationManagement:
         )
         return {"ok": True}
 
+    @operation(write=True)
     def reset_personality(self, personality: object) -> dict[str, object]:
         try:
             if not isinstance(personality, str):
@@ -1036,6 +1099,7 @@ class ApplicationManagement:
         )
         return {"ok": True}
 
+    @operation(write=False)
     def get_ai_language_settings(self) -> dict[str, object]:
         language = self._backend.application.settings.ai_response_language
         return {
@@ -1047,6 +1111,7 @@ class ApplicationManagement:
             "active_policy": build_response_language_instruction(language),
         }
 
+    @operation(write=False)
     def get_ai_provider_settings(self, provider: object = None) -> dict[str, object]:
         if self._app_settings is None:
             return {"ok": False, "error": "Desktop settings are not configured."}
@@ -1081,6 +1146,7 @@ class ApplicationManagement:
             "providers": [{"id": key, "label": label} for key, label in AI_PROVIDERS.items()],
         }
 
+    @operation(write=False, passthrough_errors=True)
     def get_ai_setup(self) -> dict[str, object]:
         from app.config.ai_setup import effective_ai_setup
         from app.config.ai_capabilities import KNOWN_MODELS, model_capabilities
@@ -1099,6 +1165,7 @@ class ApplicationManagement:
                 "default_shared_instructions": SHARED_AI_INSTRUCTIONS,
                 "retained_restrictions": "Local request and full-output checks remain enabled: prompt/secret extraction, sexual or fetish content, abuse of minors or protected traits, self-harm, threats/harassment/private data, restricted real-world political/violent events and illegal-substance instructions may be blocked. Profile filters, language policy, transport limits and provider policies also apply. Editing the shared text does not disable these checks."}
 
+    @operation(write=True, passthrough_errors=True, max_body=AI_SETUP_BODY)
     async def _save_ai_setup(self, settings: object) -> dict[str, object]:
         try:
             updated = self._app_settings.update_ai_setup(settings)
@@ -1111,10 +1178,12 @@ class ApplicationManagement:
         self._logger.info("AI setup saved", extra={"event_kind": "settings.ai", "event_action": "save"})
         return {"ok": True}
 
+    @operation(write=False, passthrough_errors=True)
     def get_setup_guide(self) -> dict[str, object]:
         ai = self._app_settings.snapshot().ai
         return {"ok": True, "dismissed": ai.setup_guide_dismissed, "ai_skipped": ai.setup_guide_ai_skipped}
 
+    @operation(write=True, passthrough_errors=True)
     def save_setup_guide(self, dismissed: object, ai_skipped: object) -> dict[str, object]:
         try:
             self._app_settings.update_setup_guide(dismissed, ai_skipped)

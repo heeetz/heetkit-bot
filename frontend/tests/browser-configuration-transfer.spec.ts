@@ -9,8 +9,9 @@ test('transfers an archive through export, cancel, preview and confirmed import'
   const apply: unknown[] = []
   let previews = 0
   let failApply = true
-  await page.route('**/v1/configuration/*', async (route) => {
-    const name = new URL(route.request().url()).pathname.split('/').at(-1)
+  await page.route(/\/v1\/ops\/(export_configuration|preview_configuration_import|apply_configuration_import)$/, async (route) => {
+    const name = { export_configuration: 'export', preview_configuration_import: 'preview', apply_configuration_import: 'import' }[
+      new URL(route.request().url()).pathname.split('/').at(-1)!]
     const body = route.request().postDataJSON()
     if (name === 'export') {
       return route.fulfill({ json: { ok: true, filename: '../unsafe.zip', archive_base64: archiveBase64 } })

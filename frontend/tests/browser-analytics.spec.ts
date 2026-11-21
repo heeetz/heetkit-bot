@@ -7,16 +7,16 @@ async function analytics(page: Page) {
   let failNext = false
   let enabled = true
   let countChat = true
-  await page.route(/\/v1\/(analytics\/(query|reset|configure)|leaderboards\/configure)$/, async (route) => {
+  await page.route(/\/v1\/ops\/(get_analytics|reset_analytics|configure_analytics|configure_leaderboard_counting)$/, async (route) => {
     const path = new URL(route.request().url()).pathname
     const body = route.request().postDataJSON()
     requests.push({ path, body })
-    if (path.endsWith('/configure')) {
-      if (path.includes('/leaderboards/')) countChat = body.enabled
+    if (path.includes('/configure_')) {
+      if (path.endsWith('_leaderboard_counting')) countChat = body.enabled
       else enabled = body.enabled
       return route.fulfill({ json: { ok: true } })
     }
-    if (path.endsWith('/reset')) {
+    if (path.endsWith('/reset_analytics')) {
       reset = true
       return route.fulfill({ json: { ok: true } })
     }
@@ -65,11 +65,11 @@ test('Analytics loads the command breakdown, changes dates and guards a reset', 
   const confirmation = page.getByRole('dialog', { name: 'Reset all profile analytics?' })
   await reset.click()
   await confirmation.getByRole('button', { name: 'Cancel' }).click()
-  expect(api.requests.some(({ path }) => path.endsWith('/reset'))).toBe(false)
+  expect(api.requests.some(({ path }) => path.endsWith('/reset_analytics'))).toBe(false)
   await reset.click()
   await confirmation.getByRole('button', { name: 'Confirm' }).click()
   await expect(command).toHaveCount(0)
-  expect(api.requests.find(({ path }) => path.endsWith('/reset'))?.body).toEqual({ confirmed: true })
+  expect(api.requests.find(({ path }) => path.endsWith('/reset_analytics'))?.body).toEqual({ confirmed: true })
 })
 
 test('leaderboards discard a previous channel response and exclusions cancel, retry and save', async ({ page }) => {
@@ -81,7 +81,7 @@ test('leaderboards discard a previous channel response and exclusions cancel, re
   let previousRequests = 0
   let exclusions = ['otherbot']
   let fail = true
-  await page.route('**/v1/leaderboards/query', async (route) => {
+  await page.route('**/v1/ops/get_leaderboards', async (route) => {
     const requestedChannel = channel
     if (requestedChannel === '100') {
       previousRequests += 1
@@ -95,7 +95,7 @@ test('leaderboards discard a previous channel response and exclusions cancel, re
       channel_id: requestedChannel, connected: true, stream_status: 'live', exclusions, month: ranking, stream: ranking,
     } } })
   })
-  await page.route('**/v1/leaderboards/settings', async (route) => {
+  await page.route('**/v1/ops/save_leaderboard_settings', async (route) => {
     const body = route.request().postDataJSON()
     expect(body).toEqual({ channel_id: '200', exclusions: ['newbot'] })
     if (fail) {
@@ -109,7 +109,7 @@ test('leaderboards discard a previous channel response and exclusions cancel, re
   await signIn(page)
   await navigate(page, 'About')
   api.setStatus({ leaderboard_channel_id: '100' })
-  const snapshot = page.waitForResponse('**/v1/snapshot')
+  const snapshot = page.waitForResponse('**/v1/ops/get_snapshot')
   await page.clock.fastForward(5100)
   await snapshot
   await navigate(page, 'Analytics')
@@ -121,7 +121,7 @@ test('leaderboards discard a previous channel response and exclusions cancel, re
   const month = page.getByRole('table', { name: 'Monthly top 10 chatters' })
   await expect(stream.getByRole('rowheader', { name: 'viewer200' })).toBeVisible()
   await expect(month.getByRole('rowheader', { name: 'viewer200' })).toBeVisible()
-  const received = page.waitForResponse('**/v1/leaderboards/query')
+  const received = page.waitForResponse('**/v1/ops/get_leaderboards')
   releasePrevious()
   await received
   await expect(stream.getByRole('rowheader', { name: 'viewer100' })).toHaveCount(0)
@@ -147,7 +147,7 @@ test('analytics collection, chat counting and balance refresh use separate opera
   const api = await analytics(page)
   const balances: unknown[] = []
   let available = true
-  await page.route('**/v1/ai/balance', async (route) => {
+  await page.route('**/v1/ops/get_ai_balance', async (route) => {
     balances.push(route.request().postDataJSON())
     await route.fulfill({ json: {
       ok: true, provider: 'deepseek', state: available ? 'available' : 'unavailable',
@@ -169,10 +169,10 @@ test('analytics collection, chat counting and balance refresh use separate opera
   await collect.press('Space')
   await expect(collect).toBeChecked()
   await expect(count).not.toBeChecked()
-  expect(api.requests.filter(({ path }) => path.endsWith('/configure')).map(({ path, body }) => [path, body])).toEqual([
-    ['/v1/analytics/configure', { enabled: false }],
-    ['/v1/leaderboards/configure', { enabled: false }],
-    ['/v1/analytics/configure', { enabled: true }],
+  expect(api.requests.filter(({ path }) => path.includes('/configure_')).map(({ path, body }) => [path, body])).toEqual([
+    ['/v1/ops/configure_analytics', { enabled: false }],
+    ['/v1/ops/configure_leaderboard_counting', { enabled: false }],
+    ['/v1/ops/configure_analytics', { enabled: true }],
   ])
 
   expect(balances).toHaveLength(0)

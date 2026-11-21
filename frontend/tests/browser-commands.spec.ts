@@ -12,7 +12,7 @@ test('Commands renders the catalog and creates, edits and deletes a custom comma
   await selectOption(page.getByRole('combobox', { name: 'Create', exact: true }), 'custom')
   const editor = page.getByRole('dialog').filter({ has: page.getByLabel('Command name', { exact: true }) })
   const save = editor.getByRole('button', { name: 'Save command', exact: true })
-  const writePath = '/v1/custom-commands/save'
+  const writePath = '/v1/ops/save_custom_command'
   await editor.getByLabel('Command name', { exact: true }).fill('greet')
   await save.click()
   await expect(editor.getByRole('alert').first()).toBeVisible()
@@ -53,11 +53,11 @@ test('Commands renders the catalog and creates, edits and deletes a custom comma
   const deletion = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Confirm', exact: true }) })
   await remove.click()
   await deletion.getByRole('button', { name: 'Cancel', exact: true }).click()
-  expect(api.calls.some(({ path }) => path === '/v1/custom-commands/delete')).toBe(false)
+  expect(api.calls.some(({ path }) => path === '/v1/ops/delete_custom_command')).toBe(false)
   await remove.click()
   await deletion.getByRole('button', { name: 'Confirm', exact: true }).click()
   await expect(edit).toHaveCount(0)
-  expect(api.calls.find(({ path }) => path === '/v1/custom-commands/delete')?.body).toEqual({ identifier: 'saved-command' })
+  expect(api.calls.find(({ path }) => path === '/v1/ops/delete_custom_command')?.body).toEqual({ identifier: 'saved-command' })
 })
 
 test('command list keyboard previews cancel and commit without changing reaction priority', async ({ page }) => {
@@ -85,12 +85,12 @@ test('command list keyboard previews cancel and commit without changing reaction
   await save.click()
   await expect(probability).toBeFocused()
   await expect(reaction.getByRole('alert')).toBeVisible()
-  expect(api.calls.some(({ path, method }) => path === '/v1/triggers' && method === 'POST')).toBe(false)
+  expect(api.calls.some(({ path, method }) => path === '/v1/ops/save_message_triggers' && method === 'POST')).toBe(false)
 
   await probability.fill('100')
   await save.click()
   await expect(reaction).toBeHidden()
-  const write = api.calls.find(({ path, method }) => path === '/v1/triggers' && method === 'POST')
+  const write = api.calls.find(({ path, method }) => path === '/v1/ops/save_message_triggers' && method === 'POST')
   expect(write?.body).toMatchObject({ revision: '0', triggers: [{ text: 'hello chat', responses: ['Welcome!'] }] })
   await selectOption(create, 'reaction')
   await reaction.getByLabel('Match text').fill('alpha')
@@ -117,11 +117,11 @@ test('opt-out withdrawal requires confirmation and sends the selected Twitch use
   const confirmation = page.getByRole('dialog')
   await withdraw.click()
   await confirmation.getByRole('button', { name: 'Cancel' }).click()
-  expect(api.calls.some(({ path }) => path === '/v1/privacy/opt-outs/withdraw')).toBe(false)
+  expect(api.calls.some(({ path }) => path === '/v1/ops/withdraw_opt_out')).toBe(false)
   await withdraw.click()
   await confirmation.getByRole('button', { name: 'Confirm' }).click()
   await expect(withdraw).toHaveCount(0)
-  expect(api.calls.find(({ path }) => path === '/v1/privacy/opt-outs/withdraw')?.body)
+  expect(api.calls.find(({ path }) => path === '/v1/ops/withdraw_opt_out')?.body)
     .toEqual({ twitch_user_id: '1234', confirmed: true })
 })
 
@@ -130,7 +130,7 @@ test('opt-out history pages through more than one page of users', async ({ page 
   const users = Array.from({ length: 60 }, (_, index) => ({
     twitch_user_id: String(5000 + index), username: `viewer${index + 1}`, opted_out_at: '2026-11-01T12:00:00Z',
   }))
-  await page.route('**/v1/privacy/opt-outs/list', (route) => {
+  await page.route('**/v1/ops/get_opt_outs', (route) => {
     const { offset, limit } = route.request().postDataJSON() as { offset: number; limit: number }
     return route.fulfill({ json: { ok: true, users: users.slice(offset, offset + limit), total: users.length, offset, limit } })
   })
@@ -168,14 +168,14 @@ test('Reset settings restores a modified built-in after confirmation and keeps i
   await expect(editor.getByLabel('Name in UI', { exact: true })).toHaveValue('')
   await sections.getByRole('button', { name: 'General' }).click()
   await expect(editor.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('Unsaved draft')
-  expect(api.calls.find(({ path }) => path === '/v1/commands/reset')?.body).toMatchObject({ command_name: 'ping' })
+  expect(api.calls.find(({ path }) => path === '/v1/ops/reset_command_settings')?.body).toMatchObject({ command_name: 'ping' })
 })
 
 test('a partial built-in save keeps the reply draft and retries only the failed write', async ({ page }) => {
   const api = await server(page)
   let fail = true
   const responseWrites: unknown[] = []
-  await page.route('**/v1/commands/responses/save', async (route) => {
+  await page.route('**/v1/ops/save_command_responses', async (route) => {
     responseWrites.push(route.request().postDataJSON())
     if (fail) {
       fail = false
@@ -199,7 +199,7 @@ test('a partial built-in save keeps the reply draft and retries only the failed 
   await expect(reply).toHaveValue('Reply to retry')
   await save.click()
   await expect(editor).toBeHidden()
-  expect(api.calls.filter(({ path }) => path === '/v1/commands/save')).toHaveLength(1)
+  expect(api.calls.filter(({ path }) => path === '/v1/ops/save_command_settings')).toHaveLength(1)
   expect(responseWrites).toEqual(Array(2).fill({ name: 'ping', responses: ['Reply to retry'] }))
 })
 
@@ -209,19 +209,19 @@ test('Server restrictions use the authenticated management endpoints and exact p
   await login(page)
   await page.getByRole('button', { name: 'Commands', exact: true }).click()
   const panel = page.locator('#command-restrictions')
-  await expect.poll(() => api.calls.some(({ path, method }) => path === '/v1/command-restrictions' && method === 'GET')).toBe(true)
+  await expect.poll(() => api.calls.some(({ path }) => path === '/v1/ops/get_command_restrictions')).toBe(true)
   await panel.getByRole('button', { name: 'Add restriction' }).click()
   await panel.getByLabel('Twitch username').fill('httpviewer')
   await panel.getByRole('button', { name: 'Save restriction' }).click()
   await expect(panel.getByText('httpviewer', { exact: true })).toBeVisible()
-  expect(api.calls.find((call) => call.path === '/v1/command-restrictions/save')?.body).toEqual({ data: {
+  expect(api.calls.find((call) => call.path === '/v1/ops/save_command_restriction')?.body).toEqual({ data: {
     username: 'httpviewer', command_ids: [], expires_at: null, note: '', scope: 'channel',
   } })
   await panel.getByRole('button', { name: 'Remove' }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('button', { name: 'Confirm' }).click()
   await expect(panel.getByText('httpviewer', { exact: true })).toHaveCount(0)
-  expect(api.calls.find((call) => call.path === '/v1/command-restrictions/remove')?.body).toEqual({ restriction_id: 'http-restriction' })
+  expect(api.calls.find((call) => call.path === '/v1/ops/remove_command_restriction')?.body).toEqual({ restriction_id: 'http-restriction' })
 })
 
 test('Burst enforces its permission floor and keeps delivery settings when toggled', async ({ page }) => {
@@ -253,7 +253,7 @@ test('Burst enforces its permission floor and keeps delivery settings when toggl
 
   const expected = { name: 'promo', responses: ['Join us, {sender}!'], aliases: ['discord', 'join'],
     permission: 'MODERATOR', response_mode: 'burst', burst_count: 5, burst_allow_override: true }
-  const writes = () => api.calls.filter(({ path }) => path === '/v1/custom-commands/save')
+  const writes = () => api.calls.filter(({ path }) => path === '/v1/ops/save_custom_command')
   expect(writes()[0]?.body).toMatchObject({ command: expected })
   await selectOption(page.getByRole('combobox', { name: 'Status', exact: true }), 'all')
   const row = page.getByRole('row').filter({ has: page.getByRole('rowheader', { name: /!promo/ }) })
@@ -284,7 +284,7 @@ test('changing a restriction keeps its verified identity and saves the selected 
   await panel.getByLabel('Private note').fill('Operator note')
   await panel.getByRole('button', { name: 'Save restriction' }).click()
   await expect(edit).toBeVisible()
-  const writes = api.calls.filter(({ path }) => path === '/v1/command-restrictions/save')
+  const writes = api.calls.filter(({ path }) => path === '/v1/ops/save_command_restriction')
   expect(writes[0]?.body).toMatchObject({ data: { scope: 'global_ai', command_ids: ['ask'] } })
   expect(writes[1]?.body).toMatchObject({ data: { id: 'http-restriction', scope: 'global_ai', note: 'Operator note' } })
 })
@@ -305,20 +305,20 @@ test('restriction expiry is persisted in UTC and a late list response cannot res
   await duration.fill('30')
   await save.click()
   await expect(panel.getByRole('alert')).toBeVisible()
-  expect(api.calls.some(({ path }) => path === '/v1/command-restrictions/save')).toBe(false)
+  expect(api.calls.some(({ path }) => path === '/v1/ops/save_command_restriction')).toBe(false)
   await duration.fill('3600')
   const now = await page.evaluate(() => Date.now())
   await save.click()
   const viewer = panel.getByText(name, { exact: true })
   await expect(viewer).toBeVisible()
-  const written = api.calls.find(({ path }) => path === '/v1/command-restrictions/save')?.body?.data as { expires_at: string }
+  const written = api.calls.find(({ path }) => path === '/v1/ops/save_command_restriction')?.body?.data as { expires_at: string }
   expect(Date.parse(written.expires_at)).toBeGreaterThanOrEqual(now + 3_600_000)
   await expect(panel.locator('time')).toHaveAttribute('datetime', written.expires_at)
 
   let resolveStale!: () => void
   const refresh = new Promise<void>((resolve) => { resolveStale = resolve })
   let opened = false
-  await page.route('**/v1/command-restrictions', async (route) => {
+  await page.route('**/v1/ops/get_command_restrictions', async (route) => {
     opened = true
     await refresh
     await route.fulfill({ json: { ok: true, channel_id: '200', commands: [], restrictions: [{
@@ -331,7 +331,7 @@ test('restriction expiry is persisted in UTC and a late list response cannot res
   await panel.getByRole('button', { name: 'Remove', exact: true }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm' }).click()
   await expect(viewer).toHaveCount(0)
-  const response = page.waitForResponse('**/v1/command-restrictions')
+  const response = page.waitForResponse('**/v1/ops/get_command_restrictions')
   resolveStale()
   await response
   await expect(viewer).toHaveCount(0)

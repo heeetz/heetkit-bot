@@ -833,18 +833,18 @@ export interface ManagementSetup extends ActionResult {
   aiProvider: AIProviderSettings
 }
 
-import { browserApi, browserRequest } from './httpTransport'
+import { browserApi, call } from './httpTransport'
 import { localizeResult, localizedApi } from './i18n/errors'
 import { registerDesktopLanguageBridge } from './i18n/language'
 
 export function setBrowserOperationMode(mode: BrowserOperationMode): Promise<ActionResult> {
-  return browserRequest<ActionResult>('POST', '/v1/bot/mode', { mode }).then(localizeResult)
+  return call<ActionResult>('set_bot_mode', { mode }).then(localizeResult)
 }
 
 export function getBrowserSnapshot(): Promise<ManagementSnapshot> {
-  return browserRequest('GET', '/v1/snapshot')
+  return call<ManagementSnapshot>('get_snapshot')
 }
 
 export function getBrowserSetup(): Promise<ManagementSetup> {
-  return browserRequest<ManagementSetup>('GET', '/v1/setup').then(localizeResult)
+  return call<ManagementSetup>('get_management_setup').then(localizeResult)
 }
