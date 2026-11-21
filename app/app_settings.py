@@ -16,7 +16,7 @@ from app.config.ai_models import validate_ai_provider, validate_provider_models
 from app.settings_recovery import preserve_settings_recovery
 from app.config.ai import AI_MEMORY_ENABLED
 from app.config.privacy import AI_HISTORY_MAX_ENTRIES, AI_CONTEXT_MAX_ENTRIES, validate_memory_limits
-from app.config.ai_setup import AIModelSelection, AISetup, parse_ai_setup
+from app.config.ai_setup import AISetup, parse_ai_setup
 from app.config.ai_language import ResponseLanguageSettings, validate_response_language
 
 logger = logging.getLogger(__name__)
@@ -566,33 +566,6 @@ class AppSettingsStore:
             self._interface_language_saved = True
         return True
 
-    def update_window(
-        self,
-        *,
-        start_minimized: object,
-        minimize_to_tray: object,
-        close_to_tray: object,
-    ) -> AppSettings:
-        values = (start_minimized, minimize_to_tray, close_to_tray)
-        if any(type(value) is not bool for value in values):
-            raise ValueError("Application window settings must be boolean values.")
-        window = WindowSettings(
-            start_minimized=start_minimized,
-            minimize_to_tray=minimize_to_tray,
-            close_to_tray=close_to_tray,
-        )
-        with self._lock:
-            updated = replace(
-                self._settings,
-                window=window,
-                startup=self._settings.startup,
-                ai=self._settings.ai,
-                twitch=self._settings.twitch,
-            )
-            save_app_settings(self._path, updated, recovered_settings=self._settings)
-            self._settings = updated
-        return updated
-
     def update_desktop(
         self,
         *,
@@ -643,42 +616,6 @@ class AppSettingsStore:
                 window=self._settings.window,
                 startup=self._settings.startup,
                 ai=replace(self._settings.ai, memory_enabled=enabled),
-                twitch=self._settings.twitch,
-            )
-            save_app_settings(self._path, updated, recovered_settings=self._settings)
-            self._settings = updated
-        return updated
-
-    def update_ai_models(
-        self,
-        *,
-        selected_model: object = None,
-        fallback_model: object = None,
-        provider: object = "gemini",
-    ) -> AppSettings:
-        provider = validate_ai_provider(provider)
-        changes = {"provider": provider}
-        if selected_model is not None or fallback_model is not None:
-            selected, fallback = validate_provider_models(provider, selected_model, fallback_model)
-            prefix = provider + "_" if provider != "gemini" else ""
-            changes.update({prefix + "selected_model": selected, prefix + "fallback_model": fallback})
-        with self._lock:
-            if self._settings.ai.setup is not None:
-                existing = self._settings.ai.setup
-                if selected_model is None and fallback_model is None:
-                    raise ValueError("Choose both models when changing a configured AI setup through the legacy model operation.")
-                def compatible(previous, model):
-                    if previous and previous.provider == provider and previous.model == model:
-                        return previous
-                    return AIModelSelection(provider, model, "off" if provider == "deepseek" else "default")
-                configured = replace(existing, primary=compatible(existing.primary, selected),
-                                     fallback=compatible(existing.fallback, fallback), cross_provider_acknowledged=False)
-                changes["setup"] = parse_ai_setup(asdict(configured))
-            updated = replace(
-                self._settings,
-                window=self._settings.window,
-                startup=self._settings.startup,
-                ai=replace(self._settings.ai, **changes),
                 twitch=self._settings.twitch,
             )
             save_app_settings(self._path, updated, recovered_settings=self._settings)

@@ -198,9 +198,13 @@ def file_state(transfer):
 async def test_both_provider_choices_transfer_without_credentials_and_legacy_stays_gemini(profiles):
     from app.config.profile_settings import apply_ai_app_settings
     source, target = profiles("source-providers"), profiles("target-providers")
-    management = ApplicationManagement(source.app, source.settings)
-    await management._save_ai_provider_models("gemini-custom", "gemini-backup")
-    await management._save_ai_provider_models("deepseek-custom", "deepseek-backup", "deepseek")
+    path = source.settings._path
+    path.write_text(json.dumps({"version": 1, "ai": {
+        "provider": "deepseek", "selected_model": "gemini-custom", "fallback_model": "gemini-backup",
+        "deepseek_selected_model": "deepseek-custom", "deepseek_fallback_model": "deepseek-backup",
+    }}), encoding="utf-8")
+    source.settings = AppSettingsStore(path)
+    source.app.settings = apply_ai_app_settings(source.app.settings, source.settings.snapshot())
     source.app.settings.deepseek_api_key = "PRIVATE-DEEPSEEK-KEY"
     target.app.settings.deepseek_api_key = "PRIVATE-DESTINATION-KEY"
     encoded = source.export()["archive_base64"]

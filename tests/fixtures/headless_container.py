@@ -103,7 +103,7 @@ async def session(**kwargs):
     counter = paths.data / "probe-starts"
     previous = int(counter.read_text()) if counter.exists() else 0
     if previous:
-        assert await services.users.get_by_twitch_user_id("300", channel_id=settings.twitch_channel_user_id) is not None
+        assert (await services.users.get_by_username("syntheticviewer", channel_id=settings.twitch_channel_user_id)).twitch_user_id == "300"
     await services.users.upsert_seen(twitch_user_id="300", username="syntheticviewer", channel_id=settings.twitch_channel_user_id)
     bot = TwitchChatBot(settings, settings.primary_account, services, kwargs["dispatcher"], logging.getLogger("probe"))
 

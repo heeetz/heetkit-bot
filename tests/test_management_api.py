@@ -724,7 +724,10 @@ async def test_management_applies_and_persists_existing_stores(api):
     await save("/v1/custom-commands/save", {"command": custom})
     await save("/v1/ai/enabled", {"enabled": False})
     await save("/v1/ai/memory", {"enabled": False})
-    await save("/v1/ai/models", {"selected_model": "gemini-synthetic-a", "fallback_model": "gemini-synthetic-b"})
+    await save("/v1/ai/setup", {"settings": {
+        "primary": {"provider": "gemini", "model": "gemini-synthetic-a", "thinking": "default", "search": False},
+        "fallback": {"provider": "gemini", "model": "gemini-synthetic-b", "thinking": "default", "search": False},
+    }})
     await save("/v1/ai/language", {"mode": "limited", "allowed_languages": ["en"], "fallback_language": "en"})
     await save("/v1/personalities/create", {"name": "Synthetic", "prompt": "Synthetic prompt"})
     await save("/v1/personalities/save", {"personality": "Synthetic", "prompt": "Edited prompt"})
@@ -779,7 +782,7 @@ async def test_management_applies_and_persists_existing_stores(api):
         assert command.permission.name == "MODERATOR" and command.cooldown.per_user_seconds == 7
         assert command.send_as == "reply"
         assert not state.ai_enabled and not profile.ai.memory_enabled
-        assert clone.settings.gemini_model == "gemini-synthetic-a"
+        assert clone.settings.ai_setup.primary.model == "gemini-synthetic-a"
         assert state.active_ai_personality == "Synthetic"
         assert clone.custom_commands.get_by_name("salute").responses == ("Hi {sender}",)
         assert clone.custom_commands.get_by_name("salute").send_as == "mention"

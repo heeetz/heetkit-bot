@@ -729,10 +729,8 @@ export interface PythonApi {
   save_ai_setup(settings: AISetupSettings): Promise<ActionResult>
   get_setup_guide(): Promise<ActionResult & { dismissed?: boolean; ai_skipped?: boolean }>
   save_setup_guide(dismissed: boolean, ai_skipped: boolean): Promise<ActionResult & { dismissed?: boolean; ai_skipped?: boolean }>
-  update_ai_provider_settings(selectedModel?: string | null, fallbackModel?: string | null, provider?: AIProviderId): Promise<ActionResult>
   get_ai_language_settings(): Promise<AILanguageSettingsResponse>
   update_ai_language_settings(mode: string, allowedLanguages: string[], fallbackLanguage: string): Promise<ActionResult>
-  discover_gemini_models(): Promise<ModelDiscoveryResponse>
   discover_ai_models(provider?: AIProviderId): Promise<ModelDiscoveryResponse>
   replace_credential(name: CredentialName, value: string): Promise<ActionResult>
   remove_credential(name: CredentialName): Promise<ActionResult>

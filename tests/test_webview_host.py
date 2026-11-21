@@ -6,7 +6,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future
 from types import SimpleNamespace
 from typing import cast
 
@@ -422,9 +422,9 @@ def test_bridge_exposes_about_metadata_and_fixed_external_destinations(monkeypat
     for destination in ("repository", "license", "third_party_notices", "twitch_developer_console", "author_twitch", "releases"):
         assert bridge.open_external_link(destination) == {"ok": True}
     assert opened == [
-        ("https://github.com/heeetz/twitch-bot", 2),
-        ("https://github.com/heeetz/twitch-bot/blob/main/LICENSE", 2),
-        ("https://github.com/heeetz/twitch-bot/blob/main/THIRD_PARTY_NOTICES.md", 2),
+        ("https://github.com/heeetz/heetkit-bot", 2),
+        ("https://github.com/heeetz/heetkit-bot/blob/main/LICENSE", 2),
+        ("https://github.com/heeetz/heetkit-bot/blob/main/THIRD_PARTY_NOTICES.md", 2),
         ("https://dev.twitch.tv/console/apps", 2),
         ("https://www.twitch.tv/heet_ok", 2),
         (RELEASE_PAGE_URL, 2),
@@ -831,7 +831,7 @@ def test_saved_auto_start_defaults_off_and_accepts_explicit_override() -> None:
     assert resolve_auto_start(defaults, True) is True
 
 
-def test_bridge_exposes_and_updates_ai_provider_settings(tmp_path) -> None:
+def test_bridge_exposes_ai_provider_settings(tmp_path) -> None:
     from app.config.settings import Settings
     settings = Settings(
         gemini_model="gemini-selected",
@@ -871,39 +871,6 @@ def test_bridge_exposes_and_updates_ai_provider_settings(tmp_path) -> None:
     assert result["settings"]["selected_model"] == "gemini-selected"
     assert result["settings"]["credential"]["configured"] is True
     assert "value" not in result["settings"]["credential"]
-
-    assert bridge.update_ai_provider_settings("gemini-new", "gemini-safe") == {
-        "ok": True
-    }
-    assert settings.gemini_model == "gemini-new"
-    assert settings.gemini_fallback_model == "gemini-safe"
-    assert store.snapshot().ai == AISettings(
-        provider="gemini",
-        selected_model="gemini-new",
-        fallback_model="gemini-safe",
-    )
-
-
-def test_bridge_discovers_models_on_the_existing_backend_loop() -> None:
-    class FakeAI:
-        async def discover_models(self, provider) -> list[str]:
-            assert provider == "gemini"
-            return ["gemini-discovered"]
-
-    class FakeBackend:
-        application = SimpleNamespace(services=SimpleNamespace(ai=FakeAI()))
-
-        def submit(self, coroutine):
-            future: Future[list[str]] = Future()
-            future.set_result(asyncio.run(coroutine))
-            return future
-
-    bridge = WebUIBridge(cast(AsyncioBackendHost, FakeBackend()))
-
-    assert bridge.discover_gemini_models() == {
-        "ok": True,
-        "models": ["gemini-discovered"],
-    }
 
 
 def test_bridge_timeout_cancels_pending_backend_operation(
@@ -972,90 +939,6 @@ def test_bridge_observes_backend_completion_after_timeout(
     assert result["ok"] is False
     assert "completed after its UI deadline operation=start_bot" in caplog.text
 
-
-def test_bridge_serializes_persist_and_apply_model_updates() -> None:
-    first_started = threading.Event()
-    second_entered = threading.Event()
-    release_first = threading.Event()
-
-    class BlockingSettingsStore:
-        def __init__(self) -> None:
-            self.ai = AISettings()
-            self.calls: list[str] = []
-
-        def update_ai_models(self, *, selected_model, fallback_model, provider):
-            assert provider == "gemini"
-            self.calls.append(selected_model)
-            if selected_model == "gemini-first":
-                first_started.set()
-                assert release_first.wait(timeout=1)
-            else:
-                second_entered.set()
-            self.ai = AISettings(
-                provider=provider,
-                selected_model=selected_model,
-                fallback_model=fallback_model,
-            )
-            return AppSettings(ai=self.ai)
-
-    class SerialBackend:
-        def __init__(self) -> None:
-            from app.config.settings import Settings
-            self.application = SimpleNamespace(
-                settings=Settings(
-                    gemini_model="gemini-original",
-                    gemini_fallback_model="gemini-original-fallback",
-                )
-            )
-            self.executor = ThreadPoolExecutor(max_workers=1)
-
-        def submit(self, coroutine):
-            return self.executor.submit(asyncio.run, coroutine)
-
-    store = BlockingSettingsStore()
-    backend = SerialBackend()
-    bridge = WebUIBridge(
-        cast(AsyncioBackendHost, backend),
-        app_settings=cast(AppSettingsStore, store),
-    )
-    results: list[dict[str, object]] = []
-    first = threading.Thread(
-        target=lambda: results.append(
-            bridge.update_ai_provider_settings("gemini-first", "gemini-first-fallback")
-        )
-    )
-    second = threading.Thread(
-        target=lambda: results.append(
-            bridge.update_ai_provider_settings("gemini-second", "gemini-second-fallback")
-        )
-    )
-
-    try:
-        first.start()
-        assert first_started.wait(timeout=1)
-        second.start()
-        assert not second_entered.wait(timeout=0.05)
-        release_first.set()
-        first.join(timeout=1)
-        second.join(timeout=1)
-    finally:
-        release_first.set()
-        backend.executor.shutdown(wait=True)
-
-    assert not first.is_alive()
-    assert not second.is_alive()
-    assert results == [{"ok": True}, {"ok": True}]
-    assert store.calls == ["gemini-first", "gemini-second"]
-    assert store.ai == AISettings(
-        provider="gemini",
-        selected_model="gemini-second",
-        fallback_model="gemini-second-fallback",
-    )
-    assert backend.application.settings.gemini_model == "gemini-second"
-    assert (
-        backend.application.settings.gemini_fallback_model
-        == "gemini-second-fallback"
-    )
 
 
 def test_bridge_exposes_and_saves_non_secret_twitch_settings(tmp_path) -> None:
@@ -1956,10 +1839,11 @@ def test_desktop_controller_hides_window_for_saved_tray_settings(tmp_path) -> No
     controller, backend, bridge, tray, store, window = build_desktop_controller(
         tmp_path
     )
-    store.update_window(
+    store.update_desktop(
         start_minimized=True,
         minimize_to_tray=True,
         close_to_tray=True,
+        auto_start_bot=False,
     )
 
     controller.start_tray()
@@ -1977,10 +1861,11 @@ def test_desktop_controller_hides_window_for_saved_tray_settings(tmp_path) -> No
 
 def test_desktop_controller_keeps_window_reachable_when_tray_fails(tmp_path) -> None:
     controller, backend, bridge, tray, store, window = build_desktop_controller(tmp_path)
-    store.update_window(
+    store.update_desktop(
         start_minimized=True,
         minimize_to_tray=True,
         close_to_tray=True,
+        auto_start_bot=False,
     )
 
     def fail_start() -> None:

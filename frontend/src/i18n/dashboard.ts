@@ -150,7 +150,7 @@ export const dashboard = defineCatalog({
     commands: {
       title: 'Recent commands',
       viewLogs: 'View logs',
-      time: 'Time (UTC)',
+      time: 'Time',
       command: 'Command',
       outcome: 'Outcome',
       unavailable: 'Recent commands are temporarily unavailable.',
@@ -341,7 +341,7 @@ export const dashboard = defineCatalog({
     commands: {
       title: 'Останні команди',
       viewLogs: 'Логи',
-      time: 'Час (UTC)',
+      time: 'Час',
       command: 'Команда',
       outcome: 'Результат',
       unavailable: 'Останні команди тимчасово недоступні.',
@@ -532,7 +532,7 @@ export const dashboard = defineCatalog({
     commands: {
       title: 'Последние команды',
       viewLogs: 'Логи',
-      time: 'Время (UTC)',
+      time: 'Время',
       command: 'Команда',
       outcome: 'Результат',
       unavailable: 'Последние команды временно недоступны.',

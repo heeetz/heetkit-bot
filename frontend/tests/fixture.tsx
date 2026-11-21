@@ -400,17 +400,10 @@ window.pywebview = { api: {
   test_credential: async (name: string) => { credentialCalls.push(['test', name]); return { ok: true } },
   get_ai_provider_settings: async () => ({ ok: true, settings: {
     provider: 'Gemini', selected_model: query.has('a4Models') && !aiStatus.model ? 'synthetic-primary' : aiStatus.model,
-    fallback_model: sessionStorage.getItem('a4Fallback') ?? (query.has('a4Models') ? 'synthetic-fallback' : ''),
+    fallback_model: query.has('a4Models') ? 'synthetic-fallback' : '',
     presets: query.has('a4Models') ? ['synthetic-primary', 'synthetic-fallback'].map((id) => ({ id, label: id, description: '' })) : [],
     credential: credentials[1],
   } }),
-  update_ai_provider_settings: async (primary: string, fallback: string) => {
-    aiCalls.push(['update_ai_provider_settings', primary, fallback])
-    if (query.has('modelSaveError')) return { ok: false, error: 'AI model settings could not be saved.' }
-    aiStatus = { ...aiStatus, model: primary }
-    sessionStorage.setItem('a4Fallback', fallback)
-    return { ok: true }
-  },
   get_ai_language_settings: async () => {
     if (query.has('languageLoadError')) return { ok: false, error: 'AI language settings are unavailable.' }
     return { ok: true, settings: languageSettings, languages: languageCatalogue, active_policy: activeLanguagePolicy }
@@ -436,10 +429,10 @@ window.pywebview = { api: {
     return { ok: true }
   },
   get_about_info: async () => ({
-    application_name: 'HeetKit', version: '0.1.0', author: 'heeetz', repository_url: 'https://github.com/heeetz/twitch-bot',
+    application_name: 'HeetKit', version: '0.1.0', author: 'heeetz', repository_url: 'https://github.com/heeetz/heetkit-bot',
     application_subtitle: 'Desktop control center for Twitch chat', author_twitch: '@heet_ok',
     discord_contact: 'de.tected', license_name: 'Apache-2.0', license_url: 'https://www.apache.org/licenses/LICENSE-2.0',
-    third_party_notices_url: 'https://github.com/heeetz/twitch-bot/blob/main/THIRD_PARTY_NOTICES.md',
+    third_party_notices_url: 'https://github.com/heeetz/heetkit-bot/blob/main/THIRD_PARTY_NOTICES.md',
   }),
   check_for_updates: async () => {
     updateCalls.push(['check_for_updates'])

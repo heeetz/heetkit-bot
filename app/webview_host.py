@@ -24,13 +24,12 @@ from typing import Any, Coroutine
 
 from pydantic import SecretStr, ValidationError
 
-from app.app_settings import DEFAULT_INTERFACE_LANGUAGE, AISettings, AppSettings, AppSettingsStore, TwitchSettings
+from app.app_settings import DEFAULT_INTERFACE_LANGUAGE, AppSettings, AppSettingsStore, TwitchSettings
 from app.bot_runtime import BotRuntime
 from app.management import APPLICATION_NAME, APPLICATION_SUBTITLE, EXTERNAL_LINKS, ApplicationManagement
 from app.command_settings import CommandSettings
 from app.commands.registry import command_unavailable_reason
 from app.custom_commands import VARIABLES
-from app.config.ai_models import GEMINI_MODEL_PRESETS, GEMINI_PROVIDER_NAME, AI_PROVIDERS
 from app.ai_user_blocks import normalize_ai_username, verified_user_id
 from app.config.ai_language import (
     RESPONSE_LANGUAGES, build_response_language_instruction,
@@ -123,7 +122,7 @@ FRONTEND_OPERATIONS = (
     "get_profile_info", "open_profile_folder", "update_app_settings",
     "get_twitch_settings", "update_twitch_settings", "save_twitch_preset",
     "delete_twitch_preset", "reconnect_twitch", "get_credentials",
-    "get_ai_provider_settings", "update_ai_provider_settings", "discover_gemini_models", "discover_ai_models",
+    "get_ai_provider_settings", "discover_ai_models",
     "get_ai_setup", "save_ai_setup",
     "get_setup_guide", "save_setup_guide",
     "get_blocked_ai_users", "block_ai_user", "unblock_ai_user",
@@ -1316,48 +1315,6 @@ class WebUIBridge(ApplicationManagement):
             return {"ok": False, "error": str(error)}
         except Exception:
             return {"ok": False, "error": "Could not save AI setup. Reload saved state before retrying."}
-
-    def update_ai_provider_settings(
-        self,
-        selected_model: object = None,
-        fallback_model: object = None,
-        provider: object = "gemini",
-    ) -> dict[str, object]:
-        if self._app_settings is None:
-            return {"ok": False, "error": "Desktop settings are not configured."}
-        try:
-            updated = self._wait_for_backend(
-                self._save_ai_provider_models(selected_model, fallback_model, provider),
-                operation="save_ai_models",
-                timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
-            )
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
-        except BridgeOperationTimedOut:
-            return {
-                "ok": False,
-                "error": "Saving AI model settings timed out. Check Logs for details.",
-            }
-        except OSError:
-            self._logger.warning("Could not save AI model settings")
-            return {"ok": False, "error": "Could not save AI model settings."}
-        except Exception:
-            self._logger.warning("Could not save AI model settings")
-            return {"ok": False, "error": "Could not save AI model settings."}
-        self._logger.info(
-            "AI provider model settings saved",
-            extra={
-                "event_kind": "settings.ai_model",
-                "event_provider": AI_PROVIDERS[updated.provider],
-                "event_action": "save",
-            },
-        )
-        return {"ok": True}
-
-    def discover_gemini_models(self) -> dict[str, object]:
-        """Compatibility entry point; legacy callers always request Gemini."""
-        result = self.discover_ai_models("gemini")
-        return {key: value for key, value in result.items() if key != "provider_id"}
 
     def discover_ai_models(self, provider: object = None) -> dict[str, object]:
         from app.config.ai_models import validate_ai_provider

@@ -7,7 +7,6 @@ from importlib.resources import files
 import pytest
 
 from app.config.personalities import (
-    AI_PERSONALITY_PRESETS,
     AI_PERSONALITY_PROMPTS,
     BUILTIN_PERSONALITIES_RESOURCE,
 )
@@ -25,9 +24,7 @@ def test_only_neutral_personality_is_shipped() -> None:
 
 
 def test_all_built_in_personalities_resolve() -> None:
-    assert tuple(AI_PERSONALITY_PRESETS) == ('neutral',)
-
-    for name in AI_PERSONALITY_PRESETS:
+    for name in AI_PERSONALITY_PROMPTS:
         instruction = build_ai_system_instruction(name)
         assert "Current date and time:" in instruction
         assert "{current_datetime}" not in instruction
@@ -39,7 +36,7 @@ def test_active_personality_remains_the_runtime_default() -> None:
     runtime_state = RuntimeState()
 
     assert runtime_state.active_ai_personality == ACTIVE_AI_PERSONALITY
-    assert runtime_state.available_personalities == tuple(AI_PERSONALITY_PRESETS)
+    assert runtime_state.available_personalities == tuple(AI_PERSONALITY_PROMPTS)
 
 
 def test_runtime_personality_switching_and_validation_are_preserved() -> None:
@@ -56,8 +53,7 @@ def test_runtime_personality_switching_and_validation_are_preserved() -> None:
 
 
 def test_personality_specific_prompts_preserve_built_in_instructions() -> None:
-    for name, prompt in AI_PERSONALITY_PROMPTS.items():
-        assert AI_PERSONALITY_PRESETS[name].endswith(prompt)
+    for prompt in AI_PERSONALITY_PROMPTS.values():
         assert "You are a Twitch chat assistant." not in prompt
 
 

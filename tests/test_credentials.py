@@ -272,14 +272,13 @@ def test_desktop_direct_key_rotation_removal_and_environment_fallback(tmp_path, 
     backend = FakeKeyring()
     manager = CredentialManager({key_name: "PRIVATE-ENVIRONMENT"}, CredentialStore(backend))
     host = ImmediateBackend(FakeHTTPClient())
-    host.application.settings = Settings()
+    host.application.settings = Settings(ai_provider=provider)
     bridge = WebUIBridge(cast(AsyncioBackendHost, host), credential_manager=manager,
                          app_settings=AppSettingsStore(tmp_path / "app_settings.json"))
     for key in ("PRIVATE-FIRST", "PRIVATE-ROTATED"):
         assert bridge.replace_credential(credential, key) == {"ok": True}
         assert getattr(host.application.settings, credential).get_secret_value() == key
         assert CredentialManager({}, CredentialStore(backend)).effective_value(key_name) == key
-    assert bridge.update_ai_provider_settings(provider + "-custom", provider + "-backup", provider)["ok"]
     status = bridge.get_ai_provider_settings()["settings"]
     assert status["provider_id"] == provider and status["credential"]["source"] == "credential_store"
     assert "PRIVATE" not in repr(status) + repr(bridge.get_credentials())

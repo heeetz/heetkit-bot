@@ -191,8 +191,3 @@ def load_settings_with_credentials(
         overrides.update(twitch_token_file=str(paths.tokens), database_url="sqlite+aiosqlite:///" + str(paths.database))
     settings = Settings(**overrides)
     return settings, manager
-
-
-def load_settings() -> Settings:
-    settings, _ = load_settings_with_credentials()
-    return settings

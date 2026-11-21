@@ -201,14 +201,17 @@ try:
     assert bridge.get_twitch_settings()["settings"]["client_id"] == ""
     assert bridge.update_twitch_settings("target", "200", None, "client-id", "bot", "100")["ok"]
     assert bridge.get_twitch_settings()["settings"]["requires_restart"]
-    assert bridge.update_ai_provider_settings("gemini-installed", "gemini-installed-fallback")["ok"]
+    assert bridge.save_ai_setup({
+        "primary": {"provider": "gemini", "model": "gemini-installed", "thinking": "default", "search": False},
+        "fallback": {"provider": "gemini", "model": "gemini-installed-fallback", "thinking": "default", "search": False},
+    })["ok"]
 finally:
     backend.close()
 saved = AppSettingsStore(paths.app_settings).snapshot()
 applied = webview_host.apply_twitch_app_settings(settings, saved)
 applied = webview_host.apply_ai_app_settings(applied, saved)
 assert applied.twitch_bot_username == "bot"
-assert applied.gemini_model == "gemini-installed"
+assert applied.ai_setup.primary.model == "gemini-installed"
 assert "config" not in __import__("sys").modules
 install_root = Path(os.environ["PYTHONPATH"]).resolve()
 for name, module in tuple(sys.modules.items()):

@@ -222,7 +222,6 @@ WRITES = {
     "/v1/announcements": "_save_announcements",
     "/v1/ai/enabled": "set_ai_enabled",
     "/v1/ai/memory": "_save_ai_memory_enabled",
-    "/v1/ai/models": "_save_ai_provider_models",
     "/v1/ai/setup": "_save_ai_setup",
     "/v1/setup/guide": "save_setup_guide",
     "/v1/ai/language": "_save_ai_response_language",

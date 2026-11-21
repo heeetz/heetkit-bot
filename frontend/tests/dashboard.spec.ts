@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test'
 
-test('Dashboard shows UTC terminal outcomes and the current stream counts', async ({ page }) => {
+test.use({ locale: 'en-US', timezoneId: 'America/Los_Angeles' })
+
+test('Dashboard shows local time for terminal outcomes and the current stream counts', async ({ page }) => {
   await page.setViewportSize({ width: 1180, height: 760 })
   // Install before load so the leaderboard poll timer is fake and runFor() reliably fires it.
   await page.clock.install()
@@ -39,10 +41,10 @@ test('Dashboard shows UTC terminal outcomes and the current stream counts', asyn
   const dashboard = page.getByRole('navigation').getByRole('button', { name: 'Dashboard', exact: true })
   await dashboard.click()
   const recent = page.getByRole('article', { name: 'Recent commands' })
-  await expect(recent.getByRole('columnheader', { name: 'Time (UTC)' })).toBeVisible()
+  await expect(recent.getByRole('columnheader', { name: 'Time', exact: true })).toBeVisible()
   await expect(recent.locator('tbody tr')).toHaveText([
-    '12:30:05#weatherSent', '12:30:04#askOutput filtered', '12:30:03#forecastCooldown',
-    '12:30:02#promoDelivery uncertain', '12:30:01#pingError',
+    '04:30:05#weatherSent', '04:30:04#askOutput filtered', '04:30:03#forecastCooldown',
+    '04:30:02#promoDelivery uncertain', '04:30:01#pingError',
   ])
   await expect(recent.getByText('Cooldown', { exact: true })).toHaveAttribute('class', /^dashboard-outcome\s*$/)
   const activity = page.getByRole('article', { name: 'Stream activity' })

@@ -5,6 +5,10 @@ import { terminalCommandName, terminalCommandOutcome } from './LogEventSummary'
 import { dashboard } from '../i18n/dashboard'
 import { useCatalog, useI18n } from '../i18n/core'
 
+const commandTime = new Intl.DateTimeFormat(undefined, {
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+})
+
 export function RecentCommands({ onOpenLogs }: { onOpenLogs: () => void }) {
   const text = useCatalog(dashboard).commands
   const [entries, setEntries] = useState<LogEntry[] | null>(null)
@@ -45,7 +49,7 @@ export function RecentCommands({ onOpenLogs }: { onOpenLogs: () => void }) {
             {entries?.map((entry) => {
               const outcome = terminalCommandOutcome(entry)
               return <tr key={entry.id}>
-                <td><time dateTime={entry.timestamp} title={entry.timestamp}>{entry.timestamp.slice(11, 19)}</time></td>
+                <td><time dateTime={entry.timestamp} title={entry.timestamp}>{commandTime.format(new Date(entry.timestamp))}</time></td>
                 <th scope="row">{terminalCommandName(entry)}</th>
                 <td><span className={`dashboard-outcome ${outcome.tone ?? ''}`}><span aria-hidden="true" />{text.outcomes[outcome.key]}</span></td>
               </tr>

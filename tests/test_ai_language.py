@@ -65,7 +65,10 @@ def test_language_save_roundtrip_and_other_settings_updates_preserve_policy(tmp_
     assert json.loads(path.read_text(encoding="utf-8"))["ai"]["response_language"] == {
         "mode": "limited", "allowed_languages": ["de", "es", "en"], "fallback_language": "de",
     }
-    store.update_ai_models(selected_model="gemini-primary", fallback_model="gemini-backup")
+    store.update_ai_setup({
+        "primary": {"provider": "gemini", "model": "gemini-primary", "thinking": "default", "search": False},
+        "fallback": {"provider": "gemini", "model": "gemini-backup", "thinking": "default", "search": False},
+    })
     store.update_desktop(start_minimized=True, minimize_to_tray=False, close_to_tray=False, auto_start_bot=False)
     assert store.snapshot().ai.response_language == selected
     assert list(tmp_path.glob("*.recovery")) == []

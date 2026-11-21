@@ -73,7 +73,10 @@ def test_clean_profile_setup_restart_and_start_without_checkout_data(tmp_path, m
         assert settings.twitch_bot_username == ""
         assert bridge.replace_credential("twitch_client_secret", "synthetic-secret")["ok"]
         assert bridge.replace_credential("gemini_api_key", "synthetic-gemini")["ok"]
-        assert bridge.update_ai_provider_settings("gemini-ui-selected", "gemini-ui-fallback")["ok"]
+        assert bridge.save_ai_setup({
+            "primary": {"provider": "gemini", "model": "gemini-ui-selected", "thinking": "default", "search": False},
+            "fallback": {"provider": "gemini", "model": "gemini-ui-fallback", "thinking": "default", "search": False},
+        })["ok"]
         assert backend.application.settings.gemini_api_key.get_secret_value() == "synthetic-gemini"
     finally:
         backend.close()
@@ -91,7 +94,7 @@ def test_clean_profile_setup_restart_and_start_without_checkout_data(tmp_path, m
     assert restarted.twitch_bot_username == "newbot"
     assert restarted.twitch_client_secret.get_secret_value() == "synthetic-secret"
     assert restarted.gemini_api_key.get_secret_value() == "synthetic-gemini"
-    assert (restarted.gemini_model, restarted.gemini_fallback_model) == ("gemini-ui-selected", "gemini-ui-fallback")
+    assert (restarted.ai_setup.primary.model, restarted.ai_setup.fallback.model) == ("gemini-ui-selected", "gemini-ui-fallback")
     assert restarted.twitch_token_file == str(paths.tokens)
     assert restarted.database_url.endswith(str(paths.database))
 
@@ -217,7 +220,10 @@ def test_profile_cooldown_exception_is_preserved_on_unrelated_saves(tmp_path):
     path.write_text(json.dumps({"version": 1, "ai": {"cooldown_bypass_user_id": "123"}}))
     store = AppSettingsStore(path)
     store.update_ai_memory(enabled=False)
-    store.update_ai_models(selected_model="gemini-new", fallback_model="gemini-safe")
+    store.update_ai_setup({
+        "primary": {"provider": "gemini", "model": "gemini-new", "thinking": "default", "search": False},
+        "fallback": {"provider": "gemini", "model": "gemini-safe", "thinking": "default", "search": False},
+    })
     store.update_desktop(start_minimized=False, minimize_to_tray=False, close_to_tray=False, auto_start_bot=False)
     saved = AppSettingsStore(path).snapshot()
     assert saved.ai.cooldown_bypass_user_id == "123"

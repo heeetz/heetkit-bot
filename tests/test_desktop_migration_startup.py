@@ -70,8 +70,8 @@ def test_missing_mapping_opens_guarded_startup_and_confirmation_resumes_once(leg
         assert json.loads(mapping.read_text())["channel_id"] == "300"
         assert window._functions["get_app_status"]()["channel"] == "configured_channel"
         async def presence():
-            return await backend.application.services.users.get_by_twitch_user_id("123", channel_id="300")
-        assert backend.submit(presence()).result(timeout=3).username == "syntheticviewer"
+            return await backend.application.services.users.get_by_username("syntheticviewer", channel_id="300")
+        assert backend.submit(presence()).result(timeout=3).twitch_user_id == "123"
     finally:
         backend.close()
     backup = migrations._recovery_paths(paths.database)[1]
