@@ -54,7 +54,7 @@ test('Playground keeps a late result private after logout', async ({ page }) => 
   const activeRequest = new Promise<void>((resolve) => { release = resolve })
   let arrived = false
   let delivered = false
-  await page.route('**/v1/ai/playground/result', async (route) => {
+  await page.route('**/v1/ops/get_ai_playground_result', async (route) => {
     arrived = true
     await activeRequest
     await route.fulfill({ json: { ok: true, status: 'success', text: 'Private synthetic answer' } })
@@ -127,7 +127,7 @@ test('keyboard navigation expands the AI submenu and reaches its sections', asyn
 
 test('a dismissed AI load error preserves navigation to the existing AI sections', async ({ page }) => {
   const api = await server(page)
-  api.fail('/v1/ai/language')
+  api.fail('/v1/ops/get_ai_language_settings')
   await signIn(page)
   await navigate(page, 'AI')
   const error = page.getByRole('alert')

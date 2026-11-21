@@ -6,7 +6,7 @@ test('schedules, changes, disables and deletes an announcement with confirmation
   await signIn(page)
   await navigate(page, 'Commands')
   const panel = page.locator('#announcements')
-  const writes = () => api.calls.filter(({ method, path }) => method === 'POST' && path === '/v1/announcements')
+  const writes = () => api.calls.filter(({ method, path }) => method === 'POST' && path === '/v1/ops/save_announcements')
   const save = panel.getByRole('button', { name: 'Save announcements', exact: true })
   await panel.getByRole('button', { name: 'New announcement', exact: true }).click()
   await panel.getByLabel('Name', { exact: true }).fill('Community links')
@@ -58,8 +58,8 @@ test('a committed announcement cannot be duplicated while its new ID is unavaila
   await page.clock.install()
   const api = await server(page)
   let allowRead = true
-  await page.route('**/v1/announcements', async (route) => {
-    if (route.request().method() === 'POST') {
+  await page.route(/\/v1\/ops\/(get|save)_announcements$/, async (route) => {
+    if (route.request().url().endsWith('/save_announcements')) {
       allowRead = false
     } else if (!allowRead) {
       return route.fulfill({ json: { ok: false, announcements: [] } })
@@ -82,7 +82,7 @@ test('a committed announcement cannot be duplicated while its new ID is unavaila
   await page.clock.fastForward(5100)
   await expect(create).toBeEnabled()
   await expect(panel.getByRole('row', { name: /Saved reminder/ })).toBeVisible()
-  expect(api.calls.filter(({ path, method }) => path === '/v1/announcements' && method === 'POST')).toHaveLength(1)
+  expect(api.calls.filter(({ path, method }) => path === '/v1/ops/save_announcements' && method === 'POST')).toHaveLength(1)
 })
 
 test('a row removed during editing keeps its draft cancellable and blocks a stale write', async ({ page }) => {
@@ -100,11 +100,10 @@ test('a row removed during editing keeps its draft cancellable and blocks a stal
   const row = panel.getByRole('row', { name: /Reminder/ })
   await row.getByRole('button', { name: 'Edit' }).click()
   await name.fill('Unsaved draft')
-  await page.route('**/v1/announcements', async (route) => {
-    if (route.request().method() !== 'GET') return route.fallback()
+  await page.route('**/v1/ops/get_announcements', async (route) => {
     await route.fulfill({ json: { ok: true, announcements: [] } })
   })
-  const refresh = page.waitForResponse('**/v1/announcements')
+  const refresh = page.waitForResponse('**/v1/ops/get_announcements')
   await page.clock.fastForward(5100)
   await refresh
   await expect(name).toHaveValue('Unsaved draft')
@@ -112,5 +111,5 @@ test('a row removed during editing keeps its draft cancellable and blocks a stal
   await expect(panel.getByRole('alert')).toBeVisible()
   await panel.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(row).toHaveCount(0)
-  expect(api.calls.filter(({ method, path }) => method === 'POST' && path === '/v1/announcements')).toHaveLength(1)
+  expect(api.calls.filter(({ method, path }) => method === 'POST' && path === '/v1/ops/save_announcements')).toHaveLength(1)
 })

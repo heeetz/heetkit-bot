@@ -18,7 +18,7 @@ test('Settings saves Twitch identity and completes paste-mode authorization afte
   await clientId.fill('')
   await save.click()
   await expect(page.getByRole('alert')).toBeVisible()
-  expect(api.calls.some(({ path }) => path === '/v1/twitch/settings')).toBe(false)
+  expect(api.calls.some(({ path }) => path === '/v1/ops/update_server_twitch_settings')).toBe(false)
   await clientId.fill('new-client')
   await connection.getByLabel('Bot account login', { exact: true }).fill('newbot')
   await connection.getByLabel('Bot account user ID', { exact: true }).fill('101')
@@ -27,7 +27,7 @@ test('Settings saves Twitch identity and completes paste-mode authorization afte
   await expectNoOverflow(page)
   page.once('dialog', (dialog) => dialog.accept())
   await save.click()
-  await expect.poll(() => api.calls.find(({ path }) => path === '/v1/twitch/settings')?.body).toEqual({
+  await expect.poll(() => api.calls.find(({ path }) => path === '/v1/ops/update_server_twitch_settings')?.body).toEqual({
     client_id: 'new-client', bot_username: 'newbot', bot_user_id: '101', channel: 'newchannel', channel_user_id: '201',
 })
   await expect(page.getByRole('status')).toBeVisible()
@@ -43,7 +43,7 @@ test('Settings saves Twitch identity and completes paste-mode authorization afte
   await callback.fill('http://localhost:8765/oauth/callback?code=discarded&state=synthetic')
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(callback).toHaveCount(0)
-  expect(api.calls.some(({ path }) => path === '/v1/twitch/authorization/cancel')).toBe(true)
+  expect(api.calls.some(({ path }) => path === '/v1/ops/cancel_twitch_authorization')).toBe(true)
 
   await connect.click()
   await expect(callback).toHaveValue('')
@@ -58,7 +58,7 @@ test('Settings saves Twitch identity and completes paste-mode authorization afte
   await callback.fill(callbackUrl)
   await complete.click()
   await expect(callback).toHaveCount(0)
-  expect(api.calls.filter(({ path }) => path === '/v1/twitch/authorization/complete').at(-1)?.body).toEqual({ callback_url: callbackUrl })
+  expect(api.calls.filter(({ path }) => path === '/v1/ops/complete_twitch_authorization').at(-1)?.body).toEqual({ callback_url: callbackUrl })
   await expect(fallback).toHaveCount(0)
 })
 
@@ -118,7 +118,7 @@ test('Server Skip AI persists and finishes setup while waiting for a stream', as
   api.setTwitch({ saved_bot_authorization: true })
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await page.getByRole('button', { name: 'Dashboard', exact: true }).click()
-  await expect.poll(() => api.calls.filter((call) => call.path === '/v1/setup/guide').length).toBeGreaterThan(2)
+  await expect.poll(() => api.calls.filter((call) => call.path.endsWith('_setup_guide')).length).toBeGreaterThan(2)
   await expect(checklist).toHaveCount(0)
 })
 
@@ -140,7 +140,7 @@ test('Twitch redirect authorization follows the signed-in attempt without reques
   await expect(authorization).toBeVisible()
   api.setTwitch({ authorization_attempt: 'completed' })
   await expect(authorization).toHaveCount(0)
-  expect(api.calls.some((call) => call.path === '/v1/twitch/authorization/complete')).toBe(false)
+  expect(api.calls.some((call) => call.path === '/v1/ops/complete_twitch_authorization')).toBe(false)
   expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0])
 
   api.setTwitch({ authorization_attempt: 'pending' })
@@ -168,15 +168,15 @@ test('a managed Twitch credential is replaced, tested and removed without losing
   await expect(secret).toHaveValue('')
   const check = connection.getByRole('button', { name: 'Test saved secret' })
   await check.click()
-  await expect.poll(() => api.calls.filter(({ path }) => path.startsWith('/v1/credentials/')).length).toBe(2)
+  await expect.poll(() => api.calls.filter(({ path }) => path.endsWith('_credential')).length).toBe(2)
   await connection.getByText('Secret actions', { exact: true }).click()
   page.once('dialog', (dialog) => dialog.accept())
   await connection.getByRole('button', { name: 'Remove secret' }).click()
   await expect(check).toBeDisabled()
   await expect(target).toHaveValue('unsaved_target')
-  expect(api.calls.filter(({ path }) => path.startsWith('/v1/credentials/')).map(({ path, body }) => [path, body])).toEqual([
-    ['/v1/credentials/replace', { name: 'twitch_client_secret', value: 'synthetic-twitch-secret' }],
-    ['/v1/credentials/test', { name: 'twitch_client_secret' }],
-    ['/v1/credentials/remove', { name: 'twitch_client_secret' }],
+  expect(api.calls.filter(({ path }) => path.endsWith('_credential')).map(({ path, body }) => [path, body])).toEqual([
+    ['/v1/ops/replace_credential', { name: 'twitch_client_secret', value: 'synthetic-twitch-secret' }],
+    ['/v1/ops/test_credential', { name: 'twitch_client_secret' }],
+    ['/v1/ops/remove_credential', { name: 'twitch_client_secret' }],
   ])
 })

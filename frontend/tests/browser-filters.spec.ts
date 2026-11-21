@@ -12,7 +12,7 @@ test('Filters tests active rules, validates a draft and persists corrected rules
   await tester.getByRole('textbox').fill('synthetic sample')
   await tester.getByRole('button', { name: 'Test sample' }).click()
   await expect(tester.getByRole('status').getByText('synthetic', { exact: true })).toBeVisible()
-  expect(api.calls.find(({ path }) => path === '/v1/filters/test')?.body).toEqual({
+  expect(api.calls.find(({ path }) => path === '/v1/ops/test_filters')?.body).toEqual({
     text: 'synthetic sample', source: 'active', payload: null,
   })
 
@@ -32,14 +32,14 @@ test('Filters tests active rules, validates a draft and persists corrected rules
   await save.click()
   await expect(editor.getByRole('alert')).toBeVisible()
   await expect(patterns).toHaveAttribute('aria-invalid', 'true')
-  expect(api.calls.find(({ path }) => path === '/v1/filters/save')?.body).toMatchObject({ payload: { patterns: ['['] } })
+  expect(api.calls.find(({ path }) => path === '/v1/ops/save_filters')?.body).toMatchObject({ payload: { patterns: ['['] } })
   await expectNoOverflow(page)
 
   await patterns.fill('^safe$\n^safe$\n^other$')
   await save.click()
   await expect(editor).toBeHidden()
   await expect(tester.getByRole('status')).toHaveCount(0)
-  expect(api.calls.filter(({ path }) => path === '/v1/filters/save').at(-1)?.body).toEqual({
+  expect(api.calls.filter(({ path }) => path === '/v1/ops/save_filters').at(-1)?.body).toEqual({
     payload: { words: ['new word'], phrases: [], patterns: ['^safe$', '^safe$', '^other$'] },
   })
   await open.click()
@@ -51,7 +51,7 @@ test('Filter Tester ignores a result from rules that were replaced during the te
   let releaseResult!: () => void
   let started = 0
   const result = new Promise<void>((resolve) => { releaseResult = resolve })
-  await page.route('**/v1/filters/test', async (route) => {
+  await page.route('**/v1/ops/test_filters', async (route) => {
     started += 1
     await result
     await route.fulfill({ json: { ok: true, source: 'active', decision: 'BLOCK', category: 'words', rule: 'old word' } })
@@ -70,7 +70,7 @@ test('Filter Tester ignores a result from rules that were replaced during the te
   await editor.getByRole('textbox', { name: 'Blocked words, one rule per line' }).fill('replacement')
   await editor.getByRole('button', { name: 'Save filters' }).click()
   await expect(editor).toBeHidden()
-  const received = page.waitForResponse('**/v1/filters/test')
+  const received = page.waitForResponse('**/v1/ops/test_filters')
   releaseResult()
   await received
   await expect(run).toBeEnabled()
@@ -79,7 +79,7 @@ test('Filter Tester ignores a result from rules that were replaced during the te
 
 test('Filter Tester reports a regex timeout as a block without a matched rule', async ({ page }) => {
   await server(page)
-  await page.route('**/v1/filters/test', (route) => route.fulfill({
+  await page.route('**/v1/ops/test_filters', (route) => route.fulfill({
     json: { ok: true, source: 'active', decision: 'BLOCK', category: null, rule: null, timed_out: true },
   }))
   await signIn(page)
@@ -111,5 +111,5 @@ test('the filter editor cancels and then confirms discarding an unsaved draft', 
   await expect(open).toBeFocused()
   await open.press('Enter')
   await expect(words).toHaveValue('synthetic')
-  expect(api.calls.some(({ path }) => path === '/v1/filters/save')).toBe(false)
+  expect(api.calls.some(({ path }) => path === '/v1/ops/save_filters')).toBe(false)
 })

@@ -86,34 +86,34 @@ export async function server(page: Page, operationOverrides: OperationOverrides 
     if (expired) return route.fulfill({ status: 401, json: { ok: false } })
     if (path === '/v1/session/logout') return route.fulfill({ json: { ok: true } })
     let result: object = { ok: true }
-    if (path === '/v1/ai/playground/start') {
+    if (path === '/v1/ops/start_ai_playground') {
       playgroundCancelled = false
       result = { ok: true, request_id: 'server-playground', status: 'pending' }
     }
-    if (path === '/v1/ai/playground/cancel') playgroundCancelled = true
-    if (path === '/v1/ai/playground/result') {
+    if (path === '/v1/ops/cancel_ai_playground') playgroundCancelled = true
+    if (path === '/v1/ops/get_ai_playground_result') {
       result = playgroundCancelled ? { ok: true, status: 'cancelled' }
         : playgroundPending ? { ok: true, status: 'pending' }
         : { ok: true, status: playgroundStatus, text: playgroundGeneration.provider === 'OpenAI' ? 'Fresh fact https://example.test/facts' : 'Synthetic server answer <b>plain text</b>', generation: playgroundGeneration }
     }
-    if (path === '/v1/snapshot') result = { status, ai_status: ai() }
-    if (path === '/v1/ai/memory/limits') result = { ok: true, stored: 100, context: 5 }
-    if (path === '/v1/status') result = { ...status, operation }
-    if (path === '/v1/bot/mode') {
+    if (path === '/v1/ops/get_snapshot') result = { status, ai_status: ai() }
+    if (path === '/v1/ops/get_ai_memory_limits') result = { ok: true, stored: 100, context: 5 }
+    if (path === '/v1/ops/get_app_status') result = { ...status, operation }
+    if (path === '/v1/ops/set_bot_mode') {
       operation = { ...operation, mode: body!.mode as 'always_on' | 'stream_only' | 'manual' | 'disabled', pending: false }
       status.operation = operation
     }
-    if (path === '/v1/bot/stop') {
+    if (path === '/v1/ops/stop_bot') {
       operation = { ...operation, mode: 'manual', desired_running: false, pending: false }
       Object.assign(status, { operation, running: false, twitch_connected: false, twitch_connection_state: 'stopped' as const })
     }
-    if (path === '/v1/setup') result = { ok: true, twitch, credentials, aiProvider }
-    if (path === '/v1/setup/guide') {
-      if (request.method() === 'POST') setupGuide = body as typeof setupGuide
+    if (path === '/v1/ops/get_management_setup') result = { ok: true, twitch, credentials, aiProvider }
+    if (path === '/v1/ops/get_setup_guide' || path === '/v1/ops/save_setup_guide') {
+      if (path.endsWith('/save_setup_guide')) setupGuide = body as typeof setupGuide
       result = { ok: true, ...setupGuide }
     }
-    if (path === '/v1/ai/setup') {
-      if (request.method() === 'POST') aiSetup = body!.settings as typeof aiSetup
+    if (path === '/v1/ops/get_ai_setup' || path === '/v1/ops/save_ai_setup') {
+      if (path.endsWith('/save_ai_setup')) aiSetup = body!.settings as typeof aiSetup
       result = { ok: true, settings: aiSetup, providers: [
         { id: 'gemini', label: 'Google Gemini', credential: credentials[1], models: ['gemini-2.5-flash'], selected_model: 'gemini-2.5-flash', fallback_model: 'gemini-2.5-pro' },
         { id: 'deepseek', label: 'DeepSeek', credential: credentials[2], models: ['deepseek-flash'], selected_model: 'deepseek-flash', fallback_model: 'deepseek-v4-pro' },
@@ -123,8 +123,8 @@ export async function server(page: Page, operationOverrides: OperationOverrides 
         openai: { 'gpt-6-luna': { known: true, thinking_options: [{ value: 'default', label: 'Provider default' }, { value: 'none', label: 'None' }, { value: 'low', label: 'Low' }], search_supported: true, search_reason: 'OpenAI Web Search with inline source URLs', attribution_required: false } } },
         default_shared_instructions: 'Shared defaults', retained_restrictions: 'Local request and output checks remain enabled.' }
     }
-    if (path === '/v1/ai/models/discover') result = { ok: true, provider_id: body?.provider, models: ['deepseek-flash'] }
-    if (path === '/v1/twitch/settings') {
+    if (path === '/v1/ops/discover_ai_models') result = { ok: true, provider_id: body?.provider, models: ['deepseek-flash'] }
+    if (path === '/v1/ops/update_server_twitch_settings') {
       Object.assign(twitch, {
         client_id: body!.client_id,
         bot_username: body!.bot_username,
@@ -134,78 +134,78 @@ export async function server(page: Page, operationOverrides: OperationOverrides 
       })
       result = { ok: true, requires_reconnect: true }
     }
-    if (path === '/v1/twitch/authorization/begin') result = oauthBeginResult
-    if (path === '/v1/twitch/authorization/complete') result = oauthCompleteResult
-    if (path === '/v1/twitch/authorization/cancel') result = { ok: true }
-    if (['/v1/credentials/replace', '/v1/credentials/remove', '/v1/credentials/test'].includes(path)) {
+    if (path === '/v1/ops/begin_twitch_authorization') result = oauthBeginResult
+    if (path === '/v1/ops/complete_twitch_authorization') result = oauthCompleteResult
+    if (path === '/v1/ops/cancel_twitch_authorization') result = { ok: true }
+    if (['/v1/ops/replace_credential', '/v1/ops/remove_credential', '/v1/ops/test_credential'].includes(path)) {
       const credential = credentials.find((item) => item.name === body?.name)
       if (!credential) result = { ok: false, error: 'Unknown credential' }
-      else if (path.endsWith('/test')) { credential.validation_status = 'valid'; result = { ok: true } }
+      else if (path.endsWith('/test_credential')) { credential.validation_status = 'valid'; result = { ok: true } }
       else if (!credential.managed) result = { ok: false, error: 'Managed externally' }
       else {
-        const configured = path.endsWith('/replace')
+        const configured = path.endsWith('/replace_credential')
         Object.assign(credential, { configured, source: configured ? 'server_file' : 'missing', validation_status: 'not_tested' })
         result = { ok: true, changed: true }
       }
     }
-    if (path === '/v1/ai') result = ai()
-    if (path === '/v1/ai/enabled') enabled = body!.enabled as boolean
-    if (path === '/v1/ai/memory') memoryEnabled = body!.enabled as boolean
-    if (path === '/v1/ai/models') result = { ok: true, settings: aiProvider }
-    if (path === '/v1/ai/language') result = { ok: true, settings: { mode: 'auto', allowed_languages: ['en'], fallback_language: 'en' }, languages: [{ code: 'en', label: 'English' }], active_policy: 'Auto' }
-    if (path === '/v1/commands') result = { command_prefix: '!', permissions: ['USER', 'MODERATOR', 'BROADCASTER'], commands: [command, { ...command, name: 'ask', primary_name: 'ask', enabled, response_pool: null }] }
-    if (path === '/v1/commands/enabled' && body!.command_name === 'ask') enabled = body!.enabled as boolean
-    if (path === '/v1/commands/save') {
+    if (path === '/v1/ops/get_ai_status') result = ai()
+    if (path === '/v1/ops/set_ai_enabled') enabled = body!.enabled as boolean
+    if (path === '/v1/ops/set_ai_memory_enabled') memoryEnabled = body!.enabled as boolean
+    if (path === '/v1/ops/get_ai_provider_settings') result = { ok: true, settings: aiProvider }
+    if (path === '/v1/ops/get_ai_language_settings') result = { ok: true, settings: { mode: 'auto', allowed_languages: ['en'], fallback_language: 'en' }, languages: [{ code: 'en', label: 'English' }], active_policy: 'Auto' }
+    if (path === '/v1/ops/get_commands') result = { command_prefix: '!', permissions: ['USER', 'MODERATOR', 'BROADCASTER'], commands: [command, { ...command, name: 'ask', primary_name: 'ask', enabled, response_pool: null }] }
+    if (path === '/v1/ops/save_builtin_enabled' && body!.command_name === 'ask') enabled = body!.enabled as boolean
+    if (path === '/v1/ops/save_command_settings') {
       const options = body!.options as { display_name?: string }
       command.display_name = options.display_name
       command.has_saved_override = true
     }
-    if (path === '/v1/commands/reset') {
+    if (path === '/v1/ops/reset_command_settings') {
       command.display_name = undefined
       command.has_saved_override = false
     }
-    if (path === '/v1/commands/responses/save') {
+    if (path === '/v1/ops/save_command_responses') {
       command.response_pool!.responses = body!.responses as string[]
     }
-    if (path === '/v1/custom-commands') result = { command_prefix: '!', permissions: ['EVERYONE', 'MODERATOR', 'USER'], variables: ['sender'], commands: customCommands }
-    if (path === '/v1/command-restrictions') result = { ok: true, channel_id: '200', commands: [{ id: 'ping', label: '!ping' }, { id: 'ask', label: '!ask' }], restrictions: commandRestrictions }
-    if (path === '/v1/command-restrictions/save') {
+    if (path === '/v1/ops/get_custom_commands') result = { command_prefix: '!', permissions: ['EVERYONE', 'MODERATOR', 'USER'], variables: ['sender'], commands: customCommands }
+    if (path === '/v1/ops/get_command_restrictions') result = { ok: true, channel_id: '200', commands: [{ id: 'ping', label: '!ping' }, { id: 'ask', label: '!ask' }], restrictions: commandRestrictions }
+    if (path === '/v1/ops/save_command_restriction') {
       const data = body!.data as { id?: string; username: string; command_ids: string[]; expires_at: string | null; note: string; scope?: 'channel' | 'global_ai' }
       const row = { scope: data.scope, id: data.id ?? 'http-restriction', channel_id: '200', twitch_user_id: '1234', username: data.id ? 'httpviewer' : data.username, command_ids: data.command_ids, expires_at: data.expires_at, note: data.note }
       commandRestrictions = [...commandRestrictions.filter((item) => item.id !== row.id), row]
       result = { ok: true, channel_id: '200', commands: [{ id: 'ping', label: '!ping' }, { id: 'ask', label: '!ask' }], restrictions: commandRestrictions }
     }
-    if (path === '/v1/command-restrictions/remove') {
+    if (path === '/v1/ops/remove_command_restriction') {
       commandRestrictions = commandRestrictions.filter((item) => item.id !== body!.restriction_id)
       result = { ok: true, channel_id: '200', commands: [{ id: 'ping', label: '!ping' }, { id: 'ask', label: '!ask' }], restrictions: commandRestrictions }
     }
-    if (path === '/v1/custom-commands/save') {
+    if (path === '/v1/ops/save_custom_command') {
       const input = body!.command as CustomCommandInfo
       const row = { ...input, id: input.id ?? 'saved-command', saved: true }
       customCommands = [...customCommands.filter((item) => item.id !== row.id), row]
     }
-    if (path === '/v1/custom-commands/delete') customCommands = customCommands.filter((item) => item.id !== body!.identifier)
-    if (path === '/v1/triggers') {
-      if (request.method() === 'POST') {
+    if (path === '/v1/ops/delete_custom_command') customCommands = customCommands.filter((item) => item.id !== body!.identifier)
+    if (path === '/v1/ops/get_message_triggers' || path === '/v1/ops/save_message_triggers') {
+      if (path.endsWith('/save_message_triggers')) {
         if (body!.revision !== String(reactionRevision)) return route.fulfill({ json: { ok: false, error: 'Chat reactions changed.' } })
         reactions = body!.triggers as ChatReaction[]
         reactionRevision += 1
       }
       result = { ok: true, triggers: reactions, revision: String(reactionRevision) }
     }
-    if (path === '/v1/announcements') {
-      if (request.method() === 'POST') announcements = (body!.announcements as AnnouncementInput[]).map((item, index) => ({
+    if (path === '/v1/ops/get_announcements' || path === '/v1/ops/save_announcements') {
+      if (path.endsWith('/save_announcements')) announcements = (body!.announcements as AnnouncementInput[]).map((item, index) => ({
         ...item, id: item.id ?? `00000000-0000-0000-0000-${String(index + 1).padStart(12, '0')}`,
         status: { next_run_at: null, last_sent_at: null, last_outcome: null, eligible_messages: 0 },
       }))
       result = { ok: true, announcements }
     }
-    if (path === '/v1/filters') result = Object.fromEntries(Object.entries(filters).map(([category, values]) => [category, { rules: (values as string[]).map((value: string) => ({ value, origin: 'local', valid: true })), defaults: [] }]))
-    if (path === '/v1/filters/test') result = { ok: true, source: 'active', decision: 'BLOCK', category: 'words', rule: filters.words[0], timed_out: false }
-    if (path === '/v1/twitch/authorization/complete' && 'ok' in oauthCompleteResult && oauthCompleteResult.ok) {
+    if (path === '/v1/ops/get_filters') result = Object.fromEntries(Object.entries(filters).map(([category, values]) => [category, { rules: (values as string[]).map((value: string) => ({ value, origin: 'local', valid: true })), defaults: [] }]))
+    if (path === '/v1/ops/test_filters') result = { ok: true, source: 'active', decision: 'BLOCK', category: 'words', rule: filters.words[0], timed_out: false }
+    if (path === '/v1/ops/complete_twitch_authorization' && 'ok' in oauthCompleteResult && oauthCompleteResult.ok) {
       Object.assign(twitch, { setup_complete: true, saved_bot_authorization: true, authorization_status: 'verified', authorized_account: twitch.bot_username })
     }
-    if (path === '/v1/filters/save') {
+    if (path === '/v1/ops/save_filters') {
       const payload = body!.payload as FilterInput
       const invalid = payload.patterns.indexOf('[')
       if (invalid >= 0) return route.fulfill({ json: {
@@ -213,43 +213,43 @@ export async function server(page: Page, operationOverrides: OperationOverrides 
       } })
       filters = payload
     }
-    if (path === '/v1/ai/instructions/save' || path === '/v1/ai/instructions/apply') profile = body!.prompt as string
-    if (path === '/v1/personalities') result = {
+    if (path === '/v1/ops/save_profile_instructions' || path === '/v1/ops/apply_profile_instructions') profile = body!.prompt as string
+    if (path === '/v1/ops/get_personalities') result = {
       active_personality: activePersonality, active_personality_saved: true, personalities,
       profile_instructions: profile, profile_instructions_saved: true, protected_shared_instructions: 'Protected policy',
     }
-    if (path === '/v1/personalities/create') {
+    if (path === '/v1/ops/create_personality') {
       const name = body!.name as string
       personalities.push({ name, prompt: body!.prompt as string, built_in_prompt: '',
         is_builtin: false, prompt_saved: true, has_saved_override: true })
       result = { ok: true, name }
     }
-    if (path === '/v1/personalities/save') {
+    if (path === '/v1/ops/save_personality') {
       personalities = personalities.map((item) => item.name === body!.personality
         ? { ...item, prompt: body!.prompt as string, prompt_saved: true } : item)
     }
-    if (path === '/v1/personalities/activate') activePersonality = body!.personality as string
-    if (path === '/v1/personalities/rename') {
+    if (path === '/v1/ops/set_active_personality') activePersonality = body!.personality as string
+    if (path === '/v1/ops/rename_personality') {
       const name = body!.name as string
       personalities = personalities.map((item) => item.name === body!.personality ? { ...item, name } : item)
       if (activePersonality === body!.personality) activePersonality = name
       result = { ok: true, name }
     }
-    if (path === '/v1/personalities/delete') {
+    if (path === '/v1/ops/delete_personality') {
       personalities = personalities.filter(({ name }) => name !== body!.personality)
       if (activePersonality === body!.personality) activePersonality = 'neutral'
     }
-    if (path === '/v1/privacy/opt-outs/add') optouts.push({ twitch_user_id: '1234', username: String(body!.username), opted_out_at: new Date().toISOString() })
-    if (path === '/v1/privacy/opt-outs/withdraw') optouts = optouts.filter((user) => user.twitch_user_id !== body!.twitch_user_id)
-    if (path.startsWith('/v1/privacy/opt-outs/')) result = { ok: true, users: optouts, total: optouts.length, offset: 0, limit: 50 }
-    if (path === '/v1/blocked-users') result = { ok: true, users: [] }
-    if (path === '/v1/logs/recent') {
+    if (path === '/v1/ops/add_opt_out') optouts.push({ twitch_user_id: '1234', username: String(body!.username), opted_out_at: new Date().toISOString() })
+    if (path === '/v1/ops/withdraw_opt_out') optouts = optouts.filter((user) => user.twitch_user_id !== body!.twitch_user_id)
+    if (['/v1/ops/get_opt_outs', '/v1/ops/add_opt_out', '/v1/ops/withdraw_opt_out'].includes(path)) result = { ok: true, users: optouts, total: optouts.length, offset: 0, limit: 50 }
+    if (path === '/v1/ops/get_blocked_ai_users') result = { ok: true, users: [] }
+    if (path === '/v1/ops/get_recent_logs') {
       const entries = logs.filter((entry) => entry.id > Number(body?.after_id ?? 0)).slice(0, body?.snapshot ? 500 : Number(body?.limit ?? 200))
       result = { ok: true, entries, next_after_id: Math.max(99, entries.at(-1)?.id ?? Number(body?.after_id ?? 0)) }
     }
-    if (path === '/v1/logs/commands') result = { ok: true, entries: logs.filter((entry) => entry.event_kind === 'command.terminal').slice(-5).reverse() }
-    if (path === '/v1/analytics/query') result = { ok: false, error: 'Analytics data has no fixture for this test' }
-    if (path === '/v1/about') result = { application_name: 'HeetKit', application_subtitle: 'Twitch bot controls', version: '1.3.0', author: 'heeetz', license_name: 'Apache-2.0' }
+    if (path === '/v1/ops/get_recent_commands') result = { ok: true, entries: logs.filter((entry) => entry.event_kind === 'command.terminal').slice(-5).reverse() }
+    if (path === '/v1/ops/get_analytics') result = { ok: false, error: 'Analytics data has no fixture for this test' }
+    if (path === '/v1/ops/get_about_info') result = { application_name: 'HeetKit', application_subtitle: 'Twitch bot controls', version: '1.3.0', author: 'heeetz', license_name: 'Apache-2.0' }
     await route.fulfill({ json: result })
   })
   return { calls,
