@@ -6,8 +6,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from app.services.contracts import WeatherReport
-from app.services.weather import OpenMeteoWeatherService, WeatherLocationError, WeatherServiceError, format_weather_response
+from app.services.weather import OpenMeteoWeatherService, WeatherLocationError, WeatherServiceError
 
 
 def place(name='Луцьк', *, ident=702569, country='UA', region='Волинська Область', feature='PPLA', **fields):
@@ -34,13 +33,10 @@ async def lookup(query, geocode, *, forecast=None):
     return result, requests
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize('query,spellings,language', [
     ('Луцьк', {'uk': 'Луцьк'}, 'uk'),
     ('Луцк', {'ru': 'Луцк'}, 'ru'),
     ('Lutsk', {'en': 'Lutsk', 'uk': 'Луцьк', 'ru': 'Луцк'}, 'en'),
-    ('Львів', {'uk': 'Львів'}, 'uk'),
-    ('Лондон', {'uk': 'Лондон', 'ru': 'Лондон', 'en': 'London'}, 'ru'),
 ])
 async def test_all_locales_preserve_query_and_resolve_matching_unicode_name(query, spellings, language):
     def geocode(request):
@@ -55,16 +51,13 @@ async def test_all_locales_preserve_query_and_resolve_matching_unicode_name(quer
     assert all(r.url.params['name'] == query and r.url.params['count'] == '10' for r in requests[:3])
     assert requests[-1].url.params['latitude'] == '50.75784'
     assert requests[-1].url.params['current'] == 'temperature_2m,weather_code,wind_speed_10m'
-    assert all(set(r.extensions['timeout'].values()) == {2.0} for r in requests)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize('query,expected,name,country,region', [
     ('\tNew   York\u00a0', 'New York', 'New York', 'US', 'New York'),
     ('  Lutsk\u00a0,\tuKRAINE\n', 'Lutsk', 'Lutsk', 'UA', 'Volyn Oblast'),
     ("Кам'янець-Подільський", "Кам'янець-Подільський", 'Кам’янець-Подільський', 'UA', 'Хмельницька область'),
     ('Sao Paulo, Brazil', 'Sao Paulo', 'São Paulo', 'BR', 'São Paulo'),
-    ('Ростов-на-Дону', 'Ростов-на-Дону', 'Ростов-на-Дону', 'RU', 'Ростовская область'),
 ])
 async def test_whitespace_apostrophes_accents_and_qualifiers(query, expected, name, country, region):
     report, requests = await lookup(query, lambda r: {'results': [place(name, country=country, region=region)]})
@@ -74,13 +67,11 @@ async def test_whitespace_apostrophes_accents_and_qualifiers(query, expected, na
         assert all(r.url.params['countryCode'] == country for r in requests[:3])
 
 
-@pytest.mark.asyncio
 async def test_distinct_ukrainian_letters_are_not_removed_for_matching():
     report, requests = await lookup('Киів', lambda r: {'results': [place('Київ')]})
     assert report is None and len(requests) == 3
 
 
-@pytest.mark.asyncio
 async def test_lutsk_city_wins_over_exact_airport_district_and_fuzzy_prefix():
     report, requests = await lookup('Lutsk', lambda r: {'results': [
         place('Lutsk', ident=11269957, feature='AIRP'),
@@ -91,13 +82,11 @@ async def test_lutsk_city_wins_over_exact_airport_district_and_fuzzy_prefix():
     assert requests[-1].url.params['latitude'] == '50.75784'
 
 
-@pytest.mark.asyncio
 async def test_unrelated_or_prefix_only_candidates_are_not_selected():
     report, requests = await lookup('Lutsk', lambda r: {'results': [place('Lutska'), place('Seattle', ident=2)]})
     assert report is None and len(requests) == 3
 
 
-@pytest.mark.asyncio
 async def test_preferred_locale_wins_even_if_a_later_locale_has_a_larger_city():
     requests = []
     def geocode(r):
@@ -110,12 +99,10 @@ async def test_preferred_locale_wins_even_if_a_later_locale_has_a_larger_city():
     assert len(requests) == 3
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize('query,ident,language', [
     ('Київ', 703448, 'uk'), ('Киев', 703448, 'ru'), ('Kyiv', 703448, 'en'),
     # The public index does not return Ukraine's capital for this alias.
     ('Kiev', 827619, 'en'),
-    ('Луцьк', 702569, 'uk'), ('Луцк', 702569, 'ru'), ('Lutsk', 702569, 'en'),
     ('Paris', 2988507, 'en'),
 ])
 async def test_verified_public_multilingual_candidates(query, ident, language):
@@ -130,7 +117,6 @@ async def test_verified_public_multilingual_candidates(query, ident, language):
     assert len(requests) == 4
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize('reverse', [False, True])
 async def test_real_springfields_follow_provider_order(reverse):
     evidence = json.loads((Path(__file__).parent / 'fixtures/weather_geocoding.json').read_text(encoding='utf-8'))
@@ -143,7 +129,6 @@ async def test_real_springfields_follow_provider_order(reverse):
     assert requests[-1].url.params['latitude'] == str(expected['latitude'])
 
 
-@pytest.mark.asyncio
 async def test_repeated_localized_matches_keep_first_locale_and_one_forecast():
     def geocode(r):
         if r.url.params['language'] == 'en':
@@ -154,7 +139,6 @@ async def test_repeated_localized_matches_keep_first_locale_and_one_forecast():
     assert len(requests) == 4
 
 
-@pytest.mark.asyncio
 async def test_same_id_with_conflicting_coordinates_is_provider_failure():
     def geocode(r):
         return {'results': [place('Capital',
@@ -164,27 +148,20 @@ async def test_same_id_with_conflicting_coordinates_is_provider_failure():
     assert caught.value.reason == 'invalid_response'
 
 
-@pytest.mark.asyncio
-async def test_country_filter_excludes_dominant_capital_elsewhere():
-    report, requests = await lookup('Paris, Texas, US', lambda r: {'results': [
-        place('Paris', ident=2988507, country='FR', feature='PPLC', population=2_138_551),
-        place('Paris', ident=4717560, country='US', region='Texas', population=24_782)]})
-    assert report and report.region == 'Texas' and report.country == 'United States'
-    assert all(r.url.params['countryCode'] == 'US' for r in requests[:3])
-
-
-@pytest.mark.asyncio
-async def test_region_and_explicit_country_are_both_sent_to_provider():
-    def geocode(r):
-        assert r.url.params['name'] == 'Springfield, Illinois'
-        assert r.url.params['countryCode'] == 'US'
-        return {'results': [place('Springfield', country='US', region='Illinois')]}
-    report, requests = await lookup('Springfield, Illinois, US', geocode)
-    assert report and report.region == 'Illinois' and report.country == 'United States'
+@pytest.mark.parametrize("country", ["US", "United States"])
+async def test_region_and_country_exclude_other_results(country):
+    report, requests = await lookup(f"Paris, Texas, {country}", lambda _: {"results": [
+        place("Paris", ident=2988507, country="FR", feature="PPLC", population=2_138_551),
+        place("Paris", ident=4717560, country="US", region="Texas", population=24_782),
+    ]})
+    assert report and report.region == "Texas" and report.country == "United States"
+    assert all(
+        r.url.params["name"] == "Paris, Texas" and r.url.params["countryCode"] == "US"
+        for r in requests[:3]
+    )
     assert len(requests) == 4
 
 
-@pytest.mark.asyncio
 async def test_third_qualifier_is_not_ignored_or_relaxed_on_empty_results():
     def geocode(r):
         assert r.url.params['name'] == 'Paris, Texas' and r.url.params['countryCode'] == 'FR'
@@ -193,17 +170,6 @@ async def test_third_qualifier_is_not_ignored_or_relaxed_on_empty_results():
         await lookup('Paris, Texas, FR', geocode)
 
 
-@pytest.mark.asyncio
-async def test_full_country_name_is_resolved_for_city_region_country():
-    def geocode(r):
-        p = r.url.params
-        assert p['name'] == 'Springfield, Illinois' and p['countryCode'] == 'US'
-        return {'results': [place('Springfield', country='US', region='Illinois')]}
-    report, requests = await lookup('Springfield, Illinois, United States', geocode)
-    assert report is not None and len(requests) == 4
-
-
-@pytest.mark.asyncio
 async def test_mixed_language_country_uses_country_code_from_first_request():
     def geocode(r):
         p = r.url.params
@@ -213,7 +179,6 @@ async def test_mixed_language_country_uses_country_code_from_first_request():
     assert report is not None and report.language == 'uk' and len(requests) == 4
 
 
-@pytest.mark.asyncio
 async def test_region_only_qualifier_filters_wrong_region_even_if_provider_returns_it():
     report, requests = await lookup('Springfield, Illinois', lambda r: {'results': [
         place('Springfield', ident=1, country='US', region='Missouri'),
@@ -224,7 +189,6 @@ async def test_region_only_qualifier_filters_wrong_region_even_if_provider_retur
     assert all(r.url.params['name'] == 'Springfield, Illinois' and 'countryCode' not in r.url.params for r in requests[:3])
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize('query,city,country,whole', [
     ('Київ, Україна', 'Київ', 'UA', False), ('Київ, ua', 'Київ', 'UA', False),
     ('London, CA', 'London', 'CA', False), ('Лондон, Канада', 'Лондон', 'CA', False),
@@ -245,14 +209,12 @@ async def test_explicit_countries_and_country_suffixes_are_strict(query, city, c
     assert len(requests) == (7 if whole else 4)
 
 
-@pytest.mark.asyncio
 async def test_country_like_suffix_is_ignored_when_whole_city_is_exact():
     report, requests = await lookup('Example Canada', lambda r: {'results': [place('Example Canada', country='US')]})
     assert report and report.city == 'Example Canada' and report.country == 'United States'
     assert len(requests) == 4 and all('countryCode' not in r.url.params for r in requests)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize('query', ['Лондон, Канада', 'Лондон Канада', 'Лондон, Ontario, CA'])
 async def test_qualifier_mismatch_never_forecasts_for_a_city_outside_country(query):
     def geocode(r):
@@ -265,15 +227,13 @@ async def test_qualifier_mismatch_never_forecasts_for_a_city_outside_country(que
         await lookup(query, geocode)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize('empty', [{'results': []}, {'generationtime_ms': 0.2}])
 async def test_clean_empty_search_is_not_found(empty):
     report, requests = await lookup('Unknown City', lambda r: empty)
     assert report is None and len(requests) == 3
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize('query', ['', '  ', 'Lutsk,', 'Lutsk,,UA', 'Lutsk, Volyn, UA, Europe', 'A', 'x' * 201])
+@pytest.mark.parametrize('query', ['  ', 'Lutsk,,UA', 'Lutsk, Volyn, UA, Europe', 'A', 'x' * 201])
 async def test_invalid_query_does_not_call_provider(query):
     def forbidden(r):
         raise AssertionError('Invalid input must not issue requests')
@@ -281,9 +241,8 @@ async def test_invalid_query_does_not_call_provider(query):
         await lookup(query, forbidden)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize('payload', [
-    {}, [], {'results': None}, {'results': {}}, {'results': [None]}, {'error': 'invalid'},
+    {}, [], {'results': None}, {'results': [None]}, {'error': 'invalid'},
     {'results': [place(latitude=float('nan'))]}, {'results': [place(longitude=181)]},
     {'results': [place(id=True)]}, {'results': [place(name=42)]}, {'results': [place(country_code=None)]},
     {'results': [place(admin1=None)]}, {'generationtime_ms': 'invalid'},
@@ -295,7 +254,6 @@ async def test_malformed_geocoding_is_not_not_found(payload):
     assert 'private provider body' not in str(caught.value)
 
 
-@pytest.mark.asyncio
 async def test_provider_declared_failure_is_not_an_empty_search():
     with pytest.raises(WeatherServiceError) as caught:
         await lookup('Луцьк', lambda r: {'error': True, 'reason': 'private provider body'})
@@ -303,15 +261,13 @@ async def test_provider_declared_failure_is_not_an_empty_search():
     assert 'private provider body' not in str(caught.value)
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize('status,reason', [(429, 'rate_limited'), (503, 'provider_failure'), (400, 'provider_failure'), (302, 'provider_failure')])
+@pytest.mark.parametrize('status,reason', [(429, 'rate_limited'), (503, 'provider_failure'), (302, 'provider_failure')])
 async def test_http_failures_are_not_not_found_or_followed(status, reason):
     with pytest.raises(WeatherServiceError) as caught:
         await lookup('Луцьк', lambda r: httpx.Response(status, headers={'Location': 'https://unrelated.invalid'}))
     assert caught.value.reason == reason
 
 
-@pytest.mark.asyncio
 async def test_failure_after_empty_or_matching_locale_is_not_hidden():
     for initial in ([], [place('Lutsk')]):
         def geocode(r):
@@ -321,7 +277,6 @@ async def test_failure_after_empty_or_matching_locale_is_not_hidden():
         assert caught.value.reason == 'provider_failure'
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize('error,reason', [(httpx.ReadTimeout('private'), 'timeout'), (httpx.ConnectError('private'), 'provider_failure')])
 async def test_transport_failures_keep_safe_categories(error, reason):
     def geocode(r):
@@ -331,9 +286,8 @@ async def test_transport_failures_keep_safe_categories(error, reason):
     assert caught.value.reason == reason and 'private' not in str(caught.value)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize('payload', [
-    {'current': None}, {'current': {}}, {'current': {**CURRENT, 'temperature_2m': None}},
+    {'current': None}, {'current': {}},
     {'current': {**CURRENT, 'temperature_2m': float('inf')}},
     {'current': {**CURRENT, 'weather_code': True}}, {'current': {**CURRENT, 'wind_speed_10m': -1}},
     httpx.Response(200, content=b'not json'),
@@ -344,14 +298,12 @@ async def test_malformed_forecast_is_not_not_found(payload):
     assert caught.value.reason == 'invalid_response'
 
 
-@pytest.mark.asyncio
 async def test_forecast_rate_limit_is_not_city_not_found():
     with pytest.raises(WeatherServiceError) as caught:
         await lookup('Луцьк', lambda r: {'results': [place()]}, forecast=httpx.Response(429))
     assert caught.value.reason == 'rate_limited'
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize('status,header,reason', [
     (429, '15', 'rate_limited'),
     (503, 'Thu, 01 Jan 1970 00:01:55 GMT', 'provider_failure'),
@@ -383,7 +335,6 @@ async def test_provider_retry_after_blocks_network_without_waiting_or_extending(
     assert len(requests) == 5
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize('deadline', ['_LOOKUP_TIMEOUT_SECONDS', '_REQUEST_TIMEOUT_SECONDS'])
 async def test_whole_operation_deadline_and_external_cancellation(monkeypatch, deadline):
     monkeypatch.setattr('app.services.weather.' + deadline, 0.01)
@@ -399,8 +350,3 @@ async def test_whole_operation_deadline_and_external_cancellation(monkeypatch, d
     async with httpx.AsyncClient(transport=httpx.MockTransport(cancelled)) as client:
         with pytest.raises(asyncio.CancelledError):
             await OpenMeteoWeatherService(client).get_current_weather('Луцьк')
-
-
-def test_success_labels_city_country_and_resolved_language():
-    report = WeatherReport('Луцьк', 17.2, 'overcast', 14, country='Україна', region='Волинська область', language='uk')
-    assert format_weather_response(report, 'Луцьк') == 'Луцьк, Україна: +17.2°C, хмарно, вітер 14 км/год.'

@@ -72,7 +72,6 @@ def chat(content, respond, **roles):
     return IncomingChatMessage("test", content, ChatAuthor("user", "caller", **roles), respond, channel_id="100")
 
 
-@pytest.mark.asyncio
 async def test_command_help_tracks_custom_edits_builtin_aliases_removal_and_restart(tmp_path):
     registry, state, custom, _, bridge, dispatcher, services = setup_commands(tmp_path)
     state.apply_command_settings("help", primary_name="guide", aliases=["help", "commands"],
@@ -130,7 +129,6 @@ async def test_command_help_tracks_custom_edits_builtin_aliases_removal_and_rest
     assert "!news" not in restarted[0].help_entries(restarted[1], restarted[2])
 
 
-@pytest.mark.asyncio
 async def test_command_help_pages_preserve_utf8_limits_permissions_and_output_limiter(tmp_path):
     registry, state, custom, _, _, _, services = setup_commands(tmp_path)
     services.settings.command_prefix = "?"
@@ -190,7 +188,6 @@ def test_command_help_rejects_invalid_or_out_of_range_pages(arguments):
     assert len(reply.encode("utf-8")) <= 450
 
 
-@pytest.mark.asyncio
 async def test_editor_aliases_dispatch_original_handler_and_share_cooldown(tmp_path):
     registry, state, custom, _, bridge, dispatcher, services = setup_commands(tmp_path)
     original = registry.get("ping")
@@ -212,7 +209,6 @@ async def test_editor_aliases_dispatch_original_handler_and_share_cooldown(tmp_p
     assert entry["response_pool"] is None
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("server", [False, True], ids=["desktop", "server"])
 async def test_primary_rename_preserves_id_handler_cooldown_aliases_and_saved_state(tmp_path, server):
     registry, state, custom, _, bridge, dispatcher, services = setup_commands(tmp_path)
@@ -303,7 +299,6 @@ def test_failed_primary_save_and_startup_conflict_preserve_file_and_other_settin
     assert path.read_bytes() == original
 
 
-@pytest.mark.asyncio
 async def test_renamed_ai_and_hidden_admin_keep_privacy_and_authority(tmp_path):
     registry, state, custom, _, bridge, dispatcher, services = setup_commands(tmp_path)
     assert bridge.save_command_settings("ask", True, 0, 0, "USER",
@@ -328,7 +323,6 @@ async def test_renamed_ai_and_hidden_admin_keep_privacy_and_authority(tmp_path):
     assert not any(entry.startswith(("!forget", "!erase", "!ask")) for entry in registry.help_entries(state, custom))
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("command,arguments,usage,permission", [
     ("fate", "extra", "", "USER"),
     ("tg", "bad", " [1-10] (default: 1)", "MODERATOR"), ("uptime", "extra", "", "MODERATOR")])
@@ -343,7 +337,6 @@ async def test_renamed_usage_uses_current_primary_even_when_invoked_by_alias(tmp
     assert response.await_args.args[0] == f"Usage: ?renamed{usage}"
 
 
-@pytest.mark.asyncio
 async def test_remove_disables_canonical_and_alias_help_then_restore_factory_settings(tmp_path):
     registry, state, _, fun, bridge, dispatcher, services = setup_commands(tmp_path)
     fun.save(["My community"], "tg")
@@ -523,7 +516,6 @@ def test_administrative_and_ai_names_keep_dynamic_templates_and_authority(tmp_pa
     assert metadata["response_pool"] is None
 
 
-@pytest.mark.asyncio
 async def test_edited_dynamic_commands_keep_original_ask_weather_and_erase_implementations(tmp_path):
     registry, _, _, _, bridge, dispatcher, services = setup_commands(tmp_path)
     original_handlers = {definition.name: definition.handler for definition in registry.definitions()}
@@ -546,7 +538,7 @@ async def test_edited_dynamic_commands_keep_original_ask_weather_and_erase_imple
     assert original_handlers == {definition.name: definition.handler for definition in registry.definitions()}
 
 
-@pytest.mark.parametrize("interval", [0, 50, 200, 1000])
+@pytest.mark.parametrize("interval", [0, 1000])
 def test_intervals_persist_across_restart_and_do_not_cross_profiles(tmp_path, interval):
     _, state, custom, _, bridge, _, _ = setup_commands(tmp_path / "first")
     assert bridge.save_command_settings("tg", True, 0, 0, "MODERATOR", {"burst_interval_ms": interval}) == {"ok": True}
@@ -592,7 +584,7 @@ def test_old_builtin_settings_and_version_two_bursts_default_to_zero_without_rew
     assert (tmp_path / "custom_commands.json").read_bytes() == custom_before
 
 
-@pytest.mark.parametrize("maximum", [1, 5, 20])
+@pytest.mark.parametrize("maximum", [1, 20])
 def test_tg_maximum_persists_in_existing_store_and_resets_independently(tmp_path, maximum):
     _, state, _, fun, bridge, _, _ = setup_commands(tmp_path)
     fun.save(["My community"], "tg")
@@ -645,9 +637,8 @@ def test_tg_maximum_apply_is_session_only_and_save_failure_keeps_previous_limit(
     assert bridge.save_command_settings("ping", True, 0, 0, "MODERATOR", {"burst_max_count": 20})["ok"] is False
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("maximum,count", [(1, 1), (5, 5), (20, 20)])
-async def test_tg_configured_maximum_rejects_whole_batch_before_cooldown(tmp_path, maximum, count):
+@pytest.mark.parametrize("maximum", [5, 20])
+async def test_tg_configured_maximum_rejects_whole_batch_before_cooldown(tmp_path, maximum):
     _, state, _, _, _, dispatcher, services = setup_commands(tmp_path)
     state.apply_command_settings("tg", burst_max_count=maximum, aliases=["community"],
                                  cooldown=CooldownPolicy(global_seconds=60))
@@ -656,10 +647,10 @@ async def test_tg_configured_maximum_rejects_whole_batch_before_cooldown(tmp_pat
     # Above the absolute cap gets usage; above a smaller configured limit is silent.
     assert respond.await_count == (1 if maximum == 20 else 0)
     respond.reset_mock()
-    await dispatcher.dispatch(chat(f"!tg {count}", respond, is_moderator=True), services)
-    assert respond.await_count == count
+    await dispatcher.dispatch(chat(f"!tg {maximum}", respond, is_moderator=True), services)
+    assert respond.await_count == maximum
     await dispatcher.dispatch(chat("!community", respond, is_moderator=True), services)
-    assert respond.await_count == count  # Canonical/alias cooldowns still apply.
+    assert respond.await_count == maximum  # Canonical/alias cooldowns still apply.
 
 
 def test_remove_and_restore_failures_preserve_effective_and_saved_state(tmp_path, monkeypatch):

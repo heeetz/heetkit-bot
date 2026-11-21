@@ -37,6 +37,10 @@ The rest of this file is the engineering guide. It applies to any change in this
   unless the owner asks.
 - **Verify by goal.** Turn the task into checks: a bug gets a failing test first, a
   refactor keeps tests green before and after. Run focused tests, not full suites.
+- **Tests prove behavior.** A new test proves new or fixed behavior through a public
+  entry point. No tests of copy text, CSS classes or workflow YAML. Extend a
+  parametrized test or an existing spec rather than add a file. Browser specs cover
+  each page once plus critical flows; field validation belongs in Python tests.
 
 ## 3. Backend architecture
 

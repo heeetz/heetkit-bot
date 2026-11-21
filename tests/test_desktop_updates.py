@@ -213,6 +213,6 @@ def test_profile_snapshot_captures_wal_data_and_other_profile_state(tmp_path, mo
         assert database.execute("PRAGMA user_version").fetchone() == (2,)
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows executable version resource")
+@pytest.mark.windows
 def test_read_native_executable_version():
     assert relaunch._file_version(Path(sys.executable))[:2] == sys.version_info[:2]

@@ -71,6 +71,7 @@ def test_preflight_loads_desktop_libraries_after_registry_checks(monkeypatch):
 
 
 @pytest.mark.parametrize("relative", ["pythonnet/runtime/Python.Runtime.dll", "webview/lib/Microsoft.Web.WebView2.Core.dll"])
+@pytest.mark.windows
 def test_marked_managed_dll_is_load_probed_without_modifying_it(monkeypatch, tmp_path, relative):
     dll = tmp_path / relative
     dll.parent.mkdir(parents=True)

@@ -62,8 +62,7 @@ async def test_every_provider_receives_shared_instructions_and_context(pipeline,
     assert request.use_search is search
     assert request.content.endswith("latest score")
     assert request.content.index("Untrusted history") < request.content.index("Untrusted category")
-    assert "Current user request (the task to answer" in request.content
-    assert "untrusted metadata" in request.content
+    assert request.content.index("untrusted metadata") < request.content.index("Untrusted category")
     instruction = request.system_instruction
     assert instruction.index("Never:") < instruction.index("Use community vocabulary.")
     assert instruction.endswith("Use a cheerful tone.")
@@ -88,8 +87,13 @@ async def test_full_output_is_checked_before_length_limit_for_every_provider(pip
     assert reply.text == "" and not reply.is_available
 
 
-@pytest.mark.parametrize("text", ["A complete sentence. " * 30, "🙂" * 300, "word " * 100, "  Short answer.  "])
-async def test_length_and_whitespace_policy_runs_for_every_provider(pipeline, text):
+@pytest.mark.parametrize("text,expected", [
+    ("First sentence. Second sentence. " + "words " * 50, "First sentence. Second sentence."),
+    ("🙂" * 300, "🙂" * AI_MAX_RESPONSE_LENGTH),
+    ("word " * 100, None),
+    ("  Short answer.  ", "Short answer."),
+])
+async def test_length_and_whitespace_policy_runs_for_every_provider(pipeline, text, expected):
     service, provider = pipeline
     provider.generate.return_value = AIProviderResponse(text)
     reply = await service.generate_reply("hello", "viewer")
@@ -97,6 +101,8 @@ async def test_length_and_whitespace_policy_runs_for_every_provider(pipeline, te
     assert len(reply.text) <= AI_MAX_RESPONSE_LENGTH
     assert text.strip().startswith(reply.text)
     assert reply.text == reply.text.strip()
+    if expected is not None:
+        assert reply.text == expected
 
 
 @pytest.mark.parametrize("response,status", [
@@ -231,3 +237,37 @@ async def test_snapshot_precedes_client_wait_and_survives_settings_changes_and_f
         assert "policy: Limited" in calls[-1]["config"].system_instruction
     finally:
         await service.aclose()
+
+
+@pytest.mark.parametrize("text,status", [
+    ("Here is a sexual joke about a 12-year-old child.", "output_blocked"),
+    ("Ось жорстокий сексуальний жарт про малолітню дитину.", "output_blocked"),
+    ("Here is a cruel joke about a sick child.", "output_blocked"),
+    ("Люди з інвалідністю заслуговують на глузування.", "output_blocked"),
+    ("Олені варто нашкодити собі.", "output_blocked"),
+    ("Нужно затравить стримера и выложить его домашний адрес.", "output_blocked"),
+    ("The September 11 terrorist attacks deserve a joke.", "output_blocked"),
+    ("The real-world political protest was justified.", "output_blocked"),
+    ("Помаранчева революція була правильною.", "output_blocked"),
+    ("In Minecraft, terrorism is admirable.", "output_blocked"),
+    ("K\u200bill yourself.", "output_blocked"),
+    ("Their home address is 123 Private Street.", "output_blocked"),
+    ("I will kill Alex.", "output_blocked"),
+    ("Масові вбивства були виправданими.", "output_blocked"),
+    ("Children can learn reading through short games and patient practice.", "success"),
+    ("An autistic coworker may benefit from clear, direct communication.", "success"),
+    ("При депрессии стоит обратиться к квалифицированному врачу.", "success"),
+    ("In Minecraft, build walls before starting a war against zombies.", "success"),
+    ("The fictional robot uprising on Mars ended peacefully.", "success"),
+    ("The terrorists defend a bombsite in CS2.", "success"),
+    ("People with autism are not inferior.", "success"),
+    ("Never share someone's home address.", "success"),
+    ("9/11 = 0.818181818.", "success"),
+])
+async def test_generated_content_policy_through_shared_pipeline(pipeline, text, status):
+    service, provider = pipeline
+    provider.generate.return_value = AIProviderResponse(text)
+    reply = await service.generate_reply("Tell me a story.", "viewer")
+    assert reply.status == status
+    assert reply.is_available is (status == "success")
+    assert reply.text == (text if reply.is_available else "")

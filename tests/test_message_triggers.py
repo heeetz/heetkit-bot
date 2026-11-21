@@ -118,51 +118,35 @@ def test_validation_skips_bad_entries_and_bounds_matching(tmp_path):
     assert MessageTriggerStore(path).list() == ()
 
 
-@pytest.mark.parametrize(
-    "payload, message",
-    (
-        ([trigger(id="one")] * 101, "at most 100"),
-        ([trigger(), trigger(id="vas")], "Duplicate trigger ID"),
-        ([trigger(future=True)], "Unknown trigger field"),
-        (trigger(), "must be a list"),
-    ),
-)
-def test_save_rejects_invalid_collections_without_replacing_existing_file(tmp_path, payload, message):
+@pytest.mark.parametrize("payload,error", [
+    ([trigger(id="one")] * 101, ValueError),
+    ([trigger(), trigger(id="vas")], ValueError),
+    ([trigger(future=True)], ValueError),
+    (trigger(), ValueError),
+    pytest.param([trigger(id="other", text="hello")], OSError, id="replace-failure"),
+])
+def test_save_failure_preserves_file_and_active_triggers(tmp_path, monkeypatch, payload, error):
     path = tmp_path / "message_triggers.json"
     store = MessageTriggerStore(path)
     store.save([trigger()])
-    original = path.read_bytes()
-    before = store.list()
-
-    with pytest.raises(ValueError, match=message):
-        store.save(payload)
-
-    assert path.read_bytes() == original
-    assert store.list() == before
-    assert not list(tmp_path.glob("*.tmp"))
-
-
-def test_save_persists_and_publishes_only_after_atomic_replace(tmp_path, monkeypatch):
-    path = tmp_path / "message_triggers.json"
-    store = MessageTriggerStore(path)
-    store.save([trigger()])
-    original = path.read_bytes()
-    before = store.list()
+    original, before = path.read_bytes(), store.list()
 
     def fail_replace(*args, **kwargs):
         raise OSError("Synthetic replacement failure")
 
     with monkeypatch.context() as patch:
-        patch.setattr("app.message_triggers.os.replace", fail_replace)
-        with pytest.raises(OSError, match="replacement failure"):
-            store.save([trigger(id="other", text="hello")])
+        if error is OSError:
+            patch.setattr("app.message_triggers.os.replace", fail_replace)
+        with pytest.raises(error):
+            store.save(payload)
 
     assert path.read_bytes() == original
     assert store.list() == before
-    assert not list(tmp_path.glob("*.tmp"))
+    assert list(tmp_path.iterdir()) == [path]
 
-    store.save([trigger(id="other", text="hello")])
-    assert MessageTriggerStore(path).list()[0].id == "other"
+    if error is OSError:
+        store.save(payload)
+        assert MessageTriggerStore(path).list()[0].id == "other"
 
 
 def test_save_preserves_lossy_source_in_recovery_file(tmp_path):

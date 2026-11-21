@@ -561,41 +561,38 @@ async def test_storage_or_lifecycle_access_errors_are_terminal(rig, error):
     assert len(r.clients) == 1
 
 
-async def test_desktop_oauth_can_leave_actionable_auth_state(real_bot, tmp_path, monkeypatch):
+@pytest.mark.parametrize("renewal", [False, True])
+async def test_desktop_oauth_establishes_or_keeps_the_chat_subscription(real_bot, tmp_path, monkeypatch, renewal):
     bot = real_bot
     bot._token_file = tmp_path / "synthetic.json"
-    bot._services.runtime_state.set_twitch_connection_state("auth_required")
-    async def add(*args):
+    state = bot._services.runtime_state
+    twitch = bot._services.twitch
+    original = None
+    if renewal:
+        established_socket(bot)
+        bot.refresh_readiness()
+        original = twitch.chat_session(bot)
+    else:
+        state.set_twitch_connection_state("auth_required")
+
+    async def add_token(*args):
         bot._http._tokens["100"] = {"token": "synthetic", "refresh": "synthetic"}
         return NS(user_id="100", scopes=["user:write:chat"])
+
     async def subscribe():
         established_socket(bot)
-    monkeypatch.setattr(bot, "add_token", add)
-    monkeypatch.setattr(bot, "_subscribe_to_chat", subscribe)
+
+    subscription = AsyncMock(side_effect=subscribe)
+    monkeypatch.setattr(bot, "add_token", add_token)
+    monkeypatch.setattr(bot, "_subscribe_to_chat", subscription)
     try:
         await bot.event_oauth_authorized({"access_token": "synthetic", "refresh_token": "synthetic"})
-        assert bot._services.runtime_state.twitch_connected
-        assert bot._services.twitch.chat_connected
-    finally:
-        await bot.close()
-
-
-async def test_desktop_oauth_renewal_keeps_healthy_subscription(real_bot, tmp_path, monkeypatch):
-    bot = real_bot
-    established_socket(bot)
-    bot.refresh_readiness()
-    original = bot._services.twitch.chat_session(bot)
-    bot._token_file = tmp_path / "synthetic.json"
-    async def add(*args):
-        bot._http._tokens["100"] = {"token": "synthetic", "refresh": "synthetic"}
-        return NS(user_id="100", scopes=["user:write:chat"])
-    subscribe = AsyncMock()
-    monkeypatch.setattr(bot, "add_token", add)
-    monkeypatch.setattr(bot, "_subscribe_to_chat", subscribe)
-    try:
-        await bot.event_oauth_authorized({"access_token": "synthetic", "refresh_token": "synthetic"})
-        subscribe.assert_not_awaited()
-        assert bot._services.twitch.chat_session(bot) is original and original.active
+        assert state.twitch_connected and twitch.chat_connected
+        if renewal:
+            subscription.assert_not_awaited()
+            assert twitch.chat_session(bot) is original and original.active
+        else:
+            subscription.assert_awaited_once()
     finally:
         await bot.close()
 

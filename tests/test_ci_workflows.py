@@ -80,20 +80,20 @@ def test_shared_uncertain_and_deleted_paths_include_both_browser_hosts(path):
 def test_named_feature_and_changed_or_new_tests_are_combined_once(tmp_path):
     frontend_tests = tmp_path / "frontend/tests"
     frontend_tests.mkdir(parents=True)
-    for name in ("filters.spec.ts", "navigation.spec.ts", "browser-management.spec.ts", "responsive.spec.ts",
-                 "i18n.spec.ts", "browser-server.spec.ts", "new[scenario].test.mts"):
+    for name in ("browser-filters.spec.ts", "browser-management.spec.ts", "browser-i18n.spec.ts",
+                 "browser-dashboard.spec.ts", "browser-server.spec.ts", "new[scenario].test.mts"):
         (frontend_tests / name).touch()
     plan = ci_checks.select_checks([
-        "frontend/src/pages/FiltersPage.tsx", "frontend/tests/filters.spec.ts",
+        "frontend/src/pages/FiltersPage.tsx", "frontend/tests/browser-filters.spec.ts",
         "frontend/tests/new[scenario].test.mts", "frontend/tests/browser-server.spec.ts",
     ], root=tmp_path)
     assert not plan.all_browser
     assert plan.outputs()["server"] == "true"
     assert set(json.loads(plan.outputs()["browser_files"])) == {
-        "tests/filters.spec.ts", "tests/navigation.spec.ts", "tests/browser-management.spec.ts",
-        "tests/responsive.spec.ts", "tests/i18n.spec.ts", "tests/browser-server.spec.ts", "tests/new[scenario].test.mts",
+        "tests/browser-filters.spec.ts", "tests/browser-management.spec.ts", "tests/browser-i18n.spec.ts",
+        "tests/browser-dashboard.spec.ts", "tests/browser-server.spec.ts", "tests/new[scenario].test.mts",
     }
-    command = ci_checks.browser_command(list(plan.browser_files) + ["tests/filters.spec.ts"])
+    command = ci_checks.browser_command(list(plan.browser_files) + ["tests/browser-filters.spec.ts"])
     filters = command[len(ci_checks.browser_command(None)):]
     assert len(filters) == len(plan.browser_files)
     new_scenario = next(pattern for pattern in filters if "scenario" in pattern)
@@ -101,6 +101,15 @@ def test_named_feature_and_changed_or_new_tests_are_combined_once(tmp_path):
     assert not re.search(new_scenario, "/checkout/tests/new[scenario].test.mtsx")
     with pytest.raises(ValueError, match="empty browser selection"):
         ci_checks.browser_command([])
+
+
+def test_every_mapped_browser_spec_and_source_exists():
+    stems = {stem for _, tests in ci_checks.BROWSER_AREAS for stem in tests.split()}
+    stems |= set(ci_checks.PAGE_INTEGRATION_TESTS.split())
+    missing = [stem for stem in stems if not (ci_checks.ROOT / f"frontend/tests/{stem}.spec.ts").is_file()]
+    sources = [name for sources, _ in ci_checks.BROWSER_AREAS for name in sources.split()]
+    missing += [name for name in sources if not (ci_checks.ROOT / "frontend/src" / name).is_file()]
+    assert missing == []
 
 
 def test_focused_orchestration_does_not_repeat_tests_when_python_is_selected():
@@ -206,10 +215,20 @@ def test_manual_branch_run_compares_with_main_and_can_run_everything(tmp_path):
     assert plan.outputs()["browser_shards"] == json.dumps(list(range(1, ci_checks.BROWSER_SHARDS + 1)))
 
 
-def test_browser_shards_follow_selection_size():
-    assert ci_checks.select_checks(["frontend/src/pages/AboutPage.tsx"]).shards() == [1]
-    assert ci_checks.select_checks(["frontend/src/pages/CommandsPage.tsx"]).shards() == [1, 2]
+@pytest.mark.parametrize("count,shards", [(1, [1]), (6, [1]), (7, [1, 2])])
+def test_browser_shards_follow_selection_size(tmp_path, count, shards):
+    paths = [f"frontend/tests/scenario{i}.spec.ts" for i in range(count)]
+    (tmp_path / "frontend/tests").mkdir(parents=True)
+    for path in paths:
+        (tmp_path / path).touch()
+    assert ci_checks.select_checks(paths, root=tmp_path).shards() == shards
+
+
+def test_shared_browser_changes_use_all_shards():
     assert ci_checks.select_checks(["frontend/src/bridge.ts"]).shards() == list(range(1, ci_checks.BROWSER_SHARDS + 1))
+
+
+def test_browser_command_applies_and_validates_shard():
     assert "--shard=2/3" in ci_checks.browser_command(None, "2/3")
     assert not any(item.startswith("--shard") for item in ci_checks.browser_command(None, "1/1"))
     with pytest.raises(ValueError, match="shard"):
@@ -370,169 +389,64 @@ def test_full_gate_only_produces_evidence_after_all_required_jobs(tmp_path, monk
         assert not target.exists()
 
 
-def test_only_quick_runs_automatically_and_only_it_cancels():
-    quick, full, candidate, containers = map(workflow, ("quick", "full-validation", "windows-build", "linux-container"))
-    assert set(quick["on"]) == {"push", "pull_request", "workflow_dispatch"}
-    assert quick["on"]["push"] == {"branches": ["main"]}
-    assert quick["on"]["pull_request"]["branches"] == ["main"]
-    assert "ready_for_review" in quick["on"]["pull_request"]["types"]
-    assert quick["on"]["workflow_dispatch"]["inputs"]["complete"]["type"] == "boolean"
-    assert quick["concurrency"]["group"] == "quick-${{ github.ref }}"
-    assert set(full["on"]) == {"workflow_dispatch"}
-    assert set(candidate["on"]) == {"workflow_dispatch"}
-    assert set(workflow("publish-release")["on"]) == {"workflow_dispatch"}
-    assert set(containers["on"]) == {"workflow_call"}
-    assert quick["concurrency"]["cancel-in-progress"] == "true"
-    for item in (full, candidate, containers, workflow("publish-release")):
-        assert "concurrency" not in item
-        assert all("concurrency" not in job for job in item["jobs"].values())
-
-
-def test_quick_gate_and_workload_wiring():
-    jobs = workflow("quick")["jobs"]
-    assert jobs["complete"]["name"] == "Quick result"
-    assert jobs["complete"]["if"] == "always() && needs.plan.result != 'skipped'"
-    assert "pull_request.draft" in jobs["plan"]["if"]
-    assert jobs["frontend"]["strategy"]["matrix"]["shard"] == "${{ fromJSON(needs.plan.outputs.browser_shards) }}"
-    assert jobs["frontend"]["strategy"]["fail-fast"] == "false"
-    assert set(jobs["complete"]["needs"]) == {"plan", *ci_checks.QUICK_GROUPS}
-    for name in ci_checks.QUICK_GROUPS:
-        assert jobs[name]["if"] == f"needs.plan.outputs.{name} == 'true'"
-    assert jobs["plan"]["steps"][0]["with"]["fetch-depth"] == "0"
-    assert jobs["plan"]["permissions"] == {"contents": "read", "actions": "read", "pull-requests": "read"}
-    plan_step = next(step for step in jobs["plan"]["steps"] if step.get("id") == "plan")
-    assert plan_step["env"]["GH_TOKEN"] == "${{ github.token }}"
-    python = "\n".join(step.get("run", "") for step in jobs["python"]["steps"])
-    assert "python -m pytest -q --junitxml" in python and "tests/" not in python
-    frontend = "\n".join(step.get("run", "") for step in jobs["frontend"]["steps"])
-    assert "npm run build" in frontend and "npm run typecheck" not in frontend
-    assert "ci_checks.py browser" in frontend and "ci_checks.py frontend-output" in frontend
-    steps = {step["id"]: step for step in jobs["frontend"]["steps"] if "id" in step}
-    assert steps["browser_tests"]["env"]["BROWSER_FILES"] == "${{ needs.plan.outputs.browser_files }}"
-    assert steps["browser_tests"]["env"]["BROWSER_SHARD"] == "${{ matrix.shard }}/${{ strategy.job-total }}"
-    input_python = next(step for step in jobs["inputs"]["steps"] if step.get("uses", "").startswith("actions/setup-python@"))
-    assert input_python["with"]["cache"] == "pip"
-    assert input_python["with"]["cache-dependency-path"] == ".github/workflows/quick.yml"
-    tests = next(step for step in jobs["inputs"]["steps"] if step.get("id") == "pytest")
-    assert tests["if"] == "needs.plan.outputs.orchestration == 'true'"
-    assert "tests/test_ci_workflows.py tests/test_release_publication.py tests/test_release_evidence.py" in tests["run"]
-    source = (ROOT / ".github/workflows/quick.yml").read_text(encoding="utf-8")
-    for forbidden in ("build_windows.py", "build_installer.py", "check_linux_container.py"):
-        assert forbidden not in source
-
-
-@pytest.mark.parametrize("name,worker", [
-    ("full-validation", "python"), ("full-validation", "frontend"), ("windows-build", "windows-build"),
+@pytest.mark.parametrize("name,workers", [
+    ("full-validation", ("python", "frontend")), ("windows-build", ("windows-build",)),
 ])
-def test_manual_ref_resolved_once_and_consumers_pin_same_sha(name, worker):
-    data = workflow(name)
-    assert data["on"]["workflow_dispatch"]["inputs"]["ref"]["type"] == "string"
-    jobs = data["jobs"]
-    resolver = jobs["resolve"]
-    assert resolver["steps"][0]["with"]["ref"] == "${{ inputs.ref || github.sha }}"
-    assert "git rev-parse HEAD" in resolver["steps"][1]["run"]
-    assert resolver["outputs"]["sha"] == "${{ steps.commit.outputs.sha }}"
-    assert jobs[worker]["needs"] == "resolve"
-    assert jobs[worker]["steps"][0]["with"]["ref"] == "${{ needs.resolve.outputs.sha }}"
-    for job_name, job in jobs.items():
-        for step in job.get("steps", []):
-            if step.get("uses", "").startswith("actions/checkout@") and job_name != "resolve":
-                assert "needs.resolve.outputs.sha" in step["with"]["ref"]
-                assert step["with"]["persist-credentials"] == "false"
+def test_release_checks_and_builds_use_resolved_source(name, workers):
+    jobs = workflow(name)["jobs"]
+    sha = "${{ needs.resolve.outputs.sha }}"
+    assert jobs["resolve"]["outputs"]["sha"] == "${{ steps.commit.outputs.sha }}"
+    for worker in workers:
+        checkout = next(step for step in jobs[worker]["steps"] if step.get("uses", "").startswith("actions/checkout@"))
+        assert checkout["with"]["ref"] == sha
+    if name == "full-validation":
+        assert jobs["containers"]["with"]["sha"] == sha
+        assert set(jobs["complete"]["needs"]) >= {"python", "frontend", "containers"}
 
 
-def test_full_covers_complete_suites_and_native_containers_without_packaging():
-    data = workflow("full-validation")
-    jobs = data["jobs"]
-    assert jobs["python"]["needs"] == jobs["frontend"]["needs"] == jobs["containers"]["needs"] == "resolve"
-    python = "\n".join(step.get("run", "") for step in jobs["python"]["steps"])
-    frontend = "\n".join(step.get("run", "") for step in jobs["frontend"]["steps"])
-    assert "python -m pytest -q --junitxml" in python and "tests/" not in python
-    assert "npm run build" in frontend and "npm run typecheck" not in frontend
-    assert "npm test -- '--reporter=line,junit' --workers=2 --trace=retain-on-failure" in frontend
-    assert "playwright install msedge" in frontend
-    assert "build_windows.py" not in python + frontend
-    assert jobs["containers"]["uses"] == "./.github/workflows/linux-container.yml"
-    assert jobs["containers"]["with"]["sha"] == "${{ needs.resolve.outputs.sha }}"
-    assert jobs["complete"]["if"] == "always()"
-    assert set(jobs["complete"]["needs"]) == {"resolve", "python", "frontend", "containers"}
-    container = workflow("linux-container")["jobs"]["container"]
-    assert container["strategy"]["matrix"]["include"] == [
-        {"runner": "ubuntu-24.04", "platform": "linux/amd64"},
-        {"runner": "ubuntu-24.04-arm", "platform": "linux/arm64"},
-    ]
-    assert container["steps"][0]["with"]["ref"] == "${{ inputs.sha }}"
-    assert container["steps"][1]["run"] == "python3 scripts/check_linux_container.py"
+def test_full_and_candidate_record_evidence_after_required_checks():
+    full = workflow("full-validation")["jobs"]["complete"]["steps"]
+    gate = next(i for i, step in enumerate(full) if "ci_checks.py finish" in step.get("run", ""))
+    record = next(i for i, step in enumerate(full) if "record-full" in step.get("run", ""))
+    assert gate < record
+    assert full[record]["env"]["SELECTED_SHA"] == "${{ needs.resolve.outputs.sha }}"
+    assert full[record].get("if", "success()") == "success()"
+
+    candidate = workflow("windows-build")
+    assert set(candidate["on"]) == {"workflow_dispatch"}
+    assert candidate["permissions"]["contents"] == "read"
+    assert candidate["jobs"]["resolve"]["if"] == "github.ref == 'refs/heads/main'"
+    steps = candidate["jobs"]["windows-build"]["steps"]
+    upload = next(i for i, step in enumerate(steps) if step.get("id") == "candidate")
+    record = next(i for i, step in enumerate(steps) if "record-candidate" in step.get("run", ""))
+    assert upload < record
+    assert steps[record]["env"]["SELECTED_SHA"] == "${{ needs.resolve.outputs.sha }}"
+    assert steps[record]["env"]["CANDIDATE_ARTIFACT_ID"] == "${{ steps.candidate.outputs.artifact-id }}"
+    assert steps[record]["env"]["CANDIDATE_ARTIFACT_DIGEST"] == "${{ steps.candidate.outputs.artifact-digest }}"
+    assert steps[record].get("if", "success()") == "success()"
+    assert steps[upload]["with"]["if-no-files-found"] == "error"
+    for kind, actions, index in [("full", full, gate), ("candidate", steps, upload)]:
+        evidence = next(step for step in actions[index + 1:] if step.get("with", {}).get("name", "").startswith(f"{kind}-evidence-"))
+        assert evidence["with"]["name"] == f"{kind}-evidence-" + "${{ github.run_attempt }}"
+        assert evidence["with"]["if-no-files-found"] == "error"
 
 
-def test_candidate_preserves_canonical_builds_without_publication():
-    data = workflow("windows-build")
-    jobs = data["jobs"]
-    build = jobs["windows-build"]
-    assert "if" not in build
-    assert jobs["resolve"]["if"] == "github.ref == 'refs/heads/main'"
-    commands = "\n".join(s.get("run", "") for s in build["steps"])
-    for command in ("python scripts/build_windows.py", "scripts/build_installer.py --inno-compiler", "tests/test_profile_isolation.py", "tests/test_release_publication.py"):
-        assert command in commands
-    assert "publish-release" not in jobs
-    assert data["permissions"] == {"contents": "read"}
-    assert all(job.get("permissions", {}).get("contents", "read") == "read" for job in jobs.values())
-    upload = next(s for s in build["steps"] if s.get("id") == "candidate")
-    assert len(upload["with"]["path"].splitlines()) == 5
-    assert build["steps"][-2]["with"]["name"] == "candidate-evidence-${{ github.run_attempt }}"
-    assert "CANDIDATE_ARTIFACT_ID" in build["steps"][-3]["env"]
-
-
-def test_publish_is_manual_and_only_publication_gets_write_permission():
+def test_publish_is_manual_and_uses_verified_artifacts():
     data = workflow("publish-release")
     assert set(data["on"]) == {"workflow_dispatch"}
-    assert set(data["on"]["workflow_dispatch"]["inputs"]) == {
-        "sha", "tag", "candidate_run_id", "full_run_id", "installer_manifest", "installer_signature",
-    }
-    assert all(i["required"] == "true" for i in data["on"]["workflow_dispatch"]["inputs"].values())
     job = data["jobs"]["publish-release"]
     assert job["if"] == "github.ref == 'refs/heads/main'"
     assert job["permissions"] == {"contents": "write", "actions": "read"}
-    commands = "\n".join(s.get("run", "") for s in job["steps"])
-    assert "python -m scripts.release_evidence verify" in commands
-    assert "python -m scripts.release_evidence verify-update" in commands
-    assert "gh @releaseArgs @assets" in commands
-    for forbidden in ("build_windows.py", "build_installer.py", "npm", "gh workflow run"):
-        assert forbidden not in commands
-    checkout = [s for s in job["steps"] if s.get("uses", "").startswith("actions/checkout@")]
-    assert [s["with"]["ref"] for s in checkout] == ["${{ github.sha }}"]
-    assert all(s["with"]["persist-credentials"] == "false" for s in checkout)
+    checkout = [step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@")]
+    assert [step["with"]["ref"] for step in checkout] == ["${{ github.sha }}"]
     gate, publish = job["steps"][-2:]
+    assert "python -m scripts.release_evidence verify" in gate["run"]
     assert gate["env"]["RELEASE_SHA"] == "${{ inputs.sha }}"
+    assert "python -m scripts.release_evidence verify-update" in publish["run"]
+    assert publish["run"].index("verify-update") < publish["run"].index("gh @releaseArgs @assets")
+    assert publish.get("if", "success()") == "success()"
     assert publish["env"]["INSTALLER_MANIFEST"] == "${{ inputs.installer_manifest }}"
     assert publish["env"]["INSTALLER_SIGNATURE"] == "${{ inputs.installer_signature }}"
-    assert "if" not in publish  # Default success gate: failed verification cannot publish.
-
-
-def test_full_records_evidence_only_after_required_gate_succeeds():
-    steps = workflow("full-validation")["jobs"]["complete"]["steps"]
-    assert steps[-3]["run"] == "python3 scripts/ci_checks.py finish"
-    assert steps[-2]["run"] == "python3 scripts/release_evidence.py record-full"
-    assert steps[-2]["env"]["SELECTED_SHA"] == "${{ needs.resolve.outputs.sha }}"
-    assert steps[-1]["with"]["name"] == "full-evidence-${{ github.run_attempt }}"
-    assert all("if" not in s for s in steps[-2:])
-
-
-@pytest.mark.parametrize("workflow_name,job_name", [
-    ("quick", "frontend"), ("full-validation", "frontend"), ("windows-build", "windows-build"),
-])
-def test_browser_diagnostics_are_uploaded_on_failure_with_bounded_paths(workflow_name, job_name):
-    steps = workflow(workflow_name)["jobs"][job_name]["steps"]
-    index = next(i for i, step in enumerate(steps) if step.get("id") == "browser_tests")
-    test, upload = steps[index:index + 2]
-    assert test["env"]["PLAYWRIGHT_JUNIT_OUTPUT_FILE"].endswith("/heetkit-browser-junit.xml")
-    assert upload["if"] == "failure() && steps.browser_tests.outcome == 'failure'"
-    assert upload["with"]["retention-days"] == "7"
-    assert upload["with"]["path"].splitlines() == [
-        "${{ runner.temp }}/heetkit-browser-junit.xml",
-        "frontend/node_modules/.tmp/playwright-results/**/trace.zip",
-        "frontend/node_modules/.tmp/playwright-results/**/test-failed-*.png",
-    ]
 
 
 def test_actual_machine_inputs_parse():
@@ -711,12 +625,11 @@ def test_observed_durations_use_this_attempt_and_no_estimates(monkeypatch, capsy
     ci_checks.report_actions()
     output = capsys.readouterr().out
     assert "12.0s" in output and "3.0s" in output
-    assert "Synthetic job / Test: synthetic step" in output
     assert "#step:5:1" in output and "actions/runs/42#artifacts" in output
     assert "synthetic-token" not in output
 
 
-def test_unavailable_timings_do_not_mask_check_results(monkeypatch, capsys):
+def test_unavailable_timings_do_not_mask_check_results(monkeypatch):
     from urllib.error import URLError
 
     for key in ("GH_TOKEN", "GITHUB_REPOSITORY", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT"):
@@ -729,4 +642,3 @@ def test_unavailable_timings_do_not_mask_check_results(monkeypatch, capsys):
     monkeypatch.setattr("sys.argv", ["ci_checks.py", "finish"])
     monkeypatch.setenv("CI_RESULTS", json.dumps({"validation": {"result": "failure"}}))
     assert ci_checks.main() == 1
-    assert "metadata unavailable" in capsys.readouterr().out

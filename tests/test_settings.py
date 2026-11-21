@@ -6,6 +6,9 @@ from app.credentials import CREDENTIAL_SERVICE_NAME, CredentialStore
 from app.runtime_paths import RuntimePaths
 
 
+pytestmark = pytest.mark.usefixtures("synthetic_default_profile")
+
+
 class FakeKeyring:
     def __init__(self, values: dict[tuple[str, str], str]) -> None:
         self.values = values
@@ -104,7 +107,6 @@ def test_empty_optional_environment_credential_is_treated_as_missing(monkeypatch
 
 
 def test_intentional_process_environment_defaults_without_dotenv(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("app.runtime_paths.user_data_path", lambda *args, **kwargs: tmp_path)
     values = valid_settings() | {
         "gemini_api_key": "synthetic-process-key",
         "deepseek_api_key": "synthetic-deepseek-key",

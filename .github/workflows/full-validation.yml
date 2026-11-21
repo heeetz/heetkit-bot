@@ -58,7 +58,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check --only-binary=:all: --require-hashes -r packaging/python-bootstrap.txt
           if ($LASTEXITCODE -ne 0) { throw 'Python installer bootstrap failed.' }
-          python -m pip install --disable-pip-version-check -r packaging/windows/requirements.txt pytest==8.4.2 pytest-asyncio==0.26.0 PyYAML==6.0.3
+          python -m pip install --disable-pip-version-check -r packaging/windows/requirements.txt pytest==8.4.2 pytest-asyncio==0.26.0 pytest-xdist==3.8.0 PyYAML==6.0.3
           if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed.' }
           python -m pip check
           if ($LASTEXITCODE -ne 0) { throw 'Python dependency check failed.' }
@@ -69,7 +69,7 @@ jobs:
       - name: 'Test: complete Python suite'
         if: "!cancelled() && steps.python_dependencies.outcome == 'success'"
         id: pytest
-        run: python -m pytest -q --junitxml "$env:RUNNER_TEMP/heetkit-python-junit.xml"
+        run: python -m pytest -q -n auto --junitxml "$env:RUNNER_TEMP/heetkit-python-junit.xml"
       - name: Upload Python failure report
         if: failure() && steps.pytest.outcome == 'failure'
         uses: actions/upload-artifact@v6

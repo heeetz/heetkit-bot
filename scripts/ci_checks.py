@@ -30,19 +30,19 @@ SERVER_TEST = "tests/browser-server.spec.ts"
 BROWSER_AREAS = (
     ("pages/AIPage.tsx components/AISetupPanel.tsx components/AIBehaviorSection.tsx "
      "components/AIMemoryLimits.tsx components/AIPlayground.tsx components/BlockedAIUsers.tsx components/ai-setup.css i18n/ai.ts",
-     "ai ai-editing ai-enablement ai-models ai-user-blocks playground dropdown-pages onboarding"),
+     "browser-ai browser-settings"),
     ("pages/CommandsPage.tsx components/AnnouncementsPanel.tsx components/ChatLeaderboards.tsx "
      "components/ChatReactions.tsx components/CommandEditorDialog.tsx components/CommandList.tsx "
      "components/CommandRestrictions.tsx components/OptOutManagement.tsx i18n/commands.ts",
-     "announcements analytics commands commands-consolidation commands-focus commands-layout commands-review commands-unified"),
-    ("pages/AnalyticsPage.tsx pages/analytics.css i18n/analytics.ts", "analytics"),
-    ("pages/FiltersPage.tsx i18n/filters.ts", "filters"),
+     "browser-commands browser-announcements browser-analytics"),
+    ("pages/AnalyticsPage.tsx pages/analytics.css i18n/analytics.ts", "browser-analytics"),
+    ("pages/FiltersPage.tsx i18n/filters.ts", "browser-filters"),
     ("pages/SettingsPage.tsx components/ConfigurationTransfer.tsx components/SetupChecklist.tsx "
      "components/TwitchSecretField.tsx components/TwitchSetupInstructions.tsx components/settings-layout.css i18n/settings.ts",
-     "configuration-transfer dropdown-pages onboarding profile-location settings-layout"),
-    ("pages/AboutPage.tsx i18n/about.ts", "about"),
+     "browser-settings browser-configuration-transfer desktop-startup"),
+    ("pages/AboutPage.tsx i18n/about.ts", "about browser-about"),
 )
-PAGE_INTEGRATION_TESTS = "browser-management navigation responsive i18n"
+PAGE_INTEGRATION_TESTS = "browser-management browser-i18n browser-dashboard"
 SHARED_HOST_PATHS = {
     "app/app_settings.py", "app/bot_runtime.py", "app/configuration_transfer.py", "app/container.py",
     "app/credentials.py", "app/desktop_relaunch.py", "app/headless.py", "app/main.py", "app/management.py",

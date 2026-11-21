@@ -13,31 +13,18 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = (ROOT / "packaging/windows/HeetKit.iss").read_text(encoding="utf-8")
 
 
-def test_setup_seeds_the_language_once_when_none_is_saved(tmp_path) -> None:
+@pytest.mark.parametrize("existing,expected,seeded", [
+    ("new", "uk", True), ("legacy", "uk", True), ("saved", "en", False),
+])
+def test_setup_seeds_only_profiles_without_a_saved_language(tmp_path, existing, expected, seeded):
     path = tmp_path / "app_settings.json"
-    store = AppSettingsStore(path)
-    assert store.seed_interface_language("uk") is True
-    assert json.loads(path.read_text(encoding="utf-8"))["interface"] == {"language": "uk"}
-    # Later starts (and later installs) never override the saved choice.
+    if existing == "legacy":
+        path.write_text(json.dumps({"version": 1, "window": {}}), encoding="utf-8")
+    elif existing == "saved":
+        AppSettingsStore(path).update_interface_language("en")
+    assert AppSettingsStore(path).seed_interface_language("uk") is seeded
     assert AppSettingsStore(path).seed_interface_language("ru") is False
-    assert AppSettingsStore(path).snapshot().interface.language == "uk"
-
-
-def test_a_saved_choice_wins_even_when_it_is_english(tmp_path) -> None:
-    path = tmp_path / "app_settings.json"
-    AppSettingsStore(path).update_interface_language("en")
-    assert json.loads(path.read_text(encoding="utf-8"))["interface"] == {"language": "en"}
-    store = AppSettingsStore(path)
-    assert store.seed_interface_language("ru") is False
-    assert store.snapshot().interface.language == "en"
-
-
-def test_profiles_saved_before_the_language_setting_accept_the_setup_choice(tmp_path) -> None:
-    path = tmp_path / "app_settings.json"
-    path.write_text(json.dumps({"version": 1, "window": {}}), encoding="utf-8")
-    store = AppSettingsStore(path)
-    assert store.seed_interface_language("ru") is True
-    assert store.snapshot().interface.language == "ru"
+    assert AppSettingsStore(path).snapshot().interface.language == expected
 
 
 @pytest.mark.parametrize("value", [None, "", "de", "UK", 3])
