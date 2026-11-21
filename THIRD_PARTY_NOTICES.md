@@ -88,6 +88,8 @@ The Windows installer uses Inno Setup **6.7.3** around the verified onedir paylo
 The pinned, unmodified installer/uninstaller engine retains upstream copyright/site notices.
 The [Inno Setup license](https://github.com/jrsoftware/issrc/blob/is-6_7_3/license.txt)
 is preserved in `third_party_licenses/inno-setup/LICENSE.txt`.
+Setup's Ukrainian and Russian wizard texts are the translations bundled with that Inno
+Setup release (`Languages/Ukrainian.isl`, `Languages/Russian.isl`), under the same license.
 Setup directs users with missing .NET Framework or WebView2 Runtime prerequisites to
 Microsoft's supported downloads. Those runtime installers are separate downloads.
 

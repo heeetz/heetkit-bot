@@ -1921,6 +1921,25 @@ def configure_windows_taskbar(window: Any) -> None:
         get_logger("app.webview.desktop").exception("Could not set Windows taskbar icon")
 
 
+
+SETUP_REGISTRY_KEY = r"Software\HeetKit"
+SETUP_LANGUAGE_VALUE = "InitialUiLanguage"
+
+
+def setup_interface_language() -> str | None:
+    """Language chosen in Windows Setup (HKCU) for this installed copy; None for portable or other platforms."""
+    if sys.platform != "win32" or desktop_relaunch.installed_directory() is None:
+        return None
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, SETUP_REGISTRY_KEY) as key:
+            value, kind = winreg.QueryValueEx(key, SETUP_LANGUAGE_VALUE)
+    except OSError:
+        return None
+    return value if kind == winreg.REG_SZ and isinstance(value, str) else None
+
+
 def run_desktop_host(
     settings: Settings,
     frontend_url: str,
@@ -1945,6 +1964,8 @@ def run_desktop_host(
             )
 
     app_settings = AppSettingsStore(RuntimePaths.default().app_settings)
+    if app_settings.seed_interface_language(setup_interface_language()):
+        get_logger("app.webview.desktop").info("Applied the interface language chosen in Setup")
     settings_snapshot = app_settings.snapshot()
     settings = apply_twitch_app_settings(settings, settings_snapshot)
     settings = apply_ai_app_settings(settings, settings_snapshot)
