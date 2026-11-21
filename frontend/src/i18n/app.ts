@@ -103,7 +103,7 @@ export const shell = defineCatalog({
     tagline: 'Керування Twitch-ботом',
     mainNavigation: 'Головна навігація',
     sections: {
-      Dashboard: 'Дашборд',
+      Dashboard: 'Головна',
       Commands: 'Команди',
       Filters: 'Фільтри',
       AI: 'AI',
@@ -200,7 +200,7 @@ export const shell = defineCatalog({
     tagline: 'Управление Twitch-ботом',
     mainNavigation: 'Главная навигация',
     sections: {
-      Dashboard: 'Дашборд',
+      Dashboard: 'Главная',
       Commands: 'Команды',
       Filters: 'Фильтры',
       AI: 'AI',

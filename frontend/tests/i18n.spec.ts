@@ -112,7 +112,12 @@ async function openDesktop(page: Page, query = '') {
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
 }
 
-const switcher = (page: Page) => page.getByRole('navigation').getByRole('radiogroup')
+const switcher = (page: Page) => page.getByRole('navigation').locator('.language-switcher').getByRole('combobox')
+
+async function pickLanguage(page: Page, name: string) {
+  await switcher(page).click()
+  await page.getByRole('option', { name, exact: true }).click()
+}
 
 test('Desktop switches language in place, keeps edits and restores the saved choice', async ({ page }) => {
   await page.setViewportSize({ width: 1180, height: 760 })
@@ -123,23 +128,27 @@ test('Desktop switches language in place, keeps edits and restores the saved cho
   const search = page.getByRole('textbox', { name: 'Search' })
   await search.fill('synthetic draft')
 
-  await switcher(page).getByRole('radio', { name: 'Українська' }).click()
+  await expect(switcher(page)).toHaveText('EN')
+  await pickLanguage(page, 'Українська')
   await expect(page.locator('html')).toHaveAttribute('lang', 'uk')
+  await expect(switcher(page)).toHaveText('UA')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Логи')
   await expect(nav.getByRole('button', { name: 'Про програму', exact: true })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Пошук' })).toHaveValue('synthetic draft')
   expect(await page.evaluate(() => Reflect.get(window, 'languageCalls'))).toEqual(['uk'])
 
-  await switcher(page).getByRole('radio', { name: 'Русский' }).focus()
-  await page.keyboard.press('ArrowLeft')
-  await expect(switcher(page).getByRole('radio', { name: 'Українська' })).toHaveAttribute('aria-checked', 'true')
-  await page.keyboard.press('ArrowRight')
+  // Keyboard: open the menu, move to Русский and choose it.
+  await switcher(page).focus()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await expect(switcher(page)).toHaveText('RU')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Логи')
   await expect(nav.getByRole('button', { name: 'Настройки', exact: true })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Поиск' })).toHaveValue('synthetic draft')
 
   await page.reload()
-  await expect(nav.getByRole('button', { name: 'Дашборд', exact: true })).toBeVisible()
+  await expect(nav.getByRole('button', { name: 'Главная', exact: true })).toBeVisible()
   await expect(page.locator('html')).toHaveAttribute('lang', 'ru')
   await nav.getByRole('button', { name: 'Настройки', exact: true }).click()
   const card = page.locator('#interface-settings')
@@ -152,7 +161,7 @@ test('Desktop switches language in place, keeps edits and restores the saved cho
 
 test('backend errors with a code appear in the selected language', async ({ page }) => {
   await openDesktop(page, '&askToggle&askSaveError')
-  await switcher(page).getByRole('radio', { name: 'Українська' }).click()
+  await pickLanguage(page, 'Українська')
   await page.getByRole('checkbox', { name: 'Увімкнути команду AI' }).press('Space')
   await expect(page.getByRole('alert')).toContainText('Не вдалося зберегти стан команди AI.')
 })
@@ -174,7 +183,7 @@ for (const language of ['uk', 'ru'] as const) {
       await openDesktop(page)
       await expect(page.locator('html')).toHaveAttribute('lang', language)
       const nav = page.getByRole('navigation')
-      await expect(nav.getByRole('button', { name: language === 'uk' ? 'Дашборд' : 'Дашборд', exact: true })).toBeVisible()
+      await expect(nav.getByRole('button', { name: language === 'uk' ? 'Головна' : 'Главная', exact: true })).toBeVisible()
       await expect(switcher(page)).toBeVisible()
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
       expect(overflow).toBeLessThanOrEqual(0)
@@ -197,7 +206,8 @@ for (const language of ['uk', 'ru'] as const) {
 test('Server sign-in uses the language saved in this browser', async ({ page }) => {
   await page.goto('/tests/browser.fixture.html')
   await expect(page.getByRole('heading', { name: 'Sign in to server' })).toBeVisible()
-  await page.getByRole('radio', { name: 'Українська' }).click()
+  await page.getByRole('combobox', { name: 'Interface language' }).click()
+  await page.getByRole('option', { name: 'Українська', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Вхід на сервер' })).toBeVisible()
   await expect(page.getByLabel('Токен адміністратора')).toBeVisible()
   expect(await page.evaluate(() => localStorage.getItem('heetkit.ui-language'))).toBe('uk')

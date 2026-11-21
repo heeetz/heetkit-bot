@@ -989,13 +989,11 @@ details > summary:hover { background: var(--hover); }
 }
 
 /* Language switcher (task 2.2): compact EN | UA | RU next to About; the nav keeps its width. */
-.nav-about { display: flex; align-items: center; gap: 4px; }
-.nav-about > button { flex: 1 1 auto; width: auto; min-width: 0; padding-right: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.language-switcher { display: inline-flex; flex: 0 0 auto; padding: 2px; border: 1px solid var(--separator); border-radius: 9px; background: var(--page); }
-.language-switcher button, nav .language-switcher button { min-width: 26px; padding: 4px; border: 0; border-radius: 7px; font-size: 11px; font-weight: 700; line-height: 1.2; letter-spacing: .02em; text-align: center; color: var(--muted); background: transparent; cursor: pointer; }
-.language-switcher button:hover { color: var(--text); background: var(--hover); }
-.language-switcher button.active, nav .language-switcher button.active { color: var(--text); background: var(--primary); }
-.language-switcher button:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+.nav-about { display: flex; align-items: center; gap: 6px; }
+.nav-about > button { flex: 1 1 auto; width: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.language-switcher { display: inline-flex; flex: 0 0 auto; }
+.language-switcher .select-trigger, nav .language-switcher .select-trigger { width: auto; height: 32px; gap: 4px; padding: 5px 6px 5px 9px; border: 1px solid var(--separator); border-radius: 8px; color: var(--text); background: var(--page); font-size: 12px; font-weight: 700; letter-spacing: .02em; }
+.language-switcher .select-caret { width: 14px; height: 14px; }
 .interface-language-field { display: grid; gap: 6px; max-width: 320px; }
 @media (max-width: 760px) {
   .nav-about { display: contents; }
@@ -1003,3 +1001,4 @@ details > summary:hover { background: var(--hover); }
   .nav-about .language-switcher { position: absolute; top: 20px; right: 18px; }
 }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.brand .language-switcher { margin-left: auto; }

@@ -751,7 +751,7 @@ function ManagementApp({ windowsDesktop = false }: { windowsDesktop?: boolean })
                 aria-controls={subsections[item] ? `nav-${item}` : undefined}
                 onClick={() => navigate(item)}
               >{shellText.sections[item]}</button>
-              {item === 'About' && <LanguageSwitcher compact />}
+              {item === 'About' && <LanguageSwitcher />}
               {subsections[item] && (
                 <ul className="sidebar-subnav" id={`nav-${item}`} hidden={section !== item}>
                   {subsections[item].filter((child) => !isBrowserMode() || !['desktop-settings', 'profile-location-settings'].includes(child)).map((child) => (

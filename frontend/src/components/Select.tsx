@@ -18,12 +18,14 @@ interface SelectProps {
   className?: string
   searchable?: boolean
   placeholder?: string
+  /** Short text shown on the closed trigger instead of the selected option's label. */
+  valueLabel?: string
   'aria-label'?: string
   'aria-describedby'?: string
 }
 
 /** A single-choice listbox with optional model search; navigation previews until committed. */
-export function Select({ value, onChange, options: allOptions, disabled = false, id, className = '', searchable = false, placeholder, ...aria }: SelectProps) {
+export function Select({ value, onChange, options: allOptions, disabled = false, id, className = '', searchable = false, placeholder, valueLabel, ...aria }: SelectProps) {
   const text = useCatalog(common)
   const [query, setQuery] = useState('')
   const options = query ? allOptions.filter((option) => option.label.toLocaleLowerCase().includes(query.toLocaleLowerCase())) : allOptions
@@ -214,7 +216,7 @@ export function Select({ value, onChange, options: allOptions, disabled = false,
       onClick={() => open ? dismiss() : show()}
       onKeyDown={onKeyDown}
     >
-      <span className="select-value">{selected?.label ?? placeholder ?? text.select}</span>
+      <span className="select-value">{valueLabel ?? selected?.label ?? placeholder ?? text.select}</span>
       <svg className="select-caret" width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m5 7.5 5 5 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
     </button>
     {open && createPortal(<div
