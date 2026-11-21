@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
 
 import {
   type AILanguageInfo,
@@ -20,6 +20,9 @@ import HelpTip from '../components/HelpTip'
 import AIMemoryLimits from '../components/AIMemoryLimits'
 import { Select } from '../components/Select'
 import { useRestartDraft } from '../desktopRestart'
+import { aiText } from '../i18n/ai'
+import { common as commonText } from '../i18n/common'
+import { catalogFor, useCatalog, useI18n } from '../i18n/core'
 
 interface AIPageProps {
   active: boolean
@@ -40,14 +43,33 @@ function sameLanguageSettings(left: AILanguageSettings, right: AILanguageSetting
 
 function languageSettingsLabel(
   settings: AILanguageSettings,
-  languages: AILanguageInfo[],
+  labelFor: (code: string) => string,
+  text: typeof aiText.en.language,
+  fmt: (template: string, params?: Record<string, string | number>) => string,
 ): string {
   if (settings.mode === 'auto') {
-    return 'Auto — match the incoming language without restrictions.'
+    return text.autoSummary
   }
-  const labelFor = (code: string) => languages.find((language) => language.code === code)?.label ?? code
-  const allowed = settings.allowed_languages.map(labelFor).join(', ') || 'No languages selected'
-  return `Limited — ${allowed}; fallback ${labelFor(settings.fallback_language)}.`
+  const allowed = settings.allowed_languages.map(labelFor).join(', ') || text.noneSelected
+  return fmt(text.limitedSummary, { allowed, fallback: labelFor(settings.fallback_language) })
+}
+
+/** Fill {name} placeholders with React nodes, keeping the surrounding text. */
+function rich(template: string, values: Record<string, ReactNode>): ReactNode[] {
+  return template.split(/\{(\w+)\}/g).map((part, index) => index % 2
+    ? <Fragment key={index}>{values[part] ?? `{${part}}`}</Fragment>
+    : part)
+}
+
+/** Response language names: English keeps the backend label; uk/ru use Intl names. */
+function languageName(code: string, label: string | undefined, language: string, locale: string): string {
+  if (language !== 'en') {
+    try {
+      const name = new Intl.DisplayNames([locale], { type: 'language' }).of(code)
+      if (name && name !== code) return name.charAt(0).toLocaleUpperCase(locale) + name.slice(1)
+    } catch { /* Unknown codes keep the backend label. */ }
+  }
+  return label ?? code
 }
 
 export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }: AIPageProps) {
@@ -77,6 +99,10 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [playgroundSource, setPlaygroundSource] = useState<'personality' | 'profile' | 'language' | null>(null)
+  const text = useCatalog(aiText)
+  const common = useCatalog(commonText)
+  const { fmt, number, language: uiLanguage, locale } = useI18n()
+  const labelFor = (code: string) => languageName(code, languageCatalogue.find((item) => item.code === code)?.label, uiLanguage, locale)
 
   const mergeData = (
     response: PersonalitiesResponse,
@@ -138,7 +164,7 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
           api.get_ai_language_settings(),
         ])
         if (!languageResponse.ok || !languageResponse.settings) {
-          throw new Error(languageResponse.error ?? 'AI language settings are unavailable.')
+          throw new Error(languageResponse.error ?? catalogFor(aiText).page.languageUnavailable)
         }
         if (current) {
           setStatus(nextStatus)
@@ -153,7 +179,7 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
         }
       } catch (reason) {
         if (current) {
-          setError(reason instanceof Error ? reason.message : 'Could not load AI settings.')
+          setError(reason instanceof Error ? reason.message : catalogFor(aiText).page.loadFailed)
         }
       } finally {
         if (current) setLoading(false)
@@ -173,14 +199,14 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
         ? await api.set_ai_enabled(enabled)
         : await api.set_ai_memory_enabled(enabled)
       if (!result.ok) {
-        throw new Error(result.error ?? 'AI setting could not be changed.')
+        throw new Error(result.error ?? text.page.toggleFailed)
       }
       const nextStatus = await api.get_ai_status()
       setStatus(nextStatus)
       onAIEnabledChanged?.(nextStatus.enabled)
-      setNotice(kind === 'enabled' ? 'AI command enabled setting saved.' : 'AI memory state updated.')
+      setNotice(kind === 'enabled' ? text.page.enabledSaved : text.page.memorySaved)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'AI setting could not be changed.')
+      setError(reason instanceof Error ? reason.message : text.page.toggleFailed)
     } finally {
       setBusy('')
     }
@@ -223,11 +249,11 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
     }
     const allowedLanguages = Array.from(new Set(languageDraft.allowed_languages))
     if (languageDraft.mode === 'limited' && allowedLanguages.length === 0) {
-      setError('Limited mode requires at least one allowed language.')
+      setError(text.language.needsLanguage)
       return false
     }
     if (languageDraft.mode === 'limited' && !allowedLanguages.includes(languageDraft.fallback_language)) {
-      setError('The fallback language must be one of the allowed languages.')
+      setError(text.language.fallbackAllowed)
       return false
     }
     setBusy('language:save')
@@ -241,20 +267,20 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
         languageDraft.fallback_language,
       )
       if (!result.ok) {
-        throw new Error(result.error ?? 'AI language settings could not be saved.')
+        throw new Error(result.error ?? text.language.saveFailed)
       }
       const refreshed = await api.get_ai_language_settings()
       if (!refreshed.ok || !refreshed.settings) {
-        throw new Error(refreshed.error ?? 'AI language settings could not be refreshed.')
+        throw new Error(refreshed.error ?? text.language.refreshFailed)
       }
       setLanguageCatalogue(refreshed.languages ?? languageCatalogue)
       setLanguageSaved(refreshed.settings)
       setLanguageDraft(refreshed.settings)
       await refresh()
-      setNotice('AI language settings saved and active for the next request.')
+      setNotice(text.language.savedNotice)
       return true
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'AI language settings could not be saved.')
+      setError(reason instanceof Error ? reason.message : text.language.saveFailed)
       return false
     } finally {
       setBusy('')
@@ -268,7 +294,7 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
       return false
     }
     if (action === 'reset' && (!personality.is_builtin
-      || !window.confirm(`Reset ${selected} to its built-in prompt?`))) {
+      || !window.confirm(fmt(text.personality.confirmReset, { name: selected })))) {
       return false
     }
     setBusy(action)
@@ -282,17 +308,17 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
           ? await api.set_active_personality(selected)
           : await api.reset_personality(selected)
       if (!result.ok) {
-        throw new Error(result.error ?? 'Personality could not be updated.')
+        throw new Error(result.error ?? text.personality.updateFailed)
       }
       await refresh(action === 'reset' ? selected : '')
-      setNotice(action === 'active'
-        ? `Set ${selected} as the active personality.`
+      setNotice(fmt(action === 'active'
+        ? text.personality.setActiveDone
         : action === 'save'
-          ? `Saved ${selected}.`
-          : `Restored the built-in ${selected} prompt.`)
+          ? text.personality.saved
+          : text.personality.restored, { name: selected }))
       return true
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Personality could not be updated.')
+      setError(reason instanceof Error ? reason.message : text.personality.updateFailed)
       return false
     } finally {
       setBusy('')
@@ -302,7 +328,7 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
   const createPersonality = async () => {
     const normalizedName = createName.trim()
     if (normalizedName.length < 1 || normalizedName.length > 64) {
-      setError('Personality names must be 1–64 characters after trimming.')
+      setError(text.personality.nameLength)
       return
     }
     setBusy('create')
@@ -312,7 +338,7 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
       const api = await waitForBridge()
       const result = await api.create_personality(normalizedName, createPrompt)
       if (!result.ok) {
-        throw new Error(result.error ?? 'Personality could not be created.')
+        throw new Error(result.error ?? text.personality.createFailed)
       }
       const createdName = result.name ?? normalizedName
       await refresh('', false)
@@ -320,9 +346,9 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
       setCreateName('')
       setCreatePrompt('')
       setCreateOpen(false)
-      setNotice(`Created ${createdName}.`)
+      setNotice(fmt(text.personality.created, { name: createdName }))
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Personality could not be created.')
+      setError(reason instanceof Error ? reason.message : text.personality.createFailed)
     } finally {
       setBusy('')
     }
@@ -335,11 +361,11 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
       return
     }
     if (normalizedName.length < 1 || normalizedName.length > 64) {
-      setError('Personality names must be 1–64 characters after trimming.')
+      setError(text.personality.nameLength)
       return
     }
     if (normalizedName === selected) {
-      setError('Choose a different personality name.')
+      setError(text.personality.chooseDifferent)
       return
     }
     setBusy('rename')
@@ -349,7 +375,7 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
       const api = await waitForBridge()
       const result = await api.rename_personality(selected, normalizedName)
       if (!result.ok) {
-        throw new Error(result.error ?? 'Personality could not be renamed.')
+        throw new Error(result.error ?? text.personality.renameFailed)
       }
       const renamedName = result.name ?? normalizedName
       const draft = drafts[selected]
@@ -357,9 +383,9 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
       setSelected(refreshed.personalities.some((item) => item.name === renamedName) ? renamedName : selected)
       setRenameName('')
       setRenameOpen(false)
-      setNotice(`Renamed ${selected} to ${renamedName}.`)
+      setNotice(fmt(text.personality.renamed, { from: selected, to: renamedName }))
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Personality could not be renamed.')
+      setError(reason instanceof Error ? reason.message : text.personality.renameFailed)
     } finally {
       setBusy('')
     }
@@ -368,7 +394,7 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
   const deletePersonality = async () => {
     const personality = data?.personalities.find((item) => item.name === selected)
     if (!personality || personality.is_builtin
-      || !window.confirm(`Delete the custom personality ${selected}?`)) {
+      || !window.confirm(fmt(text.personality.confirmDelete, { name: selected }))) {
       return
     }
     setBusy('delete')
@@ -378,7 +404,7 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
       const api = await waitForBridge()
       const result = await api.delete_personality(selected)
       if (!result.ok) {
-        throw new Error(result.error ?? 'Personality could not be deleted.')
+        throw new Error(result.error ?? text.personality.deleteFailed)
       }
       const deletedName = selected
       const refreshed = await refresh()
@@ -392,9 +418,9 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
         delete next[deletedName]
         return next
       })
-      setNotice(`Deleted ${deletedName}.`)
+      setNotice(fmt(text.personality.deleted, { name: deletedName }))
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Personality could not be deleted.')
+      setError(reason instanceof Error ? reason.message : text.personality.deleteFailed)
     } finally {
       setBusy('')
     }
@@ -404,7 +430,7 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
     if (!data) {
       return false
     }
-    if (action === 'reset' && !window.confirm('Reset profile instructions to empty?')) {
+    if (action === 'reset' && !window.confirm(text.profile.confirmReset)) {
       return false
     }
     setBusy(`profile:${action}`)
@@ -418,17 +444,17 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
           ? await api.save_profile_instructions(profileDraft)
           : await api.reset_profile_instructions()
       if (!result.ok) {
-        throw new Error(result.error ?? 'Profile instructions could not be updated.')
+        throw new Error(result.error ?? text.profile.updateFailed)
       }
       await refresh('', true)
       setNotice(action === 'apply'
-        ? 'Applied profile instructions for this session.'
+        ? text.profile.applied
         : action === 'save'
-          ? 'Saved profile instructions.'
-          : 'Reset profile instructions to empty.')
+          ? text.profile.savedNotice
+          : text.profile.resetNotice)
       return true
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Profile instructions could not be updated.')
+      setError(reason instanceof Error ? reason.message : text.profile.updateFailed)
       return false
     } finally {
       setBusy('')
@@ -456,9 +482,9 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
   )
   const languageValidation = languageDraft?.mode === 'limited'
     ? languageDraft.allowed_languages.length === 0
-      ? 'Limited mode requires at least one allowed language.'
+      ? text.language.needsLanguage
       : !languageDraft.allowed_languages.includes(languageDraft.fallback_language)
-        ? 'The fallback language must be one of the allowed languages.'
+        ? text.language.fallbackAllowed
         : ''
     : ''
 
@@ -516,21 +542,21 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
   }
 
   const playgroundButton = (source: NonNullable<typeof playgroundSource>, needsChoice: boolean) => (
-    <button className="secondary" disabled={loading || Boolean(busy)} onClick={() => needsChoice ? setPlaygroundSource(source) : openPlayground()}>Open Playground</button>
+    <button className="secondary" disabled={loading || Boolean(busy)} onClick={() => needsChoice ? setPlaygroundSource(source) : openPlayground()}>{text.playgroundChoice.openPlayground}</button>
   )
 
   const playgroundChoice = (source: NonNullable<typeof playgroundSource>) => (
     playgroundSource === source ? <div className="setup-callout playground-draft-choice">
         <div>
-          <strong>Choose what Playground will use</strong>
-          <p>Other editor drafts are kept and are never used automatically.</p>
-          {source === 'personality' && <p>Playground uses {data?.active_personality || 'the active personality'}. Saving {selected} does not activate it; use Set active separately to test an inactive personality.</p>}
-          {source === 'profile' && <p>Apply uses this draft for the current session. Save also keeps it across restarts.</p>}
+          <strong>{text.playgroundChoice.title}</strong>
+          <p>{text.playgroundChoice.keptDrafts}</p>
+          {source === 'personality' && <p>{fmt(text.playgroundChoice.personality, { active: data?.active_personality || text.playgroundChoice.theActivePersonality, selected })}</p>}
+          {source === 'profile' && <p>{text.playgroundChoice.profile}</p>}
           <div className="row-actions">
-            {(source !== 'personality' || dirty || !personality?.prompt_saved) && <button className="primary" disabled={Boolean(busy) || (source === 'language' && Boolean(languageValidation))} onClick={() => void saveForPlayground(source)}>Save {source === 'profile' && !profileDirty ? 'applied instructions' : source === 'personality' && !dirty ? 'applied prompt' : 'draft'} and open Playground</button>}
-            {source === 'profile' && profileDirty && <button className="secondary" disabled={Boolean(busy)} onClick={() => void saveForPlayground(source, true)}>Apply draft and open Playground</button>}
-            <button className="secondary" disabled={Boolean(busy)} onClick={openPlayground}>Use current applied settings</button>
-            <button className="ghost" disabled={Boolean(busy)} onClick={() => setPlaygroundSource(null)}>Cancel</button>
+            {(source !== 'personality' || dirty || !personality?.prompt_saved) && <button className="primary" disabled={Boolean(busy) || (source === 'language' && Boolean(languageValidation))} onClick={() => void saveForPlayground(source)}>{source === 'profile' && !profileDirty ? text.playgroundChoice.saveAppliedInstructions : source === 'personality' && !dirty ? text.playgroundChoice.saveAppliedPrompt : text.playgroundChoice.saveDraft}</button>}
+            {source === 'profile' && profileDirty && <button className="secondary" disabled={Boolean(busy)} onClick={() => void saveForPlayground(source, true)}>{text.playgroundChoice.applyDraft}</button>}
+            <button className="secondary" disabled={Boolean(busy)} onClick={openPlayground}>{text.playgroundChoice.useApplied}</button>
+            <button className="ghost" disabled={Boolean(busy)} onClick={() => setPlaygroundSource(null)}>{common.cancel}</button>
           </div>
         </div>
       </div> : null
@@ -539,16 +565,16 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
   const personalityEditor = (
     <AIBehaviorSection
       id="ai-personalities"
-      title="Personality-specific prompt"
-      helpLabel="Set active and save"
-      description={<ul><li>Save stores this personality on its own.</li><li>Set active makes the bot use it. It does not save unsaved edits.</li></ul>}
+      title={text.personality.title}
+      helpLabel={text.personality.helpLabel}
+      description={<ul>{text.personality.help.map((item) => <li key={item}>{item}</li>)}</ul>}
       badges={(
         <span className="personality-badges">
-          {personality && <span className="mini-badge">{personality.is_builtin ? 'Built-in' : 'Custom'}</span>}
-          {isActive && <span className="mini-badge saved-badge">Active</span>}
-          {personality?.has_saved_override && <span className="mini-badge saved-badge">Saved override</span>}
-          {data && !data.active_personality_saved && isActive && <span className="mini-badge runtime-badge">Runtime only</span>}
-          {dirty && <span className="mini-badge dirty-badge">Edited</span>}
+          {personality && <span className="mini-badge">{personality.is_builtin ? text.personality.builtIn : text.personality.custom}</span>}
+          {isActive && <span className="mini-badge saved-badge">{text.personality.active}</span>}
+          {personality?.has_saved_override && <span className="mini-badge saved-badge">{text.personality.savedOverride}</span>}
+          {data && !data.active_personality_saved && isActive && <span className="mini-badge runtime-badge">{text.personality.runtimeOnly}</span>}
+          {dirty && <span className="mini-badge dirty-badge">{text.personality.edited}</span>}
         </span>
       )}
       className="personality-editor"
@@ -557,12 +583,12 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
           <div className="editor-footer ai-editor-footer">
             <div className="ai-editor-leading">
               {playgroundButton('personality', dirty || !isActive || !Boolean(personality?.prompt_saved))}
-              <span className="muted">{prompt.length.toLocaleString()} / 50,000 characters</span>
+              <span className="muted">{fmt(text.personality.characters, { count: number(prompt.length), max: number(50000) })}</span>
             </div>
             <div className="row-actions">
-              <button className="secondary" disabled={!personality || Boolean(busy) || (isActive && Boolean(data?.active_personality_saved))} onClick={() => void runPersonalityAction('active')}>{busy === 'active' ? 'Setting active…' : 'Set active'}</button>
-              <button className="primary" disabled={!personality || Boolean(busy) || (!dirty && personality.prompt_saved)} onClick={() => void runPersonalityAction('save')}>{busy === 'save' ? 'Saving…' : 'Save'}</button>
-              <button className="ghost" disabled={!personality || Boolean(busy) || !canReset} onClick={() => void runPersonalityAction('reset')}>{busy === 'reset' ? 'Resetting…' : 'Reset'}</button>
+              <button className="secondary" disabled={!personality || Boolean(busy) || (isActive && Boolean(data?.active_personality_saved))} onClick={() => void runPersonalityAction('active')}>{busy === 'active' ? text.personality.settingActive : text.personality.setActive}</button>
+              <button className="primary" disabled={!personality || Boolean(busy) || (!dirty && personality.prompt_saved)} onClick={() => void runPersonalityAction('save')}>{busy === 'save' ? common.saving : common.save}</button>
+              <button className="ghost" disabled={!personality || Boolean(busy) || !canReset} onClick={() => void runPersonalityAction('reset')}>{busy === 'reset' ? text.personality.resetting : text.personality.reset}</button>
             </div>
           </div>
         )
@@ -570,14 +596,14 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
     >
       {data && data.personalities.length === 0 ? (
         <div className="empty-state-inline">
-          <strong>No personalities are available</strong>
-          <p>The built-in personality resources could not be loaded. Check Logs for details.</p>
+          <strong>{text.personality.noneTitle}</strong>
+          <p>{text.personality.noneText}</p>
         </div>
       ) : (
         <>
           <div className="personality-toolbar">
             <label className="form-field personality-select">
-              Personality
+              {text.personality.personality}
               <Select value={selected} onChange={(value) => {
                 setSelected(value)
                 setRenameOpen(false)
@@ -591,37 +617,37 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
                 setRenameOpen(false)
                 setError('')
                 setNotice('')
-              }}>{createOpen ? 'Cancel new personality' : 'New personality'}</button>
+              }}>{createOpen ? text.personality.cancelNew : text.personality.newPersonality}</button>
               <button className="secondary" disabled={!personality || personality.is_builtin || Boolean(busy)} onClick={() => {
                 setRenameOpen((current) => !current)
                 setRenameName(selected)
                 setCreateOpen(false)
                 setError('')
                 setNotice('')
-              }}>{renameOpen ? 'Cancel rename' : 'Rename'}</button>
-              <button className="ghost destructive" disabled={!personality || personality.is_builtin || Boolean(busy)} onClick={() => void deletePersonality()}>Delete</button>
+              }}>{renameOpen ? text.personality.cancelRename : text.personality.rename}</button>
+              <button className="ghost destructive" disabled={!personality || personality.is_builtin || Boolean(busy)} onClick={() => void deletePersonality()}>{common.delete}</button>
             </div>
           </div>
           {createOpen && (
             <div className="personality-inline-form">
               <div className="section-heading">
                 <div>
-                  <h3>New personality</h3>
-                  <p className="section-copy">Create a custom personality without making it active.</p>
+                  <h3>{text.personality.newPersonality}</h3>
+                  <p className="section-copy">{text.personality.newHint}</p>
                 </div>
               </div>
               <div className="personality-inline-fields">
                 <label className="form-field">
-                  Name
+                  {text.personality.name}
                   <input
                     value={createName}
                     maxLength={64}
-                    placeholder="e.g. Concise helper"
+                    placeholder={text.personality.namePlaceholder}
                     onChange={(event) => { setCreateName(event.target.value); setError(''); setNotice('') }}
                   />
                 </label>
                 <label className="form-field">
-                  Prompt
+                  {text.personality.prompt}
                   <textarea
                     value={createPrompt}
                     maxLength={50000}
@@ -630,14 +656,14 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
                 </label>
               </div>
               <div className="row-actions">
-                <button className="primary" disabled={Boolean(busy)} onClick={() => void createPersonality()}>Create</button>
+                <button className="primary" disabled={Boolean(busy)} onClick={() => void createPersonality()}>{text.personality.create}</button>
               </div>
             </div>
           )}
           {renameOpen && personality && !personality.is_builtin && (
             <div className="personality-rename-form">
               <label className="form-field">
-                New name
+                {text.personality.newName}
                 <input
                   value={renameName}
                   maxLength={64}
@@ -645,15 +671,15 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
                 />
               </label>
               <div className="row-actions">
-                <button className="primary" disabled={Boolean(busy)} onClick={() => void renamePersonality()}>Rename</button>
+                <button className="primary" disabled={Boolean(busy)} onClick={() => void renamePersonality()}>{text.personality.rename}</button>
               </div>
             </div>
           )}
           {!createOpen && <>
-          <p className="setting-effect">Editing <strong>{selected}</strong>; Playground uses <strong>{data?.active_personality || 'the active personality'}</strong>. Saving an inactive personality does not activate it.</p>
-          <p className="setting-effect">{dirty ? 'Unsaved prompt draft; it is not used by AI requests.' : personality?.prompt_saved ? 'Prompt saved across restarts.' : 'Prompt applied for this session; not saved across restarts.'}</p>
+          <p className="setting-effect">{rich(text.personality.editing, { selected: <strong>{selected}</strong>, active: <strong>{data?.active_personality || text.playgroundChoice.theActivePersonality}</strong> })}</p>
+          <p className="setting-effect">{dirty ? text.personality.unsavedDraft : personality?.prompt_saved ? text.personality.promptSaved : text.personality.promptRuntime}</p>
           <label className="form-field">
-            Editable prompt
+            {text.personality.editablePrompt}
             <textarea
               data-editor-focus
               value={prompt}
@@ -675,14 +701,14 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
   const profileEditor = (
     <AIBehaviorSection
       id="ai-profile-instructions"
-      title="Profile instructions"
-      helpLabel="Which prompts use this"
-      description="Added to every personality, after the protected shared policy."
+      title={text.profile.title}
+      helpLabel={text.profile.helpLabel}
+      description={text.profile.help}
       badges={(
         <span className="personality-badges">
-          {data?.profile_instructions_saved && <span className="mini-badge saved-badge">Saved</span>}
-          {data && !data.profile_instructions_saved && <span className="mini-badge runtime-badge">Runtime only</span>}
-          {profileDirty && <span className="mini-badge dirty-badge">Edited</span>}
+          {data?.profile_instructions_saved && <span className="mini-badge saved-badge">{text.profile.saved}</span>}
+          {data && !data.profile_instructions_saved && <span className="mini-badge runtime-badge">{text.personality.runtimeOnly}</span>}
+          {profileDirty && <span className="mini-badge dirty-badge">{text.personality.edited}</span>}
         </span>
       )}
       className="profile-instructions-editor"
@@ -690,19 +716,19 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
         <div className="editor-footer ai-editor-footer">
           <div className="ai-editor-leading">
             {playgroundButton('profile', profileDirty || !Boolean(data?.profile_instructions_saved))}
-            <span className="muted">{profileValue.length.toLocaleString()} / 50,000 characters</span>
+            <span className="muted">{fmt(text.personality.characters, { count: number(profileValue.length), max: number(50000) })}</span>
           </div>
           <div className="row-actions">
-            <button className="secondary" disabled={!data || Boolean(busy) || !profileDirty} onClick={() => void runProfileAction('apply')}>{busy === 'profile:apply' ? 'Applying…' : 'Apply'}</button>
-            <button className="primary" disabled={!data || Boolean(busy) || (!profileDirty && Boolean(data.profile_instructions_saved))} onClick={() => void runProfileAction('save')}>{busy === 'profile:save' ? 'Saving…' : 'Save'}</button>
-            <button className="ghost" disabled={!data || Boolean(busy) || !profileCanReset} onClick={() => void runProfileAction('reset')}>{busy === 'profile:reset' ? 'Resetting…' : 'Reset'}</button>
+            <button className="secondary" disabled={!data || Boolean(busy) || !profileDirty} onClick={() => void runProfileAction('apply')}>{busy === 'profile:apply' ? text.profile.applying : text.profile.apply}</button>
+            <button className="primary" disabled={!data || Boolean(busy) || (!profileDirty && Boolean(data.profile_instructions_saved))} onClick={() => void runProfileAction('save')}>{busy === 'profile:save' ? common.saving : common.save}</button>
+            <button className="ghost" disabled={!data || Boolean(busy) || !profileCanReset} onClick={() => void runProfileAction('reset')}>{busy === 'profile:reset' ? text.personality.resetting : text.personality.reset}</button>
           </div>
         </div>
       )}
     >
-      <p className="setting-effect">{data?.profile_instructions_saved ? 'Applied instructions are saved across restarts.' : 'Instructions applied for this session only; Save keeps them across restarts.'} {profileDirty && 'This unsaved editor draft is not applied. Apply or Save it explicitly before testing.'}</p>
+      <p className="setting-effect">{data?.profile_instructions_saved ? text.profile.savedEffect : text.profile.runtimeEffect} {profileDirty && text.profile.draftEffect}</p>
       <label className="form-field">
-        Profile instructions
+        {text.profile.field}
         <textarea
           value={profileValue}
           maxLength={50000}
@@ -720,75 +746,75 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
   const languageEditor = (
     <AIBehaviorSection
       id="ai-language"
-      title="AI response language"
-      helpLabel="How languages are chosen"
-      description={<ul><li>Saved changes apply from the next AI request.</li><li>Limited mode answers in the message’s language, or the majority language when mixed.</li><li>If that is unclear (a tie, emoji or code only, an unsupported language), the fallback is used.</li><li>This guides the AI but cannot guarantee the language.</li><li>Playground uses the saved settings until you save there.</li></ul>}
+      title={text.language.title}
+      helpLabel={text.language.helpLabel}
+      description={<ul>{text.language.help.map((item) => <li key={item}>{item}</li>)}</ul>}
       badges={(
         <span className="personality-badges">
-          {languageSaved && <span className="mini-badge saved-badge">Saved active policy</span>}
-          {languageDirty && <span className="mini-badge dirty-badge">Edited</span>}
+          {languageSaved && <span className="mini-badge saved-badge">{text.language.savedPolicy}</span>}
+          {languageDirty && <span className="mini-badge dirty-badge">{text.personality.edited}</span>}
         </span>
       )}
       className="ai-language-card"
       footer={languageDraft && languageSaved && (
         playgroundChoice('language') ?? (
           <div className="editor-footer ai-editor-footer">
-            {languageDirty && <span className="muted">Unsaved draft; saved policy applies.</span>}
+            {languageDirty && <span className="muted">{text.language.unsavedDraft}</span>}
             <div className="row-actions">
               {playgroundButton('language', languageDirty)}
-              <button className="primary" disabled={Boolean(busy) || !languageDirty || Boolean(languageValidation)} onClick={() => void saveLanguageSettings()}>{busy === 'language:save' ? 'Saving…' : 'Save language settings'}</button>
+              <button className="primary" disabled={Boolean(busy) || !languageDirty || Boolean(languageValidation)} onClick={() => void saveLanguageSettings()}>{busy === 'language:save' ? common.saving : text.language.save}</button>
             </div>
           </div>
         )
       )}
     >
-      {!languageDraft || !languageSaved ? <p className="muted">Loading response language settings…</p> : (
+      {!languageDraft || !languageSaved ? <p className="muted">{text.language.loading}</p> : (
         <div className="settings-list">
           <div className={`language-policy-status${languageDirty ? ' has-draft' : ''}`}>
             <div>
-              <span>Active policy</span>
-              <strong>{languageSettingsLabel(languageSaved, languageCatalogue)}</strong>
+              <span>{text.language.activePolicy}</span>
+              <strong>{languageSettingsLabel(languageSaved, labelFor, text.language, fmt)}</strong>
             </div>
             {languageDirty && <div>
-              <span>Draft configuration</span>
-              <strong>{languageSettingsLabel(languageDraft, languageCatalogue)}</strong>
+              <span>{text.language.draftConfiguration}</span>
+              <strong>{languageSettingsLabel(languageDraft, labelFor, text.language, fmt)}</strong>
             </div>}
           </div>
           <div className="language-fields">
             <label className="form-field">
-              <span>Response language mode</span>
+              <span>{text.language.mode}</span>
               <Select
-                aria-label="Response language mode"
+                aria-label={text.language.mode}
                 value={languageDraft.mode}
                 disabled={Boolean(busy)}
                 onChange={(mode) => updateLanguageDraft({ mode: mode as AILanguageMode })}
-                options={[{ value: 'auto', label: 'Auto' }, { value: 'limited', label: 'Limited' }]}
+                options={[{ value: 'auto', label: text.language.auto }, { value: 'limited', label: text.language.limited }]}
               />
-              <small>Auto follows the incoming message. Limited allows only the languages selected below.</small>
+              <small>{text.language.modeHint}</small>
             </label>
             <label className="form-field">
-              <span>Fallback language</span>
+              <span>{text.language.fallback}</span>
               <Select
-                aria-label="Fallback language"
+                aria-label={text.language.fallback}
                 value={languageDraft.fallback_language}
                 disabled={Boolean(busy) || languageDraft.mode !== 'limited'}
                 onChange={(fallback_language) => updateLanguageDraft({ fallback_language })}
                 options={languageCatalogue
                   .filter((language) => languageDraft.allowed_languages.includes(language.code)
                     || language.code === languageDraft.fallback_language)
-                  .map((language) => ({ value: language.code, label: language.label }))}
+                  .map((language) => ({ value: language.code, label: labelFor(language.code) }))}
               />
-              <small>Used when Limited mode cannot identify an allowed language.</small>
+              <small>{text.language.fallbackHint}</small>
             </label>
           </div>
           <fieldset className="language-picker" disabled={Boolean(busy) || languageDraft.mode !== 'limited'}>
-            <legend>Allowed languages</legend>
+            <legend>{text.language.allowed}</legend>
             <div className="language-options">
               {languageCatalogue.map((language) => (
                 <label className="language-option" key={language.code}>
                   <input
                     type="checkbox"
-                    aria-label={language.label}
+                    aria-label={labelFor(language.code)}
                     checked={languageDraft.allowed_languages.includes(language.code)}
                     onChange={(event) => updateLanguageDraft({
                       allowed_languages: event.target.checked
@@ -796,7 +822,7 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
                         : languageDraft.allowed_languages.filter((code) => code !== language.code),
                     })}
                   />
-                  <span>{language.label}</span>
+                  <span>{labelFor(language.code)}</span>
                   <code>{language.code}</code>
                 </label>
               ))}
@@ -809,70 +835,70 @@ export default function AIPage({ active, onOpenPlayground, onAIEnabledChanged }:
   )
 
   const behaviorSections = [
-    { id: 'personalities', label: 'Personalities', body: personalityEditor },
-    { id: 'profile', label: 'Profile instructions', body: profileEditor },
-    { id: 'shared', label: 'Shared instructions', body: <div ref={setInstructionsTarget} className="ai-editor-slot" /> },
-    { id: 'languages', label: 'Response languages', body: languageEditor },
-  ] satisfies { id: AIBehaviorSectionId; label: string; body: ReactNode }[]
+    { id: 'personalities', label: text.sections.personalities, edit: text.sections.editPersonalities, body: personalityEditor },
+    { id: 'profile', label: text.sections.profile, edit: text.sections.editProfile, body: profileEditor },
+    { id: 'shared', label: text.sections.shared, edit: text.sections.editShared, body: <div ref={setInstructionsTarget} className="ai-editor-slot" /> },
+    { id: 'languages', label: text.sections.languages, edit: text.sections.editLanguages, body: languageEditor },
+  ] satisfies { id: AIBehaviorSectionId; label: string; edit: string; body: ReactNode }[]
 
-  const unavailable = loading ? 'Loading…' : 'Unavailable'
-  const memoryStatus = status ? status.memory_enabled ? 'Enabled' : 'Disabled' : unavailable
+  const unavailable = loading ? common.loading : common.unavailable
+  const memoryStatus = status ? status.memory_enabled ? common.enabled : common.disabled : unavailable
 
   return (
     <section className="ai-layout" aria-busy={loading}>
       <FeedbackToast error={behaviorSection ? '' : error} notice={behaviorSection ? '' : notice}
         onDismiss={() => { setError(''); setNotice('') }} />
-      <div className="ai-page-status" aria-label="AI command status">
-        <p><strong>!ask</strong><span className={status?.enabled ? 'status-good' : ''}>{status ? status.enabled ? 'Enabled' : 'Disabled' : unavailable}</span></p>
-        <button className="secondary" type="button" onClick={onOpenPlayground}>Go to Playground</button>
+      <div className="ai-page-status" aria-label={text.page.commandStatus}>
+        <p><strong>!ask</strong><span className={status?.enabled ? 'status-good' : ''}>{status ? status.enabled ? common.enabled : common.disabled : unavailable}</span></p>
+        <button className="secondary" type="button" onClick={onOpenPlayground}>{text.page.goToPlayground}</button>
       </div>
       <AISetupPanel instructionsTarget={instructionsTarget} discardInstructions={discardVersion}
         onInstructionsDirtyChange={setInstructionsDirty} onInstructionsBusyChange={setInstructionsBusy}
         active={active} onDirtyChange={setSetupDirty}
-        onSaved={() => { void refresh().catch(() => setError('AI setup saved; status refresh failed. Reopen AI to inspect it.')) }} />
+        onSaved={() => { void refresh().catch(() => setError(text.page.setupSavedRefreshFailed)) }} />
       <article className="card ai-behavior-card" id="ai-behavior">
         <div className="ai-behavior-heading">
-          <h2>AI behavior</h2>
-          {behaviorDirty && <span className="mini-badge dirty-badge">Unsaved changes</span>}
+          <h2>{text.page.behavior}</h2>
+          {behaviorDirty && <span className="mini-badge dirty-badge">{common.unsavedChanges}</span>}
         </div>
         <div className="ai-behavior-overview">
           <div className="ai-behavior-summary">
             <dl className="ai-runtime-values">
-              <dt>Active personality</dt><dd>{data ? data.active_personality || 'Not selected' : unavailable}</dd>
-              <dt>Response language</dt><dd>{languageSaved ? languageSaved.mode === 'auto' ? 'Auto' : languageSettingsLabel(languageSaved, languageCatalogue) : unavailable}</dd>
-              <dt>Conversation memory</dt><dd>{memoryStatus}</dd>
-              <dt>AI command</dt><dd>{status ? status.enabled ? 'Enabled' : 'Disabled' : unavailable}</dd>
+              <dt>{text.page.activePersonality}</dt><dd>{data ? data.active_personality || common.notSelected : unavailable}</dd>
+              <dt>{text.page.responseLanguage}</dt><dd>{languageSaved ? languageSaved.mode === 'auto' ? text.page.auto : languageSettingsLabel(languageSaved, labelFor, text.language, fmt) : unavailable}</dd>
+              <dt>{text.page.conversationMemory}</dt><dd>{memoryStatus}</dd>
+              <dt>{text.page.aiCommand}</dt><dd>{status ? status.enabled ? common.enabled : common.disabled : unavailable}</dd>
             </dl>
-            {status?.enabled && !status.available && <p className="ai-behavior-status">Provider unavailable. Check AI setup.</p>}
+            {status?.enabled && !status.available && <p className="ai-behavior-status">{text.page.providerUnavailable}</p>}
           </div>
           <div className="ai-behavior-shortcuts">
-            {behaviorSections.map(({ id, label }) => (
+            {behaviorSections.map(({ id, edit }) => (
               <button key={id} type="button" className="secondary" aria-haspopup="dialog"
                 disabled={loading || behaviorBusy} onClick={() => {
                   setError('')
                   setNotice('')
                   setBehaviorSection(id)
-                }}>Edit {label.toLowerCase()}</button>
+                }}>{edit}</button>
             ))}
           </div>
         </div>
       </article>
       <AIMemoryLimits active={active} onDirty={setMemoryDirty} toggle={
           <Switch className="settings-toggle" checked={status?.memory_enabled ?? false} disabled={!status || Boolean(busy)}
-            ariaLabel="Enable conversation memory" onCheckedChange={(enabled) => void changeToggle('memory', enabled)}>
+            ariaLabel={text.page.enableMemory} onCheckedChange={(enabled) => void changeToggle('memory', enabled)}>
             <span>{memoryStatus}</span>
           </Switch>
         } />
       <AIPlayground active={active} hasDrafts={hasDrafts} />
-      {active && behaviorSection && <EditorDialog id="ai-behavior-editor" title="Edit AI behavior"
-        closeLabel="Close editor" dirtyLabel={behaviorDirty ? 'Unsaved changes' : undefined}
+      {active && behaviorSection && <EditorDialog id="ai-behavior-editor" title={text.page.editBehavior}
+        closeLabel={text.page.closeEditor} dirtyLabel={behaviorDirty ? common.unsavedChanges : undefined}
         busy={behaviorBusy} error={error} onClose={closeBehavior} className="ai-behavior-dialog">
-        <EditorSections id="ai-behavior-editor" label="AI behavior sections" active={behaviorSection} onSelect={setBehaviorSection}
+        <EditorSections id="ai-behavior-editor" label={text.page.behaviorSections} active={behaviorSection} onSelect={setBehaviorSection}
           sections={behaviorSections} />
         {notice && <p className="ai-behavior-notice" role="status">{notice}</p>}
       </EditorDialog>}
-      {confirmDiscard && <Confirmation title="Discard unsaved AI behavior changes?"
-        description="Discard drafts in this editor. Saved and applied settings will continue to be used." danger
+      {confirmDiscard && <Confirmation title={text.page.discardTitle}
+        description={text.page.discardDescription} danger
         onConfirm={discardBehavior} onCancel={() => setConfirmDiscard(false)} />}
     </section>
   )

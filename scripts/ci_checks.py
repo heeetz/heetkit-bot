@@ -29,20 +29,20 @@ SERVER_TEST = "tests/browser-server.spec.ts"
 # Names are relative to frontend/src; test stems are relative to frontend/tests.
 BROWSER_AREAS = (
     ("pages/AIPage.tsx components/AISetupPanel.tsx components/AIBehaviorSection.tsx "
-     "components/AIMemoryLimits.tsx components/AIPlayground.tsx components/BlockedAIUsers.tsx components/ai-setup.css",
+     "components/AIMemoryLimits.tsx components/AIPlayground.tsx components/BlockedAIUsers.tsx components/ai-setup.css i18n/ai.ts",
      "ai ai-editing ai-enablement ai-models ai-user-blocks playground dropdown-pages onboarding"),
     ("pages/CommandsPage.tsx components/AnnouncementsPanel.tsx components/ChatLeaderboards.tsx "
      "components/ChatReactions.tsx components/CommandEditorDialog.tsx components/CommandList.tsx "
-     "components/CommandRestrictions.tsx components/OptOutManagement.tsx i18n/commands.en.ts",
+     "components/CommandRestrictions.tsx components/OptOutManagement.tsx i18n/commands.ts",
      "announcements analytics commands commands-consolidation commands-focus commands-layout commands-review commands-unified"),
-    ("pages/AnalyticsPage.tsx pages/analytics.css", "analytics"),
-    ("pages/FiltersPage.tsx", "filters"),
+    ("pages/AnalyticsPage.tsx pages/analytics.css i18n/analytics.ts", "analytics"),
+    ("pages/FiltersPage.tsx i18n/filters.ts", "filters"),
     ("pages/SettingsPage.tsx components/ConfigurationTransfer.tsx components/SetupChecklist.tsx "
-     "components/TwitchSecretField.tsx components/TwitchSetupInstructions.tsx components/settings-layout.css",
+     "components/TwitchSecretField.tsx components/TwitchSetupInstructions.tsx components/settings-layout.css i18n/settings.ts",
      "configuration-transfer dropdown-pages onboarding profile-location settings-layout"),
-    ("pages/AboutPage.tsx", "about"),
+    ("pages/AboutPage.tsx i18n/about.ts", "about"),
 )
-PAGE_INTEGRATION_TESTS = "browser-management navigation responsive"
+PAGE_INTEGRATION_TESTS = "browser-management navigation responsive i18n"
 SHARED_HOST_PATHS = {
     "app/app_settings.py", "app/bot_runtime.py", "app/configuration_transfer.py", "app/container.py",
     "app/credentials.py", "app/desktop_relaunch.py", "app/headless.py", "app/main.py", "app/management.py",

@@ -17,13 +17,24 @@ export function localizedError(result: Localizable): string | undefined {
   return fmt(template, params)
 }
 
-/** Replace a coded English error with its translation, keeping everything else. */
+/** Fields with a user-visible backend message; app/ui_messages.py MESSAGE_FIELDS. */
+const messageFields = ['error', 'automatic_update_reason'] as const
+
+/** Replace coded English messages with their translation, keeping everything else. */
 export function localizeResult<T>(value: T): T {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return value
-  const result = value as Localizable
-  if (typeof result.error !== 'string' || typeof result.error_code !== 'string') return value
-  const text = localizedError(result)
-  return text === result.error ? value : { ...value, error: text }
+  const record = value as Record<string, unknown>
+  let result: Record<string, unknown> | null = null
+  for (const field of messageFields) {
+    const code = field === 'error' ? record.error_code : record[`${field}_code`]
+    if (typeof record[field] !== 'string' || typeof code !== 'string') continue
+    const params = field === 'error' ? record.error_params : record[`${field}_params`]
+    const text = localizedError({ error: record[field], error_code: code, error_params: params })
+    if (text === record[field]) continue
+    result ??= { ...record }
+    result[field] = text
+  }
+  return (result ?? value) as T
 }
 
 const wrapped = new WeakMap<object, object>()

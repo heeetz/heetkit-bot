@@ -1,5 +1,7 @@
 import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { controlsText } from '../i18n/controls'
+import { useCatalog, useI18n } from '../i18n/core'
 
 interface HelpTipProps {
   label: string
@@ -20,6 +22,8 @@ export default function HelpTip({ label, children, className = '' }: HelpTipProp
   const dismissed = useRef(false)
   const [open, setOpen] = useState(false)
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
+  const text = useCatalog(controlsText)
+  const { fmt } = useI18n()
 
   const clearHover = () => {
     if (hoverTimer.current !== null) clearTimeout(hoverTimer.current)
@@ -130,7 +134,7 @@ export default function HelpTip({ label, children, className = '' }: HelpTipProp
         ref={trigger}
         type="button"
         className={`help-trigger ${className}`.trim()}
-        aria-label={`Help: ${label}`}
+        aria-label={fmt(text.help, { label })}
         aria-describedby={open ? id : undefined}
         onPointerEnter={() => {
           triggerHovered.current = true

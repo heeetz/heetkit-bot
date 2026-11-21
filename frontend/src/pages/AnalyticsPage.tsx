@@ -6,21 +6,23 @@ import Switch from '../components/Switch'
 import HelpTip from '../components/HelpTip'
 import Confirmation from '../components/Confirmation'
 import './analytics.css'
+import { analyticsText } from '../i18n/analytics'
+import { useCatalog, useI18n, type Plural } from '../i18n/core'
 
-const trends = [
-  { value: 'command.attempts', label: 'Command attempts', unit: 'command attempt' },
-  { value: 'command.success', label: 'Command successes', unit: 'command success', plural: 'command successes' },
-  { value: 'command.error', label: 'Command errors', unit: 'command error' },
-  { value: 'users.new', label: 'Newly observed users', unit: 'newly observed user' },
-  { value: 'ai.requests', label: 'AI requests', unit: 'AI request' },
-  { value: 'ai.input_tokens', label: 'Reported input tokens', unit: 'reported input token' },
-  { value: 'ai.output_tokens', label: 'Reported output tokens', unit: 'reported output token' },
-  { value: 'ai.estimated_usd', label: 'Known spend subtotal (USD)' },
-]
-const count = (value = 0) => value.toLocaleString(undefined, { maximumFractionDigits: 0 })
-const money = (value = 0) => value.toLocaleString(undefined, { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 4 })
-const time = (value?: string | null) => value ? `${value.replace('T', ' ').replace(/(?:\.\d+)?(?:Z|\+00:00)$/, '')} UTC` : 'Unavailable'
-const dataSinceTime = (value?: string | null) => value ? `${value.replace('T', ' ').replace(/(?:Z|\+00:00)$/, '')} UTC` : 'Unavailable'
+type TrendText = { label: string; amount?: Plural }
+const trendKeys = ['command.attempts', 'command.success', 'command.error', 'users.new', 'ai.requests', 'ai.input_tokens', 'ai.output_tokens', 'ai.estimated_usd'] as const
+
+/** Locale-aware number helpers and UTC timestamps for the current UI language. */
+function useFormatters() {
+  const text = useCatalog(analyticsText)
+  const { fmt, number } = useI18n()
+  const count = (value = 0) => number(value, { maximumFractionDigits: 0 })
+  const money = (value = 0) => number(value, { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 4 })
+  const time = (value?: string | null) => value ? fmt(text.utc, { time: value.replace('T', ' ').replace(/(?:\.\d+)?(?:Z|\+00:00)$/, '') }) : text.unavailable
+  const dataSinceTime = (value?: string | null) => value ? fmt(text.utc, { time: value.replace('T', ' ').replace(/(?:Z|\+00:00)$/, '') }) : text.unavailable
+  const trends = trendKeys.map((value) => ({ value, ...(text.trends[value] as TrendText) }))
+  return { text, count, money, time, dataSinceTime, trends }
+}
 
 type Bucket = AnalyticsResponse['series'][number]
 const bucketStart = (row: Bucket) => Date.parse(row.day.includes('T') ? row.day : row.day + 'T00:00:00Z')
@@ -37,6 +39,8 @@ function Trend({ data, metric, selector }: { data: AnalyticsResponse; metric: st
   const chart = useRef<SVGSVGElement>(null)
   const [width, setWidth] = useState(760)
   const [selected, setSelected] = useState<number | null>(null)
+  const { text, count, money, trends } = useFormatters()
+  const { fmt, plural, number } = useI18n()
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) => setWidth(Math.max(180, entry.contentRect.width)))
     if (chart.current) observer.observe(chart.current)
@@ -51,17 +55,17 @@ function Trend({ data, metric, selector }: { data: AnalyticsResponse; metric: st
   const y = (value: number) => 180 - value / maximum * 150
   const format = (value = 0) => metric === 'ai.estimated_usd' ? money(value) : count(value)
   const coverageState = (row: Bucket, index: number) => {
-    if (bucketStart(row) > Date.parse(data.as_of)) return 'Future hour'
-    if (!known[index]) return 'Unknown — collection or reporting gap'
+    if (bucketStart(row) > Date.parse(data.as_of)) return text.futureHour
+    if (!known[index]) return text.unknownGap
     const seconds = metric === 'users.new' ? row.new_users_coverage_seconds : row.coverage_seconds
     const elapsed = Math.min(hourly ? 3600 : 86400, (Date.parse(data.as_of) - bucketStart(row)) / 1000)
-    return seconds < elapsed - 5 ? 'Partial observation' : 'Observed'
+    return seconds < elapsed - 5 ? text.partialObservation : text.observed
   }
   const bucket = selected === null ? undefined : data.series[selected]
   const value = bucket?.metrics[metric] ?? 0
-  const tooltipValue = !trend.unit
-    ? `${value.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 12 })} USD estimated spend`
-    : `${count(value)} ${value === 1 ? trend.unit : trend.plural ?? `${trend.unit}s`}`
+  const tooltipValue = !trend.amount
+    ? fmt(text.usdSpend, { value: number(value, { minimumFractionDigits: 4, maximumFractionDigits: 12 }) })
+    : plural(trend.amount, value, { count: count(value) })
   const selectPointer = (event: PointerEvent<SVGSVGElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect()
     const localX = (event.clientX - bounds.left) * width / bounds.width
@@ -70,7 +74,7 @@ function Trend({ data, metric, selector }: { data: AnalyticsResponse; metric: st
   }
   return <>
     <div className="analytics-plot">
-      <svg ref={chart} className="analytics-chart" viewBox={`0 0 ${width} 215`} role="img" aria-label={`${label} by UTC ${hourly ? 'hour' : 'day'}. Observed zeros are points; missing coverage and future hours are gaps. Values and coverage follow the trend selector. Use the arrow keys to inspect values.`}
+      <svg ref={chart} className="analytics-chart" viewBox={`0 0 ${width} 215`} role="img" aria-label={fmt(hourly ? text.chartHourly : text.chartDaily, { label })}
         tabIndex={data.series.length ? 0 : undefined}
         onPointerMove={(event) => { if (event.pointerType === 'mouse') selectPointer(event) }}
         onPointerUp={(event) => { if (event.pointerType !== 'mouse') selectPointer(event) }}
@@ -101,19 +105,21 @@ function Trend({ data, metric, selector }: { data: AnalyticsResponse; metric: st
       <div aria-live="polite">
         {bucket && selected !== null && <div role="tooltip" className="chart-tooltip" style={{ '--bucket-position': `${x(selected) / width * 100}%`,
             top: known[selected] && y(value) < 72 ? 68 : 8 } as React.CSSProperties}>
-          <strong>{known[selected] ? tooltipValue : `${label} unavailable`}</strong>
+          <strong>{known[selected] ? tooltipValue : fmt(text.labelUnavailable, { label })}</strong>
           <span>{bucketLabel(bucket, hourly)}</span>
         </div>}
       </div>
     </div>
     {selector}
-    {metric === 'users.new' && <p className="muted">Counts new viewer records as HeetKit saves them for this channel.{' '}
-      <HelpTip label="Who counts"><ul><li>A viewer counts again after their record expires.</li><li>The trend starts when HeetKit began collecting this number.</li></ul></HelpTip></p>}
-    <details className="analytics-values"><summary>{hourly ? 'Hourly' : 'Daily'} values and coverage</summary><div className="analytics-table" tabIndex={0} role="region" aria-label="Trend values and coverage"><table><caption>{label} — UTC calendar {hourly ? 'hours' : 'days'}; observed values may cover only part of a bucket.</caption><thead><tr><th>{hourly ? 'Hour' : 'Day'}</th><th>Observed value</th><th>Coverage</th><th>App collection</th><th>Connected</th></tr></thead><tbody>{data.series.map((row, index) => <tr key={row.day}><th>{bucketLabel(row, hourly)}</th><td>{known[index] ? format(row.metrics[metric]) : 'Unknown'}</td><td>{coverageState(row, index)}</td><td>{Math.round(row.coverage_seconds / 60)} min</td><td>{Math.round((row.metrics['connection.seconds'] || 0) / 60)} min</td></tr>)}</tbody></table></div></details>
+    {metric === 'users.new' && <p className="muted">{text.newUsersNote}{' '}
+      <HelpTip label={text.whoCounts}><ul>{text.whoCountsHelp.map((item) => <li key={item}>{item}</li>)}</ul></HelpTip></p>}
+    <details className="analytics-values"><summary>{hourly ? text.hourlyValues : text.dailyValues}</summary><div className="analytics-table" tabIndex={0} role="region" aria-label={text.trendTable}><table><caption>{fmt(hourly ? text.captionHours : text.captionDays, { label })}</caption><thead><tr><th>{hourly ? text.hour : text.day}</th><th>{text.observedValue}</th><th>{text.coverage}</th><th>{text.appCollection}</th><th>{text.connected}</th></tr></thead><tbody>{data.series.map((row, index) => <tr key={row.day}><th>{bucketLabel(row, hourly)}</th><td>{known[index] ? format(row.metrics[metric]) : text.unknown}</td><td>{coverageState(row, index)}</td><td>{fmt(text.minutes, { minutes: String(Math.round(row.coverage_seconds / 60)) })}</td><td>{fmt(text.minutes, { minutes: String(Math.round((row.metrics['connection.seconds'] || 0) / 60)) })}</td></tr>)}</tbody></table></div></details>
   </>
 }
 
 export default function AnalyticsPage({ leaderboardChannel }: { leaderboardChannel?: string | null }) {
+  const { text, count, money, time, dataSinceTime, trends } = useFormatters()
+  const { fmt, plural } = useI18n()
   const [days, setDays] = useState('7')
   const [metric, setMetric] = useState('command.attempts')
   const [data, setData] = useState<AnalyticsResponse | null>(null)
@@ -131,124 +137,127 @@ export default function AnalyticsPage({ leaderboardChannel }: { leaderboardChann
   }, [balance])
   const load = async (windowDays: number) => {
     const response = await (await waitForBridge()).get_analytics(windowDays)
-    if (!response.ok) throw new Error(response.error || 'Analytics unavailable.')
+    if (!response.ok) throw new Error(response.error || text.analyticsUnavailable)
     return response
   }
   useEffect(() => {
     let current = true
     setBusy(true); setError(''); setData(null)
     void load(Number(days)).then((response) => { if (current) setData(response) }).catch(() => {
-      if (current) setError('Could not load analytics. Check the connection and retry.')
+      if (current) setError(text.loadFailed)
     }).finally(() => { if (current) setBusy(false) })
     return () => { current = false }
   }, [days])
   const action = async (operation?: () => Promise<{ ok: boolean; error?: string }>) => {
     setBusy(true); setError('')
     try {
-      if (operation) { const result = await operation(); if (!result.ok) throw new Error(result.error || 'Analytics operation failed.') }
+      if (operation) { const result = await operation(); if (!result.ok) throw new Error(result.error || text.operationFailed) }
       setData(await load(Number(days)))
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Analytics unavailable.') }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : text.analyticsUnavailable) }
     finally { setBusy(false) }
   }
   const totals = data?.totals || {}
   const total = (key: string) => totals[key] || 0
   const incomplete = total('ai.estimate_incomplete') > 0 || total('ai.usage_unknown') > 0 || total('ai.price_missing') > 0
   const hasObservations = Boolean(data?.available && data.channel_id && (Object.keys(totals).length || data.series.some((row) => row.coverage_seconds > 0 && row.metrics['connection.seconds'] > 0)))
-  const value = (key: string) => hasObservations ? count(total(key)) : 'Unknown'
+  const value = (key: string) => hasObservations ? count(total(key)) : text.unknown
   const partial = data && data.series.some((row) => {
     const elapsed = Math.min(data.resolution === 'hour' ? 3600 : 86400, (Date.parse(data.as_of) - bucketStart(row)) / 1000)
     return elapsed > 0 && row.coverage_seconds < elapsed - 5
   })
   const balanceCard = <article className="card analytics-summary analytics-balance">
-    <div className="ai-state-heading"><h2>Provider balance</h2><HelpTip label="Balance refresh"><ul><li>Shows the balance of your whole provider account.</li><li>If a refresh fails, the last known balance stays.</li><li>Refreshing again within a minute may show the same number.</li></ul></HelpTip></div>
-    <div className="balance-controls"><Select aria-label="Balance provider" value={provider} disabled={balanceBusy} onChange={(next) => { setProvider(next); setBalance(null) }} options={[{ value: 'deepseek', label: 'DeepSeek' }, { value: 'gemini', label: 'Gemini' }, { value: 'openai', label: 'OpenAI' }]} /><button className="secondary" aria-label="Refresh balance" disabled={balanceBusy || provider !== 'deepseek'} onClick={() => {
+    <div className="ai-state-heading"><h2>{text.providerBalance}</h2><HelpTip label={text.balanceRefresh}><ul>{text.balanceHelp.map((item) => <li key={item}>{item}</li>)}</ul></HelpTip></div>
+    <div className="balance-controls"><Select aria-label={text.balanceProvider} value={provider} disabled={balanceBusy} onChange={(next) => { setProvider(next); setBalance(null) }} options={[{ value: 'deepseek', label: 'DeepSeek' }, { value: 'gemini', label: 'Gemini' }, { value: 'openai', label: 'OpenAI' }]} /><button className="secondary" aria-label={text.refreshBalance} disabled={balanceBusy || provider !== 'deepseek'} onClick={() => {
       setBalanceBusy(true)
       void (async () => {
         try { setBalance(await (await waitForBridge()).get_ai_balance(provider, true)) }
-        catch { setBalance((previous) => ({ ok: false, provider, state: previous?.balances.length ? 'stale' : 'unavailable', balances: previous?.balances || [], updated_at: previous?.updated_at || null, error: 'Balance refresh unavailable. Retry later.' })) }
+        catch { setBalance((previous) => ({ ok: false, provider, state: previous?.balances.length ? 'stale' : 'unavailable', balances: previous?.balances || [], updated_at: previous?.updated_at || null, error: text.balanceRefreshFailed })) }
         finally { setBalanceBusy(false) }
       })()
-    }}>{balanceBusy ? 'Refreshing…' : 'Refresh'}</button></div>
-    <div role="status">{provider !== 'deepseek' ? <p>Unavailable — this provider has no supported balance API.</p> : !balance ? <p>Unavailable — refresh on demand.</p> : <>
+    }}>{balanceBusy ? text.refreshing : text.refresh}</button></div>
+    <div role="status">{provider !== 'deepseek' ? <p>{text.noBalanceApi}</p> : !balance ? <p>{text.refreshOnDemand}</p> : <>
       {balance.balances.map((item) => <div key={item.currency}><strong className="analytics-primary">{item.currency} {item.total_balance}</strong>
-        <p>Granted {item.granted_balance} · Topped up {item.topped_up_balance}</p></div>)}
-      <p>{balance.state === 'stale' ? 'Stale — last known balance; refresh failed or cache expired.' : balance.state === 'available' ? 'Available' : 'Unavailable'} · Last updated: {time(balance.updated_at)}</p>
+        <p>{fmt(text.balanceParts, { granted: item.granted_balance, topped: item.topped_up_balance })}</p></div>)}
+      <p>{fmt(text.balanceStatus, { state: balance.state === 'stale' ? text.stale : balance.state === 'available' ? text.available : text.unavailable, time: time(balance.updated_at) })}</p>
       {balance.error && <p className="inline-error">{balance.error}</p>}
     </>}</div>
   </article>
   return <div className="analytics-layout" aria-busy={busy}>
-    <div className="analytics-toolbar"><label>UTC window<Select aria-label="UTC window" value={days} onChange={setDays} disabled={busy} options={[{ value: '1', label: 'Today' }, ...[7, 30, 60].map((n) => ({ value: String(n), label: `${n} days` }))]} /></label><button className="secondary" disabled={busy} onClick={() => void action()}>Refresh analytics</button></div>
+    <div className="analytics-toolbar"><label>{text.utcWindow}<Select aria-label={text.utcWindow} value={days} onChange={setDays} disabled={busy} options={[{ value: '1', label: text.today }, ...[7, 30, 60].map((n) => ({ value: String(n), label: plural(text.days, n) }))]} /></label><button className="secondary" disabled={busy} onClick={() => void action()}>{text.refreshAnalytics}</button></div>
     {error && <p role="alert" className="inline-error">{error}</p>}
-    {busy && !data && <p role="status">Loading analytics…</p>}
+    {busy && !data && <p role="status">{text.loading}</p>}
     {data && <article className="card analytics-trend" id="analytics-trends">
-      <Trend key={`${data.resolution}:${data.start}:${data.end}`} data={data} metric={metric} selector={<label className="analytics-trend-select">Trend<Select aria-label="Trend" value={metric} onChange={setMetric} options={trends} /></label>} />
-      <p className="muted">{data.resolution === 'hour' ? `${data.end} · Hourly totals (UTC).` : 'Daily totals (UTC).'} Gaps show times with missing data.</p>
+      <Trend key={`${data.resolution}:${data.start}:${data.end}`} data={data} metric={metric} selector={<label className="analytics-trend-select">{text.trend}<Select aria-label={text.trend} value={metric} onChange={setMetric} options={trends} /></label>} />
+      <p className="muted">{data.resolution === 'hour' ? fmt(text.hourlyNote, { date: data.end }) : text.dailyNote}</p>
     </article>}
     <div className="analytics-cards">
-      <article className="card analytics-summary"><div className="ai-state-heading"><h2>Commands</h2><HelpTip label="Other outcomes">
-        <p>Attempts also include skipped commands, for example during a cooldown.</p>
-        <p>{value('command.skipped')} skipped · {value('command.partial')} partial · {value('command.uncertain')} uncertain · {value('command.cancelled')} cancelled · {value('command.incomplete')} incomplete</p>
-      </HelpTip></div><strong className="analytics-primary">{value('command.attempts')} attempts</strong><p>{value('command.success')} successes · {value('command.error')} errors</p></article>
-      <article className="card analytics-summary"><div className="ai-state-heading"><h2>Retained users now</h2><HelpTip label="How long records last">Viewer records expire after 60 days without activity. The date range and the Collect analytics switch do not change this number.</HelpTip></div><strong className="analytics-primary">{data?.retained_users == null ? 'Unavailable' : count(data.retained_users)}</strong><p>Viewer records for this channel now</p></article>
-      <article className="card analytics-summary"><div className="ai-state-heading"><h2>AI usage</h2><HelpTip label="Usage details">
+      <article className="card analytics-summary"><div className="ai-state-heading"><h2>{text.commands}</h2><HelpTip label={text.otherOutcomes}>
+        <p>{text.otherOutcomesNote}</p>
+        <p>{fmt(text.otherOutcomesValues, { skipped: value('command.skipped'), partial: value('command.partial'), uncertain: value('command.uncertain'), cancelled: value('command.cancelled'), incomplete: value('command.incomplete') })}</p>
+      </HelpTip></div><strong className="analytics-primary">{fmt(text.attempts, { count: value('command.attempts') })}</strong><p>{fmt(text.successes, { success: value('command.success'), errors: value('command.error') })}</p></article>
+      <article className="card analytics-summary"><div className="ai-state-heading"><h2>{text.retainedUsers}</h2><HelpTip label={text.recordsLast}>{text.recordsHelp}</HelpTip></div><strong className="analytics-primary">{data?.retained_users == null ? text.unavailable : count(data.retained_users)}</strong><p>{text.viewerRecords}</p></article>
+      <article className="card analytics-summary"><div className="ai-state-heading"><h2>{text.aiUsage}</h2><HelpTip label={text.usageDetails}>
         <ul>
-          <li>{value('ai.attempts')} provider requests; usage unknown or incomplete for {value('ai.usage_unknown')}.</li>
-          <li>Counts Twitch chat only. Estimated costs are in Providers / models.</li>
+          <li>{fmt(text.usageAttempts, { attempts: value('ai.attempts'), unknown: value('ai.usage_unknown') })}</li>
+          <li>{text.usageScope}</li>
         </ul>
-      </HelpTip></div><strong className="analytics-primary">{value('ai.requests')} requests</strong><p>{!hasObservations || (total('ai.attempts') > 0 && !('ai.input_tokens' in totals)) ? 'Unknown' : count(total('ai.input_tokens'))} input / {!hasObservations || (total('ai.attempts') > 0 && !('ai.output_tokens' in totals)) ? 'Unknown' : count(total('ai.output_tokens'))} output tokens reported</p>{incomplete && <p className="muted">Incomplete — unknown usage, pricing or extra charges.</p>}</article>
+      </HelpTip></div><strong className="analytics-primary">{fmt(text.requests, { count: value('ai.requests') })}</strong><p>{fmt(text.tokens, {
+        input: !hasObservations || (total('ai.attempts') > 0 && !('ai.input_tokens' in totals)) ? text.unknown : count(total('ai.input_tokens')),
+        output: !hasObservations || (total('ai.attempts') > 0 && !('ai.output_tokens' in totals)) ? text.unknown : count(total('ai.output_tokens')),
+      })}</p>{incomplete && <p className="muted">{text.incomplete}</p>}</article>
       {balanceCard}
     </div>
     <ChatLeaderboards key={leaderboardChannel ?? ''} channel={leaderboardChannel} countingEnabled={data?.count_chat_messages} />
     {data && <>
-      {Object.keys(totals).length === 0 && <p role="status">No observed activity in this window. Missing coverage can also produce an empty window.</p>}
+      {Object.keys(totals).length === 0 && <p role="status">{text.noActivity}</p>}
       <div className="analytics-breakdowns" id="analytics-breakdown">
-        <article className="card"><div className="ai-state-heading"><h2>Commands breakdown</h2><HelpTip label="How attempts are counted"><ul><li>Each row includes the command’s aliases.</li><li>0 means no attempts in the selected dates.</li><li>Activity during collection gaps is unknown.</li></ul></HelpTip></div><div className="analytics-table analytics-command-table" tabIndex={0} role="region" aria-label="Commands breakdown, scroll for more rows"><table><thead><tr><th>Command</th><th>Attempts</th><th>Success</th><th>Errors</th><th>Skipped</th></tr></thead><tbody>{data.commands.map((row) => <tr key={row.name}><th><span className={`analytics-command-name${!row.label || row.label.startsWith('Deleted or unavailable command') ? ' analytics-command-unavailable' : ''}`} title={row.label || `Deleted or unavailable command (${row.name})`}>{row.label || `Deleted or unavailable command (${row.name})`}</span></th>{['attempts', 'success', 'error', 'skipped'].map((key) => <td key={key}>{data.available && data.channel_id ? count(row.metrics[`command.${key}`]) : 'Unavailable'}</td>)}</tr>)}</tbody></table></div>{!data.commands.length && <p>No commands configured or recorded in this range.</p>}</article>
-        <article className="card"><div className="ai-state-heading"><h2>Providers / models</h2><HelpTip label="How costs are estimated"><ul><li>Based on reported usage and known prices (checked {data.price_checked}).</li><li>Missing usage, prices or extra fees can make it incomplete.</li></ul></HelpTip></div><div className="analytics-table" tabIndex={0} role="region" aria-label="Providers and models"><table><thead><tr><th>Provider / model</th><th>Attempts</th><th>Errors</th><th>Estimated USD</th><th>Unknown usage / pricing</th></tr></thead><tbody>{data.providers.map((row) => <tr key={row.name}><th>{row.name}</th><td>{count(row.metrics['ai.attempts'])}</td><td>{count(row.metrics['ai.errors'])}</td><td>{'ai.estimated_usd' in row.metrics ? money(row.metrics['ai.estimated_usd']) : 'Unknown'}</td><td>{count(row.metrics['ai.usage_unknown'])} / {count(row.metrics['ai.price_missing'])}</td></tr>)}</tbody></table></div>{!data.providers.length && <p>No provider observations.</p>}</article>
+        <article className="card"><div className="ai-state-heading"><h2>{text.commandsBreakdown}</h2><HelpTip label={text.attemptsCounted}><ul>{text.attemptsHelp.map((item) => <li key={item}>{item}</li>)}</ul></HelpTip></div><div className="analytics-table analytics-command-table" tabIndex={0} role="region" aria-label={text.breakdownTable}><table><thead><tr><th>{text.command}</th><th>{text.attemptsColumn}</th><th>{text.success}</th><th>{text.errors}</th><th>{text.skipped}</th></tr></thead><tbody>{data.commands.map((row) => <tr key={row.name}><th><span className={`analytics-command-name${!row.label || row.label.startsWith('Deleted or unavailable command') ? ' analytics-command-unavailable' : ''}`} title={row.label || fmt(text.deletedCommand, { name: row.name })}>{row.label || fmt(text.deletedCommand, { name: row.name })}</span></th>{['attempts', 'success', 'error', 'skipped'].map((key) => <td key={key}>{data.available && data.channel_id ? count(row.metrics[`command.${key}`]) : text.unavailable}</td>)}</tr>)}</tbody></table></div>{!data.commands.length && <p>{text.noCommands}</p>}</article>
+        <article className="card"><div className="ai-state-heading"><h2>{text.providersModels}</h2><HelpTip label={text.costsEstimated}><ul>{text.costsHelp.map((item) => <li key={item}>{fmt(item, { date: data.price_checked })}</li>)}</ul></HelpTip></div><div className="analytics-table" tabIndex={0} role="region" aria-label={text.providersTable}><table><thead><tr><th>{text.providerModel}</th><th>{text.attemptsColumn}</th><th>{text.errors}</th><th>{text.estimatedUsd}</th><th>{text.unknownUsage}</th></tr></thead><tbody>{data.providers.map((row) => <tr key={row.name}><th>{row.name}</th><td>{count(row.metrics['ai.attempts'])}</td><td>{count(row.metrics['ai.errors'])}</td><td>{'ai.estimated_usd' in row.metrics ? money(row.metrics['ai.estimated_usd']) : text.unknown}</td><td>{count(row.metrics['ai.usage_unknown'])} / {count(row.metrics['ai.price_missing'])}</td></tr>)}</tbody></table></div>{!data.providers.length && <p>{text.noProviders}</p>}</article>
       </div>
       <article className="card analytics-coverage" id="analytics-collection">
         <div className="analytics-coverage-heading">
-          <h2>Collection & coverage</h2>
-          {(data.dropped > 0 || data.write_failures > 0 || Number(data.metadata.unclean_starts) > 0) && <p role="alert" className="analytics-data-loss">Possible data loss</p>}
+          <h2>{text.collectionCoverage}</h2>
+          {(data.dropped > 0 || data.write_failures > 0 || Number(data.metadata.unclean_starts) > 0) && <p role="alert" className="analytics-data-loss">{text.dataLoss}</p>}
         </div>
         <div className="analytics-coverage-zones">
-          <div className="analytics-collection" role="group" aria-label="Collection" aria-describedby="analytics-save-timing">
+          <div className="analytics-collection" role="group" aria-label={text.collection} aria-describedby="analytics-save-timing">
             <div>
-              <Switch checked={data.enabled} disabled={busy} ariaLabel="Collect analytics" ariaDescribedBy="collect-analytics-effect" onCheckedChange={(enabled) => void action(async () => (await waitForBridge()).configure_analytics(enabled))}>Collect analytics</Switch>
-              <p className="muted" id="collect-analytics-effect">Records activity totals.</p>
+              <Switch checked={data.enabled} disabled={busy} ariaLabel={text.collectAnalytics} ariaDescribedBy="collect-analytics-effect" onCheckedChange={(enabled) => void action(async () => (await waitForBridge()).configure_analytics(enabled))}>{text.collectAnalytics}</Switch>
+              <p className="muted" id="collect-analytics-effect">{text.collectEffect}</p>
             </div>
             <div>
-              <Switch checked={data.count_chat_messages} disabled={busy} ariaLabel="Count chat messages" ariaDescribedBy="count-chat-effect" onCheckedChange={(enabled) => void action(async () => (await waitForBridge()).configure_leaderboard_counting(enabled))}>Count chat messages</Switch>
-              <p className="muted" id="count-chat-effect">Pausing keeps existing totals.</p>
+              <Switch checked={data.count_chat_messages} disabled={busy} ariaLabel={text.countChat} ariaDescribedBy="count-chat-effect" onCheckedChange={(enabled) => void action(async () => (await waitForBridge()).configure_leaderboard_counting(enabled))}>{text.countChat}</Switch>
+              <p className="muted" id="count-chat-effect">{text.countChatEffect}</p>
             </div>
-            <p className="muted analytics-collection-note" id="analytics-save-timing">Changes save immediately.</p>
+            <p className="muted analytics-collection-note" id="analytics-save-timing">{text.savesImmediately}</p>
           </div>
-          <section className="analytics-coverage-summary" aria-label="Coverage">
-            <p>{!data.available || !data.channel_id ? 'Coverage unavailable' : partial ? 'Partial coverage' : 'Observed coverage'}{!data.enabled && ' · Collection paused'}</p>
-            <p className="muted">{data.start} – {data.end} UTC</p>
+          <section className="analytics-coverage-summary" aria-label={text.coverageLabel}>
+            <p>{!data.available || !data.channel_id ? text.coverageUnavailable : partial ? text.partialCoverage : text.observedCoverage}{!data.enabled && text.collectionPaused}</p>
+            <p className="muted">{fmt(text.range, { start: data.start, end: data.end })}</p>
           </section>
-          {!data.available && <p role="alert" className="inline-error">Analytics storage unavailable. Displayed values may be incomplete.</p>}
-          {!data.channel_id && <p role="status">No configured channel ID. Channel analytics and retained-user coverage are unavailable.</p>}
+          {!data.available && <p role="alert" className="inline-error">{text.storageUnavailable}</p>}
+          {!data.channel_id && <p role="status">{text.noChannelId}</p>}
         </div>
         <div className="analytics-coverage-footer">
-        <details className="analytics-collection-details"><summary>Collection details</summary><dl>
-          <div><dt>Data since</dt><dd>{dataSinceTime(data.metadata.data_start)}</dd></div>
-          <div><dt>Hourly data since</dt><dd>{time(data.metadata.hourly_start)}</dd></div>
-          <div><dt>Newly observed users since</dt><dd>{time(data.metadata.new_users_start)}</dd></div>
-          <div><dt>Connection</dt><dd>{data.connected ? 'Connected' : 'Disconnected · Coverage gap'}</dd></div>
-          <div><dt>Channel</dt><dd>{data.channel_id || 'Unavailable · No configured channel ID'}</dd></div>
-          <div><dt>Storage</dt><dd>{data.available ? 'Available' : 'Unavailable · Displayed values may be incomplete'}</dd></div>
-          <div><dt>Pending updates</dt><dd>{data.pending}</dd></div>
-          <div><dt>Dropped updates</dt><dd>{data.dropped}</dd></div>
-          <div><dt>Write failures</dt><dd>{data.write_failures}</dd></div>
-          <div><dt>Unclean starts</dt><dd>{data.metadata.unclean_starts || '0'}</dd></div>
-          <div><dt>Last disabled</dt><dd>{time(data.metadata.last_disabled)}</dd></div>
-          <div><dt>Last enabled</dt><dd>{time(data.metadata.last_enabled)}</dd></div>
-          <div><dt>Snapshot</dt><dd>{time(data.as_of)}</dd></div>
+        <details className="analytics-collection-details"><summary>{text.collectionDetails}</summary><dl>
+          <div><dt>{text.dataSince}</dt><dd>{dataSinceTime(data.metadata.data_start)}</dd></div>
+          <div><dt>{text.hourlySince}</dt><dd>{time(data.metadata.hourly_start)}</dd></div>
+          <div><dt>{text.newUsersSince}</dt><dd>{time(data.metadata.new_users_start)}</dd></div>
+          <div><dt>{text.connection}</dt><dd>{data.connected ? text.connected : text.disconnectedGap}</dd></div>
+          <div><dt>{text.channel}</dt><dd>{data.channel_id || text.channelUnavailable}</dd></div>
+          <div><dt>{text.storage}</dt><dd>{data.available ? text.available : text.storageIncomplete}</dd></div>
+          <div><dt>{text.pending}</dt><dd>{data.pending}</dd></div>
+          <div><dt>{text.dropped}</dt><dd>{data.dropped}</dd></div>
+          <div><dt>{text.writeFailures}</dt><dd>{data.write_failures}</dd></div>
+          <div><dt>{text.uncleanStarts}</dt><dd>{data.metadata.unclean_starts || '0'}</dd></div>
+          <div><dt>{text.lastDisabled}</dt><dd>{time(data.metadata.last_disabled)}</dd></div>
+          <div><dt>{text.lastEnabled}</dt><dd>{time(data.metadata.last_enabled)}</dd></div>
+          <div><dt>{text.snapshot}</dt><dd>{time(data.as_of)}</dd></div>
         </dl></details>
-          <button className="analytics-reset" disabled={busy} onClick={() => setReset(true)}>Reset all profile analytics</button>
+          <button className="analytics-reset" disabled={busy} onClick={() => setReset(true)}>{text.resetAll}</button>
         </div>
       </article>
     </>}
-    {reset && <Confirmation title="Reset all profile analytics?" description="Permanently clear aggregate totals for every channel and Playground in this profile, including pending updates. Personal AI memory, presence and opt-outs are unchanged. Operator-managed backups are separate copies." danger onCancel={() => setReset(false)} onConfirm={() => { setReset(false); void action(async () => (await waitForBridge()).reset_analytics(true)) }} />}
+    {reset && <Confirmation title={text.resetTitle} description={text.resetDescription} danger onCancel={() => setReset(false)} onConfirm={() => { setReset(false); void action(async () => (await waitForBridge()).reset_analytics(true)) }} />}
   </div>
 }

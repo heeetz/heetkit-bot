@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { type UpdateCheckResponse, waitForBridge } from './bridge'
+import { aboutText } from './i18n/about'
+import { catalogFor } from './i18n/core'
 
 export default function useUpdateCheck(checkOnStartup = false) {
   const [result, setResult] = useState<UpdateCheckResponse | null>(null)
@@ -17,10 +19,10 @@ export default function useUpdateCheck(checkOnStartup = false) {
     try {
       const api = await waitForBridge()
       const response = await api.check_for_updates()
-      if (!response.ok) throw new Error(response.error ?? 'Could not check for updates.')
+      if (!response.ok) throw new Error(response.error ?? catalogFor(aboutText).checkFailed)
       setResult(response)
     } catch (reason) {
-      if (!quiet) setError(reason instanceof Error ? reason.message : 'Could not check for updates.')
+      if (!quiet) setError(reason instanceof Error ? reason.message : catalogFor(aboutText).checkFailed)
     } finally {
       inFlight.current = false
       setBusy(false)

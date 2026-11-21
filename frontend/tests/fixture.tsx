@@ -128,12 +128,15 @@ const toggleCommands: CommandInfo[] = ['ask', 'ping'].map((name) => ({
 }))
 async function persistAskEnabled(enabled: boolean) {
     if (query.has('askSaveDelay')) await new Promise((resolve) => window.setTimeout(resolve, 800))
-    if (query.has('askSaveError')) return { ok: false, error: 'Could not save AI command enabled setting.' }
+    if (query.has('askSaveError')) return { ok: false, error: 'Could not save AI command enabled setting.', error_code: 'management.could_not_save_ai_command_enabled' }
     aiStatus = { ...aiStatus, enabled }
     toggleCommands[0].enabled = enabled
     sessionStorage.setItem('askEnabled', JSON.stringify(enabled))
     return { ok: true }
 }
+
+const languageCalls: string[] = []
+Reflect.set(window, 'languageCalls', languageCalls)
 
 window.pywebview = { api: {
   get_desktop_startup: async () => ({ state: startupState, windows: !query.has('nonWindows'), suggested_channel: 'syntheticchannel',
@@ -146,6 +149,14 @@ window.pywebview = { api: {
     return startupState === 'ready' ? { ok: true } : { ok: false, error: 'Recovery backup could not be verified. Keep the database and recovery copies; close HeetKit and review the recovery guide.' }
   },
   cancel_desktop_startup: async () => { startupCalls.push(['cancel']); return { ok: true } },
+  // Desktop keeps the UI language in app settings; sessionStorage stands in for the profile.
+  get_interface_language: async () => ({ ok: true, language: sessionStorage.getItem('uiLanguage') ?? query.get('lang') ?? 'en' }),
+  set_interface_language: async (language: string) => {
+    languageCalls.push(language)
+    if (query.has('languageSaveError')) return { ok: false, error: 'Could not save the interface language.', error_code: 'webview_host.could_not_save_interface_language' }
+    sessionStorage.setItem('uiLanguage', language)
+    return { ok: true }
+  },
   get_app_status: async () => {
     if (startupState !== 'ready') throw new Error('Normal operations must wait for startup confirmation')
     if (query.has('statusDelay')) await new Promise((resolve) => window.setTimeout(resolve, 800))

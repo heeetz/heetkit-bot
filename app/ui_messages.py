@@ -60,6 +60,7 @@ MESSAGES: dict[str, str] = {
     "announcements.provide_1_30_announcement_messages": "Provide 1 to 30 announcement messages.",
     "announcements.provide_most_50_announcements": "Provide at most 50 announcements.",
     "announcements.single_mode_requires_one_message_random": "Single mode requires one message; Random chooses one from the saved messages.",
+    "app_settings.choose_english_ukrainian_russian": "Choose English, Ukrainian or Russian.",
     "app_settings.choose_both_models_when_changing_configured": "Choose both models when changing a configured AI setup through the legacy model operation.",
     "app_settings.selected_twitch_preset_does_not_match": "Selected Twitch preset does not match the target channel.",
     "app_settings.twitch_bot_user_id_contain_digits": "Twitch bot user ID must contain digits only.",
@@ -319,6 +320,7 @@ MESSAGES: dict[str, str] = {
     "webview_host.could_not_save_announcements_reopen_commands": "Could not save announcements. Reopen Commands to check saved settings.",
     "webview_host.could_not_save_configuration_zip_check": "Could not save the configuration ZIP. Check the selected destination and try again.",
     "webview_host.could_not_save_desktop_settings": "Could not save desktop settings.",
+    "webview_host.could_not_save_interface_language": "Could not save the interface language.",
     "webview_host.could_not_save_private_restriction_check": "Could not save the private restriction. Check the profile policy file.",
     "webview_host.could_not_save_response_language_settings": "Could not save response language settings.",
     "webview_host.could_not_save_twitch_preset": "Could not save Twitch preset.",
@@ -404,22 +406,31 @@ def message_code(text: str) -> tuple[str, dict[str, str]] | None:
     return None
 
 
+# Fields that carry a user-visible English message. Each known message gets
+# ``<field>_code`` and ``<field>_params`` (``error`` uses ``error_code``/``error_params``).
+MESSAGE_FIELDS = ("error", "automatic_update_reason")
+
+
 def annotate_error(payload: Any) -> Any:
-    """Add ``error_code``/``error_params`` to a response with a known ``error``."""
-    if not isinstance(payload, dict) or "error_code" in payload:
+    """Add codes to a response whose user-visible messages are known."""
+    if not isinstance(payload, dict):
         return payload
-    text = payload.get("error")
-    if not isinstance(text, str) or not text:
-        return payload
-    found = message_code(text)
-    if found is None:
-        return payload
-    code, params = found
-    annotated = dict(payload)
-    annotated["error_code"] = code
-    if params:
-        annotated["error_params"] = params
-    return annotated
+    annotated: dict[str, Any] | None = None
+    for field in MESSAGE_FIELDS:
+        code_key, params_key = f"{field}_code", f"{field}_params"
+        text = payload.get(field)
+        if code_key in payload or not isinstance(text, str) or not text:
+            continue
+        found = message_code(text)
+        if found is None:
+            continue
+        code, params = found
+        if annotated is None:
+            annotated = dict(payload)
+        annotated[code_key] = code
+        if params:
+            annotated[params_key] = params
+    return payload if annotated is None else annotated
 
 
 def is_known(code: object) -> bool:

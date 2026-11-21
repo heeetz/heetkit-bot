@@ -25,7 +25,9 @@ export default function LanguageSwitcher({ compact = false }: { compact?: boolea
       : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0
     if (!step) return
     event.preventDefault()
-    const next = languages[(languages.indexOf(language) + step + languages.length) % languages.length]
+    const focused = buttons.current.findIndex((button) => button === document.activeElement)
+    const from = focused >= 0 ? focused : languages.indexOf(language)
+    const next = languages[(from + step + languages.length) % languages.length]
     void choose(next)
     buttons.current[languages.indexOf(next)]?.focus()
   }

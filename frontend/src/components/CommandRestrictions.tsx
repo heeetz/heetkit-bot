@@ -4,6 +4,8 @@ import { type CommandRestriction, type CommandRestrictionChoice, type CommandRes
 import Confirmation from './Confirmation'
 import HelpTip from './HelpTip'
 import { Select } from './Select'
+import { commandsText } from '../i18n/commands'
+import { catalogFor, fmt, useCatalog, useI18n } from '../i18n/core'
 
 interface Props {
   active: boolean
@@ -28,14 +30,6 @@ interface Draft {
 }
 
 const MAX_DURATION_SECONDS = 366 * 24 * 60 * 60
-const durationOptions = [
-  { value: '3600', label: '1 hour' },
-  { value: '86400', label: '24 hours' },
-  { value: '604800', label: '7 days' },
-  { value: '2592000', label: '30 days' },
-  { value: String(MAX_DURATION_SECONDS), label: '366 days' },
-  { value: 'custom', label: 'Custom duration' },
-]
 
 function localInputValue(iso: string | null): string {
   if (!iso) return ''
@@ -46,34 +40,45 @@ function localInputValue(iso: string | null): string {
 }
 
 function expiryFor(draft: Draft): string | null {
+  const text = catalogFor(commandsText).restrictions
   if (draft.expiryMode === 'permanent') return null
   if (draft.expiryMode === 'duration') {
     const seconds = Number(draft.duration === 'custom' ? draft.customDuration : draft.duration)
-    if (!Number.isInteger(seconds) || seconds < 60 || seconds > MAX_DURATION_SECONDS) throw new Error('Choose a duration from 1 minute to 366 days.')
+    if (!Number.isInteger(seconds) || seconds < 60 || seconds > MAX_DURATION_SECONDS) throw new Error(text.durationInvalid)
     return new Date(Date.now() + seconds * 1000).toISOString()
   }
-  if (!draft.localExpiry) throw new Error('Choose a local expiry date and time.')
+  if (!draft.localExpiry) throw new Error(text.expiryRequired)
   // Editing a note must preserve the original expiry, including its seconds.
   if (draft.id && draft.originalExpiry && draft.localExpiry === localInputValue(draft.originalExpiry)) return draft.originalExpiry
   const date = new Date(draft.localExpiry)
   const seconds = (date.getTime() - Date.now()) / 1000
-  if (!Number.isFinite(seconds) || seconds < 60 || seconds > MAX_DURATION_SECONDS) throw new Error('Expiry must be at least 1 minute away and no more than 366 days away.')
+  if (!Number.isFinite(seconds) || seconds < 60 || seconds > MAX_DURATION_SECONDS) throw new Error(text.expiryInvalid)
   return date.toISOString()
 }
 
-function remaining(expiresAt: string, now: number): string {
+function remaining(expiresAt: string, now: number, text: typeof commandsText.en.restrictions): string {
   const seconds = Math.max(0, Math.ceil((new Date(expiresAt).getTime() - now) / 1000))
-  if (seconds <= 0) return 'Expired'
+  if (seconds <= 0) return text.expired
   const days = Math.floor(seconds / 86400)
   const hours = Math.floor((seconds % 86400) / 3600)
   const minutes = Math.floor((seconds % 3600) / 60)
-  if (days) return `${days}d ${hours}h remaining`
-  if (hours) return `${hours}h ${minutes}m remaining`
-  if (minutes) return `${minutes}m ${seconds % 60}s remaining`
-  return `${seconds}s remaining`
+  if (days) return fmt(text.remainingDays, { days, hours })
+  if (hours) return fmt(text.remainingHours, { hours, minutes })
+  if (minutes) return fmt(text.remainingMinutes, { minutes, seconds: seconds % 60 })
+  return fmt(text.remainingSeconds, { seconds })
 }
 
 export default function CommandRestrictions({ active, commands }: Props) {
+  const text = useCatalog(commandsText).restrictions
+  const { dateTime } = useI18n()
+  const durationOptions = [
+    { value: '3600', label: text.durations.hour },
+    { value: '86400', label: text.durations.day },
+    { value: '604800', label: text.durations.week },
+    { value: '2592000', label: text.durations.month },
+    { value: String(MAX_DURATION_SECONDS), label: text.durations.max },
+    { value: 'custom', label: text.durations.custom },
+  ]
   const [items, setItems] = useState<CommandRestriction[]>([])
   const [serverCommands, setServerCommands] = useState<CommandRestrictionChoice[] | null>(null)
   const [channelId, setChannelId] = useState<string | null | undefined>(undefined)
@@ -98,14 +103,14 @@ export default function CommandRestrictions({ active, commands }: Props) {
       const api = await waitForBridge()
       const result = await api.get_command_restrictions()
       if (revision !== loadRevision.current) return
-      if (!result.ok) throw new Error(result.error || 'Could not load command restrictions.')
+      if (!result.ok) throw new Error(result.error || text.loadFailed)
       setItems(result.restrictions)
       setServerCommands(result.commands)
       setChannelId(result.channel_id)
       setError('')
     } catch (reason) {
       if (revision !== loadRevision.current) return
-      setError(reason instanceof Error ? reason.message : 'Could not load command restrictions.')
+      setError(reason instanceof Error ? reason.message : text.loadFailed)
     } finally { if (revision === loadRevision.current) setLoading(false) }
   }
 
@@ -143,14 +148,14 @@ export default function CommandRestrictions({ active, commands }: Props) {
         expires_at: expiryFor(draft),
         note: draft.note,
       }
-      if (!draft.id && !data.username) throw new Error('Enter a Twitch username. The server resolves its verified identity.')
-      if (draft.scope !== 'global_ai' && !draft.allCommands && draft.commandIds.length === 0) throw new Error('Choose at least one command or select all commands.')
-      if (data.note.length > 200) throw new Error('Notes can be up to 200 characters.')
-      if (/[\r\n]/.test(data.note)) throw new Error('Private notes must be one line.')
+      if (!draft.id && !data.username) throw new Error(text.usernameRequired)
+      if (draft.scope !== 'global_ai' && !draft.allCommands && draft.commandIds.length === 0) throw new Error(text.commandsRequired)
+      if (data.note.length > 200) throw new Error(text.noteTooLong)
+      if (/[\r\n]/.test(data.note)) throw new Error(text.noteOneLine)
       const result = await (await waitForBridge()).save_command_restriction(data)
-      if (!result.ok) throw new Error(result.error || 'Could not save this restriction.')
+      if (!result.ok) throw new Error(result.error || text.saveFailed)
       setItems(result.restrictions); setServerCommands(result.commands); setChannelId(result.channel_id); setDraft(null)
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not save this restriction.') }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : text.saveFailed) }
     finally { pendingChange.current = false; setBusy(false) }
   }
   const remove = async () => {
@@ -160,54 +165,54 @@ export default function CommandRestrictions({ active, commands }: Props) {
     setBusy(true); setError('')
     try {
       const result = await (await waitForBridge()).remove_command_restriction(removeTarget.id)
-      if (!result.ok) throw new Error(result.error || 'Could not remove this restriction.')
+      if (!result.ok) throw new Error(result.error || text.removeFailed)
       setItems(result.restrictions); setServerCommands(result.commands); setChannelId(result.channel_id); setRemoveTarget(null)
     } catch (reason) {
       setRemoveTarget(null)
-      setError(reason instanceof Error ? reason.message : 'Could not remove this restriction.')
+      setError(reason instanceof Error ? reason.message : text.removeFailed)
     }
     finally { pendingChange.current = false; setBusy(false) }
   }
 
   return <section className="card command-editor-card restriction-panel" id="command-restrictions" aria-labelledby="restriction-title">
-    <div className="restriction-heading"><div className="settings-heading-with-help"><h2 id="restriction-title">User restrictions</h2><HelpTip label="Restriction scope">These rules work only inside HeetKit. Viewers can still use !optout themselves.</HelpTip></div>
-      <button type="button" className="primary" disabled={busy || loading || channelId === undefined} onClick={() => { setError(''); setDraft(newDraft()) }}>Add restriction</button>
+    <div className="restriction-heading"><div className="settings-heading-with-help"><h2 id="restriction-title">{text.title}</h2><HelpTip label={text.helpLabel}>{text.help}</HelpTip></div>
+      <button type="button" className="primary" disabled={busy || loading || channelId === undefined} onClick={() => { setError(''); setDraft(newDraft()) }}>{text.add}</button>
     </div>
-    {channelId === undefined ? <p className="restriction-scope-message">{loading ? 'Loading configured channel scope…' : 'Configured channel scope could not be loaded. Retry before adding a restriction.'}</p>
-      : channelId === null ? <p className="restriction-scope-message">Configure a verified numeric target channel in Settings before adding channel restrictions. Global AI restrictions remain available. Existing restrictions retain their saved scope.</p>
-        : <p className="restriction-scope-message">Channel restrictions use ID {channelId}. Global AI restrictions cover all channels in this profile.</p>}
-    {error && <div className="inline-error" role="alert"><span>{error}</span><button type="button" className="secondary" disabled={busy} onClick={() => { setLoading(true); void load() }}>Retry</button></div>}
-    {draft && <div className="restriction-editor" aria-label={draft.id ? 'Edit restriction' : 'Add restriction'}>
-      <h3>{draft.id ? `Edit restriction for ${draft.username}` : 'Add user restriction'}</h3>
+    {channelId === undefined ? <p className="restriction-scope-message">{loading ? text.loadingScope : text.scopeFailed}</p>
+      : channelId === null ? <p className="restriction-scope-message">{text.noChannel}</p>
+        : <p className="restriction-scope-message">{fmt(text.channelScope, { id: channelId })}</p>}
+    {error && <div className="inline-error" role="alert"><span>{error}</span><button type="button" className="secondary" disabled={busy} onClick={() => { setLoading(true); void load() }}>{text.retry}</button></div>}
+    {draft && <div className="restriction-editor" aria-label={draft.id ? text.edit : text.add}>
+      <h3>{draft.id ? fmt(text.editFor, { name: draft.username }) : text.addUser}</h3>
       <div className="restriction-fields">
-      <div className="form-field"><label htmlFor="restriction-username">Twitch username</label><input id="restriction-username" disabled={busy || Boolean(draft.id)} value={draft.username} maxLength={26} placeholder="e.g. viewer_name" autoComplete="off" onChange={(event) => setDraft({ ...draft, username: event.target.value })} /><span className="settings-hint">{draft.unresolved ? 'This saved account is unverified and remains blocked. Save retries verification.' : draft.id ? 'Verified account identity.' : 'The server verifies this account when you save. No rule is added if verification fails.'}</span></div>
-<div className="form-field"><label htmlFor="restriction-expiry-mode">Expiry</label><Select id="restriction-expiry-mode" disabled={busy} value={draft.expiryMode} onChange={(value) => setDraft({ ...draft, expiryMode: value as ExpiryMode })} options={[{ value: 'permanent', label: 'Permanent' }, { value: 'duration', label: 'Duration' }, { value: 'date', label: 'Local date and time' }]} /></div>
-        {draft.expiryMode === 'duration' && <div className="form-field"><label htmlFor="restriction-duration">Duration</label><Select id="restriction-duration" disabled={busy} value={draft.duration} onChange={(value) => setDraft({ ...draft, duration: value })} options={durationOptions} />
-          {draft.duration === 'custom' && <label className="restriction-custom-duration">Custom seconds (60 to 31,622,400)<input aria-label="Custom duration in seconds" disabled={busy} type="number" min={60} max={MAX_DURATION_SECONDS} value={draft.customDuration} onChange={(event) => setDraft({ ...draft, customDuration: event.target.value })} /></label>}</div>}
-        {draft.expiryMode === 'date' && <div className="form-field"><label htmlFor="restriction-local-expiry">Expires at (your local time)</label><input id="restriction-local-expiry" disabled={busy} type="datetime-local" value={draft.localExpiry} onChange={(event) => setDraft({ ...draft, localExpiry: event.target.value })} /><span className="settings-hint">Saved as an absolute UTC expiry, within the next 366 days.</span></div>}
+      <div className="form-field"><label htmlFor="restriction-username">{text.username}</label><input id="restriction-username" disabled={busy || Boolean(draft.id)} value={draft.username} maxLength={26} placeholder={text.usernamePlaceholder} autoComplete="off" onChange={(event) => setDraft({ ...draft, username: event.target.value })} /><span className="settings-hint">{draft.unresolved ? text.unresolved : draft.id ? text.verified : text.verifyOnSave}</span></div>
+<div className="form-field"><label htmlFor="restriction-expiry-mode">{text.expiry}</label><Select id="restriction-expiry-mode" disabled={busy} value={draft.expiryMode} onChange={(value) => setDraft({ ...draft, expiryMode: value as ExpiryMode })} options={[{ value: 'permanent', label: text.permanent }, { value: 'duration', label: text.duration }, { value: 'date', label: text.localDate }]} /></div>
+        {draft.expiryMode === 'duration' && <div className="form-field"><label htmlFor="restriction-duration">{text.duration}</label><Select id="restriction-duration" disabled={busy} value={draft.duration} onChange={(value) => setDraft({ ...draft, duration: value })} options={durationOptions} />
+          {draft.duration === 'custom' && <label className="restriction-custom-duration">{text.customSeconds}<input aria-label={text.customSecondsInput} disabled={busy} type="number" min={60} max={MAX_DURATION_SECONDS} value={draft.customDuration} onChange={(event) => setDraft({ ...draft, customDuration: event.target.value })} /></label>}</div>}
+        {draft.expiryMode === 'date' && <div className="form-field"><label htmlFor="restriction-local-expiry">{text.expiresAt}</label><input id="restriction-local-expiry" disabled={busy} type="datetime-local" value={draft.localExpiry} onChange={(event) => setDraft({ ...draft, localExpiry: event.target.value })} /><span className="settings-hint">{text.expiresHint}</span></div>}
       </div>
-      <div className="form-field"><label htmlFor="restriction-note">Private note (one line, up to 200 characters) <span className="settings-hint">({draft.note.length}/200)</span></label><input id="restriction-note" aria-describedby="restriction-note-help" disabled={busy} type="text" maxLength={200} value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.target.value })} /><span className="settings-hint" id="restriction-note-help">Private notes stay on this installation and are excluded from exports.</span></div>
+      <div className="form-field"><label htmlFor="restriction-note">{text.note} <span className="settings-hint">({draft.note.length}/200)</span></label><input id="restriction-note" aria-describedby="restriction-note-help" disabled={busy} type="text" maxLength={200} value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.target.value })} /><span className="settings-hint" id="restriction-note-help">{text.noteHint}</span></div>
       <div className="restriction-ai-scope">
-        <label className="restriction-check"><input type="checkbox" disabled={busy || Boolean(draft.id)} checked={draft.scope === 'global_ai'} onChange={(event) => setDraft({ ...draft, scope: event.target.checked ? 'global_ai' : 'channel', ...(event.target.checked ? { allCommands: false, commandIds: ['ask'] } : {}) })} />Block AI questions across all channels in this profile</label>
-        <p className="settings-hint">{draft.scope === 'global_ai' ? 'Blocks !ask and its aliases in every channel in this profile. Other commands are unaffected.' : `Applies to channel ID ${(draft.id ? draft.channelId : channelId) ?? 'not configured'}.`}{draft.id && ' Scope is fixed. Remove this rule to choose a new scope.'}</p>
+        <label className="restriction-check"><input type="checkbox" disabled={busy || Boolean(draft.id)} checked={draft.scope === 'global_ai'} onChange={(event) => setDraft({ ...draft, scope: event.target.checked ? 'global_ai' : 'channel', ...(event.target.checked ? { allCommands: false, commandIds: ['ask'] } : {}) })} />{text.globalAI}</label>
+        <p className="settings-hint">{draft.scope === 'global_ai' ? text.globalAIHint : fmt(text.appliesTo, { id: (draft.id ? draft.channelId : channelId) ?? text.notConfigured })}{draft.id && text.scopeFixed}</p>
       </div>
-      <fieldset className="restriction-commands" disabled={busy || draft.scope === 'global_ai'}><legend>Affected commands</legend><label className="restriction-check"><input type="checkbox" checked={draft.allCommands} onChange={(event) => setDraft({ ...draft, allCommands: event.target.checked })} />All commands and chat reactions</label>
+      <fieldset className="restriction-commands" disabled={busy || draft.scope === 'global_ai'}><legend>{text.affected}</legend><label className="restriction-check"><input type="checkbox" checked={draft.allCommands} onChange={(event) => setDraft({ ...draft, allCommands: event.target.checked })} />{text.allCommands}</label>
         <div className="restriction-choice-grid">{commandChoices.map((command) => <label className="restriction-check" key={command.id}><input type="checkbox" disabled={busy || draft.allCommands} checked={draft.commandIds.includes(command.id)} onChange={(event) => {
           const ids = event.target.checked ? [...draft.commandIds, command.id] : draft.commandIds.filter((id) => id !== command.id)
           setDraft({ ...draft, commandIds: ids })
-        }} />{command.label}</label>)}{draft.commandIds.filter((id) => !commandLabels.has(id)).map((id) => <label className="restriction-check" key={id}><input type="checkbox" disabled={busy || draft.allCommands} checked onChange={() => setDraft({ ...draft, commandIds: draft.commandIds.filter((item) => item !== id) })} />{id} (command no longer exists)</label>)}</div>
+        }} />{command.label}</label>)}{draft.commandIds.filter((id) => !commandLabels.has(id)).map((id) => <label className="restriction-check" key={id}><input type="checkbox" disabled={busy || draft.allCommands} checked onChange={() => setDraft({ ...draft, commandIds: draft.commandIds.filter((item) => item !== id) })} />{fmt(text.missingCommand, { id })}</label>)}</div>
       </fieldset>
-      <div className="row-actions"><button type="button" className="secondary" disabled={busy} onClick={() => setDraft(null)}>Cancel</button><button type="button" className="primary" disabled={busy || (draft.scope === 'channel' && !draft.id && !channelId)} onClick={() => void save()}>{busy ? 'Saving…' : 'Save restriction'}</button></div>
+      <div className="row-actions"><button type="button" className="secondary" disabled={busy} onClick={() => setDraft(null)}>{text.cancel}</button><button type="button" className="primary" disabled={busy || (draft.scope === 'channel' && !draft.id && !channelId)} onClick={() => void save()}>{busy ? text.saving : text.save}</button></div>
     </div>}
-    <div className="restriction-toolbar"><div className="form-field"><label htmlFor="restriction-search">Search restrictions</label><input id="restriction-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Username, ID, command, note" /></div></div>
-    {loading ? <p role="status">Loading restrictions…</p> : filtered.length ? <ul className="restriction-list">{filtered.map((item) => <li className="restriction-row" key={item.id}>
-      <div className="restriction-summary"><strong>{item.username}</strong><span> {item.twitch_user_id ? `Twitch user ID ${item.twitch_user_id}` : 'Identity unresolved - legacy login compatibility active'} | {item.scope === 'global_ai' ? 'Global AI: all profile channels' : item.channel_id ? `Channel ID ${item.channel_id}` : 'Channel pending configuration'}</span>
-        <p>{item.command_ids.length ? item.command_ids.map((id) => commandLabels.get(id) ?? id).join(', ') : 'All commands and chat reactions'}</p>
-        <p>{item.expires_at ? <><time dateTime={item.expires_at}>{new Date(item.expires_at).toLocaleString()}</time> · {remaining(item.expires_at, now)}</> : 'Permanent'}</p>
+    <div className="restriction-toolbar"><div className="form-field"><label htmlFor="restriction-search">{text.search}</label><input id="restriction-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={text.searchPlaceholder} /></div></div>
+    {loading ? <p role="status">{text.loading}</p> : filtered.length ? <ul className="restriction-list">{filtered.map((item) => <li className="restriction-row" key={item.id}>
+      <div className="restriction-summary"><strong>{item.username}</strong><span> {item.twitch_user_id ? fmt(text.userId, { id: item.twitch_user_id }) : text.identityUnresolved} | {item.scope === 'global_ai' ? text.globalScope : item.channel_id ? fmt(text.channelId, { id: item.channel_id }) : text.channelPending}</span>
+        <p>{item.command_ids.length ? item.command_ids.map((id) => commandLabels.get(id) ?? id).join(', ') : text.allCommands}</p>
+        <p>{item.expires_at ? <><time dateTime={item.expires_at}>{dateTime(item.expires_at)}</time> · {remaining(item.expires_at, now, text)}</> : text.permanent}</p>
         {item.note && <p className="restriction-note">{item.note}</p>}
-      </div><div className="row-actions"><button type="button" className="secondary" disabled={busy} onClick={() => edit(item)}>{item.identity_state === 'unresolved' || !item.twitch_user_id ? 'Verify / edit' : 'Edit'}</button><button type="button" className="danger" disabled={busy} onClick={() => setRemoveTarget(item)}>Remove</button></div>
-    </li>)}</ul> : error ? null : <p>{query ? 'No restrictions match this search.' : 'No active user restrictions.'}</p>}
-    {removeTarget && <Confirmation title="Remove user restriction?" description={`This immediately removes this rule for ${removeTarget.username}. Other active channel or global AI restrictions may still apply.`} danger onCancel={() => { if (!busy) setRemoveTarget(null) }} onConfirm={() => void remove()} />}
+      </div><div className="row-actions"><button type="button" className="secondary" disabled={busy} onClick={() => edit(item)}>{item.identity_state === 'unresolved' || !item.twitch_user_id ? text.verifyEdit : text.editButton}</button><button type="button" className="danger" disabled={busy} onClick={() => setRemoveTarget(item)}>{text.remove}</button></div>
+    </li>)}</ul> : error ? null : <p>{query ? text.noMatches : text.empty}</p>}
+    {removeTarget && <Confirmation title={text.removeTitle} description={fmt(text.removeDescription, { name: removeTarget.username })} danger onCancel={() => { if (!busy) setRemoveTarget(null) }} onConfirm={() => void remove()} />}
   </section>
 }
 import { useRestartDraft } from '../desktopRestart'

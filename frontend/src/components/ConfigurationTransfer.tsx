@@ -1,4 +1,6 @@
 import { useRef, useState, type ChangeEvent } from 'react'
+import { useCatalog, useI18n } from '../i18n/core'
+import { settingsText } from '../i18n/settings'
 
 import {
   type ConfigurationImportPreviewResponse,
@@ -51,6 +53,8 @@ export default function ConfigurationTransfer() {
   const [busy, setBusy] = useState<'export' | 'preview' | 'import' | ''>('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const text = useCatalog(settingsText).transfer
+  const { fmt } = useI18n()
 
   const resetSelection = () => {
     setSelection(null)
@@ -65,17 +69,17 @@ export default function ConfigurationTransfer() {
       const api = await waitForBridge()
       const result = await api.export_configuration()
       if (!result.ok) {
-        throw new Error(result.error ?? 'The configuration archive could not be created.')
+        throw new Error(result.error ?? text.createFailed)
       }
       if (result.saved) {
-        setNotice('Portable configuration saved. Keep it private if it contains filter text or block lists.')
+        setNotice(text.saved)
         return
       }
       if (result.cancelled) {
-        setNotice('Configuration export cancelled. No file was saved.')
+        setNotice(text.exportCancelled)
         return
       }
-      if (!result.archive_base64) throw new Error('The configuration archive could not be created.')
+      if (!result.archive_base64) throw new Error(text.createFailed)
       const blob = base64ToBlob(result.archive_base64)
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
@@ -88,9 +92,9 @@ export default function ConfigurationTransfer() {
         anchor.remove()
         URL.revokeObjectURL(url)
       }
-      setNotice('Portable configuration exported. Keep it private if it contains filter text or block lists.')
+      setNotice(text.exported)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'The configuration archive could not be created.')
+      setError(reason instanceof Error ? reason.message : text.createFailed)
     } finally {
       setBusy('')
     }
@@ -103,12 +107,12 @@ export default function ConfigurationTransfer() {
     setError('')
     setNotice('')
     if (!file.name.toLowerCase().endsWith('.zip')) {
-      setError('Choose a ZIP configuration archive.')
+      setError(text.chooseZip)
       event.target.value = ''
       return
     }
     if (file.size > MAX_ARCHIVE_BYTES) {
-      setError('The configuration archive must be 1 MiB or smaller.')
+      setError(text.tooLarge)
       event.target.value = ''
       return
     }
@@ -119,7 +123,7 @@ export default function ConfigurationTransfer() {
       const result = await api.preview_configuration_import(archiveBase64)
       if (!result.ok || !result.preview_token || !result.application_version
         || !Number.isInteger(result.format_version) || !Array.isArray(result.sections)) {
-        throw new Error(result.error ?? 'The configuration archive could not be previewed.')
+        throw new Error(result.error ?? text.previewFailed)
       }
       setSelection({
         filename: file.name,
@@ -136,7 +140,7 @@ export default function ConfigurationTransfer() {
       })
     } catch (reason) {
       resetSelection()
-      setError(reason instanceof Error ? reason.message : 'The configuration archive could not be previewed.')
+      setError(reason instanceof Error ? reason.message : text.previewFailed)
     } finally {
       setBusy('')
     }
@@ -145,7 +149,7 @@ export default function ConfigurationTransfer() {
   const cancelImport = () => {
     resetSelection()
     setError('')
-    setNotice('Configuration import cancelled. No settings were changed.')
+    setNotice(text.importCancelled)
   }
 
   const applyImport = async () => {
@@ -160,10 +164,10 @@ export default function ConfigurationTransfer() {
         selection.preview.preview_token,
         true,
       )
-      if (!result.ok) throw new Error(result.error ?? 'The configuration could not be imported.')
+      if (!result.ok) throw new Error(result.error ?? text.importFailed)
       window.location.reload()
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'The configuration could not be imported.')
+      setError(reason instanceof Error ? reason.message : text.importFailed)
       setBusy('')
     }
   }
@@ -172,47 +176,47 @@ export default function ConfigurationTransfer() {
     <section className="card settings-page" id="configuration-transfer" aria-labelledby="configuration-transfer-heading" aria-busy={Boolean(busy)}>
       <div className="section-heading">
         <div>
-          <h2 id="configuration-transfer-heading">Configuration transfer</h2>
-          <p className="section-copy">Copy settings such as commands, filters and AI preferences between HeetKit Desktop and Server.</p>
+          <h2 id="configuration-transfer-heading">{text.title}</h2>
+          <p className="section-copy">{text.intro}</p>
         </div>
       </div>
       <div className="configuration-transfer-warning">
-        <strong>Review before sharing</strong>
-        <p>Filter text and AI block lists may contain private information. Exports omit Twitch accounts and channels, credentials, private history and settings specific to this installation.</p>
+        <strong>{text.reviewTitle}</strong>
+        <p>{text.reviewText}</p>
       </div>
       {error && <p className="inline-error" role="alert">{error}</p>}
       {notice && <p className="configuration-transfer-notice" role="status">{notice}</p>}
       <div className="configuration-transfer-actions">
         <button className="secondary" disabled={Boolean(busy)} onClick={() => void exportConfiguration()}>
-          {busy === 'export' ? 'Exporting…' : 'Export configuration'}
+          {busy === 'export' ? text.exporting : text.export}
         </button>
         <label className={`secondary file-button${busy ? ' disabled' : ''}`}>
-          {busy === 'preview' ? 'Checking archive…' : 'Choose ZIP to import'}
+          {busy === 'preview' ? text.checking : text.choose}
           <input ref={input} type="file" accept=".zip,application/zip" disabled={Boolean(busy)} onChange={(event) => void previewImport(event)} />
         </label>
-        <span className="settings-hint">Choose a configuration ZIP up to 1 MiB.</span>
+        <span className="settings-hint">{text.limitHint}</span>
       </div>
       {selection && (
         <div className="configuration-import-preview" aria-labelledby="configuration-import-preview-heading">
           <div>
-            <h3 id="configuration-import-preview-heading">Import preview</h3>
-            <p className="settings-hint"><strong>{selection.filename}</strong> · HeetKit {selection.preview.application_version} · format {selection.preview.format_version}</p>
+            <h3 id="configuration-import-preview-heading">{text.previewTitle}</h3>
+            <p className="settings-hint"><strong>{selection.filename}</strong>{fmt(text.previewMeta, { version: selection.preview.application_version, format: String(selection.preview.format_version) })}</p>
           </div>
           <div className="table-scroll">
             <table>
-              <thead><tr><th>Included settings</th><th>Incoming</th><th>Current (will be replaced)</th></tr></thead>
+              <thead><tr><th>{text.included}</th><th>{text.incoming}</th><th>{text.current}</th></tr></thead>
               <tbody>{selection.preview.sections.map((section) => (
                 <tr key={section.name}><td><strong>{section.name}</strong>{section.details && section.details.length > 0
                   ? <span className="configuration-import-details">{section.details.join(' · ')}</span> : null}</td><td>{section.incoming_count}</td><td>{section.current_count}</td></tr>
               ))}</tbody>
             </table>
           </div>
-          {selection.preview.effects.length > 0 && <div><strong>Effects</strong><ul>{selection.preview.effects.map((effect) => <li key={effect}>{effect}</li>)}</ul></div>}
-          {selection.preview.preserved.length > 0 && <div><strong>Preserved</strong><ul>{selection.preview.preserved.map((item) => <li key={item}>{item}</li>)}</ul></div>}
-          <p className="configuration-import-confirmation">Importing replaces the settings listed above. HeetKit reloads after applying them and discards any open drafts.</p>
+          {selection.preview.effects.length > 0 && <div><strong>{text.effects}</strong><ul>{selection.preview.effects.map((effect) => <li key={effect}>{effect}</li>)}</ul></div>}
+          {selection.preview.preserved.length > 0 && <div><strong>{text.preserved}</strong><ul>{selection.preview.preserved.map((item) => <li key={item}>{item}</li>)}</ul></div>}
+          <p className="configuration-import-confirmation">{text.confirmation}</p>
           <div className="settings-actions">
-            <button className="secondary" disabled={Boolean(busy)} onClick={cancelImport}>Cancel import</button>
-            <button className="danger" disabled={Boolean(busy)} onClick={() => void applyImport()}>{busy === 'import' ? 'Importing…' : 'Confirm import and reload'}</button>
+            <button className="secondary" disabled={Boolean(busy)} onClick={cancelImport}>{text.cancelImport}</button>
+            <button className="danger" disabled={Boolean(busy)} onClick={() => void applyImport()}>{busy === 'import' ? text.importing : text.confirm}</button>
           </div>
         </div>
       )}

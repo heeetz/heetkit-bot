@@ -1109,7 +1109,7 @@ test('browser Settings sidebar exposes available sections and opens their accord
   const nav = page.getByRole('navigation', { name: 'Main navigation' })
   await nav.getByRole('button', { name: 'Settings', exact: true }).click()
   const submenu = nav.locator('#nav-Settings')
-  await expect(submenu.getByRole('button')).toHaveText(['Twitch connection', 'Configuration transfer'])
+  await expect(submenu.getByRole('button')).toHaveText(['Interface language', 'Twitch connection', 'Configuration transfer'])
   await expect(submenu).not.toContainText('Gemini API key')
   await expect(page.locator('#credential-settings')).toHaveCount(0)
 })

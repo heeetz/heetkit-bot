@@ -680,8 +680,8 @@ class WebUIBridge(ApplicationManagement):
         assets = release.pop("_installer", None)
         result = {"ok": True, "current_version": current_version, **release}
         self._update_available = bool(release.get("update_available"))
-        if self._controller is not None:
-            self._controller.refresh_tray()
+        if (refresh := getattr(self._controller, "refresh_tray", None)) is not None:
+            refresh()
         if self._controller is None or not release["update_available"]:
             return result
         if desktop_relaunch.installed_directory() is None:
@@ -1006,8 +1006,8 @@ class WebUIBridge(ApplicationManagement):
         except OSError:
             self._logger.exception("Could not save the interface language")
             return {"ok": False, "error": "Could not save the interface language."}
-        if self._controller is not None:
-            self._controller.refresh_tray()
+        if (refresh := getattr(self._controller, "refresh_tray", None)) is not None:
+            refresh()
         return {"ok": True}
 
     def get_app_settings(self) -> dict[str, object]:
@@ -1778,8 +1778,8 @@ class DesktopController:
         try:
             signature = self._tray_state()
         except Exception:
-            signature = None
-        if signature is not None and signature == self._tray_signature:
+            return
+        if signature == self._tray_signature:
             return
         self._tray_signature = signature
         try:
@@ -1797,8 +1797,11 @@ class DesktopController:
             while not self._tray_refresh_stop.wait(TRAY_REFRESH_INTERVAL_SECONDS):
                 self.refresh_tray()
 
-        self._tray_signature = None
-        self.refresh_tray()
+        try:
+            # The menu was just built from the current state.
+            self._tray_signature = self._tray_state()
+        except Exception:
+            self._tray_signature = None
         self._tray_refresh_thread = threading.Thread(target=run, name="heetkit-tray-refresh", daemon=True)
         self._tray_refresh_thread.start()
 

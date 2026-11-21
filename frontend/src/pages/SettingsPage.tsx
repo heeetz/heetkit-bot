@@ -22,6 +22,9 @@ import TwitchSecretField from '../components/TwitchSecretField'
 import TwitchSetupInstructions from '../components/TwitchSetupInstructions'
 import { restartDesktop, useRestartDraft } from '../desktopRestart'
 import '../components/settings-layout.css'
+import { common as commonText } from '../i18n/common'
+import { catalogFor, useCatalog, useI18n } from '../i18n/core'
+import { settingsText } from '../i18n/settings'
 
 interface SettingsPageProps {
   active: boolean
@@ -47,9 +50,14 @@ function ServerSettings({ active, status }: { active: boolean; status: AppStatus
   const [presetName, setPresetName] = useState('')
   const draftDirty = useRef(false)
   const mountedRef = useRef(false)
+  const all = useCatalog(settingsText)
+  const tw = all.twitch
+  const text = all.server
+  const common = useCatalog(commonText)
+  const { fmt, plural } = useI18n()
   const refresh = async (resetDraft = true) => {
     const result = await getBrowserSetup()
-    if (!result.ok) throw new Error(result.error ?? 'Server setup status is unavailable.')
+    if (!result.ok) throw new Error(result.error ?? catalogFor(settingsText).server.unavailable)
     if (mountedRef.current) {
       setSetup(result)
       if (resetDraft) setTwitchDraft({
@@ -79,7 +87,7 @@ function ServerSettings({ active, status }: { active: boolean; status: AppStatus
     }
     let mounted = true
     void refresh(!draftDirty.current).catch((reason: unknown) => {
-      if (mounted && mountedRef.current) setError(reason instanceof Error ? reason.message : 'Could not load server setup.')
+      if (mounted && mountedRef.current) setError(reason instanceof Error ? reason.message : catalogFor(settingsText).server.loadFailed)
     })
     return () => { mounted = false; mountedRef.current = false }
   }, [active, retry])
@@ -103,18 +111,19 @@ function ServerSettings({ active, status }: { active: boolean; status: AppStatus
           setAuthorizationExpires(null)
           setAuthorizationUrl('')
           setSetup(result)
+          const current = catalogFor(settingsText).server
           if (attempt === 'completed') {
-            setNotice('Twitch authorization completed. The selected operation mode controls whether the bot resumes; use Dashboard to inspect status or connect manually.')
+            setNotice(current.authCompleted)
           } else {
             setError(attempt === 'expired'
-              ? 'Authorization expired or the initiating session ended. Connect Twitch again.'
-              : 'Authorization did not complete. Check the registered redirect, expected bot account, permissions and server network, then Connect Twitch again.')
+              ? current.authExpired
+              : current.authIncomplete)
           }
           return
         }
       } catch (reason) {
         if (disposed) return
-        setError(reason instanceof Error ? reason.message : 'Server unavailable. Check access and callback reachability, then retry.')
+        setError(reason instanceof Error ? reason.message : catalogFor(settingsText).server.unreachable)
       }
       if (!disposed) timer = setTimeout(() => void poll(), 2500)
     }
@@ -133,7 +142,7 @@ function ServerSettings({ active, status }: { active: boolean; status: AppStatus
     setError('')
     setNotice('')
     try { await action() } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'The server rejected the request.')
+      setError(reason instanceof Error ? reason.message : text.rejected)
     } finally { setBusy('') }
   }
   const copyBrowserText = async (value: string) => {
@@ -151,113 +160,113 @@ function ServerSettings({ active, status }: { active: boolean; status: AppStatus
         input.select()
         const copied = document.execCommand('copy')
         input.remove()
-        if (!copied) throw new Error('Clipboard access is unavailable.')
+        if (!copied) throw new Error(all.desktop.clipboardUnavailable)
       }
-      setNotice('OAuth callback URL copied.')
+      setNotice(all.desktop.callbackCopied)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not copy the callback URL.')
+      setError(reason instanceof Error ? reason.message : all.desktop.callbackCopyFailed)
     }
   }
   const saveTwitch = () => run('twitch:save', async () => {
-    if (targetChanged && !window.confirm('Apply the draft target channel? The current session will stop; the saved operation mode controls whether it resumes.')) return
+    if (targetChanged && !window.confirm(text.confirmTarget)) return
     const channel = twitchDraft.channel.trim().replace(/^#/, '')
     const values = { ...twitchDraft, channel }
     if (!values.clientId.trim() || !values.botUsername.trim() || !values.botUserId.trim() || !channel || !values.channelUserId.trim()) {
-      throw new Error('Enter the Twitch Client ID, bot identity and target channel before saving.')
+      throw new Error(text.enterSetup)
     }
     const result = await (await waitForBridge()).update_server_twitch_settings(
       values.clientId.trim(), values.botUsername.trim(), values.botUserId.trim(), channel, values.channelUserId.trim(),
     )
-    if (!result.ok) throw new Error(result.error ?? 'Twitch settings could not be saved.')
+    if (!result.ok) throw new Error(result.error ?? all.desktop.twitchSaveFailed)
     await refresh()
-    setNotice('Twitch settings saved. The current session was stopped while settings applied; the saved operation mode controls whether it resumes. Use Dashboard to choose a mode or connect separately.')
+    setNotice(text.saved)
   })
   const selectedPreset = setup?.twitch.presets?.find((item) => item.id === selectedPresetId)
   const targetChanged = Boolean(setup && (twitchDraft.channel !== setup.twitch.target_channel || twitchDraft.channelUserId !== setup.twitch.target_channel_user_id))
   const identityChanged = Boolean(setup && (twitchDraft.clientId !== setup.twitch.client_id || twitchDraft.botUsername !== setup.twitch.bot_username || twitchDraft.botUserId !== setup.twitch.bot_user_id))
   const presetEdited = Boolean(selectedPreset && (presetName !== selectedPreset.display_name || twitchDraft.channel !== selectedPreset.target_channel || twitchDraft.channelUserId !== selectedPreset.target_channel_user_id))
   const selectPreset = (id: string) => {
-    if ((presetEdited || (!selectedPreset && (targetChanged || presetName.trim()))) && !window.confirm('Discard unsaved target channel and saved-channel edits?')) return
+    if ((presetEdited || (!selectedPreset && (targetChanged || presetName.trim()))) && !window.confirm(text.confirmDiscardPreset)) return
     const preset = setup?.twitch.presets?.find((item) => item.id === id)
     setSelectedPresetId(id)
     draftDirty.current = true
     setPresetName(preset?.display_name ?? '')
     if (preset) setTwitchDraft((current) => ({ ...current, channel: preset.target_channel, channelUserId: preset.target_channel_user_id }))
     setError('')
-    setNotice('Selection only. Save or Update stores the preset; Switch to saved channel applies it to the bot.')
+    setNotice(text.selectionOnly)
   }
   const savePreset = (update: boolean) => run('preset:save', async () => {
     const result = await (await waitForBridge()).save_twitch_preset(update ? selectedPresetId : null, presetName.trim(), twitchDraft.channel.trim(), twitchDraft.channelUserId.trim())
-    if (!result.ok) throw new Error(result.error ?? 'Saved channel could not be saved.')
+    if (!result.ok) throw new Error(result.error ?? all.desktop.presetSaveFailed)
     await refresh(false)
     setSelectedPresetId(result.preset_id ?? '')
-    setNotice('Saved channel stored. The bot target and connection have not changed. Use Switch to saved channel to apply it.')
+    setNotice(text.presetStored)
   })
   const deletePreset = () => {
-    if (!selectedPreset || !window.confirm('Delete this saved channel? The active channel and connection will stay unchanged.')) return
+    if (!selectedPreset || !window.confirm(text.confirmDeletePreset)) return
     void run('preset:delete', async () => {
       const result = await (await waitForBridge()).delete_twitch_preset(selectedPresetId)
-      if (!result.ok) throw new Error(result.error ?? 'Saved channel could not be deleted.')
+      if (!result.ok) throw new Error(result.error ?? all.desktop.presetDeleteFailed)
       await refresh(false)
       setSelectedPresetId('')
       setPresetName('')
-      setNotice('Saved channel deleted. The bot target and connection have not changed.')
+      setNotice(text.presetDeleted)
     })
   }
   const switchPreset = () => {
     if (!selectedPreset || identityChanged || presetEdited) return
-    if (!window.confirm(`Switch the bot to ${selectedPreset.target_channel}? An active session will disconnect. Manual reconnects only if already running; automatic modes follow their saved policy; Disabled stays stopped.`)) return
+    if (!window.confirm(fmt(text.confirmSwitch, { channel: selectedPreset.target_channel }))) return
     void run('preset:switch', async () => {
       const result = await (await waitForBridge()).switch_server_twitch_preset(selectedPresetId)
-      if (!result.ok) throw new Error(result.error ?? 'Channel switch failed. Inspect Dashboard before retrying.')
+      if (!result.ok) throw new Error(result.error ?? text.switchFailed)
       await refresh()
-      setNotice('Saved channel applied. Bot identity, credentials, OAuth and operation mode were retained. Inspect Dashboard for connection status.')
+      setNotice(text.switched)
     })
   }
   const runSecretAction = (action: 'replace' | 'remove' | 'test') => run(`twitch_client_secret:${action}`, async () => {
-    if (action === 'remove' && !window.confirm('Remove the stored Twitch Client Secret now? This stops the session and clears authorization. Add a valid secret and authorize Twitch again to reconnect.')) return
+    if (action === 'remove' && !window.confirm(text.confirmRemoveSecret)) return
     const value = secretDraft
     setSecretDraft('')
     const credential = setup?.credentials.find((item) => item.name === 'twitch_client_secret')
-    if (!credential) throw new Error('Secret status is unavailable. Reopen Settings and retry.')
-    if (action !== 'test' && !credential.managed) throw new Error('This secret is managed externally. Change it on the host.')
-    if (action === 'replace' && !value.trim()) throw new Error('Enter a client secret before saving.')
+    if (!credential) throw new Error(text.secretUnavailable)
+    if (action !== 'test' && !credential.managed) throw new Error(text.secretExternal)
+    if (action === 'replace' && !value.trim()) throw new Error(text.enterSecret)
     const api = await waitForBridge()
     const result = action === 'replace' ? await api.replace_credential('twitch_client_secret', value)
       : action === 'remove' ? await api.remove_credential('twitch_client_secret') : await api.test_credential('twitch_client_secret')
-    if (!result.ok) throw new Error(result.error ?? 'Secret operation failed.')
+    if (!result.ok) throw new Error(result.error ?? all.desktop.secretFailed)
     await refresh(false)
-    setNotice(action === 'test' ? 'Client secret validation passed.' : result.changed === false ? 'Client secret unchanged.' : `Client secret ${action === 'remove' ? 'removed' : 'saved'}. Connect Twitch again after saving a valid secret.`)
+    setNotice(action === 'test' ? all.desktop.secretPassed : result.changed === false ? all.desktop.secretUnchanged : action === 'remove' ? text.secretRemoved : text.secretSaved)
   })
   const beginAuthorization = () => run('oauth:begin', async () => {
     setAuthorizationUrl('')
     setCallbackUrl('')
     const result = await (await waitForBridge()).begin_twitch_authorization()
-    if (!result.ok || !result.url) throw new Error(result.error ?? 'Twitch authorization could not be started.')
+    if (!result.ok || !result.url) throw new Error(result.error ?? text.authStartFailed)
     let url: URL
-    try { url = new URL(result.url) } catch { throw new Error('The server returned an invalid Twitch authorization URL.') }
+    try { url = new URL(result.url) } catch { throw new Error(text.invalidUrl) }
     if (url.origin !== 'https://id.twitch.tv' || url.username || url.password || url.pathname !== '/oauth2/authorize') {
-      throw new Error('The server returned an untrusted Twitch authorization URL.')
+      throw new Error(text.untrustedUrl)
     }
     if (!mountedRef.current) return
     setAuthorizationUrl(url.toString())
     window.open(url.toString(), '_blank', 'noopener,noreferrer')
     setAuthorizationExpires(result.expires_in ?? 300)
     setNotice(setup?.twitch.authorization_mode === 'redirect'
-      ? 'Approve the configured bot account on Twitch within five minutes. Return to this signed-in tab to see the result. If the callback is unreachable, check the displayed address and port; for remote HTTPS also check Tailscale and proxy access.'
-      : 'Twitch authorization is ready. If no tab opened, use Open Twitch authorization below. After the local callback error page appears, copy its full URL here within 5 minutes.')
+      ? text.redirectReady
+      : text.pasteReady)
   })
   const completeAuthorization = () => {
     const value = callbackUrl.trim()
     setCallbackUrl('')
     setAuthorizationUrl('')
     return run('oauth:complete', async () => {
-    if (!value) throw new Error('Paste the complete callback URL before continuing.')
+    if (!value) throw new Error(text.pasteCallback)
     const result = await (await waitForBridge()).complete_twitch_authorization(value)
-    if (!result.ok) throw new Error(result.error ?? 'Twitch authorization could not be completed.')
+    if (!result.ok) throw new Error(result.error ?? text.completeFailed)
     setAuthorizationExpires(null)
     await refresh()
-    setNotice('Twitch authorization completed. The selected operation mode controls whether the bot resumes; use Dashboard to inspect status or connect manually.')
+    setNotice(text.authCompleted)
     })
   }
   const cancelAuthorization = () => {
@@ -265,9 +274,9 @@ function ServerSettings({ active, status }: { active: boolean; status: AppStatus
     setAuthorizationUrl('')
     return run('oauth:cancel', async () => {
     const result = await (await waitForBridge()).cancel_twitch_authorization()
-    if (!result.ok) throw new Error(result.error ?? 'Twitch authorization could not be cancelled.')
+    if (!result.ok) throw new Error(result.error ?? text.cancelFailed)
     setAuthorizationExpires(null)
-    setNotice('Twitch authorization cancelled.')
+    setNotice(text.cancelled)
     })
   }
   const twitchCredential = setup?.credentials.find((credential) => credential.name === 'twitch_client_secret')
@@ -275,73 +284,73 @@ function ServerSettings({ active, status }: { active: boolean; status: AppStatus
   return <div className="settings-layout">
     <FeedbackToast error={error} notice={notice} onDismiss={() => { setError(''); setNotice('') }} />
     <InterfaceLanguageSettings server />
-    <Accordion id="twitch-settings" title="Twitch connection" helpLabel="How Twitch setup works" description={<ul><li>Save stores application, account and channel changes. Secret actions apply immediately.</li><li>Changing the bot identity or secret stops the bot and clears authorization.</li><li>Changing only the channel keeps authorization.</li><li>Start and stop the bot on the Dashboard.</li></ul>} className="settings-page server-settings-page">
-      {!setup ? <><p className="muted">Loading server setup…</p>{error && <button className="secondary" onClick={() => setRetry((current) => current + 1)}>Retry setup status</button>}</> : <div className="settings-list twitch-settings-list">
-        <section className="twitch-connection-summary" aria-label="Twitch connection status">
+    <Accordion id="twitch-settings" title={tw.title} helpLabel={tw.helpLabel} description={<ul>{tw.serverHelp.map((item) => <li key={item}>{item}</li>)}</ul>} className="settings-page server-settings-page">
+      {!setup ? <><p className="muted">{text.loading}</p>{error && <button className="secondary" onClick={() => setRetry((current) => current + 1)}>{text.retry}</button>}</> : <div className="settings-list twitch-settings-list">
+        <section className="twitch-connection-summary" aria-label={tw.statusLabel}>
           <TwitchSetupInstructions compact headingId="server-twitch-setup" host="server" callback={setup.twitch.oauth_callback_url} callbackMode={setup.twitch.authorization_mode} />
           <div className="twitch-status-grid">
-            <div><span>Connection</span><strong className={status?.twitch_connected ? 'status-good' : ''}>{status ? twitchConnectionLabel(status.twitch_connection_state) : setup.twitch.connected ? 'Connected' : setup.twitch.running ? 'Connecting' : 'Stopped'}</strong></div>
-            <div><span>Authorization</span><strong>{setup.twitch.authorization_status === 'verified' ? 'Verified' : setup.twitch.authorization_status === 'not_verified' ? 'Not verified' : setup.twitch.authorization_status === 'validation_failed' ? 'Validation failed' : 'Missing'}</strong></div>
-            <div><span>Authorized account</span><strong>{setup.twitch.authorized_account || 'Not authorized'}</strong></div>
-            <div><span>Target channel</span><strong>{setup.twitch.active_channel || 'Not configured'}</strong></div>
+            <div><span>{tw.connection}</span><strong className={status?.twitch_connected ? 'status-good' : ''}>{status ? twitchConnectionLabel(status.twitch_connection_state) : setup.twitch.connected ? common.connection.connected : setup.twitch.running ? common.connection.connecting : common.connection.stopped}</strong></div>
+            <div><span>{tw.authorization}</span><strong>{setup.twitch.authorization_status === 'verified' ? tw.verified : setup.twitch.authorization_status === 'not_verified' ? tw.notVerified : setup.twitch.authorization_status === 'validation_failed' ? tw.validationFailed : tw.missing}</strong></div>
+            <div><span>{tw.authorizedAccount}</span><strong>{setup.twitch.authorized_account || tw.notAuthorized}</strong></div>
+            <div><span>{tw.targetChannel}</span><strong>{setup.twitch.active_channel || common.notConfigured}</strong></div>
           </div>
         </section>
         <section className="twitch-settings-group" aria-labelledby="server-twitch-bot-heading">
-          <h3 id="server-twitch-bot-heading">Bot account</h3>
+          <h3 id="server-twitch-bot-heading">{tw.botAccount}</h3>
           <div className="twitch-field-pair">
-            <label className="form-field">Bot account login<input disabled={Boolean(busy)} value={twitchDraft.botUsername} maxLength={25} onChange={(event) => updateDraft('botUsername', event.target.value)} /></label>
-            <label className="form-field">Bot account user ID<input disabled={Boolean(busy)} inputMode="numeric" value={twitchDraft.botUserId} maxLength={20} onChange={(event) => updateDraft('botUserId', event.target.value)} /></label>
+            <label className="form-field">{tw.botLogin}<input disabled={Boolean(busy)} value={twitchDraft.botUsername} maxLength={25} onChange={(event) => updateDraft('botUsername', event.target.value)} /></label>
+            <label className="form-field">{tw.botUserId}<input disabled={Boolean(busy)} inputMode="numeric" value={twitchDraft.botUserId} maxLength={20} onChange={(event) => updateDraft('botUserId', event.target.value)} /></label>
           </div>
         </section>
         <section className="twitch-settings-group" aria-labelledby="server-twitch-target-heading">
-          <h3 id="server-twitch-target-heading">Target channel</h3>
+          <h3 id="server-twitch-target-heading">{tw.targetChannel}</h3>
           <div className="twitch-target-fields">
-            <label className="form-field target-saved-channel">Saved channel<Select aria-label="Saved channel" value={selectedPresetId} disabled={Boolean(busy)} onChange={selectPreset} options={[{ value: '', label: 'New saved channel' }, ...(setup.twitch.presets ?? []).map((preset) => ({ value: preset.id, label: `${preset.display_name}${preset.id === setup.twitch.active_preset_id ? ' (active)' : ''}` }))]} /></label>
+            <label className="form-field target-saved-channel">{tw.savedChannel}<Select aria-label={tw.savedChannel} value={selectedPresetId} disabled={Boolean(busy)} onChange={selectPreset} options={[{ value: '', label: tw.newSavedChannel }, ...(setup.twitch.presets ?? []).map((preset) => ({ value: preset.id, label: preset.id === setup.twitch.active_preset_id ? fmt(tw.activePreset, { name: preset.display_name }) : preset.display_name }))]} /></label>
             <div className="target-preset-editor">
-              <label className="form-field">Saved channel name<input value={presetName} maxLength={80} disabled={Boolean(busy)} onChange={(event) => { draftDirty.current = true; setPresetName(event.target.value) }} /></label>
+              <label className="form-field">{tw.savedChannelName}<input value={presetName} maxLength={80} disabled={Boolean(busy)} onChange={(event) => { draftDirty.current = true; setPresetName(event.target.value) }} /></label>
               <div className="preset-actions">
-                <button className="secondary" aria-label={selectedPreset ? 'Update saved channel' : 'Save new channel'} disabled={Boolean(busy) || !presetName.trim()} onClick={() => void savePreset(Boolean(selectedPreset))}>{selectedPreset ? 'Update' : 'Save'}</button>
-                <button className="ghost destructive" aria-label="Delete saved channel" disabled={Boolean(busy) || !selectedPreset} onClick={deletePreset}>Delete</button>
+                <button className="secondary" aria-label={selectedPreset ? tw.updateSavedChannel : tw.saveNewChannel} disabled={Boolean(busy) || !presetName.trim()} onClick={() => void savePreset(Boolean(selectedPreset))}>{selectedPreset ? tw.update : common.save}</button>
+                <button className="ghost destructive" aria-label={tw.deleteSavedChannel} disabled={Boolean(busy) || !selectedPreset} onClick={deletePreset}>{common.delete}</button>
               </div>
             </div>
-            <label className="form-field target-channel-login">Target channel login<input disabled={Boolean(busy)} value={twitchDraft.channel} maxLength={25} onChange={(event) => updateDraft('channel', event.target.value)} /></label>
-            <label className="form-field target-channel-id">Target channel user ID<input disabled={Boolean(busy)} inputMode="numeric" value={twitchDraft.channelUserId} maxLength={20} onChange={(event) => updateDraft('channelUserId', event.target.value)} /></label>
+            <label className="form-field target-channel-login">{tw.targetLogin}<input disabled={Boolean(busy)} value={twitchDraft.channel} maxLength={25} onChange={(event) => updateDraft('channel', event.target.value)} /></label>
+            <label className="form-field target-channel-id">{tw.targetUserId}<input disabled={Boolean(busy)} inputMode="numeric" value={twitchDraft.channelUserId} maxLength={20} onChange={(event) => updateDraft('channelUserId', event.target.value)} /></label>
           </div>
-          <p className="settings-hint">Selection edits the target draft. Bot identity and authorization stay shared.</p>
-          <button className="primary" disabled={Boolean(busy) || !selectedPreset || identityChanged || presetEdited || !targetChanged} onClick={switchPreset}>Switch to saved channel</button>
-          {identityChanged && <p className="settings-hint">Save or discard the application/account edits before switching a saved channel.</p>}
-          {presetEdited && <p className="settings-hint">Update the selected preset before switching, or discard the edits and select the saved channel again.</p>}
-          {(targetChanged || identityChanged || presetEdited) && <button className="secondary" disabled={Boolean(busy)} onClick={() => { if (window.confirm('Discard unsaved Twitch and saved-channel edits?')) void run('twitch:discard', () => refresh()) }}>Discard Twitch edits</button>}
-          <p className="target-channel-state"><span>Active channel</span><strong>{setup.twitch.active_channel || 'Not configured'}</strong>{targetChanged && <><span>Draft target</span><strong>{twitchDraft.channel || 'Not configured'}</strong></>}</p>
+          <p className="settings-hint">{tw.selectionHint}</p>
+          <button className="primary" disabled={Boolean(busy) || !selectedPreset || identityChanged || presetEdited || !targetChanged} onClick={switchPreset}>{tw.switchPreset}</button>
+          {identityChanged && <p className="settings-hint">{tw.identityChangedHint}</p>}
+          {presetEdited && <p className="settings-hint">{tw.presetEditedHint}</p>}
+          {(targetChanged || identityChanged || presetEdited) && <button className="secondary" disabled={Boolean(busy)} onClick={() => { if (window.confirm(text.confirmDiscardPreset)) void run('twitch:discard', () => refresh()) }}>{tw.discardEdits}</button>}
+          <p className="target-channel-state"><span>{tw.activeChannel}</span><strong>{setup.twitch.active_channel || common.notConfigured}</strong>{targetChanged && <><span>{tw.draftTarget}</span><strong>{twitchDraft.channel || common.notConfigured}</strong></>}</p>
         </section>
-        <Accordion id="twitch-application" title="Twitch application" badges={<span className={`state-pill ${twitchCredential?.configured ? 'enabled' : 'unconfigured'}`}>{twitchCredential?.configured ? 'Secret configured' : 'Secret missing'}</span>} className="twitch-application-disclosure">
+        <Accordion id="twitch-application" title={tw.application} badges={<span className={`state-pill ${twitchCredential?.configured ? 'enabled' : 'unconfigured'}`}>{twitchCredential?.configured ? tw.secretConfigured : tw.secretMissing}</span>} className="twitch-application-disclosure">
           <div className="settings-application-box">
             <div className="settings-application-fields">
               <label className="form-field"><span className="application-field-label">Client ID</span><input disabled={Boolean(busy)} value={twitchDraft.clientId} maxLength={128} onChange={(event) => updateDraft('clientId', event.target.value)} /></label>
               <TwitchSecretField credential={twitchCredential} value={secretDraft} busy={busy} host="server" onChange={setSecretDraft} onAction={(action) => void runSecretAction(action)} />
             </div>
             <div className="settings-application-footer">
-              <div className="settings-callback"><div><span>OAuth callback URL</span><code>{setup.twitch.oauth_callback_url || 'Unavailable'}</code></div><button className="secondary" aria-label="Copy OAuth callback URL" disabled={!setup.twitch.oauth_callback_url} onClick={() => void copyBrowserText(setup.twitch.oauth_callback_url)}>Copy</button></div>
-              <a className="secondary" href="https://dev.twitch.tv/console/apps" target="_blank" rel="noopener noreferrer">Open Twitch Developer Console</a>
+              <div className="settings-callback"><div><span>{tw.callbackUrl}</span><code>{setup.twitch.oauth_callback_url || common.unavailable}</code></div><button className="secondary" aria-label={tw.copyCallback} disabled={!setup.twitch.oauth_callback_url} onClick={() => void copyBrowserText(setup.twitch.oauth_callback_url)}>{tw.copy}</button></div>
+              <a className="secondary" href="https://dev.twitch.tv/console/apps" target="_blank" rel="noopener noreferrer">{tw.openConsole}</a>
             </div>
           </div>
-          {setup.twitch.management_url && <div className="oauth-callback"><span>Configured management URL:</span><code>{setup.twitch.management_url}</code></div>}
+          {setup.twitch.management_url && <div className="oauth-callback"><span>{tw.managementUrl}</span><code>{setup.twitch.management_url}</code></div>}
         </Accordion>
         <section className="twitch-settings-group twitch-save-section">
-          <h3>Save and authorize</h3>
+          <h3>{tw.saveAndAuthorize}</h3>
 
           <div className="settings-actions">
-            <button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch()}>{busy === 'twitch:save' ? 'Saving…' : 'Save Twitch settings'}</button>
-            <button className="primary" disabled={Boolean(busy) || !setup.twitch.client_id} onClick={() => void beginAuthorization()}>{busy === 'oauth:begin' ? 'Opening…' : 'Connect Twitch'}</button>
+            <button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch()}>{busy === 'twitch:save' ? common.saving : tw.saveTwitch}</button>
+            <button className="primary" disabled={Boolean(busy) || !setup.twitch.client_id} onClick={() => void beginAuthorization()}>{busy === 'oauth:begin' ? tw.opening : tw.connectTwitch}</button>
           </div>
-          <p className="settings-hint">Changing the Client ID or bot account stops the bot and clears authorization. If you change only the target channel, HeetKit keeps your authorization.</p>
+          <p className="settings-hint">{tw.serverIdentityHint}</p>
           {authorizationExpires !== null && <>
-            {authorizationUrl && <a className="secondary" href={authorizationUrl} target="_blank" rel="noopener noreferrer">Open Twitch authorization</a>}
-            <p className="settings-hint">This attempt expires in about {Math.ceil(authorizationExpires / 60)} minutes. Starting again replaces it. {setup.twitch.authorization_mode === 'redirect' ? 'Keep this signed-in tab open for the result after approving access on Twitch.' : 'After approving access, copy the full URL from the browser error page. Paste it below and keep it private.'}</p>
-            {setup.twitch.authorization_mode !== 'redirect' && <label className="form-field">Callback URL<input type="password" autoComplete="off" maxLength={16384} value={callbackUrl} onChange={(event) => setCallbackUrl(event.target.value)} placeholder="Paste the complete redirected URL" /></label>}
+            {authorizationUrl && <a className="secondary" href={authorizationUrl} target="_blank" rel="noopener noreferrer">{tw.openAuthorization}</a>}
+            <p className="settings-hint">{plural(tw.expires, Math.ceil(authorizationExpires / 60))} {setup.twitch.authorization_mode === 'redirect' ? tw.expiresRedirect : tw.expiresPaste}</p>
+            {setup.twitch.authorization_mode !== 'redirect' && <label className="form-field">{tw.callbackField}<input type="password" autoComplete="off" maxLength={16384} value={callbackUrl} onChange={(event) => setCallbackUrl(event.target.value)} placeholder={tw.callbackPlaceholder} /></label>}
             <div className="credential-actions">
-              {setup.twitch.authorization_mode !== 'redirect' && <button className="primary" disabled={Boolean(busy) || !callbackUrl.trim()} onClick={() => void completeAuthorization()}>{busy === 'oauth:complete' ? 'Checking…' : 'Complete authorization'}</button>}
-              <button className="secondary" disabled={Boolean(busy)} onClick={() => void cancelAuthorization()}>{busy === 'oauth:cancel' ? 'Cancelling…' : 'Cancel'}</button>
+              {setup.twitch.authorization_mode !== 'redirect' && <button className="primary" disabled={Boolean(busy) || !callbackUrl.trim()} onClick={() => void completeAuthorization()}>{busy === 'oauth:complete' ? tw.checking : tw.completeAuthorization}</button>}
+              <button className="secondary" disabled={Boolean(busy)} onClick={() => void cancelAuthorization()}>{busy === 'oauth:cancel' ? tw.cancelling : common.cancel}</button>
             </div>
           </>}
         </section>
@@ -367,6 +376,11 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
   const [notice, setNotice] = useState('')
   const [profilePath, setProfilePath] = useState('')
   const [profileError, setProfileError] = useState('')
+  const all = useCatalog(settingsText)
+  const tw = all.twitch
+  const text = all.desktop
+  const common = useCatalog(commonText)
+  const { fmt } = useI18n()
 
   useEffect(() => {
     if (!active) return
@@ -375,7 +389,7 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
       try {
         const api = await waitForBridge()
         const profile = await api.get_profile_info()
-        if (!profile.path) throw new Error('The profile location is unavailable.')
+        if (!profile.path) throw new Error(catalogFor(settingsText).desktop.profileUnavailable)
         if (mounted) {
           setProfilePath(profile.path)
           setProfileError('')
@@ -383,7 +397,7 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
       } catch (reason) {
         if (mounted) {
           setProfilePath('')
-          setProfileError(reason instanceof Error ? reason.message : 'Could not load the profile location.')
+          setProfileError(reason instanceof Error ? reason.message : catalogFor(settingsText).desktop.profileLoadFailed)
         }
       }
     }
@@ -405,14 +419,15 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
           api.get_credentials(),
           api.get_twitch_settings(),
         ])
+        const current = catalogFor(settingsText).desktop
         if (!response.ok || !response.settings) {
-          throw new Error(response.error ?? 'Desktop settings are unavailable.')
+          throw new Error(response.error ?? current.settingsUnavailable)
         }
         if (!credentialResponse.ok || !credentialResponse.credentials) {
-          throw new Error(credentialResponse.error ?? 'Credential status is unavailable.')
+          throw new Error(credentialResponse.error ?? current.credentialsUnavailable)
         }
         if (!twitchResponse.ok || !twitchResponse.settings) {
-          throw new Error(twitchResponse.error ?? 'Twitch settings are unavailable.')
+          throw new Error(twitchResponse.error ?? current.twitchUnavailable)
         }
         if (mounted) {
           setDraft(response.settings)
@@ -439,7 +454,7 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
         }
       } catch (reason) {
         if (mounted) {
-          setError(reason instanceof Error ? reason.message : 'Could not load settings.')
+          setError(reason instanceof Error ? reason.message : catalogFor(settingsText).desktop.loadFailed)
         }
       } finally {
         if (mounted) setLoading(false)
@@ -471,13 +486,13 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
         updated.auto_start_bot,
       )
       if (!result.ok) {
-        throw new Error(result.error ?? 'Desktop settings could not be saved.')
+        throw new Error(result.error ?? text.saveFailed)
       }
       setSaved(updated)
       setNotice(successMessage)
     } catch (reason) {
       setDraft(previous)
-      setError(reason instanceof Error ? reason.message : 'Desktop settings could not be saved.')
+      setError(reason instanceof Error ? reason.message : text.saveFailed)
     } finally {
       setBusy('')
     }
@@ -497,10 +512,10 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
       const api = await waitForBridge()
       const result = await api.open_external_link(destination)
       if (!result.ok) {
-        throw new Error(result.error ?? 'Could not open the Twitch page.')
+        throw new Error(result.error ?? text.openFailed)
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not open the Twitch page.')
+      setError(reason instanceof Error ? reason.message : text.openFailed)
     } finally {
       setBusy('')
     }
@@ -523,7 +538,7 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
         try {
           input.select()
           if (!document.execCommand('copy')) {
-            throw new Error('Clipboard access is unavailable.')
+            throw new Error(text.clipboardUnavailable)
           }
         } finally {
           input.remove()
@@ -545,10 +560,10 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
     try {
       const api = await waitForBridge()
       const result = await api.open_profile_folder()
-      if (!result.ok) throw new Error(result.error ?? 'Could not open the profile folder.')
-      setNotice('Profile folder opened.')
+      if (!result.ok) throw new Error(result.error ?? text.folderFailed)
+      setNotice(text.folderOpened)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not open the profile folder.')
+      setError(reason instanceof Error ? reason.message : text.folderFailed)
     } finally {
       setBusy('')
     }
@@ -565,7 +580,7 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
     }
     const preset = twitchDraft.presets.find((item) => item.id === presetId)
     if (!preset) {
-      setError('The selected saved channel is no longer available.')
+      setError(text.presetMissing)
       return
     }
     updateTwitchDraft({
@@ -574,7 +589,7 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
       target_channel_user_id: preset.target_channel_user_id,
     })
     setPresetName(preset.display_name)
-    setNotice('Saved channel selected. Save for later, or use Save & reconnect while running / Save & apply while stopped.')
+    setNotice(text.presetSelected)
   }
 
   const restartPendingTwitch = async () => {
@@ -583,7 +598,7 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
     try {
       if (await restartDesktop()) return
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'HeetKit could not restart.')
+      setError(reason instanceof Error ? reason.message : text.restartFailed)
     }
     setBusy('')
   }
@@ -595,11 +610,11 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
     const channel = twitchDraft.target_channel.trim().replace(/^#/, '')
     const channelUserId = twitchDraft.target_channel_user_id.trim()
     if (!channel || /\s/.test(channel)) {
-      setError('Twitch target channel must be a non-empty login name without spaces.')
+      setError(text.channelInvalid)
       return
     }
     if (!/^\d+$/.test(channelUserId)) {
-      setError('Twitch channel user ID must contain digits only.')
+      setError(text.channelIdInvalid)
       return
     }
     setBusy(apply ? 'twitch:reconnect' : 'twitch:save')
@@ -625,10 +640,10 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
         twitchDraft.bot_user_id,
       )
       if (!savedResult.ok) {
-        throw new Error(savedResult.error ?? 'Twitch settings could not be saved.')
+        throw new Error(savedResult.error ?? text.twitchSaveFailed)
       }
       if (apply && savedResult.requires_restart) {
-        setNotice('Twitch setup saved. Choose Restart now to apply it.')
+        setNotice(text.restartToApply)
         setTwitchSaved({ ...twitchDraft, requires_restart: true })
         // Exclude only the draft saved by this action. Other editor state can
         // still be present, including an unsaved channel name or secret.
@@ -639,12 +654,12 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
       if (apply && !savedResult.requires_restart && savedResult.requires_reconnect) {
         const reconnectResult = await api.reconnect_twitch()
         if (!reconnectResult.ok) {
-          applyError = reconnectResult.error ?? 'Twitch settings were saved. The connection could not be updated.'
+          applyError = reconnectResult.error ?? text.reconnectFailed
         }
       }
       const refreshed = await api.get_twitch_settings()
       if (!refreshed.ok || !refreshed.settings) {
-        throw new Error(refreshed.error ?? 'Twitch status could not be refreshed.')
+        throw new Error(refreshed.error ?? text.statusRefreshFailed)
       }
       setTwitchSaved(refreshed.settings)
       setTwitchDraft(refreshed.settings)
@@ -655,17 +670,17 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
       if (applyError) throw new Error(applyError)
       setNotice(
         savedResult.requires_restart
-          ? 'Twitch setup saved. Choose Restart now to apply it.'
+          ? text.restartToApply
           : apply && savedResult.requires_reconnect
           ? refreshed.settings.running
-            ? 'Twitch settings saved and the connection was restarted.'
-            : 'Twitch settings saved and applied for the next bot start.'
+            ? text.savedRestarted
+            : text.savedNextStart
           : savedResult.requires_reconnect
-            ? 'Twitch settings saved. Apply the saved target when ready.'
-            : 'Twitch settings saved.',
+            ? text.savedApplyLater
+            : text.saved,
       )
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Twitch settings could not be saved.')
+      setError(reason instanceof Error ? reason.message : text.twitchSaveFailed)
     } finally {
       if (!restarting) setBusy('')
     }
@@ -677,7 +692,7 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
     }
     const name = presetName.trim()
     if (!name) {
-      setError('Saved channel name must not be empty.')
+      setError(text.presetNameEmpty)
       return
     }
     setBusy('twitch:preset-save')
@@ -692,11 +707,11 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
         twitchDraft.target_channel_user_id,
       )
       if (!result.ok) {
-        throw new Error(result.error ?? 'Saved channel could not be saved.')
+        throw new Error(result.error ?? text.presetSaveFailed)
       }
       const refreshed = await api.get_twitch_settings()
       if (!refreshed.ok || !refreshed.settings) {
-        throw new Error(refreshed.error ?? 'Twitch settings could not be refreshed.')
+        throw new Error(refreshed.error ?? text.refreshFailed)
       }
       setTwitchSaved(refreshed.settings)
       const refreshedPreset = refreshed.settings.presets.find(
@@ -707,15 +722,15 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
       setPresetName(refreshedPreset?.display_name ?? name)
       setNotice(
         refreshed.settings.requires_restart
-          ? 'Channel saved. Restart the application to apply pending Twitch setup before connecting.'
+          ? text.channelSavedRestart
           : result.requires_reconnect
           ? refreshed.settings.running
-            ? 'Channel saved. Use Save & reconnect to switch the running bot.'
-            : 'Channel saved. Use Save & apply to use this target on the next bot start.'
-          : 'Channel saved and selected.',
+            ? text.channelSavedReconnect
+            : text.channelSavedApply
+          : text.channelSaved,
       )
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Saved channel could not be saved.')
+      setError(reason instanceof Error ? reason.message : text.presetSaveFailed)
     } finally {
       setBusy('')
     }
@@ -725,7 +740,7 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
     if (!twitchDraft?.selected_preset_id) {
       return
     }
-    if (!window.confirm('Delete this saved channel? The active connection will not be changed.')) {
+    if (!window.confirm(text.confirmDeletePreset)) {
       return
     }
     setBusy('twitch:preset-delete')
@@ -735,19 +750,19 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
       const api = await waitForBridge()
       const result = await api.delete_twitch_preset(twitchDraft.selected_preset_id)
       if (!result.ok) {
-        throw new Error(result.error ?? 'Saved channel could not be deleted.')
+        throw new Error(result.error ?? text.presetDeleteFailed)
       }
       const refreshed = await api.get_twitch_settings()
       if (!refreshed.ok || !refreshed.settings) {
-        throw new Error(refreshed.error ?? 'Twitch settings could not be refreshed.')
+        throw new Error(refreshed.error ?? text.refreshFailed)
       }
       setTwitchSaved(refreshed.settings)
       setPresetName('')
-      setNotice('Saved channel deleted. The target channel was left unchanged.')
+      setNotice(text.presetDeleted)
       setTwitchDraft({ ...refreshed.settings, client_id: twitchDraft.client_id,
         bot_username: twitchDraft.bot_username, bot_user_id: twitchDraft.bot_user_id })
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Saved channel could not be deleted.')
+      setError(reason instanceof Error ? reason.message : text.presetDeleteFailed)
     } finally {
       setBusy('')
     }
@@ -755,8 +770,8 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
 
   const runSecretAction = async (action: 'replace' | 'remove' | 'test', restart = false) => {
     if (action === 'remove' && !window.confirm(restart
-      ? 'Remove the stored Twitch client secret and restart HeetKit to apply the change? Existing OAuth tokens are retained.'
-      : 'Remove the stored Twitch client secret? Choose Restart now later to apply the change. Existing OAuth tokens are retained.')) return
+      ? text.confirmRemoveRestart
+      : text.confirmRemoveLater)) return
     setBusy(`twitch_client_secret:${action}`)
     setError(''); setNotice('')
     let restarting = false
@@ -764,14 +779,14 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
       const api = await waitForBridge()
       const result = action === 'replace' ? await api.replace_credential('twitch_client_secret', secretDraft)
         : action === 'remove' ? await api.remove_credential('twitch_client_secret') : await api.test_credential('twitch_client_secret')
-      if (!result.ok) throw new Error(result.error ?? 'Secret operation failed.')
+      if (!result.ok) throw new Error(result.error ?? text.secretFailed)
       if (action !== 'test') {
         if (action === 'replace') setSecretDraft('')
         const response = await api.get_credentials()
-        if (!response.ok || !response.credentials) throw new Error(response.error ?? 'Secret status is unavailable.')
+        if (!response.ok || !response.credentials) throw new Error(response.error ?? text.secretUnavailable)
         setTwitchCredential(response.credentials.find((item) => item.name === 'twitch_client_secret'))
         const twitchResponse = await api.get_twitch_settings()
-        if (!twitchResponse.ok || !twitchResponse.settings) throw new Error(twitchResponse.error ?? 'Twitch restart status is unavailable.')
+        if (!twitchResponse.ok || !twitchResponse.settings) throw new Error(twitchResponse.error ?? text.restartStatusUnavailable)
         setTwitchSaved(twitchResponse.settings)
         setTwitchDraft((current) => current ? { ...current, requires_restart: twitchResponse.settings!.requires_restart, requires_secret_restart: twitchResponse.settings!.requires_secret_restart } : twitchResponse.settings!)
         if (restart && result.changed && result.requires_restart) {
@@ -779,8 +794,8 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
           if (restarting) return
         }
       }
-      setNotice(action === 'test' ? 'Client secret validation passed.' : result.changed === false ? 'Client secret unchanged.' : `Client secret ${action === 'remove' ? 'removed' : 'saved'}.${result.requires_restart ? ' Choose Restart now to apply the change.' : ''}`)
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Secret operation failed.') }
+      setNotice(action === 'test' ? text.secretPassed : result.changed === false ? text.secretUnchanged : `${action === 'remove' ? text.secretRemoved : text.secretSaved}${result.requires_restart ? text.restartSuffix : ''}`)
+    } catch (reason) { setError(reason instanceof Error ? reason.message : text.secretFailed) }
     finally { if (!restarting) setBusy('') }
   }
 
@@ -826,7 +841,7 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
           twitchDraft.connected ? 'connected' : twitchDraft.running ? 'connecting' : 'stopped',
           twitchDraft.oauth_token_available,
         )
-      : 'Not verified'
+      : common.authorization.notVerified
 
 
   return (
@@ -839,24 +854,24 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
       <section className="card settings-page" id="desktop-settings">
         <div className="section-heading">
           <div>
-            <h2>Desktop behavior</h2>
-            <p className="section-copy">These settings are local to this computer.</p>
+            <h2>{text.title}</h2>
+            <p className="section-copy">{text.intro}</p>
           </div>
-          <span className="mini-badge saved-badge">Auto-saved</span>
+          <span className="mini-badge saved-badge">{text.autoSaved}</span>
         </div>
-        {!draft ? <p className="muted">Loading desktop settings…</p> : (
+        {!draft ? <p className="muted">{text.loading}</p> : (
           <div className="settings-list desktop-settings-list">
-            <Switch className="settings-option" checked={draft.auto_start_bot} disabled={Boolean(busy)} onCheckedChange={(auto_start_bot) => void updateWindowSettings({ auto_start_bot }, 'Automatic bot startup preference saved for the next launch.')}>
-              <span><strong>Start bot automatically</strong><small>Takes effect next launch. Window visibility is separate.</small></span>
+            <Switch className="settings-option" checked={draft.auto_start_bot} disabled={Boolean(busy)} onCheckedChange={(auto_start_bot) => void updateWindowSettings({ auto_start_bot }, text.autoStartSaved)}>
+              <span><strong>{text.autoStart}</strong><small>{text.autoStartHint}</small></span>
             </Switch>
-            <Switch className="settings-option" checked={draft.start_minimized} disabled={Boolean(busy) || !draft.tray_available} onCheckedChange={(start_minimized) => void updateWindowSettings({ start_minimized }, 'Start-minimized preference saved for the next launch.')}>
-              <span><strong>Start minimized</strong><small>{draft.tray_available ? 'Takes effect next launch.' : 'Windows system tray only.'}</small></span>
+            <Switch className="settings-option" checked={draft.start_minimized} disabled={Boolean(busy) || !draft.tray_available} onCheckedChange={(start_minimized) => void updateWindowSettings({ start_minimized }, text.startMinimizedSaved)}>
+              <span><strong>{text.startMinimized}</strong><small>{draft.tray_available ? text.nextLaunch : text.trayOnly}</small></span>
             </Switch>
-            <Switch className="settings-option" checked={draft.minimize_to_tray} disabled={Boolean(busy) || !draft.tray_available} onCheckedChange={(minimize_to_tray) => void updateWindowSettings({ minimize_to_tray }, 'Minimize-to-tray behavior saved and active.')}>
-              <span><strong>Minimize to tray</strong><small>{draft.tray_available ? 'Applies when minimizing the window.' : 'Windows system tray only.'}</small></span>
+            <Switch className="settings-option" checked={draft.minimize_to_tray} disabled={Boolean(busy) || !draft.tray_available} onCheckedChange={(minimize_to_tray) => void updateWindowSettings({ minimize_to_tray }, text.minimizeSaved)}>
+              <span><strong>{text.minimizeToTray}</strong><small>{draft.tray_available ? text.minimizeHint : text.trayOnly}</small></span>
             </Switch>
-            <Switch className="settings-option" checked={draft.close_to_tray} disabled={Boolean(busy) || !draft.tray_available} onCheckedChange={(close_to_tray) => void updateWindowSettings({ close_to_tray }, 'Close-to-tray behavior saved and active.')}>
-              <span><strong>Close to tray</strong><small>{draft.tray_available ? 'Applies when closing the window.' : 'Windows system tray only.'}</small></span>
+            <Switch className="settings-option" checked={draft.close_to_tray} disabled={Boolean(busy) || !draft.tray_available} onCheckedChange={(close_to_tray) => void updateWindowSettings({ close_to_tray }, text.closeSaved)}>
+              <span><strong>{text.closeToTray}</strong><small>{draft.tray_available ? text.closeHint : text.trayOnly}</small></span>
             </Switch>
           </div>
         )}
@@ -864,103 +879,103 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
       <InterfaceLanguageSettings />
       <Accordion
         id="twitch-settings"
-        title="Twitch connection"
-        helpLabel="How Twitch setup works"
-        description={<ul><li>Save stores application, account and channel changes. Secret actions apply immediately.</li><li>Changing the Client ID, bot account or secret needs an app restart.</li><li>Changing the channel needs a reconnect.</li><li>All saved channels share one bot account and authorization.</li></ul>}
-        badges={twitchDirty && <span className="mini-badge dirty-badge">Edited</span>}
+        title={tw.title}
+        helpLabel={tw.helpLabel}
+        description={<ul>{tw.desktopHelp.map((item) => <li key={item}>{item}</li>)}</ul>}
+        badges={twitchDirty && <span className="mini-badge dirty-badge">{tw.edited}</span>}
         className="settings-page"
       >
-        {!twitchDraft ? <p className="muted">Loading Twitch settings…</p> : (
+        {!twitchDraft ? <p className="muted">{text.loadingTwitch}</p> : (
           <div className="settings-list twitch-settings-list">
-            <section className="twitch-connection-summary" aria-label="Twitch connection status">
+            <section className="twitch-connection-summary" aria-label={tw.statusLabel}>
               <TwitchSetupInstructions compact headingId="desktop-twitch-setup" host="desktop" callback={twitchDraft.oauth_callback_url} />
               <div className="twitch-status-grid">
-                <div><span>Connection</span><strong className={status?.twitch_connected ? 'status-good' : ''}>{status ? twitchConnectionLabel(status.twitch_connection_state) : twitchDraft.connected ? 'Connected' : twitchDraft.running ? 'Connecting' : 'Stopped'}</strong></div>
-                <div><span>Authorization</span><strong>{twitchAuthorizationStatus}</strong></div>
-                <div><span>Active bot account</span><strong>{status?.account || 'Not configured'}</strong></div>
-                <div><span>Active channel</span><strong title={twitchDraft.active_channel}>{twitchDraft.active_channel || 'Not configured'}</strong></div>
+                <div><span>{tw.connection}</span><strong className={status?.twitch_connected ? 'status-good' : ''}>{status ? twitchConnectionLabel(status.twitch_connection_state) : twitchDraft.connected ? common.connection.connected : twitchDraft.running ? common.connection.connecting : common.connection.stopped}</strong></div>
+                <div><span>{tw.authorization}</span><strong>{twitchAuthorizationStatus}</strong></div>
+                <div><span>{tw.activeBotAccount}</span><strong>{status?.account || common.notConfigured}</strong></div>
+                <div><span>{tw.activeChannel}</span><strong title={twitchDraft.active_channel}>{twitchDraft.active_channel || common.notConfigured}</strong></div>
               </div>
             </section>
             <section className="twitch-settings-group" aria-labelledby="twitch-bot-heading">
-              <h3 id="twitch-bot-heading">Bot account</h3>
+              <h3 id="twitch-bot-heading">{tw.botAccount}</h3>
               <div className="twitch-field-pair">
                 <label className="form-field">
-                  <span>Bot account login</span>
+                  <span>{tw.botLogin}</span>
                   <input value={twitchDraft.bot_username} disabled={Boolean(busy)} onChange={(event) => updateTwitchDraft({ bot_username: event.target.value })} placeholder="bot_name" />
-                  <small>Enter the login without an @ or URL.</small>
+                  <small>{tw.botLoginHint}</small>
                 </label>
                 <label className="form-field">
-                  <span>Bot account user ID</span>
+                  <span>{tw.botUserId}</span>
                   <input inputMode="numeric" value={twitchDraft.bot_user_id} disabled={Boolean(busy)} onChange={(event) => updateTwitchDraft({ bot_user_id: event.target.value })} placeholder="123456789" />
-                  <small>Use the numeric ID for the same bot account.</small>
+                  <small>{tw.botUserIdHint}</small>
                 </label>
               </div>
             </section>
             <section className="twitch-settings-group" aria-labelledby="twitch-target-heading">
-              <h3 id="twitch-target-heading">Target channel</h3>
+              <h3 id="twitch-target-heading">{tw.targetChannel}</h3>
               <div className="twitch-target-fields">
-                <label className="form-field target-saved-channel">Saved channel<Select aria-label="Saved channel" value={twitchDraft.selected_preset_id ?? ''} onChange={selectTwitchPreset} disabled={Boolean(busy)} options={[{ value: '', label: 'Unsaved target' }, ...twitchDraft.presets.map((preset) => ({ value: preset.id, label: `${preset.display_name}${preset.id === twitchDraft.active_preset_id ? ' (active)' : ''}` }))]} /></label>
+                <label className="form-field target-saved-channel">{tw.savedChannel}<Select aria-label={tw.savedChannel} value={twitchDraft.selected_preset_id ?? ''} onChange={selectTwitchPreset} disabled={Boolean(busy)} options={[{ value: '', label: tw.unsavedTarget }, ...twitchDraft.presets.map((preset) => ({ value: preset.id, label: preset.id === twitchDraft.active_preset_id ? fmt(tw.activePreset, { name: preset.display_name }) : preset.display_name }))]} /></label>
                 <div className="target-preset-editor">
-                  <label className="form-field">Saved channel name<input value={presetName} onChange={(event) => { setPresetName(event.target.value); setError(''); setNotice('') }} placeholder="Personal test" disabled={Boolean(busy)} /></label>
+                  <label className="form-field">{tw.savedChannelName}<input value={presetName} onChange={(event) => { setPresetName(event.target.value); setError(''); setNotice('') }} placeholder={tw.presetPlaceholder} disabled={Boolean(busy)} /></label>
                   <div className="preset-actions">
-                    <button className="secondary" aria-label={twitchDraft.selected_preset_id ? 'Update saved channel' : 'Save channel'} disabled={Boolean(busy) || !presetName.trim()} onClick={() => void saveTwitchPreset()}>{busy === 'twitch:preset-save' ? 'Saving...' : twitchDraft.selected_preset_id ? 'Update' : 'Save'}</button>
-                    <button className="ghost destructive" aria-label="Delete saved channel" disabled={Boolean(busy) || !twitchDraft.selected_preset_id} onClick={() => void deleteTwitchPreset()}>{busy === 'twitch:preset-delete' ? 'Deleting...' : 'Delete'}</button>
+                    <button className="secondary" aria-label={twitchDraft.selected_preset_id ? tw.updateSavedChannel : tw.saveChannel} disabled={Boolean(busy) || !presetName.trim()} onClick={() => void saveTwitchPreset()}>{busy === 'twitch:preset-save' ? tw.savingDots : twitchDraft.selected_preset_id ? tw.update : common.save}</button>
+                    <button className="ghost destructive" aria-label={tw.deleteSavedChannel} disabled={Boolean(busy) || !twitchDraft.selected_preset_id} onClick={() => void deleteTwitchPreset()}>{busy === 'twitch:preset-delete' ? tw.deletingDots : common.delete}</button>
                   </div>
                 </div>
-                <label className="form-field target-channel-login">Target channel login<input value={twitchDraft.target_channel} disabled={Boolean(busy)} onChange={(event) => updateTwitchDraft({ target_channel: event.target.value })} placeholder="channel_name" /><small>Non-secret. Saved on this computer.</small></label>
-                <label className="form-field target-channel-id">Target channel user ID<input inputMode="numeric" value={twitchDraft.target_channel_user_id} disabled={Boolean(busy)} onChange={(event) => updateTwitchDraft({ target_channel_user_id: event.target.value })} placeholder="123456789" /><small>The numeric Twitch broadcaster ID used for chat subscriptions and API lookups.</small></label>
+                <label className="form-field target-channel-login">{tw.targetLogin}<input value={twitchDraft.target_channel} disabled={Boolean(busy)} onChange={(event) => updateTwitchDraft({ target_channel: event.target.value })} placeholder="channel_name" /><small>{tw.targetLoginHint}</small></label>
+                <label className="form-field target-channel-id">{tw.targetUserId}<input inputMode="numeric" value={twitchDraft.target_channel_user_id} disabled={Boolean(busy)} onChange={(event) => updateTwitchDraft({ target_channel_user_id: event.target.value })} placeholder="123456789" /><small>{tw.targetUserIdHint}</small></label>
               </div>
-              <p className="target-channel-state"><span>Active channel</span><strong>{twitchDraft.active_channel || 'Not configured'}</strong>{draftRequiresReconnect && <><span>Draft target</span><strong>{twitchDraft.target_channel || 'Not configured'}</strong></>}</p>
+              <p className="target-channel-state"><span>{tw.activeChannel}</span><strong>{twitchDraft.active_channel || common.notConfigured}</strong>{draftRequiresReconnect && <><span>{tw.draftTarget}</span><strong>{twitchDraft.target_channel || common.notConfigured}</strong></>}</p>
             </section>
-            <Accordion id="twitch-application" title="Twitch application" badges={twitchCredential && <span className={`state-pill ${twitchCredential.configured ? 'enabled' : 'unconfigured'}`}>{twitchCredential.configured ? 'Secret configured' : 'Secret missing'}</span>} className="twitch-application-disclosure">
+            <Accordion id="twitch-application" title={tw.application} badges={twitchCredential && <span className={`state-pill ${twitchCredential.configured ? 'enabled' : 'unconfigured'}`}>{twitchCredential.configured ? tw.secretConfigured : tw.secretMissing}</span>} className="twitch-application-disclosure">
               <div className="settings-application-box">
                 <div className="settings-application-fields">
-                  <label className="form-field"><span className="application-field-label">Client ID</span><input aria-label="Twitch application client ID" value={twitchDraft.client_id} disabled={Boolean(busy)} onChange={(event) => updateTwitchDraft({ client_id: event.target.value })} placeholder="Client ID from the Twitch Developer Console" /></label>
+                  <label className="form-field"><span className="application-field-label">Client ID</span><input aria-label={tw.clientIdAria} value={twitchDraft.client_id} disabled={Boolean(busy)} onChange={(event) => updateTwitchDraft({ client_id: event.target.value })} placeholder={tw.clientIdPlaceholder} /></label>
                   <TwitchSecretField credential={twitchCredential} value={secretDraft} busy={busy} host="desktop" onChange={(value) => { setSecretDraft(value); setError(''); setNotice('') }} onAction={(action, restart) => void runSecretAction(action, restart)} />
                 </div>
                 <div className="settings-application-footer">
-                  <div className="settings-callback"><div><span>OAuth callback URL</span><code>{twitchDraft.oauth_callback_url}</code></div><button className="secondary" aria-label="Copy OAuth callback URL" onClick={() => void copyText(twitchDraft.oauth_callback_url, 'OAuth callback URL copied.', 'Could not copy the callback URL.')}>Copy</button></div>
-                  <button className="secondary" disabled={Boolean(busy)} onClick={() => void openTwitchLink('twitch_developer_console')}>Open Twitch Developer Console</button>
+                  <div className="settings-callback"><div><span>{tw.callbackUrl}</span><code>{twitchDraft.oauth_callback_url}</code></div><button className="secondary" aria-label={tw.copyCallback} onClick={() => void copyText(twitchDraft.oauth_callback_url, text.callbackCopied, text.callbackCopyFailed)}>{tw.copy}</button></div>
+                  <button className="secondary" disabled={Boolean(busy)} onClick={() => void openTwitchLink('twitch_developer_console')}>{tw.openConsole}</button>
                 </div>
               </div>
             </Accordion>
             <section className="twitch-settings-group twitch-save-section" aria-labelledby="twitch-actions-heading">
-              <h3 id="twitch-actions-heading">Save and authorize</h3>
+              <h3 id="twitch-actions-heading">{tw.saveAndAuthorize}</h3>
               {pendingRestart && <div className="setup-callout">
-                <p>{twitchSaved?.requires_restart ? 'Saved Twitch changes are pending.' : 'Twitch cleanup needs an application restart before connecting.'}</p>
-                <button className="primary" disabled={Boolean(busy)} onClick={() => void restartPendingTwitch()}>{busy === 'twitch:restart' ? 'Restarting…' : 'Restart now'}</button>
+                <p>{twitchSaved?.requires_restart ? tw.pendingChanges : tw.cleanupRestart}</p>
+                <button className="primary" disabled={Boolean(busy)} onClick={() => void restartPendingTwitch()}>{busy === 'twitch:restart' ? tw.restarting : tw.restartNow}</button>
               </div>}
               {(status?.twitch_connection_state === 'auth_required' || (!twitchTargetMissing && !twitchDraft.requires_restart && twitchCredential?.configured && !twitchDraft.oauth_token_available && !status?.twitch_connected)) && (
                 <div className="setup-callout">
                   <div>
-                    <strong>Twitch authorization required</strong>
+                    <strong>{tw.authRequired}</strong>
                     <p>{twitchDraft.requires_restart
-                      ? 'Restart the application to apply pending Twitch setup before starting and authorizing the bot.'
+                      ? tw.authRestart
                       : status?.running && status.twitch_connection_state === 'auth_required'
-                      ? 'Authorize Twitch opens in your browser. Sign in as the configured bot account.'
-                      : 'Start Bot from Dashboard, then choose Authorize Twitch here or on Dashboard. Sign in as the configured bot account.'}</p>
+                      ? tw.authOpens
+                      : tw.authStart}</p>
                   </div>
                   {status?.twitch_connection_state === 'auth_required' && (
                     <button className="primary" disabled={Boolean(busy) || !status.running || twitchDraft.requires_restart} onClick={() => void openTwitchLink('twitch_authorization')}>
-                      {busy === 'external:twitch_authorization' ? 'Opening…' : 'Authorize Twitch'}
+                      {busy === 'external:twitch_authorization' ? tw.opening : tw.authorizeTwitch}
                     </button>
                   )}
                 </div>
               )}
               <div className="settings-actions">
                 {status?.twitch_connected && <button className="secondary" disabled={Boolean(busy) || twitchDraft.requires_restart} onClick={() => void openTwitchLink('twitch_authorization')}>
-                  {busy === 'external:twitch_authorization' ? 'Opening…' : 'Renew Twitch authorization'}
+                  {busy === 'external:twitch_authorization' ? tw.opening : tw.renewAuthorization}
                 </button>}
-                {status?.twitch_connected && <HelpTip label="Twitch permissions"><ul><li>Renew to grant new permissions, for example for highlighted announcements.</li><li>Sign in as the bot account.</li><li>The bot must be a moderator or the broadcaster in the channel.</li></ul></HelpTip>}
-                <button className="secondary" disabled={!twitchDirty || Boolean(busy)} onClick={() => void saveTwitch(false)}>{busy === 'twitch:save' ? 'Saving…' : 'Save for later'}</button>
-                {(!pendingRestart || twitchDirty) && <button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch(true)}>{busy === 'twitch:reconnect' ? 'Saving…' : draftRequiresRestart ? 'Save & restart' : twitchRunning ? 'Save & reconnect' : 'Save & apply'}</button>}
+                {status?.twitch_connected && <HelpTip label={tw.permissionsLabel}><ul>{tw.permissions.map((item) => <li key={item}>{item}</li>)}</ul></HelpTip>}
+                <button className="secondary" disabled={!twitchDirty || Boolean(busy)} onClick={() => void saveTwitch(false)}>{busy === 'twitch:save' ? common.saving : tw.saveForLater}</button>
+                {(!pendingRestart || twitchDirty) && <button className="primary" disabled={Boolean(busy)} onClick={() => void saveTwitch(true)}>{busy === 'twitch:reconnect' ? common.saving : draftRequiresRestart ? tw.saveRestart : twitchRunning ? tw.saveReconnect : tw.saveApply}</button>}
               </div>
               {(draftRequiresRestart || draftRequiresReconnect) && <p className="settings-hint">{draftRequiresRestart
-                ? 'Restart HeetKit to apply changes to the client ID or bot account.'
+                ? tw.restartHint
                 : draftRequiresReconnect
                   ? twitchRunning
-                    ? 'The selected target differs from the active connection. Use Save & reconnect to switch.'
-                    : 'The selected target differs from the applied target. Use Save & apply for the next bot start.'
+                    ? tw.reconnectHint
+                    : tw.applyHint
                   : ''}</p>}
             </section>
           </div>
@@ -972,17 +987,17 @@ function DesktopSettings({ active, status }: SettingsPageProps) {
       <section className="card settings-page" id="profile-location-settings" aria-labelledby="profile-location-heading">
         <div className="section-heading">
           <div>
-            <h2 id="profile-location-heading">Data &amp; diagnostics</h2>
-            <p className="section-copy">This folder may contain private authentication and application data. Do not share it.</p>
+            <h2 id="profile-location-heading">{all.profile.title}</h2>
+            <p className="section-copy">{all.profile.warning}</p>
           </div>
         </div>
         <div className="profile-location">
-          <span className="label">CURRENT PROFILE FOLDER</span>
+          <span className="label">{all.profile.current}</span>
           {profileError ? <p className="credential-warning" role="alert">{profileError}</p>
-            : profilePath ? <code>{profilePath}</code> : <p className="muted">Loading profile location…</p>}
+            : profilePath ? <code>{profilePath}</code> : <p className="muted">{all.profile.loading}</p>}
           <div className="profile-location-actions">
-            <button className="secondary" disabled={!profilePath || Boolean(busy)} onClick={() => void openProfileFolder()}>{busy === 'profile:open' ? 'Opening…' : 'Open profile folder'}</button>
-            <button className="ghost" disabled={!profilePath || Boolean(busy)} onClick={() => void copyText(profilePath, 'Profile path copied.', 'Could not copy the profile path.')}>Copy path</button>
+            <button className="secondary" disabled={!profilePath || Boolean(busy)} onClick={() => void openProfileFolder()}>{busy === 'profile:open' ? tw.opening : all.profile.open}</button>
+            <button className="ghost" disabled={!profilePath || Boolean(busy)} onClick={() => void copyText(profilePath, all.profile.copied, all.profile.copyFailed)}>{all.profile.copyPath}</button>
           </div>
         </div>
       </section>
