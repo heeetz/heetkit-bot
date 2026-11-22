@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.errors import UserError
 import json
 import re
 from dataclasses import dataclass
@@ -18,7 +19,7 @@ DEFAULT_OPENAI_FALLBACK_MODEL = "gpt-6.1-sol"
 
 def validate_ai_provider(value: object) -> str:
     if not isinstance(value, str) or value not in AI_PROVIDERS:
-        raise ValueError("Unknown AI provider.")
+        raise UserError("ai_models.unknown_ai_provider")
     return value
 
 
@@ -27,18 +28,18 @@ def validate_provider_models(provider: object, selected: object, fallback: objec
     selected = validate_provider_model_id(provider, selected)
     fallback = validate_provider_model_id(provider, fallback)
     if selected == fallback:
-        raise ValueError("Primary and fallback models must be different.")
+        raise UserError("ai_models.primary_fallback_models_different")
     return selected, fallback
 
 
 def validate_provider_model_id(provider: str, value: object) -> str:
     model = validate_gemini_model_id(value, "AI model")
     if provider == "deepseek" and not re.fullmatch(r"deepseek-[A-Za-z0-9._-]+", model):
-        raise ValueError("Choose a DeepSeek model for DeepSeek.")
+        raise UserError("ai_models.choose_deepseek_model_deepseek")
     if provider == "gemini" and model.lower().startswith("deepseek-"):
-        raise ValueError("Choose a Gemini model for Gemini.")
+        raise UserError("ai_models.choose_gemini_model_gemini")
     if provider == "openai" and model.lower().startswith(("gemini-", "deepseek-")):
-        raise ValueError("Choose an OpenAI model for OpenAI.")
+        raise UserError("ai_models.choose_openai_model_openai")
     return model
 
 
@@ -58,10 +59,10 @@ class GeminiModelPreset:
 
 def validate_gemini_model_id(value: object, field_name: str = "Gemini model") -> str:
     if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field_name} must not be empty.")
+        raise UserError("ai_models.not_empty", field=str(field_name))
     parsed = value.strip()
     if _MODEL_ID_PATTERN.fullmatch(parsed) is None:
-        raise ValueError(f"{field_name} contains unsupported characters.")
+        raise UserError("ai_models.contains_unsupported_characters", field=str(field_name))
     return parsed
 
 

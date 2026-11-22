@@ -17,22 +17,33 @@ export function localizedError(result: Localizable): string | undefined {
   return fmt(template, params)
 }
 
-/** Fields with a user-visible backend message; app/ui_messages.py MESSAGE_FIELDS. */
-const messageFields = ['error', 'automatic_update_reason'] as const
+/** Fields with a user-visible backend message. */
+const messageFields = ['error', 'automatic_update_reason', 'load_error'] as const
 
-/** Replace coded English messages with their translation, keeping everything else. */
+/** Render coded messages, including errors inside settings and status snapshots. */
 export function localizeResult<T>(value: T): T {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  if (!value || typeof value !== 'object') return value
+  if (Array.isArray(value)) {
+    const items = value.map(localizeResult)
+    return (items.some((item, index) => item !== value[index]) ? items : value) as T
+  }
   const record = value as Record<string, unknown>
   let result: Record<string, unknown> | null = null
   for (const field of messageFields) {
     const code = field === 'error' ? record.error_code : record[`${field}_code`]
-    if (typeof record[field] !== 'string' || typeof code !== 'string') continue
+    if (typeof code !== 'string') continue
     const params = field === 'error' ? record.error_params : record[`${field}_params`]
     const text = localizedError({ error: record[field], error_code: code, error_params: params })
     if (text === record[field]) continue
     result ??= { ...record }
     result[field] = text
+  }
+  for (const [key, child] of Object.entries(record)) {
+    if (!child || typeof child !== 'object') continue
+    const localized = localizeResult(child)
+    if (localized === child) continue
+    result ??= { ...record }
+    result[key] = localized
   }
   return (result ?? value) as T
 }

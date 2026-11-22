@@ -51,23 +51,29 @@ def test_twitch_start_requires_identity(monkeypatch) -> None:
     del values["twitch_client_id"]
 
     settings = Settings(_env_file=None, **values)
-    with pytest.raises(TwitchConfigurationError, match="TWITCH_CLIENT_ID"):
+    with pytest.raises(TwitchConfigurationError) as error:
         settings.validate_twitch_configuration()
+    assert error.value.code == "settings.configure_twitch_before_starting_bot_missing"
+    assert "TWITCH_CLIENT_ID" in error.value.params["fields"]
 
 
 @pytest.mark.parametrize("field", list(valid_settings()))
 @pytest.mark.parametrize("value", ["", "   "])
 def test_twitch_start_rejects_each_blank_required_field(field, value) -> None:
     settings = Settings(_env_file=None, **(valid_settings() | {field: value}))
-    with pytest.raises(TwitchConfigurationError, match=field.upper()):
+    with pytest.raises(TwitchConfigurationError) as error:
         settings.validate_twitch_configuration()
+    assert error.value.code == "settings.configure_twitch_before_starting_bot_missing"
+    assert field.upper() in error.value.params["fields"]
 
 
 def test_twitch_start_rejects_missing_secret_without_exposing_values() -> None:
     settings = Settings(_env_file=None, **(valid_settings() | {"twitch_client_secret": None}))
     assert settings.twitch_client_secret is None
-    with pytest.raises(TwitchConfigurationError, match="TWITCH_CLIENT_SECRET") as error:
+    with pytest.raises(TwitchConfigurationError) as error:
         settings.validate_twitch_configuration()
+    assert error.value.code == "settings.configure_twitch_before_starting_bot_missing"
+    assert "TWITCH_CLIENT_SECRET" in error.value.params["fields"]
     assert "client-id" not in str(error.value)
 
 

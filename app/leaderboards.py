@@ -8,6 +8,7 @@ import logging
 from sqlalchemy import and_, delete, func, literal, select, text, update
 from sqlalchemy.dialects.sqlite import insert
 
+from app.errors import UserError
 from app.ai_user_blocks import normalize_ai_username
 from app.config.privacy import USER_RETENTION_DAYS
 from app.database.models import LeaderboardCount as Count, LeaderboardPeriod as Period
@@ -77,7 +78,7 @@ class Leaderboards:
 
     async def configure_counting(self, enabled: bool):
         if type(enabled) is not bool:
-            raise ValueError("Count chat messages must be a boolean.")
+            raise UserError("leaderboards.count_chat_messages_must_be_a_boolean")
         async with self.users.policy.lock, self.sessions() as session:
             if enabled == self.counting_enabled:
                 return
@@ -110,7 +111,7 @@ class Leaderboards:
                 if stream is not None and (not isinstance(stream.id, str) or not stream.id
                                            or not isinstance(stream.started_at, datetime) or stream.started_at.tzinfo is None
                                            or stream.started_at > self.clock()):
-                    raise ValueError("Invalid broadcast observation")
+                    raise UserError("leaderboards.invalid_broadcast_observation")
                 await self._observe(channel, chat_session, stream)
             except Exception:
                 if epoch != self._collection_epoch:
@@ -299,9 +300,9 @@ class Leaderboards:
 
     async def configure(self, channel, names):
         if not valid_channel_id(channel):
-            raise ValueError("Choose a Twitch channel first.")
+            raise UserError("leaderboards.choose_twitch_channel_first")
         if not isinstance(names, list) or len(names) > 50:
-            raise ValueError("Enter up to 50 bot nicknames.")
+            raise UserError("leaderboards.enter_up_50_bot_nicknames")
         names = list(dict.fromkeys(normalize_ai_username(name) for name in names))
         async with self.users.policy.lock, self.sessions() as session:
             settings = await session.get(LeaderboardSettings, channel)

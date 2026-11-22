@@ -9,6 +9,39 @@ const i18nRoot = resolve(process.cwd(), 'src/i18n')
 const infrastructure = new Set(['core.ts', 'language.ts', 'errors.ts'])
 const placeholder = /\{(\w+)\}/g
 
+test('code-only backend errors and update reasons render in every language', async ({ page }) => {
+  await server(page)
+  await page.goto('/tests/browser.fixture.html')
+  const results = await page.evaluate(async () => {
+    const errorsPath = '/src/i18n/errors.ts'
+    const corePath = '/src/i18n/core.ts'
+    const catalogPath = '/src/i18n/backendErrors.ts'
+    const { localizeResult } = await import(errorsPath)
+    const { applyLanguage, fmt } = await import(corePath)
+    const { backendErrors } = await import(catalogPath)
+    return ['en', 'uk', 'ru'].map(language => {
+      applyLanguage(language)
+      const code = 'custom_commands.command_name_alias_already_exists'
+      const reason = 'webview_host.publisher_verification_unavailable_install_update_manually'
+      const result = localizeResult({
+        ok: false, error_code: code, error_params: { name: 'synthetic' },
+        automatic_update_reason_code: reason,
+        nested: [{ error_code: code, error_params: { name: 'nested' } }],
+      })
+      return {
+        error: result.error, expected: fmt(backendErrors[language][code], { name: 'synthetic' }),
+        reason: result.automatic_update_reason, expectedReason: backendErrors[language][reason],
+        nested: result.nested[0].error, expectedNested: fmt(backendErrors[language][code], { name: 'nested' }),
+      }
+    })
+  })
+  for (const result of results) {
+    expect(result.error).toBe(result.expected)
+    expect(result.reason).toBe(result.expectedReason)
+    expect(result.nested).toBe(result.expectedNested)
+  }
+})
+
 type Node = string | readonly string[] | Record<string, unknown>
 
 function placeholders(value: string): string[] {

@@ -64,17 +64,17 @@ def complete_bridge_coroutine(coroutine) -> Future:
     ("update_twitch_settings", {"target_channel": "channel", "target_channel_user_id": "200"}, {"ok": True}, {"ok": True}),
     ("save_twitch_preset", {"preset_id": None, "display_name": "Test", "target_channel": "channel", "target_channel_user_id": "200"}, {"ok": True}, {"ok": True}),
     ("start_ai_playground", {"prompt": "Hello"}, {"ok": True, "request_id": "test"}, {"ok": True, "request_id": "test"}),
-    ("get_announcements", {}, OSError(), {"ok": False, "error": "Could not read announcement status."}),
-    ("save_ai_setup", {"settings": {}}, RuntimeError(), {"ok": False, "error": "Could not save AI setup. Reload saved state before retrying."}),
-    ("get_analytics", {"days": 2}, ValueError(), {"ok": False, "error": "Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N)."}),
-    ("start_ai_playground", {"prompt": "Hello"}, BridgeOperationTimedOut(), {"ok": False, "error": "Playground control timed out. Try again."}),
-    ("save_command_restriction", {"data": {}}, FutureCancelledError(), {"ok": False, "error": "Saving the restriction timed out or was cancelled. Refresh the list before retrying."}),
-    ("get_opt_outs", {}, OSError(), {"ok": False, "error": "Privacy management could not complete. Refresh the list before retrying."}),
-    ("get_profile_info", {"path": "injected"}, None, {"ok": False, "error": "Invalid operation arguments."}),
-    ("save_announcements", {}, None, {"ok": False, "error": "Invalid operation arguments."}),
-    ("get_profile_info", [], None, {"ok": False, "error": "Operation arguments must be a JSON object."}),
-    ("_backend.application", {}, None, {"ok": False, "error": "Unknown operation."}),
-    ("set_bot_mode", {"mode": "manual"}, None, {"ok": False, "error": "Unknown operation."}),
+    ("get_announcements", {}, OSError(), {"ok": False, "error_code": "webview_host.could_not_read_announcement_status", "error_params": {}}),
+    ("save_ai_setup", {"settings": {}}, RuntimeError(), {"ok": False, "error_code": "webview_host.could_not_save_ai_setup_reload", "error_params": {}}),
+    ("get_analytics", {"days": 2}, ValueError(), {"ok": False, "error_code": "webview_host.check_selected_window_confirmation_memory_limits", "error_params": {}}),
+    ("start_ai_playground", {"prompt": "Hello"}, BridgeOperationTimedOut(), {"ok": False, "error_code": "webview_host.playground_control_timed_out_try_again", "error_params": {}}),
+    ("save_command_restriction", {"data": {}}, FutureCancelledError(), {"ok": False, "error_code": "webview_host.saving_restriction_timed_out_cancelled_refresh", "error_params": {}}),
+    ("get_opt_outs", {}, OSError(), {"ok": False, "error_code": "webview_host.privacy_management_could_not_complete_refresh", "error_params": {}}),
+    ("get_profile_info", {"path": "injected"}, None, {"ok": False, "error_code": "operations.invalid_operation_arguments", "error_params": {}}),
+    ("save_announcements", {}, None, {"ok": False, "error_code": "operations.invalid_operation_arguments", "error_params": {}}),
+    ("get_profile_info", [], None, {"ok": False, "error_code": "operations.operation_arguments_must_be_a_json_object", "error_params": {}}),
+    ("_backend.application", {}, None, {"ok": False, "error_code": "webview_host.unknown_operation", "error_params": {}}),
+    ("set_bot_mode", {"mode": "manual"}, None, {"ok": False, "error_code": "webview_host.unknown_operation", "error_params": {}}),
 ])
 def test_desktop_registry_call(name, payload, outcome, expected, monkeypatch):
     import inspect
@@ -95,7 +95,7 @@ def test_desktop_registry_call(name, payload, outcome, expected, monkeypatch):
         asynchronous = inspect.iscoroutinefunction(getattr(bridge, operation.attribute))
         monkeypatch.setattr(bridge, operation.attribute, execute_async if asynchronous else execute)
     assert bridge.call(name, payload) == expected
-    if expected.get("error") in {"Invalid operation arguments.", "Operation arguments must be a JSON object."}:
+    if expected.get("error_code") in {"operations.invalid_operation_arguments", "operations.operation_arguments_must_be_a_json_object"}:
         assert calls == []
     elif operation is not None:
         assert calls == [payload]
@@ -117,7 +117,7 @@ def test_registry_timeout_uses_operation_deadline_and_observes_late_results(monk
         bridge = WebUIBridge(SimpleNamespace(submit=submit))
         with caplog.at_level(logging.WARNING, logger="app.webview.bridge"):
             assert bridge.call("get_announcements", {}) == {
-                "ok": False, "error": "Could not read announcement status.",
+                "ok": False, "error_code": "webview_host.could_not_read_announcement_status", "error_params": {},
             }
             if failure:
                 future.set_exception(RuntimeError("synthetic late failure"))
@@ -471,7 +471,7 @@ def test_bridge_exposes_about_metadata_and_fixed_external_destinations(monkeypat
     ]
     assert bridge.open_external_link("https://example.com") == {
         "ok": False,
-        "error": "That external link is not available.",
+        "error_code": "webview_host.external_link_not_available", "error_params": {},
     }
 
 
@@ -500,7 +500,7 @@ def test_bridge_update_failure_keeps_current_version_and_safe_error(monkeypatch,
     async def fake_check(*args):
         if unexpected:
             raise RuntimeError("private failure details")
-        raise UpdateCheckError("Could not reach GitHub. Check your internet connection and try again.")
+        raise UpdateCheckError("updates.could_not_reach_github_check_internet")
 
     monkeypatch.setattr("app.webview_host.check_for_updates", fake_check)
     backend = SimpleNamespace(application=SimpleNamespace(http_client=object()), submit=complete_bridge_coroutine)
@@ -509,8 +509,8 @@ def test_bridge_update_failure_keeps_current_version_and_safe_error(monkeypatch,
     assert result["ok"] is False
     assert result["current_version"] == bridge.get_about_info()["version"]
     assert "latest_version" not in result
-    assert "private" not in result["error"]
-    assert result["error"].startswith("Could not check for updates" if unexpected else "Could not reach GitHub")
+    assert "error" not in result
+    assert result["error_code"] == ("webview_host.could_not_check_updates_try_again" if unexpected else "updates.could_not_reach_github_check_internet")
 
 
 def test_bridge_update_timeout_cancels_pending_check(monkeypatch) -> None:
@@ -524,7 +524,7 @@ def test_bridge_update_timeout_cancels_pending_check(monkeypatch) -> None:
     monkeypatch.setattr("app.webview_host.BRIDGE_UPDATE_CHECK_TIMEOUT_SECONDS", 0.01)
     result = WebUIBridge(cast(AsyncioBackendHost, backend)).check_for_updates()
     assert result["ok"] is False
-    assert result["error"] == "The update check timed out. Try again."
+    assert result["error_code"] == "updates.update_check_timed_out_try_again"
     assert future.cancelled()
 
 
@@ -538,7 +538,7 @@ def test_release_browser_action_reports_failure(monkeypatch, failure) -> None:
 
     monkeypatch.setattr("app.webview_host.webbrowser.open", fake_open)
     bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace()))
-    assert bridge.open_external_link("releases") == {"ok": False, "error": "Could not open the external link."}
+    assert bridge.open_external_link("releases") == {"ok": False, "error_code": "webview_host.could_not_open_external_link", "error_params": {}}
 
 
 def test_bridge_profile_location_uses_default_runtime_owner(tmp_path, monkeypatch) -> None:
@@ -616,7 +616,7 @@ def test_bridge_refuses_to_open_missing_or_replaced_profile(tmp_path, monkeypatc
     monkeypatch.setattr("app.webview_host.subprocess.run", lambda *args, **kwargs: pytest.fail("opened a non-directory"))
 
     assert bridge.open_profile_folder() == {
-        "ok": False, "error": "The profile folder is no longer available.",
+        "ok": False, "error_code": "webview_host.profile_folder_no_longer_available", "error_params": {},
     }
 
 
@@ -637,7 +637,7 @@ def test_bridge_reports_file_manager_failure_without_private_details(tmp_path, m
     monkeypatch.setattr("app.webview_host.os.startfile", fail, raising=False)
     monkeypatch.setattr("app.webview_host.subprocess.run", fail)
     assert bridge.open_profile_folder() == {
-        "ok": False, "error": "Could not open the profile folder in the system file manager.",
+        "ok": False, "error_code": "webview_host.could_not_open_profile_folder_system", "error_params": {},
     }
     assert "synthetic private path" not in caplog.text
     assert str(tmp_path) not in caplog.text
@@ -710,7 +710,7 @@ def test_twitch_authorization_requires_configured_identity_and_secret(
     bridge = twitch_authorization_bridge(tmp_path, **{missing: None if missing.endswith("secret") else ""})
     result = bridge.open_external_link("twitch_authorization")
     assert result["ok"] is False
-    assert missing.upper() in result["error"]
+    assert missing.upper() in result["error_params"]["fields"]
 
 
 def test_twitch_authorization_rejects_pending_identity_changes(monkeypatch, tmp_path) -> None:
@@ -725,7 +725,7 @@ def test_twitch_authorization_rejects_pending_identity_changes(monkeypatch, tmp_
     assert saved["requires_restart"] is True
     result = bridge.open_external_link("twitch_authorization")
     assert result["ok"] is False
-    assert "Restart" in result["error"]
+    assert result["error_code"] == "webview_host.restart_application_apply_saved_twitch_client"
 
 
 @pytest.mark.parametrize("action", ["replace", "remove"])
@@ -762,14 +762,14 @@ def test_twitch_secret_changes_report_restart_and_prevent_using_stale_setup(
                       lambda: bridge.open_external_link("twitch_authorization")):
         result = operation()
         assert result["ok"] is False
-        assert "Restart" in result["error"]
+        assert result["error_code"] == "webview_host.restart_application_apply_saved_twitch_client"
 
 
 @pytest.mark.parametrize("action", ["failed_replace", "unchanged_replace", "unchanged_remove", "gemini"])
 def test_unchanged_twitch_secret_and_gemini_edits_do_not_require_restart(tmp_path, action) -> None:
     bridge = twitch_authorization_bridge(tmp_path)
     def fail_replace(name, value):
-        raise CredentialError("Could not store the credential securely.")
+        raise CredentialError("credentials.could_not_store_credential_securely")
     bridge._twitch_setup.credentials = bridge._credential_manager = SimpleNamespace(
         parse_name=lambda name: CredentialName(name),
         replace=fail_replace if action == "failed_replace" else lambda name, value: None,
@@ -803,7 +803,7 @@ def test_twitch_external_actions_report_browser_failure(
     monkeypatch.setattr("app.webview_host.webbrowser.open", failed_open)
     bridge = twitch_authorization_bridge(tmp_path)
     assert bridge.open_external_link(destination) == {
-        "ok": False, "error": "Could not open the external link.",
+        "ok": False, "error_code": "webview_host.could_not_open_external_link", "error_params": {},
     }
 
 
@@ -940,7 +940,7 @@ def test_bridge_timeout_cancels_pending_backend_operation(
     assert result == {
         "ok": False,
         "changed": False,
-        "error": "Starting the bot timed out. Check Logs for details.",
+        "error_code": "webview_host.starting_bot_timed_out_check_logs", "error_params": {},
     }
     assert backend.future.cancelled()
     assert "operation=start_bot" in caplog.text
@@ -1255,10 +1255,10 @@ def test_bridge_applies_command_settings_for_current_runtime(tmp_path) -> None:
 @pytest.mark.parametrize(
     ("enabled", "per_user", "global_value", "permission", "expected_error"),
     [
-        ("false", 0, 0, "USER", "Enabled must be a boolean."),
-        (True, -1, 0, "USER", "Cooldown values must be non-negative numbers."),
-        (True, float("nan"), 0, "USER", "Cooldown values must be non-negative numbers."),
-        (True, 0, 0, "OWNER", "Permission must be a valid permission name."),
+        ("false", 0, 0, "USER", "announcements.enabled_must_be_a_boolean"),
+        (True, -1, 0, "USER", "management.cooldown_values_non_negative_numbers"),
+        (True, float("nan"), 0, "USER", "management.cooldown_values_non_negative_numbers"),
+        (True, 0, 0, "OWNER", "management.permission_valid_permission_name"),
     ],
 )
 def test_bridge_rejects_invalid_command_settings(
@@ -1280,7 +1280,7 @@ def test_bridge_rejects_invalid_command_settings(
         permission,
     )
 
-    assert result == {"ok": False, "error": expected_error}
+    assert result == {"ok": False, "error_code": expected_error, "error_params": {}}
     assert runtime_state.get_command_settings("ping") == original
 
 
@@ -1399,7 +1399,7 @@ def test_bridge_profile_instructions_failure_retains_state_and_explains_repair(t
     path.write_bytes(b"{broken")
     for result in (bridge.save_profile_instructions("New text"), bridge.reset_profile_instructions()):
         assert result["ok"] is False
-        assert "Quit the app, back up and repair" in result["error"]
+        assert result["error_code"] == "settings_recovery.cannot_save_profile"
         assert state.profile_instructions == "Saved text"
         assert path.read_bytes() == b"{broken"
 
@@ -1467,7 +1467,7 @@ def test_bridge_rejects_invalid_collection_operations(tmp_path) -> None:
     for action in operations:
         result = action()
         assert result["ok"] is False
-        assert result["error"]
+        assert result["error_code"]
         assert state.get_personality_settings_snapshot() == before
 
 
@@ -1484,7 +1484,7 @@ def test_bridge_crud_errors_preserve_malformed_profile_and_explain_repair(tmp_pa
         bridge.set_active_personality("local"),
     ):
         assert result["ok"] is False
-        assert "Quit the app, back up and repair" in result["error"]
+        assert result["error_code"] == "settings_recovery.cannot_save_profile"
         assert path.read_bytes() == b"{broken"
         assert state.get_personality_settings_snapshot() == before
 
@@ -1498,7 +1498,7 @@ def test_bridge_updates_ai_runtime_toggles_with_validation(tmp_path) -> None:
     assert runtime_state.ai_memory_enabled is False
     assert bridge.set_ai_enabled("false") == {
         "ok": False,
-        "error": "Enabled must be a boolean.",
+        "error_code": "announcements.enabled_must_be_a_boolean", "error_params": {},
     }
 
 
@@ -1553,7 +1553,7 @@ def test_bridge_ai_toggle_save_failure_keeps_previous_state(tmp_path, monkeypatc
         state._command_settings_path = None
 
     assert bridge.set_ai_enabled(True) == {
-        "ok": False, "error": "Could not save AI command enabled setting.",
+        "ok": False, "error_code": "management.could_not_save_ai_command_enabled", "error_params": {},
     }
     assert bridge.get_ai_status()["enabled"] is False
     assert bridge.get_commands()["commands"][0]["enabled"] is False
@@ -1568,7 +1568,7 @@ def test_bridge_ai_toggle_does_not_reenable_removed_ask(tmp_path) -> None:
     bridge, state = build_ai_bridge(tmp_path)
     state.remove_builtin_command("ask")
     assert bridge.set_ai_enabled(True) == {
-        "ok": False, "error": "Find the AI command under Disabled in Commands and enable it there.",
+        "ok": False, "error_code": "runtime_state.find_ai_command_under_disabled_commands", "error_params": {},
     }
     _, restarted = build_ai_bridge(tmp_path)
     assert restarted.get_command_settings("ask").removed
@@ -1701,8 +1701,9 @@ def test_installed_frontend_rejects_development_override(monkeypatch, frozen) ->
     monkeypatch.setattr(sys, "frozen", frozen, raising=False)
     if not frozen:
         monkeypatch.setattr("app.webview_host.SOURCE_ROOT", None)
-    with pytest.raises(ValueError, match="source checkout"):
+    with pytest.raises(ValueError) as error:
         resolve_frontend_url("http://localhost:5173")
+    assert error.value.code == "webview_host.dev_url_is_available_only_in_a_source_checkout"
 
 
 def test_remote_development_url_is_rejected_before_loading_credentials(monkeypatch) -> None:

@@ -7,6 +7,7 @@ host context (for example the browser session ``owner``) and never come from inp
 
 from __future__ import annotations
 
+from app.errors import UserError
 import inspect
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable
@@ -38,11 +39,11 @@ class Operation:
     def bind(self, payload: object) -> dict[str, Any]:
         """Validate a JSON object against the signature; raise ValueError on mismatch."""
         if not isinstance(payload, dict):
-            raise ValueError("Operation arguments must be a JSON object.")
+            raise UserError("operations.operation_arguments_must_be_a_json_object")
         try:
             parsed = self.arguments.model_validate(payload)
         except ValidationError:
-            raise ValueError("Invalid operation arguments.") from None
+            raise UserError("operations.invalid_operation_arguments") from None
         return parsed.model_dump(exclude_unset=True)
 
 

@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from threading import RLock
 
+from app.errors import UserError
 from app.config.ai_models import validate_ai_provider, validate_provider_models
 from app.settings_recovery import preserve_settings_recovery
 from app.config.ai import AI_MEMORY_ENABLED
@@ -97,7 +98,7 @@ class AppSettings:
 
 def validate_interface_language(language: object) -> str:
     if not isinstance(language, str) or language not in INTERFACE_LANGUAGES:
-        raise ValueError("Choose English, Ukrainian or Russian.")
+        raise UserError("app_settings.choose_english_ukrainian_russian")
     return language
 
 
@@ -148,14 +149,14 @@ def _read_optional_string(
 
 def _validate_twitch_target(channel: object, channel_user_id: object) -> tuple[str, str]:
     if not isinstance(channel, str) or not channel.strip():
-        raise ValueError("Twitch target channel must not be empty.")
+        raise UserError("app_settings.twitch_target_channel_not_empty")
     parsed_channel = channel.strip().lower().removeprefix("#")
     if not parsed_channel or any(character.isspace() for character in parsed_channel):
-        raise ValueError("Twitch target channel must not contain whitespace.")
+        raise UserError("app_settings.twitch_target_channel_not_contain_whitespace")
     if len(parsed_channel) > 100:
-        raise ValueError("Twitch target channel is too long.")
+        raise UserError("app_settings.twitch_target_channel_too_long")
     if not isinstance(channel_user_id, str) or not channel_user_id.strip().isdigit():
-        raise ValueError("Twitch channel user ID must contain digits only.")
+        raise UserError("app_settings.twitch_channel_user_id_contain_digits")
     return parsed_channel, channel_user_id.strip()
 
 
@@ -163,7 +164,7 @@ def _validate_preset_id(preset_id: object) -> str:
     if not isinstance(preset_id, str) or not re.fullmatch(
         r"[A-Za-z0-9_-]{1,64}", preset_id
     ):
-        raise ValueError("Twitch preset ID is invalid.")
+        raise UserError("app_settings.twitch_preset_id_is_invalid")
     return preset_id
 
 
@@ -171,20 +172,20 @@ def validate_twitch_identity(
     client_id: object, bot_username: object, bot_user_id: object,
 ) -> tuple[str, str, str]:
     if not isinstance(client_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", client_id.strip()):
-        raise ValueError("Twitch client ID must contain only letters, digits, underscores or hyphens.")
+        raise UserError("app_settings.twitch_client_id_contain_only_letters")
     if not isinstance(bot_username, str) or not re.fullmatch(r"[A-Za-z0-9_]{1,25}", bot_username.strip()):
-        raise ValueError("Twitch bot username must be a login name with letters, digits or underscores.")
+        raise UserError("app_settings.twitch_bot_username_login_name_letters")
     if not isinstance(bot_user_id, str) or not re.fullmatch(r"[0-9]{1,20}", bot_user_id.strip()):
-        raise ValueError("Twitch bot user ID must contain digits only.")
+        raise UserError("app_settings.twitch_bot_user_id_contain_digits")
     return client_id.strip(), bot_username.strip().lower(), bot_user_id.strip()
 
 
 def _validate_preset_name(display_name: object) -> str:
     if not isinstance(display_name, str) or not display_name.strip():
-        raise ValueError("Twitch preset name must not be empty.")
+        raise UserError("app_settings.twitch_preset_name_not_empty")
     parsed_name = display_name.strip()
     if len(parsed_name) > 80:
-        raise ValueError("Twitch preset name is too long.")
+        raise UserError("app_settings.twitch_preset_name_too_long")
     return parsed_name
 
 
@@ -207,12 +208,12 @@ def validate_twitch_settings(
             None,
         )
         if selected is None:
-            raise ValueError("Unknown Twitch connection preset.")
+            raise UserError("app_settings.unknown_twitch_connection_preset")
         if (
             selected.channel != parsed_channel
             or selected.channel_user_id != parsed_channel_user_id
         ):
-            raise ValueError("Selected Twitch preset does not match the target channel.")
+            raise UserError("app_settings.selected_twitch_preset_does_not_match")
     return TwitchSettings(
         channel=parsed_channel,
         channel_user_id=parsed_channel_user_id,
@@ -394,7 +395,7 @@ def load_app_settings(path: Path) -> AppSettings:
         language_payload = ai_payload["response_language"]
         try:
             if not isinstance(language_payload, dict):
-                raise ValueError("Response language settings must be an object.")
+                raise UserError("app_settings.response_language_settings_must_be_an_object")
             response_language = validate_response_language(
                 language_payload.get("mode"),
                 language_payload.get("allowed_languages"),
@@ -414,7 +415,7 @@ def load_app_settings(path: Path) -> AppSettings:
                                                              ai_payload.get("context_max_entries", AI_CONTEXT_MAX_ENTRIES))
     except ValueError:
         # Reject invalid policy rather than silently expanding a requested cap.
-        raise ValueError("Invalid saved AI history/context limits; correct profile settings before startup.") from None
+        raise UserError("app_settings.invalid_saved_ai_history_context_limits_correct_profile_settings") from None
     return AppSettings(
         window=WindowSettings(
             start_minimized=_read_boolean(
@@ -527,7 +528,7 @@ class AppSettingsStore:
 
     def update_operation_mode(self, mode: object) -> AppSettings:
         if not isinstance(mode, str) or mode not in OPERATION_MODES:
-            raise ValueError("Unknown operation mode.")
+            raise UserError("app_settings.unknown_operation_mode")
         with self._lock:
             updated = replace(self._settings, startup=replace(self._settings.startup, operation_mode=mode))
             save_app_settings(self._path, updated, recovered_settings=self._settings)
@@ -572,7 +573,7 @@ class AppSettingsStore:
             auto_start_bot,
         )
         if any(type(value) is not bool for value in values):
-            raise ValueError("Desktop settings must be boolean values.")
+            raise UserError("app_settings.desktop_settings_must_be_boolean_values")
         with self._lock:
             updated = replace(
                 self._settings,
@@ -600,7 +601,7 @@ class AppSettingsStore:
 
     def update_ai_memory(self, *, enabled: object) -> AppSettings:
         if type(enabled) is not bool:
-            raise ValueError("AI memory setting must be a boolean value.")
+            raise UserError("app_settings.ai_memory_setting_must_be_a_boolean_value")
         with self._lock:
             updated = replace(
                 self._settings,
@@ -624,7 +625,7 @@ class AppSettingsStore:
 
     def update_setup_guide(self, dismissed: object, ai_skipped: object) -> AppSettings:
         if type(dismissed) is not bool or type(ai_skipped) is not bool:
-            raise ValueError("Setup guide preferences must be boolean.")
+            raise UserError("app_settings.setup_guide_preferences_must_be_boolean")
         with self._lock:
             updated = replace(self._settings, ai=replace(self._settings.ai,
                               setup_guide_dismissed=dismissed, setup_guide_ai_skipped=ai_skipped))
@@ -700,13 +701,13 @@ class AppSettingsStore:
             else:
                 parsed_id = _validate_preset_id(preset_id)
                 if not any(preset.id == parsed_id for preset in existing):
-                    raise ValueError("Unknown Twitch connection preset.")
+                    raise UserError("app_settings.unknown_twitch_connection_preset")
             if any(
                 preset.id != parsed_id
                 and preset.display_name.casefold() == parsed_name.casefold()
                 for preset in existing
             ):
-                raise ValueError("A Twitch preset with this name already exists.")
+                raise UserError("app_settings.twitch_preset_name_already_exists")
             preset = TwitchConnectionPreset(
                 id=parsed_id,
                 display_name=parsed_name,
@@ -740,7 +741,7 @@ class AppSettingsStore:
         with self._lock:
             current = self._settings.twitch
             if not any(preset.id == parsed_id for preset in current.presets):
-                raise ValueError("Unknown Twitch connection preset.")
+                raise UserError("app_settings.unknown_twitch_connection_preset")
             updated = replace(
                 self._settings,
                 window=self._settings.window,

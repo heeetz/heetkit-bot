@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 
+from app.errors import UserError, UserOSError
 from app.desktop_instance import DesktopAlreadyRunningError, desktop_instance_guard, notify_existing_desktop
 from app.runtime_paths import RuntimePaths
 from app.services.updates import (
@@ -27,6 +28,10 @@ UNINSTALL_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\{C2D78D77-
 WORKER_FLAG = "--desktop-relaunch-worker"
 READY_FLAG = "--desktop-relaunch-ready"
 REBOOT_REQUIRED = {8, 3010}
+
+
+class InstallationInUseError(UserError, DesktopAlreadyRunningError):
+    """Keep duplicate-installation handling while carrying its catalog code."""
 
 
 def installed_directory(executable: Path | None = None) -> Path | None:
@@ -89,7 +94,7 @@ def new_work_directory(profile: Path, install: Path | None = None) -> Path:
         return Path(tempfile.mkdtemp(prefix="heetkit-restart-"))
     root = work_root()
     if _is_link(root) or _overlap(profile, root) or _overlap(install, root) or _overlap(install, profile):
-        raise UpdateCheckError("The installation, profile and update workspace must use separate directories.")
+        raise UpdateCheckError("desktop_relaunch.installation_profile_update_workspace_use_separate")
     root.mkdir(exist_ok=True)
     return Path(tempfile.mkdtemp(prefix="upgrade-", dir=root))
 
@@ -99,7 +104,7 @@ def installation_access(directory: Path, *, exclusive: bool = False):
     """Hold a shared handle during normal use or an exclusive handle during replacement."""
     root = work_root()
     if _is_link(root):
-        raise OSError("The update workspace is linked.")
+        raise UserOSError("desktop_relaunch.update_workspace_linked")
     root.mkdir(exist_ok=True)
     identity = hashlib.sha256(str(directory.resolve()).casefold().encode()).hexdigest()[:32]
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -111,7 +116,7 @@ def installation_access(directory: Path, *, exclusive: bool = False):
     if handle == ctypes.c_void_p(-1).value:
         error = ctypes.get_last_error()
         if error == 32:
-            raise DesktopAlreadyRunningError("Close every HeetKit window using this installation and retry after any update finishes.")
+            raise InstallationInUseError("desktop_relaunch.close_every_heetkit_window_using_installation")
         raise ctypes.WinError(error)
     try:
         yield
@@ -140,17 +145,17 @@ def _await_parent(stage: Path, pid: int) -> None:
             wait.restype = ctypes.c_uint32
             (stage / "worker-ready").touch()
             if wait(handle, 90_000) != 0:
-                raise OSError("HeetKit did not exit in time.")
+                raise UserOSError("desktop_relaunch.heetkit_did_not_exit_time")
         finally:
             _close_handle(kernel, handle)
     else:
         if os.getppid() != pid:
-            raise OSError("The original Desktop process has already exited.")
+            raise UserOSError("desktop_relaunch.original_desktop_process_has_already_exited")
         (stage / "worker-ready").touch()
         deadline = time.monotonic() + 90
         while os.getppid() == pid:
             if time.monotonic() >= deadline:
-                raise OSError("HeetKit did not exit in time.")
+                raise UserOSError("desktop_relaunch.heetkit_did_not_exit_time")
             time.sleep(0.1)
 
 
@@ -168,7 +173,7 @@ def _wait_for_file(path: Path, process: subprocess.Popen, timeout: float) -> Non
     deadline = time.monotonic() + timeout
     while not path.is_file():
         if process.poll() is not None or time.monotonic() >= deadline:
-            raise OSError("The Desktop process did not report readiness.")
+            raise UserOSError("desktop_relaunch.desktop_process_did_not_report_readiness")
         time.sleep(0.05)
 
 
@@ -218,7 +223,7 @@ def backup_profile(profile: RuntimePaths, stage: Path) -> None:
 
     def copy(source: Path, target: Path) -> None:
         if _is_link(source):
-            raise OSError("The profile contains a linked file or directory.")
+            raise UserOSError("desktop_relaunch.profile_contains_linked_file_directory")
         if source in sidecars:
             return
         if source.is_dir():
@@ -230,7 +235,7 @@ def backup_profile(profile: RuntimePaths, stage: Path) -> None:
         elif source.is_file():
             shutil.copy2(source, target)
         else:
-            raise OSError("The profile contains an unsupported file.")
+            raise UserOSError("desktop_relaunch.profile_contains_unsupported_file")
 
     with ExitStack() as guards:
         guards.enter_context(desktop_instance_guard(profile.app_settings))
@@ -272,23 +277,23 @@ def _file_version(executable: Path) -> tuple[int, int, int, int]:
     if (not size or not read_version(str(executable), 0, size, buffer)
             or not query(buffer, "\\", ctypes.byref(pointer), ctypes.byref(length))
             or length.value < 16 or pointer[0] != 0xFEEF04BD):
-        raise UpdateCheckError("Windows could not read the executable version metadata.")
+        raise UpdateCheckError("desktop_relaunch.windows_could_not_read_executable_version")
     high, low = pointer[2], pointer[3]
     return high >> 16, high & 0xFFFF, low >> 16, low & 0xFFFF
 
 
 def verify_installer_version(installer: Path, version: str) -> None:
     if _file_version(installer) != windows_version(version):
-        raise UpdateCheckError("The installer executable version does not match the signed release.")
+        raise UpdateCheckError("desktop_relaunch.installer_executable_version_does_not_match")
 
 
 def _install(stage: Path, executable: Path, profile: Path, assets: ReleaseAssets) -> None:
     key = publisher_key()
     install = installed_directory(executable)
     if key is None or install is None or _overlap(install, profile):
-        raise UpdateCheckError("The registered installation or publisher key is unavailable.")
+        raise UpdateCheckError("desktop_relaunch.registered_installation_publisher_key_unavailable")
     if is_prerelease(assets.version) or windows_version(assets.version) <= windows_version(VERSION):
-        raise UpdateCheckError("The selected installer must be a newer stable version.")
+        raise UpdateCheckError("desktop_relaunch.selected_installer_newer_stable_version")
     verified = verify_manifest(assets, (stage / "release.manifest.json").read_bytes(),
                                (stage / "release.manifest.sig").read_bytes(), key)
     installer = stage / assets.name
@@ -301,11 +306,11 @@ def _install(stage: Path, executable: Path, profile: Path, assets: ReleaseAssets
         )
         code = _run_installer(installer, install, stage / "installer.log", profile)
         if code == 0 and _file_version(executable) != windows_version(assets.version):
-            raise UpdateCheckError("Setup did not install the intended version. Reinstall it from GitHub Releases before reopening HeetKit.")
+            raise UpdateCheckError("desktop_relaunch.setup_did_not_install_intended_version")
     if code in REBOOT_REQUIRED:
-        raise UpdateCheckError("Windows needs a restart to complete the update. Restart Windows when ready, then open HeetKit from Start.")
+        raise UpdateCheckError("desktop_relaunch.windows_needs_restart_complete_update_restart")
     if code != 0:
-        raise UpdateCheckError(f"HeetKit Setup failed (exit code {code}). Close other HeetKit copies and retry with the installer from GitHub Releases.")
+        raise UpdateCheckError("desktop_relaunch.heetkit_setup_failed_exit_code_close", code=str(code))
 
 
 def _relaunch(options: dict, stage: Path, version: str) -> None:
@@ -319,7 +324,7 @@ def _relaunch(options: dict, stage: Path, version: str) -> None:
     process = _launch(command, cwd=cwd)
     _wait_for_file(ready, process, 60)
     if ready.read_text(encoding="utf-8") != version:
-        raise OSError("The reopened Desktop reported an unexpected version.")
+        raise UserOSError("desktop_relaunch.reopened_desktop_reported_unexpected_version")
 
 
 def run_worker(stage: Path, parent_pid: int) -> None:
@@ -330,7 +335,7 @@ def run_worker(stage: Path, parent_pid: int) -> None:
         updating = "update" in options
         _await_parent(stage, parent_pid)
         if not (stage / "shutdown-complete").is_file():
-            raise UpdateCheckError("HeetKit did not finish shutting down. Open it from Start and check Logs before retrying.")
+            raise UpdateCheckError("desktop_relaunch.heetkit_did_not_finish_shutting_down")
         version = VERSION
         if updating:
             assets = ReleaseAssets(**options["update"])
@@ -340,7 +345,7 @@ def run_worker(stage: Path, parent_pid: int) -> None:
         try:
             _relaunch(options, stage, version)
         except OSError as error:
-            raise UpdateCheckError(f"HeetKit {version} did not confirm startup. Check any open HeetKit window, then try opening it from Start. For an update, reinstall the intended version if needed.") from error
+            raise UpdateCheckError("desktop_relaunch.heetkit_did_not_confirm_startup_check", version=str(version)) from error
     except (OSError, ValueError, sqlite3.Error, DesktopAlreadyRunningError, UpdateCheckError) as error:
         message = str(error) if isinstance(error, (DesktopAlreadyRunningError, UpdateCheckError)) else (
             "The Desktop handoff could not finish. Check available disk space and permissions, then open HeetKit or reinstall from GitHub Releases."

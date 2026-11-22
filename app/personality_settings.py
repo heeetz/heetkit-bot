@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+from app.errors import UserError
 from app.config.personalities import AI_PERSONALITY_PROMPTS
 from app.settings_recovery import preserve_settings_recovery
 
@@ -28,34 +29,28 @@ class PersonalitySettings:
 
 def validate_personality_name(name: object) -> str:
     if not isinstance(name, str):
-        raise ValueError("Personality name must be text.")
+        raise UserError("personality_settings.personality_name_must_be_text")
     name = name.strip()
     if not name:
-        raise ValueError("Personality name must not be empty.")
+        raise UserError("personality_settings.personality_name_not_empty")
     if len(name) > MAX_PERSONALITY_NAME_LENGTH:
-        raise ValueError(
-            f"Personality name must not exceed {MAX_PERSONALITY_NAME_LENGTH} characters."
-        )
+        raise UserError("personality_settings.personality_name_must_not_exceed_characters", value1=str(MAX_PERSONALITY_NAME_LENGTH))
     return name
 
 
 def validate_personality_prompt(prompt: object) -> str:
     if not isinstance(prompt, str):
-        raise TypeError("Personality prompt must be text.")
+        raise UserError("personality_settings.personality_prompt_must_be_text")
     if len(prompt) > MAX_PERSONALITY_PROMPT_LENGTH:
-        raise ValueError(
-            f"Personality prompt must not exceed {MAX_PERSONALITY_PROMPT_LENGTH} characters."
-        )
+        raise UserError("personality_settings.personality_prompt_must_not_exceed_characters", value1=str(MAX_PERSONALITY_PROMPT_LENGTH))
     return prompt
 
 
 def validate_profile_instructions(instructions: object) -> str:
     if not isinstance(instructions, str):
-        raise TypeError("Profile instructions must be text.")
+        raise UserError("personality_settings.profile_instructions_must_be_text")
     if len(instructions) > MAX_PERSONALITY_PROMPT_LENGTH:
-        raise ValueError(
-            f"Profile instructions must not exceed {MAX_PERSONALITY_PROMPT_LENGTH} characters."
-        )
+        raise UserError("personality_settings.profile_instructions_must_not_exceed_characters", value1=str(MAX_PERSONALITY_PROMPT_LENGTH))
     return instructions
 
 

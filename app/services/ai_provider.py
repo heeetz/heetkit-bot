@@ -1,10 +1,12 @@
 """Internal provider seam; command handlers continue to use AIService/AIReply."""
 
+from app.errors import UserError
 from dataclasses import dataclass, field
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Literal, Protocol
 from urllib.parse import urlsplit
+
 
 from pydantic import SecretStr
 
@@ -109,20 +111,13 @@ def report_search_request() -> None:
         usage.values["search_requests"] = int(usage.values.get("search_requests", 0)) + 1
 
 
-class AIModelDiscoveryError(RuntimeError):
+class AIModelDiscoveryError(UserError, RuntimeError):
     """Application-owned diagnostics; never render provider errors or bodies."""
 
     def __init__(self, code: str):
-        messages = {
-            "provider_unavailable": "Configure the provider API key and ensure its adapter is available before discovering models.",
-            "credential_rejected": "The provider rejected the configured key.",
-            "rate_limited": "Model discovery was rate limited. Try again later.",
-            "timeout": "Model discovery timed out. Try again later.",
-            "provider_error": "Could not discover models from the provider.",
-            "credentials_changed": "Credentials changed during discovery. Discover models again with the current connection.",
-        }
-        self.code = code if code in messages else "provider_error"
-        super().__init__(messages[self.code])
+        codes = {"provider_unavailable", "credential_rejected", "rate_limited", "timeout",
+                 "provider_error", "credentials_changed"}
+        super().__init__(code if code in codes else "provider_error")
 
 
 @dataclass(frozen=True, slots=True)

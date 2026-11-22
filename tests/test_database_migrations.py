@@ -171,7 +171,7 @@ def test_backup_verification_failure_aborts_before_ddl(tmp_path, monkeypatch):
     original = migrations._check_integrity
     def fail_backup(connection):
         if str(connection.execute("PRAGMA database_list").fetchone()[2]).endswith("schema-2.sqlite3"):
-            raise migrations.DatabaseMigrationError("Synthetic verification failure")
+            raise migrations.DatabaseMigrationError("migrations.database_integrity_verification_failed_startup_stopped")
         original(connection)
     monkeypatch.setattr(migrations, "_check_integrity", fail_backup)
     with pytest.raises(migrations.DatabaseMigrationError):

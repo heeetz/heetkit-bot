@@ -404,7 +404,7 @@ async def test_public_controls_submit_to_owner_loop_and_sanitize_failures(playgr
         raise RuntimeError("synthetic-playground-key")
     bridge._backend.submit = rejected_submit
     result = await asyncio.to_thread(bridge.call, "start_ai_playground", {"prompt": "Hello"})
-    assert result == {"ok": False, "error": "The Playground is unavailable. Try again."}
+    assert result == {"ok": False, "error_code": "ai_playground.playground_unavailable_try_again", "error_params": {}}
     await ai.aclose()
 
 

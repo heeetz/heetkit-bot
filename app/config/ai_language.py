@@ -1,5 +1,6 @@
 """Profile response-language validation and protected, single-request guidance."""
 
+from app.errors import UserError
 from dataclasses import dataclass
 
 
@@ -28,16 +29,16 @@ def validate_response_language(
     mode: object, allowed_languages: object, fallback_language: object,
 ) -> ResponseLanguageSettings:
     if mode not in ("auto", "limited"):
-        raise ValueError("Response language mode must be Auto or Limited.")
+        raise UserError("ai_language.response_language_mode_auto_limited")
     if not isinstance(allowed_languages, (list, tuple)) or not allowed_languages:
-        raise ValueError("Choose at least one allowed response language.")
+        raise UserError("ai_language.choose_least_one_allowed_response_language")
     if any(not isinstance(code, str) or code not in RESPONSE_LANGUAGES
            for code in allowed_languages):
-        raise ValueError("Choose supported response language codes.")
+        raise UserError("ai_language.choose_supported_response_language_codes")
     if len(set(allowed_languages)) != len(allowed_languages):
-        raise ValueError("Allowed response languages must be unique.")
+        raise UserError("ai_language.allowed_response_languages_unique")
     if not isinstance(fallback_language, str) or fallback_language not in allowed_languages:
-        raise ValueError("Fallback language must be one of the allowed languages.")
+        raise UserError("ai_language.fallback_language_one_allowed_languages")
     return ResponseLanguageSettings(mode, tuple(allowed_languages), fallback_language)
 
 

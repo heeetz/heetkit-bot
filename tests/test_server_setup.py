@@ -265,7 +265,7 @@ async def test_credential_updates_persist_clear_validate_and_never_export(api, m
         return SimpleNamespace(status_code=401)
     monkeypatch.setattr(server.runtime.application.http_client, "get", reject)
     status, result = await call("/v1/ops/test_credential", {"name": "gemini_api_key"})
-    assert status == 400 and "rejected" in result["error"]
+    assert status == 400 and result["error_code"] == "credentials.credential_rejected_by_provider"
     assert (await call("/v1/ops/get_management_setup", {}))[1]["credentials"][1]["validation_status"] == "validation_failed"
     async def accept(*args, **kwargs):
         return SimpleNamespace(status_code=200)
@@ -305,7 +305,7 @@ async def test_external_secrets_cannot_be_shadowed_or_removed(api, provider):
     for path, payload in (("replace_credential", {"name": name.value, "value": "browser-value"}),
                           ("remove_credential", {"name": name.value})):
         status, result = await call("/v1/ops/" + path, payload)
-        assert status == 400 and "externally managed" in result["error"]
+        assert status == 400 and result["error_code"] == "server_credentials.credential_externally_managed_rotate_remove_environment"
     assert manager.effective_value(name) == "external-sentinel"
     status = next(item for item in (await call("/v1/ops/get_management_setup", {}))[1]["credentials"] if item["name"] == name)
     assert status["source"] == "environment" and not status["managed"]
@@ -427,7 +427,7 @@ async def test_oauth_supersession_denial_cancellation_and_provider_failure(api, 
     callback = await begin(call)
     denied = callback.replace("code=private-code-sentinel", "error=access_denied")
     status, result = await call("/v1/ops/complete_twitch_authorization", {"callback_url": denied})
-    assert status == 400 and "denied" in result["error"]
+    assert status == 400 and result["error_code"] == "server_setup.twitch_authorization_denied_select_connect_twitch"
     callback = await begin(call)
     async def fail(*args, **kwargs):
         raise RuntimeError("private-code-sentinel private-access-sentinel")
@@ -535,8 +535,9 @@ async def test_headless_cached_tokens_verify_application_scopes_account_and_chan
             assert server.runtime.application.services.runtime_state.twitch_connection_state == "auth_required"
         else:
             from app.twitch.client import TwitchConnectionError
-            with pytest.raises(TwitchConnectionError, match="channel"):
+            with pytest.raises(TwitchConnectionError) as error:
                 await bot.load_tokens()
+            assert error.value.code == "client.configured_twitch_channel_does_not_match_its_account_id"
     finally:
         await bot.close(save_tokens=False)
 
@@ -549,8 +550,9 @@ def test_atomic_storage_failure_and_corruption_preserve_original(tmp_path, monke
     def fail(*args):
         raise OSError("private-secret-sentinel")
     monkeypatch.setattr("app.server_credentials.os.replace", fail)
-    with pytest.raises(CredentialError, match="Could not save"):
+    with pytest.raises(CredentialError) as error:
         store.replace(CredentialName.GEMINI_API_KEY, "replacement")
+    assert error.value.code == "server_credentials.could_not_save_private_server_credentials"
     assert path.read_bytes() == before and not list(path.parent.glob("*.tmp"))
     path.write_text('{"unknown":"private-sentinel"}')
     with pytest.raises(CredentialError):
@@ -1124,9 +1126,9 @@ async def test_real_twitchio_cleanup_failure_does_not_mask_primary_failure(api, 
     assert "operation=client_cleanup exception=TwitchCleanupError http_status=none" in caplog.text
     if lookup_fails:
         assert "operation=user_lookup exception=HTTPException http_status=403" in caplog.text
-        assert "user_lookup" in result["error"]
+        assert result["error_params"]["operation"] == "user_lookup"
     else:
-        assert "client_cleanup" in result["error"]
+        assert result["error_params"]["operation"] == "client_cleanup"
     assert RuntimePaths.default().tokens.exists() is not lookup_fails
     assert server.setup.outcome[1] == "failed" and not server.policy._setup_suspended
     assert_setup_clients_closed(twitch_http)

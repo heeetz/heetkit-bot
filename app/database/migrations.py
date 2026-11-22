@@ -6,6 +6,7 @@ No selected-channel inference, profile discovery, credentials or provider access
 
 from __future__ import annotations
 
+from app.errors import UserError
 import asyncio
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
@@ -63,7 +64,7 @@ SCHEMA_2_SQL = (
 SCHEMA_SQL = SCHEMA_2_SQL + LEADERBOARD_SQL
 
 
-class DatabaseMigrationError(RuntimeError):
+class DatabaseMigrationError(UserError, RuntimeError):
     """Fixed diagnostics only: sqlite exception strings may contain private values."""
 
     @property
@@ -93,9 +94,9 @@ def _tables(connection):
 
 def _check_integrity(connection):
     if connection.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
-        raise DatabaseMigrationError("Database integrity verification failed; startup stopped.")
+        raise DatabaseMigrationError("migrations.database_integrity_verification_failed_startup_stopped")
     if connection.execute("PRAGMA foreign_key_check").fetchall():
-        raise DatabaseMigrationError("Database relationship verification failed; startup stopped.")
+        raise DatabaseMigrationError("migrations.database_relationship_verification_failed_startup_stopped")
 
 
 def _snapshot(connection):
@@ -104,7 +105,7 @@ def _snapshot(connection):
     digest = hashlib.sha256()
     for table in sorted(tables):
         if table not in TABLE_COLUMNS:
-            raise DatabaseMigrationError("Unsupported database tables; startup stopped.")
+            raise DatabaseMigrationError("migrations.unsupported_database_tables_startup_stopped")
         order = ','.join(str(index) for index in range(1, len(tables[table]) + 1)) if table in LEADERBOARD_COLUMNS else '1'
         rows = connection.execute(f'SELECT * FROM "{table}" ORDER BY {order}').fetchall()
         counts[table] = len(rows)
@@ -122,7 +123,7 @@ def _private_json(path, payload):
 def _recovery_paths(path, version):
     folder = path.parent / (path.name + ".recovery")
     if folder.is_symlink() or folder.is_junction() or (folder.exists() and folder.resolve() != folder.absolute()):
-        raise DatabaseMigrationError("Unsafe database recovery directory; startup stopped.")
+        raise DatabaseMigrationError("migrations.unsafe_database_recovery_directory_startup_stopped")
     return folder, folder / f"schema-{version}.sqlite3", folder / f"schema-{version}.json"
 
 
@@ -131,7 +132,7 @@ def _backup(path, connection, now):
     folder, target, manifest = _recovery_paths(path, 2)
     folder.mkdir(mode=0o700, exist_ok=True)
     if target.is_symlink() or manifest.is_symlink():
-        raise DatabaseMigrationError("Unsafe database recovery file; startup stopped.")
+        raise DatabaseMigrationError("migrations.unsafe_database_recovery_file_startup_stopped")
     counts, logical_checksum = _snapshot(connection)
     if target.exists() or manifest.exists():
         # A failed/interrupted migration can reuse only its exact verified snapshot.
@@ -147,7 +148,7 @@ def _backup(path, connection, now):
                     raise ValueError
             return
         except (OSError, ValueError, KeyError, sqlite3.Error):
-            raise DatabaseMigrationError("Existing recovery snapshot cannot be verified; preserve it and resolve recovery before retrying.") from None
+            raise DatabaseMigrationError("migrations.existing_recovery_snapshot_cannot_be_verified_preserve_it_and") from None
     descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     os.close(descriptor)
     try:
@@ -158,7 +159,7 @@ def _backup(path, connection, now):
                 source.backup(backup)
                 _check_integrity(backup)
                 if _snapshot(backup) != (counts, logical_checksum):
-                    raise DatabaseMigrationError("Recovery snapshot counts/checksum verification failed.")
+                    raise DatabaseMigrationError("migrations.recovery_snapshot_counts_checksum_verification_failed")
         _private_json(manifest, {"version": 1, "created_at": now.isoformat(),
                       "expires_at": (now + timedelta(days=RECOVERY_DAYS)).isoformat(),
                       "counts": counts, "source_checksum": logical_checksum,
@@ -178,7 +179,7 @@ def _date(value):
 def _validate_schema(connection, version, *, experimental=False):
     expected_columns = SCHEMA_2_COLUMNS if version == 2 else EXPERIMENTAL_V3_COLUMNS if experimental else TABLE_COLUMNS
     if _tables(connection) != expected_columns:
-        raise DatabaseMigrationError("Unsupported database schema; startup stopped.")
+        raise DatabaseMigrationError("migrations.unsupported_database_schema_startup_stopped")
     for table in expected_columns:
         definition = connection.execute(f'PRAGMA table_info("{table}")').fetchall()
         expected_types = {"id": "INTEGER", "channel_id": "VARCHAR(32)", "twitch_user_id": "VARCHAR(32)",
@@ -191,18 +192,18 @@ def _validate_schema(connection, version, *, experimental=False):
                        "leaderboard_counts": ("channel_id", "kind", "period_id", "twitch_user_id")}.get(table, (definition[0][1],))
         if (any((not column[3] and column[1] not in optional) or column[2].upper() != expected_types[column[1]] for column in definition)
                 or tuple(column[1] for column in sorted(definition, key=lambda field: field[5]) if column[5]) != primary_key):
-            raise DatabaseMigrationError("Invalid database field constraints; startup stopped.")
+            raise DatabaseMigrationError("migrations.invalid_database_field_constraints_startup_stopped")
     if connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type IN ('trigger','view')").fetchone()[0]:
-        raise DatabaseMigrationError("Unsupported database objects; startup stopped.")
+        raise DatabaseMigrationError("migrations.unsupported_database_objects_startup_stopped")
     # Verify required identity uniqueness, not just matching column names.
     indexes = connection.execute("PRAGMA index_list(users)").fetchall()
     unique_keys = {tuple(row[2] for row in connection.execute(f'PRAGMA index_info("{index[1]}")'))
                    for index in indexes if index[2]}
     if ("channel_id", "twitch_user_id") not in unique_keys or ("twitch_user_id",) in unique_keys:
-        raise DatabaseMigrationError("Invalid channel identity constraints; startup stopped.")
+        raise DatabaseMigrationError("migrations.invalid_channel_identity_constraints_startup_stopped")
     marker = connection.execute("SELECT value FROM schema_metadata WHERE name='schema_version'").fetchone()
     if marker != (str(version),):
-        raise DatabaseMigrationError("Database completion marker is missing; startup stopped.")
+        raise DatabaseMigrationError("migrations.database_completion_marker_is_missing_startup_stopped")
 
 
 def _create(connection):
@@ -226,10 +227,10 @@ def initialize_schema(path: Path, *, now=None, before_commit=None):
                 tables = _tables(connection)
                 version = connection.execute("PRAGMA user_version").fetchone()[0]
                 if (version or tables) and (version < 2 or "schema_metadata" not in tables):
-                    raise DatabaseMigrationError("This profile was created by a HeetKit version older than 1.5.1. Install HeetKit 1.6 once to update it, then install this version.")
+                    raise DatabaseMigrationError("database.update_through_1_6")
                 _check_integrity(connection)
                 if connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type IN ('trigger','view')").fetchone()[0]:
-                    raise DatabaseMigrationError("Unsupported database objects; startup stopped.")
+                    raise DatabaseMigrationError("migrations.unsupported_database_objects_startup_stopped")
                 report = None
                 if version == 2:
                     _validate_schema(connection, version)
@@ -250,7 +251,7 @@ def initialize_schema(path: Path, *, now=None, before_commit=None):
                         connection.execute("ALTER TABLE leaderboard_settings DROP COLUMN zone")
                         report = {"leaderboards": "experimental months reset to UTC"}
                 elif version != 0:
-                    raise DatabaseMigrationError("Unsupported database version; use a compatible application.")
+                    raise DatabaseMigrationError("migrations.unsupported_database_version_use_a_compatible_application")
                 elif not tables:
                     _create(connection)
                 _validate_schema(connection, SCHEMA_VERSION)
@@ -266,7 +267,7 @@ def initialize_schema(path: Path, *, now=None, before_commit=None):
     except DatabaseMigrationError:
         raise
     except (sqlite3.Error, OSError, ValueError, TypeError):
-        raise DatabaseMigrationError("Database initialization/backup failed; startup stopped with existing data preserved.") from None
+        raise DatabaseMigrationError("migrations.database_initialization_backup_failed_startup_stopped_with_existing_data") from None
 
 
 def maintain_recovery(path: Path, suppressed=(), *, deleted=(), withdrawn=(), now=None):
@@ -281,7 +282,7 @@ def _maintain_recovery(path: Path, suppressed=(), *, deleted=(), withdrawn=(), n
     if not target.exists() and not manifest.exists():
         return
     if target.is_symlink() or manifest.is_symlink():
-        raise DatabaseMigrationError("Unsafe database recovery file.")
+        raise DatabaseMigrationError("migrations.unsafe_database_recovery_file")
     try:
         metadata = json.loads(manifest.read_text(encoding="utf-8"))
         if (not isinstance(metadata, dict) or type(metadata.get("version")) is not int or metadata["version"] != 1
@@ -337,4 +338,4 @@ def _maintain_recovery(path: Path, suppressed=(), *, deleted=(), withdrawn=(), n
             finally:
                 staged.unlink(missing_ok=True)
     except (OSError, ValueError, KeyError, TypeError, sqlite3.Error):
-        raise DatabaseMigrationError("Private recovery expiry/deletion failed; review recovery copies before restoring.") from None
+        raise DatabaseMigrationError("migrations.private_recovery_expiry_deletion_failed_review_recovery_copies_before") from None

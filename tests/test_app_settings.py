@@ -380,7 +380,7 @@ def test_bridge_reads_and_updates_desktop_settings(tmp_path) -> None:
     )
     assert bridge.update_app_settings("true", False, False, False) == {
         "ok": False,
-        "error": "Desktop settings must be boolean values.",
+        "error_code": "app_settings.desktop_settings_must_be_boolean_values", "error_params": {},
     }
 
 
@@ -437,7 +437,7 @@ def test_bridge_does_not_change_runtime_when_ai_memory_save_fails(
 
     assert bridge.set_ai_memory_enabled(False) == {
         "ok": False,
-        "error": "Could not save AI memory setting.",
+        "error_code": "webview_host.could_not_save_ai_memory_setting", "error_params": {},
     }
     assert runtime_state.ai_memory_enabled is True
 

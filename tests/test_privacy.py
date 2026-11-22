@@ -374,8 +374,9 @@ def test_nm_settings_validate_without_silent_expansion(tmp_path, stored_count, c
         store.update_ai_memory_limits(stored=stored_count, context=context_count)
     assert not path.exists()
     path.write_text(json.dumps({"version": 1, "ai": {"history_max_entries": stored_count, "context_max_entries": context_count}}))
-    with pytest.raises(ValueError, match="Invalid saved AI"):
+    with pytest.raises(ValueError) as error:
         load_app_settings(path)
+    assert error.value.code == "app_settings.invalid_saved_ai_history_context_limits_correct_profile_settings"
     with pytest.raises(ValueError):
         Settings(ai_history_max_entries=stored_count, ai_context_max_entries=context_count)
 

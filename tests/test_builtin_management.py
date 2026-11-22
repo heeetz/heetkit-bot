@@ -35,10 +35,12 @@ def custom_payload(**changes):
 def test_privacy_name_is_reserved_for_builtin_and_custom_edits(tmp_path, field):
     _, state, custom, _, _, _, _ = setup_commands(tmp_path)
     value = "optout" if field == "primary_name" else ["optout"]
-    with pytest.raises(ValueError, match="already exists"):
+    with pytest.raises(ValueError) as error:
         state.apply_command_settings("ping", **{field: value})
-    with pytest.raises(ValueError, match="already exists"):
+    assert error.value.code == "custom_commands.command_name_alias_already_exists"
+    with pytest.raises(ValueError) as error:
         custom.save(custom_payload(**({"name": "optout"} if field == "primary_name" else {"aliases": ["optout"]})))
+    assert error.value.code == "custom_commands.command_name_alias_already_exists"
 
 
 def setup_commands(root):
@@ -266,8 +268,9 @@ def test_custom_collisions_and_factory_restoration_reserve_saved_and_runtime_pri
     assert bridge.save_command_settings("tg", True, 2, 5, "MODERATOR", {"primary_name": "community"})["ok"]
     state.apply_command_settings("tg", primary_name="sessioncommunity")
     for name in ("COMMUNITY", "sessioncommunity", "tg"):
-        with pytest.raises(ValueError, match="already exists"):
+        with pytest.raises(ValueError) as error:
             custom.save(custom_payload(name=name))
+        assert error.value.code == "custom_commands.command_name_alias_already_exists"
     bridge.remove_builtin_command("tg")
     assert bridge.restore_builtin_command("tg")["ok"]
     assert state.get_command_settings("tg").primary_name == "tg"
@@ -396,7 +399,7 @@ def test_complete_restore_reports_partial_response_failure_without_false_success
     monkeypatch.setattr(fun, "reset_all", fail_reset)
     result = bridge.reset_all_builtin_commands()
     assert result["ok"] is False
-    assert "settings were restored" in result["error"]
+    assert result["error_code"] == "management.factory_command_settings_were_restored_but"
     assert not state.get_command_settings("tg").removed
     assert fun.tg_message == "My community"
 
@@ -416,11 +419,13 @@ def test_custom_edits_reserve_runtime_and_saved_builtin_aliases_even_after_remov
     bridge.save_command_settings("ping", True, 0, 0, "USER", {"aliases": ["savedping"]})
     state.apply_command_settings("ping", aliases=["sessionping"])
     for name in ("savedping", "sessionping"):
-        with pytest.raises(ValueError, match="already exists"):
+        with pytest.raises(ValueError) as error:
             custom.save(custom_payload(name=name))
+        assert error.value.code == "custom_commands.command_name_alias_already_exists"
     bridge.remove_builtin_command("ping")
-    with pytest.raises(ValueError, match="already exists"):
+    with pytest.raises(ValueError) as error:
         custom.save(custom_payload(name="sessionping"))
+    assert error.value.code == "custom_commands.command_name_alias_already_exists"
     bridge.restore_builtin_command("ping")
     assert custom.save(custom_payload(name="sessionping"))
 
@@ -441,7 +446,7 @@ def test_legacy_enable_preserves_settings_and_leaves_a_colliding_command_disable
     assert state.resolve_command_alias("occupied") is None
     assert custom.get_by_name("occupied") is not None
     assert bridge.save_builtin_enabled("tg", True) == {
-        "ok": False, "error": "Command name or alias already exists: occupied",
+        "ok": False, "error_code": "custom_commands.command_name_alias_already_exists", "error_params": {"name": "occupied"},
         "code": "command_name_conflict",
     }
     assert state.get_command_settings("tg") == original

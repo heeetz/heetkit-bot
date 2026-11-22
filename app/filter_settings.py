@@ -8,6 +8,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from app.errors import UserError
 from app.runtime_paths import DEFAULT_FILTERS, FILTER_NAMES, RuntimePaths
 from app.services.filter_manager import FilterManager, FilterRule, compile_filter_pattern
 
@@ -15,11 +16,11 @@ from app.services.filter_manager import FilterManager, FilterRule, compile_filte
 FILTER_KEYS = ("words", "phrases", "patterns")
 
 
-class FilterValidationError(ValueError):
-    def __init__(self, category: str, index: int, message: str) -> None:
-        super().__init__(message)
-        self.category = category
-        self.index = index
+class FilterValidationError(UserError):
+    def __init__(self, rule_category: str, rule_index: int, code: str, **params: str) -> None:
+        super().__init__(code, **params)
+        self.category = rule_category
+        self.index = rule_index
 
 
 def _entries(path: Path, *, patterns: bool) -> list[dict[str, object]]:
@@ -31,13 +32,13 @@ def _entries(path: Path, *, patterns: bool) -> list[dict[str, object]]:
                 continue
             error = None
             if "\ufffd" in value:
-                error = "Invalid UTF-8; edit or remove this rule."
+                error = UserError("filter_settings.invalid_utf8")
             elif patterns:
                 try:
                     compile_filter_pattern(value)
                 except re.error as reason:
-                    error = f"Invalid regex: {reason}"
-            entries.append({"value": value, "valid": error is None, "error": error})
+                    error = UserError("filter_settings.invalid_regex", reason=str(reason))
+            entries.append({"value": value, "valid": error is None, **({"error_code": error.code, "error_params": error.params} if error else {"error": None})})
     return entries
 
 
@@ -68,39 +69,39 @@ def get_filter_settings(
                     for value in active
                     if value not in visible
                 )
-                load_error = "No valid rules could be loaded; prior active rules are also shown."
+                load_error = "filter_settings.no_valid_rules"
         except OSError:
             # The startup loader keeps prior rules for this case. Show those rules
             # instead of presenting an empty list that could imply no protection.
             entries = [{"value": value, "valid": True, "error": None} for value in active]
-            load_error = "Could not read the local filter file; active rules are shown."
+            load_error = "filter_settings.could_not_read_local_file"
         for entry in entries:
             entry["origin"] = "default" if entry["value"] in defaults else "local"
-        result[key] = {"rules": entries, "defaults": defaults, "load_error": load_error}
+        result[key] = {"rules": entries, "defaults": defaults, "load_error": None, "load_error_code": load_error, "load_error_params": {}}
     return result
 
 
 def validate_filter_input(payload: object) -> tuple[list[str], list[str], list[FilterRule]]:
     if not isinstance(payload, dict) or set(payload) != set(FILTER_KEYS):
-        raise ValueError("Provide words, phrases, and patterns lists.")
+        raise UserError("filter_settings.provide_words_phrases_patterns_lists")
     parsed: list[list[str]] = []
     for key in FILTER_KEYS:
         values = payload[key]
         if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
-            raise ValueError(f"{key.capitalize()} must be a list of text rules.")
+            raise UserError("filter_settings.must_be_a_list_of_text_rules", value1=str(key.capitalize()))
         rules: list[str] = []
         for index, raw in enumerate(values, 1):
             value = raw.strip()
             if not value or value.startswith("#"):
                 continue  # Exactly as the existing file loader treats these lines.
             if "\n" in value or "\r" in value or "\ufffd" in value:
-                raise FilterValidationError(key, index - 1, f"{key.capitalize()} rule {index} contains invalid text.")
+                raise FilterValidationError(key, index - 1, "filter_settings.rule_contains_invalid_text", category=key.capitalize(), index=str(index))
             if key == "patterns":
                 try:
                     compile_filter_pattern(value)
                 except re.error as error:
                     raise FilterValidationError(
-                        key, index - 1, f"Invalid regex in pattern {index}: {error}"
+                        key, index - 1, "filter_settings.invalid_regex_in_pattern", index=str(index), reason=str(error)
                     ) from error
             if key == "patterns" or value not in rules:
                 rules.append(value)
@@ -127,15 +128,15 @@ def evaluate_filter_settings(
 ) -> dict[str, object]:
     """Test effective filters or validated drafts without changing live state."""
     if not isinstance(text, str):
-        raise ValueError("Sample text must be text.")
+        raise UserError("filter_settings.sample_text_must_be_text")
     if source not in ("active", "draft"):
-        raise ValueError("Choose active or draft filters.")
+        raise UserError("filter_settings.choose_active_draft_filters")
     if source == "draft":
         parsed = validate_filter_input(payload)
         manager = FilterManager()
         apply_filter_settings(manager, parsed)
     elif payload is not None:
-        raise ValueError("Active filter tests do not accept draft rules.")
+        raise UserError("filter_settings.active_filter_tests_do_not_accept")
     result = manager.evaluate_message(text)
     return {
         "ok": True,

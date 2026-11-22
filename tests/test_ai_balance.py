@@ -117,7 +117,7 @@ async def test_failed_refresh_returns_last_success_as_stale(monkeypatch):
     assert stale["state"] == "stale"
     assert stale["balances"] == BALANCES
     assert stale["updated_at"] == original["updated_at"]
-    assert stale["error"]
+    assert stale["error_code"] == "ai_balance.balance_temporarily_unavailable"
     assert still_stale == stale
     assert "synthetic-secret" not in repr(stale)
 
@@ -177,6 +177,6 @@ async def test_unavailable_balance_hides_provider_details(monkeypatch, status, b
 
     assert result["state"] == "unavailable"
     assert result["balances"] == [] and result["updated_at"] is None
-    assert result["error"]
+    assert result["error_code"] == "ai_balance.balance_temporarily_unavailable"
     assert "synthetic-secret" not in repr(result)
     assert "provider detail" not in repr(result)

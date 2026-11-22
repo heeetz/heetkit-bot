@@ -8,6 +8,7 @@ import math
 from datetime import datetime, timezone
 from time import monotonic
 
+from app.errors import UserError
 from app.app_settings import AppSettingsStore, OPERATION_MODES
 from app.bot_runtime import BotRuntime
 
@@ -23,7 +24,7 @@ class OperationPolicy:
         if (any(not math.isfinite(value) or value <= 0
                 for value in (poll_interval, max_backoff, request_timeout))
                 or max_backoff < poll_interval or type(confirmations) is not int or confirmations < 2):
-            raise ValueError("Invalid internal stream monitoring timing.")
+            raise UserError("operation_policy.invalid_internal_stream_monitoring_timing")
         self.runtime, self.store = runtime, store
         self.mode = store.snapshot().startup.operation_mode
         self.desired_running = self.mode == "always_on"
@@ -101,7 +102,7 @@ class OperationPolicy:
 
     def set_mode(self, mode: object) -> bool:
         if self._closed or not isinstance(mode, str) or mode not in OPERATION_MODES:
-            raise ValueError("Unknown or unavailable operation mode.")
+            raise UserError("operation_policy.unknown_unavailable_operation_mode")
         if mode == self.mode:
             return False
         # Save before publishing intent. Failed writes cannot partially change policy.
@@ -119,7 +120,7 @@ class OperationPolicy:
 
     def connect(self) -> bool:
         if self._closed or self.mode != "manual":
-            raise ValueError("Choose Manual before connecting explicitly.")
+            raise UserError("operation_policy.choose_manual_before_connecting_explicitly")
         changed = not self.desired_running or self.error is not None
         self.error = None
         self.desired_running = True
@@ -128,7 +129,7 @@ class OperationPolicy:
 
     def disconnect(self) -> bool:
         if self._closed:
-            raise ValueError("Operation policy has closed.")
+            raise UserError("operation_policy.operation_policy_has_closed")
         if self.mode in {"always_on", "stream_only"}:
             return self.set_mode("manual")
         changed = self.desired_running
@@ -202,7 +203,7 @@ class OperationPolicy:
                     live = await self.runtime.application.services.twitch.get_broadcaster_live(
                         self.runtime.application.settings)
                 if type(live) is not bool:
-                    raise ValueError("Unknown live status")
+                    raise UserError("operation_policy.unknown_live_status")
             except Exception:
                 live = None
                 # Failed login/expired app tokens are retried through TwitchIO on

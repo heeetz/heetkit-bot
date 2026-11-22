@@ -124,8 +124,9 @@ def test_language_save_respects_existing_unrecoverable_file_boundary(tmp_path, c
     path.write_bytes(content)
     store = AppSettingsStore(path)
     before = store.snapshot()
-    with pytest.raises(ValueError, match="Cannot save"):
+    with pytest.raises(ValueError) as error:
         save_language(store)
+    assert error.value.code == "settings_recovery.cannot_save_profile"
     assert path.read_bytes() == content
     assert store.snapshot() == before
     assert list(tmp_path.glob("*.tmp")) == []

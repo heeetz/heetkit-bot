@@ -174,8 +174,9 @@ def test_save_refuses_to_replace_unreadable_source(tmp_path):
     path.write_bytes(original)
     store = MessageTriggerStore(path)
 
-    with pytest.raises(ValueError, match="Cannot save"):
+    with pytest.raises(ValueError) as error:
         store.save([trigger()])
+    assert error.value.code == "settings_recovery.cannot_save_profile"
 
     assert path.read_bytes() == original
     assert store.list() == ()
@@ -272,8 +273,9 @@ def test_editor_reorders_stable_ids_and_rejects_stale_collection(tmp_path):
     revision = trigger_revision(store.save([first, second]))
     updated = store.save([second, {**first, "enabled": False}], revision=revision)
     assert [(rule.id, rule.enabled) for rule in store.list()] == [("next", True), ("vas", False)]
-    with pytest.raises(ValueError, match="Chat reactions changed"):
+    with pytest.raises(ValueError) as error:
         store.save([first], revision=revision)
+    assert error.value.code == "message_triggers.chat_reactions_changed_reload_them_before"
     assert MessageTriggerStore(path).list() == updated
 
 

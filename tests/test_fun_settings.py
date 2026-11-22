@@ -129,10 +129,12 @@ def test_unreadable_or_future_file_is_not_overwritten(tmp_path, content, command
     store = FunSettingsStore(path)
     assert store.fates == FATES
     store.apply(["Session response"], command_name)
-    with pytest.raises(ValueError, match="Repair"):
+    with pytest.raises(ValueError) as error:
         store.save(["Replacement"], command_name)
-    with pytest.raises(ValueError, match="Repair"):
+    assert error.value.code == "fun_settings.repair_unreadable_unsupported_fun_settings_json"
+    with pytest.raises(ValueError) as error:
         store.reset(command_name)
+    assert error.value.code == "fun_settings.repair_unreadable_unsupported_fun_settings_json"
     assert path.read_text() == content
 
 

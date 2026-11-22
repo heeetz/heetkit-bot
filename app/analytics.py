@@ -1,5 +1,6 @@
 """Private, bounded UTC aggregates. No event or viewer ledger is persisted.
 
+
 Collection never awaits storage. A single background writer uses a separate SQLite
 file and short transactions; readers and maintenance run off the application loop.
 """
@@ -16,6 +17,7 @@ import sqlite3
 from threading import Lock
 import time
 
+from app.errors import UserError
 from app.analytics_pricing import PRICE_CHECKED, RATES, estimate
 
 _scope = ContextVar("analytics_scope", default=None)
@@ -334,7 +336,7 @@ class Analytics:
 
     async def configure(self, enabled: bool):
         if type(enabled) is not bool:
-            raise ValueError("Analytics enabled must be a boolean.")
+            raise UserError("analytics.analytics_enabled_must_be_a_boolean")
         self.enabled = enabled
         self._generation += 1
         self.queue.clear()
@@ -366,7 +368,7 @@ class Analytics:
 
     async def snapshot(self, channel_id, days=60, *, as_of=None):
         if type(days) is not int or not 1 <= days <= RETENTION_DAYS:
-            raise ValueError("Use 1 to 60 UTC calendar days.")
+            raise UserError("analytics.use_1_60_utc_calendar_days")
         now = (as_of or self.clock()).astimezone(timezone.utc)
         cutoff = (now.date() - timedelta(days=days - 1)).isoformat()
         tomorrow = (now.date() + timedelta(days=1)).isoformat()

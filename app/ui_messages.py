@@ -1,20 +1,10 @@
-"""Stable codes for user-visible backend messages (task 2.2c).
-
-Responses keep their English ``error`` text. :func:`annotate_error` adds
-``error_code`` and ``error_params`` when the text matches a known message, so the
-UI can show it in the selected language. Unknown messages keep only the English
-text. Logs and console output never use these codes and stay English.
-
-The English templates must match ``frontend/src/i18n/backendErrors.ts``
-(checked by ``tests/test_ui_messages.py``). ``{name}`` marks a parameter.
-"""
-
-from __future__ import annotations
-
-import re
-from typing import Any
+"""English templates for UserError logs and legacy callers."""
 
 MESSAGES: dict[str, str] = {
+    "client.previous_cleanup_failed_restart": "Previous Twitch cleanup failed; restart the application before reconnecting.",
+    "client.cleanup_failed_verify_storage_restart": "Twitch cleanup failed; verify private token storage and restart the application.",
+    "client.user_token_validation_failed": "Twitch user token validation failed.",
+    "client.session_failed_check_authorization_storage": "Twitch session failed; check authorization, access, configuration and private storage.",
     "database.update_through_1_6": "This profile was created by a HeetKit version older than 1.5.1. Install HeetKit 1.6 once to update it, then install this version.",
     "ai_balance.balance_request_failed": "Balance request failed.",
     "ai_balance.balance_response_contained_no_supported_balances": "Balance response contained no supported balances.",
@@ -361,72 +351,165 @@ MESSAGES: dict[str, str] = {
     "webview_host.twitch_authorization_timed_out_try_again": "Twitch authorization timed out. Try again.",
     "webview_host.twitch_reconnect_timed_out_check_logs": "Twitch reconnect timed out. Check Logs for details.",
     "webview_host.use_open_release_downloads_update_portable": "Use Open release / downloads to update this portable or source copy.",
+    "settings.configure_twitch_before_starting_bot_missing": "Configure Twitch before starting the bot. Missing: {fields}.",
+    "management_api.invalid_filter_rule_text": "Invalid filter rule text.",
+    "ai_user_blocks.invalid_twitch_account_id": "Invalid Twitch account ID.",
+    "ai_user_blocks.invalid_entry": "Invalid entry",
+    "ai_user_blocks.invalid_account_id": "Invalid account ID",
+    "ai_user_blocks.duplicate_entry": "Duplicate entry",
+    "analytics.analytics_enabled_must_be_a_boolean": "Analytics enabled must be a boolean.",
+    "announcements.unexpected_or_missing_announcement_fields": "Unexpected or missing announcement fields.",
+    "announcements.announcement_id_is_invalid": "Announcement ID is invalid.",
+    "announcements.enabled_must_be_a_boolean": "Enabled must be a boolean.",
+    "announcements.unsupported_announcement_settings": "Unsupported announcement settings.",
+    "app_settings.twitch_preset_id_is_invalid": "Twitch preset ID is invalid.",
+    "app_settings.response_language_settings_must_be_an_object": "Response language settings must be an object.",
+    "app_settings.invalid_saved_ai_history_context_limits_correct_profile_settings": "Invalid saved AI history/context limits; correct profile settings before startup.",
+    "app_settings.desktop_settings_must_be_boolean_values": "Desktop settings must be boolean values.",
+    "app_settings.ai_memory_setting_must_be_a_boolean_value": "AI memory setting must be a boolean value.",
+    "app_settings.setup_guide_preferences_must_be_boolean": "Setup guide preferences must be boolean.",
+    "command_restrictions.unexpected_or_missing_restriction_fields": "Unexpected or missing restriction fields.",
+    "command_restrictions.invalid_restriction_id": "Invalid restriction ID.",
+    "command_restrictions.duplicate_restriction_key": "Duplicate restriction key.",
+    "command_settings.command_names_must_be_text": "Command names must be text.",
+    "command_settings.command_aliases_must_be_text": "Command aliases must be text.",
+    "command_settings.command_aliases_must_be_normalized_unique_names": "Command aliases must be normalized unique names.",
+    "command_settings.display_name_must_not_have_surrounding_whitespace": "Display name must not have surrounding whitespace.",
+    "command_settings.command_name_must_be_normalized": "Command name must be normalized.",
+    "command_settings.command_name_must_be_text": "Command name must be text.",
+    "ai_setup.invalid_ai_setup_fields": "Invalid AI setup fields.",
+    "ai_setup.invalid_thinking_or_search_preference": "Invalid thinking or search preference.",
+    "ai_setup.ai_acknowledgement_must_be_boolean": "AI acknowledgement must be boolean.",
+    "ai_setup.shared_instructions_must_be_text_of_at_most_20000": "Shared instructions must be text of at most 20000 characters.",
+    "ai_setup.invalid_saved_provider_choices": "Invalid saved provider choices.",
+    "ai_setup.saved_provider_choice_belongs_to_another_provider": "Saved provider choice belongs to another provider.",
+    "settings.command_prefix_must_contain_at_least_one_visible_character": "COMMAND_PREFIX must contain at least one visible character.",
+    "configuration_transfer.duplicate_configuration_key": "Duplicate configuration key.",
+    "configuration_transfer.non_finite_configuration_value": "Non-finite configuration value.",
+    "configuration_transfer.configuration_nesting_exceeds_its_limit": "Configuration nesting exceeds its limit.",
+    "configuration_transfer.unexpected_or_missing_configuration_fields": "Unexpected or missing configuration fields.",
+    "configuration_transfer.unknown_custom_command_fields": "Unknown custom command fields.",
+    "configuration_transfer.configuration_stores_do_not_share_this_profile": "Configuration stores do not share this profile.",
+    "configuration_transfer.linked_configuration_paths_are_not_supported": "Linked configuration paths are not supported.",
+    "configuration_transfer.configuration_must_use_regular_files": "Configuration must use regular files.",
+    "configuration_transfer.linked_backup_directories_are_not_supported": "Linked backup directories are not supported.",
+    "credentials.credential_must_be_text": "Credential must be text.",
+    "credentials.credential_must_not_exceed_characters": "Credential must not exceed {value1} characters.",
+    "custom_commands.command_names_and_aliases_must_be_text": "Command names and aliases must be text.",
+    "custom_commands.custom_command_must_be_an_object": "Custom command must be an object.",
+    "custom_commands.custom_command_id_is_invalid": "Custom command ID is invalid.",
+    "custom_commands.burst_argument_override_must_be_a_boolean": "Burst argument override must be a boolean.",
+    "custom_commands.duplicate_command_id_name_or_alias": "Duplicate command ID, name, or alias",
+    "migrations.database_integrity_verification_failed_startup_stopped": "Database integrity verification failed; startup stopped.",
+    "migrations.database_relationship_verification_failed_startup_stopped": "Database relationship verification failed; startup stopped.",
+    "migrations.unsupported_database_tables_startup_stopped": "Unsupported database tables; startup stopped.",
+    "migrations.unsafe_database_recovery_directory_startup_stopped": "Unsafe database recovery directory; startup stopped.",
+    "migrations.unsafe_database_recovery_file_startup_stopped": "Unsafe database recovery file; startup stopped.",
+    "migrations.existing_recovery_snapshot_cannot_be_verified_preserve_it_and": "Existing recovery snapshot cannot be verified; preserve it and resolve recovery before retrying.",
+    "migrations.recovery_snapshot_counts_checksum_verification_failed": "Recovery snapshot counts/checksum verification failed.",
+    "migrations.unsupported_database_schema_startup_stopped": "Unsupported database schema; startup stopped.",
+    "migrations.invalid_database_field_constraints_startup_stopped": "Invalid database field constraints; startup stopped.",
+    "migrations.unsupported_database_objects_startup_stopped": "Unsupported database objects; startup stopped.",
+    "migrations.invalid_channel_identity_constraints_startup_stopped": "Invalid channel identity constraints; startup stopped.",
+    "migrations.database_completion_marker_is_missing_startup_stopped": "Database completion marker is missing; startup stopped.",
+    "migrations.unsupported_database_version_use_a_compatible_application": "Unsupported database version; use a compatible application.",
+    "migrations.database_initialization_backup_failed_startup_stopped_with_existing_data": "Database initialization/backup failed; startup stopped with existing data preserved.",
+    "migrations.unsafe_database_recovery_file": "Unsafe database recovery file.",
+    "migrations.private_recovery_expiry_deletion_failed_review_recovery_copies_before": "Private recovery expiry/deletion failed; review recovery copies before restoring.",
+    "filter_settings.must_be_a_list_of_text_rules": "{value1} must be a list of text rules.",
+    "filter_settings.sample_text_must_be_text": "Sample text must be text.",
+    "fun_settings.unsupported_fun_settings": "Unsupported fun settings",
+    "leaderboards.count_chat_messages_must_be_a_boolean": "Count chat messages must be a boolean.",
+    "leaderboards.invalid_broadcast_observation": "Invalid broadcast observation",
+    "management.refresh_must_be_a_boolean": "Refresh must be a boolean.",
+    "management.unknown_command_editor_settings": "Unknown command editor settings.",
+    "management.command_editor_settings_cannot_be_null": "Command editor settings cannot be null.",
+    "management.reactivate_removed_must_be_a_boolean": "Reactivate removed must be a boolean.",
+    "management.preserve_enabled_must_be_a_boolean": "Preserve enabled must be a boolean.",
+    "management_api.management_must_bind_to_loopback_or_a_trusted_private": "Management must bind to loopback or a trusted private interface.",
+    "management_api.management_port_must_be_between_1_and_65535": "Management port must be between 1 and 65535.",
+    "management_api.management_token_must_be_43_128_url_safe_characters": "Management token must be 43-128 URL-safe characters; generate at least 32 random bytes.",
+    "management_api.management_allowed_host_must_be_an_exact_ip_port": "Management allowed host must be an exact IP:port authority.",
+    "management_api.trusted_origin_must_be_an_exact_lowercase_https_dns": "Trusted origin must be an exact lowercase HTTPS DNS origin without a path.",
+    "management_api.trusted_origin_must_contain_a_valid_dns_hostname": "Trusted origin must contain a valid DNS hostname.",
+    "management_api.trusted_origin_port_must_be_canonical_omit_the_default": "Trusted origin port must be canonical; omit the default HTTPS port.",
+    "management_api.https_proxy_mode_requires_trusted_proxy_ips_and_replaces": "HTTPS proxy mode requires trusted proxy IPs and replaces allowed-host.",
+    "management_api.trusted_proxies_and_a_remote_callback_require_an_explicit": "Trusted proxies and a remote callback require an explicit trusted HTTPS origin.",
+    "management_api.trusted_proxies_must_be_exact_canonical_ips_never_networks": "Trusted proxies must be exact canonical IPs, never networks or wildcard addresses.",
+    "management_api.twitch_redirect_must_be_the_trusted_https_origin_followed": "Twitch redirect must be the trusted HTTPS origin followed by /oauth/callback.",
+    "management_api.an_all_interface_bind_requires_an_explicit_management_allowed": "An all-interface bind requires an explicit management allowed host.",
+    "management_api.set_only_heetkit_management_token_or_heetkit_management_token": "Set only HEETKIT_MANAGEMENT_TOKEN or HEETKIT_MANAGEMENT_TOKEN_FILE.",
+    "management_api.cannot_read_management_token_file_use_a_private_regular": "Cannot read management token file; use a private regular ASCII file of at most 1 KiB.",
+    "management_api.supply_a_private_management_token_generated_from_at_least": "Supply a private management token generated from at least 32 random bytes (43-128 URL-safe characters).",
+    "management_api.duplicate_json_key": "Duplicate JSON key.",
+    "management_api.non_finite_json_number": "Non-finite JSON number.",
+    "management_api.invalid_oauth_callback": "Invalid OAuth callback.",
+    "management_api.unknown_management_resource": "Unknown management resource.",
+    "management_api.browser_panel_assets_unavailable_build_the_frontend_before_starting": "Browser panel assets unavailable; build the frontend before starting management.",
+    "management_api.untrusted_host": "Untrusted Host.",
+    "management_api.untrusted_proxy_headers_or_peer_check_the_configured_https": "Untrusted proxy headers or peer; check the configured HTTPS proxy boundary.",
+    "management_api.untrusted_browser_origin": "Untrusted browser origin.",
+    "management_api.use_an_exact_path_without_query_parameters": "Use an exact path without query parameters.",
+    "management_api.method_not_supported": "Method not supported.",
+    "management_api.assets_require_get_without_a_body": "Assets require GET without a body.",
+    "management_api.encoded_or_streamed_bodies_are_not_supported": "Encoded or streamed bodies are not supported.",
+    "management_api.use_application_json": "Use application/json.",
+    "management_api.json_body_exceeds_this_operation_s_size_limit": "JSON body exceeds this operation's size limit.",
+    "management_api.json_body_must_be_an_object": "JSON body must be an object.",
+    "management_api.get_does_not_accept_a_body": "GET does not accept a body.",
+    "message_triggers.must_be_a_finite_number": "{name} must be a finite number.",
+    "message_triggers.trigger_must_be_an_object": "Trigger must be an object.",
+    "message_triggers.enabled_and_case_sensitive_must_be_booleans": "Enabled and case_sensitive must be booleans.",
+    "message_triggers.duplicate_trigger_id": "Duplicate trigger ID",
+    "message_triggers.message_triggers_must_be_a_list": "Message triggers must be a list.",
+    "message_triggers.unknown_trigger_field": "Unknown trigger field.",
+    "operation_policy.invalid_internal_stream_monitoring_timing": "Invalid internal stream monitoring timing.",
+    "operation_policy.operation_policy_has_closed": "Operation policy has closed.",
+    "operation_policy.unknown_live_status": "Unknown live status",
+    "personality_settings.personality_name_must_be_text": "Personality name must be text.",
+    "personality_settings.personality_name_must_not_exceed_characters": "Personality name must not exceed {value1} characters.",
+    "personality_settings.personality_prompt_must_not_exceed_characters": "Personality prompt must not exceed {value1} characters.",
+    "personality_settings.profile_instructions_must_not_exceed_characters": "Profile instructions must not exceed {value1} characters.",
+    "updates.pre_1_0_releases_are_prereleases": "Pre-1.0 releases are prereleases.",
+    "client.twitch_authorization_does_not_match_the_configured_application_bot": "Twitch authorization does not match the configured application, bot account or required scopes. Authorize again from Settings.",
+    "client.could_not_persist_twitch_authorization_during_shutdown": "Could not persist Twitch authorization during shutdown.",
+    "client.twitch_authorization_cache_is_malformed_restore_a_private_backup": "Twitch authorization cache is malformed; restore a private backup or reauthorize.",
+    "client.configured_twitch_channel_does_not_match_its_account_id": "Configured Twitch channel does not match its account ID. Correct Settings before reconnecting.",
+    "client.could_not_persist_twitch_authorization": "Could not persist Twitch authorization.",
+    "client.twitch_cleanup_did_not_finish_restart_the_application_before": "Twitch cleanup did not finish; restart the application before reconnecting.",
+    "client.twitch_client_shutdown_failed_check_private_token_storage_and": "Twitch client shutdown failed; check private token storage and restart.",
+    "client.twitch_authorization_access_needs_attention": "Twitch authorization/access needs attention.",
+    "webview_host.dev_url_is_available_only_in_a_source_checkout": "--dev-url is available only in a source checkout.",
+    "webview_host.dev_url_must_be_an_http_s_loopback_development": "--dev-url must be an HTTP(S) loopback development server URL.",
+    "webview_host.could_not_filters": "Could not {action} filters.",
+    "webview_host.unknown_operation": "Unknown operation.",
+    "operations.operation_arguments_must_be_a_json_object": "Operation arguments must be a JSON object.",
+    "operations.invalid_operation_arguments": "Invalid operation arguments.",
+    "text.enter_a_single_line_chat_message": "Enter a single-line chat message.",
+    "text.chat_messages_can_use_up_to_utf_8_bytes": "Chat messages can use up to {value1} UTF-8 bytes.",
+    "text.the_message_must_include_and_may_include": "The message must include {allowed} and may include {sender}.",
+    "text.use_braces_only_for_supported_template_variables": "Use braces only for supported template variables.",
+    "database.unsupported_database_version": "Unsupported database version.",
+    "database.database_is_in_use_stop_all_profile_processes_before": "Database is in use; stop all profile processes before upgrading.",
+    "twitch_setup.invalid_target_channel": "Invalid target channel.",
+    "filter_settings.rule_contains_invalid_text": "{category} rule {index} contains invalid text.",
+    "filter_settings.invalid_regex_in_pattern": "Invalid regex in pattern {index}: {reason}",
+    "ai_balance.balance_temporarily_unavailable": "Balance is temporarily unavailable. Try again later.",
+    "management_api.response_exceeds_limit": "Response exceeds limit.",
+    "client.cleanup_failed_restart": "Twitch cleanup failed; restart the application before reconnecting.",
+    "privacy.stored_exchanges_integer_1_500": "Stored AI exchanges must be an integer from 1 to 500.",
+    "privacy.context_exchanges_1_50": "AI context exchanges must be from 1 to 50 and no greater than stored exchanges.",
+    "ai_capabilities.controls_unverified": "This model's search and thinking controls have not been verified for this API.",
+    "filter_settings.invalid_utf8": "Invalid UTF-8; edit or remove this rule.",
+    "filter_settings.invalid_regex": "Invalid regex: {reason}",
+    "filter_settings.no_valid_rules": "No valid rules could be loaded; prior active rules are also shown.",
+    "filter_settings.could_not_read_local_file": "Could not read the local filter file; active rules are shown.",
+    "settings_recovery.cannot_save_profile": "Cannot save {filename}. Quit the app, back up and repair this profile file (or move it aside to reset), then restart.",
+    "command_settings.command_enabled_setting_must_be_a_boolean": "Command enabled setting must be a boolean.",
+    "command_settings.command_cooldown_setting_must_be_a_cooldownpolicy": "Command cooldown setting must be a CooldownPolicy.",
+    "command_settings.command_permission_setting_must_be_a_permission": "Command permission setting must be a Permission.",
+    "command_settings.command_removed_setting_must_be_a_boolean": "Command removed setting must be a boolean.",
+    "personality_settings.personality_prompt_must_be_text": "Personality prompt must be text.",
+    "personality_settings.profile_instructions_must_be_text": "Profile instructions must be text.",
+    "updates.invalid_stable_release_information": "GitHub returned invalid stable release information. Try again later.",
 }
-
-_PLACEHOLDER = re.compile(r"\{(\w+)\}")
-_EXACT: dict[str, str] = {}
-_PATTERNS: list[tuple[re.Pattern[str], str]] = []
-
-
-def _compile() -> None:
-    for code, template in MESSAGES.items():
-        if not _PLACEHOLDER.search(template):
-            _EXACT.setdefault(template, code)
-            continue
-        parts: list[str] = []
-        position = 0
-        for match in _PLACEHOLDER.finditer(template):
-            parts.append(re.escape(template[position:match.start()]))
-            parts.append(f"(?P<{match.group(1)}>.+?)")
-            position = match.end()
-        parts.append(re.escape(template[position:]))
-        _PATTERNS.append((re.compile("".join(parts), re.DOTALL), code))
-
-
-_compile()
-
-
-def message_code(text: str) -> tuple[str, dict[str, str]] | None:
-    """Return the code and parameters of a known English message."""
-    code = _EXACT.get(text)
-    if code is not None:
-        return code, {}
-    for pattern, code in _PATTERNS:
-        match = pattern.fullmatch(text)
-        if match is not None:
-            return code, dict(match.groupdict())
-    return None
-
-
-# Fields that carry a user-visible English message. Each known message gets
-# ``<field>_code`` and ``<field>_params`` (``error`` uses ``error_code``/``error_params``).
-MESSAGE_FIELDS = ("error", "automatic_update_reason")
-
-
-def annotate_error(payload: Any) -> Any:
-    """Add codes to a response whose user-visible messages are known."""
-    if not isinstance(payload, dict):
-        return payload
-    annotated: dict[str, Any] | None = None
-    for field in MESSAGE_FIELDS:
-        code_key, params_key = f"{field}_code", f"{field}_params"
-        text = payload.get(field)
-        if code_key in payload or not isinstance(text, str) or not text:
-            continue
-        found = message_code(text)
-        if found is None:
-            continue
-        code, params = found
-        if annotated is None:
-            annotated = dict(payload)
-        annotated[code_key] = code
-        if params:
-            annotated[params_key] = params
-    return payload if annotated is None else annotated
-
-
-def is_known(code: object) -> bool:
-    return isinstance(code, str) and code in MESSAGES
-
-
-__all__ = ["MESSAGES", "annotate_error", "message_code", "is_known"]

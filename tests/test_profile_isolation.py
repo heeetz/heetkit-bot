@@ -67,7 +67,7 @@ def test_clean_cli_launch_reaches_desktop_with_disconnected_backend(tmp_path, mo
             assert all(not item.configured for item in kwargs['credential_manager'].statuses())
             result = bridge.start_bot()
             assert result['ok'] is False and result['changed'] is False
-            assert 'Configure Twitch' in result['error']
+            assert result['error_code'] == 'settings.configure_twitch_before_starting_bot_missing'
             assert backend.application.services.runtime_state.twitch_connection_state == 'stopped'
         finally:
             backend.close()

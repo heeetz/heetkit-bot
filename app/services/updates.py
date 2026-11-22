@@ -11,6 +11,7 @@ from typing import Callable
 
 import httpx
 
+from app.errors import UserError
 from app.version import windows_version
 
 
@@ -25,12 +26,11 @@ SIGNATURE_BYTES = 64
 DOWNLOAD_TIMEOUT_SECONDS = 900
 PUBLISHER_KEY = Path(__file__).resolve().parents[1] / "resources" / "update-publisher.pub"
 _VERSION_RE = re.compile(r"v?(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
-_INVALID_RESPONSE = "GitHub returned invalid stable release information. Try again later."
+_INVALID_RESPONSE = "updates.invalid_stable_release_information"
 
 
-class UpdateCheckError(RuntimeError):
+class UpdateCheckError(UserError, RuntimeError):
     """An update check failed with a safe, user-facing explanation."""
-
 
 @dataclass(frozen=True)
 class ReleaseAssets:
@@ -98,13 +98,13 @@ def verify_manifest(assets: ReleaseAssets, manifest: bytes, signature: bytes, ke
         Ed25519PublicKey.from_public_bytes(key).verify(signature, manifest)
         data = json.loads(manifest)
     except (InvalidSignature, ValueError, RecursionError) as error:
-        raise UpdateCheckError("The release manifest failed publisher verification.") from error
+        raise UpdateCheckError("updates.release_manifest_failed_publisher_verification") from error
     if (not isinstance(data, dict) or set(data) != {"version", "asset", "size", "sha256"}
             or data["version"] != assets.version or data["asset"] != assets.name
             or type(data["size"]) is not int or data["size"] != assets.size
             or not isinstance(data["sha256"], str) or not re.fullmatch(r"[a-f0-9]{64}", data["sha256"])
             or (assets.digest is not None and assets.digest != "sha256:" + data["sha256"])):
-        raise UpdateCheckError("The signed release manifest does not match the Windows installer.")
+        raise UpdateCheckError("updates.signed_release_manifest_does_not_match")
     return VerifiedUpdate(assets, manifest, signature, data["sha256"])
 
 
@@ -129,10 +129,10 @@ async def _download(client: httpx.AsyncClient, url: str, limit: int, write: Call
             async for chunk in response.aiter_bytes(chunk_size=256 * 1024):
                 size += len(chunk)
                 if size > limit:
-                    raise UpdateCheckError("A release download exceeded its expected size.")
+                    raise UpdateCheckError("updates.release_download_exceeded_expected_size")
                 write(chunk)
             return size
-    raise UpdateCheckError("The release files could not be downloaded from GitHub.")
+    raise UpdateCheckError("updates.release_files_could_not_downloaded_from")
 
 
 async def authorize_installer(client: httpx.AsyncClient, assets: ReleaseAssets, key: bytes) -> VerifiedUpdate:
@@ -142,16 +142,16 @@ async def authorize_installer(client: httpx.AsyncClient, assets: ReleaseAssets, 
             await _download(client, assets.url(".manifest.json"), MAX_MANIFEST_BYTES, manifest.extend)
             await _download(client, assets.url(".manifest.sig"), SIGNATURE_BYTES, signature.extend)
     except (TimeoutError, httpx.HTTPError) as error:
-        raise UpdateCheckError("Could not download the signed release manifest.") from error
+        raise UpdateCheckError("updates.could_not_download_signed_release_manifest") from error
     return verify_manifest(assets, bytes(manifest), bytes(signature), key)
 
 
 def verify_installer_file(path: Path, update: VerifiedUpdate) -> None:
     if path.is_symlink() or path.is_junction():
-        raise UpdateCheckError("The downloaded installer is a linked file.")
+        raise UpdateCheckError("updates.downloaded_installer_linked_file")
     with path.open("rb") as source:
         if path.stat().st_size != update.assets.size or hashlib.file_digest(source, "sha256").hexdigest() != update.sha256:
-            raise UpdateCheckError("The downloaded installer failed size or SHA-256 verification.")
+            raise UpdateCheckError("updates.downloaded_installer_failed_size_sha_256")
 
 
 async def download_installer(client: httpx.AsyncClient, update: VerifiedUpdate, path: Path,
@@ -171,7 +171,7 @@ async def download_installer(client: httpx.AsyncClient, update: VerifiedUpdate, 
         progress("verifying", size)
         verify_installer_file(path, update)
     except (TimeoutError, httpx.HTTPError, OSError) as error:
-        raise UpdateCheckError("The installer download was interrupted. Check your connection and free disk space, then retry.") from error
+        raise UpdateCheckError("updates.installer_download_interrupted_check_connection_free") from error
 
 
 def _version_parts(value: object) -> tuple[int, int, int]:
@@ -208,7 +208,7 @@ def _release_info(payload: object, current_version: str) -> dict[str, object]:
         current_parts = windows_version(current_version)
         candidate = windows_version(latest_version)
         if candidate[0] == 0:
-            raise ValueError("Pre-1.0 releases are prereleases.")
+            raise UserError("updates.pre_1_0_releases_are_prereleases")
     except ValueError as error:
         raise UpdateCheckError(_INVALID_RESPONSE) from error
     result = {
@@ -237,11 +237,11 @@ async def check_for_updates(client: httpx.AsyncClient, current_version: str) -> 
                 auth=None, follow_redirects=False, timeout=8.0,
             ) as response:
                 if response.status_code in {403, 429}:
-                    raise UpdateCheckError("GitHub update checks are temporarily limited. Try again later.")
+                    raise UpdateCheckError("updates.github_update_checks_temporarily_limited_try")
                 if response.status_code == 404:
-                    raise UpdateCheckError("No stable release is currently available. Try again later.")
+                    raise UpdateCheckError("updates.no_stable_release_currently_available_try")
                 if response.status_code != 200:
-                    raise UpdateCheckError("GitHub release information is unavailable. Try again later.")
+                    raise UpdateCheckError("updates.github_release_information_unavailable_try_again")
                 content = bytearray()
                 async for chunk in response.aiter_bytes():
                     content.extend(chunk)
@@ -253,6 +253,6 @@ async def check_for_updates(client: httpx.AsyncClient, current_version: str) -> 
                     raise UpdateCheckError(_INVALID_RESPONSE) from error
                 return _release_info(payload, current_version)
     except (TimeoutError, httpx.TimeoutException) as error:
-        raise UpdateCheckError("The update check timed out. Try again.") from error
+        raise UpdateCheckError("updates.update_check_timed_out_try_again") from error
     except httpx.RequestError as error:
-        raise UpdateCheckError("Could not reach GitHub. Check your internet connection and try again.") from error
+        raise UpdateCheckError("updates.could_not_reach_github_check_internet") from error

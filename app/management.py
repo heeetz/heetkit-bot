@@ -7,6 +7,7 @@ from datetime import timedelta, timezone
 from dataclasses import asdict
 from types import SimpleNamespace
 
+from app.errors import UserError, UserRuntimeError, error_result
 from app.ai_user_blocks import normalize_ai_username, verified_user_id
 from app.app_settings import AppSettingsStore
 from app.command_settings import CommandNameConflict, CommandSettings
@@ -74,31 +75,31 @@ class ApplicationManagement:
         from app.configuration_transfer import ConfigurationTransfer
 
         if self._app_settings is None:
-            return {"ok": False, "error": "Profile settings are unavailable."}
+            return {"ok": False, "error_code": "management.profile_settings_unavailable", "error_params": {}}
         if not hasattr(self, "_configuration_transfer"):
             self._configuration_transfer = ConfigurationTransfer(self._backend.application, self._app_settings)
         try:
             return getattr(self._configuration_transfer, action)(*arguments)
-        except (ValueError, TypeError, UnicodeError, RecursionError, OverflowError):
-            return {"ok": False, "error": "Configuration rejected. Check ZIP format, limits and values; preview again if settings changed or ten minutes elapsed."}
         except OSError:
-            return {"ok": False, "error": "Configuration storage failed. Inspect the private profile and config/import-backups before retrying; restore affected files while stopped if rollback could not finish."}
+            return {"ok": False, "error_code": "management.configuration_storage_failed_inspect_private_profile", "error_params": {}}
+        except (ValueError, TypeError, UnicodeError, RecursionError, OverflowError):
+            return {"ok": False, "error_code": "management.configuration_rejected_check_zip_format_limits", "error_params": {}}
 
     @operation(write=True,
-               failure="Configuration transfer failed. Inspect current settings and private backups before retrying.",
-               validation_failure="Configuration transfer failed. Inspect current settings and private backups before retrying.")
+               failure="webview_host.configuration_transfer_failed_inspect_current_settings",
+               validation_failure="webview_host.configuration_transfer_failed_inspect_current_settings")
     async def export_configuration(self) -> dict[str, object]:
         return await self._configuration_action("export")
 
     @operation(write=True, max_body=TRANSFER_BODY,
-               failure="Configuration transfer failed. Inspect current settings and private backups before retrying.",
-               validation_failure="Configuration transfer failed. Inspect current settings and private backups before retrying.")
+               failure="webview_host.configuration_transfer_failed_inspect_current_settings",
+               validation_failure="webview_host.configuration_transfer_failed_inspect_current_settings")
     async def preview_configuration_import(self, archive_base64: object) -> dict[str, object]:
         return await self._configuration_action("preview", archive_base64)
 
     @operation(write=True, max_body=TRANSFER_BODY,
-               failure="Configuration transfer failed. Inspect current settings and private backups before retrying.",
-               validation_failure="Configuration transfer failed. Inspect current settings and private backups before retrying.")
+               failure="webview_host.configuration_transfer_failed_inspect_current_settings",
+               validation_failure="webview_host.configuration_transfer_failed_inspect_current_settings")
     async def apply_configuration_import(
         self, archive_base64: object, preview_token: object, confirmed: object,
     ) -> dict[str, object]:
@@ -112,12 +113,12 @@ class ApplicationManagement:
         self._backend.application.services.runtime_state.set_ai_memory_enabled(enabled)
 
     @operation(write=True,
-               failure="Management operation unavailable. Check profile storage and retry.",
-               validation_failure="Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N).")
+               failure="webview_host.management_operation_unavailable_check_profile_storage",
+               validation_failure="webview_host.check_selected_window_confirmation_memory_limits")
     async def _save_ai_memory_limits(self, stored: object, context: object) -> None:
         """Persist and prune count settings on the shared backend loop."""
         if self._app_settings is None:
-            raise RuntimeError("Profile settings are not configured.")
+            raise UserRuntimeError("management.profile_settings_not_configured")
         await self._backend.application.database.configure_memory_limits(stored, context,
             persist=lambda: self._app_settings.update_ai_memory_limits(stored=stored, context=context))
         settings = self._backend.application.settings
@@ -131,13 +132,13 @@ class ApplicationManagement:
                 "context": settings.ai_context_max_entries}
 
     @operation(write=True,
-               failure="Management operation unavailable. Check profile storage and retry.",
-               validation_failure="Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N).")
+               failure="webview_host.management_operation_unavailable_check_profile_storage",
+               validation_failure="webview_host.check_selected_window_confirmation_memory_limits")
     async def _get_ai_balance(self, provider: str, refresh: bool = False) -> dict[str, object]:
         from app.services.ai_balance import AIBalance
         provider = validate_ai_provider(provider)
         if type(refresh) is not bool:
-            raise ValueError("Refresh must be a boolean.")
+            raise UserError("management.refresh_must_be_a_boolean")
         # Owned by the application, independent of chat/provider request slots.
         app = self._backend.application
         if app.ai_balance is None:
@@ -146,11 +147,11 @@ class ApplicationManagement:
         return await app.ai_balance.get(provider, secret.get_secret_value() if secret else None, refresh=refresh)
 
     @operation(write=True,
-               failure="Management operation unavailable. Check profile storage and retry.",
-               validation_failure="Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N).")
+               failure="webview_host.management_operation_unavailable_check_profile_storage",
+               validation_failure="webview_host.check_selected_window_confirmation_memory_limits")
     async def _get_analytics(self, days: int = 7) -> dict[str, object]:
         if type(days) is not int or days not in (1, 7, 30, 60):
-            raise ValueError("Select Today, 7, 30 or 60 UTC calendar days.")
+            raise UserError("management.select_today_7_30_60_utc")
         app = self._backend.application
         collector = app.services.analytics
         channel = verified_user_id(app.settings.twitch_channel_user_id)
@@ -204,15 +205,15 @@ class ApplicationManagement:
                 **{key: snapshot[key] for key in ("metadata", "enabled", "available", "pending", "dropped", "write_failures", "price_checked", "price_basis")}}
 
     @operation(write=True,
-               failure="Management operation unavailable. Check profile storage and retry.",
-               validation_failure="Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N).")
+               failure="webview_host.management_operation_unavailable_check_profile_storage",
+               validation_failure="webview_host.check_selected_window_confirmation_memory_limits")
     async def _configure_analytics(self, enabled: bool) -> dict[str, object]:
         await self._backend.application.services.analytics.configure(enabled)
         return {"ok": True}
 
     @operation(write=True,
-               failure="Management operation unavailable. Check profile storage and retry.",
-               validation_failure="Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N).")
+               failure="webview_host.management_operation_unavailable_check_profile_storage",
+               validation_failure="webview_host.check_selected_window_confirmation_memory_limits")
     async def _configure_leaderboard_counting(self, enabled: bool) -> dict[str, object]:
         await self._backend.application.services.twitch.leaderboards.configure_counting(enabled)
         return {"ok": True}
@@ -224,8 +225,8 @@ class ApplicationManagement:
         return active or verified_user_id(getattr(app.settings, "twitch_channel_user_id", None))
 
     @operation(write=True,
-               failure="Management operation unavailable. Check profile storage and retry.",
-               validation_failure="Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N).")
+               failure="webview_host.management_operation_unavailable_check_profile_storage",
+               validation_failure="webview_host.check_selected_window_confirmation_memory_limits")
     async def _get_leaderboards(self):
         leaderboards = self._backend.application.services.twitch.leaderboards
         channel = self._leaderboard_channel()
@@ -233,29 +234,29 @@ class ApplicationManagement:
             snapshot = await leaderboards.snapshot(channel)
         except Exception as error:
             self._logger.warning("Could not read leaderboard snapshot: %s", type(error).__name__)
-            return {"ok": False, "error": "Leaderboard data is temporarily unavailable."}
+            return {"ok": False, "error_code": "management.leaderboard_data_temporarily_unavailable", "error_params": {}}
         if channel != self._leaderboard_channel():
-            return {"ok": False, "error": "The Twitch channel changed. Refresh leaderboards."}
+            return {"ok": False, "error_code": "management.twitch_channel_changed_refresh_leaderboards", "error_params": {}}
         return {"ok": True, "leaderboards": snapshot}
 
     @operation(write=True, passthrough_errors=True,
-               failure="Management operation unavailable. Check profile storage and retry.",
-               validation_failure="Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N).")
+               failure="webview_host.management_operation_unavailable_check_profile_storage",
+               validation_failure="webview_host.check_selected_window_confirmation_memory_limits")
     async def _save_leaderboard_settings(self, channel_id, exclusions):
         if channel_id != self._leaderboard_channel():
-            return {"ok": False, "error": "The Twitch channel changed. Reload its leaderboard settings."}
+            return {"ok": False, "error_code": "management.twitch_channel_changed_reload_leaderboard_settings", "error_params": {}}
         try:
             await self._backend.application.services.twitch.leaderboards.configure(channel_id, exclusions)
         except ValueError as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         return {"ok": True}
 
     @operation(write=True,
-               failure="Management operation unavailable. Check profile storage and retry.",
-               validation_failure="Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N).")
+               failure="webview_host.management_operation_unavailable_check_profile_storage",
+               validation_failure="webview_host.check_selected_window_confirmation_memory_limits")
     async def _reset_analytics(self, confirmed: bool) -> dict[str, object]:
         if confirmed is not True:
-            raise ValueError("Confirm clearing all profile analytics.")
+            raise UserError("management.confirm_clearing_all_profile_analytics")
         await self._backend.application.services.analytics.reset()
         return {"ok": True}
 
@@ -298,25 +299,25 @@ class ApplicationManagement:
                                   "identity_state": "verified" if rule.twitch_user_id else "unresolved"}
                                  for rule in services.command_restrictions.list()]}
         except (OSError, ValueError):
-            return {"ok": False, "error": "Could not load private restrictions. Check the profile policy file."}
+            return {"ok": False, "error_code": "management.could_not_load_private_restrictions_check", "error_params": {}}
 
     @operation(write=True, passthrough_errors=True,
-               failure="Could not save the private restriction. Check the profile policy file.",
-               validation_failure="Could not save the private restriction. Check the profile policy file.",
-               timeout_failure="Saving the restriction timed out or was cancelled. Refresh the list before retrying.",
-               cancelled_failure="Saving the restriction timed out or was cancelled. Refresh the list before retrying.")
+               failure="webview_host.could_not_save_private_restriction_check",
+               validation_failure="webview_host.could_not_save_private_restriction_check",
+               timeout_failure="webview_host.saving_restriction_timed_out_cancelled_refresh",
+               cancelled_failure="webview_host.saving_restriction_timed_out_cancelled_refresh")
     async def _save_command_restriction(self, data: object) -> dict[str, object]:
         try:
             fields = {"username", "command_ids", "expires_at", "note"}
             if not isinstance(data, dict) or not fields <= set(data) or set(data) - fields - {"id", "scope"}:
-                raise ValueError("Unexpected or missing restriction fields.")
+                raise UserError("command_restrictions.unexpected_or_missing_restriction_fields")
             username = normalize_ai_username(data["username"])
             services = self._backend.application.services
             channel_id = verified_user_id(services.settings.twitch_channel_user_id)
             store = services.command_restrictions
             scope = data.get("scope", "channel")
             if scope not in ("channel", "global_ai"):
-                raise ValueError("Select channel scope or global AI questions scope.")
+                raise UserError("command_restrictions.select_channel_scope_global_ai_questions")
             if "id" in data:
                 old = store.get(data["id"])
                 channel_id, user_id = old.channel_id, old.twitch_user_id
@@ -325,20 +326,20 @@ class ApplicationManagement:
                     user_id = await self._resolve_management_user(username, channel_id)
             else:
                 if channel_id is None and scope == "channel":
-                    raise ValueError("Configure a verified numeric Twitch channel ID before adding restrictions.")
+                    raise UserError("management.configure_verified_numeric_twitch_channel_id")
                 configured_channel = channel_id
                 user_id = await self._resolve_management_user(username, channel_id)
                 if configured_channel != verified_user_id(services.settings.twitch_channel_user_id):
-                    raise ValueError("The configured channel changed during lookup. Refresh and retry.")
+                    raise UserError("management.configured_channel_changed_during_lookup_refresh")
                 if scope == "global_ai":
                     channel_id = None
             store.save({**data, "username": username, "scope": scope}, channel_id=channel_id, user_id=user_id,
                        valid_command_ids={command["id"] for command in self._restriction_commands()})
         except ValueError as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         except Exception as error:
             self._logger.warning("Could not save command restriction error_type=%s", type(error).__name__)
-            return {"ok": False, "error": "Could not save the private restriction. Check the profile storage and identity lookup, then retry."}
+            return {"ok": False, "error_code": "management.could_not_save_private_restriction_check", "error_params": {}}
         return self.get_command_restrictions()
 
     async def _resolve_management_user(self, username, channel_id):
@@ -350,12 +351,12 @@ class ApplicationManagement:
             observed = await services.users.get_by_username(username, channel_id=channel_id)
             user_id = verified_user_id(getattr(observed, "twitch_user_id", None))
         if user_id is None:
-            raise ValueError("Could not resolve this login to a verified Twitch user ID. Connect Twitch or wait for this user to chat, then retry. No change was saved.")
+            raise UserError("management.could_not_resolve_login_verified_twitch")
         return user_id
 
     @operation(write=True, passthrough_errors=True,
-               failure="Privacy management could not complete. Refresh the list before retrying.",
-               validation_failure="Privacy management could not complete. Refresh the list before retrying.")
+               failure="webview_host.privacy_management_could_not_complete_refresh",
+               validation_failure="webview_host.privacy_management_could_not_complete_refresh")
     async def _get_opt_outs(self, query="", offset=0, limit=50) -> dict[str, object]:
         try:
             users, total = await self._backend.application.services.users.list_opt_outs(query, offset, limit)
@@ -363,13 +364,13 @@ class ApplicationManagement:
                 "username": row.username, "opted_out_at": row.opted_out_at.isoformat() if row.opted_out_at else None}
                 for row in users], "total": total, "offset": offset, "limit": limit}
         except ValueError as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         except Exception:
-            return {"ok": False, "error": "Could not load opt-outs. Check profile storage and retry."}
+            return {"ok": False, "error_code": "management.could_not_load_opt_outs_check", "error_params": {}}
 
     @operation(write=True, passthrough_errors=True,
-               failure="Privacy management could not complete. Refresh the list before retrying.",
-               validation_failure="Privacy management could not complete. Refresh the list before retrying.")
+               failure="webview_host.privacy_management_could_not_complete_refresh",
+               validation_failure="webview_host.privacy_management_could_not_complete_refresh")
     async def _add_opt_out(self, username: object) -> dict[str, object]:
         try:
             username = normalize_ai_username(username)
@@ -378,33 +379,33 @@ class ApplicationManagement:
             user_id = await self._resolve_management_user(username, channel)
             await services.users.opt_out(user_id, username=username)
         except ValueError as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         except Exception:
-            return {"ok": False, "error": "Opt-out could not complete. Refresh and retry; inspect private recovery copies before restoring."}
+            return {"ok": False, "error_code": "management.opt_out_could_not_complete_refresh", "error_params": {}}
         return await self._get_opt_outs()
 
     @operation(write=True, passthrough_errors=True,
-               failure="Privacy management could not complete. Refresh the list before retrying.",
-               validation_failure="Privacy management could not complete. Refresh the list before retrying.")
+               failure="webview_host.privacy_management_could_not_complete_refresh",
+               validation_failure="webview_host.privacy_management_could_not_complete_refresh")
     async def _withdraw_opt_out(self, twitch_user_id: object, confirmed: object) -> dict[str, object]:
         try:
             if confirmed is not True or verified_user_id(twitch_user_id) is None:
-                raise ValueError("Confirm that future data storage becomes allowed for this verified Twitch account.")
+                raise UserError("management.confirm_future_data_storage_becomes_allowed")
             await self._backend.application.services.users.withdraw_opt_out(twitch_user_id)
         except ValueError as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         except Exception:
-            return {"ok": False, "error": "Withdrawal could not complete. Refresh and retry; inspect private recovery copies before restoring."}
+            return {"ok": False, "error_code": "management.withdrawal_could_not_complete_refresh_retry", "error_params": {}}
         return await self._get_opt_outs()
 
     @operation(write=True, passthrough_errors=True)
     def remove_command_restriction(self, restriction_id: object) -> dict[str, object]:
         try:
             self._backend.application.services.command_restrictions.remove(restriction_id)
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
         except OSError:
-            return {"ok": False, "error": "Could not remove the private restriction. Check the profile storage and retry."}
+            return {"ok": False, "error_code": "management.could_not_remove_private_restriction_check", "error_params": {}}
+        except ValueError as error:
+            return error_result(error)
         return self.get_command_restrictions()
 
     @operation(write=True)
@@ -433,16 +434,16 @@ class ApplicationManagement:
                 self.get_command_restrictions()
                 found = [rule for rule in services.command_restrictions.list() if rule.legacy_ai and rule.username == username]
                 if not found:
-                    raise ValueError("This Twitch user is not blocked.")
+                    raise UserError("ai_user_blocks.twitch_user_not_blocked")
                 for rule in found:
                     services.command_restrictions.remove(rule.id)
             else:
                 services.ai_user_blocks.unblock(username)
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
         except OSError:
             self._logger.exception("Could not remove AI user block")
-            return {"ok": False, "error": "Could not remove AI user block. Check the profile file and try again."}
+            return {"ok": False, "error_code": "management.could_not_remove_ai_user_block", "error_params": {}}
+        except ValueError as error:
+            return error_result(error)
         return self.get_blocked_ai_users()
 
     @operation("update_ai_language_settings", write=True)
@@ -451,7 +452,7 @@ class ApplicationManagement:
     ) -> None:
         """Persist before publishing one immutable policy on the backend loop."""
         if self._app_settings is None:
-            raise RuntimeError("Desktop settings are not configured.")
+            raise UserRuntimeError("management.desktop_settings_not_configured")
         updated = self._app_settings.update_ai_response_language(
             mode=mode, allowed_languages=allowed_languages, fallback_language=fallback_language,
         )
@@ -541,7 +542,7 @@ class ApplicationManagement:
     def _command_response_action(self, name: object, responses: object, action: str) -> dict[str, object]:
         store = getattr(self._backend.application, "fun_settings", None)
         if name not in ("fate", "tg") or store is None:
-            return {"ok": False, "error": "This command has no editable responses."}
+            return {"ok": False, "error_code": "fun_settings.command_has_no_editable_responses", "error_params": {}}
         try:
             if action == "reset":
                 store.reset(name)
@@ -549,11 +550,11 @@ class ApplicationManagement:
                 store.save(responses, name)
             else:
                 store.apply(responses, name)
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
         except OSError:
             self._logger.exception("Could not %s command responses", action)
-            return {"ok": False, "error": "Could not save command responses."}
+            return {"ok": False, "error_code": "management.could_not_save_command_responses", "error_params": {}}
+        except ValueError as error:
+            return error_result(error)
         return {"ok": True}
 
     @operation(write=True)
@@ -598,27 +599,27 @@ class ApplicationManagement:
     def save_message_triggers(self, triggers: object, revision: str | None = None) -> dict[str, object]:
         try:
             saved = self._backend.application.dispatcher._message_triggers.save(triggers, revision=revision)
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
         except OSError:
-            return {"ok": False, "error": "Could not save chat reactions. Check profile storage."}
+            return {"ok": False, "error_code": "management.could_not_save_chat_reactions_check", "error_params": {}}
+        except ValueError as error:
+            return error_result(error)
         return self._trigger_snapshot(saved)
 
-    @operation(write=False, failure="Could not read announcement status.")
+    @operation(write=False, failure="webview_host.could_not_read_announcement_status")
     async def _get_announcements(self) -> dict[str, object]:
         scheduler = self._backend.application.announcement_scheduler
         return {"ok": True, "announcements": scheduler.snapshot()}
 
     @operation(write=True, max_body=ANNOUNCEMENTS_BODY,
-               failure="Could not save announcements. Reopen Commands to check saved settings.")
+               failure="webview_host.could_not_save_announcements_reopen_commands")
     async def _save_announcements(self, announcements: object) -> dict[str, object]:
         application = self._backend.application
         try:
             application.announcements.save(announcements)
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
         except OSError:
-            return {"ok": False, "error": "Could not save announcements. Check profile storage."}
+            return {"ok": False, "error_code": "management.could_not_save_announcements_check_profile", "error_params": {}}
+        except ValueError as error:
+            return error_result(error)
         application.announcement_scheduler.reset()
         self._logger.info("Announcement settings saved", extra={"event_kind": "settings.announcements"})
         return {"ok": True}
@@ -647,13 +648,13 @@ class ApplicationManagement:
     def save_custom_command(self, command: object) -> dict[str, object]:
         try:
             if isinstance(command, dict) and "stream_availability" in command and not self._backend.application.services.runtime_state.server_runtime:
-                raise ValueError("Stream availability is only editable in Server.")
+                raise UserError("management.stream_availability_only_editable_server")
             saved = self._backend.application.custom_commands.save(command)
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
         except OSError:
             self._logger.exception("Could not save custom command")
-            return {"ok": False, "error": "Could not save custom command."}
+            return {"ok": False, "error_code": "management.could_not_save_custom_command", "error_params": {}}
+        except ValueError as error:
+            return error_result(error)
         self._logger.info("Custom command saved name=%s", saved.name)
         return {"ok": True}
 
@@ -661,11 +662,11 @@ class ApplicationManagement:
     def delete_custom_command(self, identifier: str) -> dict[str, object]:
         try:
             self._backend.application.custom_commands.delete(identifier)
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
         except OSError:
             self._logger.exception("Could not delete custom command")
-            return {"ok": False, "error": "Could not delete custom command."}
+            return {"ok": False, "error_code": "management.could_not_delete_custom_command", "error_params": {}}
+        except ValueError as error:
+            return error_result(error)
         self._logger.info("Custom command deleted id=%s", identifier)
         return {"ok": True}
 
@@ -697,7 +698,7 @@ class ApplicationManagement:
         permission: object,
     ) -> tuple[bool, CooldownPolicy, Permission]:
         if type(enabled) is not bool:
-            raise ValueError("Enabled must be a boolean.")
+            raise UserError("announcements.enabled_must_be_a_boolean")
         values = (per_user_seconds, global_seconds)
         if any(
             isinstance(value, bool)
@@ -706,13 +707,13 @@ class ApplicationManagement:
             or float(value) < 0
             for value in values
         ):
-            raise ValueError("Cooldown values must be non-negative numbers.")
+            raise UserError("management.cooldown_values_non_negative_numbers")
         if not isinstance(permission, str):
-            raise ValueError("Permission must be a valid permission name.")
+            raise UserError("management.permission_valid_permission_name")
         try:
             parsed_permission = Permission[permission]
         except KeyError as error:
-            raise ValueError("Permission must be a valid permission name.") from error
+            raise UserError("management.permission_valid_permission_name") from error
         return (
             enabled,
             CooldownPolicy(
@@ -747,9 +748,9 @@ class ApplicationManagement:
                 **self._parse_command_options(options),
             )
         except KeyError:
-            return {"ok": False, "error": "Unknown command."}
+            return {"ok": False, "error_code": "management.unknown_command", "error_params": {}}
         except (TypeError, ValueError) as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         self._logger.info(
             "Command runtime settings applied command=%s",
             command_name,
@@ -786,14 +787,14 @@ class ApplicationManagement:
                 **self._parse_command_options(options, saving=True),
             )
         except KeyError:
-            return {"ok": False, "error": "Unknown command."}
+            return {"ok": False, "error_code": "management.unknown_command", "error_params": {}}
         except CommandNameConflict as error:
-            return {"ok": False, "error": str(error), "code": "command_name_conflict"}
-        except (TypeError, ValueError) as error:
-            return {"ok": False, "error": str(error)}
+            return {**error_result(error), "code": "command_name_conflict"}
         except (OSError, RuntimeError):
             self._logger.exception("Could not save command settings command=%s", command_name)
-            return {"ok": False, "error": "Could not save command settings."}
+            return {"ok": False, "error_code": "management.could_not_save_command_settings", "error_params": {}}
+        except (TypeError, ValueError) as error:
+            return error_result(error)
         self._logger.info(
             "Command settings saved command=%s",
             command_name,
@@ -808,18 +809,18 @@ class ApplicationManagement:
     @operation(write=True)
     def reset_command_settings(self, command_name: str, preserve_enabled: bool = False) -> dict[str, object]:
         if type(preserve_enabled) is not bool:
-            return {"ok": False, "error": "Preserve enabled must be a boolean."}
+            return {"ok": False, "error_code": "management.preserve_enabled_must_be_a_boolean", "error_params": {}}
         try:
             self._backend.application.services.runtime_state.reset_command_settings(
                 command_name, preserve_enabled=preserve_enabled,
             )
         except (KeyError, TypeError):
-            return {"ok": False, "error": "Unknown command."}
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
+            return {"ok": False, "error_code": "management.unknown_command", "error_params": {}}
         except (OSError, RuntimeError):
             self._logger.exception("Could not reset command settings command=%s", command_name)
-            return {"ok": False, "error": "Could not reset command settings."}
+            return {"ok": False, "error_code": "management.could_not_reset_command_settings", "error_params": {}}
+        except ValueError as error:
+            return error_result(error)
         self._logger.info(
             "Command settings reset command=%s",
             command_name,
@@ -840,11 +841,11 @@ class ApplicationManagement:
         if self._backend.application.services.runtime_state.server_runtime:
             allowed += ("stream_availability",)
         if not isinstance(options, dict) or any(key not in allowed for key in options):
-            raise ValueError("Unknown command editor settings.")
+            raise UserError("management.unknown_command_editor_settings")
         if any(value is None for value in options.values()):
-            raise ValueError("Command editor settings cannot be null.")
+            raise UserError("management.command_editor_settings_cannot_be_null")
         if "reactivate_removed" in options and type(options["reactivate_removed"]) is not bool:
-            raise ValueError("Reactivate removed must be a boolean.")
+            raise UserError("management.reactivate_removed_must_be_a_boolean")
         return options
 
     @operation(write=True)
@@ -852,12 +853,12 @@ class ApplicationManagement:
         try:
             self._backend.application.services.runtime_state.remove_builtin_command(command_name)
         except (KeyError, TypeError):
-            return {"ok": False, "error": "Unknown command."}
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
+            return {"ok": False, "error_code": "management.unknown_command", "error_params": {}}
         except (OSError, RuntimeError):
             self._logger.exception("Could not remove built-in command")
-            return {"ok": False, "error": "Could not remove command."}
+            return {"ok": False, "error_code": "management.could_not_remove_command", "error_params": {}}
+        except ValueError as error:
+            return error_result(error)
         return {"ok": True}
 
     @operation(write=True)
@@ -867,36 +868,36 @@ class ApplicationManagement:
     @operation(write=True)
     def save_builtin_enabled(self, command_name: str, enabled: object) -> dict[str, object]:
         if type(enabled) is not bool:
-            return {"ok": False, "error": "Enabled must be a boolean."}
+            return {"ok": False, "error_code": "announcements.enabled_must_be_a_boolean", "error_params": {}}
         try:
             self._backend.application.services.runtime_state.save_builtin_enabled(command_name, enabled)
         except (KeyError, TypeError):
-            return {"ok": False, "error": "Unknown command."}
+            return {"ok": False, "error_code": "management.unknown_command", "error_params": {}}
         except CommandNameConflict as error:
-            return {"ok": False, "error": str(error), "code": "command_name_conflict"}
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
+            return {**error_result(error), "code": "command_name_conflict"}
         except (OSError, RuntimeError):
             self._logger.exception("Could not save built-in command status")
-            return {"ok": False, "error": "Could not save command status."}
+            return {"ok": False, "error_code": "management.could_not_save_command_status", "error_params": {}}
+        except ValueError as error:
+            return error_result(error)
         return {"ok": True}
 
     @operation(write=True)
     def reset_all_builtin_commands(self, preserve_enabled: bool = False) -> dict[str, object]:
         if type(preserve_enabled) is not bool:
-            return {"ok": False, "error": "Preserve enabled must be a boolean."}
+            return {"ok": False, "error_code": "management.preserve_enabled_must_be_a_boolean", "error_params": {}}
         application = self._backend.application
         try:
             application.services.runtime_state.reset_all_command_settings(preserve_enabled=preserve_enabled)
         except (ValueError, TypeError, OSError, RuntimeError) as error:
             self._logger.warning("Could not restore factory command settings error_type=%s", type(error).__name__)
-            return {"ok": False, "error": "Could not restore factory command settings. Back up and repair the profile if needed."}
+            return {"ok": False, "error_code": "management.could_not_restore_factory_command_settings", "error_params": {}}
         try:
             if getattr(application, "fun_settings", None) is not None:
                 application.fun_settings.reset_all()
         except (ValueError, OSError) as error:
             self._logger.warning("Could not restore factory responses error_type=%s", type(error).__name__)
-            return {"ok": False, "error": "Factory command settings were restored, but responses could not be restored. Retry after repairing the response profile file."}
+            return {"ok": False, "error_code": "management.factory_command_settings_were_restored_but", "error_params": {}}
         return {"ok": True}
 
     @operation(write=False)
@@ -944,7 +945,7 @@ class ApplicationManagement:
         try:
             self._backend.application.services.runtime_state.apply_profile_instructions(prompt)
         except (TypeError, ValueError) as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         self._log_profile_instructions_action("apply")
         return {"ok": True}
 
@@ -952,11 +953,11 @@ class ApplicationManagement:
     def save_profile_instructions(self, prompt: object) -> dict[str, object]:
         try:
             self._backend.application.services.runtime_state.save_profile_instructions(prompt)
-        except (TypeError, ValueError) as error:
-            return {"ok": False, "error": str(error)}
         except (OSError, RuntimeError):
             self._logger.exception("Could not save AI profile instructions")
-            return {"ok": False, "error": "Could not save AI profile instructions."}
+            return {"ok": False, "error_code": "management.could_not_save_ai_profile_instructions", "error_params": {}}
+        except (TypeError, ValueError) as error:
+            return error_result(error)
         self._log_profile_instructions_action("save")
         return {"ok": True}
 
@@ -964,11 +965,11 @@ class ApplicationManagement:
     def reset_profile_instructions(self) -> dict[str, object]:
         try:
             self._backend.application.services.runtime_state.reset_profile_instructions()
-        except (TypeError, ValueError) as error:
-            return {"ok": False, "error": str(error)}
         except (OSError, RuntimeError):
             self._logger.exception("Could not reset AI profile instructions")
-            return {"ok": False, "error": "Could not reset AI profile instructions."}
+            return {"ok": False, "error_code": "management.could_not_reset_ai_profile_instructions", "error_params": {}}
+        except (TypeError, ValueError) as error:
+            return error_result(error)
         self._log_profile_instructions_action("reset")
         return {"ok": True}
 
@@ -985,7 +986,7 @@ class ApplicationManagement:
     @staticmethod
     def _validate_toggle(enabled: object) -> bool:
         if type(enabled) is not bool:
-            raise ValueError("Enabled must be a boolean.")
+            raise UserError("announcements.enabled_must_be_a_boolean")
         return enabled
 
     @operation(write=True)
@@ -995,11 +996,11 @@ class ApplicationManagement:
             self._backend.application.services.runtime_state.set_ai_enabled(
                 parsed_enabled
             )
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
         except (OSError, RuntimeError):
             self._logger.exception("Could not save AI command enabled setting")
-            return {"ok": False, "error": "Could not save AI command enabled setting."}
+            return {"ok": False, "error_code": "management.could_not_save_ai_command_enabled", "error_params": {}}
+        except ValueError as error:
+            return error_result(error)
         self._logger.info(
             "AI command enabled setting saved enabled=%s",
             parsed_enabled,
@@ -1015,13 +1016,13 @@ class ApplicationManagement:
     def apply_personality(self, personality: object, prompt: object) -> dict[str, object]:
         try:
             if not isinstance(personality, str):
-                raise ValueError("Unknown AI personality.")
+                raise UserError("management.unknown_ai_personality")
             self._backend.application.services.runtime_state.apply_ai_personality(
                 personality,
                 prompt,
             )
         except (TypeError, ValueError) as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         self._logger.info(
             "AI personality applied name=%s",
             personality,
@@ -1037,66 +1038,66 @@ class ApplicationManagement:
     def create_personality(self, name: object, prompt: object) -> dict[str, object]:
         try:
             name = self._backend.application.services.runtime_state.create_ai_personality(name, prompt)
-        except (TypeError, ValueError) as error:
-            return {"ok": False, "error": str(error)}
         except (OSError, RuntimeError):
             self._logger.exception("Could not create AI personality")
-            return {"ok": False, "error": "Could not create AI personality."}
+            return {"ok": False, "error_code": "management.could_not_create_ai_personality", "error_params": {}}
+        except (TypeError, ValueError) as error:
+            return error_result(error)
         return {"ok": True, "name": name}
 
     @operation(write=True)
     def rename_personality(self, personality: object, name: object) -> dict[str, object]:
         try:
             if not isinstance(personality, str):
-                raise ValueError("Unknown AI personality.")
+                raise UserError("management.unknown_ai_personality")
             name = self._backend.application.services.runtime_state.rename_ai_personality(personality, name)
-        except (TypeError, ValueError) as error:
-            return {"ok": False, "error": str(error)}
         except (OSError, RuntimeError):
             self._logger.exception("Could not rename AI personality")
-            return {"ok": False, "error": "Could not rename AI personality."}
+            return {"ok": False, "error_code": "management.could_not_rename_ai_personality", "error_params": {}}
+        except (TypeError, ValueError) as error:
+            return error_result(error)
         return {"ok": True, "name": name}
 
     @operation(write=True)
     def delete_personality(self, personality: object) -> dict[str, object]:
         try:
             if not isinstance(personality, str):
-                raise ValueError("Unknown AI personality.")
+                raise UserError("management.unknown_ai_personality")
             self._backend.application.services.runtime_state.delete_ai_personality(personality)
-        except (TypeError, ValueError) as error:
-            return {"ok": False, "error": str(error)}
         except (OSError, RuntimeError):
             self._logger.exception("Could not delete AI personality")
-            return {"ok": False, "error": "Could not delete AI personality."}
+            return {"ok": False, "error_code": "management.could_not_delete_ai_personality", "error_params": {}}
+        except (TypeError, ValueError) as error:
+            return error_result(error)
         return {"ok": True}
 
     @operation(write=True)
     def set_active_personality(self, personality: object) -> dict[str, object]:
         try:
             if not isinstance(personality, str):
-                raise ValueError("Unknown AI personality.")
+                raise UserError("management.unknown_ai_personality")
             self._backend.application.services.runtime_state.save_active_ai_personality(personality)
-        except (TypeError, ValueError) as error:
-            return {"ok": False, "error": str(error)}
         except (OSError, RuntimeError):
             self._logger.exception("Could not set active AI personality")
-            return {"ok": False, "error": "Could not set active AI personality."}
+            return {"ok": False, "error_code": "management.could_not_set_active_ai_personality", "error_params": {}}
+        except (TypeError, ValueError) as error:
+            return error_result(error)
         return {"ok": True}
 
     @operation(write=True)
     def save_personality(self, personality: object, prompt: object) -> dict[str, object]:
         try:
             if not isinstance(personality, str):
-                raise ValueError("Unknown AI personality.")
+                raise UserError("management.unknown_ai_personality")
             self._backend.application.services.runtime_state.save_ai_personality(
                 personality,
                 prompt,
             )
-        except (TypeError, ValueError) as error:
-            return {"ok": False, "error": str(error)}
         except (OSError, RuntimeError):
             self._logger.exception("Could not save AI personality name=%s", personality)
-            return {"ok": False, "error": "Could not save AI personality."}
+            return {"ok": False, "error_code": "management.could_not_save_ai_personality", "error_params": {}}
+        except (TypeError, ValueError) as error:
+            return error_result(error)
         self._logger.info(
             "AI personality override saved name=%s",
             personality,
@@ -1112,15 +1113,15 @@ class ApplicationManagement:
     def reset_personality(self, personality: object) -> dict[str, object]:
         try:
             if not isinstance(personality, str):
-                raise ValueError("Unknown AI personality.")
+                raise UserError("management.unknown_ai_personality")
             self._backend.application.services.runtime_state.reset_ai_personality(
                 personality
             )
-        except (TypeError, ValueError) as error:
-            return {"ok": False, "error": str(error)}
         except (OSError, RuntimeError):
             self._logger.exception("Could not reset AI personality name=%s", personality)
-            return {"ok": False, "error": "Could not reset AI personality."}
+            return {"ok": False, "error_code": "management.could_not_reset_ai_personality", "error_params": {}}
+        except (TypeError, ValueError) as error:
+            return error_result(error)
         self._logger.info(
             "AI personality override reset name=%s",
             personality,
@@ -1147,7 +1148,7 @@ class ApplicationManagement:
     @operation(write=False)
     def get_ai_provider_settings(self, provider: object = None) -> dict[str, object]:
         if self._app_settings is None:
-            return {"ok": False, "error": "Desktop settings are not configured."}
+            return {"ok": False, "error_code": "management.desktop_settings_not_configured", "error_params": {}}
         application = self._backend.application
         setup = getattr(application.settings, "ai_setup", None)
         selected = (setup.primary.provider if setup else application.settings.ai_provider) if provider is None else validate_ai_provider(provider)
@@ -1198,13 +1199,13 @@ class ApplicationManagement:
                 "default_shared_instructions": SHARED_AI_INSTRUCTIONS,
                 "retained_restrictions": "Local request and full-output checks remain enabled: prompt/secret extraction, sexual or fetish content, abuse of minors or protected traits, self-harm, threats/harassment/private data, restricted real-world political/violent events and illegal-substance instructions may be blocked. Profile filters, language policy, transport limits and provider policies also apply. Editing the shared text does not disable these checks."}
 
-    @operation(write=True, passthrough_errors=True, max_body=AI_SETUP_BODY, failure="Could not save AI setup. Reload saved state before retrying.")
+    @operation(write=True, passthrough_errors=True, max_body=AI_SETUP_BODY, failure="webview_host.could_not_save_ai_setup_reload")
     async def _save_ai_setup(self, settings: object) -> dict[str, object]:
         try:
             updated = self._app_settings.update_ai_setup(settings)
         except ValueError as error:
             # Setup validators emit application-owned messages, never provider bodies.
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         application = self._backend.application
         application.settings.ai_setup = updated.ai.setup
         application.settings.ai_provider = updated.ai.setup.primary.provider
@@ -1220,8 +1221,8 @@ class ApplicationManagement:
     def save_setup_guide(self, dismissed: object, ai_skipped: object) -> dict[str, object]:
         try:
             self._app_settings.update_setup_guide(dismissed, ai_skipped)
-        except ValueError:
-            return {"ok": False, "error": "Setup guide preferences must be boolean."}
         except OSError:
-            return {"ok": False, "error": "Could not save setup guidance. Check that the profile can be written."}
+            return {"ok": False, "error_code": "management.could_not_save_setup_guidance_check", "error_params": {}}
+        except ValueError:
+            return {"ok": False, "error_code": "app_settings.setup_guide_preferences_must_be_boolean", "error_params": {}}
         return self.get_setup_guide()

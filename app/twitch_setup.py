@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlsplit
 from pydantic import SecretStr
 from twitchio.exceptions import HTTPException
 
+from app.errors import UserError, error_result
 from app.app_settings import TwitchSettings, validate_twitch_identity, validate_twitch_settings
 from app.config.settings import TwitchConfigurationError
 from app.credentials import CredentialError, CredentialName
@@ -101,7 +102,7 @@ class ServerOAuth:
     async def begin(self, owner):
         self._expire()
         if self.pending is not None and self.pending[0] != owner:
-            raise CredentialError("Another administrator is authorizing Twitch. Wait for completion or the five-minute expiry.")
+            raise CredentialError("server_setup.another_administrator_authorizing_twitch_wait_completion")
         self.setup.settings.validate_twitch_configuration()
         await self.setup.policy.suspend_for_setup()
         self._clear_timer()
@@ -141,12 +142,12 @@ class ServerOAuth:
         self._expire()
         pending = self.pending
         if pending is None or pending[0] != owner:
-            raise CredentialError("No authorization attempt for this session. Select Connect Twitch again.")
+            raise CredentialError("server_setup.no_authorization_attempt_session_select_connect")
         if not isinstance(callback_url, str) or not 1 <= len(callback_url) <= 16384:
-            raise CredentialError("Use the complete callback URL from Twitch.")
+            raise CredentialError("server_setup.use_complete_callback_url_from_twitch")
         url = urlsplit(callback_url)
         if callback_url.split("?", 1)[0] != self.redirect_uri or "#" in callback_url:
-            raise CredentialError("Callback address or state does not match. Use the URL from this authorization attempt.")
+            raise CredentialError("server_setup.callback_address_state_does_not_match")
         return await self.complete_callback(pending, self._callback_query(pending, url.query))
 
     @staticmethod
@@ -156,13 +157,13 @@ class ServerOAuth:
                 or set(query) - {"code", "state", "scope", "error", "error_description"}
                 or not query.get("state") or not query["state"][0].isascii()
                 or not secrets.compare_digest(query["state"][0], pending[1])):
-            raise CredentialError("Callback address or state does not match. Use the URL from this authorization attempt.")
+            raise CredentialError("server_setup.callback_address_state_does_not_match")
         return query
 
     async def complete_callback(self, pending, query):
         self._expire()
         if self.pending is not pending:
-            raise CredentialError("No pending Twitch authorization.")
+            raise CredentialError("server_setup.no_pending_twitch_authorization")
         owner = pending[0]
         # Consume before any provider await, including denial and failed exchange.
         self.pending = None
@@ -171,10 +172,10 @@ class ServerOAuth:
         operation = "callback_response"
         try:
             if "error" in query:
-                raise CredentialError("Twitch authorization was denied. Select Connect Twitch to try again.")
+                raise CredentialError("server_setup.twitch_authorization_denied_select_connect_twitch")
             code = query.get("code", [""])[0]
             if not code or len(code) > 4096 or not code.isascii() or any(ord(c) < 33 for c in code):
-                raise CredentialError("The callback has no valid authorization code. Try Connect Twitch again.")
+                raise CredentialError("server_setup.callback_has_no_valid_authorization_code")
             operation = "client_create"
             bot = self.setup._bot()
             persisted = False
@@ -200,12 +201,12 @@ class ServerOAuth:
                     identities = {str(user.id): user.name.lower() for user in users}
                     if (identities.get(self.setup.settings.twitch_channel_user_id) != self.setup.settings.twitch_channel
                             or identities.get(self.setup.settings.twitch_bot_user_id) != self.setup.settings.twitch_bot_username):
-                        raise CredentialError("Twitch account or channel does not match its configured ID. Correct Settings and authorize again.")
+                        raise CredentialError("server_setup.twitch_account_channel_does_not_match")
                     # Reuse the existing atomic cache writer and TwitchIO's managed
                     # tokens (including any refresh on add), never an alternative cache.
                     operation = "session_validation"
                     if monotonic() >= pending[2] or not self.owner_active(owner):
-                        raise CredentialError("The initiating session or authorization attempt expired. Sign in and try again.")
+                        raise CredentialError("server_setup.initiating_session_authorization_attempt_expired_sign")
                     bot._tokens_loaded = True
                     operation = "token_persistence"
                     await bot.save_tokens()
@@ -239,7 +240,7 @@ class ServerOAuth:
         except Exception as error:
             self.setup.authorization_status = "validation_failed"
             _oauth_failure(operation, error)
-            raise CredentialError(f"Twitch authorization failed during {operation}. See the private Server logs for the safe diagnostic, then select Connect Twitch again.") from None
+            raise CredentialError("server_setup.twitch_authorization_failed_during_see_private", operation=str(operation)) from None
         finally:
             self.setup.policy.resume_after_setup()
         return {"ok": True}
@@ -272,7 +273,7 @@ class TwitchSetup:
         self.oauth._expire()
         self.settings.validate_twitch_configuration()
         if self.oauth.pending is not None or not self.token_path.is_file():
-            raise CredentialError("Complete Connect Twitch in Settings before connecting the bot.")
+            raise CredentialError("server_setup.complete_connect_twitch_settings_before_connecting")
 
     def _invalidate_authorization(self) -> None:
         # Called only after close has flushed the old session. A failed subsequent
@@ -292,21 +293,23 @@ class TwitchSetup:
             validate_twitch_identity("preset", channel.strip().removeprefix("#"), channel_user_id)
             _, preset = self._save_preset(preset_id, display_name, channel, channel_user_id,
                 update_target=False)
-        except (ValueError, AttributeError) as error:
-            raise CredentialError(str(error) if isinstance(error, ValueError) else "Invalid target channel.") from None
+        except UserError as error:
+            raise CredentialError(error.code, **error.params) from None
+        except (ValueError, AttributeError):
+            raise CredentialError("twitch_setup.invalid_target_channel") from None
         return {"ok": True, "preset_id": preset.id}
 
     def delete_preset(self, *, preset_id):
         try:
             self.store.delete_twitch_preset(preset_id)
-        except ValueError as error:
-            raise CredentialError(str(error)) from None
+        except UserError as error:
+            raise CredentialError(error.code, **error.params) from None
         return {"ok": True}
 
     async def switch_preset(self, *, preset_id):
         preset = next((item for item in self.store.snapshot().twitch.presets if item.id == preset_id), None)
         if preset is None:
-            raise CredentialError("Unknown saved channel.")
+            raise CredentialError("server_setup.unknown_saved_channel")
         return await self.save_twitch(client_id=self.settings.twitch_client_id,
             bot_username=self.settings.twitch_bot_username, bot_user_id=self.settings.twitch_bot_user_id,
             channel=preset.channel, channel_user_id=preset.channel_user_id, resume_manual=True,
@@ -321,7 +324,7 @@ class TwitchSetup:
             validate_twitch_identity(client_id, target.channel, target.channel_user_id)
         except ValueError as error:
             # These validators use fixed field diagnostics, never supplied values.
-            raise CredentialError(str(error)) from None
+            raise CredentialError(error.code, **error.params) from None
         values = dict(twitch_client_id=client_id, twitch_bot_username=bot_username,
             twitch_bot_user_id=bot_user_id, twitch_channel=target.channel,
             twitch_channel_user_id=target.channel_user_id)
@@ -462,33 +465,33 @@ class TwitchSetup:
         application = self.runtime.application
         runtime_state = application.services.runtime_state
         if not runtime_state.status()[0]:
-            return {"ok": False, "error": "Start Bot before authorizing Twitch."}
+            return {"ok": False, "error_code": "webview_host.start_bot_before_authorizing_twitch", "error_params": {}}
         if runtime_state.twitch_connection_state not in ("auth_required", "connected"):
-            return {"ok": False, "error": "Twitch authorization is not currently required."}
+            return {"ok": False, "error_code": "client.twitch_authorization_not_currently_required", "error_params": {}}
         try:
             application.settings.validate_twitch_configuration()
         except TwitchConfigurationError as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         if self.store is not None and self.requires_restart(
             self.store.snapshot().twitch
         ):
-            return {"ok": False, "error": "Restart the application to apply the saved Twitch client ID, bot identity or secret."}
+            return {"ok": False, "error_code": "webview_host.restart_application_apply_saved_twitch_client", "error_params": {}}
         try:
             if application.services.twitch is None:
-                return {"ok": False, "error": "Twitch authorization is not ready."}
+                return {"ok": False, "error_code": "webview_host.twitch_authorization_not_ready", "error_params": {}}
             url = self.oauth.begin(application)
         except ValueError as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         except self.oauth.timeout_error:
-            return {"ok": False, "error": "Twitch authorization timed out. Try again."}
+            return {"ok": False, "error_code": "webview_host.twitch_authorization_timed_out_try_again", "error_params": {}}
         except Exception as error:
             self.logger.warning("Could not begin Twitch authorization error_type=%s", type(error).__name__)
-            return {"ok": False, "error": "Could not begin Twitch authorization."}
+            return {"ok": False, "error_code": "webview_host.could_not_begin_twitch_authorization", "error_params": {}}
         return {"ok": True, "url": url}
 
     def desktop_get_twitch_settings(self) -> dict[str, object]:
         if self.store is None:
-            return {"ok": False, "error": "Desktop settings are not configured."}
+            return {"ok": False, "error_code": "management.desktop_settings_not_configured", "error_params": {}}
         application = self.runtime.application
         runtime_state = application.services.runtime_state
         local = self.store.snapshot().twitch
@@ -538,7 +541,7 @@ class TwitchSetup:
         bot_user_id: object = None,
     ) -> dict[str, object]:
         if self.store is None:
-            return {"ok": False, "error": "Desktop settings are not configured."}
+            return {"ok": False, "error_code": "management.desktop_settings_not_configured", "error_params": {}}
         try:
             updated = self.store.update_twitch(
                 channel=target_channel,
@@ -549,10 +552,10 @@ class TwitchSetup:
                 bot_user_id=bot_user_id,
             )
         except ValueError as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         except OSError:
             self.logger.exception("Could not save Twitch connection settings")
-            return {"ok": False, "error": "Could not save Twitch settings."}
+            return {"ok": False, "error_code": "webview_host.could_not_save_twitch_settings", "error_params": {}}
         requires_reconnect = self.requires_reconnect(updated.twitch.channel, updated.twitch.channel_user_id)
         self.logger.info(
             "Twitch target channel settings saved",
@@ -591,15 +594,15 @@ class TwitchSetup:
         target_channel_user_id: object,
     ) -> dict[str, object]:
         if self.store is None:
-            return {"ok": False, "error": "Desktop settings are not configured."}
+            return {"ok": False, "error_code": "management.desktop_settings_not_configured", "error_params": {}}
         try:
             updated, preset = self._save_preset(
                 preset_id, display_name, target_channel, target_channel_user_id)
         except ValueError as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         except OSError:
             self.logger.exception("Could not save Twitch connection preset")
-            return {"ok": False, "error": "Could not save Twitch preset."}
+            return {"ok": False, "error_code": "webview_host.could_not_save_twitch_preset", "error_params": {}}
         requires_reconnect = self.requires_reconnect(updated.twitch.channel, updated.twitch.channel_user_id)
         self.logger.info(
             "Twitch connection preset saved",
@@ -617,14 +620,14 @@ class TwitchSetup:
 
     def desktop_delete_twitch_preset(self, preset_id: object) -> dict[str, object]:
         if self.store is None:
-            return {"ok": False, "error": "Desktop settings are not configured."}
+            return {"ok": False, "error_code": "management.desktop_settings_not_configured", "error_params": {}}
         try:
             self.delete_preset(preset_id=preset_id)
         except CredentialError as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         except OSError:
             self.logger.exception("Could not delete Twitch connection preset")
-            return {"ok": False, "error": "Could not delete Twitch preset."}
+            return {"ok": False, "error_code": "webview_host.could_not_delete_twitch_preset", "error_params": {}}
         self.logger.info(
             "Twitch connection preset deleted",
             extra={
@@ -636,10 +639,10 @@ class TwitchSetup:
 
     def desktop_reconnect_twitch(self) -> dict[str, object]:
         if self.store is None:
-            return {"ok": False, "error": "Desktop settings are not configured."}
+            return {"ok": False, "error_code": "management.desktop_settings_not_configured", "error_params": {}}
         local = self.store.snapshot().twitch
         if self.requires_restart(local):
-            return {"ok": False, "error": "Restart the application to apply the saved Twitch client ID, bot identity or secret."}
+            return {"ok": False, "error_code": "webview_host.restart_application_apply_saved_twitch_client", "error_params": {}}
         channel, channel_user_id = self.target(local)
         try:
             reconnected = self.oauth.wait(
@@ -651,15 +654,15 @@ class TwitchSetup:
                 timeout=self.oauth.reconnect_timeout,
             )
         except (TwitchConfigurationError, TwitchCleanupError) as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         except self.oauth.timeout_error:
             return {
                 "ok": False,
-                "error": "Twitch reconnect timed out. Check Logs for details.",
+                "error_code": "webview_host.twitch_reconnect_timed_out_check_logs", "error_params": {},
             }
         except Exception:
             self.logger.exception("Twitch reconnect failed")
-            return {"ok": False, "error": "Could not reconnect Twitch."}
+            return {"ok": False, "error_code": "webview_host.could_not_reconnect_twitch", "error_params": {}}
         self.logger.info(
             "Twitch target settings applied reconnected=%s",
             reconnected,
@@ -673,7 +676,7 @@ class TwitchSetup:
 
     def desktop_get_credentials(self) -> dict[str, object]:
         if self.credentials is None:
-            return {"ok": False, "error": "Credential storage is not configured."}
+            return {"ok": False, "error_code": "webview_host.credential_storage_not_configured", "error_params": {}}
         return {
             "ok": True,
             "credentials": [
@@ -704,25 +707,22 @@ class TwitchSetup:
 
     def _desktop_change_credential(self, name, value=None, *, remove=False):
         if self.credentials is None:
-            return {"ok": False, "error": "Credential storage is not configured."}
+            return {"ok": False, "error_code": "webview_host.credential_storage_not_configured", "error_params": {}}
         try:
             parsed_name = self.credentials.parse_name(name)
             previous = self.credentials.effective_value(parsed_name) if parsed_name is CredentialName.TWITCH_CLIENT_SECRET else None
             changed = self._write_credential(parsed_name, value, remove=remove)
             outcome = self._apply_credential_change(parsed_name, previous) if changed or parsed_name is not CredentialName.TWITCH_CLIENT_SECRET else {}
         except self.oauth.timeout_error:
-            return {"ok": False, "error": (
-                "Credential removed. Its runtime status could not be refreshed. Try removing it again."
-                if remove else
-                "Credential stored securely. Its runtime status could not be refreshed. Try saving it again.")}
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
+            return {"ok": False, "error_code": "webview_host.credential_removed_runtime_status_could_not" if remove else "webview_host.credential_stored_securely_runtime_status_could", "error_params": {}}
         except CredentialError as error:
             self.logger.warning(
                 "Credential removal failed name=%s error_type=%s" if remove else
                 "Credential replacement failed name=%s error_type=%s",
                 name if isinstance(name, str) else "invalid", type(error).__name__)
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
+        except ValueError as error:
+            return error_result(error)
         if changed:
             self.logger.info(
                 "Credential removed name=%s" if remove else "Credential replaced name=%s",
@@ -733,7 +733,7 @@ class TwitchSetup:
 
     def desktop_test_credential(self, name: object) -> dict[str, object]:
         if self.credentials is None:
-            return {"ok": False, "error": "Credential storage is not configured."}
+            return {"ok": False, "error_code": "webview_host.credential_storage_not_configured", "error_params": {}}
         try:
             parsed_name = self.credentials.parse_name(name)
             self.oauth.wait(
@@ -741,12 +741,10 @@ class TwitchSetup:
                 operation=f"test_credential:{parsed_name.value}",
                 timeout=self.oauth.credential_timeout,
             )
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
         except self.oauth.timeout_error:
             return {
                 "ok": False,
-                "error": "Credential test timed out. Check Logs for details.",
+                "error_code": "webview_host.credential_test_timed_out_check_logs", "error_params": {},
             }
         except CredentialError as error:
             self.logger.warning(
@@ -754,13 +752,15 @@ class TwitchSetup:
                 name if isinstance(name, str) else "invalid",
                 type(error).__name__,
             )
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
+        except ValueError as error:
+            return error_result(error)
         except Exception:
             self.logger.exception(
                 "Credential test failed name=%s",
                 name if isinstance(name, str) else "invalid",
             )
-            return {"ok": False, "error": "Credential test failed."}
+            return {"ok": False, "error_code": "webview_host.credential_test_failed", "error_params": {}}
         self.logger.info(
             "Credential test passed name=%s",
             parsed_name.value,

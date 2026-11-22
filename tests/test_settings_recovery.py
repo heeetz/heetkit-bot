@@ -99,8 +99,9 @@ def test_unreadable_or_malformed_file_survives_unrelated_save(tmp_path, kind, co
     path.write_bytes(content)
     session = editor(kind, path)
     before = session.snapshot()
-    with pytest.raises(ValueError, match="Quit the app, back up and repair"):
+    with pytest.raises(ValueError) as error:
         session.save()
+    assert error.value.code == "settings_recovery.cannot_save_profile"
     assert path.read_bytes() == content
     assert session.snapshot() == before
     assert list(tmp_path.glob("*.recovery")) == []
@@ -114,8 +115,9 @@ def test_future_or_invalid_version_survives_save(tmp_path, kind, version):
     original = write_source(path, {**source_payload(kind), "version": version, "future": "é"})
     session = editor(kind, path)
     before = session.snapshot()
-    with pytest.raises(ValueError, match="Cannot save"):
+    with pytest.raises(ValueError) as error:
         session.save()
+    assert error.value.code == "settings_recovery.cannot_save_profile"
     assert session.snapshot() == before
     assert path.read_bytes() == original
     assert list(tmp_path.glob("*.recovery")) == []
@@ -143,8 +145,9 @@ def test_read_failure_at_startup_and_at_save_preserves_original(tmp_path, monkey
         session = editor(kind, path)
         before = session.snapshot()
         patch.setattr(Path, "read_bytes", denied_bytes)
-        with pytest.raises(ValueError, match="Cannot save"):
+        with pytest.raises(ValueError) as error:
             session.save()
+        assert error.value.code == "settings_recovery.cannot_save_profile"
         assert session.snapshot() == before
     assert path.read_bytes() == original
     # If access returns, the recovered startup snapshot still cannot erase the
@@ -255,7 +258,7 @@ def test_command_reset_bridge_explains_repair_instead_of_losing_file(tmp_path):
     )))
     result = bridge.reset_command_settings("beta")
     assert result["ok"] is False
-    assert "Quit the app, back up and repair" in result["error"]
+    assert result["error_code"] == "settings_recovery.cannot_save_profile"
     assert path.read_bytes() == b"{bad"
 
 
@@ -266,7 +269,8 @@ def test_reset_or_delete_refuses_file_that_became_unreadable(tmp_path, kind):
     session = editor(kind, path)
     before = session.snapshot()
     path.write_bytes(b"{bad")
-    with pytest.raises(ValueError, match="Cannot save"):
+    with pytest.raises(ValueError) as error:
         session.reset()
+    assert error.value.code == "settings_recovery.cannot_save_profile"
     assert session.snapshot() == before
     assert path.read_bytes() == b"{bad"

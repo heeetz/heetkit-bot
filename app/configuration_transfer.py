@@ -25,6 +25,7 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from types import SimpleNamespace
 
+from app.errors import UserError, UserOSError
 from app.ai_user_blocks import BlockedAIUser, normalize_ai_username, verified_user_id
 from app.app_settings import APP_SETTINGS_VERSION
 from app.announcements import parse_announcements
@@ -63,13 +64,13 @@ def _object(pairs):
     result = {}
     for key, value in pairs:
         if key in result:
-            raise ValueError("Duplicate configuration key.")
+            raise UserError("configuration_transfer.duplicate_configuration_key")
         result[key] = value
     return result
 
 
 def _constant(_value):
-    raise ValueError("Non-finite configuration value.")
+    raise UserError("configuration_transfer.non_finite_configuration_value")
 
 
 def _json(raw):
@@ -77,7 +78,7 @@ def _json(raw):
 
     def check(item, depth=0):
         if depth > 16:
-            raise ValueError("Configuration nesting exceeds its limit.")
+            raise UserError("configuration_transfer.configuration_nesting_exceeds_its_limit")
         if isinstance(item, str):
             item.encode("utf-8")  # Reject escaped lone surrogates as invalid text.
         elif isinstance(item, dict):
@@ -98,19 +99,19 @@ def _encode(value):
 
 def _fields(value, fields):
     if not isinstance(value, dict) or set(value) != set(fields):
-        raise ValueError("Unexpected or missing configuration fields.")
+        raise UserError("configuration_transfer.unexpected_or_missing_configuration_fields")
 
 
 def _list(value, maximum):
     if not isinstance(value, list) or len(value) > maximum:
-        raise ValueError("Configuration collection exceeds its limit.")
+        raise UserError("configuration_transfer.configuration_collection_exceeds_limit")
     return value
 
 
 def pack_configuration(configuration):
     raw = _encode(configuration)
     if len(raw) > MAX_CONFIGURATION:
-        raise ValueError("Configuration exceeds the portable transfer limit (768 KiB).")
+        raise UserError("configuration_transfer.configuration_exceeds_portable_transfer_limit_768")
     manifest = {"format": "heetkit-configuration", "format_version": FORMAT_VERSION,
                 "application_version": VERSION,
                 "files": {"configuration.json": {"size": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}}}
@@ -124,7 +125,7 @@ def pack_configuration(configuration):
 
 def unpack_configuration(encoded):
     if not isinstance(encoded, str) or len(encoded) > 4 * ((MAX_ARCHIVE + 2) // 3):
-        raise ValueError("Select a configuration ZIP of at most 1 MiB.")
+        raise UserError("configuration_transfer.select_configuration_zip_most_1_mib")
     try:
         raw = base64.b64decode(encoded, validate=True)
         if len(raw) > MAX_ARCHIVE:
@@ -166,7 +167,7 @@ def unpack_configuration(encoded):
         return _json(data), manifest, hashlib.sha256(raw).hexdigest()
     except (ValueError, TypeError, UnicodeError, RecursionError, binascii.Error, zipfile.BadZipFile,
             NotImplementedError, RuntimeError, EOFError, OSError, zlib.error) as error:
-        raise ValueError("Invalid, unsupported or unsafe configuration ZIP.") from error
+        raise UserError("configuration_transfer.invalid_unsupported_unsafe_configuration_zip") from error
 
 
 class ConfigurationTransfer:
@@ -254,7 +255,7 @@ class ConfigurationTransfer:
             if not isinstance(raw, dict) or set(raw) - {"id", "name", "enabled", "responses", "permission",
                     "per_user_seconds", "global_seconds", "aliases", "response_mode", "burst_count",
                     "burst_allow_override", "burst_interval_ms", "stream_availability", "send_as"}:
-                raise ValueError("Unknown custom command fields.")
+                raise UserError("configuration_transfer.unknown_custom_command_fields")
             if "stream_availability" not in raw:
                 # Desktop/older exports carry no Server policy. Preserve the
                 # matching destination command, also when its local UUID differs.
@@ -267,7 +268,7 @@ class ConfigurationTransfer:
             if command.id in existing_commands:
                 command = replace(command, creation_order=existing_commands[command.id].creation_order)
             if command.id in customs:
-                raise ValueError("Duplicate custom command.")
+                raise UserError("configuration_transfer.duplicate_custom_command")
             customs[command.id] = command
         # Validate the complete replacement namespace, rather than conflicting
         # with destination commands that this import will itself replace.
@@ -280,12 +281,12 @@ class ConfigurationTransfer:
             commands["help"] = merge_commands_into_help(commands["help"], old_commands, candidate._used_command_names("help"))
         for name, value in commands.items():
             if candidate._validated_command_settings(name, value) != value:
-                raise ValueError("Removed commands must be disabled.")
+                raise UserError("configuration_transfer.removed_commands_disabled")
         used = candidate.reserved_command_names()
         for command in customs.values():
             for name in (command.name, *command.aliases):
                 if name in used:
-                    raise ValueError("Duplicate command name or alias.")
+                    raise UserError("configuration_transfer.duplicate_command_name_alias")
                 used.add(name)
         _fields(payload["responses"], ("fate", "tg"))
         responses = {name: _validate_responses(payload["responses"][name], max_responses=limit)
@@ -295,15 +296,15 @@ class ConfigurationTransfer:
         prompts = personality["overrides"]
         if (not isinstance(prompts, dict) or not 1 <= len(prompts) <= 200
                 or not AI_PERSONALITY_PROMPTS.keys() <= prompts.keys()):
-            raise ValueError("Invalid personality collection.")
+            raise UserError("configuration_transfer.invalid_personality_collection")
         names = set()
         for name, prompt in prompts.items():
             if validate_personality_name(name) != name or name.casefold() in names:
-                raise ValueError("Invalid or duplicate personality name.")
+                raise UserError("configuration_transfer.invalid_duplicate_personality_name")
             names.add(name.casefold())
             validate_personality_prompt(prompt)
         if not isinstance(personality["active_personality"], str) or personality["active_personality"] not in prompts:
-            raise ValueError("Unknown active personality.")
+            raise UserError("configuration_transfer.unknown_active_personality")
         validate_profile_instructions(personality["profile_instructions"])
         ai = payload["ai"]
         _fields(ai, {"memory_enabled", "selected_model", "fallback_model", "response_language", "provider",
@@ -314,7 +315,7 @@ class ConfigurationTransfer:
             # Portable consent never grants a new destination permission to route.
             setup = replace(setup, cross_provider_acknowledged=False)
         if type(ai["memory_enabled"]) is not bool:
-            raise ValueError("Invalid AI memory setting.")
+            raise UserError("configuration_transfer.invalid_ai_memory_setting")
         selected_model, fallback_model = validate_provider_models("gemini", ai["selected_model"], ai["fallback_model"])
         deepseek_selected, deepseek_fallback = validate_provider_models("deepseek", ai["deepseek_selected_model"], ai["deepseek_fallback_model"])
         openai_selected, openai_fallback = validate_provider_models("openai", ai["openai_selected_model"], ai["openai_fallback_model"])
@@ -323,7 +324,7 @@ class ConfigurationTransfer:
               "deepseek_fallback_model": deepseek_fallback, "openai_selected_model": openai_selected,
               "openai_fallback_model": openai_fallback}
         if setup and setup.primary.provider != ai["provider"]:
-            raise ValueError("AI provider and primary selection disagree.")
+            raise UserError("configuration_transfer.ai_provider_primary_selection_disagree")
         _fields(ai["response_language"], ("mode", "allowed_languages", "fallback_language"))
         language = validate_response_language(**ai["response_language"])
         filters = validate_filter_input(payload["filters"])
@@ -333,7 +334,7 @@ class ConfigurationTransfer:
             name = normalize_ai_username(raw["username"])
             identifier = raw["twitch_user_id"]
             if name in names or (identifier is not None and (verified_user_id(identifier) is None or identifier in ids)):
-                raise ValueError("Invalid or duplicate AI user block.")
+                raise UserError("configuration_transfer.invalid_duplicate_ai_user_block")
             users.append(BlockedAIUser(name, identifier))
             names.add(name)
             ids.add(identifier)
@@ -343,7 +344,7 @@ class ConfigurationTransfer:
             _fields(raw, _TRIGGER_FIELDS - {"creation_order"})
             trigger = parse_message_trigger(raw)
             if trigger.id in used:
-                raise ValueError("Duplicate trigger ID.")
+                raise UserError("configuration_transfer.duplicate_trigger_id")
             triggers.append(replace(trigger, creation_order=trigger_order.get(trigger.id, 0)))
             used.add(trigger.id)
         return SimpleNamespace(commands=commands, customs=customs, responses=responses,
@@ -360,19 +361,19 @@ class ConfigurationTransfer:
         originals = {}
         for path in self.paths():
             if path is None or not path.is_relative_to(self.config):
-                raise ValueError("Configuration stores do not share this profile.")
+                raise UserError("configuration_transfer.configuration_stores_do_not_share_this_profile")
             # Refuse local links/reparse points too; backup and replacement must
             # remain inside the profile even when its contents were edited manually.
             for part in (path, *path.parents):
                 if part.is_symlink() or (hasattr(part, "is_junction") and part.is_junction()):
-                    raise ValueError("Linked configuration paths are not supported.")
+                    raise UserError("configuration_transfer.linked_configuration_paths_are_not_supported")
             try:
                 with path.open("rb") as source:
                     if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
-                        raise ValueError("Configuration must use regular files.")
+                        raise UserError("configuration_transfer.configuration_must_use_regular_files")
                     data = source.read(MAX_LOCAL_FILE + 1)
                 if len(data) > MAX_LOCAL_FILE:
-                    raise ValueError("Existing configuration exceeds the backup limit.")
+                    raise UserError("configuration_transfer.existing_configuration_exceeds_backup_limit")
             except FileNotFoundError:
                 data = None
             originals[path] = data
@@ -461,14 +462,14 @@ class ConfigurationTransfer:
 
     def apply(self, encoded, token, confirmed):
         if confirmed is not True or not isinstance(token, str):
-            raise ValueError("Preview and explicitly confirm the configuration import first.")
+            raise UserError("configuration_transfer.preview_explicitly_confirm_configuration_import_first")
         payload, _, digest = unpack_configuration(encoded)
         with self.locked():
             plan = self.pending.pop(token, None)
             originals = self.originals()
             if (plan is None or plan[0] <= time.monotonic() or plan[1] != digest
                     or plan[2] != self.fingerprint(originals)):
-                raise ValueError("Preview expired or configuration changed. Preview the ZIP again.")
+                raise UserError("configuration_transfer.preview_expired_configuration_changed_preview_zip")
             parsed = self.validate(payload)
             self.commit(parsed, originals)
             self.app.announcement_scheduler.reset()
@@ -515,7 +516,7 @@ class ConfigurationTransfer:
             files[self.restrictions._path] = _encode({"version": 2, "restrictions": [asdict(rule) for rule in migrated_rules]})
         backup_root = self.config / "import-backups"
         if backup_root.is_symlink() or (hasattr(backup_root, "is_junction") and backup_root.is_junction()):
-            raise ValueError("Linked backup directories are not supported.")
+            raise UserError("configuration_transfer.linked_backup_directories_are_not_supported")
         backup_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         backup = Path(tempfile.mkdtemp(prefix="configuration-", dir=backup_root))
         for index, (path, data) in enumerate(originals.items()):
@@ -568,7 +569,7 @@ class ConfigurationTransfer:
              self.app.settings.openai_model, self.app.settings.openai_fallback_model,
              self.app.settings.ai_setup) = old_effective
             if rollback_failed:
-                raise OSError("Import rollback needs recovery from config/import-backups; stop the application and restore affected files.") from None
+                raise UserOSError("configuration_transfer.import_rollback_needs_recovery_from_config") from None
             raise
         finally:
             for temporary in staged.values():
