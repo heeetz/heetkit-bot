@@ -394,16 +394,16 @@ async def test_public_controls_submit_to_owner_loop_and_sanitize_failures(playgr
     bridge, ai, generate, _, _ = playground
     loop = asyncio.get_running_loop()
     bridge._backend.submit = lambda coroutine: asyncio.run_coroutine_threadsafe(coroutine, loop)
-    started = await asyncio.to_thread(bridge.start_ai_playground, "Tell me a story")
+    started = await asyncio.to_thread(bridge.call, "start_ai_playground", {"prompt": "Tell me a story"})
     await bridge._backend.application.ai_playground.task
-    result = await asyncio.to_thread(bridge.get_ai_playground_result, started["request_id"])
+    result = await asyncio.to_thread(bridge.call, "get_ai_playground_result", {"request_id": started["request_id"]})
     assert result["status"] == "success"
-    assert (await asyncio.to_thread(bridge.cancel_ai_playground, "stale"))["ok"] is False
-    assert (await asyncio.to_thread(bridge.start_ai_playground, ""))["ok"] is False
+    assert (await asyncio.to_thread(bridge.call, "cancel_ai_playground", {"request_id": "stale"}))["ok"] is False
+    assert (await asyncio.to_thread(bridge.call, "start_ai_playground", {"prompt": ""}))["ok"] is False
     def rejected_submit(coroutine):
         raise RuntimeError("synthetic-playground-key")
     bridge._backend.submit = rejected_submit
-    result = await asyncio.to_thread(bridge.start_ai_playground, "Hello")
+    result = await asyncio.to_thread(bridge.call, "start_ai_playground", {"prompt": "Hello"})
     assert result == {"ok": False, "error": "The Playground is unavailable. Try again."}
     await ai.aclose()
 

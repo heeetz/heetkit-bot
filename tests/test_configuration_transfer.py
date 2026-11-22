@@ -19,7 +19,7 @@ from app.container import build_application
 from app.filter_settings import apply_filter_settings, validate_filter_input
 from app.management import ApplicationManagement
 from app.runtime_paths import FILTER_NAMES
-from app.webview_host import FRONTEND_OPERATIONS, WebUIBridge
+from app.webview_host import DESKTOP_OPERATIONS, WebUIBridge
 
 
 @pytest.fixture
@@ -253,7 +253,7 @@ async def test_desktop_export_server_preview_import_round_trip_and_restart(profi
     bridge._window = type("Window", (), {"create_file_dialog": lambda *args, **kwargs: (str(destination),)})()
     exported = bridge.export_configuration()
     assert exported == {"ok": True, "saved": True}
-    assert all(name in FRONTEND_OPERATIONS for name in (
+    assert all(name in DESKTOP_OPERATIONS for name in (
         "export_configuration", "preview_configuration_import", "apply_configuration_import"))
     assert bridge._backend.application is source.app
     encoded = base64.b64encode(destination.read_bytes()).decode()
@@ -637,7 +637,7 @@ async def test_native_export_cancel_and_errors_preserve_destination(profiles, mo
     destination = transfer.config.parent / "portable.zip"
     destination.write_bytes(b"existing destination")
     bridge = WebUIBridge(type("Host", (), {"application": transfer.app})(), app_settings=transfer.settings)
-    monkeypatch.setattr(bridge, "_configuration_bridge_action", lambda *args: transfer.export())
+    monkeypatch.setattr(bridge, "_wait_for_backend", lambda coroutine, **_: (coroutine.close(), transfer.export())[1])
     dialogs = []
 
     def dialog(*args, **kwargs):

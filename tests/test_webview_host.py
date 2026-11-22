@@ -6,7 +6,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from concurrent.futures import Future
+from concurrent.futures import CancelledError as FutureCancelledError, Future
 from types import SimpleNamespace
 from typing import cast
 
@@ -32,9 +32,10 @@ from app.utils.cooldown import CooldownPolicy
 from app.utils.logging import RecentLogBuffer, RecentLogHandler
 from app.webview_host import (
     AsyncioBackendHost,
+    BridgeOperationTimedOut,
     DesktopAlreadyRunningError,
     DesktopController,
-    FRONTEND_OPERATIONS,
+    DESKTOP_OPERATIONS,
     WebUIBridge,
     apply_ai_app_settings,
     apply_twitch_app_settings,
@@ -53,6 +54,77 @@ def complete_bridge_coroutine(coroutine) -> Future:
     except BaseException as error:
         future.set_exception(error)
     return future
+
+
+@pytest.mark.parametrize("name,payload,outcome,expected", [
+    ("get_announcements", {}, {"ok": True, "announcements": []}, {"ok": True, "announcements": []}),
+    ("save_announcements", {"announcements": []}, {"ok": True}, {"ok": True}),
+    ("save_ai_memory_limits", {"stored": 3, "context": 2}, None, {"ok": True}),
+    ("get_profile_info", {}, {"path": "synthetic"}, {"path": "synthetic"}),
+    ("update_twitch_settings", {"target_channel": "channel", "target_channel_user_id": "200"}, {"ok": True}, {"ok": True}),
+    ("save_twitch_preset", {"preset_id": None, "display_name": "Test", "target_channel": "channel", "target_channel_user_id": "200"}, {"ok": True}, {"ok": True}),
+    ("start_ai_playground", {"prompt": "Hello"}, {"ok": True, "request_id": "test"}, {"ok": True, "request_id": "test"}),
+    ("get_announcements", {}, OSError(), {"ok": False, "error": "Could not read announcement status."}),
+    ("save_ai_setup", {"settings": {}}, RuntimeError(), {"ok": False, "error": "Could not save AI setup. Reload saved state before retrying."}),
+    ("get_analytics", {"days": 2}, ValueError(), {"ok": False, "error": "Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N)."}),
+    ("start_ai_playground", {"prompt": "Hello"}, BridgeOperationTimedOut(), {"ok": False, "error": "Playground control timed out. Try again."}),
+    ("save_command_restriction", {"data": {}}, FutureCancelledError(), {"ok": False, "error": "Saving the restriction timed out or was cancelled. Refresh the list before retrying."}),
+    ("get_opt_outs", {}, OSError(), {"ok": False, "error": "Privacy management could not complete. Refresh the list before retrying."}),
+    ("get_profile_info", {"path": "injected"}, None, {"ok": False, "error": "Invalid operation arguments."}),
+    ("save_announcements", {}, None, {"ok": False, "error": "Invalid operation arguments."}),
+    ("get_profile_info", [], None, {"ok": False, "error": "Operation arguments must be a JSON object."}),
+    ("_backend.application", {}, None, {"ok": False, "error": "Unknown operation."}),
+    ("set_bot_mode", {"mode": "manual"}, None, {"ok": False, "error": "Unknown operation."}),
+])
+def test_desktop_registry_call(name, payload, outcome, expected, monkeypatch):
+    import inspect
+
+    bridge = WebUIBridge(SimpleNamespace(submit=complete_bridge_coroutine))
+    operation = DESKTOP_OPERATIONS.get(name)
+    calls = []
+    if operation is not None:
+        def execute(**arguments):
+            calls.append(arguments)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        async def execute_async(**arguments):
+            return execute(**arguments)
+
+        asynchronous = inspect.iscoroutinefunction(getattr(bridge, operation.attribute))
+        monkeypatch.setattr(bridge, operation.attribute, execute_async if asynchronous else execute)
+    assert bridge.call(name, payload) == expected
+    if expected.get("error") in {"Invalid operation arguments.", "Operation arguments must be a JSON object."}:
+        assert calls == []
+    elif operation is not None:
+        assert calls == [payload]
+
+
+def test_registry_timeout_uses_operation_deadline_and_observes_late_results(monkeypatch, caplog):
+    from dataclasses import replace
+
+    operation = replace(DESKTOP_OPERATIONS["get_announcements"], timeout=0.001)
+    monkeypatch.setitem(DESKTOP_OPERATIONS, "get_announcements", operation)
+    for failure in (False, True):
+        future = Future()
+        future.set_running_or_notify_cancel()
+
+        def submit(coroutine):
+            coroutine.close()
+            return future
+
+        bridge = WebUIBridge(SimpleNamespace(submit=submit))
+        with caplog.at_level(logging.WARNING, logger="app.webview.bridge"):
+            assert bridge.call("get_announcements", {}) == {
+                "ok": False, "error": "Could not read announcement status.",
+            }
+            if failure:
+                future.set_exception(RuntimeError("synthetic late failure"))
+            else:
+                future.set_result({"ok": True})
+        message = "failed" if failure else "completed"
+        assert f"{message} after its UI deadline operation=get_announcements" in caplog.text
 
 
 def test_analytics_and_memory_desktop_adapters_share_backend_operations(tmp_path):
@@ -85,33 +157,33 @@ def test_analytics_and_memory_desktop_adapters_share_backend_operations(tmp_path
             analytics=collector, users=SimpleNamespace(retained_count=AsyncMock(return_value=9)),
             twitch=twitch))
     bridge = WebUIBridge(SimpleNamespace(application=app, submit=complete_bridge_coroutine), app_settings=store)
-    assert {"get_analytics", "configure_analytics", "configure_leaderboard_counting", "reset_analytics", "get_ai_balance", "get_ai_memory_limits", "save_ai_memory_limits"} <= set(FRONTEND_OPERATIONS)
+    assert {"get_analytics", "configure_analytics", "configure_leaderboard_counting", "reset_analytics", "get_ai_balance", "get_ai_memory_limits", "save_ai_memory_limits"} <= set(DESKTOP_OPERATIONS)
     asyncio.run(asyncio.to_thread(collector._initialize))
     asyncio.run(database.initialize())
     try:
         assert bridge.get_ai_memory_limits() == {"ok": True, "stored": 100, "context": 5}
-        assert bridge.save_ai_memory_limits(3, 2)["ok"]
+        assert bridge.call("save_ai_memory_limits", {"stored": 3, "context": 2})["ok"]
         assert bridge.get_ai_memory_limits() == {"ok": True, "stored": 3, "context": 2}
         assert store.snapshot().ai.history_max_entries == 3
-        assert not bridge.save_ai_memory_limits(1, 2)["ok"]
-        assert not bridge.save_ai_memory_limits(True, 1)["ok"]
-        assert not bridge.get_analytics(2)["ok"]
-        result = bridge.get_analytics(7)
+        assert not bridge.call("save_ai_memory_limits", {"stored": 1, "context": 2})["ok"]
+        assert not bridge.call("save_ai_memory_limits", {"stored": True, "context": 1})["ok"]
+        assert not bridge.call("get_analytics", {"days": 2})["ok"]
+        result = bridge.call("get_analytics", {"days": 7})
         assert result["ok"] and len(result["series"]) == 7
         assert result["retained_users"] is None and result["channel_id"] is None
         assert result["commands"] == [{"name": "ping", "label": settings.command_prefix + "ping", "metrics": {}}]
         assert result["count_chat_messages"] is True
-        hourly = bridge.get_analytics(1)
+        hourly = bridge.call("get_analytics", {"days": 1})
         assert hourly["resolution"] == "hour" and len(hourly["series"]) == 24
-        assert bridge.configure_analytics(False)["ok"]
-        assert not bridge.configure_analytics("false")["ok"]
-        assert bridge.configure_leaderboard_counting(False)["ok"]
-        assert bridge.get_analytics(7)["count_chat_messages"] is False
-        assert bridge.configure_leaderboard_counting("false")["ok"] is False
-        assert not bridge.reset_analytics(False)["ok"]
-        assert bridge.reset_analytics(True)["ok"]
-        assert bridge.get_ai_balance("gemini")["state"] == "unavailable"
-        assert bridge.get_ai_balance("deepseek")["state"] == "unavailable"
+        assert bridge.call("configure_analytics", {"enabled": False})["ok"]
+        assert not bridge.call("configure_analytics", {"enabled": "false"})["ok"]
+        assert bridge.call("configure_leaderboard_counting", {"enabled": False})["ok"]
+        assert bridge.call("get_analytics", {"days": 7})["count_chat_messages"] is False
+        assert bridge.call("configure_leaderboard_counting", {"enabled": "false"})["ok"] is False
+        assert not bridge.call("reset_analytics", {"confirmed": False})["ok"]
+        assert bridge.call("reset_analytics", {"confirmed": True})["ok"]
+        assert bridge.call("get_ai_balance", {"provider": "gemini"})["state"] == "unavailable"
+        assert bridge.call("get_ai_balance", {"provider": "deepseek"})["state"] == "unavailable"
     finally:
         asyncio.run(database.close())
         asyncio.run(collector.close())
@@ -128,18 +200,18 @@ def test_desktop_announcements_use_shared_saved_settings_and_backend_status(tmp_
     application = SimpleNamespace(announcements=store, announcement_scheduler=scheduler)
     bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace(
         application=application, submit=complete_bridge_coroutine)))
-    assert {"get_announcements", "save_announcements"} <= set(FRONTEND_OPERATIONS)
-    assert bridge.get_announcements() == {"ok": True, "announcements": []}
+    assert {"get_announcements", "save_announcements"} <= set(DESKTOP_OPERATIONS)
+    assert bridge.call("get_announcements", {}) == {"ok": True, "announcements": []}
     raw = {"id": str(uuid4()), "name": "Community", "enabled": True, "messages": ["Join us"],
         "message_mode": "single", "interval_seconds": 900, "min_messages": 2,
         "stream_availability": "live_only", "delivery_mode": "highlighted"}
-    assert bridge.save_announcements([raw]) == {"ok": True}
-    result = bridge.get_announcements()["announcements"][0]
+    assert bridge.call("save_announcements", {"announcements": [raw]}) == {"ok": True}
+    result = bridge.call("get_announcements", {})["announcements"][0]
     assert {key: value for key, value in result.items() if key != "status"} == raw
     assert result["status"]["next_run_at"] is None
     assert AnnouncementStore(store._path).list() == store.list()
-    assert not bridge.save_announcements([{**raw, "interval_seconds": 1}])["ok"]
-    assert bridge.get_announcements()["announcements"][0] == result
+    assert not bridge.call("save_announcements", {"announcements": [{**raw, "interval_seconds": 1}]})["ok"]
+    assert bridge.call("get_announcements", {})["announcements"][0] == result
 
 
 def test_desktop_ai_setup_and_guidance_share_atomic_profile_operations(tmp_path):
@@ -151,15 +223,15 @@ def test_desktop_ai_setup_and_guidance_share_atomic_profile_operations(tmp_path)
     bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace(
         application=application, submit=complete_bridge_coroutine)), app_settings=store)
     setup = AISetup(AIModelSelection("deepseek", "deepseek-flash", "off"), shared_instructions="", max_answer_length=70)
-    assert {"get_ai_setup", "save_ai_setup", "get_setup_guide", "save_setup_guide"} <= set(FRONTEND_OPERATIONS)
-    assert bridge.save_ai_setup(asdict(setup)) == {"ok": True}
+    assert {"get_ai_setup", "save_ai_setup", "get_setup_guide", "save_setup_guide"} <= set(DESKTOP_OPERATIONS)
+    assert bridge.call("save_ai_setup", {"settings": asdict(setup)}) == {"ok": True}
     assert bridge.get_ai_setup()["settings"] == asdict(setup)
     assert application.settings.ai_setup == setup
     assert bridge.get_ai_provider_settings()["settings"]["selected_model"] == "deepseek-flash"
     assert bridge.save_setup_guide(True, True) == {"ok": True, "dismissed": True, "ai_skipped": True}
     assert AppSettingsStore(store._path).snapshot().ai.setup_guide_ai_skipped
     bad = {**asdict(setup), "max_answer_length": 0}
-    assert not bridge.save_ai_setup(bad)["ok"]
+    assert not bridge.call("save_ai_setup", {"settings": bad})["ok"]
     assert bridge.get_ai_setup()["settings"] == asdict(setup)
 
 
@@ -1654,8 +1726,8 @@ def test_frontend_allowlist_matches_the_typed_operations() -> None:
         "complete_twitch_authorization", "cancel_twitch_authorization",
         "switch_server_twitch_preset",
     }
-    assert set(FRONTEND_OPERATIONS) == typed_operations - browser_only_operations
-    assert len(FRONTEND_OPERATIONS) == len(set(FRONTEND_OPERATIONS))
+    assert set(DESKTOP_OPERATIONS) == typed_operations - browser_only_operations
+    assert all("desktop" in op.hosts for op in DESKTOP_OPERATIONS.values())
 
 
 def test_pywebview_dispatch_cannot_traverse_to_credentials(tmp_path, monkeypatch) -> None:
@@ -1671,11 +1743,13 @@ def test_pywebview_dispatch_cannot_traverse_to_credentials(tmp_path, monkeypatch
     expose_frontend_operations(window, bridge)
 
     assert window._js_api is None
-    assert set(window._functions) == set(FRONTEND_OPERATIONS)
+    assert set(window._functions) == {"call"}
     for path in (
         "_credential_manager.settings_overrides", "_credential_manager.effective_value",
         "_backend.application.settings.gemini_api_key.get_secret_value",
         "get_credentials.__self__._credential_manager.settings_overrides", "unlisted_secret",
+        "call.__closure__", "call.__globals__",
+        "call.__self__._credential_manager.settings_overrides",
     ):
         js_bridge_call(window, path, [], "security-probe")
     assert returned == []
@@ -1692,11 +1766,11 @@ def test_exposed_operations_require_the_initial_frontend_origin(tmp_path, monkey
     current_url = window.real_url
     monkeypatch.setattr(window, "get_current_url", lambda: current_url)
     expose_frontend_operations(window, bridge)
-    assert window._functions["get_credentials"]()["ok"] is False
+    assert window._functions["call"]("get_credentials", {})["ok"] is False
     window.events.initialized.set("edgechromium")
-    assert window._functions["get_credentials"]() == {"ok": True}
+    assert window._functions["call"]("get_credentials", {}) == {"ok": True}
     for current_url in ("https://attacker.test", "http://127.0.0.1:54322/index.html", "file:///tmp/page.html"):
-        assert window._functions["get_credentials"]()["ok"] is False
+        assert window._functions["call"]("get_credentials", {})["ok"] is False
     assert calls == ["status"]
 
 

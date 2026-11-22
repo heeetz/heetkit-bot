@@ -66,6 +66,8 @@ async def api(unused_tcp_port):
     await server.start()
     async with aiohttp.ClientSession(headers={"Authorization": "Bearer " + TOKEN}, trust_env=False) as client:
         async def call(method, path, **kwargs):
+            if method == "POST" and path.startswith("/v1/ops/") and "json" not in kwargs and "data" not in kwargs:
+                kwargs["json"] = {}
             async with client.request(method, f"http://127.0.0.1:{unused_tcp_port}" + path, **kwargs) as response:
                 return response.status, await response.json(), response.headers
         yield server, call
@@ -84,19 +86,19 @@ async def test_authentication_origin_host_and_private_surface(api):
         ({"Sec-Fetch-Site": "cross-site"}, 403),
         ({"Host": "evil.test"}, 403),
     ]:
-        status, body, _ = await call("GET", "/v1/status", headers=headers)
+        status, body, _ = await call("POST", "/v1/ops/get_app_status", headers=headers)
         assert status == expected
         assert TOKEN not in json.dumps(body)
-    status, body, headers = await call("GET", "/v1/status")
+    status, body, headers = await call("POST", "/v1/ops/get_app_status")
     assert status == 200 and body["account"] == "syntheticbot"
     assert headers["Cache-Control"] == "no-store"
     assert "Access-Control-Allow-Origin" not in headers
-    for path in ("/v1/get_credentials", "/v1/_backend", "/v1/open_profile_folder", "/v1/replace_credential"):
+    for path in ("/v1/ops/get_credentials", "/v1/ops/_backend", "/v1/ops/open_profile_folder", "/v1/ops/not_an_operation"):
         assert (await call("POST", path, json={}))[0] == 404
-    assert (await call("OPTIONS", "/v1/status"))[0] == 405
-    assert (await call("GET", "/v1/status?token=secret"))[0] == 400
-    for path in ("/v1/ai/models", "/v1/diagnostics"):
-        _, body, _ = await call("GET", path)
+    assert (await call("OPTIONS", "/v1/ops/get_app_status"))[0] == 405
+    assert (await call("GET", "/v1/ops/get_app_status?token=secret"))[0] == 400
+    for path in ("/v1/ops/get_ai_provider_settings", "/v1/ops/get_diagnostics"):
+        _, body, _ = await call("POST", path)
         assert "private-client-sentinel" not in json.dumps(body)
         assert TOKEN not in json.dumps(body)
 
@@ -105,13 +107,13 @@ async def test_announcements_authenticated_settings_status_and_shared_monitor(ap
     from app.announcements import AnnouncementStore
     from uuid import uuid4
     server, call = api
-    assert (await call("GET", "/v1/announcements", headers={"Authorization": ""}))[0] == 401
-    assert (await call("GET", "/v1/announcements"))[1] == {"ok": True, "announcements": []}
+    assert (await call("POST", "/v1/ops/get_announcements", headers={"Authorization": ""}))[0] == 401
+    assert (await call("POST", "/v1/ops/get_announcements"))[1] == {"ok": True, "announcements": []}
     raw = {"id": str(uuid4()), "name": "Community", "enabled": True, "messages": ["Join us"],
         "message_mode": "single", "interval_seconds": 60, "min_messages": 1,
         "stream_availability": "live_only", "delivery_mode": "highlighted"}
-    assert (await call("POST", "/v1/announcements", json={"announcements": [raw]}))[1]["ok"]
-    row = (await call("GET", "/v1/announcements"))[1]["announcements"][0]
+    assert (await call("POST", "/v1/ops/save_announcements", json={"announcements": [raw]}))[1]["ok"]
+    row = (await call("POST", "/v1/ops/get_announcements"))[1]["announcements"][0]
     assert {key: value for key, value in row.items() if key != "status"} == raw
     assert row["status"]["next_run_at"] is None
     assert not server.policy._monitoring  # Manual disconnected does not poll
@@ -119,26 +121,26 @@ async def test_announcements_authenticated_settings_status_and_shared_monitor(ap
     assert saved.list()[0].to_json() == raw
     for payload in ({"announcements": [{**raw, "interval_seconds": 1}]},
                     {"announcements": [{**raw, "status": {}}]}, {"announcements": [raw], "extra": True}):
-        assert (await call("POST", "/v1/announcements", json=payload))[0] == 400
+        assert (await call("POST", "/v1/ops/save_announcements", json=payload))[0] == 400
     # Collection bounds permit more than the ordinary 64 KiB body, still bounded.
     large = [{**raw, "id": str(uuid4()), "messages": ["x" * 450] * 30, "message_mode": "random"} for _ in range(6)]
     assert len(json.dumps({"announcements": large})) > 65536
-    assert (await call("POST", "/v1/announcements", json={"announcements": large}))[1]["ok"]
-    assert len((await call("GET", "/v1/announcements"))[1]["announcements"]) == 6
-    assert (await call("POST", "/v1/announcements", json={"announcements": []}))[1]["ok"]
+    assert (await call("POST", "/v1/ops/save_announcements", json={"announcements": large}))[1]["ok"]
+    assert len((await call("POST", "/v1/ops/get_announcements"))[1]["announcements"]) == 6
+    assert (await call("POST", "/v1/ops/save_announcements", json={"announcements": []}))[1]["ok"]
 
 
 async def test_analytics_private_scoped_windows_controls_and_memory_limits(api):
     server, call = api
     app = server.runtime.application
     collector = app.services.analytics
-    for path, payload in (("/v1/analytics/query", {"days": 7}), ("/v1/analytics/configure", {"enabled": False}),
-                          ("/v1/leaderboards/configure", {"enabled": False}),
-                          ("/v1/analytics/reset", {"confirmed": True}), ("/v1/ai/memory/limits", {"stored": 10, "context": 2}),
-                          ("/v1/ai/balance", {"provider": "deepseek", "refresh": True})):
+    for path, payload in (("/v1/ops/get_analytics", {"days": 7}), ("/v1/ops/configure_analytics", {"enabled": False}),
+                          ("/v1/ops/configure_leaderboard_counting", {"enabled": False}),
+                          ("/v1/ops/reset_analytics", {"confirmed": True}), ("/v1/ops/save_ai_memory_limits", {"stored": 10, "context": 2}),
+                          ("/v1/ops/get_ai_balance", {"provider": "deepseek", "refresh": True})):
         assert (await call("POST", path, json=payload, headers={"Authorization": ""}))[0] == 401
         assert (await call("POST", path, json=payload, headers={"Origin": "https://evil.test"}))[0] == 403
-    assert (await call("GET", "/v1/ai/memory/limits", headers={"Authorization": ""}))[0] == 401
+    assert (await call("POST", "/v1/ops/get_ai_memory_limits", headers={"Authorization": ""}))[0] == 401
     collector.record("command.attempts", channel_id="200", dimension="ping", value=4)
     collector.record("command.success", channel_id="200", dimension="ping", value=1)
     collector.record("command.skipped", channel_id="200", dimension="ping", value=3)
@@ -146,7 +148,7 @@ async def test_analytics_private_scoped_windows_controls_and_memory_limits(api):
     collector.record("command.attempts", channel_id="201", dimension="other", value=77)
     await collector.flush()
     for days in (1, 7, 30, 60):
-        status, result, _ = await call("POST", "/v1/analytics/query", json={"days": days})
+        status, result, _ = await call("POST", "/v1/ops/get_analytics", json={"days": days})
         assert status == 200 and result["ok"] and len(result["series"]) == (24 if days == 1 else days)
         assert result["totals"]["command.attempts"] == 4
         assert result["totals"]["command.skipped"] == 3
@@ -155,39 +157,39 @@ async def test_analytics_private_scoped_windows_controls_and_memory_limits(api):
         assert not result["connected"] and "data_start" in result["metadata"]
         assert result["count_chat_messages"] is True
     for payload in ({"days": True}, {"days": 2}, {"days": "7"}, {"channel_id": "201"}, {"days": 7, "extra": 1}):
-        assert (await call("POST", "/v1/analytics/query", json=payload))[0] == 400
+        assert (await call("POST", "/v1/ops/get_analytics", json=payload))[0] == 400
     for stored, context in ((0, 1), (501, 1), (10, 51), (5, 6), (True, 1), (10, "2")):
-        assert (await call("POST", "/v1/ai/memory/limits", json={"stored": stored, "context": context}))[0] == 400
-    assert (await call("POST", "/v1/ai/memory/limits", json={"stored": 10, "context": 2}))[1]["ok"]
-    assert (await call("GET", "/v1/ai/memory/limits"))[1] == {"ok": True, "stored": 10, "context": 2}
+        assert (await call("POST", "/v1/ops/save_ai_memory_limits", json={"stored": stored, "context": context}))[0] == 400
+    assert (await call("POST", "/v1/ops/save_ai_memory_limits", json={"stored": 10, "context": 2}))[1]["ok"]
+    assert (await call("POST", "/v1/ops/get_ai_memory_limits"))[1] == {"ok": True, "stored": 10, "context": 2}
     saved = AppSettingsStore(RuntimePaths.default().app_settings).snapshot().ai
     assert (saved.history_max_entries, saved.context_max_entries) == (10, 2)
-    assert (await call("POST", "/v1/leaderboards/configure", json={"enabled": False}))[1]["ok"]
-    paused = (await call("POST", "/v1/analytics/query", json={}))[1]
+    assert (await call("POST", "/v1/ops/configure_leaderboard_counting", json={"enabled": False}))[1]["ok"]
+    paused = (await call("POST", "/v1/ops/get_analytics", json={}))[1]
     assert paused["enabled"] and not paused["count_chat_messages"]
-    assert (await call("POST", "/v1/analytics/configure", json={"enabled": False}))[1]["ok"]
-    assert not (await call("POST", "/v1/analytics/query", json={}))[1]["enabled"]
-    both_paused = (await call("POST", "/v1/analytics/query", json={}))[1]
+    assert (await call("POST", "/v1/ops/configure_analytics", json={"enabled": False}))[1]["ok"]
+    assert not (await call("POST", "/v1/ops/get_analytics", json={}))[1]["enabled"]
+    both_paused = (await call("POST", "/v1/ops/get_analytics", json={}))[1]
     assert not both_paused["enabled"] and not both_paused["count_chat_messages"]
-    assert (await call("POST", "/v1/leaderboards/configure", json={"enabled": True}))[1]["ok"]
-    resumed = (await call("POST", "/v1/analytics/query", json={}))[1]
+    assert (await call("POST", "/v1/ops/configure_leaderboard_counting", json={"enabled": True}))[1]["ok"]
+    resumed = (await call("POST", "/v1/ops/get_analytics", json={}))[1]
     assert not resumed["enabled"] and resumed["count_chat_messages"]
-    assert (await call("POST", "/v1/analytics/configure", json={"enabled": True}))[1]["ok"]
-    both_enabled = (await call("POST", "/v1/analytics/query", json={}))[1]
+    assert (await call("POST", "/v1/ops/configure_analytics", json={"enabled": True}))[1]["ok"]
+    both_enabled = (await call("POST", "/v1/ops/get_analytics", json={}))[1]
     assert both_enabled["enabled"] and both_enabled["count_chat_messages"]
-    assert (await call("POST", "/v1/analytics/reset", json={"confirmed": False}))[0] == 400
-    assert (await call("POST", "/v1/analytics/reset", json={"confirmed": True}))[1]["ok"]
-    assert (await call("POST", "/v1/analytics/query", json={}))[1]["totals"] == {}
+    assert (await call("POST", "/v1/ops/reset_analytics", json={"confirmed": False}))[0] == 400
+    assert (await call("POST", "/v1/ops/reset_analytics", json={"confirmed": True}))[1]["ok"]
+    assert (await call("POST", "/v1/ops/get_analytics", json={}))[1]["totals"] == {}
     assert (await collector.snapshot("playground"))["rows"] == []
-    assert (await call("POST", "/v1/leaderboards/configure", json={"enabled": "false"}))[0] == 400
-    assert (await call("POST", "/v1/leaderboards/configure", json={"enabled": False}))[1]["ok"]
-    assert (await call("POST", "/v1/analytics/reset", json={"confirmed": True}))[1]["ok"]
-    assert not (await call("POST", "/v1/analytics/query", json={}))[1]["count_chat_messages"]
-    assert (await call("POST", "/v1/analytics/configure", json={"enabled": "false"}))[0] == 400
-    assert (await call("POST", "/v1/analytics/configure", json={"enabled": True}))[1]["ok"]
+    assert (await call("POST", "/v1/ops/configure_leaderboard_counting", json={"enabled": "false"}))[0] == 400
+    assert (await call("POST", "/v1/ops/configure_leaderboard_counting", json={"enabled": False}))[1]["ok"]
+    assert (await call("POST", "/v1/ops/reset_analytics", json={"confirmed": True}))[1]["ok"]
+    assert not (await call("POST", "/v1/ops/get_analytics", json={}))[1]["count_chat_messages"]
+    assert (await call("POST", "/v1/ops/configure_analytics", json={"enabled": "false"}))[0] == 400
+    assert (await call("POST", "/v1/ops/configure_analytics", json={"enabled": True}))[1]["ok"]
     app.services.users.retained_count = AsyncMock(side_effect=OSError("private path"))
     app.settings.twitch_channel_user_id = ""
-    missing = (await call("POST", "/v1/analytics/query", json={}))[1]
+    missing = (await call("POST", "/v1/ops/get_analytics", json={}))[1]
     assert missing["channel_id"] is None and missing["retained_users"] is None
 
 
@@ -207,7 +209,7 @@ async def test_analytics_current_names_preserve_stable_history_and_daily_only_to
     # Simulate preserved data from before hourly collection, never distribute it.
     with collector._lock, collector._connection:
         collector._connection.execute("INSERT INTO daily VALUES (?,?,?,?,?)", ("2026-11-03", "200", "custom:deleted", "command.attempts", 5))
-    _, first, _ = await call("POST", "/v1/analytics/query", json={"days": 1})
+    _, first, _ = await call("POST", "/v1/ops/get_analytics", json={"days": 1})
     assert first["resolution"] == "hour" and len(first["series"]) == 24
     assert first["totals"]["command.attempts"] == 11
     assert sum(row["metrics"].get("command.attempts", 0) for row in first["series"]) == 6
@@ -218,12 +220,12 @@ async def test_analytics_current_names_preserve_stable_history_and_daily_only_to
     app.services.runtime_state.apply_command_settings("ping", primary_name="pong")
     collector.record("command.attempts", channel_id="200", dimension=stable, value=1)
     await collector.flush()
-    _, renamed, _ = await call("POST", "/v1/analytics/query", json={"days": 7})
+    _, renamed, _ = await call("POST", "/v1/ops/get_analytics", json={"days": 7})
     commands = {row["name"]: row for row in renamed["commands"]}
     assert commands[stable]["label"] == "$renamed" and commands[stable]["metrics"]["command.attempts"] == 3
     assert commands["ping"]["label"] == "$pong"
     app.custom_commands.delete(custom.id)
-    _, deleted, _ = await call("POST", "/v1/analytics/query", json={"days": 7})
+    _, deleted, _ = await call("POST", "/v1/ops/get_analytics", json={"days": 7})
     assert all(row["name"] != stable for row in deleted["commands"])
 
 
@@ -236,7 +238,7 @@ async def test_analytics_inventory_refresh_disabled_aliases_range_and_popularity
     app.services.runtime_state.apply_command_settings("ping", enabled=False, primary_name="zping", aliases=("pingalias",))
 
     async def query(days=7):
-        return (await call("POST", "/v1/analytics/query", json={"days": days}))[1]
+        return (await call("POST", "/v1/ops/get_analytics", json={"days": days}))[1]
 
     initial = await query()
     assert {row["name"] for row in initial["commands"]} == {definition.name for definition in app.registry.definitions()}
@@ -281,27 +283,27 @@ async def test_balance_shared_service_secure_key_and_mocked_refresh(api, monkeyp
     get = AsyncMock(return_value={"ok": True, "provider": "deepseek", "state": "available", "balances": [
         {"currency": "USD", "total_balance": "12.30", "granted_balance": "0", "topped_up_balance": "12.30"}], "updated_at": "2026-10-30T10:00:00Z"})
     monkeypatch.setattr("app.services.ai_balance.AIBalance.get", get)
-    result = (await call("POST", "/v1/ai/balance", json={"provider": "deepseek", "refresh": True}))[1]
+    result = (await call("POST", "/v1/ops/get_ai_balance", json={"provider": "deepseek", "refresh": True}))[1]
     assert result["state"] == "available" and "sentinel" not in json.dumps(result)
     get.assert_awaited_once_with("deepseek", "balance-key-private-sentinel", refresh=True)
     for payload in ({"provider": "invalid"}, {"provider": "deepseek", "refresh": 1}, {"provider": "deepseek", "key": "injected"}):
-        assert (await call("POST", "/v1/ai/balance", json=payload))[0] == 400
+        assert (await call("POST", "/v1/ops/get_ai_balance", json=payload))[0] == 400
 
 
 async def test_command_restrictions_authenticated_identity_errors_private_notes_and_immediate_removal(api, monkeypatch):
     server, call = api
     app = server.runtime.application
-    assert (await call("GET", "/v1/command-restrictions", headers={"Authorization": ""}))[0] == 401
+    assert (await call("POST", "/v1/ops/get_command_restrictions", headers={"Authorization": ""}))[0] == 401
     raw = {"username": "viewer", "command_ids": ["ask"], "expires_at": None, "note": "PRIVATE RESTRICTION NOTE"}
-    assert (await call("POST", "/v1/command-restrictions/save", json={"data": raw},
+    assert (await call("POST", "/v1/ops/save_command_restriction", json={"data": raw},
                        headers={"Authorization": ""}))[0] == 401
-    unresolved = (await call("POST", "/v1/command-restrictions/save", json={"data": raw}))[1]
+    unresolved = (await call("POST", "/v1/ops/save_command_restriction", json={"data": raw}))[1]
     assert not unresolved["ok"] and "verified Twitch user ID" in unresolved["error"]
     monkeypatch.setattr(app.services.twitch, "resolve_user_id", AsyncMock(return_value="123"))
     # Every factory command stays selectable, even hidden/admin/disabled/removed.
     app.services.runtime_state.remove_builtin_command("fate")
     app.services.runtime_state.apply_command_settings("ask", primary_name="question")
-    result = (await call("POST", "/v1/command-restrictions/save", json={"data": raw}))[1]
+    result = (await call("POST", "/v1/ops/save_command_restriction", json={"data": raw}))[1]
     assert result["ok"]
     assert {row["id"] for row in result["commands"]} == {row.name for row in app.registry.definitions()}
     assert {"ask", "tg", "erase", "seen", "help", "fate"} <= {row["id"] for row in result["commands"]}
@@ -312,10 +314,10 @@ async def test_command_restrictions_authenticated_identity_errors_private_notes_
     assert rule["note"] == raw["note"]
     assert app.services.command_restrictions.match("200", "123", "ask")
     for changes in ({"note": "x" * 201}, {"command_ids": ["optout"]}, {"twitch_user_id": "456"}):
-        invalid = (await call("POST", "/v1/command-restrictions/save", json={"data": {**raw, **changes}}))[1]
+        invalid = (await call("POST", "/v1/ops/save_command_restriction", json={"data": {**raw, **changes}}))[1]
         assert not invalid["ok"]
         assert raw["note"] not in json.dumps(invalid)
-    updated = (await call("POST", "/v1/command-restrictions/save",
+    updated = (await call("POST", "/v1/ops/save_command_restriction",
                          json={"data": {**raw, "id": rule["id"], "command_ids": []}}))[1]
     assert updated["ok"] and app.services.command_restrictions.match("200", "123", "commands")
     from app.twitch.events import IncomingChatMessage, ChatAuthor
@@ -328,9 +330,9 @@ async def test_command_restrictions_authenticated_identity_errors_private_notes_
         assert await app.dispatcher.dispatch(incoming, app.services)
         incoming.respond.assert_not_awaited()
     cooldown.assert_not_called()
-    assert (await call("GET", "/v1/command-restrictions"))[1] == updated
-    assert raw["note"] not in json.dumps((await call("POST", "/v1/logs/recent", json={}))[1])
-    removed = (await call("POST", "/v1/command-restrictions/remove", json={"restriction_id": rule["id"]}))[1]
+    assert (await call("POST", "/v1/ops/get_command_restrictions"))[1] == updated
+    assert raw["note"] not in json.dumps((await call("POST", "/v1/ops/get_recent_logs", json={}))[1])
+    removed = (await call("POST", "/v1/ops/remove_command_restriction", json={"restriction_id": rule["id"]}))[1]
     assert removed["ok"] and removed["restrictions"] == []
     assert app.services.command_restrictions.match("200", "123", "ask") is None
 
@@ -338,24 +340,24 @@ async def test_command_restrictions_authenticated_identity_errors_private_notes_
 async def test_optout_authenticated_management_shared_storage_and_chat_updates(api, monkeypatch):
     server, call = api
     services = server.runtime.application.services
-    for path, data in (("list", {}), ("add", {"username": "viewer"}),
-                       ("withdraw", {"twitch_user_id": "123", "confirmed": True})):
-        assert (await call("POST", "/v1/privacy/opt-outs/" + path, json=data,
+    for path, data in (("get_opt_outs", {}), ("add_opt_out", {"username": "viewer"}),
+                       ("withdraw_opt_out", {"twitch_user_id": "123", "confirmed": True})):
+        assert (await call("POST", "/v1/ops/" + path, json=data,
                            headers={"Authorization": ""}))[0] == 401
-    assert not (await call("POST", "/v1/privacy/opt-outs/add", json={"username": "unknown"}))[1]["ok"]
+    assert not (await call("POST", "/v1/ops/add_opt_out", json={"username": "unknown"}))[1]["ok"]
     monkeypatch.setattr(services.twitch, "resolve_user_id", AsyncMock(return_value="123"))
-    added = (await call("POST", "/v1/privacy/opt-outs/add", json={"username": "viewer"}))[1]
+    added = (await call("POST", "/v1/ops/add_opt_out", json={"username": "viewer"}))[1]
     assert added["ok"] and added["users"][0]["username"] == "viewer"
     assert await services.users.is_storage_opted_out("123")
     # Chat uses the same repository; a fresh management read sees its update.
     await services.users.opt_out("456", username="chatviewer")
-    listing = (await call("POST", "/v1/privacy/opt-outs/list", json={"query": "chat", "limit": 1}))[1]
+    listing = (await call("POST", "/v1/ops/get_opt_outs", json={"query": "chat", "limit": 1}))[1]
     assert listing["total"] == 1 and listing["users"][0]["twitch_user_id"] == "456"
     for invalid in ({"limit": 1000}, {"offset": -1}, {"query": []}):
-        assert (await call("POST", "/v1/privacy/opt-outs/list", json=invalid))[0] == 400
-    assert (await call("POST", "/v1/privacy/opt-outs/withdraw",
+        assert (await call("POST", "/v1/ops/get_opt_outs", json=invalid))[0] == 400
+    assert (await call("POST", "/v1/ops/withdraw_opt_out",
                        json={"twitch_user_id": "123", "confirmed": False}))[0] == 400
-    assert (await call("POST", "/v1/privacy/opt-outs/withdraw",
+    assert (await call("POST", "/v1/ops/withdraw_opt_out",
                        json={"twitch_user_id": "123", "confirmed": True}))[1]["ok"]
     assert not await services.users.is_storage_opted_out("123")
 
@@ -365,46 +367,46 @@ async def test_global_ai_scope_and_legacy_management_no_invisible_blocks(api, mo
     app = server.runtime.application
     services = app.services
     services.ai_user_blocks.block("unresolved")
-    listing = (await call("GET", "/v1/command-restrictions"))[1]
+    listing = (await call("POST", "/v1/ops/get_command_restrictions"))[1]
     row = listing["restrictions"][0]
     assert row["identity_state"] == "unresolved" and row["twitch_user_id"] is None
     assert row["channel_id"] == "200" and not services.ai_user_blocks.list()
     raw = {"username": "viewer", "scope": "global_ai", "command_ids": ["ask"], "expires_at": None, "note": "private"}
     monkeypatch.setattr(services.twitch, "resolve_user_id", AsyncMock(return_value="123"))
-    saved = (await call("POST", "/v1/command-restrictions/save", json={"data": raw}))[1]
+    saved = (await call("POST", "/v1/ops/save_command_restriction", json={"data": raw}))[1]
     assert saved["ok"] and services.command_restrictions.match("999", "123", "ask")
     assert not services.command_restrictions.match("999", "123", "commands")
-    assert not (await call("POST", "/v1/command-restrictions/save", json={"data": {**raw, "command_ids": []}}))[1]["ok"]
+    assert not (await call("POST", "/v1/ops/save_command_restriction", json={"data": {**raw, "command_ids": []}}))[1]["ok"]
     retry = {key: row[key] for key in ("id", "username", "command_ids", "expires_at", "note", "scope")}
-    assert (await call("POST", "/v1/command-restrictions/save", json={"data": retry}))[1]["ok"]
+    assert (await call("POST", "/v1/ops/save_command_restriction", json={"data": retry}))[1]["ok"]
     assert services.command_restrictions.get(row["id"]).twitch_user_id == "123"
     # Factory reset preserves restrictions and opt-outs.
     await services.users.opt_out("456", username="other")
-    assert (await call("POST", "/v1/commands/reset-all", json={}))[1]["ok"]
+    assert (await call("POST", "/v1/ops/reset_all_builtin_commands", json={}))[1]["ok"]
     assert len(services.command_restrictions.list()) == 2
     assert await services.users.is_storage_opted_out("456")
 
 
 async def test_ai_setup_save_reload_validation_and_guide_use_authenticated_shared_operations(api):
     server, call = api
-    status, result, _ = await call("GET", "/v1/ai/setup")
+    status, result, _ = await call("POST", "/v1/ops/get_ai_setup")
     assert status == 200 and {row["id"] for row in result["providers"]} == {"gemini", "deepseek", "openai"}
     assert all("value" not in row["credential"] for row in result["providers"])
     settings = result["settings"]
     settings.update(shared_instructions="Owner custom instructions", max_question_length=42, max_answer_length=120)
-    assert (await call("POST", "/v1/ai/setup", json={"settings": settings}))[1]["ok"]
-    assert (await call("GET", "/v1/ai/setup"))[1]["settings"] == settings
+    assert (await call("POST", "/v1/ops/save_ai_setup", json={"settings": settings}))[1]["ok"]
+    assert (await call("POST", "/v1/ops/get_ai_setup"))[1]["settings"] == settings
     settings["primary"]["thinking"] = "invented"
-    status, result, _ = await call("POST", "/v1/ai/setup", json={"settings": settings})
+    status, result, _ = await call("POST", "/v1/ops/save_ai_setup", json={"settings": settings})
     assert status == 400 and "Thinking choice" in result["error"]
-    assert (await call("GET", "/v1/ai/setup"))[1]["settings"]["primary"]["thinking"] != "invented"
-    status, result, _ = await call("POST", "/v1/setup/guide", json={"dismissed": True, "ai_skipped": True})
+    assert (await call("POST", "/v1/ops/get_ai_setup"))[1]["settings"]["primary"]["thinking"] != "invented"
+    status, result, _ = await call("POST", "/v1/ops/save_setup_guide", json={"dismissed": True, "ai_skipped": True})
     assert status == 200 and result["dismissed"] and result["ai_skipped"]
     assert server.service.get_setup_guide() == result
     settings["primary"]["thinking"] = "default"
     settings["shared_instructions"] = "🙂" * 20000
-    assert (await call("POST", "/v1/ai/setup", json={"settings": settings}))[1]["ok"]
-    assert (await call("GET", "/v1/ai/setup"))[1]["settings"]["shared_instructions"] == "🙂" * 20000
+    assert (await call("POST", "/v1/ops/save_ai_setup", json={"settings": settings}))[1]["ok"]
+    assert (await call("POST", "/v1/ops/get_ai_setup"))[1]["settings"]["shared_instructions"] == "🙂" * 20000
 
 
 async def test_playground_routes_authenticate_and_isolate_the_shared_slot(api):
@@ -422,13 +424,13 @@ async def test_playground_routes_authenticate_and_isolate_the_shared_slot(api):
         return AIReply("Synthetic answer", True, generation=AIGenerationDetails("DeepSeek", "deepseek-v4-pro", "high"))
 
     control.services.ai.generate_reply = generate
-    for action, payload in (("start", {"prompt": "Synthetic question"}),
-                            ("result", {"request_id": "unknown"}), ("cancel", {"request_id": "unknown"})):
-        assert (await call("POST", "/v1/ai/playground/" + action, json=payload, headers={"Authorization": ""}))[0] == 401
+    for action, payload in (("start_ai_playground", {"prompt": "Synthetic question"}),
+                            ("get_ai_playground_result", {"request_id": "unknown"}), ("cancel_ai_playground", {"request_id": "unknown"})):
+        assert (await call("POST", "/v1/ops/" + action, json=payload, headers={"Authorization": ""}))[0] == 401
     async def session():
         return {"Authorization": "Bearer " + (await call("POST", "/v1/session", json={}))[1]["token"]}
     owner, other = await session(), await session()
-    status, started, headers = await call("POST", "/v1/ai/playground/start", json={"prompt": "Synthetic question"}, headers=owner)
+    status, started, headers = await call("POST", "/v1/ops/start_ai_playground", json={"prompt": "Synthetic question"}, headers=owner)
     assert status == 200 and headers["Cache-Control"] == "no-store"
     await entered.wait()
     # Native and HTTP adapters use the same application's single request slot.
@@ -436,20 +438,20 @@ async def test_playground_routes_authenticate_and_isolate_the_shared_slot(api):
     assert not (await desktop._start_ai_playground("duplicate"))["ok"]
     payload = {"request_id": started["request_id"]}
     for headers in (other, {}):
-        for action in ("result", "cancel"):
-            status, body, _ = await call("POST", "/v1/ai/playground/" + action, json=payload, headers=headers)
+        for action in ("get_ai_playground_result", "cancel_ai_playground"):
+            status, body, _ = await call("POST", "/v1/ops/" + action, json=payload, headers=headers)
             assert status == 400 and "Synthetic" not in str(body)
-    assert (await call("POST", "/v1/ai/playground/start", json={"prompt": "duplicate"}, headers=other))[0] == 400
-    assert (await call("GET", "/v1/status", headers=owner))[0] == 200  # Generation never holds the HTTP lock.
+    assert (await call("POST", "/v1/ops/start_ai_playground", json={"prompt": "duplicate"}, headers=other))[0] == 400
+    assert (await call("POST", "/v1/ops/get_app_status", headers=owner))[0] == 200  # Generation never holds the HTTP lock.
     release.set()
     await control.task
-    status, result, _ = await call("POST", "/v1/ai/playground/result", json=payload, headers=owner)
+    status, result, _ = await call("POST", "/v1/ops/get_ai_playground_result", json=payload, headers=owner)
     assert status == 200 and result["text"] == "Synthetic answer"
     assert result["generation"]["provider"] == "DeepSeek" and result["generation"]["thinking"] == "high"
     with pytest.raises(ValueError):
         await desktop._get_ai_playground_result(started["request_id"])
     for payload in ({"prompt": 3}, {"prompt": "x" * 301}, {"prompt": "hello", "owner": "forged"}):
-        assert (await call("POST", "/v1/ai/playground/start", json=payload, headers=owner))[0] == 400
+        assert (await call("POST", "/v1/ops/start_ai_playground", json=payload, headers=owner))[0] == 400
 
 
 @pytest.mark.parametrize("reason", ["logout", "expiry", "eviction", "shutdown"])
@@ -474,7 +476,7 @@ async def test_playground_session_end_revokes_results_and_cancels_once(api, monk
             return AIReply("PRIVATE late answer", True)
 
     control.services.ai.generate_reply = stubborn
-    started = (await call("POST", "/v1/ai/playground/start", json={"prompt": "Synthetic question"}, headers=headers))[1]
+    started = (await call("POST", "/v1/ops/start_ai_playground", json={"prompt": "Synthetic question"}, headers=headers))[1]
     await entered.wait()
     shutdown = None
     if reason == "logout":
@@ -506,9 +508,9 @@ async def test_playground_http_timeout_and_errors_never_expose_provider_payloads
     control = server.runtime.application.ai_playground
     control.services.ai.generate_reply = AsyncMock(side_effect=RuntimeError("PRIVATE credential and prompt"))
     async def run():
-        started = (await call("POST", "/v1/ai/playground/start", json={"prompt": "Synthetic question"}))[1]
+        started = (await call("POST", "/v1/ops/start_ai_playground", json={"prompt": "Synthetic question"}))[1]
         await control.task
-        return (await call("POST", "/v1/ai/playground/result", json={"request_id": started["request_id"]}))[1]
+        return (await call("POST", "/v1/ops/get_ai_playground_result", json={"request_id": started["request_id"]}))[1]
     result = await run()
     assert result["status"] == "api_error" and "PRIVATE" not in str(result) + caplog.text
     cancelled = asyncio.Event()
@@ -531,9 +533,9 @@ async def test_server_availability_http_save_reset_and_monitor_demand(api, monke
     payload = {"command_name": "ask", "enabled": True, "per_user_seconds": 0,
         "global_seconds": 0, "permission": "USER", "options": {
             "primary_name": "question", "aliases": ["ask"], "stream_availability": "live_only"}}
-    _, result, _ = await call("POST", "/v1/commands/save", json=payload)
+    _, result, _ = await call("POST", "/v1/ops/save_command_settings", json=payload)
     assert result["ok"]
-    _, result, _ = await call("GET", "/v1/commands")
+    _, result, _ = await call("POST", "/v1/ops/get_commands")
     ask = next(item for item in result["commands"] if item["name"] == "ask")
     assert ask["stream_availability"] == "live_only" and ask["saved"]
     assert ask["primary_name"] == "question" and ask["aliases"] == ["ask"]
@@ -542,22 +544,22 @@ async def test_server_availability_http_save_reset_and_monitor_demand(api, monke
     # Exercise demand notification through the actual fixed HTTP dispatcher,
     # without starting a real Twitch session or calling a provider.
     server.policy.desired_running = True
-    _, result, _ = await call("POST", "/v1/commands/save", json=payload)
+    _, result, _ = await call("POST", "/v1/ops/save_command_settings", json=payload)
     assert result["ok"] and server.policy._monitoring
-    await call("POST", "/v1/commands/reset", json={"command_name": "ask"})
+    await call("POST", "/v1/ops/reset_command_settings", json={"command_name": "ask"})
     assert not server.policy._monitoring
     assert server.runtime.application.services.runtime_state.get_command_settings("ask").primary_name == "ask"
-    _, result, _ = await call("POST", "/v1/commands/save", json={**payload,
+    _, result, _ = await call("POST", "/v1/ops/save_command_settings", json={**payload,
         "options": {"stream_availability": "invalid"}})
     assert not result["ok"]
-    _, result, _ = await call("POST", "/v1/custom-commands/save", json={"command": {
+    _, result, _ = await call("POST", "/v1/ops/save_custom_command", json={"command": {
         "name": "crosshair", "enabled": True, "responses": ["crosshair"], "permission": "USER",
         "per_user_seconds": 0, "global_seconds": 0, "aliases": [], "stream_availability": "offline_only"}})
     assert result["ok"] and server.policy._monitoring
-    _, result, _ = await call("GET", "/v1/custom-commands")
+    _, result, _ = await call("POST", "/v1/ops/get_custom_commands")
     custom = result["commands"][0]
     assert custom["stream_availability"] == "offline_only"
-    await call("POST", "/v1/custom-commands/delete", json={"identifier": custom["id"]})
+    await call("POST", "/v1/ops/delete_custom_command", json={"identifier": custom["id"]})
     assert not server.policy._monitoring
 
 
@@ -567,8 +569,8 @@ async def test_unrelated_cookies_are_ignored_without_granting_authority(api):
     origin = f"http://127.0.0.1:{server.config.port}"
     cookie = "unrelated=private-cookie-sentinel; admin=" + TOKEN
     browser = {"Cookie": cookie, "Origin": origin, "Sec-Fetch-Site": "same-origin"}
-    for method, path in (("GET", "/v1/status"), ("POST", "/v1/session"),
-                         ("POST", "/v1/ai/memory")):
+    for method, path in (("POST", "/v1/ops/get_app_status"), ("POST", "/v1/session"),
+                         ("POST", "/v1/ops/set_ai_memory_enabled")):
         status, body, headers = await call(method, path, headers=browser | {"Authorization": ""},
             **({"json": {}} if method == "POST" else {}))
         assert status == 401 and "private-cookie-sentinel" not in json.dumps(body)
@@ -576,16 +578,16 @@ async def test_unrelated_cookies_are_ignored_without_granting_authority(api):
     status, body, headers = await call("POST", "/v1/session", json={}, headers=browser)
     assert status == 200 and "Set-Cookie" not in headers
     browser["Authorization"] = "Bearer " + body["token"]
-    assert (await call("GET", "/v1/status", headers=browser))[0] == 200
-    assert (await call("POST", "/v1/ai/memory", json={"enabled": False}, headers=browser))[0] == 200
+    assert (await call("POST", "/v1/ops/get_app_status", headers=browser))[0] == 200
+    assert (await call("POST", "/v1/ops/set_ai_memory_enabled", json={"enabled": False}, headers=browser))[0] == 200
     assert not server.runtime.application.services.runtime_state.ai_memory_enabled
     for change in ({"Origin": "http://evil.test"}, {"Origin": "null"},
                    {"Host": "evil.test"}, {"Sec-Fetch-Site": "cross-site"},
                    {"Sec-Fetch-Site": "same-site"}):
-        assert (await call("POST", "/v1/ai/memory", json={"enabled": True}, headers=browser | change))[0] == 403
+        assert (await call("POST", "/v1/ops/set_ai_memory_enabled", json={"enabled": True}, headers=browser | change))[0] == 403
     assert not server.runtime.application.services.runtime_state.ai_memory_enabled
     assert (await call("POST", "/v1/session/logout", json={}, headers=browser))[0] == 200
-    assert (await call("GET", "/v1/status", headers=browser))[0] == 401
+    assert (await call("POST", "/v1/ops/get_app_status", headers=browser))[0] == 401
 
 
 @pytest.mark.asyncio
@@ -622,11 +624,11 @@ async def test_strict_bounded_json_and_no_partial_mutation(api):
     server, call = api
     for raw in ('{"enabled":true,"enabled":false}', '{"enabled":NaN}', '[]', '{ ',
                 '{"enabled":true,"secret":"private-sentinel"}', '{"enabled":"yes"}'):
-        status, body, _ = await call("POST", "/v1/ai/enabled", data=raw,
+        status, body, _ = await call("POST", "/v1/ops/set_ai_enabled", data=raw,
             headers={"Content-Type": "application/json"})
         assert status == 400
         assert "private-sentinel" not in json.dumps(body)
-    assert (await call("POST", "/v1/ai/enabled", data="{}"))[0] == 415
+    assert (await call("POST", "/v1/ops/set_ai_enabled", data="{}"))[0] == 415
 
 
 async def test_operations_endpoint_validates_names_fields_and_method(api):
@@ -650,23 +652,23 @@ async def test_operations_endpoint_validates_names_fields_and_method(api):
 async def test_operation_mode_auth_validation_persistence_and_disabled_start(api, monkeypatch):
     server, call = api
     for headers, expected in (({"Authorization": ""}, 401), ({"Origin": "http://evil.test"}, 403)):
-        assert (await call("POST", "/v1/bot/mode", json={"mode": "always_on"}, headers=headers))[0] == expected
+        assert (await call("POST", "/v1/ops/set_bot_mode", json={"mode": "always_on"}, headers=headers))[0] == expected
     assert server.policy.mode == "manual"
     for payload in ({}, {"mode": "future"}, {"mode": []}, {"mode": True},
                     {"mode": "manual", "path": "private-sentinel"}):
-        status, result, _ = await call("POST", "/v1/bot/mode", json=payload)
+        status, result, _ = await call("POST", "/v1/ops/set_bot_mode", json=payload)
         assert status == 400 and "private-sentinel" not in json.dumps(result)
     assert server.policy.mode == "manual"
-    assert (await call("POST", "/v1/bot/mode", json={"mode": "disabled"}))[0] == 200
-    assert (await call("POST", "/v1/bot/start", json={}))[0] == 400
+    assert (await call("POST", "/v1/ops/set_bot_mode", json={"mode": "disabled"}))[0] == 200
+    assert (await call("POST", "/v1/ops/start_bot", json={}))[0] == 400
     assert not server.runtime.bot_active
-    for path in ("/v1/status", "/v1/snapshot", "/v1/diagnostics"):
-        status, result, _ = await call("GET", path)
+    for path in ("/v1/ops/get_app_status", "/v1/ops/get_snapshot", "/v1/ops/get_diagnostics"):
+        status, result, _ = await call("POST", path)
         operation = result["status"]["operation"] if path.endswith("snapshot") else result["operation"]
         assert status == 200 and operation["mode"] == "disabled"
         assert operation["stream_status"] == "unknown"
         assert "private-client-sentinel" not in json.dumps(operation)
-    assert (await call("POST", "/v1/ai/memory", json={"enabled": False}))[0] == 200
+    assert (await call("POST", "/v1/ops/set_ai_memory_enabled", json={"enabled": False}))[0] == 200
     store = AppSettingsStore(RuntimePaths.default().app_settings)
     assert store.snapshot().startup.operation_mode == "disabled"
     assert not store.snapshot().ai.memory_enabled
@@ -674,7 +676,7 @@ async def test_operation_mode_auth_validation_persistence_and_disabled_start(api
     def fail(*args, **kwargs):
         raise OSError("private-path-sentinel")
     monkeypatch.setattr("app.app_settings.os.replace", fail)
-    status, result, _ = await call("POST", "/v1/bot/mode", json={"mode": "always_on"})
+    status, result, _ = await call("POST", "/v1/ops/set_bot_mode", json={"mode": "always_on"})
     assert status == 500 and "private-path-sentinel" not in json.dumps(result)
     assert server.policy.mode == "disabled" and store._path.read_bytes() == original
 
@@ -684,10 +686,10 @@ async def test_configuration_transfer_authenticated_preview_confirm_and_live_app
     from app.configuration_transfer import pack_configuration, unpack_configuration
 
     server, call = api
-    for path in ("export", "preview", "import"):
+    for path in ("export_configuration", "preview_configuration_import", "apply_configuration_import"):
         for headers, expected in (({"Authorization": ""}, 401), ({"Origin": "http://evil.test"}, 403)):
-            assert (await call("POST", "/v1/configuration/" + path, json={}, headers=headers))[0] == expected
-    status, exported, headers = await call("POST", "/v1/configuration/export", json={})
+            assert (await call("POST", "/v1/ops/" + path, json={}, headers=headers))[0] == expected
+    status, exported, headers = await call("POST", "/v1/ops/export_configuration", json={})
     assert status == 200 and headers["Cache-Control"] == "no-store"
     payload, _, _ = unpack_configuration(exported["archive_base64"])
     payload["ai"]["memory_enabled"] = False
@@ -696,26 +698,26 @@ async def test_configuration_transfer_authenticated_preview_confirm_and_live_app
     payload["personalities"]["profile_instructions"] = "Portable instructions. " * 2100
     encoded = pack_configuration(payload)
     assert len(encoded) > 65536
-    status, preview, _ = await call("POST", "/v1/configuration/preview", json={"archive_base64": encoded})
+    status, preview, _ = await call("POST", "/v1/ops/preview_configuration_import", json={"archive_base64": encoded})
     assert status == 200 and preview["sections"] and preview["preserved"]
     assert server.runtime.application.services.runtime_state.ai_memory_enabled
     arguments = {"archive_base64": encoded, "preview_token": preview["preview_token"], "confirmed": False}
-    assert (await call("POST", "/v1/configuration/import", json=arguments))[0] == 400
+    assert (await call("POST", "/v1/ops/apply_configuration_import", json=arguments))[0] == 400
     arguments["confirmed"] = True
-    assert (await call("POST", "/v1/configuration/import", json=arguments))[0] == 200
+    assert (await call("POST", "/v1/ops/apply_configuration_import", json=arguments))[0] == 200
     assert not server.runtime.application.services.runtime_state.ai_memory_enabled
     assert server.runtime.application.services.runtime_state.profile_instructions.startswith("Portable instructions.")
-    assert (await call("POST", "/v1/configuration/import", json=arguments))[0] == 400
-    assert (await call("POST", "/v1/configuration/preview", json={"archive_base64": "private-sentinel"}))[0] == 400
+    assert (await call("POST", "/v1/ops/apply_configuration_import", json=arguments))[0] == 400
+    assert (await call("POST", "/v1/ops/preview_configuration_import", json={"archive_base64": "private-sentinel"}))[0] == 400
     # Normal mutations retain their original body limit; no arbitrary filenames,
     # local paths, additional fields or download URLs enter the transport.
-    assert (await call("POST", "/v1/ai/memory", json={"padding": "x" * 66000}))[0] == 413
-    assert (await call("POST", "/v1/configuration/export", json={"path": "auth/tokens.json"}))[0] == 400
-    assert (await call("POST", "/v1/ai/enabled", data=b"x" * 65537,
+    assert (await call("POST", "/v1/ops/set_ai_memory_enabled", json={"padding": "x" * 66000}))[0] == 413
+    assert (await call("POST", "/v1/ops/export_configuration", json={"path": "auth/tokens.json"}))[0] == 400
+    assert (await call("POST", "/v1/ops/set_ai_enabled", data=b"x" * 65537,
         headers={"Content-Type": "application/json"}))[0] == 413
-    assert (await call("POST", "/v1/ai/enabled", json={}, headers={"Content-Encoding": "gzip"}))[0] == 400
+    assert (await call("POST", "/v1/ops/set_ai_enabled", json={}, headers={"Content-Encoding": "gzip"}))[0] == 400
     before = server.service.get_commands()
-    result = await call("POST", "/v1/commands/save", json={"command_name": "erase", "enabled": True,
+    result = await call("POST", "/v1/ops/save_command_settings", json={"command_name": "erase", "enabled": True,
         "per_user_seconds": 0, "global_seconds": 0, "permission": "USER"})
     assert result[0] == 400  # immutable administrative permission floor
     assert server.service.get_commands() == before
@@ -729,31 +731,31 @@ async def test_management_applies_and_persists_existing_stores(api):
         assert status == 200, body
         assert body.get("ok", True)
         return body
-    await save("/v1/commands/save", {"command_name": "ping", "enabled": False,
+    await save("/v1/ops/save_command_settings", {"command_name": "ping", "enabled": False,
         "per_user_seconds": 7, "global_seconds": 3, "permission": "MODERATOR",
         "options": {"aliases": ["latency"], "display_name": "Latency", "send_as": "reply"}})
     toggle = {"command_name": "ping", "enabled": True}
-    assert (await call("POST", "/v1/commands/enabled", json=toggle, headers={"Authorization": ""}))[0] == 401
-    await save("/v1/commands/enabled", toggle)
+    assert (await call("POST", "/v1/ops/save_builtin_enabled", json=toggle, headers={"Authorization": ""}))[0] == 401
+    await save("/v1/ops/save_builtin_enabled", toggle)
     assert server.runtime.application.services.runtime_state.command_enabled("ping")
-    await save("/v1/commands/enabled", {**toggle, "enabled": False})
-    await save("/v1/commands/responses/save", {"name": "fate", "responses": ["Synthetic fate"]})
+    await save("/v1/ops/save_builtin_enabled", {**toggle, "enabled": False})
+    await save("/v1/ops/save_command_responses", {"name": "fate", "responses": ["Synthetic fate"]})
     custom = {"name": "greeting", "enabled": True, "responses": ["Hi {sender}"], "permission": "USER",
               "per_user_seconds": 4, "global_seconds": 2, "aliases": ["salute"], "send_as": "mention"}
-    await save("/v1/custom-commands/save", {"command": custom})
-    await save("/v1/ai/enabled", {"enabled": False})
-    await save("/v1/ai/memory", {"enabled": False})
-    await save("/v1/ai/setup", {"settings": {
+    await save("/v1/ops/save_custom_command", {"command": custom})
+    await save("/v1/ops/set_ai_enabled", {"enabled": False})
+    await save("/v1/ops/set_ai_memory_enabled", {"enabled": False})
+    await save("/v1/ops/save_ai_setup", {"settings": {
         "primary": {"provider": "gemini", "model": "gemini-synthetic-a", "thinking": "default", "search": False},
         "fallback": {"provider": "gemini", "model": "gemini-synthetic-b", "thinking": "default", "search": False},
     }})
-    await save("/v1/ai/language", {"mode": "limited", "allowed_languages": ["en"], "fallback_language": "en"})
-    await save("/v1/personalities/create", {"name": "Synthetic", "prompt": "Synthetic prompt"})
-    await save("/v1/personalities/save", {"personality": "Synthetic", "prompt": "Edited prompt"})
-    await save("/v1/personalities/activate", {"personality": "Synthetic"})
-    await save("/v1/ai/instructions/save", {"prompt": "Synthetic instructions"})
-    await save("/v1/filters/save", {"payload": {"words": ["syntheticblocked"], "phrases": [], "patterns": []}})
-    status, rejected_rule, _ = await call("POST", "/v1/filters/save", json={
+    await save("/v1/ops/update_ai_language_settings", {"mode": "limited", "allowed_languages": ["en"], "fallback_language": "en"})
+    await save("/v1/ops/create_personality", {"name": "Synthetic", "prompt": "Synthetic prompt"})
+    await save("/v1/ops/save_personality", {"personality": "Synthetic", "prompt": "Edited prompt"})
+    await save("/v1/ops/set_active_personality", {"personality": "Synthetic"})
+    await save("/v1/ops/save_profile_instructions", {"prompt": "Synthetic instructions"})
+    await save("/v1/ops/save_filters", {"payload": {"words": ["syntheticblocked"], "phrases": [], "patterns": []}})
+    status, rejected_rule, _ = await call("POST", "/v1/ops/save_filters", json={
         "payload": {"words": [], "phrases": [], "patterns": ["# comment", "["]},
     })
     assert status == 400
@@ -763,24 +765,24 @@ async def test_management_applies_and_persists_existing_stores(api):
         "error_code": "management_api.invalid_regex_rule",
         "invalid_rule": {"category": "patterns", "index": 1},
     }
-    result = await save("/v1/filters/test", {"text": "syntheticblocked", "source": "active", "payload": None})
+    result = await save("/v1/ops/test_filters", {"text": "syntheticblocked", "source": "active", "payload": None})
     assert result["decision"] == "BLOCK"
-    await save("/v1/blocked-users/block", {"username": "syntheticviewer"})
+    await save("/v1/ops/block_ai_user_only", {"username": "syntheticviewer"})
     trigger = {"id": "hello", "enabled": True, "match_mode": "exact", "text": "hello",
                "case_sensitive": False, "probability": 1, "cooldown_seconds": 10, "responses": ["Hi"]}
-    initial = await save("/v1/triggers", {"triggers": [trigger]})
-    status, loaded, _ = await call("GET", "/v1/triggers")
+    initial = await save("/v1/ops/save_message_triggers", {"triggers": [trigger]})
+    status, loaded, _ = await call("POST", "/v1/ops/get_message_triggers")
     assert status == 200 and loaded == initial
     # Editing one rule can resend a collection larger than the ordinary POST cap.
     many = [trigger, *[{**trigger, "id": f"rule-{index}", "responses": ["x" * 450] * 10}
                        for index in range(20)]]
-    updated = await save("/v1/triggers", {"triggers": many, "revision": initial["revision"]})
+    updated = await save("/v1/ops/save_message_triggers", {"triggers": many, "revision": initial["revision"]})
     assert [{key: value for key, value in reaction.items() if key != "creation_order"}
             for reaction in updated["triggers"]] == many
     orders = [reaction["creation_order"] for reaction in updated["triggers"]]
     assert orders == sorted(set(orders))
     assert orders[0] == initial["triggers"][0]["creation_order"]
-    status, stale, _ = await call("POST", "/v1/triggers", json={"triggers": [], "revision": initial["revision"]})
+    status, stale, _ = await call("POST", "/v1/ops/save_message_triggers", json={"triggers": [], "revision": initial["revision"]})
     assert status == 400 and "changed" in stale["error"]
     assert server.runtime.application.services.runtime_state.active_ai_personality == "Synthetic"
     assert not server.runtime.application.services.runtime_state.ai_memory_enabled
@@ -817,24 +819,24 @@ async def test_management_applies_and_persists_existing_stores(api):
 @pytest.mark.asyncio
 async def test_serialized_updates_failures_limits_and_safe_logs(api, monkeypatch):
     server, call = api
-    replies = await asyncio.gather(*[call("POST", "/v1/ai/memory", json={"enabled": bool(n % 2)}) for n in range(8)])
+    replies = await asyncio.gather(*[call("POST", "/v1/ops/set_ai_memory_enabled", json={"enabled": bool(n % 2)}) for n in range(8)])
     assert all(reply[0] == 200 for reply in replies)
     persisted = AppSettingsStore(RuntimePaths.default().app_settings).snapshot().ai.memory_enabled
     assert persisted == server.runtime.application.services.runtime_state.ai_memory_enabled
     record = logging.LogRecord("test", logging.ERROR, "", 0, "private-token-sentinel", (), None)
     record.event_kind = "twitch.connected"
     server.log_buffer.append(record, "private-token-sentinel")
-    _, body, _ = await call("POST", "/v1/logs/recent", json={})
+    _, body, _ = await call("POST", "/v1/ops/get_recent_logs", json={})
     assert body["entries"][0]["message"] == "Twitch lifecycle: twitch.connected"
     assert "private-token-sentinel" not in json.dumps(body)
     def fail(*args, **kwargs):
         raise OSError("private-path-secret-sentinel")
     monkeypatch.setattr(server.service._app_settings, "update_ai_memory", fail)
-    status, body, _ = await call("POST", "/v1/ai/memory", json={"enabled": not persisted})
+    status, body, _ = await call("POST", "/v1/ops/set_ai_memory_enabled", json={"enabled": not persisted})
     assert status == 500 and "private-path-secret-sentinel" not in json.dumps(body)
     assert persisted == server.runtime.application.services.runtime_state.ai_memory_enabled
     server.requests.extend([asyncio.get_running_loop().time()] * 120)
-    assert (await call("GET", "/v1/status"))[0] == 429
+    assert (await call("POST", "/v1/ops/get_app_status"))[0] == 429
 
 
 @pytest.mark.asyncio
@@ -852,8 +854,8 @@ async def test_authenticated_activity_matches_desktop_without_raw_prose(api):
             setattr(record, key, value)
         record.event_text = text
         handler.emit(record)
-    assert (await call("POST", "/v1/logs/recent", headers={"Authorization": ""}, json={}))[0] == 401
-    status, body, headers = await call("POST", "/v1/logs/recent", json={})
+    assert (await call("POST", "/v1/ops/get_recent_logs", headers={"Authorization": ""}, json={}))[0] == 401
+    status, body, headers = await call("POST", "/v1/ops/get_recent_logs", json={})
     assert status == 200 and headers["Cache-Control"] == "no-store"
     desktop = WebUIBridge(SimpleNamespace(), log_buffer=server.log_buffer).get_recent_logs()
     assert body["entries"] == desktop["entries"]
@@ -882,8 +884,8 @@ async def test_recent_commands_share_logs_and_return_only_five_terminal_events(a
              username="PRIVATE VIEWER", input_message_id="PRIVATE ID")
         emit("command.complete", "handler_completed", command=name)
     emit("command.terminal", "skipped", command="PRIVATE BLOCKED", reason="filters")
-    assert (await call("GET", "/v1/logs/commands", headers={"Authorization": ""}))[0] == 401
-    status, body, headers = await call("GET", "/v1/logs/commands")
+    assert (await call("POST", "/v1/ops/get_recent_commands", headers={"Authorization": ""}))[0] == 401
+    status, body, headers = await call("POST", "/v1/ops/get_recent_commands")
     assert status == 200 and headers["Cache-Control"] == "no-store"
     assert "PRIVATE" not in json.dumps(body)
     desktop = WebUIBridge(SimpleNamespace(), log_buffer=server.log_buffer)
@@ -907,8 +909,8 @@ async def test_authenticated_correlation_and_filter_projection_is_sanitized(api)
             setattr(record, key, value)
         record.event_text = "PRIVATE rejected text"
         handler.emit(record)
-    assert (await call("POST", "/v1/logs/recent", headers={"Authorization": ""}, json={}))[0] == 401
-    status, body, headers = await call("POST", "/v1/logs/recent", json={})
+    assert (await call("POST", "/v1/ops/get_recent_logs", headers={"Authorization": ""}, json={}))[0] == 401
+    status, body, headers = await call("POST", "/v1/ops/get_recent_logs", json={})
     assert status == 200 and headers["Cache-Control"] == "no-store"
     assert len(body["entries"]) == 4
     assert "PRIVATE" not in json.dumps(body)
@@ -921,7 +923,7 @@ async def test_partial_connections_headers_and_operation_deadlines_are_bounded(a
     monkeypatch.setattr("app.management_api.CONNECTION_SECONDS", 0.1)
     reader, writer = await asyncio.open_connection("127.0.0.1", server.config.port)
     try:
-        writer.write(b"GET /v1/status HTTP/1.1\r\nHost:")
+        writer.write(b"GET /v1/ops/get_app_status HTTP/1.1\r\nHost:")
         await writer.drain()
         assert await asyncio.wait_for(reader.read(), 1) == b""
     finally:
@@ -939,7 +941,7 @@ async def test_partial_connections_headers_and_operation_deadlines_are_bounded(a
         await asyncio.gather(*(connection.wait_closed() for _, connection in connections))
     reader, writer = await asyncio.open_connection("127.0.0.1", server.config.port)
     try:
-        writer.write(b"GET /v1/status HTTP/1.1\r\nHost: " + b"x" * 3000 + b"\r\n\r\n")
+        writer.write(b"GET /v1/ops/get_app_status HTTP/1.1\r\nHost: " + b"x" * 3000 + b"\r\n\r\n")
         await writer.drain()
         assert b"400" in await asyncio.wait_for(reader.read(), 1)
     finally:
@@ -949,7 +951,7 @@ async def test_partial_connections_headers_and_operation_deadlines_are_bounded(a
         await asyncio.sleep(10)
     monkeypatch.setattr(server.service, "_save_ai_memory_enabled", slow_operation)
     monkeypatch.setattr("app.management_api.REQUEST_SECONDS", 0.05)
-    assert (await call("POST", "/v1/ai/memory", json={"enabled": True}))[0] == 504
+    assert (await call("POST", "/v1/ops/set_ai_memory_enabled", json={"enabled": True}))[0] == 504
     assert not server.lock.locked()
 
 
@@ -1000,7 +1002,7 @@ async def test_headless_api_stop_start_keeps_supervisor_and_state(monkeypatch, u
                 await asyncio.sleep(0.02)
             assert sessions
             for path in ("stop", "start", "stop", "start"):
-                async with client.post(f"http://127.0.0.1:{unused_tcp_port}/v1/bot/{path}", json={}) as response:
+                async with client.post(f"http://127.0.0.1:{unused_tcp_port}/v1/ops/{path}_bot", json={}) as response:
                     assert response.status == 200, await response.text()
                 await asyncio.sleep(0.15)
                 assert not worker.done()
@@ -1034,7 +1036,7 @@ async def test_process_restarts_honor_modes_with_management_available(monkeypatc
             async with aiohttp.ClientSession(headers={"Authorization": "Bearer " + TOKEN}) as client:
                 for _ in range(200):
                     try:
-                        async with client.get(f"http://127.0.0.1:{unused_tcp_port}/v1/status") as response:
+                        async with client.post(f"http://127.0.0.1:{unused_tcp_port}/v1/ops/get_app_status", json={}) as response:
                             body = await response.json()
                         if not body["operation"]["pending"]:
                             break
@@ -1044,7 +1046,7 @@ async def test_process_restarts_honor_modes_with_management_available(monkeypatc
                 assert body["operation"]["mode"] == mode
                 assert body["running"] == (mode == "always_on")
                 if mode == "manual":
-                    async with client.post(f"http://127.0.0.1:{unused_tcp_port}/v1/bot/start", json={}) as response:
+                    async with client.post(f"http://127.0.0.1:{unused_tcp_port}/v1/ops/start_bot", json={}) as response:
                         assert response.status == 200
                     await asyncio.sleep(0.1)
                 assert not worker.done()
@@ -1155,13 +1157,13 @@ async def test_terminal_twitch_failure_leaves_browser_management_alive(monkeypat
         await asyncio.wait_for(failed.wait(), 5)
         await asyncio.sleep(0.2)
         async with aiohttp.ClientSession(headers={"Authorization": "Bearer " + TOKEN}) as client:
-            async with client.get(f"http://127.0.0.1:{unused_tcp_port}/v1/status") as response:
+            async with client.post(f"http://127.0.0.1:{unused_tcp_port}/v1/ops/get_app_status", json={}) as response:
                 body = await response.json()
                 assert response.status == 200
             assert body["operation"]["error"] == "connection_failed"
             assert not body["operation"]["desired_running"]
             assert not worker.done()
-            async with client.post(f"http://127.0.0.1:{unused_tcp_port}/v1/bot/mode", json={"mode": "disabled"}) as response:
+            async with client.post(f"http://127.0.0.1:{unused_tcp_port}/v1/ops/set_bot_mode", json={"mode": "disabled"}) as response:
                 assert response.status == 200
     finally:
         stop.set()
@@ -1214,17 +1216,17 @@ async def test_browser_session_origin_expiry_revocation_and_capacity(api):
     assert response_headers["Cache-Control"] == "no-store" and "Set-Cookie" not in response_headers
     browser = headers | {"Authorization": "Bearer " + token}
     assert (await call("GET", "/v1/session", headers=browser))[0] == 200
-    assert (await call("GET", "/v1/snapshot", headers=browser))[0] == 200
+    assert (await call("POST", "/v1/ops/get_snapshot", headers=browser))[0] == 200
     assert (await call("POST", "/v1/session", json={}, headers=browser))[0] == 401
     assert (await call("POST", "/v1/session/logout", json={}, headers=browser))[0] == 200
-    assert (await call("GET", "/v1/status", headers=browser))[0] == 401
+    assert (await call("POST", "/v1/ops/get_app_status", headers=browser))[0] == 401
     for _ in range(9):
         _, body, _ = await call("POST", "/v1/session", json={}, headers=headers)
     assert len(server.sessions) == 8
     token = body["token"]
     digest = hashlib.sha256(token.encode()).digest()
     server.sessions[digest] = 0
-    assert (await call("GET", "/v1/status", headers=browser | {"Authorization": "Bearer " + token}))[0] == 401
+    assert (await call("POST", "/v1/ops/get_app_status", headers=browser | {"Authorization": "Bearer " + token}))[0] == 401
     assert len(server.sessions) == 7
     # Private plaintext browser origins are refused; an exact HTTPS origin works.
     server.config = ManagementConfig(TOKEN, port=server.config.port, allowed_host="192.168.0.5:8765")
@@ -1240,7 +1242,7 @@ async def test_session_queued_before_logout_cannot_mutate(api):
     _, body, _ = await call("POST", "/v1/session", json={})
     token = body["token"]
     await server.lock.acquire()
-    pending = asyncio.create_task(call("POST", "/v1/ai/memory", json={"enabled": False},
+    pending = asyncio.create_task(call("POST", "/v1/ops/set_ai_memory_enabled", json={"enabled": False},
         headers={"Authorization": "Bearer " + token}))
     try:
         for _ in range(100):
@@ -1293,46 +1295,46 @@ async def test_built_frontend_delivery_is_allowlisted_and_isolated(api, tmp_path
     async with aiohttp.ClientSession() as client:
         async with client.get(url + "/assets/index-test.js") as response:
             assert response.status == 503
-    assert (await call("GET", "/v1/status", headers={"Authorization": ""}))[0] == 401
+    assert (await call("POST", "/v1/ops/get_app_status", headers={"Authorization": ""}))[0] == 401
 
 
 @pytest.mark.asyncio
 async def test_browser_presentation_routes_apply_save_and_log_cursor(api, monkeypatch):
     server, call = api
-    for path in ("/v1/snapshot", "/v1/setup", "/v1/about"):
-        status, body, _ = await call("GET", path)
+    for path in ("/v1/ops/get_snapshot", "/v1/ops/get_management_setup", "/v1/ops/get_about_info"):
+        status, body, _ = await call("POST", path)
         assert status == 200
         assert "private-client-sentinel" not in json.dumps(body) and TOKEN not in json.dumps(body)
         assert str(RuntimePaths.default().root) not in json.dumps(body)
-    _, setup, _ = await call("GET", "/v1/setup")
+    _, setup, _ = await call("POST", "/v1/ops/get_management_setup")
     assert setup["credentials"][0]["configured"] and setup["twitch"]["client_id"] == "synthetic-client"
-    assert (await call("POST", "/v1/credentials/replace", json={"name": "gemini_api_key", "value": "private-provider-sentinel"}))[0] == 200
-    _, provider, _ = await call("GET", "/v1/ai/models")
+    assert (await call("POST", "/v1/ops/replace_credential", json={"name": "gemini_api_key", "value": "private-provider-sentinel"}))[0] == 200
+    _, provider, _ = await call("POST", "/v1/ops/get_ai_provider_settings")
     assert provider["settings"]["credential"]["configured"]
     assert "private-provider-sentinel" not in json.dumps(provider)
     command = {"command_name": "ping", "enabled": False, "per_user_seconds": 7,
                "global_seconds": 3, "permission": "MODERATOR"}
-    assert (await call("POST", "/v1/commands/apply", json=command))[0] == 200
+    assert (await call("POST", "/v1/ops/apply_command_settings", json=command))[0] == 200
     ping = next(item for item in server.service.get_commands()["commands"] if item["name"] == "ping")
     assert not ping["enabled"] and not ping["saved"]
-    for path, data in (("/v1/commands/responses/apply", {"name": "fate", "responses": ["Synthetic response"]}),
-                       ("/v1/filters/apply", {"payload": {"words": ["blocked"], "phrases": [], "patterns": []}}),
-                       ("/v1/ai/instructions/apply", {"prompt": "Synthetic instructions"}),
-                       ("/v1/personalities/apply", {"personality": "neutral", "prompt": "Synthetic prompt"}),
-                       ("/v1/commands/reset-all", {})):
+    for path, data in (("/v1/ops/apply_command_responses", {"name": "fate", "responses": ["Synthetic response"]}),
+                       ("/v1/ops/apply_filters", {"payload": {"words": ["blocked"], "phrases": [], "patterns": []}}),
+                       ("/v1/ops/apply_profile_instructions", {"prompt": "Synthetic instructions"}),
+                       ("/v1/ops/apply_personality", {"personality": "neutral", "prompt": "Synthetic prompt"}),
+                       ("/v1/ops/reset_all_builtin_commands", {})):
         assert (await call("POST", path, json=data))[0] == 200
     async def discover(provider):
         assert provider == "gemini"
         return ["gemini-synthetic"]
     monkeypatch.setattr(server.runtime.application.services.ai, "discover_models", discover)
-    assert (await call("POST", "/v1/ai/models/discover", json={}))[1]["models"] == ["gemini-synthetic"]
+    assert (await call("POST", "/v1/ops/discover_ai_models", json={}))[1]["models"] == ["gemini-synthetic"]
     record = logging.LogRecord("test", logging.INFO, "", 0, "private-chat-sentinel", (), None)
     server.log_buffer.append(record, "private-chat-sentinel")
-    _, body, _ = await call("POST", "/v1/logs/recent", json={"limit": 1})
+    _, body, _ = await call("POST", "/v1/ops/get_recent_logs", json={"limit": 1})
     assert body["entries"] == [] and body["next_after_id"] > 0
     record.event_kind = "twitch.connected"
     server.log_buffer.append(record, "private-chat-sentinel")
-    _, body, _ = await call("POST", "/v1/logs/recent", json={"after_id": body["next_after_id"]})
+    _, body, _ = await call("POST", "/v1/ops/get_recent_logs", json={"after_id": body["next_after_id"]})
     assert body["entries"][0]["source"] == "lifecycle" and body["entries"][0]["context"] == {}
     assert "private-chat-sentinel" not in json.dumps(body)
 
@@ -1345,12 +1347,12 @@ async def test_server_logs_snapshot_spans_retained_pages_and_preserves_projected
         server.log_buffer.append(record, "synthetic")
     record.event_kind = None
     server.log_buffer.append(record, "hidden-private-diagnostic")
-    _, initial, _ = await call("POST", "/v1/logs/recent", json={"snapshot": True})
+    _, initial, _ = await call("POST", "/v1/ops/get_recent_logs", json={"snapshot": True})
     assert [entry["id"] for entry in initial["entries"]] == list(range(1, 451))
     assert initial["next_after_id"] == 451
     assert "hidden-private-diagnostic" not in json.dumps(initial)
-    assert (await call("POST", "/v1/logs/recent", json={"snapshot": True, "after_id": 1}))[0] == 400
-    assert (await call("POST", "/v1/logs/recent", json={"snapshot": 1}))[0] == 400
+    assert (await call("POST", "/v1/ops/get_recent_logs", json={"snapshot": True, "after_id": 1}))[0] == 400
+    assert (await call("POST", "/v1/ops/get_recent_logs", json={"snapshot": 1}))[0] == 400
 
 
 async def test_server_setup_guide_save_failure_retry_and_profile_reload(api, monkeypatch):
@@ -1362,11 +1364,11 @@ async def test_server_setup_guide_save_failure_retry_and_profile_reload(api, mon
         def reject(*args, **kwargs):
             raise OSError("private path")
         patch.setattr("app.app_settings.save_app_settings", reject)
-        _, failure, _ = await call("POST", "/v1/setup/guide", json={"dismissed": False, "ai_skipped": True})
+        _, failure, _ = await call("POST", "/v1/ops/save_setup_guide", json={"dismissed": False, "ai_skipped": True})
         assert not failure["ok"] and "profile can be written" in failure["error"]
         assert "private path" not in failure["error"]
     assert not AppSettingsStore(path).snapshot().ai.setup_guide_ai_skipped
-    _, saved, _ = await call("POST", "/v1/setup/guide", json={"dismissed": False, "ai_skipped": True})
+    _, saved, _ = await call("POST", "/v1/ops/save_setup_guide", json={"dismissed": False, "ai_skipped": True})
     assert saved == {"ok": True, "dismissed": False, "ai_skipped": True}
     after = AppSettingsStore(path).snapshot().ai
     assert after.setup_guide_ai_skipped and after.setup == before.setup and after.provider == before.provider
@@ -1374,18 +1376,18 @@ async def test_server_setup_guide_save_failure_retry_and_profile_reload(api, mon
 
 async def test_server_leaderboard_exclusions_are_scoped_and_month_is_utc(api):
     _, call = api
-    endpoint = "/v1/leaderboards/settings"
+    endpoint = "/v1/ops/save_leaderboard_settings"
     assert (await call("POST", endpoint, json={"channel_id": "201", "exclusions": ["otherbot"]}))[1]["ok"] is False
     assert (await call("POST", endpoint, json={"channel_id": "200", "exclusions": [" @OtherBot "]}))[1]["ok"] is True
     assert (await call("POST", endpoint, json={"channel_id": "200", "zone": "UTC", "exclusions": []}))[0] == 400
-    _, response, _ = await call("POST", "/v1/leaderboards/query", json={})
+    _, response, _ = await call("POST", "/v1/ops/get_leaderboards", json={})
     board = response["leaderboards"]
     assert board["exclusions"] == ["otherbot"]
     assert board["month"]["started_at"].endswith("01T00:00:00+00:00")
     assert "zone" not in board and "zone" not in board["month"]
     assert board["counting_enabled"] is True
-    assert (await call("POST", "/v1/leaderboards/configure", json={"enabled": False}))[0] == 200
-    _, paused, _ = await call("POST", "/v1/leaderboards/query", json={})
+    assert (await call("POST", "/v1/ops/configure_leaderboard_counting", json={"enabled": False}))[0] == 200
+    _, paused, _ = await call("POST", "/v1/ops/get_leaderboards", json={})
     assert paused["leaderboards"]["counting_enabled"] is False
 
 
@@ -1448,7 +1450,7 @@ async def test_forwarding_is_rejected_outside_explicit_proxy_mode(api):
     _, call = api
     for header, value in (("Forwarded", "proto=https"), ("X-Forwarded-Host", "evil.test"),
                           ("X-Forwarded-For", "127.0.0.1"), ("X-Forwarded-Proto", "https")):
-        assert (await call("GET", "/v1/status", headers={header: value}))[0] == 403
+        assert (await call("POST", "/v1/ops/get_app_status", headers={header: value}))[0] == 403
 
 
 async def test_remote_host_origin_and_socket_peer_cannot_be_substituted(api):
@@ -1470,10 +1472,10 @@ async def test_remote_host_origin_and_socket_peer_cannot_be_substituted(api):
         assert (await call("POST", "/v1/session", json={}, headers=headers | changes))[0] == 403
     for name in ("Origin", "X-Forwarded-Proto", "X-Forwarded-Host", "X-Forwarded-For"):
         duplicate = list(headers.items()) + [(name, headers[name])]
-        assert (await call("GET", "/v1/status", headers=duplicate))[0] == 403, name
+        assert (await call("POST", "/v1/ops/get_app_status", headers=duplicate))[0] == 403, name
     # aiohttp's client normalizes Host; use the wire to test duplicate authorities.
     reader, writer = await asyncio.open_connection("127.0.0.1", server.config.port)
-    writer.write(b"GET /v1/status HTTP/1.1\r\nHost: server.example-tailnet.ts.net\r\nHost: evil.test\r\n\r\n")
+    writer.write(b"GET /v1/ops/get_app_status HTTP/1.1\r\nHost: server.example-tailnet.ts.net\r\nHost: evil.test\r\n\r\n")
     await writer.drain()
     assert b" 400 " in await reader.readline()  # Rejected by aiohttp's HTTP parser.
     writer.close()
@@ -1536,10 +1538,10 @@ async def test_https_termination_with_isolated_real_proxy(api, tmp_path, unused_
                     session = (await response.json())["token"]
                     assert "Set-Cookie" not in response.headers
                 headers["Authorization"] = "Bearer " + session
-                async with browser.get(url + "/v1/status", headers=headers, ssl=trust) as response:
+                async with browser.post(url + "/v1/ops/get_app_status", json={}, headers=headers, ssl=trust) as response:
                     assert response.status == 200
                 headers.pop("Authorization")
-                async with browser.get(url + "/v1/status", headers=headers, ssl=trust) as response:
+                async with browser.post(url + "/v1/ops/get_app_status", json={}, headers=headers, ssl=trust) as response:
                     assert response.status == 401
         finally:
             await runner.cleanup()

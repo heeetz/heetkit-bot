@@ -58,6 +58,8 @@ async def api(unused_tcp_port):
     await server.start()
     async with aiohttp.ClientSession(headers={"Authorization": "Bearer " + TOKEN}, trust_env=False) as client:
         async def call(path, payload=None, *, method=None, headers=None):
+            if method is None and path.startswith("/v1/ops/"):
+                method, payload = "POST", payload if payload is not None else {}
             async with client.request(method or ("POST" if payload is not None else "GET"),
                     f"http://127.0.0.1:{unused_tcp_port}" + path, json=payload, headers=headers) as response:
                 return response.status, await response.json()
@@ -70,10 +72,10 @@ async def test_openai_saved_setup_and_playground_use_shared_policy_and_safe_usag
     from dataclasses import asdict
     from app.config.ai_setup import AISetup, AIModelSelection
     server, call = api
-    assert (await call("/v1/credentials/replace", {"name": "openai_api_key", "value": "PRIVATE-OPENAI-KEY"}))[0] == 200
+    assert (await call("/v1/ops/replace_credential", {"name": "openai_api_key", "value": "PRIVATE-OPENAI-KEY"}))[0] == 200
     setup = AISetup(AIModelSelection("openai", "gpt-6-luna", "none"))
-    assert (await call("/v1/ai/setup", {"settings": asdict(setup)}))[0] == 200
-    result = (await call("/v1/ai/setup"))[1]
+    assert (await call("/v1/ops/save_ai_setup", {"settings": asdict(setup)}))[0] == 200
+    result = (await call("/v1/ops/get_ai_setup", {}))[1]
     assert result["settings"]["primary"]["provider"] == "openai"
     assert result["capabilities"]["openai"]["gpt-6-luna"]["search_supported"]
     async def generate(method, path, key, **kwargs):
@@ -83,10 +85,10 @@ async def test_openai_saved_setup_and_playground_use_shared_policy_and_safe_usag
                      "output": [{"type": "message", "role": "assistant", "status": "completed",
                                  "content": [{"type": "output_text", "text": "Friendly answer.", "annotations": []}]}]}
     monkeypatch.setattr(server.runtime.application.services.ai._providers["openai"], "_http_json", generate)
-    status, started = await call("/v1/ai/playground/start", {"prompt": "Hello!"})
+    status, started = await call("/v1/ops/start_ai_playground", {"prompt": "Hello!"})
     assert status == 200
     await server.runtime.application.ai_playground.task
-    status, answer = await call("/v1/ai/playground/result", {"request_id": started["request_id"]})
+    status, answer = await call("/v1/ops/get_ai_playground_result", {"request_id": started["request_id"]})
     assert status == 200 and answer["text"] == "Friendly answer."
     assert answer["generation"]["provider"] == "OpenAI"
     assert answer["generation"]["input_tokens"] == 150 and answer["generation"]["output_tokens"] == 25
@@ -94,8 +96,8 @@ async def test_openai_saved_setup_and_playground_use_shared_policy_and_safe_usag
 
 
 async def configure(call):
-    assert (await call("/v1/twitch/settings", TWITCH))[0] == 200
-    assert (await call("/v1/credentials/replace", {"name": "twitch_client_secret", "value": "synthetic-secret"}))[0] == 200
+    assert (await call("/v1/ops/update_server_twitch_settings", TWITCH))[0] == 200
+    assert (await call("/v1/ops/replace_credential", {"name": "twitch_client_secret", "value": "synthetic-secret"}))[0] == 200
 
 
 async def test_saved_channels_crud_does_not_apply_and_persists_after_reload(api):
@@ -103,23 +105,23 @@ async def test_saved_channels_crud_does_not_apply_and_persists_after_reload(api)
     await configure(call)
     before = server.runtime.application.settings.model_dump()
     payload = {"preset_id": None, "display_name": "Other channel", "channel": "other", "channel_user_id": "300"}
-    status, result = await call("/v1/twitch/presets/save", payload)
+    status, result = await call("/v1/ops/save_twitch_preset", payload)
     assert status == 200
     preset_id = result["preset_id"]
     assert server.runtime.application.settings.model_dump() == before
     stored = AppSettingsStore(RuntimePaths.default().app_settings).snapshot()
     assert stored.twitch.channel == "testchannel" and stored.startup.operation_mode == "manual"
     assert stored.twitch.presets[0].display_name == "Other channel"
-    assert (await call("/v1/setup"))[1]["twitch"]["presets"][0]["id"] == preset_id
-    assert (await call("/v1/twitch/presets/save", payload | {"display_name": "OTHER CHANNEL"}))[0] == 400
+    assert (await call("/v1/ops/get_management_setup", {}))[1]["twitch"]["presets"][0]["id"] == preset_id
+    assert (await call("/v1/ops/save_twitch_preset", payload | {"display_name": "OTHER CHANNEL"}))[0] == 400
     for invalid in ({"channel": "bad login"}, {"channel": "x" * 26}, {"channel_user_id": "٣٠٠"}, {"display_name": ""}):
-        assert (await call("/v1/twitch/presets/save", payload | invalid))[0] == 400
-    assert (await call("/v1/twitch/presets/save", payload | {"preset_id": preset_id, "display_name": "Renamed"}))[0] == 200
+        assert (await call("/v1/ops/save_twitch_preset", payload | invalid))[0] == 400
+    assert (await call("/v1/ops/save_twitch_preset", payload | {"preset_id": preset_id, "display_name": "Renamed"}))[0] == 200
     assert AppSettingsStore(RuntimePaths.default().app_settings).snapshot().twitch.presets[0].display_name == "Renamed"
-    assert (await call("/v1/twitch/presets/delete", {"preset_id": preset_id}))[0] == 200
+    assert (await call("/v1/ops/delete_twitch_preset", {"preset_id": preset_id}))[0] == 200
     assert not AppSettingsStore(RuntimePaths.default().app_settings).snapshot().twitch.presets
     assert server.runtime.application.settings.model_dump() == before
-    assert (await call("/v1/twitch/presets/switch", {"preset_id": preset_id}))[0] == 400
+    assert (await call("/v1/ops/switch_server_twitch_preset", {"preset_id": preset_id}))[0] == 400
 
 
 @pytest.mark.parametrize("mode,running,resumes", [("manual", False, False), ("manual", True, True),
@@ -132,13 +134,13 @@ async def test_preset_switch_preserves_oauth_credentials_and_mode(api, monkeypat
     paths.tokens.write_text('{"100":{"token":"synthetic-access","refresh":"synthetic-refresh"}}')
     credentials, tokens = (paths.auth / "server_credentials.json").read_bytes(), paths.tokens.read_bytes()
     payload = {"preset_id": None, "display_name": "Other", "channel": "other", "channel_user_id": "300"}
-    preset_id = (await call("/v1/twitch/presets/save", payload))[1]["preset_id"]
+    preset_id = (await call("/v1/ops/save_twitch_preset", payload))[1]["preset_id"]
     server.policy.store.update_operation_mode(mode)
     server.policy.mode, server.policy.desired_running = mode, running
     stopped = AsyncMock()
     monkeypatch.setattr(server.runtime, "stop_bot", stopped)
     monkeypatch.setattr(server.runtime, "start_bot", AsyncMock())
-    status, result = await call("/v1/twitch/presets/switch", {"preset_id": preset_id})
+    status, result = await call("/v1/ops/switch_server_twitch_preset", {"preset_id": preset_id})
     assert status == 200 and result["requires_reconnect"]
     stopped.assert_awaited()
     assert server.policy.mode == mode and server.policy.desired_running == resumes
@@ -149,11 +151,11 @@ async def test_preset_switch_preserves_oauth_credentials_and_mode(api, monkeypat
     assert (settings.twitch_channel, settings.twitch_channel_user_id) == ("other", "300")
     saved = AppSettingsStore(paths.app_settings).snapshot()
     assert saved.startup.operation_mode == mode and saved.twitch.channel == "other"
-    setup = (await call("/v1/setup"))[1]["twitch"]
+    setup = (await call("/v1/ops/get_management_setup", {}))[1]["twitch"]
     assert setup["active_preset_id"] == preset_id and setup["oauth_token_available"]
     # Deleting the currently active preset must not disconnect or alter its target.
     stopped.reset_mock()
-    assert (await call("/v1/twitch/presets/delete", {"preset_id": preset_id}))[0] == 200
+    assert (await call("/v1/ops/delete_twitch_preset", {"preset_id": preset_id}))[0] == 200
     stopped.assert_not_awaited()
     assert settings.twitch_channel == "other" and paths.tokens.read_bytes() == tokens
 
@@ -165,7 +167,7 @@ async def test_failed_preset_write_keeps_active_target_and_authorization(api, mo
     def fail(*args, **kwargs):
         raise OSError("synthetic private path")
     monkeypatch.setattr("app.app_settings.save_app_settings", fail)
-    assert (await call("/v1/twitch/presets/save", {"preset_id": None, "display_name": "Other",
+    assert (await call("/v1/ops/save_twitch_preset", {"preset_id": None, "display_name": "Other",
         "channel": "other", "channel_user_id": "300"}))[0] == 500
     assert server.setup.store.snapshot() == before
     assert server.runtime.application.settings.twitch_channel == "testchannel"
@@ -200,11 +202,11 @@ def twitch_provider(monkeypatch):
 
 
 async def begin(call):
-    status, result = await call("/v1/twitch/authorization/begin", {})
+    status, result = await call("/v1/ops/begin_twitch_authorization", {})
     assert status == 200, result
     query = parse_qs(urlsplit(result["url"]).query)
     assert query["client_id"] == [TWITCH["client_id"]]
-    redirect = (await call("/v1/setup"))[1]["twitch"]["oauth_callback_url"]
+    redirect = (await call("/v1/ops/get_management_setup", {}))[1]["twitch"]["oauth_callback_url"]
     assert query["redirect_uri"] == [redirect]
     assert redirect.startswith("http://localhost:") and redirect != OAUTH_REDIRECT_URI
     assert query["force_verify"] == ["true"]
@@ -214,31 +216,31 @@ async def begin(call):
 
 async def test_fresh_authenticated_setup_stays_available_in_every_mode(api):
     server, call = api
-    assert (await call("/v1/setup", headers={"Authorization": ""}))[0] == 401
-    status, result = await call("/v1/setup")
+    assert (await call("/v1/ops/get_management_setup", {}, headers={"Authorization": ""}))[0] == 401
+    status, result = await call("/v1/ops/get_management_setup", {})
     assert status == 200 and not result["twitch"]["setup_complete"]
     assert result["twitch"]["authorization_status"] == "missing"
     assert all(not value["configured"] and value["managed"] for value in result["credentials"])
     for mode in ("always_on", "stream_only", "disabled", "manual"):
-        assert (await call("/v1/bot/mode", {"mode": mode}))[0] == 200
+        assert (await call("/v1/ops/set_bot_mode", {"mode": mode}))[0] == 200
         await asyncio.sleep(0.03)
-        assert (await call("/v1/setup"))[0] == 200
+        assert (await call("/v1/ops/get_management_setup", {}))[0] == 200
         assert not server.runtime.bot_active
-    assert (await call("/v1/bot/start", {}))[0] == 400
-    assert (await call("/v1/twitch/authorization/begin", {}))[0] == 400
+    assert (await call("/v1/ops/start_bot", {}))[0] == 400
+    assert (await call("/v1/ops/begin_twitch_authorization", {}))[0] == 400
 
 
 @pytest.mark.parametrize("path,payload", [
-    ("/v1/twitch/settings", TWITCH),
-    ("/v1/twitch/presets/save", {"preset_id": None, "display_name": "Channel", "channel": "other", "channel_user_id": "300"}),
-    ("/v1/twitch/presets/delete", {"preset_id": "missing"}),
-    ("/v1/twitch/presets/switch", {"preset_id": "missing"}),
-    ("/v1/credentials/replace", {"name": "gemini_api_key", "value": "private-sentinel"}),
-    ("/v1/credentials/remove", {"name": "gemini_api_key"}),
-    ("/v1/credentials/test", {"name": "gemini_api_key"}),
-    ("/v1/twitch/authorization/begin", {}),
-    ("/v1/twitch/authorization/complete", {"callback_url": "private-sentinel"}),
-    ("/v1/twitch/authorization/cancel", {}),
+    ("/v1/ops/update_server_twitch_settings", TWITCH),
+    ("/v1/ops/save_twitch_preset", {"preset_id": None, "display_name": "Channel", "channel": "other", "channel_user_id": "300"}),
+    ("/v1/ops/delete_twitch_preset", {"preset_id": "missing"}),
+    ("/v1/ops/switch_server_twitch_preset", {"preset_id": "missing"}),
+    ("/v1/ops/replace_credential", {"name": "gemini_api_key", "value": "private-sentinel"}),
+    ("/v1/ops/remove_credential", {"name": "gemini_api_key"}),
+    ("/v1/ops/test_credential", {"name": "gemini_api_key"}),
+    ("/v1/ops/begin_twitch_authorization", {}),
+    ("/v1/ops/complete_twitch_authorization", {"callback_url": "private-sentinel"}),
+    ("/v1/ops/cancel_twitch_authorization", {}),
 ])
 async def test_setup_mutations_require_auth_and_same_origin(api, path, payload):
     _, call = api
@@ -250,7 +252,7 @@ async def test_setup_mutations_require_auth_and_same_origin(api, path, payload):
 
 async def test_credential_updates_persist_clear_validate_and_never_export(api, monkeypatch, caplog):
     server, call = api
-    responses = await asyncio.gather(*[call("/v1/credentials/replace", {"name": name.value,
+    responses = await asyncio.gather(*[call("/v1/ops/replace_credential", {"name": name.value,
         "value": "private-" + name.value}) for name in CredentialName])
     assert all(status == 200 for status, _ in responses)
     manager = credential_manager(Settings())
@@ -262,15 +264,15 @@ async def test_credential_updates_persist_clear_validate_and_never_export(api, m
         assert kwargs["headers"]["x-goog-api-key"] == "private-gemini_api_key"
         return SimpleNamespace(status_code=401)
     monkeypatch.setattr(server.runtime.application.http_client, "get", reject)
-    status, result = await call("/v1/credentials/test", {"name": "gemini_api_key"})
+    status, result = await call("/v1/ops/test_credential", {"name": "gemini_api_key"})
     assert status == 400 and "rejected" in result["error"]
-    assert (await call("/v1/setup"))[1]["credentials"][1]["validation_status"] == "validation_failed"
+    assert (await call("/v1/ops/get_management_setup", {}))[1]["credentials"][1]["validation_status"] == "validation_failed"
     async def accept(*args, **kwargs):
         return SimpleNamespace(status_code=200)
     monkeypatch.setattr(server.runtime.application.http_client, "get", accept)
-    assert (await call("/v1/credentials/test", {"name": "gemini_api_key"}))[0] == 200
-    for path, payload in (("/v1/setup", None), ("/v1/diagnostics", None), ("/v1/ai/models", None),
-                          ("/v1/configuration/export", {})):
+    assert (await call("/v1/ops/test_credential", {"name": "gemini_api_key"}))[0] == 200
+    for path, payload in (("/v1/ops/get_management_setup", None), ("/v1/ops/get_diagnostics", None), ("/v1/ops/get_ai_provider_settings", None),
+                          ("/v1/ops/export_configuration", {})):
         _, result = await call(path, payload)
         assert "private-gemini_api_key" not in json.dumps(result)
         assert "private-twitch_client_secret" not in json.dumps(result)
@@ -280,7 +282,7 @@ async def test_credential_updates_persist_clear_validate_and_never_export(api, m
             assert "private-gemini_api_key" not in json.dumps(portable)
             assert "private-twitch_client_secret" not in json.dumps(portable)
     assert "private-gemini_api_key" not in caplog.text
-    assert (await call("/v1/credentials/remove", {"name": "gemini_api_key"}))[0] == 200
+    assert (await call("/v1/ops/remove_credential", {"name": "gemini_api_key"}))[0] == 200
     assert server.runtime.application.settings.gemini_api_key is None
     assert credential_manager(Settings()).effective_value(CredentialName.GEMINI_API_KEY) is None
 
@@ -288,7 +290,7 @@ async def test_credential_updates_persist_clear_validate_and_never_export(api, m
 @pytest.mark.parametrize("value", [None, 4, "", "x" * 8193, "line\nbreak", "key\x00secret", "ключ"])
 async def test_invalid_credentials_are_bounded_and_do_not_mutate(api, value):
     server, call = api
-    status, result = await call("/v1/credentials/replace", {"name": "gemini_api_key", "value": value})
+    status, result = await call("/v1/ops/replace_credential", {"name": "gemini_api_key", "value": value})
     assert status == 400 and not server.setup.credentials.effective_value(CredentialName.GEMINI_API_KEY)
     assert "line\\nbreak" not in json.dumps(result)
 
@@ -300,12 +302,12 @@ async def test_external_secrets_cannot_be_shadowed_or_removed(api, provider):
     name = CredentialName(provider + "_api_key")
     manager._environment_fallbacks[name] = "external-sentinel"
     manager._store.replace(name, "dormant-browser-value")
-    for path, payload in (("replace", {"name": name.value, "value": "browser-value"}),
-                          ("remove", {"name": name.value})):
-        status, result = await call("/v1/credentials/" + path, payload)
+    for path, payload in (("replace_credential", {"name": name.value, "value": "browser-value"}),
+                          ("remove_credential", {"name": name.value})):
+        status, result = await call("/v1/ops/" + path, payload)
         assert status == 400 and "externally managed" in result["error"]
     assert manager.effective_value(name) == "external-sentinel"
-    status = next(item for item in (await call("/v1/setup"))[1]["credentials"] if item["name"] == name)
+    status = next(item for item in (await call("/v1/ops/get_management_setup", {}))[1]["credentials"] if item["name"] == name)
     assert status["source"] == "environment" and not status["managed"]
     assert manager._store.get(name) == "dormant-browser-value"
 
@@ -320,9 +322,9 @@ async def test_direct_backend_setup_discovery_rotation_and_removal(api, monkeypa
     from app.config.profile_settings import apply_ai_app_settings
     server, call = api
     settings = server.runtime.application.settings
-    assert (await call("/v1/ai/models/discover", {"provider": provider}))[0] == 400
+    assert (await call("/v1/ops/discover_ai_models", {"provider": provider}))[0] == 400
     for value in ("PRIVATE-FIRST-KEY", "PRIVATE-ROTATED-KEY"):
-        assert (await call("/v1/credentials/replace", {"name": credential, "value": value}))[0] == 200
+        assert (await call("/v1/ops/replace_credential", {"name": credential, "value": value}))[0] == 200
         assert getattr(settings, credential).get_secret_value() == value
         assert credential_manager(Settings()).effective_value(key_name) == value
     async def send(client, request, **kwargs):
@@ -330,31 +332,31 @@ async def test_direct_backend_setup_discovery_rotation_and_removal(api, monkeypa
         assert request.headers["Authorization"] == "Bearer PRIVATE-ROTATED-KEY"
         return httpx.Response(200, request=request, json={"data": [{"id": model}]})
     monkeypatch.setattr("httpx.AsyncClient.send", send)
-    assert (await call("/v1/credentials/test", {"name": credential}))[0] == 200
-    status, result = await call("/v1/ai/models/discover", {"provider": provider})
+    assert (await call("/v1/ops/test_credential", {"name": credential}))[0] == 200
+    status, result = await call("/v1/ops/discover_ai_models", {"provider": provider})
     assert status == 200 and result == {"ok": True, "models": [model], "provider_id": provider}
     setup = {
         "primary": {"provider": provider, "model": custom, "thinking": "default", "search": False},
         "fallback": {"provider": provider, "model": backup, "thinking": "default", "search": False},
     }
-    assert (await call("/v1/ai/setup", {"settings": setup}))[0] == 200
-    provider_info = (await call("/v1/ai/models"))[1]["settings"]
+    assert (await call("/v1/ops/save_ai_setup", {"settings": setup}))[0] == 200
+    provider_info = (await call("/v1/ops/get_ai_provider_settings", {}))[1]["settings"]
     assert provider_info["provider_id"] == provider and provider_info["selected_model"] == custom
     assert provider_info["credential"]["name"] == credential
     assert provider_info["credential"]["validation_status"] == "valid"
-    assert (await call("/v1/setup"))[1]["aiProvider"]["credential"] == provider_info["credential"]
+    assert (await call("/v1/ops/get_management_setup", {}))[1]["aiProvider"]["credential"] == provider_info["credential"]
     async def reject(client, request, **kwargs):
         return httpx.Response(429, request=request, json={"error": {"message": "PRIVATE-KEY"}})
     monkeypatch.setattr("httpx.AsyncClient.send", reject)
-    status, error = await call("/v1/ai/models/discover", {"provider": provider})
+    status, error = await call("/v1/ops/discover_ai_models", {"provider": provider})
     assert status == 400 and error["error_code"] == "rate_limited"
     assert settings.ai_setup.primary.model == custom and "PRIVATE" not in json.dumps(error)
     reloaded = apply_ai_app_settings(Settings(), AppSettingsStore(RuntimePaths.default().app_settings).snapshot())
     assert reloaded.ai_provider == provider and reloaded.ai_setup.primary.model == custom
     invalid_setup = {**setup, "primary": {**setup["primary"], "model": "gemini-wrong"}}
-    assert (await call("/v1/ai/setup", {"settings": invalid_setup}))[0] == 400
+    assert (await call("/v1/ops/save_ai_setup", {"settings": invalid_setup}))[0] == 400
     assert settings.ai_setup.primary.model == custom
-    assert (await call("/v1/credentials/remove", {"name": credential}))[0] == 200
+    assert (await call("/v1/ops/remove_credential", {"name": credential}))[0] == 200
     assert getattr(settings, credential) is None
     assert credential_manager(Settings()).effective_value(key_name) is None
     assert not server.runtime.application.services.ai.is_available
@@ -364,15 +366,15 @@ async def test_direct_backend_setup_discovery_rotation_and_removal(api, monkeypa
 async def test_oauth_completion_works_disabled_and_replay_is_rejected(api, twitch_provider):
     server, call = api
     await configure(call)
-    await call("/v1/bot/mode", {"mode": "disabled"})
+    await call("/v1/ops/set_bot_mode", {"mode": "disabled"})
     callback = await begin(call)
-    assert (await call("/v1/twitch/authorization/complete", {"callback_url": callback}))[0] == 200
+    assert (await call("/v1/ops/complete_twitch_authorization", {"callback_url": callback}))[0] == 200
     assert twitch_provider[1] == [("private-code-sentinel", server.setup.redirect_uri)]
-    setup = (await call("/v1/setup"))[1]["twitch"]
+    setup = (await call("/v1/ops/get_management_setup", {}))[1]["twitch"]
     assert setup["setup_complete"] and setup["authorized_account"] == "testbot"
     assert not server.runtime.bot_active and server.policy.mode == "disabled"
     assert "rotated-private-refresh-sentinel" in RuntimePaths.default().tokens.read_text()
-    assert (await call("/v1/twitch/authorization/complete", {"callback_url": callback}))[0] == 400
+    assert (await call("/v1/ops/complete_twitch_authorization", {"callback_url": callback}))[0] == 400
     restarted = apply_twitch_app_settings(Settings(), AppSettingsStore(RuntimePaths.default().app_settings).snapshot())
     assert restarted.twitch_bot_username == "testbot" and restarted.twitch_channel == "testchannel"
     assert credential_manager(restarted).effective_value(CredentialName.TWITCH_CLIENT_SECRET) == "synthetic-secret"
@@ -386,10 +388,10 @@ async def test_wrong_application_account_or_scopes_never_persist(api, twitch_pro
     await configure(call)
     callback = await begin(call)
     twitch_provider[0].update(changes)
-    status, result = await call("/v1/twitch/authorization/complete", {"callback_url": callback})
+    status, result = await call("/v1/ops/complete_twitch_authorization", {"callback_url": callback})
     assert status == 400 and "private-access-sentinel" not in json.dumps(result)
     assert not RuntimePaths.default().tokens.exists()
-    assert (await call("/v1/setup"))[1]["twitch"]["authorization_status"] == "validation_failed"
+    assert (await call("/v1/ops/get_management_setup", {}))[1]["twitch"]["authorization_status"] == "validation_failed"
 
 
 async def test_oauth_transactions_are_session_bound_cancelled_and_expiring(api, twitch_provider, monkeypatch):
@@ -399,18 +401,18 @@ async def test_oauth_transactions_are_session_bound_cancelled_and_expiring(api, 
     session2 = (await call("/v1/session", {}))[1]["token"]
     first = {"Authorization": "Bearer " + session1}
     second = {"Authorization": "Bearer " + session2}
-    status, result = await call("/v1/twitch/authorization/begin", {}, headers=first)
+    status, result = await call("/v1/ops/begin_twitch_authorization", {}, headers=first)
     assert status == 200
     state = parse_qs(urlsplit(result["url"]).query)["state"][0]
     callback = server.setup.redirect_uri + "?" + urlencode({"state": state, "code": "synthetic"})
-    assert (await call("/v1/twitch/authorization/begin", {}, headers=second))[0] == 400
-    assert (await call("/v1/twitch/authorization/complete", {"callback_url": callback}, headers=second))[0] == 400
-    assert (await call("/v1/twitch/authorization/complete", {"callback_url": callback + "&state=duplicate"}, headers=first))[0] == 400
+    assert (await call("/v1/ops/begin_twitch_authorization", {}, headers=second))[0] == 400
+    assert (await call("/v1/ops/complete_twitch_authorization", {"callback_url": callback}, headers=second))[0] == 400
+    assert (await call("/v1/ops/complete_twitch_authorization", {"callback_url": callback + "&state=duplicate"}, headers=first))[0] == 400
     assert (await call("/v1/session/logout", {}, headers=first))[0] == 200
     assert server.setup.pending is None
     callback = await begin(call)
     monkeypatch.setattr("app.server_setup.monotonic", lambda: server.setup.pending[2] + 1 if server.setup.pending else 0)
-    assert (await call("/v1/twitch/authorization/complete", {"callback_url": callback}))[0] == 400
+    assert (await call("/v1/ops/complete_twitch_authorization", {"callback_url": callback}))[0] == 400
     assert not twitch_provider[1]
 
 
@@ -419,18 +421,18 @@ async def test_oauth_supersession_denial_cancellation_and_provider_failure(api, 
     await configure(call)
     old = await begin(call)
     current = await begin(call)
-    assert (await call("/v1/twitch/authorization/complete", {"callback_url": old}))[0] == 400
-    assert (await call("/v1/twitch/authorization/cancel", {}))[0] == 200
-    assert (await call("/v1/twitch/authorization/complete", {"callback_url": current}))[0] == 400
+    assert (await call("/v1/ops/complete_twitch_authorization", {"callback_url": old}))[0] == 400
+    assert (await call("/v1/ops/cancel_twitch_authorization", {}))[0] == 200
+    assert (await call("/v1/ops/complete_twitch_authorization", {"callback_url": current}))[0] == 400
     callback = await begin(call)
     denied = callback.replace("code=private-code-sentinel", "error=access_denied")
-    status, result = await call("/v1/twitch/authorization/complete", {"callback_url": denied})
+    status, result = await call("/v1/ops/complete_twitch_authorization", {"callback_url": denied})
     assert status == 400 and "denied" in result["error"]
     callback = await begin(call)
     async def fail(*args, **kwargs):
         raise RuntimeError("private-code-sentinel private-access-sentinel")
     monkeypatch.setattr("twitchio.authentication.oauth.OAuth.user_access_token", fail)
-    status, result = await call("/v1/twitch/authorization/complete", {"callback_url": callback})
+    status, result = await call("/v1/ops/complete_twitch_authorization", {"callback_url": callback})
     assert status == 400 and "private-code-sentinel" not in json.dumps(result)
     assert not server.setup.pending and not RuntimePaths.default().tokens.exists()
 
@@ -451,12 +453,12 @@ async def test_running_secret_change_waits_for_token_flush_and_blocks_concurrent
         # A late old-session flush must complete before invalidation/new settings.
         paths.tokens.write_text('{"100":{"token":"old","refresh":"final-old-rotation"}}')
     monkeypatch.setattr("app.bot_runtime.run_twitch_bot", session)
-    assert (await call("/v1/bot/start", {}))[0] == 200
+    assert (await call("/v1/ops/start_bot", {}))[0] == 200
     await asyncio.wait_for(started.wait(), 1)
-    change = asyncio.create_task(call("/v1/credentials/replace", {"name": "twitch_client_secret", "value": "new-synthetic-secret"}))
+    change = asyncio.create_task(call("/v1/ops/replace_credential", {"name": "twitch_client_secret", "value": "new-synthetic-secret"}))
     try:
         await asyncio.wait_for(closing.wait(), 1)
-        restart = asyncio.create_task(call("/v1/bot/start", {}))
+        restart = asyncio.create_task(call("/v1/ops/start_bot", {}))
         await asyncio.sleep(0.03)
         assert not change.done() and not restart.done()
         assert server.runtime.application.settings.twitch_client_secret.get_secret_value() == "synthetic-secret"
@@ -475,15 +477,15 @@ async def test_identity_change_failure_is_fail_closed_and_target_change_retains_
     await configure(call)
     path = RuntimePaths.default().tokens
     path.write_text('{"100":{"token":"synthetic","refresh":"synthetic"}}')
-    assert (await call("/v1/twitch/settings", TWITCH | {"channel": "newchannel", "channel_user_id": "300"}))[0] == 200
+    assert (await call("/v1/ops/update_server_twitch_settings", TWITCH | {"channel": "newchannel", "channel_user_id": "300"}))[0] == 200
     assert path.exists() and server.runtime.application.settings.twitch_channel == "newchannel"
     server.setup.authorization_status = "verified"
     server.policy.error = "connection_failed"
-    assert not (await call("/v1/setup"))[1]["twitch"]["setup_complete"]
+    assert not (await call("/v1/ops/get_management_setup", {}))[1]["twitch"]["setup_complete"]
     def fail(**kwargs):
         raise OSError("private-application-sentinel")
     monkeypatch.setattr(server.setup.store, "update_twitch", fail)
-    status, result = await call("/v1/twitch/settings", TWITCH | {"client_id": "replacement-app"})
+    status, result = await call("/v1/ops/update_server_twitch_settings", TWITCH | {"client_id": "replacement-app"})
     assert status == 500 and "private-application-sentinel" not in json.dumps(result)
     assert not path.exists()
     assert server.runtime.application.settings.twitch_client_id == "test-client"
@@ -498,12 +500,12 @@ async def test_terminal_failed_session_can_be_reauthorized(api, twitch_provider,
         kwargs["services"].runtime_state.set_twitch_connection_state("auth_required")
         raise RuntimeError("private-old-provider-failure")
     monkeypatch.setattr("app.bot_runtime.run_twitch_bot", failed_session)
-    assert (await call("/v1/bot/start", {}))[0] == 200
+    assert (await call("/v1/ops/start_bot", {}))[0] == 200
     await asyncio.sleep(0.03)
     assert not server.runtime.bot_active
     callback = await begin(call)
-    assert (await call("/v1/twitch/authorization/complete", {"callback_url": callback}))[0] == 200
-    assert (await call("/v1/setup"))[1]["twitch"]["setup_complete"]
+    assert (await call("/v1/ops/complete_twitch_authorization", {"callback_url": callback}))[0] == 200
+    assert (await call("/v1/ops/get_management_setup", {}))[1]["twitch"]["setup_complete"]
 
 
 @pytest.mark.parametrize("changes", [{"client_id": "wrong"}, {"scopes": []}, {"login": "wrong"}, {}])
@@ -613,22 +615,22 @@ async def callback_server(api, request):
 
 
 async def callback_begin(call, headers=None):
-    status, result = await call("/v1/twitch/authorization/begin", {}, headers=headers)
+    status, result = await call("/v1/ops/begin_twitch_authorization", {}, headers=headers)
     assert status == 200, result
     query = parse_qs(urlsplit(result["url"]).query)
-    assert query["redirect_uri"] == [(await call("/v1/setup", headers=headers))[1]["twitch"]["oauth_callback_url"]]
+    assert query["redirect_uri"] == [(await call("/v1/ops/get_management_setup", {}, headers=headers))[1]["twitch"]["oauth_callback_url"]]
     return urlencode({"code": "private-code-sentinel", "state": query["state"][0]})
 
 
 async def test_callback_without_bearer_persists_and_scrubs_parameters(callback_server, twitch_provider, caplog):
     server, call, callback = callback_server
     await configure(call)
-    await call("/v1/bot/mode", {"mode": "disabled"})
+    await call("/v1/ops/set_bot_mode", {"mode": "disabled"})
     first = {"Authorization": "Bearer " + (await call("/v1/session", {}))[1]["token"]}
     second = {"Authorization": "Bearer " + (await call("/v1/session", {}))[1]["token"]}
     query = await callback_begin(call, first)
-    assert (await call("/v1/twitch/authorization/begin", {}, headers=second))[0] == 400
-    assert (await call("/v1/setup", headers=second))[1]["twitch"]["authorization_attempt"] == "idle"
+    assert (await call("/v1/ops/begin_twitch_authorization", {}, headers=second))[0] == 400
+    assert (await call("/v1/ops/get_management_setup", {}, headers=second))[1]["twitch"]["authorization_attempt"] == "idle"
     status, body, headers = await callback(query)
     assert status == 303 and headers["Location"] == "/oauth/result"
     assert headers["Cache-Control"] == "no-store" and headers["Referrer-Policy"] == "no-referrer"
@@ -645,7 +647,7 @@ async def test_callback_without_bearer_persists_and_scrubs_parameters(callback_s
     assert twitch_provider[1] == [("private-code-sentinel", server.setup.redirect_uri)]
     assert RuntimePaths.default().tokens.is_file()
     assert not server.runtime.bot_active
-    result = (await call("/v1/setup", headers=first))[1]["twitch"]
+    result = (await call("/v1/ops/get_management_setup", {}, headers=first))[1]["twitch"]
     assert result["authorization_attempt"] == "completed" and result["authorized_account"] == "testbot"
     assert result["management_url"] == (server.config.trusted_origin or f"http://127.0.0.1:{server.config.port}")
     assert result["oauth_callback_url"] == server.setup.redirect_uri
@@ -685,9 +687,9 @@ async def test_rejected_requests_leave_login_session_and_valid_callback_capacity
     query = await callback_begin(call, headers)
 
     for _ in range(120):
-        response = await call("/v1/setup", headers={"Authorization": ""})
+        response = await call("/v1/ops/get_management_setup", {}, headers={"Authorization": ""})
         assert response[0] in (401, 429)
-    assert (await call("/v1/setup", headers={"Authorization": ""}))[0] == 429
+    assert (await call("/v1/ops/get_management_setup", {}, headers={"Authorization": ""}))[0] == 429
     assert (await callback(expired_query))[0] == 429
     assert (await callback("state=wrong&code=synthetic"))[0] == 429
     origin = urlsplit(server.config.trusted_origin or "")
@@ -696,7 +698,7 @@ async def test_rejected_requests_leave_login_session_and_valid_callback_capacity
         async with browser.get(f"http://127.0.0.1:{server.config.port}/", headers=proxy_headers) as index:
             assert index.status in (200, 503)  # A checkout may have no frontend build.
     assert (await call("/v1/session", {}))[0] == 200
-    assert (await call("/v1/setup", headers=headers))[0] == 200
+    assert (await call("/v1/ops/get_management_setup", {}, headers=headers))[0] == 200
     assert (await callback(query))[0] == 303
     assert (await callback(query))[0] == 429
     assert len(twitch_provider[1]) == 1 and not server.callback_active
@@ -710,7 +712,7 @@ async def test_callback_cannot_outlive_administrator_attempt(callback_server, tw
     headers = {"Authorization": "Bearer " + session}
     query = await callback_begin(call, headers)
     if reason == "cancel":
-        await call("/v1/twitch/authorization/cancel", {}, headers=headers)
+        await call("/v1/ops/cancel_twitch_authorization", {}, headers=headers)
     elif reason == "logout":
         await call("/v1/session/logout", {}, headers=headers)
     elif reason == "expiry":
@@ -724,7 +726,7 @@ async def test_callback_cannot_outlive_administrator_attempt(callback_server, tw
     elif reason == "superseded":
         await callback_begin(call, headers)
     else:
-        await call("/v1/twitch/settings", TWITCH | {"bot_username": "otherbot"})
+        await call("/v1/ops/update_server_twitch_settings", TWITCH | {"bot_username": "otherbot"})
     await callback(query)
     assert not twitch_provider[1] and not RuntimePaths.default().tokens.exists()
 
@@ -778,7 +780,7 @@ async def test_callback_is_only_cross_site_exception_and_is_get_only(callback_se
     query = await callback_begin(call)
     assert (await callback(query, method="POST"))[0] == 400
     assert (await callback(query, extra_headers={"Origin": "https://evil.test"}))[0] == 403
-    assert (await call("/v1/twitch/authorization/begin", {}, headers={"Sec-Fetch-Site": "cross-site"}))[0] == 403
+    assert (await call("/v1/ops/begin_twitch_authorization", {}, headers={"Sec-Fetch-Site": "cross-site"}))[0] == 403
     assert not twitch_provider[1]
     await callback(query)
     assert len(twitch_provider[1]) == 1
@@ -830,9 +832,9 @@ async def test_paste_completion_requires_exact_server_redirect(api, twitch_provi
         "trailing_slash": server.setup.redirect_uri + "/",
     }[change]
     wrong = replacement + "?" + urlsplit(callback).query
-    assert (await call("/v1/twitch/authorization/complete", {"callback_url": wrong}))[0] == 400
+    assert (await call("/v1/ops/complete_twitch_authorization", {"callback_url": wrong}))[0] == 400
     assert not twitch_provider[1] and server.setup.pending is not None
-    assert (await call("/v1/twitch/authorization/complete", {"callback_url": callback}))[0] == 200
+    assert (await call("/v1/ops/complete_twitch_authorization", {"callback_url": callback}))[0] == 200
 
 
 async def test_callback_uses_only_fixed_host_and_retains_management_security(callback_server, twitch_provider):
@@ -847,10 +849,10 @@ async def test_callback_uses_only_fixed_host_and_retains_management_security(cal
     if not server.config.trusted_origin:
         assert (await callback(query, extra_headers={"X-Forwarded-Proto": "https"}))[0] == 403
     if server.config.allowed_host:
-        assert (await call("/v1/setup", headers={"Host": host, "Origin": "http://" + host}))[0] == 403
+        assert (await call("/v1/ops/get_management_setup", {}, headers={"Host": host, "Origin": "http://" + host}))[0] == 403
         assert (await call("/", headers={"Host": host, "Origin": "http://" + host}))[0] == 403
-    assert (await call("/v1/setup", headers={"Authorization": ""}))[0] == 401
-    assert (await call("/v1/setup", headers={"Sec-Fetch-Site": "cross-site"}))[0] == 403
+    assert (await call("/v1/ops/get_management_setup", {}, headers={"Authorization": ""}))[0] == 401
+    assert (await call("/v1/ops/get_management_setup", {}, headers={"Sec-Fetch-Site": "cross-site"}))[0] == 403
     assert not twitch_provider[1] and server.setup.pending is not None
     await callback(query)
     assert len(twitch_provider[1]) == 1
@@ -880,7 +882,7 @@ async def test_alternate_loopback_retains_authenticated_paste_completion(api, tw
         return await original_call(path, payload, headers={"Host": f"127.0.0.2:{port}",
             "Origin": f"http://127.0.0.2:{port}"})
     await configure(call)
-    result = (await call("/v1/setup"))[1]["twitch"]
+    result = (await call("/v1/ops/get_management_setup", {}))[1]["twitch"]
     assert result["authorization_mode"] == "paste"
     assert result["oauth_callback_url"] == f"http://localhost:{port}/oauth/callback"
     callback = await begin(call)
@@ -888,7 +890,7 @@ async def test_alternate_loopback_retains_authenticated_paste_completion(api, tw
         async with browser.get(callback, allow_redirects=False) as response:
             assert response.status == 403
     assert not twitch_provider[1] and server.setup.pending is not None
-    assert (await call("/v1/twitch/authorization/complete", {"callback_url": callback}))[0] == 200
+    assert (await call("/v1/ops/complete_twitch_authorization", {"callback_url": callback}))[0] == 200
 
 
 @pytest.fixture
@@ -1006,7 +1008,7 @@ async def test_real_twitchio_oauth_completion(callback_server, twitch_http, refr
     await configure(call)
     query = await callback_begin(call)
     if completion == "paste":
-        status, result = await call("/v1/twitch/authorization/complete",
+        status, result = await call("/v1/ops/complete_twitch_authorization",
             {"callback_url": server.setup.redirect_uri + "?" + query})
         assert status == 200, (result, twitch_http.calls)
     else:
@@ -1064,7 +1066,7 @@ async def test_real_twitchio_failures_are_safe_single_use_and_close_clients(api,
             "login": {"login": "wrong"}, "scopes": {"scopes": []}}[failure])
     elif failure == "target":
         twitch_http.target = "wrong"
-    status_code, result = await call("/v1/twitch/authorization/complete", {"callback_url": callback})
+    status_code, result = await call("/v1/ops/complete_twitch_authorization", {"callback_url": callback})
     assert status_code == 400
     assert f"operation={operation} exception={exception} http_status={status}" in caplog.text
     assert server.setup.authorization_status == "validation_failed" and server.setup.outcome[1] == "failed"
@@ -1073,7 +1075,7 @@ async def test_real_twitchio_failures_are_safe_single_use_and_close_clients(api,
     assert len(twitch_http.writes) == (1 if failure == "token_persistence" else 0)
     assert_setup_clients_closed(twitch_http)
     previous_calls = twitch_http.calls.copy()
-    assert (await call("/v1/twitch/authorization/complete", {"callback_url": callback}))[0] == 400
+    assert (await call("/v1/ops/complete_twitch_authorization", {"callback_url": callback}))[0] == 400
     assert twitch_http.calls == previous_calls
     for value in ("private-code-sentinel", "private-access-sentinel", "private-refresh-sentinel",
             "private-provider-body-sentinel", "synthetic-secret", parse_qs(urlsplit(callback).query)["state"][0]):
@@ -1117,7 +1119,7 @@ async def test_real_twitchio_cleanup_failure_does_not_mask_primary_failure(api, 
         cleanup(client)
         raise RuntimeError("private-provider-body-sentinel")
     monkeypatch.setattr(ManagedHTTPClient, "cleanup", fail_after_cleanup)
-    status, result = await call("/v1/twitch/authorization/complete", {"callback_url": callback})
+    status, result = await call("/v1/ops/complete_twitch_authorization", {"callback_url": callback})
     assert status == 400
     assert "operation=client_cleanup exception=TwitchCleanupError http_status=none" in caplog.text
     if lookup_fails:
@@ -1139,7 +1141,7 @@ async def test_real_twitchio_runtime_reconciliation_failure_is_not_reported_comp
     def fail(*args):
         raise RuntimeError("private-provider-body-sentinel")
     monkeypatch.setattr(server.runtime.application.services.runtime_state, "set_twitch_connection_state", fail)
-    status, _ = await call("/v1/twitch/authorization/complete", {"callback_url": callback})
+    status, _ = await call("/v1/ops/complete_twitch_authorization", {"callback_url": callback})
     assert status == 400 and server.setup.outcome[1] == "failed"
     assert server.setup.authorization_status == "validation_failed"
     assert "operation=runtime_reconciliation exception=RuntimeError http_status=none" in caplog.text

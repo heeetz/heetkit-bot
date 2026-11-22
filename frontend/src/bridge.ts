@@ -763,20 +763,25 @@ export interface TwitchAuthorizationBeginResponse extends ActionResult {
 declare global {
   interface Window {
     pywebview?: {
-      api: PythonApi
+      api: { call: OperationTransport }
     }
   }
 }
 
 let pendingBridge: Promise<PythonApi> | null = null
+let desktopClient: { call: OperationTransport; api: PythonApi } | null = null
 
 function readyBridge(): PythonApi | null {
   const api = window.pywebview?.api
-  return api && typeof api.get_app_status === 'function' ? api : null
+  if (!api || typeof api.call !== 'function') return null
+  if (!desktopClient || desktopClient.call !== api.call) {
+    desktopClient = { call: api.call, api: createOperationClient((name, args = {}) => api.call(name, args)) }
+  }
+  return desktopClient.api
 }
 
 export async function waitForBridge(): Promise<PythonApi> {
-  if (isBrowserMode()) return localizedApi(browserApi)
+  if (isBrowserMode()) return localizedApi(browserClient)
   const ready = readyBridge()
   if (ready) {
     registerDesktopLanguageBridge(ready)
@@ -833,9 +838,12 @@ export interface ManagementSetup extends ActionResult {
   aiProvider: AIProviderSettings
 }
 
-import { browserApi, call } from './httpTransport'
+import { browserCall, call } from './httpTransport'
+import { createOperationClient, type OperationTransport } from './operationClient'
 import { localizeResult, localizedApi } from './i18n/errors'
 import { registerDesktopLanguageBridge } from './i18n/language'
+
+const browserClient = createOperationClient(browserCall)
 
 export function setBrowserOperationMode(mode: BrowserOperationMode): Promise<ActionResult> {
   return call<ActionResult>('set_bot_mode', { mode }).then(localizeResult)

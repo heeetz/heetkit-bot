@@ -369,7 +369,7 @@ def test_native_bridge_uses_shared_management(core, monkeypatch):
         return future
     monkeypatch.setattr(backend, "submit", submit, raising=False)
     bridge = WebUIBridge(backend)
-    result = bridge.save_command_restriction(data())
+    result = bridge.call("save_command_restriction", {"data": data()})
     assert result["ok"]
     assert bridge.get_command_restrictions() == management.get_command_restrictions()
     assert bridge.remove_command_restriction(result["restrictions"][0]["id"])["restrictions"] == []

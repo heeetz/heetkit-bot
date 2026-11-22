@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from '../src/App'
-import type { AppStatus, CredentialInfo, PythonApi, TwitchConnectionSettings } from '../src/bridge'
+import type { AppStatus, CredentialInfo, TwitchConnectionSettings } from '../src/bridge'
 
 const query = new URLSearchParams(window.location.search)
 const status: AppStatus = {
@@ -25,7 +25,8 @@ let aiEnabled = false
 let verificationFailed = false
 Object.assign(window, { updateCalls, bridgeCalls, opened })
 
-const api: Partial<PythonApi> = {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const operations: Record<string, (payload: any) => Promise<unknown>> = {
   get_desktop_startup: async () => {
     if (query.has('startupFailure')) throw new Error('Synthetic startup failure')
     if (query.has('startupDelay')) await new Promise((resolve) => setTimeout(resolve, 800))
@@ -35,7 +36,7 @@ const api: Partial<PythonApi> = {
   get_app_status: async () => status,
   get_twitch_settings: async () => ({ ok: true, settings: structuredClone(twitch) }),
   get_credentials: async () => ({ ok: true, credentials }),
-  replace_credential: async (name, value) => {
+  replace_credential: async ({ name, value }) => {
     bridgeCalls.push(['replace_credential', name, value])
     twitch.requires_restart = twitch.requires_secret_restart = true
     return { ok: true, changed: true, requires_restart: true }
@@ -53,7 +54,7 @@ const api: Partial<PythonApi> = {
     active_personality: 'neutral', available_personalities: ['neutral'], model: 'test-model',
   }),
   get_recent_commands: async () => ({ entries: [] }),
-  set_ai_enabled: async (value: boolean) => {
+  set_ai_enabled: async ({ enabled: value }: { enabled: boolean }) => {
     bridgeCalls.push(['set_ai_enabled', value])
     aiEnabled = value
     return { ok: true }
@@ -73,7 +74,7 @@ const api: Partial<PythonApi> = {
       release_notes: 'Fixes <strong>markup</strong>.',
     }
   },
-  prepare_desktop_update: async (version: string) => {
+  prepare_desktop_update: async ({ version }: { version: string }) => {
     updateCalls.push(['prepare', version])
     await new Promise<void>((resolve) => Reflect.set(window, 'finishUpdateDownload', resolve))
     if (query.has('failVerification') && !verificationFailed) {
@@ -83,11 +84,15 @@ const api: Partial<PythonApi> = {
     return { ok: true }
   },
   get_desktop_update_progress: async () => ({ phase: 'downloading', downloaded: 30, total: 60 }),
-  finish_desktop_update: async (version: string) => { updateCalls.push(['finish', version]); return { ok: true } },
-  open_external_link: async (destination: string) => { opened.push(destination); return { ok: true } },
+  finish_desktop_update: async ({ version }: { version: string }) => { updateCalls.push(['finish', version]); return { ok: true } },
+  open_external_link: async ({ destination }: { destination: string }) => { opened.push(destination); return { ok: true } },
 }
 
-const bridge = { api: api as PythonApi }
+const bridge = { api: { call: async <T,>(name: string, payload = {}): Promise<T> => {
+  const operation = operations[name]
+  if (!operation) throw new Error('Unexpected Desktop operation: ' + name)
+  return await operation(payload) as T
+} } }
 if (query.has('lateBridge')) {
   window.setTimeout(() => {
     window.pywebview = bridge
