@@ -3,19 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import re
 import time
-from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import Any
 
 import httpx
-from pydantic import SecretStr
 
 from app.config.ai_capabilities import native_thinking_parameters, validate_model_options
-from app.config.ai_models import DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL, validate_provider_model_id
-from app.config.settings import Settings
+from app.config.ai_models import DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL
 from app.services.ai_provider import (
     AIGenerationRequest,
     AIProviderCapabilities,
@@ -25,6 +21,7 @@ from app.services.ai_provider import (
     source_metadata,
     attempt_usage, normalized_usage, report_usage,
 )
+from app.services.http_provider import HTTPProvider, _ProviderHTTPError, _SearchError
 from app.utils.logging import operator_event, operator_event_scope
 
 logger = logging.getLogger(__name__)
@@ -40,130 +37,21 @@ OPENAI_MAX_TOOL_CALLS = 2
 _MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$")
 
 
-class _ProviderHTTPError(RuntimeError):
-    def __init__(self, status_code: int, model_not_found: bool = False):
-        super().__init__(f"OpenAI returned HTTP {status_code}.")
-        self.status_code = status_code
-        self.model_not_found = model_not_found
-
-
-class _SearchError(RuntimeError):
-    """Search failed to establish usable, attributable context."""
-
-
-class OpenAIProvider:
+class OpenAIProvider(HTTPProvider):
     """Send prepared instructions to OpenAI without owning prompt/output policy."""
 
     name = "OpenAI"
     capabilities = AIProviderCapabilities(search=True)
 
-    def __init__(self, settings: Settings):
-        self.settings = settings
-        self._closed = False
-        self._active_calls = 0
-        self._condition = asyncio.Condition()
-
-    def snapshot(self) -> AIProviderSettings:
-        return AIProviderSettings(
-            model=getattr(self.settings, "openai_model", DEFAULT_OPENAI_MODEL),
-            fallback_model=getattr(self.settings, "openai_fallback_model", DEFAULT_OPENAI_FALLBACK_MODEL),
-            api_key=getattr(self.settings, "openai_api_key", None),
-            thinking=getattr(self.settings, "openai_thinking", "default"),
-        )
-
-    @property
-    def is_available(self) -> bool:
-        return self._available_with_key(getattr(self.settings, "openai_api_key", None))
-
-    def _available_with_key(self, key: SecretStr | None) -> bool:
-        return (not self._closed and isinstance(key, SecretStr)
-                and bool(key.get_secret_value().strip()))
-
-    @asynccontextmanager
-    async def _operation(self) -> AsyncIterator[None]:
-        async with self._condition:
-            if self._closed:
-                raise RuntimeError("OpenAI service has shut down.")
-            self._active_calls += 1
-        try:
-            yield
-        finally:
-            async with self._condition:
-                self._active_calls -= 1
-                self._condition.notify_all()
-
-    async def aclose(self) -> None:
-        async with self._condition:
-            self._closed = True
-            await self._condition.wait_for(lambda: self._active_calls == 0)
-
-    async def _read_limited(self, response: httpx.Response) -> bytes:
-        chunks: list[bytes] = []
-        size = 0
-        async for chunk in response.aiter_bytes():
-            size += len(chunk)
-            if size > OPENAI_MAX_RESPONSE_BYTES:
-                raise ValueError("OpenAI response exceeded the size limit.")
-            chunks.append(chunk)
-        return b"".join(chunks)
-
-    async def _http_json(
-        self, method: str, path: str, key: SecretStr, *,
-        transport_timeout: float = OPENAI_TRANSPORT_TIMEOUT_SECONDS, **kwargs: Any,
-    ) -> tuple[int, Any]:
-        async with httpx.AsyncClient(
-            base_url=OPENAI_BASE_URL,
-            timeout=httpx.Timeout(transport_timeout),
-            follow_redirects=False,
-            trust_env=False,
-        ) as client:
-            async with client.stream(
-                method, path,
-                headers={"Authorization": f"Bearer {key.get_secret_value()}",
-                         "Content-Type": "application/json"},
-                **kwargs,
-            ) as response:
-                raw = await self._read_limited(response)
-                try:
-                    payload = json.loads(raw)
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    if response.status_code >= 400:
-                        payload = None
-                    else:
-                        raise
-                return response.status_code, payload
-
-    async def discover_models(self) -> list[str]:
-        options = self.snapshot()
-        if not self._available_with_key(options.api_key):
-            raise RuntimeError("OpenAI API key is not configured.")
-        assert options.api_key is not None
-        async with self._operation():
-            async with asyncio.timeout(OPENAI_DISCOVERY_TIMEOUT_SECONDS):
-                status, payload = await self._http_json(
-                    "GET", "/models", options.api_key,
-                    transport_timeout=OPENAI_DISCOVERY_TRANSPORT_TIMEOUT_SECONDS,
-                )
-        if status >= 400:
-            raise _ProviderHTTPError(status)
-        data = payload.get("data") if isinstance(payload, dict) else None
-        if not isinstance(data, list):
-            raise RuntimeError("OpenAI model discovery returned an invalid response.")
-        models = {
-            model_id for item in data[:OPENAI_MAX_DISCOVERED_MODELS]
-            if isinstance(item, dict)
-            and (model_id := self._normalize_model_id(item.get("id"))) is not None
-        }
-        return sorted(models)
-
-    @staticmethod
-    def _normalize_model_id(value: object) -> str | None:
-        if not isinstance(value, str) or not _MODEL_ID.fullmatch(value):
-            return None
-        try:
-            return validate_provider_model_id("openai", value)
-        except ValueError:
-            return None
+    settings_prefix = "openai"
+    base_url = OPENAI_BASE_URL
+    transport_timeout = OPENAI_TRANSPORT_TIMEOUT_SECONDS
+    discovery_timeout = OPENAI_DISCOVERY_TIMEOUT_SECONDS
+    discovery_transport_timeout = OPENAI_DISCOVERY_TRANSPORT_TIMEOUT_SECONDS
+    max_response_bytes = OPENAI_MAX_RESPONSE_BYTES
+    max_discovered_models = OPENAI_MAX_DISCOVERED_MODELS
+    model_defaults = (DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL)
+    model_id_pattern = _MODEL_ID
 
     @staticmethod
     def _response_error_is_model_missing(payload: Any) -> bool:
@@ -313,7 +201,7 @@ class OpenAIProvider:
         status, result = await self._http_json("POST", "/responses", options.api_key, json=payload)
         report_usage("openai", result)
         if status >= 400:
-            raise _ProviderHTTPError(status, self._response_error_is_model_missing(result))
+            raise self._http_error(status, result)
         if not isinstance(result, dict):
             return AIProviderResponse(status="api_error")
         metadata = {

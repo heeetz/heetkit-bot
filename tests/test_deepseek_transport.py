@@ -134,7 +134,7 @@ async def test_discovery_returns_empty_for_empty_or_foreign_model_lists(monkeypa
 
 
 async def test_discovery_truncates_after_bounded_number_of_entries(monkeypatch):
-    monkeypatch.setattr(deepseek, "DEEPSEEK_MAX_DISCOVERED_MODELS", 2)
+    monkeypatch.setattr(deepseek.DeepSeekProvider, "max_discovered_models", 2)
     data = [{"id": "deepseek-first"}, {"id": "deepseek-second"}, {"id": "deepseek-third"}]
     wire_transport(monkeypatch, lambda _: asyncio.sleep(0, result=httpx.Response(200, json={"data": data})))
     assert await make_provider().discover_models() == ["deepseek-first", "deepseek-second"]
