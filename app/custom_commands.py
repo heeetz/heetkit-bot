@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import random
-import re
+from string import Formatter
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -24,7 +24,7 @@ from app.twitch.permissions import Permission
 from app.command_order import CommandCreationOrder
 from app.settings_recovery import preserve_settings_recovery
 from app.utils.cooldown import CooldownPolicy
-from app.utils.text import CHAT_RESPONSE_BYTES, normalize_command_name, render_chat_template
+from app.utils.text import CHAT_RESPONSE_BYTES, normalize_command_name
 
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,6 @@ SCHEMA_VERSION = 2
 MAX_RESPONSE_LENGTH = CHAT_RESPONSE_BYTES
 MAX_POSITIONAL_ARGUMENTS = 9
 VARIABLES = ("sender", "target", "args", *(f"arg{i}" for i in range(1, MAX_POSITIONAL_ARGUMENTS + 1)), "random_user")
-_VARIABLE_PATTERN = re.compile(r"\{([^{}]+)\}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +47,7 @@ class CustomCommand:
     burst_count: int = 1
     burst_allow_override: bool = False
     burst_interval_ms: int = 0
+    burst_max_count: int = 10
     stream_availability: str = "anytime"
     send_as: str = "chat"
     creation_order: int = 0
@@ -66,6 +66,7 @@ class CustomCommand:
         }
         if self.response_mode == "burst":
             result.update(burst_count=self.burst_count, burst_allow_override=self.burst_allow_override)
+            result["burst_max_count"] = self.burst_max_count
             if self.burst_interval_ms:
                 result["burst_interval_ms"] = self.burst_interval_ms
         if self.stream_availability != "anytime":
@@ -78,11 +79,13 @@ class CustomCommand:
 
 
 def _response(value: object) -> str:
-    variables = _VARIABLE_PATTERN.findall(value)
-    if any(variable not in VARIABLES for variable in variables):
-        raise UserError("custom_commands.response_contains_unknown_variable")
-    if "{" in _VARIABLE_PATTERN.sub("", value) or "}" in _VARIABLE_PATTERN.sub("", value):
+    try:
+        fields = list(Formatter().parse(value))
+    except ValueError:
         raise UserError("custom_commands.response_has_invalid_variable_placeholder")
+    if any(name is not None and (name not in VARIABLES or spec or conversion)
+           for _, name, spec, conversion in fields):
+        raise UserError("custom_commands.response_contains_unknown_variable")
     return value.strip()
 
 
@@ -99,6 +102,7 @@ class CustomCommandModel(SettingsModel):
     burst_count: Annotated[StrictInt, Field(ge=1, le=10)] = 1
     burst_allow_override: StrictBool = False
     burst_interval_ms: BurstInterval = 0
+    burst_max_count: Annotated[StrictInt, Field(ge=1, le=20)] = 10
     stream_availability: StreamAvailability = "anytime"
     send_as: SendAs = "chat"
     creation_order: CreationOrder = 0
@@ -115,7 +119,9 @@ class CustomCommandModel(SettingsModel):
         if self.response_mode == "burst":
             if Permission[self.permission] < Permission.MODERATOR:
                 raise UserError("custom_commands.burst_mode_requires_moderator_broadcaster_permission")
-        elif self.model_fields_set & {"burst_count", "burst_allow_override", "burst_interval_ms"}:
+            if self.burst_count > self.burst_max_count:
+                raise UserError("validation.minimum", field="burst_max_count", limit=str(self.burst_count))
+        elif self.model_fields_set & {"burst_count", "burst_allow_override", "burst_interval_ms", "burst_max_count"}:
             raise UserError("custom_commands.burst_settings_require_burst_response_mode")
         if len({self.name, *self.aliases}) != 1 + len(self.aliases):
             raise UserError("custom_commands.command_name_aliases_unique")
@@ -139,7 +145,7 @@ def render_response(command: CustomCommand, arguments: str, sender: str, random_
               "args": arguments, "random_user": random_user}
     values.update({f"arg{i}": parts[i - 1] if i <= len(parts) else "" for i in range(1, MAX_POSITIONAL_ARGUMENTS + 1)})
     template = template if template is not None else random.choice(command.responses)
-    expanded = render_chat_template(template, values)
+    expanded = template.format_map(values)
     return expanded.encode("utf-8")[:MAX_RESPONSE_LENGTH].decode("utf-8", errors="ignore").strip()
 
 
@@ -165,7 +171,7 @@ class CustomCommandStore:
         with self._lock:
             return self._commands.get(self._lookup.get(normalize_command_name(name), ""))
 
-    def save(self, raw: object) -> CustomCommand:
+    def save(self, raw: object, *, migration_id: str | None = None) -> CustomCommand:
         if not isinstance(raw, dict):
             raise UserError("custom_commands.custom_command_must_be_an_object")
         with self._lock:
@@ -175,7 +181,7 @@ class CustomCommandStore:
             if requested_id is not None:
                 current = self._commands[requested_id]
                 raw = {"stream_availability": current.stream_availability, "send_as": current.send_as, **raw}
-            command = parse_custom_command({**raw, "creation_order": 0}, command_id=requested_id or str(uuid4()))
+            command = parse_custom_command({**raw, "creation_order": 0}, command_id=requested_id or migration_id or str(uuid4()))
             order = self._commands[requested_id].creation_order if requested_id is not None else self._creation_order.next()
             command = replace(command, creation_order=order)
             updated = dict(self._commands)

@@ -9,7 +9,7 @@ from contextlib import nullcontext
 
 from app.command_settings import CommandSettings, LEADERBOARD_TEMPLATES
 from app.command_restrictions import expiry, utcnow
-from app.config.commands import TG_DEFAULT_MAX_COUNT
+from app.config.commands import BURST_DEFAULT_MAX_COUNT
 from app.config.privacy import PRIVACY_COMMAND
 from app.custom_commands import CustomCommand, CustomCommandStore, render_response
 from app.message_triggers import MessageTriggerStore
@@ -75,7 +75,7 @@ class CommandContext:
     logger: logging.Logger
     output_limiter: OutputLimiter | None = None
     burst_interval_ms: int = 0
-    burst_max_count: int = TG_DEFAULT_MAX_COUNT
+    burst_max_count: int = BURST_DEFAULT_MAX_COUNT
     send_as: str | None = None
 
     def complete(self) -> None:
@@ -224,8 +224,6 @@ class CommandRegistry:
                 if not visible(settings.stream_availability):
                     continue
                 usage = "" if definition.help_text is None else definition.help_text.partition(" ")[2]
-                if definition.name == "tg":
-                    usage = f"[1-{settings.burst_max_count}]"
                 name = settings.primary_name
                 entries[name] = f"{prefix}{name}" + (f" {usage}" if usage else "")
             if custom_commands is not None:
@@ -234,7 +232,7 @@ class CommandRegistry:
                         continue
                     if not visible(command.stream_availability):
                         continue
-                    usage = " [1-10]" if command.response_mode == "burst" and command.burst_allow_override else ""
+                    usage = f" [1-{command.burst_max_count}]" if command.response_mode == "burst" and command.burst_allow_override else ""
                     entries[command.name] = f"{prefix}{command.name}{usage}"
         return (*tuple(entries[name] for name in sorted(entries)), f"{prefix}{PRIVACY_COMMAND} - Don't save my data")
 
@@ -408,7 +406,7 @@ class CommandDispatcher:
             except ValueError:
                 self._outcome("invalid_arguments")
                 return
-            if not 1 <= count <= 10:
+            if not 1 <= count <= command.burst_max_count:
                 self._outcome("invalid_arguments")
                 return
             # The count is a control argument; templates see the remaining text.
@@ -476,7 +474,8 @@ class CommandDispatcher:
                 definition = CommandDefinition(name=custom.name, handler=custom_handler)
                 permission = max(custom.permission, Permission.MODERATOR) if custom.response_mode == "burst" else custom.permission
                 settings = CommandSettings(enabled=custom.enabled, permission=permission, cooldown=custom.cooldown,
-                                           stream_availability=custom.stream_availability, send_as=custom.send_as)
+                                           stream_availability=custom.stream_availability, send_as=custom.send_as,
+                                           burst_max_count=custom.burst_max_count)
             else:
                 settings = (
                     definition.default_settings
@@ -491,7 +490,7 @@ class CommandDispatcher:
                 return True
 
             command_output_limiter = (
-                None if definition.name == "tg" or (custom is not None and custom.response_mode == "burst") else self._output_limiter
+                None if custom is not None and custom.response_mode == "burst" else self._output_limiter
             )
 
             if settings.removed or not settings.enabled:

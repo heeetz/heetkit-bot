@@ -6,7 +6,6 @@ export type OperationTransport = <T = any>(name: string, args?: Record<string, u
 const commandPayload = (command_name: string, enabled: boolean, per_user_seconds: number, global_seconds: number, permission: string, options?: CommandSettingsMetadata) => ({
   command_name, enabled, per_user_seconds, global_seconds, permission,
   ...(options ? { options: { primary_name: options.primary_name, aliases: options.aliases, display_name: options.display_name,
-    burst_interval_ms: options.burst_interval_ms, burst_max_count: options.burst_max_count,
     entry_limit: options.entry_limit, chat_template: options.chat_template,
     send_as: options.send_as, stream_availability: options.stream_availability } } : {}),
 })
@@ -38,7 +37,6 @@ export const createOperationClient = (call: OperationTransport): PythonApi => ({
   configure_analytics: (enabled) => call('configure_analytics', { enabled }),
   configure_leaderboard_counting: (enabled) => call('configure_leaderboard_counting', { enabled }),
   reset_analytics: (confirmed) => call('reset_analytics', { confirmed }),
-  get_ai_balance: (provider, refresh = false) => call('get_ai_balance', { provider, refresh }),
   get_ai_memory_limits: () => call('get_ai_memory_limits'),
   save_ai_memory_limits: (stored, context) => call('save_ai_memory_limits', { stored, context }),
   get_blocked_ai_users: () => call('get_blocked_ai_users'),
@@ -65,7 +63,7 @@ export const createOperationClient = (call: OperationTransport): PythonApi => ({
     id: command.id, name: command.name, enabled: command.enabled, responses: command.responses,
     permission: command.permission, per_user_seconds: command.per_user_seconds, global_seconds: command.global_seconds,
     aliases: command.aliases, response_mode: command.response_mode, burst_count: command.burst_count,
-    burst_allow_override: command.burst_allow_override, burst_interval_ms: command.burst_interval_ms,
+    burst_max_count: command.burst_max_count, burst_allow_override: command.burst_allow_override, burst_interval_ms: command.burst_interval_ms,
     stream_availability: command.stream_availability, send_as: command.send_as,
   } }),
   delete_custom_command: (identifier) => call('delete_custom_command', { identifier }),

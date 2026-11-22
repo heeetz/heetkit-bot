@@ -36,6 +36,54 @@ def payload(**changes):
     return {**command, **changes}
 
 
+@pytest.mark.parametrize("case", ["enabled", "disabled", "customized", "absent"])
+@pytest.mark.asyncio
+async def test_legacy_tg_converts_once_to_an_ordinary_burst_command(tmp_path, case):
+    from app.fun_settings import FunSettingsStore
+    from app.legacy_tg import migrate_tg
+    from app.twitch.permissions import Permission
+
+    fun_path, settings_path = tmp_path / "fun_settings.json", tmp_path / "command_settings.json"
+    message_text = "My {sender} community" if case == "customized" else "My community"
+    if case != "absent":
+        fun_path.write_text(json.dumps({"version": 1, "fates": ["Keep fate"],
+                                      **({"tg_message": message_text} if case != "enabled" else {})}), encoding="utf-8")
+        settings_path.write_text(json.dumps({"tg": {
+            "enabled": case != "disabled", "permission": "BROADCASTER",
+            "cooldown": {"per_user_seconds": 2, "global_seconds": 5},
+            "aliases": ["community"], "burst_max_count": 20, "burst_interval_ms": 200,
+        }}), encoding="utf-8")
+    custom_path = tmp_path / "custom_commands.json"
+    store = CustomCommandStore(custom_path, set())
+    migrate_tg(store, fun_path, settings_path)
+    saved = store.list()
+    if case == "absent":
+        assert saved == ()
+        assert not custom_path.exists()
+        return
+    command, = saved
+    assert (command.name, command.response_mode, command.enabled) == ("tg", "burst", case != "disabled")
+    expected_text = "Configure your community link in config/fun_settings.json." if case == "enabled" else message_text
+    assert render_response(command, "", "owner", "owner") == expected_text
+    assert command.permission == Permission.BROADCASTER
+    assert (command.cooldown.per_user_seconds, command.cooldown.global_seconds) == (2, 5)
+    assert command.aliases == ("community",)
+    assert (command.burst_count, command.burst_allow_override, command.burst_max_count, command.burst_interval_ms) == (1, True, 20, 200)
+    assert json.loads(fun_path.read_text()) == {"version": 1, "fates": ["Keep fate"]}
+    assert "tg" not in json.loads(settings_path.read_text())
+    assert FunSettingsStore(fun_path).fates == ("Keep fate",)
+    restarted = CustomCommandStore(custom_path, set())
+    migrate_tg(restarted, fun_path, settings_path)
+    assert restarted.list() == saved
+    replies = []
+    async def respond(content):
+        replies.append(content)
+    message = IncomingChatMessage("channel", "!community 2", ChatAuthor("100", "owner", is_broadcaster=True), respond)
+    dispatcher = CommandDispatcher(CommandRegistry(), CooldownManager(), logging.getLogger(__name__), "!", custom_commands=restarted)
+    assert await dispatcher.dispatch(message, SimpleNamespace(settings=SimpleNamespace(twitch_bot_user_id="200")))
+    assert replies == ([expected_text] * 2 if command.enabled else [])
+
+
 @pytest.mark.parametrize("changes,code,params", [
     ({"enabled": 1}, "validation.type", {"field": "enabled", "expected": "boolean"}),
     ({"per_user_seconds": -1}, "validation.minimum", {"field": "per_user_seconds", "limit": "0"}),
@@ -178,7 +226,7 @@ def test_malformed_file_skips_bad_entries_and_never_blocks_builtins(tmp_path) ->
                                            ("random", ["One", "Two"]), ("burst", ["Hello {target}"])])
 def test_explicit_modes_and_burst_configuration_persist_across_restart(tmp_path, mode, responses):
     path = tmp_path / "commands.json"
-    extra = {"burst_count": 7, "burst_allow_override": True} if mode == "burst" else {}
+    extra = {"burst_count": 7, "burst_max_count": 20, "burst_allow_override": True} if mode == "burst" else {}
     saved = CustomCommandStore(path, set()).save(payload(
         response_mode=mode, responses=responses, permission="MODERATOR", **extra))
     assert saved.response_mode == mode
@@ -193,6 +241,8 @@ def test_explicit_modes_and_burst_configuration_persist_across_restart(tmp_path,
 @pytest.mark.parametrize("changes", [
     {"burst_count": 0}, {"burst_count": 11}, {"burst_count": -1}, {"burst_count": True},
     {"burst_count": 1.5}, {"burst_count": "5"}, {"burst_count": None},
+    {"burst_max_count": 0}, {"burst_max_count": 21}, {"burst_max_count": True},
+    {"burst_max_count": "10"}, {"burst_max_count": 4},
     {"burst_allow_override": "true"}, {"burst_allow_override": 1},
     {"response_mode": "invalid"}, {"response_mode": None}, {"response_mode": {}},
     {"permission": "USER"}, {"permission": "SUBSCRIBER"}, {"permission": "VIP"},

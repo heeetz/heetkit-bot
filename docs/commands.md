@@ -55,6 +55,7 @@ from an allowed account. Check that the bot replies with your Twitch name.
 
 Expand **Available variables** for templates. Each reply can use up to 450
 UTF-8 bytes. A Burst renders the template once and repeats the same result.
+Use `{{` and `}}` for literal braces; migrated community messages keep literal text.
 
 | Variable | What HeetKit inserts |
 | --- | --- |
@@ -86,14 +87,14 @@ account with the chosen permission.
 4. Open **Access & aliases** and select the minimum role in **Permission**.
 5. Open **General** and set **Per-user cooldown (seconds)**.
 6. Set **Global cooldown (seconds)**.
-7. Select **Save**. For Fate or Tg, select **Save command**.
+7. Select **Save**. For Fate, select **Save command**.
 
 **Check:** Reopen the command to check its saved settings. Try the command
 from an account with the chosen role. If you set a cooldown, try it again
 before and after the cooldown ends.
 
 Roles from lowest to highest are User, Subscriber, VIP, Moderator and
-Broadcaster. A higher role meets a lower requirement. Tg and Erase require
+Broadcaster. A higher role meets a lower requirement. Burst commands and Erase require
 at least Moderator. On Server, check [Stream availability](#server-command-availability)
 if an enabled command stays silent. Also check [filters](#filters) and
 [user restrictions](#user-restrictions).
@@ -143,17 +144,17 @@ An unavailable command stays silent and uses no cooldown or provider request.
 Its aliases follow the same rule. Desktop ignores this setting for commands.
 Announcements can use stream conditions on both hosts.
 
-### Change Fate or Tg text
+### Change Fate text
 
-Use the same built-in editor for Fate or Tg. For Fate, enter one response per
-non-empty line. For Tg, enter one message. Each line can use up to 450 UTF-8
+Use the Fate built-in editor to enter one response per
+non-empty line. Each line can use up to 450 UTF-8
 bytes. **Save command** saves both text and settings. If settings save but
 text fails, correct the text and use **Save command** again. Other built-ins
 generate their own replies.
 
-**Reset responses** or **Reset message** restores the default text.
+**Reset responses** restores the default text.
 **Reset settings** restores the shipped settings for that command and keeps
-its saved text. See [prediction settings upgrades](data-and-privacy.md#existing-prediction-settings)
+its saved text. See [prediction settings upgrades](data-and-privacy.md#backups-and-settings-recovery)
 if you used `!forecast` in an older version.
 
 ### Disable, enable or reset a built-in
@@ -167,17 +168,18 @@ resolve the conflict before enabling it.
 
 **Reset settings** in an editor restores that built-in's settings and keeps
 its current enabled state and saved text. Under **Advanced: reset all built-ins**,
-**Restore all factory defaults** resets built-in settings and Fate/Tg text
+**Restore all factory defaults** resets built-in settings and Fate text
 after confirmation. Each built-in keeps its current enabled state.
 
 ### Burst limits and spacing
 
-In the Tg editor, open **Conditions** and set **Maximum repeat count** to 1–20.
+In a custom Burst editor, set **Maximum repeat count** to 1–20.
 The default is 10.
-Select **Save command**. With no argument, `!tg` makes one send attempt.
+Existing enabled or customized built-in `!tg` commands convert once to custom Burst commands.
+Select **Save command**. With no argument, a converted `!tg` makes one send attempt.
 `!tg 5` makes five attempts when the saved maximum allows it.
 
-In Tg or a custom Burst editor, set **Burst interval (ms)** to 0–1000.
+In a custom Burst editor, set **Burst interval (ms)** to 0–1000.
 At the default 0, HeetKit starts the sends together. At 200, it starts
 them about 200 ms apart. Twitch controls when the messages appear and can
 reject individual sends. Check **Logs** if only some messages arrive.
@@ -312,7 +314,6 @@ to change the settings.
 | `!ping` | Check for a `pong` reply. | Moderator |
 | `!rank` | Show your place and message count in this channel’s monthly leaderboard. | User |
 | `!seen <username>` | Show when HeetKit last saw a known chatter in this channel. | User |
-| `!tg [1-20]` | Send the saved community message, with an optional repeat count. | Moderator |
 | `!top` | Show the most active chatters in this channel this month. | User |
 | `!uptime` | Show how long the current HeetKit session has run. | Moderator |
 | `!weather <city>` | Get current weather in English, Russian or Ukrainian. | User |

@@ -19,6 +19,7 @@ from app.command_restrictions import CommandRestrictionStore
 from app.message_triggers import MessageTriggerStore
 from app.runtime_paths import RuntimePaths
 from app.fun_settings import FunSettingsStore
+from app.legacy_tg import migrate_tg
 from app.config.settings import Settings
 from app.database.database import Database
 from app.database.repository import AIMemoryRepository, UserRepository
@@ -50,7 +51,6 @@ class Application:
     fun_settings: FunSettingsStore | None = None
     announcements: AnnouncementStore | None = None
     ai_playground: AIPlayground = field(init=False)
-    ai_balance: object | None = field(init=False, default=None)
     announcement_scheduler: AnnouncementScheduler | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
@@ -92,11 +92,7 @@ class Application:
                     if self.announcement_scheduler is not None:
                         await self.announcement_scheduler.close()
                 finally:
-                    try:
-                        await self.ai_playground.close()
-                    finally:
-                        if self.ai_balance is not None:
-                            await self.ai_balance.aclose()
+                    await self.ai_playground.close()
             finally:
                 await self.ai_service.aclose()
         finally:
@@ -149,6 +145,8 @@ def build_application(settings: Settings) -> Application:
         namespace_lock=runtime_state.command_namespace_lock,
         creation_order=creation_order,
     )
+    migrate_tg(custom_commands, fun_settings.path, paths.command_settings)
+    fun_settings._payload.pop("tg_message", None)
     runtime_state.bind_custom_commands(custom_commands)
     runtime_state.configure_commands(registry.definitions())
     services = ApplicationServices(

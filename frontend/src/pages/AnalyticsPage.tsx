@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
-import { type AnalyticsResponse, type AIBalanceResponse, waitForBridge } from '../bridge'
+import { type AnalyticsResponse, waitForBridge } from '../bridge'
 import ChatLeaderboards from '../components/ChatLeaderboards'
 import { Select } from '../components/Select'
 import Switch from '../components/Switch'
@@ -9,19 +9,18 @@ import './analytics.css'
 import { analyticsText } from '../i18n/analytics'
 import { useCatalog, useI18n, type Plural } from '../i18n/core'
 
-type TrendText = { label: string; amount?: Plural }
-const trendKeys = ['command.attempts', 'command.success', 'command.error', 'users.new', 'ai.requests', 'ai.input_tokens', 'ai.output_tokens', 'ai.estimated_usd'] as const
+type TrendText = { label: string; amount: Plural }
+const trendKeys = ['command.attempts', 'command.success', 'command.error', 'users.new', 'ai.requests', 'ai.input_tokens', 'ai.output_tokens'] as const
 
 /** Locale-aware number helpers and UTC timestamps for the current UI language. */
 function useFormatters() {
   const text = useCatalog(analyticsText)
   const { fmt, number } = useI18n()
   const count = (value = 0) => number(value, { maximumFractionDigits: 0 })
-  const money = (value = 0) => number(value, { style: 'currency', currency: 'USD', minimumFractionDigits: 4, maximumFractionDigits: 4 })
   const time = (value?: string | null) => value ? fmt(text.utc, { time: value.replace('T', ' ').replace(/(?:\.\d+)?(?:Z|\+00:00)$/, '') }) : text.unavailable
   const dataSinceTime = (value?: string | null) => value ? fmt(text.utc, { time: value.replace('T', ' ').replace(/(?:Z|\+00:00)$/, '') }) : text.unavailable
   const trends = trendKeys.map((value) => ({ value, ...(text.trends[value] as TrendText) }))
-  return { text, count, money, time, dataSinceTime, trends }
+  return { text, count, time, dataSinceTime, trends }
 }
 
 type Bucket = AnalyticsResponse['series'][number]
@@ -32,15 +31,15 @@ function observed(row: Bucket, metric: string, data: AnalyticsResponse) {
   if (metric in row.metrics) return true
   const coverage = metric === 'users.new' ? row.new_users_coverage_seconds : row.coverage_seconds
   if (!(coverage > 0 && row.metrics['connection.seconds'] > 0)) return false
-  if (['ai.input_tokens', 'ai.output_tokens', 'ai.estimated_usd'].includes(metric) && row.metrics['ai.attempts'] > 0) return false
+  if (['ai.input_tokens', 'ai.output_tokens'].includes(metric) && row.metrics['ai.attempts'] > 0) return false
   return true
 }
 function Trend({ data, metric, selector }: { data: AnalyticsResponse; metric: string; selector: React.ReactNode }) {
   const chart = useRef<SVGSVGElement>(null)
   const [width, setWidth] = useState(760)
   const [selected, setSelected] = useState<number | null>(null)
-  const { text, count, money, trends } = useFormatters()
-  const { fmt, plural, number } = useI18n()
+  const { text, count, trends } = useFormatters()
+  const { fmt, plural } = useI18n()
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) => setWidth(Math.max(180, entry.contentRect.width)))
     if (chart.current) observer.observe(chart.current)
@@ -53,7 +52,7 @@ function Trend({ data, metric, selector }: { data: AnalyticsResponse; metric: st
   const maximum = Math.max(1, ...data.series.map((row) => row.metrics[metric] || 0))
   const x = (index: number) => 35 + (index / Math.max(1, data.series.length - 1)) * (width - 70)
   const y = (value: number) => 180 - value / maximum * 150
-  const format = (value = 0) => metric === 'ai.estimated_usd' ? money(value) : count(value)
+  const format = count
   const coverageState = (row: Bucket, index: number) => {
     if (bucketStart(row) > Date.parse(data.as_of)) return text.futureHour
     if (!known[index]) return text.unknownGap
@@ -63,9 +62,7 @@ function Trend({ data, metric, selector }: { data: AnalyticsResponse; metric: st
   }
   const bucket = selected === null ? undefined : data.series[selected]
   const value = bucket?.metrics[metric] ?? 0
-  const tooltipValue = !trend.amount
-    ? fmt(text.usdSpend, { value: number(value, { minimumFractionDigits: 4, maximumFractionDigits: 12 }) })
-    : plural(trend.amount, value, { count: count(value) })
+  const tooltipValue = plural(trend.amount, value, { count: count(value) })
   const selectPointer = (event: PointerEvent<SVGSVGElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect()
     const localX = (event.clientX - bounds.left) * width / bounds.width
@@ -118,7 +115,7 @@ function Trend({ data, metric, selector }: { data: AnalyticsResponse; metric: st
 }
 
 export default function AnalyticsPage({ leaderboardChannel }: { leaderboardChannel?: string | null }) {
-  const { text, count, money, time, dataSinceTime, trends } = useFormatters()
+  const { text, count, time, dataSinceTime, trends } = useFormatters()
   const { fmt, plural } = useI18n()
   const [days, setDays] = useState('7')
   const [metric, setMetric] = useState('command.attempts')
@@ -126,15 +123,6 @@ export default function AnalyticsPage({ leaderboardChannel }: { leaderboardChann
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [reset, setReset] = useState(false)
-  const [provider, setProvider] = useState('deepseek')
-  const [balance, setBalance] = useState<AIBalanceResponse | null>(null)
-  const [balanceBusy, setBalanceBusy] = useState(false)
-  useEffect(() => {
-    if (!balance || balance.state !== 'available' || !balance.updated_at) return
-    const timer = window.setTimeout(() => setBalance((current) => current?.state === 'available'
-      ? { ...current, state: 'stale' } : current), Math.max(0, Date.parse(balance.updated_at) + 60000 - Date.now()))
-    return () => window.clearTimeout(timer)
-  }, [balance])
   const load = async (windowDays: number) => {
     const response = await (await waitForBridge()).get_analytics(windowDays)
     if (!response.ok) throw new Error(response.error || text.analyticsUnavailable)
@@ -158,30 +146,12 @@ export default function AnalyticsPage({ leaderboardChannel }: { leaderboardChann
   }
   const totals = data?.totals || {}
   const total = (key: string) => totals[key] || 0
-  const incomplete = total('ai.estimate_incomplete') > 0 || total('ai.usage_unknown') > 0 || total('ai.price_missing') > 0
   const hasObservations = Boolean(data?.available && data.channel_id && (Object.keys(totals).length || data.series.some((row) => row.coverage_seconds > 0 && row.metrics['connection.seconds'] > 0)))
   const value = (key: string) => hasObservations ? count(total(key)) : text.unknown
   const partial = data && data.series.some((row) => {
     const elapsed = Math.min(data.resolution === 'hour' ? 3600 : 86400, (Date.parse(data.as_of) - bucketStart(row)) / 1000)
     return elapsed > 0 && row.coverage_seconds < elapsed - 5
   })
-  const balanceCard = <article className="card analytics-summary analytics-balance">
-    <div className="ai-state-heading"><h2>{text.providerBalance}</h2><HelpTip label={text.balanceRefresh}><ul>{text.balanceHelp.map((item) => <li key={item}>{item}</li>)}</ul></HelpTip></div>
-    <div className="balance-controls"><Select aria-label={text.balanceProvider} value={provider} disabled={balanceBusy} onChange={(next) => { setProvider(next); setBalance(null) }} options={[{ value: 'deepseek', label: 'DeepSeek' }, { value: 'gemini', label: 'Gemini' }, { value: 'openai', label: 'OpenAI' }]} /><button className="secondary" aria-label={text.refreshBalance} disabled={balanceBusy || provider !== 'deepseek'} onClick={() => {
-      setBalanceBusy(true)
-      void (async () => {
-        try { setBalance(await (await waitForBridge()).get_ai_balance(provider, true)) }
-        catch { setBalance((previous) => ({ ok: false, provider, state: previous?.balances.length ? 'stale' : 'unavailable', balances: previous?.balances || [], updated_at: previous?.updated_at || null, error: text.balanceRefreshFailed })) }
-        finally { setBalanceBusy(false) }
-      })()
-    }}>{balanceBusy ? text.refreshing : text.refresh}</button></div>
-    <div role="status">{provider !== 'deepseek' ? <p>{text.noBalanceApi}</p> : !balance ? <p>{text.refreshOnDemand}</p> : <>
-      {balance.balances.map((item) => <div key={item.currency}><strong className="analytics-primary">{item.currency} {item.total_balance}</strong>
-        <p>{fmt(text.balanceParts, { granted: item.granted_balance, topped: item.topped_up_balance })}</p></div>)}
-      <p>{fmt(text.balanceStatus, { state: balance.state === 'stale' ? text.stale : balance.state === 'available' ? text.available : text.unavailable, time: time(balance.updated_at) })}</p>
-      {balance.error && <p className="inline-error">{balance.error}</p>}
-    </>}</div>
-  </article>
   return <div className="analytics-layout" aria-busy={busy}>
     <div className="analytics-toolbar"><label>{text.utcWindow}<Select aria-label={text.utcWindow} value={days} onChange={setDays} disabled={busy} options={[{ value: '1', label: text.today }, ...[7, 30, 60].map((n) => ({ value: String(n), label: plural(text.days, n) }))]} /></label><button className="secondary" disabled={busy} onClick={() => void action()}>{text.refreshAnalytics}</button></div>
     {error && <p role="alert" className="inline-error">{error}</p>}
@@ -204,15 +174,14 @@ export default function AnalyticsPage({ leaderboardChannel }: { leaderboardChann
       </HelpTip></div><strong className="analytics-primary">{fmt(text.requests, { count: value('ai.requests') })}</strong><p>{fmt(text.tokens, {
         input: !hasObservations || (total('ai.attempts') > 0 && !('ai.input_tokens' in totals)) ? text.unknown : count(total('ai.input_tokens')),
         output: !hasObservations || (total('ai.attempts') > 0 && !('ai.output_tokens' in totals)) ? text.unknown : count(total('ai.output_tokens')),
-      })}</p>{incomplete && <p className="muted">{text.incomplete}</p>}</article>
-      {balanceCard}
+      })}</p></article>
     </div>
     <ChatLeaderboards key={leaderboardChannel ?? ''} channel={leaderboardChannel} countingEnabled={data?.count_chat_messages} />
     {data && <>
       {Object.keys(totals).length === 0 && <p role="status">{text.noActivity}</p>}
       <div className="analytics-breakdowns" id="analytics-breakdown">
         <article className="card"><div className="ai-state-heading"><h2>{text.commandsBreakdown}</h2><HelpTip label={text.attemptsCounted}><ul>{text.attemptsHelp.map((item) => <li key={item}>{item}</li>)}</ul></HelpTip></div><div className="analytics-table analytics-command-table" tabIndex={0} role="region" aria-label={text.breakdownTable}><table><thead><tr><th>{text.command}</th><th>{text.attemptsColumn}</th><th>{text.success}</th><th>{text.errors}</th><th>{text.skipped}</th></tr></thead><tbody>{data.commands.map((row) => <tr key={row.name}><th><span className={`analytics-command-name${!row.label || row.label.startsWith('Deleted or unavailable command') ? ' analytics-command-unavailable' : ''}`} title={row.label || fmt(text.deletedCommand, { name: row.name })}>{row.label || fmt(text.deletedCommand, { name: row.name })}</span></th>{['attempts', 'success', 'error', 'skipped'].map((key) => <td key={key}>{data.available && data.channel_id ? count(row.metrics[`command.${key}`]) : text.unavailable}</td>)}</tr>)}</tbody></table></div>{!data.commands.length && <p>{text.noCommands}</p>}</article>
-        <article className="card"><div className="ai-state-heading"><h2>{text.providersModels}</h2><HelpTip label={text.costsEstimated}><ul>{text.costsHelp.map((item) => <li key={item}>{fmt(item, { date: data.price_checked })}</li>)}</ul></HelpTip></div><div className="analytics-table" tabIndex={0} role="region" aria-label={text.providersTable}><table><thead><tr><th>{text.providerModel}</th><th>{text.attemptsColumn}</th><th>{text.errors}</th><th>{text.estimatedUsd}</th><th>{text.unknownUsage}</th></tr></thead><tbody>{data.providers.map((row) => <tr key={row.name}><th>{row.name}</th><td>{count(row.metrics['ai.attempts'])}</td><td>{count(row.metrics['ai.errors'])}</td><td>{'ai.estimated_usd' in row.metrics ? money(row.metrics['ai.estimated_usd']) : text.unknown}</td><td>{count(row.metrics['ai.usage_unknown'])} / {count(row.metrics['ai.price_missing'])}</td></tr>)}</tbody></table></div>{!data.providers.length && <p>{text.noProviders}</p>}</article>
+        <article className="card"><div className="ai-state-heading"><h2>{text.providersModels}</h2></div><div className="analytics-table" tabIndex={0} role="region" aria-label={text.providersTable}><table><thead><tr><th>{text.providerModel}</th><th>{text.attemptsColumn}</th><th>{text.errors}</th><th>{text.unknownUsage}</th></tr></thead><tbody>{data.providers.map((row) => <tr key={row.name}><th>{row.name}</th><td>{count(row.metrics['ai.attempts'])}</td><td>{count(row.metrics['ai.errors'])}</td><td>{count(row.metrics['ai.usage_unknown'])}</td></tr>)}</tbody></table></div>{!data.providers.length && <p>{text.noProviders}</p>}</article>
       </div>
       <article className="card analytics-coverage" id="analytics-collection">
         <div className="analytics-coverage-heading">

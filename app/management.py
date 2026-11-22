@@ -134,21 +134,6 @@ class ApplicationManagement:
     @operation(write=True,
                failure="webview_host.management_operation_unavailable_check_profile_storage",
                validation_failure="webview_host.check_selected_window_confirmation_memory_limits")
-    async def _get_ai_balance(self, provider: str, refresh: bool = False) -> dict[str, object]:
-        from app.services.ai_balance import AIBalance
-        provider = validate_ai_provider(provider)
-        if type(refresh) is not bool:
-            raise UserError("management.refresh_must_be_a_boolean")
-        # Owned by the application, independent of chat/provider request slots.
-        app = self._backend.application
-        if app.ai_balance is None:
-            app.ai_balance = AIBalance()
-        secret = getattr(app.settings, provider + "_api_key", None)
-        return await app.ai_balance.get(provider, secret.get_secret_value() if secret else None, refresh=refresh)
-
-    @operation(write=True,
-               failure="webview_host.management_operation_unavailable_check_profile_storage",
-               validation_failure="webview_host.check_selected_window_confirmation_memory_limits")
     async def _get_analytics(self, days: int = 7) -> dict[str, object]:
         if type(days) is not int or days not in (1, 7, 30, 60):
             raise UserError("management.select_today_7_30_60_utc")
@@ -202,7 +187,7 @@ class ApplicationManagement:
                 "series": [{"day": day, **values} for day, values in series.items()],
                 "commands": command_rows,
                 "providers": [{"name": name, "metrics": values} for name, values in sorted(providers.items())],
-                **{key: snapshot[key] for key in ("metadata", "enabled", "available", "pending", "dropped", "write_failures", "price_checked", "price_basis")}}
+                **{key: snapshot[key] for key in ("metadata", "enabled", "available", "pending", "dropped", "write_failures")}}
 
     @operation(write=True,
                failure="webview_host.management_operation_unavailable_check_profile_storage",
@@ -502,8 +487,6 @@ class ApplicationManagement:
                     "aliases": list(settings.aliases),
                     "display_name": settings.display_name,
                     "removed": settings.removed,
-                    "burst_interval_ms": settings.burst_interval_ms,
-                    "burst_max_count": settings.burst_max_count,
                     **({"entry_limit": settings.entry_limit} if settings.entry_limit is not None else {}),
                     **({"chat_template": settings.chat_template} if settings.chat_template is not None else {}),
                     "minimum_permission": definition.minimum_permission.name,
@@ -519,7 +502,7 @@ class ApplicationManagement:
                     "available": unavailable_reason is None,
                     "unavailable_reason": unavailable_reason,
                     "response_pool": fun_settings.snapshot(definition.name)
-                    if definition.name in ("fate", "tg") and fun_settings else None,
+                    if definition.name == "fate" and fun_settings else None,
                     "permission": settings.permission.name,
                     "cooldown": {
                         "per_user_seconds": settings.cooldown.per_user_seconds,
@@ -541,7 +524,7 @@ class ApplicationManagement:
 
     def _command_response_action(self, name: object, responses: object, action: str) -> dict[str, object]:
         store = getattr(self._backend.application, "fun_settings", None)
-        if name not in ("fate", "tg") or store is None:
+        if name != "fate" or store is None:
             return {"ok": False, "error_code": "fun_settings.command_has_no_editable_responses", "error_params": {}}
         try:
             if action == "reset":
@@ -680,8 +663,6 @@ class ApplicationManagement:
             "display_name": settings.display_name,
             "primary_name": settings.primary_name,
             "removed": settings.removed,
-            "burst_interval_ms": settings.burst_interval_ms,
-            "burst_max_count": settings.burst_max_count,
             **({"entry_limit": settings.entry_limit} if settings.entry_limit is not None else {}),
             **({"chat_template": settings.chat_template} if settings.chat_template is not None else {}),
             "cooldown": {
@@ -835,7 +816,7 @@ class ApplicationManagement:
     def _parse_command_options(self, options: object, *, saving: bool = False) -> dict[str, object]:
         if options is None:
             return {}
-        allowed = ("primary_name", "aliases", "display_name", "burst_interval_ms", "burst_max_count", "send_as", "entry_limit", "chat_template")
+        allowed = ("primary_name", "aliases", "display_name", "send_as", "entry_limit", "chat_template")
         if saving:
             allowed += ("reactivate_removed",)
         if self._backend.application.services.runtime_state.server_runtime:

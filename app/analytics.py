@@ -18,12 +18,20 @@ from threading import Lock
 import time
 
 from app.errors import UserError
-from app.analytics_pricing import PRICE_CHECKED, RATES, estimate
 
 _scope = ContextVar("analytics_scope", default=None)
 RETENTION_DAYS = 60
 TOKEN_FIELDS = ("input_tokens", "output_tokens", "total_tokens", "cached_input_tokens", "tool_input_tokens", "reasoning_tokens", "search_requests")
 LATENCIES = (0.25, 0.5, 1, 2, 5, 10, 30, 60, 120)
+READ_METRICS = (
+    "activity.observed", "coverage.seconds", "users.coverage_seconds", "users.new",
+    "connection.starts", "connection.reconnects", "connection.seconds", "connection.errors",
+    "announcement.attempts", "announcement.sent", "announcement.uncertain", "announcement.failed",
+    *("command." + name for name in ("attempts", "starts", "success", "partial", "uncertain", "error", "skipped", "incomplete", "cancelled")),
+    *("ai." + name for name in ("requests", "completed", "failed", "fallbacks", "attempts", "successes", "errors", "usage_unknown")),
+    *("ai." + name + suffix for name in TOKEN_FIELDS for suffix in ("", ".reported")),
+    *("ai.latency_le_" + str(bound).replace(".", "_") for bound in (*LATENCIES, "inf")),
+)
 
 
 def utcnow():
@@ -205,13 +213,6 @@ class Analytics:
                 if type(seconds) in (int, float) and math.isfinite(seconds) and seconds >= 0:
                     bucket = next((str(bound).replace(".", "_") for bound in LATENCIES if seconds <= bound), "inf")
                     add("ai.latency_le_" + bucket, dimension=dimension)
-                cost, incomplete = estimate(provider, model, values, self.clock())
-                if cost is not None:
-                    add("ai.estimated_usd", cost, dimension)
-                if (provider, model) not in RATES or self.clock().astimezone(timezone.utc).date().isoformat() < PRICE_CHECKED:
-                    add("ai.price_missing", dimension=dimension)
-                if incomplete:
-                    add("ai.estimate_incomplete", dimension=dimension)
 
     def connection(self, channel_id, ready):
         now = self.clock().astimezone(timezone.utc)
@@ -373,13 +374,14 @@ class Analytics:
         cutoff = (now.date() - timedelta(days=days - 1)).isoformat()
         tomorrow = (now.date() + timedelta(days=1)).isoformat()
         def read():
+            placeholders = ",".join("?" for _ in READ_METRICS)
             with self._lock:
                 rows = [dict(zip(("day", "dimension", "metric", "value"), row)) for row in self._connection.execute(
-                    "SELECT day,dimension,metric,value FROM daily WHERE channel=? AND day>=? AND day<? ORDER BY day",
-                    (channel_id, cutoff, tomorrow))]
+                    f"SELECT day,dimension,metric,value FROM daily WHERE channel=? AND day>=? AND day<? AND metric IN ({placeholders}) ORDER BY day",
+                    (channel_id, cutoff, tomorrow, *READ_METRICS))]
                 hours = [dict(zip(("day", "dimension", "metric", "value"), row)) for row in self._connection.execute(
-                    "SELECT day,dimension,metric,value FROM hourly WHERE channel=? AND day>=? AND day<? ORDER BY day",
-                    (channel_id, cutoff, tomorrow))] if days == 1 else []
+                    f"SELECT day,dimension,metric,value FROM hourly WHERE channel=? AND day>=? AND day<? AND metric IN ({placeholders}) ORDER BY day",
+                    (channel_id, cutoff, tomorrow, *READ_METRICS))] if days == 1 else []
                 return rows, hours, dict(self._connection.execute("SELECT key,value FROM metadata"))
         try:
             rows, hours, metadata = await asyncio.to_thread(read)
@@ -390,7 +392,6 @@ class Analytics:
                 "metadata": metadata, "enabled": self.enabled, "available": self.available,
                 "pending": len(self.queue), "dropped": self.dropped, "write_failures": self.write_failures,
                 "write_seconds": self.write_seconds, "lock_wait_seconds": self.lock_wait_seconds,
-                "price_checked": PRICE_CHECKED, "price_basis": "standard paid text; known subtotal; not an invoice",
                 "coverage": "observed_only; opt-outs, downtime and buffered crash losses are omitted"}
 
     async def close(self):

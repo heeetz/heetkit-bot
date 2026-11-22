@@ -9,7 +9,6 @@ import pytest
 
 from app.commands.fun import register_fun_commands
 from app.commands.registry import CommandDispatcher, CommandRegistry
-from app.config.commands import TG_MESSAGE
 from app.fun_settings import FATES, FunSettingsStore
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.utils.cooldown import CooldownManager
@@ -19,12 +18,11 @@ from app.webview_host import WebUIBridge
 def test_fate_apply_save_restart_reset_preserves_existing_profile_data(tmp_path):
     path = tmp_path / "profile" / "config" / "fun_settings.json"
     path.parent.mkdir(parents=True)
-    payload = {"version": 1, "tg_message": "My community link", "fates": ["My local forecast"],
+    payload = {"version": 1, "fates": ["My local forecast"],
                "other": {"preserved": True}}
     path.write_text(json.dumps(payload), encoding="utf-8")
     store = FunSettingsStore(path)
     assert store.fates == ("My local forecast",)
-    assert store.tg_message == "My community link"
     store.apply(["Session forecast"])
     assert store.snapshot()["saved"] is False
     assert json.loads(path.read_text()) == payload
@@ -36,7 +34,6 @@ def test_fate_apply_save_restart_reset_preserves_existing_profile_data(tmp_path)
     assert store.fates == FATES
     assert store.snapshot()["has_saved_override"] is False
     assert json.loads(path.read_text()) == {key: value for key, value in payload.items() if key != "fates"}
-    assert FunSettingsStore(path).tg_message == "My community link"
 
 
 def test_clean_and_separate_profiles_use_neutral_defaults(tmp_path):
@@ -47,38 +44,10 @@ def test_clean_and_separate_profiles_use_neutral_defaults(tmp_path):
     one.save(["One profile only"])
     assert FunSettingsStore(one.path).fates == ("One profile only",)
     assert FunSettingsStore(two.path).fates == FATES
-    one.save(["One community only"], "tg")
-    assert FunSettingsStore(one.path).tg_message == "One community only"
-    assert FunSettingsStore(two.path).tg_message == TG_MESSAGE
     assert not two.path.exists()
 
 
-def test_tg_apply_save_restart_reset_preserves_fates_and_other_profile_fields(tmp_path):
-    path = tmp_path / "fun_settings.json"
-    payload = {"version": 1, "tg_message": "Saved community", "fates": ["Saved forecast"],
-               "other": {"preserved": True}}
-    path.write_text(json.dumps(payload), encoding="utf-8")
-    store = FunSettingsStore(path)
-    store.apply(["Session forecast"])
-    store.apply(["Session community"], "tg")
-    assert store.snapshot("tg")["saved"] is False
-    assert json.loads(path.read_text()) == payload
-    assert FunSettingsStore(path).tg_message == "Saved community"
-
-    store.save(["New community, https://example.test/community"], "tg")
-    assert store.snapshot("tg")["saved"] is True
-    assert store.snapshot()["saved"] is False
-    assert store.fates == ("Session forecast",)
-    assert FunSettingsStore(path).fates == ("Saved forecast",)
-    assert FunSettingsStore(path).tg_message == "New community, https://example.test/community"
-    store.reset("tg")
-    assert store.tg_message == TG_MESSAGE
-    assert store.snapshot("tg")["has_saved_override"] is False
-    assert store.fates == ("Session forecast",)
-    assert json.loads(path.read_text()) == {key: value for key, value in payload.items() if key != "tg_message"}
-
-
-@pytest.mark.parametrize("command_name", ["fate", "tg"])
+@pytest.mark.parametrize("command_name", ["fate"])
 @pytest.mark.parametrize("responses", [None, "text", [], [""], ["   "], [None], ["x" * 451], ["é" * 226]])
 def test_invalid_response_edits_leave_effective_and_saved_values_unchanged(tmp_path, responses, command_name):
     store = FunSettingsStore(tmp_path / "fun_settings.json")
@@ -92,7 +61,7 @@ def test_invalid_response_edits_leave_effective_and_saved_values_unchanged(tmp_p
         assert store.path.read_bytes() == before
 
 
-@pytest.mark.parametrize("command_name,max_responses", [("fate", 1000), ("tg", 1)])
+@pytest.mark.parametrize("command_name,max_responses", [("fate", 1000)])
 def test_response_count_and_utf8_byte_boundaries(tmp_path, command_name, max_responses):
     store = FunSettingsStore(tmp_path / "fun_settings.json")
     accepted = ["é" * 225] * max_responses
@@ -104,7 +73,7 @@ def test_response_count_and_utf8_byte_boundaries(tmp_path, command_name, max_res
     assert store.snapshot(command_name)["responses"] == accepted
 
 
-@pytest.mark.parametrize("command_name", ["fate", "tg"])
+@pytest.mark.parametrize("command_name", ["fate"])
 @pytest.mark.parametrize("operation", ["save", "reset"])
 def test_failed_atomic_replace_keeps_saved_file_and_runtime(tmp_path, monkeypatch, operation, command_name):
     store = FunSettingsStore(tmp_path / "fun_settings.json")
@@ -121,7 +90,7 @@ def test_failed_atomic_replace_keeps_saved_file_and_runtime(tmp_path, monkeypatc
     assert list(tmp_path.iterdir()) == [store.path]
 
 
-@pytest.mark.parametrize("command_name", ["fate", "tg"])
+@pytest.mark.parametrize("command_name", ["fate"])
 @pytest.mark.parametrize("content", ['{"version": 2, "fates": ["future"]}', 'not json'])
 def test_unreadable_or_future_file_is_not_overwritten(tmp_path, content, command_name):
     path = tmp_path / "fun_settings.json"
@@ -183,31 +152,5 @@ def test_bridge_exposes_only_editable_fun_command_responses(tmp_path):
     assert commands["ping"]["response_pool"] is None
     assert commands["fate"]["response_pool"]["response_mode"] == "random"
     assert commands["fate"]["response_pool"]["max_responses"] == 1000
-    assert commands["tg"]["response_pool"]["response_mode"] == "single"
-    assert commands["tg"]["response_pool"]["max_responses"] == 1
-    assert commands["tg"]["response_pool"]["responses"] == [TG_MESSAGE]
 
 
-@pytest.mark.parametrize("count", [1, 3, 10])
-def test_bridge_tg_editor_changes_live_message_and_preserves_burst_count(tmp_path, count):
-    store = FunSettingsStore(tmp_path / "fun_settings.json")
-    registry = CommandRegistry()
-    register_fun_commands(registry, store)
-    bridge = WebUIBridge(SimpleNamespace(application=SimpleNamespace(fun_settings=store)))
-    assert bridge.apply_command_responses("tg", ["Community, https://example.test"]) == {"ok": True}
-    assert bridge.apply_command_responses("tg", ["One", "Two"])["ok"] is False
-    assert not store.path.exists()
-    replies = []
-    async def respond(text):
-        replies.append(text)
-    message = IncomingChatMessage(channel="test", content=f"!tg {count}",
-                                  author=ChatAuthor(twitch_user_id="user", username="viewer", is_moderator=True),
-                                  respond=respond)
-    dispatcher = CommandDispatcher(registry=registry, cooldowns=CooldownManager(),
-                                   logger=logging.getLogger("tests.fun"), command_prefix="!")
-    asyncio.run(dispatcher.dispatch(message, SimpleNamespace()))
-    assert replies == ["Community, https://example.test"] * count
-    assert bridge.save_command_responses("tg", ["Saved community"]) == {"ok": True}
-    assert FunSettingsStore(store.path).tg_message == "Saved community"
-    assert bridge.reset_command_responses("tg") == {"ok": True}
-    assert store.tg_message == TG_MESSAGE
