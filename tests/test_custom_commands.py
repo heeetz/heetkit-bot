@@ -36,6 +36,27 @@ def payload(**changes):
     return {**command, **changes}
 
 
+@pytest.mark.parametrize("changes,code,params", [
+    ({"enabled": 1}, "validation.type", {"field": "enabled", "expected": "boolean"}),
+    ({"per_user_seconds": -1}, "validation.minimum", {"field": "per_user_seconds", "limit": "0"}),
+    ({"global_seconds": 86401}, "validation.maximum", {"field": "global_seconds", "limit": "86400"}),
+    ({"responses": ["x" * 2001]}, "validation.too_long", {"field": "responses", "max": "2000"}),
+    ({"name": "two words"}, "validation.text", {"field": "name"}),
+])
+def test_model_constraints_reject_edits_without_writing(tmp_path, changes, code, params):
+    from app.errors import UserError
+
+    path = tmp_path / "commands.json"
+    store = CustomCommandStore(path, set())
+    saved = store.save(payload())
+    before = path.read_bytes()
+    with pytest.raises(UserError) as error:
+        store.save({**saved.to_json(), **changes})
+    assert (error.value.code, error.value.params) == (code, params)
+    assert store.list() == (saved,)
+    assert path.read_bytes() == before
+
+
 def test_store_normalizes_aliases_rejects_collisions_and_persists(tmp_path) -> None:
     path = tmp_path / "custom_commands.json"
     store = CustomCommandStore(path, {"ping", "p"})
@@ -91,7 +112,8 @@ def test_random_pool_invalid_size_rejected_without_changing_saved_command(tmp_pa
     before = path.read_bytes()
     with pytest.raises(ValueError) as error:
         store.save({**saved.to_json(), "responses": responses})
-    assert error.value.code == "custom_commands.provide_1_30_response_templates"
+    assert error.value.code == ("validation.minimum" if not responses else "validation.too_many")
+    assert error.value.params["field"] == "responses"
     assert store.list() == (saved,)
     assert path.read_bytes() == before
 
@@ -99,8 +121,8 @@ def test_random_pool_invalid_size_rejected_without_changing_saved_command(tmp_pa
 @pytest.mark.parametrize("changes,match", [
     ({"response_mode": "single", "responses": ["Reply"] * 30}, "custom_commands.single_burst_modes_require_exactly_one"),
     ({"response_mode": "burst", "permission": "MODERATOR", "responses": ["Reply"] * 30}, "custom_commands.single_burst_modes_require_exactly_one"),
-    ({"aliases": [f"alias{index}" for index in range(11)]}, "custom_commands.provide_most_10_aliases"),
-    ({"responses": ["Reply"] * 29 + ["x" * 2001]}, "custom_commands.each_response_one_non_empty_line"),
+    ({"aliases": [f"alias{index}" for index in range(11)]}, "validation.too_many"),
+    ({"responses": ["Reply"] * 29 + ["x" * 2001]}, "validation.too_long"),
 ])
 def test_larger_random_pool_preserves_other_custom_limits(tmp_path, changes, match):
     with pytest.raises(ValueError) as error:

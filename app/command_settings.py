@@ -4,20 +4,21 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import os
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Annotated, Any, Protocol
+from pydantic import AfterValidator, Field, StrictBool, StrictStr
+from app.settings_models import (SettingsModel, CommandName, StreamAvailability, SendAs, BurstInterval,
+    EntryLimit, NonNegativeSeconds, ControlFree, PermissionName, field_value, parse)
 
 from app.errors import UserError
 from app.config.commands import BURST_HARD_MAX_COUNT, TG_DEFAULT_MAX_COUNT
 from app.twitch.permissions import Permission
 from app.settings_recovery import preserve_settings_recovery
 from app.utils.cooldown import CooldownPolicy
-from app.utils.text import normalize_command_name
 from app.utils.text import validate_chat_template
 
 logger = logging.getLogger(__name__)
@@ -26,9 +27,7 @@ LEADERBOARD_VARIABLES = {"top": ("entries",), "rank": ("place", "messages")}
 
 
 def validate_entry_limit(value):
-    if type(value) is not int or not 1 <= value <= 10:
-        raise UserError("command_settings.entry_limit_whole_number_from_1")
-    return value
+    return field_value(EntryLimit, value, "entry_limit")
 
 
 def validate_leaderboard_template(name, value):
@@ -40,59 +39,60 @@ class CommandNameConflict(UserError):
         super().__init__("custom_commands.command_name_alias_already_exists", name=name)
 
 
+BurstMaxCount = Annotated[int, Field(strict=True, ge=1, le=BURST_HARD_MAX_COUNT)]
+DisplayName = Annotated[ControlFree, Field(max_length=80), AfterValidator(str.strip)]
+
+
+def _unique_aliases(values):
+    if len(set(values)) != len(values):
+        raise UserError("command_settings.command_aliases_unique")
+    return values
+
+
+CommandAliases = Annotated[tuple[CommandName, ...], Field(max_length=10), AfterValidator(_unique_aliases)]
+
+
+class CommandOverrideModel(SettingsModel):
+    enabled: StrictBool | None = None
+    permission: PermissionName | None = None
+    aliases: CommandAliases | None = None
+    display_name: DisplayName | None = None
+    removed: StrictBool | None = None
+    burst_interval_ms: BurstInterval | None = None
+    burst_max_count: BurstMaxCount | None = None
+    stream_availability: StreamAvailability | None = None
+    primary_name: CommandName | None = None
+    send_as: SendAs | None = None
+    entry_limit: EntryLimit | None = None
+    chat_template: StrictStr | None = None
+
+
 def validate_primary_name(value: object) -> str:
-    if not isinstance(value, str):
-        raise UserError("command_settings.command_names_must_be_text")
-    name = normalize_command_name(value)
-    if not name or len(name) > 40 or any(char.isspace() or char in "!{}" for char in name):
-        raise UserError("command_settings.command_names_single_words_most_40")
-    return name
+    return field_value(CommandName, value, "primary_name")
 
 
 def validate_stream_availability(value: object) -> str:
-    if not isinstance(value, str) or value not in ("anytime", "live_only", "offline_only"):
-        raise UserError("command_settings.stream_availability_anytime_live_only_offline")
-    return value
+    return field_value(StreamAvailability, value, "stream_availability")
 
 
 def validate_send_as(value: object) -> str:
-    if not isinstance(value, str) or value not in ("chat", "mention", "reply"):
-        raise UserError("command_settings.send_as_chat_message_mention_sender")
-    return value
+    return field_value(SendAs, value, "send_as")
 
 
 def validate_burst_max_count(value: object) -> int:
-    if type(value) is not int or not 1 <= value <= BURST_HARD_MAX_COUNT:
-        raise UserError("command_settings.burst_maximum_repeat_count_integer_from", maximum=str(BURST_HARD_MAX_COUNT))
-    return value
+    return field_value(BurstMaxCount, value, "burst_max_count")
 
 
 def validate_burst_interval(value: object) -> int:
-    if type(value) is not int or not 0 <= value <= 1000:
-        raise UserError("command_settings.burst_interval_integer_from_0_1000")
-    return value
+    return field_value(BurstInterval, value, "burst_interval_ms")
 
 
 def validate_command_aliases(value: object) -> tuple[str, ...]:
-    if not isinstance(value, (list, tuple)) or len(value) > 10:
-        raise UserError("command_settings.provide_most_10_command_aliases")
-    aliases = []
-    for alias in value:
-        if not isinstance(alias, str):
-            raise UserError("command_settings.command_aliases_must_be_text")
-        alias = normalize_command_name(alias)
-        if not alias or len(alias) > 40 or any(char.isspace() or char in "!{}" for char in alias):
-            raise UserError("command_settings.command_aliases_single_words_most_40")
-        aliases.append(alias)
-    if len(set(aliases)) != len(aliases):
-        raise UserError("command_settings.command_aliases_unique")
-    return tuple(aliases)
+    return field_value(CommandAliases, value, "aliases")
 
 
 def validate_display_name(value: object) -> str:
-    if not isinstance(value, str) or len(value) > 80 or any(ord(char) < 32 for char in value):
-        raise UserError("command_settings.display_name_label_most_80_characters")
-    return value.strip()
+    return field_value(DisplayName, value, "display_name")
 
 
 @dataclass(frozen=True, slots=True)
@@ -333,100 +333,43 @@ def _parse_override(
     raw_override: dict[str, Any],
     defaults: CommandSettings,
 ) -> CommandSettingsOverride:
-    enabled = None
-    if "enabled" in raw_override:
-        raw_enabled = raw_override["enabled"]
-        if type(raw_enabled) is bool:
-            enabled = raw_enabled
-        else:
-            logger.warning("Ignoring invalid enabled setting for command name=%s", command_name)
-
-    permission = None
-    if "permission" in raw_override:
-        raw_permission = raw_override["permission"]
-        if isinstance(raw_permission, str):
-            try:
-                permission = Permission[raw_permission]
-            except KeyError:
-                pass
-        if permission is None:
-            logger.warning("Ignoring invalid permission setting for command name=%s", command_name)
-
-    cooldown = None
+    values = {}
+    for key, definition in CommandOverrideModel.model_fields.items():
+        if key not in raw_override or raw_override[key] is None:
+            continue
+        if key in {"entry_limit", "chat_template"} and getattr(defaults, key) is None:
+            continue
+        try:
+            values[key] = field_value(definition.rebuild_annotation(), raw_override[key], key)
+            if key == "chat_template":
+                values[key] = validate_leaderboard_template(command_name, values[key])
+        except ValueError:
+            values.pop(key, None)
+            logger.warning("Ignoring invalid %s setting for command name=%s", key, command_name)
+    if "permission" in values:
+        values["permission"] = Permission[values["permission"]]
     if "cooldown" in raw_override:
-        cooldown = _parse_cooldown(command_name, raw_override["cooldown"], defaults.cooldown)
-
-    additional = {}
-    for key, validator in (("primary_name", validate_primary_name),
-                           ("aliases", validate_command_aliases), ("display_name", validate_display_name),
-                           ("burst_interval_ms", validate_burst_interval),
-                           ("burst_max_count", validate_burst_max_count),
-                           ("stream_availability", validate_stream_availability), ("send_as", validate_send_as)):
-        if key in raw_override:
-            try:
-                additional[key] = validator(raw_override[key])
-            except ValueError:
-                logger.warning("Ignoring invalid %s setting for command name=%s", key, command_name)
-    if "removed" in raw_override:
-        if type(raw_override["removed"]) is bool:
-            additional["removed"] = raw_override["removed"]
-        else:
-            logger.warning("Ignoring invalid removed setting for command name=%s", command_name)
-    if defaults.entry_limit is not None and "entry_limit" in raw_override:
-        try:
-            additional["entry_limit"] = validate_entry_limit(raw_override["entry_limit"])
-        except ValueError:
-            logger.warning("Ignoring invalid entry limit for command name=%s", command_name)
-    if defaults.chat_template is not None and "chat_template" in raw_override:
-        try:
-            additional["chat_template"] = validate_leaderboard_template(command_name, raw_override["chat_template"])
-        except ValueError:
-            logger.warning("Ignoring invalid leaderboard template for command name=%s", command_name)
-    return CommandSettingsOverride(
-        enabled=enabled,
-        cooldown=cooldown,
-        permission=permission,
-        **additional,
-    )
+        values["cooldown"] = _parse_cooldown(command_name, raw_override["cooldown"], defaults.cooldown)
+    return CommandSettingsOverride(**values)
 
 
-def _parse_cooldown(
-    command_name: str,
-    raw_cooldown: object,
-    defaults: CooldownPolicy,
-) -> CooldownPolicy | None:
+class CooldownSettingsModel(SettingsModel):
+    per_user_seconds: NonNegativeSeconds | None = None
+    global_seconds: NonNegativeSeconds | None = None
+
+
+def _parse_cooldown(command_name: str, raw_cooldown: object, defaults: CooldownPolicy) -> CooldownPolicy | None:
     if not isinstance(raw_cooldown, dict):
         logger.warning("Ignoring invalid cooldown setting for command name=%s", command_name)
         return None
-
-    values = {
-        "per_user_seconds": defaults.per_user_seconds,
-        "global_seconds": defaults.global_seconds,
-    }
-    has_valid_value = False
-    for field_name in values:
-        if field_name not in raw_cooldown:
-            continue
-        parsed_value = _non_negative_number(raw_cooldown[field_name])
-        if parsed_value is None:
-            logger.warning(
-                "Ignoring invalid cooldown field=%s for command name=%s",
-                field_name,
-                command_name,
-            )
-            continue
-        values[field_name] = parsed_value
-        has_valid_value = True
-
-    if not has_valid_value:
+    values = {}
+    for name in CooldownSettingsModel.model_fields:
+        if name in raw_cooldown:
+            try:
+                values[name] = field_value(NonNegativeSeconds, raw_cooldown[name], name)
+            except ValueError:
+                logger.warning("Ignoring invalid cooldown field=%s for command name=%s", name, command_name)
+    if not values:
         return None
-    return CooldownPolicy(**values)
-
-
-def _non_negative_number(value: object) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    number = float(value)
-    if not math.isfinite(number) or number < 0:
-        return None
-    return number
+    return CooldownPolicy(**{name: values.get(name, getattr(defaults, name))
+                             for name in CooldownSettingsModel.model_fields})

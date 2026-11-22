@@ -42,7 +42,7 @@ def test_registry_overrides_and_private_host_context():
     assert private_context(Desktop().save, owner=b"host", ignored=True) == {"owner": b"host"}
     with pytest.raises(ValueError) as error:
         registry["save"].bind({"owner": "frontend"})
-    assert error.value.code == "operations.invalid_operation_arguments"
+    assert error.value.code == "validation.unknown_field"
 
 
 @pytest.mark.parametrize("payload", [None, [], "value", {"extra": True}, {}])
@@ -54,3 +54,37 @@ def test_operation_arguments_reject_invalid_payloads(payload):
 
     with pytest.raises(ValueError):
         collect(Example)["save"].bind(payload)
+
+
+def test_declared_argument_types_are_validated_before_dispatch():
+    from pydantic import StrictBool
+    from app.errors import UserError
+
+    class Example:
+        @operation(write=True)
+        def save(self, enabled: StrictBool):
+            raise AssertionError("must not dispatch")
+
+    registered = collect(Example)["save"]
+    with pytest.raises(UserError) as error:
+        registered.bind({"enabled": "false"})
+    assert error.value.code == "validation.type"
+    assert error.value.params == {"field": "enabled", "expected": "boolean"}
+
+
+def test_settings_payloads_use_models_and_keep_missing_defaults_out_of_the_call():
+    from app.management import ApplicationManagement
+    from app.errors import UserError
+
+    registered = collect(ApplicationManagement)["save_custom_command"]
+    command = {"name": "Greet", "enabled": True, "responses": ["Hello"],
+               "permission": "USER", "per_user_seconds": 0, "global_seconds": 0, "aliases": []}
+    bound = registered.bind({"command": command})["command"]
+    assert bound["name"] == "greet"
+    assert "id" not in bound
+    assert bound["response_mode"] == "single"
+    assert "stream_availability" not in bound
+    with pytest.raises(UserError) as error:
+        registered.bind({"command": {**command, "enabled": "false"}})
+    assert error.value.code == "validation.type"
+    assert error.value.params == {"field": "enabled", "expected": "boolean"}

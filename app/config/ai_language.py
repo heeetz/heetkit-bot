@@ -2,6 +2,9 @@
 
 from app.errors import UserError
 from dataclasses import dataclass
+from typing import Annotated, Literal
+from pydantic import Field, model_validator
+from app.settings_models import SettingsModel, parse
 
 
 # Shared by validation, the desktop choices and the protected prompt. Auto has
@@ -25,21 +28,29 @@ class ResponseLanguageSettings:
     fallback_language: str = "en"
 
 
+LanguageCode = Literal[tuple(RESPONSE_LANGUAGES)]
+
+
+class ResponseLanguageModel(SettingsModel):
+    mode: Literal["auto", "limited"]
+    allowed_languages: Annotated[tuple[LanguageCode, ...], Field(min_length=1)]
+    fallback_language: LanguageCode
+
+    @model_validator(mode="after")
+    def language_policy(self):
+        if len(set(self.allowed_languages)) != len(self.allowed_languages):
+            raise UserError("ai_language.allowed_response_languages_unique")
+        if self.fallback_language not in self.allowed_languages:
+            raise UserError("ai_language.fallback_language_one_allowed_languages")
+        return self
+
+
 def validate_response_language(
     mode: object, allowed_languages: object, fallback_language: object,
 ) -> ResponseLanguageSettings:
-    if mode not in ("auto", "limited"):
-        raise UserError("ai_language.response_language_mode_auto_limited")
-    if not isinstance(allowed_languages, (list, tuple)) or not allowed_languages:
-        raise UserError("ai_language.choose_least_one_allowed_response_language")
-    if any(not isinstance(code, str) or code not in RESPONSE_LANGUAGES
-           for code in allowed_languages):
-        raise UserError("ai_language.choose_supported_response_language_codes")
-    if len(set(allowed_languages)) != len(allowed_languages):
-        raise UserError("ai_language.allowed_response_languages_unique")
-    if not isinstance(fallback_language, str) or fallback_language not in allowed_languages:
-        raise UserError("ai_language.fallback_language_one_allowed_languages")
-    return ResponseLanguageSettings(mode, tuple(allowed_languages), fallback_language)
+    item = parse(ResponseLanguageModel, dict(mode=mode, allowed_languages=allowed_languages,
+                                            fallback_language=fallback_language))
+    return ResponseLanguageSettings(**item.model_dump())
 
 
 def build_response_language_instruction(settings: ResponseLanguageSettings) -> str:

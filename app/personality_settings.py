@@ -10,7 +10,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
-from app.errors import UserError
+from typing import Annotated
+from pydantic import Field, StrictStr, StringConstraints
+from app.settings_models import SettingsModel, field_value, parse
 from app.config.personalities import AI_PERSONALITY_PROMPTS
 from app.settings_recovery import preserve_settings_recovery
 
@@ -27,31 +29,26 @@ class PersonalitySettings:
     profile_instructions: str = ""
 
 
+PersonalityName = Annotated[StrictStr, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
+PersonalityPrompt = Annotated[StrictStr, Field(max_length=MAX_PERSONALITY_PROMPT_LENGTH)]
+
+
+class PersonalitySettingsModel(SettingsModel):
+    active_personality: StrictStr
+    overrides: dict[Annotated[StrictStr, Field(min_length=1, max_length=64)], PersonalityPrompt] = {}
+    profile_instructions: PersonalityPrompt = ""
+
+
 def validate_personality_name(name: object) -> str:
-    if not isinstance(name, str):
-        raise UserError("personality_settings.personality_name_must_be_text")
-    name = name.strip()
-    if not name:
-        raise UserError("personality_settings.personality_name_not_empty")
-    if len(name) > MAX_PERSONALITY_NAME_LENGTH:
-        raise UserError("personality_settings.personality_name_must_not_exceed_characters", value1=str(MAX_PERSONALITY_NAME_LENGTH))
-    return name
+    return field_value(PersonalityName, name, "name")
 
 
 def validate_personality_prompt(prompt: object) -> str:
-    if not isinstance(prompt, str):
-        raise UserError("personality_settings.personality_prompt_must_be_text")
-    if len(prompt) > MAX_PERSONALITY_PROMPT_LENGTH:
-        raise UserError("personality_settings.personality_prompt_must_not_exceed_characters", value1=str(MAX_PERSONALITY_PROMPT_LENGTH))
-    return prompt
+    return field_value(PersonalityPrompt, prompt, "prompt")
 
 
 def validate_profile_instructions(instructions: object) -> str:
-    if not isinstance(instructions, str):
-        raise UserError("personality_settings.profile_instructions_must_be_text")
-    if len(instructions) > MAX_PERSONALITY_PROMPT_LENGTH:
-        raise UserError("personality_settings.profile_instructions_must_not_exceed_characters", value1=str(MAX_PERSONALITY_PROMPT_LENGTH))
-    return instructions
+    return field_value(PersonalityPrompt, instructions, "profile_instructions")
 
 
 def load_personality_settings(
@@ -104,7 +101,9 @@ def load_personality_settings(
     except (TypeError, ValueError):
         logger.warning("Ignoring invalid AI profile instructions")
         profile_instructions = ""
-    return PersonalitySettings(active, overrides, profile_instructions)
+    item = parse(PersonalitySettingsModel, dict(active_personality=active, overrides=overrides,
+                                               profile_instructions=profile_instructions))
+    return PersonalitySettings(**item.model_dump())
 
 
 def save_personality_settings(

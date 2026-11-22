@@ -107,10 +107,33 @@ def test_settings_validation_errors_are_coded(tmp_path) -> None:
     store = AppSettingsStore(tmp_path / "app_settings.json")
     with pytest.raises(UserError) as error:
         store.update_twitch(channel="bad channel", channel_user_id="1")
-    assert error.value.code == "app_settings.twitch_target_channel_not_contain_whitespace"
+    assert error.value.code == "validation.text"
     with pytest.raises(UserError) as error:
         store.update_interface_language("de")
-    assert error.value.code == "app_settings.choose_english_ukrainian_russian"
+    assert error.value.code == "validation.choice"
+
+
+@pytest.mark.parametrize("payload,code,params", [
+    ({"payload": {"words": [], "phrases": []}}, "validation.required", {"field": "patterns"}),
+    ({"payload": {"words": [], "phrases": [], "patterns": [], "extra": []}},
+     "validation.unknown_field", {"field": "extra"}),
+    ({"payload": {"words": 1, "phrases": [], "patterns": []}},
+     "validation.type", {"field": "words", "expected": "list"}),
+])
+async def test_both_hosts_report_structured_settings_constraints(monkeypatch, payload, code, params):
+    class SettingsOperations:
+        @operation(write=True)
+        def save_filters(self, payload: object):
+            raise AssertionError("Invalid settings must not dispatch")
+
+    service = SettingsOperations()
+    registered = collect(SettingsOperations)["save_filters"]
+    server = ManagementAPI.__new__(ManagementAPI)
+    server.service = service
+    expected = {"ok": False, "error_code": code, "error_params": params}
+    assert await server.call(registered, payload) == expected
+    monkeypatch.setitem(webview_host.DESKTOP_OPERATIONS, registered.name, registered)
+    assert WebUIBridge.call(cast(WebUIBridge, service), registered.name, payload) == expected
 
 
 @pytest.mark.parametrize("passthrough", [False, True])
@@ -251,7 +274,7 @@ def test_interface_language_bridge_persists_and_refreshes_tray(tmp_path) -> None
         assert tray.update_calls == 2
         rejected = bridge.set_interface_language("de")
         assert rejected["ok"] is False
-        assert rejected["error_code"] == "app_settings.choose_english_ukrainian_russian"
+        assert rejected["error_code"] == "validation.choice"
         assert store.snapshot().interface.language == "ru"
     finally:
         controller._tray_refresh_stop.set()

@@ -380,7 +380,8 @@ def test_bridge_reads_and_updates_desktop_settings(tmp_path) -> None:
     )
     assert bridge.update_app_settings("true", False, False, False) == {
         "ok": False,
-        "error_code": "app_settings.desktop_settings_must_be_boolean_values", "error_params": {},
+        "error_code": "validation.type",
+        "error_params": {"field": "start_minimized", "expected": "boolean"},
     }
 
 

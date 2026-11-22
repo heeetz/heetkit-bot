@@ -9,7 +9,10 @@ from sqlalchemy import and_, delete, func, literal, select, text, update
 from sqlalchemy.dialects.sqlite import insert
 
 from app.errors import UserError
-from app.ai_user_blocks import normalize_ai_username
+from typing import Annotated
+from pydantic import Field, StrictBool, StrictStr
+from app.settings_models import SettingsModel, parse, field_value
+from app.ai_user_blocks import Username
 from app.config.privacy import USER_RETENTION_DAYS
 from app.database.models import LeaderboardCount as Count, LeaderboardPeriod as Period
 from app.database.models import LeaderboardSettings, PrivacyOptOut, User, utcnow
@@ -24,6 +27,11 @@ def month_window(now: datetime):
     start = now.astimezone(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     end = start.replace(year=start.year + (start.month == 12), month=start.month % 12 + 1)
     return start.strftime("%Y-%m"), start, end
+
+
+class LeaderboardSettingsModel(SettingsModel):
+    channel: Annotated[StrictStr, Field(min_length=1, max_length=32, pattern=r"^[0-9]+$")]
+    names: Annotated[list[Username], Field(strict=True, max_length=50)]
 
 
 class Leaderboards:
@@ -77,8 +85,7 @@ class Leaderboards:
         self._changed.set()
 
     async def configure_counting(self, enabled: bool):
-        if type(enabled) is not bool:
-            raise UserError("leaderboards.count_chat_messages_must_be_a_boolean")
+        enabled = field_value(StrictBool, enabled, "enabled")
         async with self.users.policy.lock, self.sessions() as session:
             if enabled == self.counting_enabled:
                 return
@@ -299,11 +306,8 @@ class Leaderboards:
             return result
 
     async def configure(self, channel, names):
-        if not valid_channel_id(channel):
-            raise UserError("leaderboards.choose_twitch_channel_first")
-        if not isinstance(names, list) or len(names) > 50:
-            raise UserError("leaderboards.enter_up_50_bot_nicknames")
-        names = list(dict.fromkeys(normalize_ai_username(name) for name in names))
+        item = parse(LeaderboardSettingsModel, dict(channel=channel, names=names))
+        channel, names = item.channel, list(dict.fromkeys(item.names))
         async with self.users.policy.lock, self.sessions() as session:
             settings = await session.get(LeaderboardSettings, channel)
             existing = json.loads(settings.exclusions) if settings else {}

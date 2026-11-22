@@ -1,11 +1,15 @@
 """Portable, non-secret AI setup. Credentials stay in the host's secure store."""
 
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import dataclass, field, replace
 
 from app.errors import UserError
-from app.config.ai_models import (validate_ai_provider, validate_provider_model_id,
+from typing import Annotated, Literal
+from pydantic import ConfigDict, Field, StrictBool, StrictInt, StrictStr, ValidationInfo, model_validator
+from app.settings_models import SettingsModel, utf8, parse
+from pydantic import AfterValidator
+from app.config.ai_models import (validate_provider_model_id,
                                   DEFAULT_GEMINI_FALLBACK_MODEL, DEFAULT_DEEPSEEK_MODEL,
-                                  DEFAULT_DEEPSEEK_FALLBACK_MODEL, AI_PROVIDERS,
+                                  DEFAULT_DEEPSEEK_FALLBACK_MODEL,
                                   DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL)
 
 MAX_SHARED_INSTRUCTIONS = 20000
@@ -31,58 +35,54 @@ class AISetup:
     provider_drafts: dict[str, dict] = field(default_factory=dict)
 
 
-def parse_ai_setup(value: object, *, capabilities: bool = True, require_consent: bool = True) -> AISetup:
-    if not isinstance(value, dict) or set(value) - set(AISetup.__dataclass_fields__):
-        raise UserError("ai_setup.invalid_ai_setup_fields")
+class AIModelSelectionModel(SettingsModel):
+    model_config = ConfigDict(extra="forbid")
+    provider: Literal["gemini", "deepseek", "openai"]
+    model: StrictStr
+    thinking: Annotated[StrictStr, Field(max_length=32)]
+    search: StrictBool
 
-    def selection(raw: object, *, check: bool = True) -> AIModelSelection:
-        if not isinstance(raw, dict) or set(raw) != set(AIModelSelection.__dataclass_fields__):
-            raise UserError("ai_setup.choose_provider_model_thinking_option_search")
-        provider = validate_ai_provider(raw["provider"])
-        model = validate_provider_model_id(provider, raw["model"])
-        thinking, search = raw["thinking"], raw["search"]
-        if not isinstance(thinking, str) or len(thinking) > 32 or type(search) is not bool:
-            raise UserError("ai_setup.invalid_thinking_or_search_preference")
-        if capabilities and check:
+    @model_validator(mode="after")
+    def model_id(self):
+        self.model = validate_provider_model_id(self.provider, self.model)
+        return self
+
+
+class AISetupModel(SettingsModel):
+    model_config = ConfigDict(extra="forbid")
+    primary: AIModelSelectionModel
+    fallback: AIModelSelectionModel | None = None
+    cross_provider_acknowledged: StrictBool = False
+    max_question_length: Annotated[StrictInt, Field(ge=1, le=4000)] = 300
+    max_answer_length: Annotated[StrictInt, Field(ge=1, le=450)] = 220
+    shared_instructions: Annotated[StrictStr, Field(max_length=MAX_SHARED_INSTRUCTIONS), AfterValidator(utf8)] | None = None
+    provider_drafts: dict[Literal["gemini", "deepseek", "openai", "primary:gemini", "primary:deepseek", "primary:openai",
+                                  "fallback:gemini", "fallback:deepseek", "fallback:openai"], AIModelSelectionModel] = {}
+
+    @model_validator(mode="after")
+    def selections(self, info: ValidationInfo):
+        context = info.context or {}
+        if self.fallback == self.primary:
+            raise UserError("ai_setup.fallback_differ_from_primary_selection")
+        if (context.get("require_consent", True) and self.fallback
+                and self.fallback.provider != self.primary.provider and not self.cross_provider_acknowledged):
+            raise UserError("ai_setup.acknowledge_sending_questions_instructions_permitted_memory")
+        if context.get("capabilities", True):
             from app.config.ai_capabilities import validate_model_options
-            validate_model_options(provider, model, thinking, search)
-        return AIModelSelection(provider, model, thinking, search)
+            for item in (self.primary, self.fallback):
+                if item:
+                    validate_model_options(item.provider, item.model, item.thinking, item.search)
+        for key, draft in self.provider_drafts.items():
+            if draft.provider != key.split(":")[-1]:
+                raise UserError("ai_setup.saved_provider_choice_belongs_to_another_provider")
+        return self
 
-    primary = selection(value.get("primary"))
-    fallback = selection(value["fallback"]) if value.get("fallback") is not None else None
-    ack = value.get("cross_provider_acknowledged", False)
-    if type(ack) is not bool:
-        raise UserError("ai_setup.ai_acknowledgement_must_be_boolean")
-    if fallback == primary:
-        raise UserError("ai_setup.fallback_differ_from_primary_selection")
-    if require_consent and fallback and fallback.provider != primary.provider and not ack:
-        raise UserError("ai_setup.acknowledge_sending_questions_instructions_permitted_memory")
-    lengths = {}
-    for name, default, maximum in (("max_question_length", 300, 4000), ("max_answer_length", 220, 450)):
-        number = value.get(name, default)
-        if type(number) is not int or not 1 <= number <= maximum:
-            raise UserError("ai_setup.between_1_characters", field=str(name.replace('_', ' ').capitalize()), maximum=str(maximum))
-        lengths[name] = number
-    instructions = value.get("shared_instructions")
-    if instructions is not None:
-        if not isinstance(instructions, str) or len(instructions) > MAX_SHARED_INSTRUCTIONS:
-            raise UserError("ai_setup.shared_instructions_must_be_text_of_at_most_20000")
-        try:
-            instructions.encode("utf-8")
-        except UnicodeError:
-            raise UserError("ai_setup.shared_instructions_contain_valid_unicode") from None
-    drafts = value.get("provider_drafts", {})
-    draft_keys = {key for provider in AI_PROVIDERS for key in (provider, f"primary:{provider}", f"fallback:{provider}")}
-    if not isinstance(drafts, dict) or set(drafts) - draft_keys:
-        raise UserError("ai_setup.invalid_saved_provider_choices")
-    parsed_drafts = {}
-    for provider, draft in drafts.items():
-        saved = selection(draft, check=False)
-        if saved.provider != provider.split(":")[-1]:
-            raise UserError("ai_setup.saved_provider_choice_belongs_to_another_provider")
-        parsed_drafts[provider] = asdict(saved)
-    return AISetup(primary, fallback, ack, **lengths, shared_instructions=instructions,
-                   provider_drafts=parsed_drafts)
+
+def parse_ai_setup(value: object, *, capabilities: bool = True, require_consent: bool = True) -> AISetup:
+    item = parse(AISetupModel, value, context=dict(capabilities=capabilities, require_consent=require_consent))
+    return AISetup(primary=AIModelSelection(**item.primary.model_dump()),
+        fallback=AIModelSelection(**item.fallback.model_dump()) if item.fallback else None,
+        **item.model_dump(exclude={"primary", "fallback"}))
 
 
 def effective_ai_setup(settings) -> AISetup:

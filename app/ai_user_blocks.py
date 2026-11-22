@@ -10,18 +10,26 @@ from pathlib import Path
 from threading import RLock
 
 from app.errors import UserError
+from typing import Annotated
+from pydantic import BeforeValidator, Field, StrictStr
+from app.settings_models import SettingsModel, UserId, field_value, parse
 from app.settings_recovery import preserve_settings_recovery
 
 logger = logging.getLogger(__name__)
 
 
+Username = Annotated[StrictStr,
+    BeforeValidator(lambda value: value.strip().removeprefix("@").lower() if isinstance(value, str) else value),
+    Field(pattern=r"^[a-z0-9_]{1,25}$")]
+
+
+class BlockedAIUserModel(SettingsModel):
+    username: Username
+    twitch_user_id: UserId | None = None
+
+
 def normalize_ai_username(value: object) -> str:
-    if not isinstance(value, str):
-        raise UserError("ai_user_blocks.enter_twitch_username")
-    username = value.strip().removeprefix("@").lower()
-    if not re.fullmatch(r"[a-z0-9_]{1,25}", username):
-        raise UserError("ai_user_blocks.use_twitch_login_up_25_letters")
-    return username
+    return field_value(Username, value, "username")
 
 
 def verified_user_id(value: object) -> str | None:
@@ -54,9 +62,8 @@ class AIUserBlocklist:
             )
 
     def block(self, username: object, user_id: str | None = None) -> None:
-        username = normalize_ai_username(username)
-        if user_id is not None and verified_user_id(user_id) is None:
-            raise UserError("ai_user_blocks.invalid_twitch_account_id")
+        item = parse(BlockedAIUserModel, {"username": username, "twitch_user_id": user_id})
+        username, user_id = item.username, item.twitch_user_id
         with self._lock:
             if any(user.username == username or (user_id is not None and user.twitch_user_id == user_id)
                    for user in self._users):
@@ -102,12 +109,8 @@ class AIUserBlocklist:
         names, ids = set(), set()
         for raw in payload["users"]:
             try:
-                if not isinstance(raw, dict):
-                    raise UserError("ai_user_blocks.invalid_entry")
-                username = normalize_ai_username(raw.get("username"))
-                user_id = raw.get("twitch_user_id")
-                if user_id is not None and verified_user_id(user_id) is None:
-                    raise UserError("ai_user_blocks.invalid_account_id")
+                item = parse(BlockedAIUserModel, raw)
+                username, user_id = item.username, item.twitch_user_id
                 if username in names or (user_id is not None and user_id in ids):
                     raise UserError("ai_user_blocks.duplicate_entry")
             except ValueError:

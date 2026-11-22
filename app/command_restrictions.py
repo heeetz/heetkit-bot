@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import tempfile
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
@@ -13,6 +12,9 @@ from threading import RLock
 from uuid import uuid4, uuid5, NAMESPACE_URL
 
 from app.errors import UserError
+from typing import Annotated, Literal
+from pydantic import BeforeValidator, ConfigDict, Field, StrictBool, StrictStr, model_validator
+from app.settings_models import SettingsModel, Identifier, UserId, ControlFree, parse
 from app.ai_user_blocks import normalize_ai_username, verified_user_id
 from app.settings_recovery import preserve_settings_recovery
 
@@ -56,36 +58,33 @@ class CommandRestriction:
         return end is None or now < end
 
 
+class RestrictionModel(SettingsModel):
+    model_config = ConfigDict(extra="forbid")
+    id: Identifier
+    channel_id: UserId | None
+    twitch_user_id: UserId | None
+    username: Annotated[StrictStr, BeforeValidator(normalize_ai_username)]
+    command_ids: Annotated[tuple[Annotated[StrictStr, Field(pattern=r"^(?:custom:)?[a-zA-Z0-9_-]{1,64}$")], ...], Field(max_length=200)]
+    expires_at: Annotated[str | None, BeforeValidator(lambda value: expiry(value).isoformat() if value is not None else None)]
+    note: Annotated[ControlFree, Field(max_length=200)]
+    scope: Literal["channel", "global_ai"]
+    legacy_ai: StrictBool
+
+    @model_validator(mode="after")
+    def identity_and_scope(self):
+        if (self.twitch_user_id is None and not self.legacy_ai
+                or self.scope == "channel" and self.channel_id is None and not self.legacy_ai
+                or self.scope == "global_ai" and self.channel_id is not None):
+            raise UserError("command_restrictions.restrictions_require_verified_numeric_user_channel")
+        if "optout" in self.command_ids or len(set(self.command_ids)) != len(self.command_ids):
+            raise UserError("command_restrictions.select_valid_distinct_command_ids_optout")
+        if (self.scope == "global_ai" or self.legacy_ai) and self.command_ids != ("ask",):
+            raise UserError("command_restrictions.global_ai_scope_migrated_ai_blocks")
+        return self
+
+
 def parse_restriction(raw: object) -> CommandRestriction:
-    fields = {"id", "channel_id", "twitch_user_id", "username", "command_ids", "expires_at", "note", "scope", "legacy_ai"}
-    if not isinstance(raw, dict) or set(raw) != fields:
-        raise UserError("command_restrictions.unexpected_or_missing_restriction_fields")
-    scope, legacy = raw["scope"], raw["legacy_ai"]
-    if scope not in ("channel", "global_ai") or type(legacy) is not bool:
-        raise UserError("command_restrictions.select_channel_scope_global_ai_questions")
-    if not isinstance(raw["id"], str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,40}", raw["id"]):
-        raise UserError("command_restrictions.invalid_restriction_id")
-    if (verified_user_id(raw["twitch_user_id"]) is None and not (legacy and raw["twitch_user_id"] is None)
-            or scope == "channel" and verified_user_id(raw["channel_id"]) is None and not (legacy and raw["channel_id"] is None)
-            or scope == "global_ai" and raw["channel_id"] is not None):
-        raise UserError("command_restrictions.restrictions_require_verified_numeric_user_channel")
-    ids = raw["command_ids"]
-    if (not isinstance(ids, (list, tuple)) or len(ids) > 200
-            or any(not isinstance(key, str) or not re.fullmatch(r"(?:custom:)?[a-zA-Z0-9_-]{1,64}", key)
-                   or key == "optout" for key in ids) or len(set(ids)) != len(ids)):
-        raise UserError("command_restrictions.select_valid_distinct_command_ids_optout")
-    if (scope == "global_ai" or legacy) and list(ids) != ["ask"]:
-        raise UserError("command_restrictions.global_ai_scope_migrated_ai_blocks")
-    note = raw["note"]
-    if not isinstance(note, str) or len(note) > 200 or any(ord(char) < 32 or ord(char) == 127 for char in note):
-        raise UserError("command_restrictions.private_notes_one_line_most_200")
-    try:
-        note.encode("utf-8")
-    except UnicodeError:
-        raise UserError("command_restrictions.private_notes_contain_valid_unicode") from None
-    end = expiry(raw["expires_at"])
-    return CommandRestriction(raw["id"], raw["channel_id"], raw["twitch_user_id"],
-        normalize_ai_username(raw["username"]), tuple(ids), end.isoformat() if end else None, note, scope, legacy)
+    return CommandRestriction(**parse(RestrictionModel, raw).model_dump())
 
 
 def _unique_object(pairs):

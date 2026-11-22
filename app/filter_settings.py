@@ -9,6 +9,9 @@ import tempfile
 from pathlib import Path
 
 from app.errors import UserError
+from typing import Annotated
+from pydantic import ConfigDict, Field, StrictStr
+from app.settings_models import SettingsModel, parse
 from app.runtime_paths import DEFAULT_FILTERS, FILTER_NAMES, RuntimePaths
 from app.services.filter_manager import FilterManager, FilterRule, compile_filter_pattern
 
@@ -81,14 +84,18 @@ def get_filter_settings(
     return result
 
 
+class FilterSettingsModel(SettingsModel):
+    model_config = ConfigDict(extra="forbid")
+    words: Annotated[list[StrictStr], Field(strict=True)]
+    phrases: Annotated[list[StrictStr], Field(strict=True)]
+    patterns: Annotated[list[StrictStr], Field(strict=True)]
+
+
 def validate_filter_input(payload: object) -> tuple[list[str], list[str], list[FilterRule]]:
-    if not isinstance(payload, dict) or set(payload) != set(FILTER_KEYS):
-        raise UserError("filter_settings.provide_words_phrases_patterns_lists")
+    payload = parse(FilterSettingsModel, payload).model_dump()
     parsed: list[list[str]] = []
     for key in FILTER_KEYS:
         values = payload[key]
-        if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
-            raise UserError("filter_settings.must_be_a_list_of_text_rules", value1=str(key.capitalize()))
         rules: list[str] = []
         for index, raw in enumerate(values, 1):
             value = raw.strip()

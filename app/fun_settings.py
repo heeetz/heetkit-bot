@@ -10,6 +10,9 @@ from pathlib import Path
 from threading import RLock
 
 from app.errors import UserError
+from typing import Annotated
+from pydantic import Field, StrictStr
+from app.settings_models import SettingsModel, byte_limit, field_value, parse
 from app.config.commands import TG_MESSAGE
 from app.settings_recovery import preserve_settings_recovery
 
@@ -20,13 +23,17 @@ def validate_fates(values: object) -> tuple[str, ...]:
     return _validate_responses(values, max_responses=1000)
 
 
+FunResponse = Annotated[StrictStr, Field(pattern=r"\S"), byte_limit(450)]
+
+
+class FunSettingsModel(SettingsModel):
+    tg_message: FunResponse = TG_MESSAGE
+    fates: Annotated[list[FunResponse], Field(strict=True, min_length=1, max_length=1000)] = list(FATES)
+
+
 def _validate_responses(values: object, *, max_responses: int) -> tuple[str, ...]:
-    if not isinstance(values, list) or not 1 <= len(values) <= max_responses:
-        raise UserError("fun_settings.provide_between_1_command_responses", maximum=str(max_responses))
-    if any(not isinstance(value, str) or not value.strip() or len(value.encode("utf-8")) > 450
-           for value in values):
-        raise UserError("fun_settings.each_response_contain_text_most_450")
-    return tuple(values)
+    return tuple(field_value(Annotated[list[FunResponse], Field(strict=True, min_length=1, max_length=max_responses)],
+                             values, "responses"))
 
 
 def _response_options(command_name: str) -> tuple[str, tuple[str, ...], int]:
@@ -58,10 +65,12 @@ class FunSettingsStore:
                 self._load_error = True
                 logging.getLogger(__name__).warning("Could not load local fun settings; using neutral defaults")
         message = self._payload.get("tg_message", TG_MESSAGE)
-        if isinstance(message, str) and message.strip() and len(message.encode("utf-8")) <= 450:
-            self.tg_message = message
         try:
-            self._fates = validate_fates(self._payload.get("fates", list(FATES)))
+            self.tg_message = parse(FunSettingsModel, {"tg_message": message}).tg_message
+        except ValueError:
+            pass
+        try:
+            self._fates = tuple(parse(FunSettingsModel, {"fates": self._payload.get("fates", list(FATES))}).fates)
         except ValueError:
             logging.getLogger(__name__).warning("Invalid local fate responses; using neutral defaults")
         self._saved_fates = self._fates
