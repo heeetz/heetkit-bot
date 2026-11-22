@@ -68,7 +68,7 @@ def test_path_selection(paths, expected):
     "frontend/src/bridge.ts", "frontend/src/httpTransport.ts", "frontend/src/components/BrowserSession.tsx",
     "frontend/src/new_area/new.ts", "frontend/tests/new-custom-scenario.ts",
     "frontend/tests/removed.spec.ts", "frontend/package-lock.json",
-    "app/management.py", "app/management_api.py", "app/webview_host.py", "app/server_setup.py",
+    "app/management.py", "app/management_api.py", "app/webview_host.py", "app/twitch_setup.py",
     "app/credentials.py", "app/config/profile_settings.py", "tests/fixtures/management_browser.py",
 ])
 def test_shared_uncertain_and_deleted_paths_include_both_browser_hosts(path):

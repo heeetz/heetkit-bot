@@ -47,7 +47,7 @@ SHARED_HOST_PATHS = {
     "app/app_settings.py", "app/bot_runtime.py", "app/configuration_transfer.py", "app/container.py",
     "app/credentials.py", "app/desktop_relaunch.py", "app/headless.py", "app/main.py", "app/management.py",
     "app/management_api.py",
-    "app/operation_policy.py", "app/runtime_paths.py", "app/server_credentials.py", "app/server_setup.py",
+    "app/operation_policy.py", "app/runtime_paths.py", "app/server_credentials.py", "app/twitch_setup.py",
     "app/settings_recovery.py", "app/twitch/client.py", "app/webview_host.py",
 }
 

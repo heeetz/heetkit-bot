@@ -743,7 +743,7 @@ def test_twitch_secret_changes_report_restart_and_prevent_using_stale_setup(
         replace_secret(name, None)
         return True
 
-    bridge._credential_manager = SimpleNamespace(
+    bridge._twitch_setup.credentials = bridge._credential_manager = SimpleNamespace(
         parse_name=lambda name: CredentialName(name),
         replace=replace_secret,
         remove=remove_secret,
@@ -770,7 +770,7 @@ def test_unchanged_twitch_secret_and_gemini_edits_do_not_require_restart(tmp_pat
     bridge = twitch_authorization_bridge(tmp_path)
     def fail_replace(name, value):
         raise CredentialError("Could not store the credential securely.")
-    bridge._credential_manager = SimpleNamespace(
+    bridge._twitch_setup.credentials = bridge._credential_manager = SimpleNamespace(
         parse_name=lambda name: CredentialName(name),
         replace=fail_replace if action == "failed_replace" else lambda name, value: None,
         remove=lambda name: action == "gemini",
@@ -1735,7 +1735,7 @@ def test_pywebview_dispatch_cannot_traverse_to_credentials(tmp_path, monkeypatch
     from webview.window import Window
 
     bridge = twitch_authorization_bridge(tmp_path)
-    bridge._credential_manager = SimpleNamespace(settings_overrides=lambda: pytest.fail("exposed credentials"))
+    bridge._twitch_setup.credentials = bridge._credential_manager = SimpleNamespace(settings_overrides=lambda: pytest.fail("exposed credentials"))
     bridge.unlisted_secret = lambda: pytest.fail("exposed an unlisted method")
     window = Window("security-test", "Security test", "http://127.0.0.1:54321/index.html")
     returned = []

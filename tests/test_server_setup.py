@@ -24,7 +24,7 @@ from app.credentials import CredentialError, CredentialName
 from app.management_api import ManagementAPI, ManagementConfig
 from app.runtime_paths import RuntimePaths, prepare_runtime_data
 from app.server_credentials import ServerCredentialManager, ServerCredentialStore
-from app.server_setup import credential_manager
+from app.twitch_setup import credential_manager
 from app.twitch.client import CHAT_SCOPES, OAUTH_SCOPES, OAUTH_REDIRECT_URI, TwitchChatBot
 
 
@@ -411,7 +411,7 @@ async def test_oauth_transactions_are_session_bound_cancelled_and_expiring(api, 
     assert (await call("/v1/session/logout", {}, headers=first))[0] == 200
     assert server.setup.pending is None
     callback = await begin(call)
-    monkeypatch.setattr("app.server_setup.monotonic", lambda: server.setup.pending[2] + 1 if server.setup.pending else 0)
+    monkeypatch.setattr("app.twitch_setup.monotonic", lambda: server.setup.pending[2] + 1 if server.setup.pending else 0)
     assert (await call("/v1/ops/complete_twitch_authorization", {"callback_url": callback}))[0] == 400
     assert not twitch_provider[1]
 
@@ -682,7 +682,7 @@ async def test_rejected_requests_leave_login_session_and_valid_callback_capacity
     expired_query = await callback_begin(call, headers)
     with monkeypatch.context() as clock:
         deadline = server.setup.pending[2]
-        clock.setattr("app.server_setup.monotonic", lambda: deadline + 1)
+        clock.setattr("app.twitch_setup.monotonic", lambda: deadline + 1)
         assert (await callback(expired_query))[0] == 303
     query = await callback_begin(call, headers)
 
@@ -717,7 +717,7 @@ async def test_callback_cannot_outlive_administrator_attempt(callback_server, tw
         await call("/v1/session/logout", {}, headers=headers)
     elif reason == "expiry":
         deadline = server.setup.pending[2]
-        monkeypatch.setattr("app.server_setup.monotonic", lambda: deadline + 1)
+        monkeypatch.setattr("app.twitch_setup.monotonic", lambda: deadline + 1)
     elif reason == "session_expiry":
         server.sessions[next(iter(server.sessions))] = 0
     elif reason == "session_eviction":
@@ -789,7 +789,7 @@ async def test_callback_is_only_cross_site_exception_and_is_get_only(callback_se
 async def test_authorization_expires_without_browser_polling(api, twitch_provider, monkeypatch):
     server, call = api
     await configure(call)
-    monkeypatch.setattr("app.server_setup.OAUTH_STATE_TTL_SECONDS", 0.05)
+    monkeypatch.setattr("app.twitch_setup.OAUTH_STATE_TTL_SECONDS", 0.05)
     await begin(call)
     await asyncio.sleep(0.1)
     assert server.setup.pending is None and not server.policy._setup_suspended
@@ -1156,7 +1156,7 @@ async def test_real_twitchio_runtime_reconciliation_failure_is_not_reported_comp
 def test_oauth_diagnostics_survive_headless_filter_without_rendering_exception(caplog, status, expected):
     from twitchio.exceptions import HTTPException
     from app.headless import HeadlessLogFilter
-    from app.server_setup import _oauth_failure
+    from app.twitch_setup import _oauth_failure
     error = HTTPException("private-provider-body-sentinel", status=status,
         extra={"message": "private-access-sentinel"})
     _oauth_failure("code_exchange", error)
