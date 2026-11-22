@@ -367,10 +367,17 @@ test('Playground offers explicit draft use and keeps unrelated personality edits
   await openAIBehaviorSection(page, 'Profile instructions')
   await expect(profilePrompt).toHaveValue('New profile instructions')
   await open.click()
+  // The Playground opens after the apply round trip; typing earlier can be reset.
+  const applied = page.waitForResponse('**/v1/ops/apply_profile_instructions')
   await profile.getByRole('button', { name: 'Apply draft and open Playground' }).click()
+  await applied
   const playground = page.locator('#ai-playground')
-  await playground.getByLabel('Playground prompt').fill('Synthetic test')
-  await playground.getByRole('button', { name: 'Test prompt' }).click()
+  const run = playground.getByRole('button', { name: 'Test prompt' })
+  await expect(async () => {
+    await playground.getByLabel('Playground prompt').fill('Synthetic test')
+    await expect(run).toBeEnabled({ timeout: 1000 })
+  }).toPass()
+  await run.click()
   await expect(playground.getByText('Synthetic server answer <b>plain text</b>', { exact: true })).toBeVisible()
   const apply = api.calls.findIndex(({ path }) => path === '/v1/ops/apply_profile_instructions')
   expect(api.calls[apply]?.body).toEqual({ prompt: 'New profile instructions' })
