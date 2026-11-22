@@ -16,7 +16,6 @@ import stat
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from pathlib import Path
 from urllib.parse import urlsplit
 
 from aiohttp import web
@@ -30,10 +29,9 @@ from app.management import ApplicationManagement
 from app.operations import SERVER, collect, operation, private_context
 from app.runtime_paths import PACKAGED_FRONTEND, SOURCE_ROOT, RuntimePaths
 from app.utils.logging import RecentLogBuffer
-from app.twitch.client import has_saved_bot_authorization
 from app.credentials import CredentialError
 from app.config.settings import TwitchConfigurationError
-from app.server_setup import ServerSetup
+from app.twitch_setup import ServerOAuth, TwitchSetup, credential_manager
 
 
 MAX_BODY = 65536
@@ -374,9 +372,10 @@ class ManagementAPI:
         store = app_settings or AppSettingsStore(RuntimePaths.default().app_settings)
         self.service = ApplicationManagement(runtime.application, store, log_buffer)
         self.policy = policy or OperationPolicy(runtime, store)
-        self.setup = ServerSetup(runtime, self.policy, store, credentials,
-            redirect_uri=config.oauth_redirect_uri,
-            owner_active=self.owner_active)
+        self.setup = TwitchSetup(runtime, self.policy, store,
+            credentials or credential_manager(runtime.application.settings),
+            oauth=ServerOAuth(redirect_uri=config.oauth_redirect_uri,
+                owner_active=self.owner_active))
         self.operations = ServerOperations(self)
         self._owns_policy = policy is None
         self.lock = asyncio.Lock()
@@ -697,41 +696,13 @@ class ManagementAPI:
 
     def setup_status(self, owner: bytes = b"") -> dict:
         """Project effective configuration status, never credentials or paths."""
-        settings = self.runtime.application.settings
         credentials = self.credential_statuses()
         provider = self.service.get_ai_provider_settings()["settings"]
         provider["credential"] = self.ai_credential_status(provider["provider_id"])
         state = self.service.get_app_status()
-        self.setup._expire()
-        connected = state["twitch_connected"]
-        authorization = "verified" if connected else self.setup.authorization_status
-        if state["twitch_connection_state"] == "auth_required":
-            self.setup.authorization_status = "validation_failed"
-            self.setup.authorized_account = None
-            authorization = "validation_failed"
-        elif self.policy.error and not connected:
-            authorization = "not_verified"
-        presets = self.setup.store.snapshot().twitch.presets
-        active = next((preset.id for preset in presets if preset.channel == settings.twitch_channel
-            and preset.channel_user_id == settings.twitch_channel_user_id), None)
-        return {"ok": True, "credentials": credentials, "aiProvider": provider,
-            "twitch": {"client_id": settings.twitch_client_id, "bot_username": settings.twitch_bot_username,
-                "bot_user_id": settings.twitch_bot_user_id, "target_channel": settings.twitch_channel,
-                "target_channel_user_id": settings.twitch_channel_user_id,
-                "active_channel": settings.twitch_channel, "active_channel_user_id": settings.twitch_channel_user_id,
-                "requires_restart": False, "requires_reconnect": False, "running": state["running"],
-                "connected": state["twitch_connected"], "oauth_token_available": Path(settings.twitch_token_file).is_file(),
-                "saved_bot_authorization": has_saved_bot_authorization(settings),
-                "presets": [{"id": preset.id, "display_name": preset.display_name,
-                    "target_channel": preset.channel, "target_channel_user_id": preset.channel_user_id}
-                    for preset in presets], "selected_preset_id": active, "active_preset_id": active,
-                "oauth_callback_url": self.setup.redirect_uri, "has_local_override": False,
-                "management_url": self.config.trusted_origin or "http://" + sorted(self.config.authorities)[0],
-                "authorization_mode": "redirect" if self.config.oauth_callback_enabled else "paste",
-                "authorization_attempt": self.setup.attempt_status(owner),
-                "authorization_status": authorization,
-                "authorized_account": settings.twitch_bot_username if connected else self.setup.authorized_account,
-                "setup_complete": authorization == "verified"}}
+        return self.setup.server_status(state, credentials, provider, owner,
+            management_url=self.config.trusted_origin or "http://" + sorted(self.config.authorities)[0],
+            authorization_mode="redirect" if self.config.oauth_callback_enabled else "paste")
 
 
 class _BoundedServer(web.Server):

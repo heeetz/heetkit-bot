@@ -7,7 +7,7 @@ import sys
 
 from app.config.settings import Settings
 from app.credentials import CredentialError, CredentialName
-from app.server_setup import credential_manager
+from app.twitch_setup import credential_manager
 
 
 assert os.geteuid() == 10001

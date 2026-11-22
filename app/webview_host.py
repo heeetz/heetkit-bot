@@ -21,7 +21,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Coroutine
 
-from pydantic import SecretStr, ValidationError
+from pydantic import ValidationError
 
 from app.app_settings import DEFAULT_INTERFACE_LANGUAGE, AppSettings, AppSettingsStore, TwitchSettings
 from app.bot_runtime import BotRuntime
@@ -38,7 +38,8 @@ from app.config.profile_settings import apply_ai_app_settings, apply_twitch_app_
 from app.config.settings import Settings, TwitchConfigurationError, load_settings_with_credentials
 from app.container import Application, build_application
 from app.database.migrations import DatabaseMigrationError
-from app.credentials import CredentialError, CredentialManager, CredentialName
+from app.credentials import CredentialManager
+from app.twitch_setup import DesktopOAuth, TwitchSetup
 from app.desktop_instance import (
     DesktopAlreadyRunningError,
     desktop_instance_guard,
@@ -65,7 +66,7 @@ from app.services.updates import (
     authorize_installer, check_for_updates, download_installer, publisher_key,
 )
 from app.windows_runtime import DesktopPrerequisiteError, ensure_windows_runtime
-from app.twitch.client import OAUTH_REDIRECT_URI, TwitchCleanupError, has_saved_bot_authorization
+from app.twitch.client import TwitchCleanupError
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
 from app.utils.logging import (
@@ -341,7 +342,14 @@ class DesktopOperations(ApplicationManagement):
         self._log_buffer = log_buffer or get_recent_log_buffer()
         self._app_settings = app_settings
         self._credential_manager = credential_manager
-        self._twitch_secret_requires_restart = False
+        self._twitch_setup = TwitchSetup(backend, None, app_settings, credential_manager,
+            oauth=DesktopOAuth(
+                wait=lambda *args, **kwargs: self._wait_for_backend(*args, **kwargs),
+                timeout_error=BridgeOperationTimedOut,
+                settings_timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
+                credential_timeout=BRIDGE_CREDENTIAL_TEST_TIMEOUT_SECONDS,
+                reconnect_timeout=BRIDGE_TWITCH_RECONNECT_TIMEOUT_SECONDS),
+            logger=self._logger)
         self._profile_root = RuntimePaths.default().root.resolve()
         self._window: Any | None = None
         self._relaunch_ready: Path | None = None
@@ -648,35 +656,10 @@ class DesktopOperations(ApplicationManagement):
             return {"ok": False, "error": "That external link is not available."}
         url = EXTERNAL_LINKS.get(destination, "")
         if destination == "twitch_authorization":
-            application = self._backend.application
-            runtime_state = application.services.runtime_state
-            if not runtime_state.status()[0]:
-                return {"ok": False, "error": "Start Bot before authorizing Twitch."}
-            if runtime_state.twitch_connection_state not in ("auth_required", "connected"):
-                return {"ok": False, "error": "Twitch authorization is not currently required."}
-            try:
-                application.settings.validate_twitch_configuration()
-            except TwitchConfigurationError as error:
-                return {"ok": False, "error": str(error)}
-            if self._app_settings is not None and self._twitch_setup_requires_restart(
-                self._app_settings.snapshot().twitch
-            ):
-                return {"ok": False, "error": "Restart the application to apply the saved Twitch client ID, bot identity or secret."}
-            try:
-                if application.services.twitch is None:
-                    return {"ok": False, "error": "Twitch authorization is not ready."}
-                url = self._wait_for_backend(
-                    application.services.twitch.begin_authorization(),
-                    operation="begin_twitch_authorization",
-                    timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
-                )
-            except ValueError as error:
-                return {"ok": False, "error": str(error)}
-            except BridgeOperationTimedOut:
-                return {"ok": False, "error": "Twitch authorization timed out. Try again."}
-            except Exception as error:
-                self._logger.warning("Could not begin Twitch authorization error_type=%s", type(error).__name__)
-                return {"ok": False, "error": "Could not begin Twitch authorization."}
+            result = self._twitch_setup.desktop_authorization_url()
+            if not result["ok"]:
+                return result
+            url = result["url"]
         try:
             opened = webbrowser.open(url, new=2)
         except Exception:
@@ -860,74 +843,7 @@ class DesktopOperations(ApplicationManagement):
 
     @operation(write=False, hosts=(DESKTOP,))
     def get_twitch_settings(self) -> dict[str, object]:
-        if self._app_settings is None:
-            return {"ok": False, "error": "Desktop settings are not configured."}
-        application = self._backend.application
-        runtime_state = application.services.runtime_state
-        local = self._app_settings.snapshot().twitch
-        target_channel = local.channel or application.settings.twitch_channel
-        target_channel_user_id = (
-            local.channel_user_id or application.settings.twitch_channel_user_id
-        )
-        matching_active_presets = tuple(
-            preset
-            for preset in local.presets
-            if preset.channel == application.settings.twitch_channel
-            and preset.channel_user_id == application.settings.twitch_channel_user_id
-        )
-        active_preset = next(
-            (
-                preset
-                for preset in matching_active_presets
-                if preset.id == local.selected_preset_id
-            ),
-            matching_active_presets[0] if matching_active_presets else None,
-        )
-        return {
-            "ok": True,
-            "settings": {
-                "target_channel": target_channel,
-                "target_channel_user_id": target_channel_user_id,
-                "active_channel": application.settings.twitch_channel,
-                "active_channel_user_id": application.settings.twitch_channel_user_id,
-                "presets": [
-                    {
-                        "id": preset.id,
-                        "display_name": preset.display_name,
-                        "target_channel": preset.channel,
-                        "target_channel_user_id": preset.channel_user_id,
-                    }
-                    for preset in local.presets
-                ],
-                "selected_preset_id": local.selected_preset_id,
-                "active_preset_id": active_preset.id if active_preset else None,
-                "requires_reconnect": (
-                    target_channel != application.settings.twitch_channel
-                    or target_channel_user_id
-                    != application.settings.twitch_channel_user_id
-                ),
-                "client_id": local.client_id or getattr(application.settings, "twitch_client_id", ""),
-                "bot_username": local.bot_username or application.settings.twitch_bot_username,
-                "bot_user_id": local.bot_user_id or application.settings.twitch_bot_user_id,
-                "active_client_id": getattr(application.settings, "twitch_client_id", ""),
-                "active_bot_username": application.settings.twitch_bot_username,
-                "active_bot_user_id": application.settings.twitch_bot_user_id,
-                "requires_secret_restart": self._twitch_secret_requires_restart,
-                "requires_cleanup_restart": self._twitch_cleanup_requires_restart(),
-                "requires_restart": self._twitch_setup_requires_restart(local),
-                "running": runtime_state.status()[0],
-                "connected": runtime_state.twitch_connected,
-                "oauth_token_available": Path(
-                    application.settings.twitch_token_file
-                ).is_file(),
-                "saved_bot_authorization": has_saved_bot_authorization(application.settings),
-                "oauth_callback_url": OAUTH_REDIRECT_URI,
-                "has_local_override": (
-                    local.channel is not None
-                    and local.channel_user_id is not None
-                ),
-            },
-        }
+        return self._twitch_setup.desktop_get_twitch_settings()
 
     @operation(write=True, hosts=(DESKTOP,))
     def update_twitch_settings(
@@ -939,53 +855,15 @@ class DesktopOperations(ApplicationManagement):
         bot_username: object = None,
         bot_user_id: object = None,
     ) -> dict[str, object]:
-        if self._app_settings is None:
-            return {"ok": False, "error": "Desktop settings are not configured."}
-        try:
-            updated = self._app_settings.update_twitch(
-                channel=target_channel,
-                channel_user_id=target_channel_user_id,
-                selected_preset_id=selected_preset_id,
-                client_id=client_id,
-                bot_username=bot_username,
-                bot_user_id=bot_user_id,
-            )
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
-        except OSError:
-            self._logger.exception("Could not save Twitch connection settings")
-            return {"ok": False, "error": "Could not save Twitch settings."}
-        application_settings = self._backend.application.settings
-        requires_reconnect = (
-            updated.twitch.channel != application_settings.twitch_channel
-            or updated.twitch.channel_user_id
-            != application_settings.twitch_channel_user_id
-        )
-        self._logger.info(
-            "Twitch target channel settings saved",
-            extra={
-                "event_kind": "settings.twitch",
-                "event_channel": str(updated.twitch.channel),
-                "event_action": "save",
-            },
-        )
-        return {
-            "ok": True, "requires_reconnect": requires_reconnect,
-            "requires_restart": self._twitch_setup_requires_restart(updated.twitch) or self._twitch_cleanup_requires_restart(),
-        }
+        return self._twitch_setup.desktop_update_twitch_settings(
+            target_channel, target_channel_user_id, selected_preset_id,
+            client_id, bot_username, bot_user_id)
 
     def _twitch_setup_requires_restart(self, local: TwitchSettings) -> bool:
-        active = self._backend.application.settings
-        return self._twitch_secret_requires_restart or any(
-            value is not None and value != getattr(active, f"twitch_{name}", "")
-            for name, value in (
-                ("client_id", local.client_id), ("bot_username", local.bot_username),
-                ("bot_user_id", local.bot_user_id),
-            )
-        )
+        return self._twitch_setup.requires_restart(local)
 
     def _twitch_cleanup_requires_restart(self) -> bool:
-        return getattr(getattr(self._backend, "bot_runtime", None), "twitch_restart_required", False) is True
+        return self._twitch_setup.cleanup_requires_restart()
 
     @operation(write=True, hosts=(DESKTOP,))
     def save_twitch_preset(
@@ -995,102 +873,16 @@ class DesktopOperations(ApplicationManagement):
         target_channel: object,
         target_channel_user_id: object,
     ) -> dict[str, object]:
-        if self._app_settings is None:
-            return {"ok": False, "error": "Desktop settings are not configured."}
-        try:
-            updated, preset = self._app_settings.save_twitch_preset(
-                preset_id=preset_id,
-                display_name=display_name,
-                channel=target_channel,
-                channel_user_id=target_channel_user_id,
-            )
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
-        except OSError:
-            self._logger.exception("Could not save Twitch connection preset")
-            return {"ok": False, "error": "Could not save Twitch preset."}
-        application_settings = self._backend.application.settings
-        requires_reconnect = (
-            updated.twitch.channel != application_settings.twitch_channel
-            or updated.twitch.channel_user_id
-            != application_settings.twitch_channel_user_id
-        )
-        self._logger.info(
-            "Twitch connection preset saved",
-            extra={
-                "event_kind": "settings.twitch_preset",
-                "event_channel": preset.channel,
-                "event_action": "save",
-            },
-        )
-        return {
-            "ok": True,
-            "preset_id": preset.id,
-            "requires_reconnect": requires_reconnect,
-        }
+        return self._twitch_setup.desktop_save_twitch_preset(
+            preset_id, display_name, target_channel, target_channel_user_id)
 
     @operation(write=True, hosts=(DESKTOP,))
     def delete_twitch_preset(self, preset_id: object) -> dict[str, object]:
-        if self._app_settings is None:
-            return {"ok": False, "error": "Desktop settings are not configured."}
-        try:
-            self._app_settings.delete_twitch_preset(preset_id)
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
-        except OSError:
-            self._logger.exception("Could not delete Twitch connection preset")
-            return {"ok": False, "error": "Could not delete Twitch preset."}
-        self._logger.info(
-            "Twitch connection preset deleted",
-            extra={
-                "event_kind": "settings.twitch_preset",
-                "event_action": "delete",
-            },
-        )
-        return {"ok": True}
+        return self._twitch_setup.desktop_delete_twitch_preset(preset_id)
 
     @operation(write=True, hosts=(DESKTOP,))
     def reconnect_twitch(self) -> dict[str, object]:
-        if self._app_settings is None:
-            return {"ok": False, "error": "Desktop settings are not configured."}
-        application = self._backend.application
-        local = self._app_settings.snapshot().twitch
-        if self._twitch_setup_requires_restart(local):
-            return {"ok": False, "error": "Restart the application to apply the saved Twitch client ID, bot identity or secret."}
-        channel = local.channel or application.settings.twitch_channel
-        channel_user_id = (
-            local.channel_user_id or application.settings.twitch_channel_user_id
-        )
-        try:
-            reconnected = self._wait_for_backend(
-                self._backend.bot_runtime.reconnect_twitch(
-                    channel=channel,
-                    channel_user_id=channel_user_id,
-                ),
-                operation="reconnect_twitch",
-                timeout=BRIDGE_TWITCH_RECONNECT_TIMEOUT_SECONDS,
-            )
-        except (TwitchConfigurationError, TwitchCleanupError) as error:
-            return {"ok": False, "error": str(error)}
-        except BridgeOperationTimedOut:
-            return {
-                "ok": False,
-                "error": "Twitch reconnect timed out. Check Logs for details.",
-            }
-        except Exception:
-            self._logger.exception("Twitch reconnect failed")
-            return {"ok": False, "error": "Could not reconnect Twitch."}
-        self._logger.info(
-            "Twitch target settings applied reconnected=%s",
-            reconnected,
-            extra={
-                "event_kind": "twitch.reconnect",
-                "event_channel": channel,
-                "event_action": "reconnect" if reconnected else "apply",
-            },
-        )
-        return {"ok": True, "changed": reconnected}
-
+        return self._twitch_setup.desktop_reconnect_twitch()
 
     @operation(write=True, hosts=(DESKTOP,))
     def update_ai_language_settings(
@@ -1149,140 +941,19 @@ class DesktopOperations(ApplicationManagement):
 
     @operation(write=False, hosts=(DESKTOP,))
     def get_credentials(self) -> dict[str, object]:
-        if self._credential_manager is None:
-            return {"ok": False, "error": "Credential storage is not configured."}
-        return {
-            "ok": True,
-            "credentials": [
-                status.serialize() for status in self._credential_manager.statuses()
-            ],
-        }
-
-    async def _refresh_ai_credential(self, name: CredentialName) -> None:
-        value = self._credential_manager.effective_value(name)
-        setattr(self._backend.application.settings, name.value, SecretStr(value) if value else None)
-
-    def _apply_credential_change(self, name: CredentialName, previous: str | None) -> dict[str, object]:
-        if name is CredentialName.TWITCH_CLIENT_SECRET:
-            active = self._backend.application.settings.twitch_client_secret
-            effective = self._credential_manager.effective_value(name)
-            self._twitch_secret_requires_restart = effective != (active.get_secret_value() if active else None)
-            return {"changed": effective != previous, "requires_restart": self._twitch_secret_requires_restart}
-        self._wait_for_backend(
-            self._refresh_ai_credential(name), operation="apply_ai_credential",
-            timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
-        )
-        return {}
+        return self._twitch_setup.desktop_get_credentials()
 
     @operation(write=True, hosts=(DESKTOP,))
     def replace_credential(self, name: object, value: object) -> dict[str, object]:
-        if self._credential_manager is None:
-            return {"ok": False, "error": "Credential storage is not configured."}
-        try:
-            parsed_name = self._credential_manager.parse_name(name)
-            previous = self._credential_manager.effective_value(parsed_name) if parsed_name is CredentialName.TWITCH_CLIENT_SECRET else None
-            self._credential_manager.replace(parsed_name.value, value)
-            outcome = self._apply_credential_change(parsed_name, previous)
-        except BridgeOperationTimedOut:
-            return {"ok": False, "error": "Credential stored securely. Its runtime status could not be refreshed. Try saving it again."}
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
-        except CredentialError as error:
-            self._logger.warning(
-                "Credential replacement failed name=%s error_type=%s",
-                name if isinstance(name, str) else "invalid",
-                type(error).__name__,
-            )
-            return {"ok": False, "error": str(error)}
-        self._logger.info(
-            "Credential replaced name=%s",
-            parsed_name.value,
-            extra={
-                "event_kind": "settings.credential",
-                "event_setting": parsed_name.value,
-                "event_action": "replace",
-            },
-        )
-        return {"ok": True, **outcome}
+        return self._twitch_setup.desktop_replace_credential(name, value)
 
     @operation(write=True, hosts=(DESKTOP,))
     def remove_credential(self, name: object) -> dict[str, object]:
-        if self._credential_manager is None:
-            return {"ok": False, "error": "Credential storage is not configured."}
-        try:
-            parsed_name = self._credential_manager.parse_name(name)
-            previous = self._credential_manager.effective_value(parsed_name) if parsed_name is CredentialName.TWITCH_CLIENT_SECRET else None
-            removed = self._credential_manager.remove(parsed_name.value)
-            outcome = self._apply_credential_change(parsed_name, previous) if removed or parsed_name is not CredentialName.TWITCH_CLIENT_SECRET else {}
-        except BridgeOperationTimedOut:
-            return {"ok": False, "error": "Credential removed. Its runtime status could not be refreshed. Try removing it again."}
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
-        except CredentialError as error:
-            self._logger.warning(
-                "Credential removal failed name=%s error_type=%s",
-                name if isinstance(name, str) else "invalid",
-                type(error).__name__,
-            )
-            return {"ok": False, "error": str(error)}
-        if removed:
-            self._logger.info(
-                "Credential removed name=%s",
-                parsed_name.value,
-                extra={
-                    "event_kind": "settings.credential",
-                    "event_setting": parsed_name.value,
-                    "event_action": "remove",
-                },
-            )
-        return {"ok": True, "changed": removed, **outcome}
+        return self._twitch_setup.desktop_remove_credential(name)
 
     @operation(write=True, hosts=(DESKTOP,))
     def test_credential(self, name: object) -> dict[str, object]:
-        if self._credential_manager is None:
-            return {"ok": False, "error": "Credential storage is not configured."}
-        try:
-            parsed_name = self._credential_manager.parse_name(name)
-            application = self._backend.application
-            self._wait_for_backend(
-                self._credential_manager.test(
-                    parsed_name.value,
-                    http_client=application.http_client,
-                    twitch_client_id=application.settings.twitch_client_id,
-                ),
-                operation=f"test_credential:{parsed_name.value}",
-                timeout=BRIDGE_CREDENTIAL_TEST_TIMEOUT_SECONDS,
-            )
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
-        except BridgeOperationTimedOut:
-            return {
-                "ok": False,
-                "error": "Credential test timed out. Check Logs for details.",
-            }
-        except CredentialError as error:
-            self._logger.warning(
-                "Credential test failed name=%s error_type=%s",
-                name if isinstance(name, str) else "invalid",
-                type(error).__name__,
-            )
-            return {"ok": False, "error": str(error)}
-        except Exception:
-            self._logger.exception(
-                "Credential test failed name=%s",
-                name if isinstance(name, str) else "invalid",
-            )
-            return {"ok": False, "error": "Credential test failed."}
-        self._logger.info(
-            "Credential test passed name=%s",
-            parsed_name.value,
-            extra={
-                "event_kind": "settings.credential",
-                "event_setting": parsed_name.value,
-                "event_action": "test",
-            },
-        )
-        return {"ok": True}
+        return self._twitch_setup.desktop_test_credential(name)
 
     @operation(write=False, hosts=(DESKTOP,))
     def get_recent_logs(self, after_id: int = 0, limit: int = 200, snapshot: bool = False) -> dict[str, object]:

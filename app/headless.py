@@ -338,7 +338,7 @@ def main(argv: list[str] | None = None) -> int:
         settings = Settings(twitch_token_file=str(paths.tokens), database_url="sqlite+aiosqlite:///" + str(paths.database), **secret_file_settings())
         token_file, database_url = prepare_runtime_data(settings.database_url)
         settings = settings.model_copy(update={"twitch_token_file": token_file, "database_url": database_url})
-        from app.server_setup import credential_manager
+        from app.twitch_setup import credential_manager
         credentials = credential_manager(settings)
         from pydantic import SecretStr
         for name, value in credentials.settings_overrides().items():
