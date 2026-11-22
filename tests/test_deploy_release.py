@@ -43,10 +43,11 @@ def test_loopback_management_http_emulates_trusted_https_proxy(monkeypatch):
             assert request.get_header("Host") == "synthetic.ts.net"
             assert request.get_header("X-forwarded-proto") == "https"
             assert request.get_header("Authorization") == "Bearer synthetic-token"
+            assert request.get_method() == "POST" and request.data == b"{}"
             return Response()
 
     monkeypatch.setattr(deploy, "build_opener", lambda *handlers: Opener())
-    assert deploy.http(deploy.LOCAL + "/v1/status", "synthetic-token",
+    assert deploy.http(deploy.LOCAL + "/v1/ops/get_app_status", "synthetic-token", post=True,
                        trusted_origin="https://synthetic.ts.net") == (200, b"{}")
 
 
@@ -226,14 +227,25 @@ class Host:
             return 200, json.dumps({"tag_name": "v1.4.1", "draft": self.release_draft, "published_at": self.publication,
                                     "html_url": "https://github.com/heeetz/heetkit-bot/releases/tag/v1.4.1"}).encode()
         if url.startswith("https://synthetic.ts.net"):
-            assert token is None
+            assert token is None and post
             return 401, b""
-        if url.endswith("/v1/bot/start"):
+        # The running and rollback image predates /v1/ops and serves only the old paths.
+        old_paths = {"/v1/status": "/v1/ops/get_app_status", "/v1/bot/start": "/v1/ops/start_bot"}
+        if self.current == OLD:
+            if "/v1/ops/" in url:
+                return 404, b'{"ok":false}'
+            path = next((old for old in old_paths if url.endswith(old)), None)
+            if path is not None:
+                assert post == (path == "/v1/bot/start")
+                url, post = url.removesuffix(path) + old_paths[path], True
+        if url.endswith("/v1/ops/start_bot"):
+            assert post
             self.events.append("connect")
             assert self.mode == "manual"
             self.connected = True
             return 200, b'{"ok":true}'
-        if url.endswith("/v1/status"):
+        if url.endswith("/v1/ops/get_app_status"):
+            assert post
             assert trusted_origin == "https://synthetic.ts.net"
             self.health_calls += 1
             assert self.running

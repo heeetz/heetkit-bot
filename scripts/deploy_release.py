@@ -247,13 +247,19 @@ class Deployment:
         require(len(ids) == 1, "Expected exactly one existing bot container")
         return ids[0]
 
-    def api(self, path="status", post=False):
-        code, body = http(LOCAL + "/v1/" + path, self.token.read_text().strip(), post, self.origin)
+    def api(self, name="get_app_status"):
+        token = self.token.read_text().strip()
+        code, body = http(LOCAL + "/v1/ops/" + name, token, True, self.origin)
+        if code == 404:
+            # shortcut: releases before 1.7 (the running bot or a rollback image) only serve
+            # the old per-resource paths; drop this once no supported image predates /v1/ops.
+            path, post = {"get_app_status": ("status", False), "start_bot": ("bot/start", True)}[name]
+            code, body = http(LOCAL + "/v1/" + path, token, post, self.origin)
         require(code == 200, "Authenticated management check failed")
         return json.loads(body)
 
     def boundaries(self):
-        code, _ = http(self.origin + "/v1/status")
+        code, _ = http(self.origin + "/v1/ops/get_app_status", post=True)
         require(code == 401, "Private HTTPS must reject unauthenticated status")
         serve = self.command_json(["tailscale", "serve", "status", "--json"])
         require(isinstance(serve.get("Web"), dict) and serve["Web"] and
@@ -295,7 +301,7 @@ class Deployment:
                 require(all(current[key] == before[key] for key in ("mode", "channel", "account")),
                         "Operation mode or bot identity changed")
                 if reconnect and before["mode"] == "manual" and before["connected"] and not current["connected"] and not requested:
-                    self.api("bot/start", post=True)
+                    self.api("start_bot")
                     requested = True
                 expected = current["connected"] == before["connected"] if before["mode"] in {"manual", "disabled"} else (
                     current["connected"] if before["mode"] == "always_on" else True)

@@ -316,105 +316,97 @@ from urllib.request import Request, build_opener, ProxyHandler
 token = Path(os.environ["HEETKIT_MANAGEMENT_TOKEN_FILE"]).read_text(encoding="ascii").strip()
 client = build_opener(ProxyHandler({}))
 
-def request(path, payload=None):
-    data = None if payload is None else json.dumps(payload).encode("utf-8")
-    req = Request("http://127.0.0.1:8765/v1/" + path, data=data,
+def request(name, payload=None):
+    data = json.dumps(payload or {}).encode("utf-8")
+    req = Request("http://127.0.0.1:8765/v1/ops/" + name, data=data,
         headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
     with client.open(req, timeout=30) as response:
         return json.load(response)
 
-print(request("status"))
-print(request("ai/memory", {"enabled": False}))
-print(request("bot/stop", {}))  # API stays available; profile stays locked
-print(request("bot/start", {}))
+print(request("get_app_status"))
+print(request("set_ai_memory_enabled", {"enabled": False}))
+print(request("stop_bot", {}))  # API stays available; profile stays locked
+print(request("start_bot", {}))
 ```
 
-Every panel operation is also available as `POST /v1/ops/<name>` with its arguments
-as a JSON object, for example `POST /v1/ops/set_ai_memory_enabled` with
-`{"enabled": false}`. Names match the panel's operation names (`get_app_status`,
-`save_personality`, `start_bot`, ...); unknown names return 404 and unknown arguments
-400. The panel uses only this form. The per-resource paths below remain for now and
-will be removed once every client has moved.
+All panel operations use `POST /v1/ops/<name>` with a JSON object. Unknown names
+return 404 and unknown arguments return 400. Writes persist and apply immediately
+unless noted. Sessions use `POST /v1/session`, `GET /v1/session` and
+`POST /v1/session/logout`; the administrator creates sessions with `{}`, and logout
+revokes the current session with `{}`.
 
-All paths below start with `/v1/`. GET results retain the shared application's
-resource shape. Successful POST operations return `ok: true`; reads may omit `ok`.
-POST writes persist and apply immediately unless stated otherwise.
-
-| Method and path | JSON arguments / result |
-|---|---|
-| POST `twitch/presets/save` | `preset_id` (`null` creates), `display_name`, `channel`, `channel_user_id`; stores a unique named target without applying it |
-| POST `twitch/presets/delete` | `preset_id`; deletes the preset without changing target or connectivity |
-| POST `twitch/presets/switch` | `preset_id`; explicitly applies the stored target through controlled shutdown and mode reconciliation, retaining bot credentials and OAuth |
-| POST `session` | `{}` with administrator bearer only; returns `token`, `expires_in` (3600 seconds) |
-| POST `ai/playground/start` | `prompt`; starts one isolated test and returns `request_id`, `status: pending`; may consume real provider quota |
-| POST `analytics/query` | `days` = 1, 7, 30 or 60 UTC calendar days (default 7); configured-channel totals, daily series/coverage, command/provider breakdowns, current retained-user snapshot, collection/pricing metadata and `count_chat_messages`; Playground excluded |
-| POST `leaderboards/query` | `{}`; returns the active channel’s monthly and current/last stream rankings together, with period, coverage, settings and `counting_enabled`. Uses the configured channel when disconnected. |
-| POST `leaderboards/settings` | `channel_id`, `exclusions` (up to 50 bot logins). The channel must match the current leaderboard view. Monthly rollover uses UTC. |
-| POST `leaderboards/configure` | `enabled` boolean; immediately saves the profile-wide chat message counting setting. Independent of aggregate analytics collection. |
-| POST `analytics/configure` / `analytics/reset` | `enabled` boolean persists collection preference; reset requires `confirmed: true` and clears all profile aggregates including pending updates |
-| GET / POST `ai/memory/limits` | GET returns `stored`, `context`; POST requires integer `stored` 1–500 and `context` 1–50, no greater than stored; shared transactional prune/persist on both hosts |
-| POST `ai/balance` | `provider`, optional boolean `refresh` (default false); optional cached DeepSeek currency balances with `state` and `updated_at`; unsupported/missing connections return unavailable; never returns keys |
-| POST `ai/playground/result` / `ai/playground/cancel` | `request_id`; inspect/cancel only the initiating bearer's current test; completed results include safe `generation` provider/model/thinking/fallback/search metadata |
-| GET `session` / POST `session/logout` | Check current session / revoke it with `{}` |
-| GET `snapshot` | Combined `status` and `ai_status` for browser polling |
-| GET `setup`, `about` | Effective non-secret setup status (including fixed management/callback URLs, `authorization_mode` and this session's `authorization_attempt`) / shared application metadata |
-| POST `twitch/settings` | `client_id`, `bot_username`, `bot_user_id`, `channel`, `channel_user_id`; save/apply after stopping the old session |
-| POST `credentials/replace` | `name` (`twitch_client_secret`, `gemini_api_key`, `deepseek_api_key` or `openai_api_key`), `value`; browser-managed credentials only |
-| POST `credentials/remove`, `credentials/test` | `name`; remove the browser value / check the effective value against its provider |
-| POST `twitch/authorization/begin` | `{}`; checks application credentials, stops the old session and returns Twitch's `url`, `expires_in` (300 seconds) |
-| POST `twitch/authorization/complete` | `callback_url`; authenticated paste completion for this session and the fixed configured redirect, returning no tokens; default local and configured HTTPS modes complete through GET `/oauth/callback` |
-| POST `twitch/authorization/cancel` | `{}`; cancels this session's pending attempt |
-| GET `status` | Running, Twitch connection state, session uptime, account/channel and `operation` policy/monitor status |
-| POST `configuration/export` | `{}`; returns `filename` and ZIP `archive_base64` |
-| POST `configuration/preview` | `archive_base64`; validates ZIP and returns a ten-minute `preview_token`, source `application_version`, `format_version`, replacement `sections` with counts/details, `effects` and `preserved` settings |
-| POST `configuration/import` | The same `archive_base64`, `preview_token` and `confirmed: true`; saves/applies only after revalidation against the preview and unchanged destination |
-| POST `bot/start`, `bot/stop` | `{}`; policy-aware connect/disconnect intent, `changed` and current `operation`; completion is asynchronous |
-| POST `bot/mode` | `mode`: `always_on`, `stream_only`, `manual` or `disabled`; persist and reconcile without process restart |
-| GET `commands` | Built-ins with stable `name` IDs, effective/default `primary_name` triggers, aliases, permissions, cooldowns, delivery and response pools |
-| POST `commands/save` | Stable `command_name` ID, `enabled`, `per_user_seconds`, `global_seconds`, `permission`. Optional `options` includes `primary_name`, `aliases`, `display_name`, `burst_interval_ms`, `burst_max_count` and `reactivate_removed` to explicitly enable a legacy removed command. |
-| POST `commands/enabled` | Stable `command_name` and boolean `enabled`. Saves only the enabled state and clears legacy removal when enabling. A name conflict returns an error and leaves the command disabled. |
-| POST `commands/reset`, `commands/remove`, `commands/restore` | `command_name`. Reset accepts `preserve_enabled: true` to keep the enabled state. Factory administrative permission floors remain enforced. |
-| POST `commands/apply` / `commands/reset-all` | Apply uses the same settings as Save for the session. Reset all restores factory settings and responses and accepts `preserve_enabled: true` to keep each enabled state. |
-| POST `commands/responses/save` | `name` (`fate` or `tg`), `responses` (list of text) |
-| POST `commands/responses/reset` | `name` |
-| POST `commands/responses/apply` | Same as responses Save, session-only |
-| GET `custom-commands` | Commands, allowed template variables and permissions. Optional `creation_order` orders entries created in the profile alongside chat reactions. |
-| GET / POST `announcements` | GET: saved schedules plus transient `status` (`next_run_at`, `last_sent_at`, `last_outcome`, `eligible_messages`). POST: complete `announcements` list, at most 50; each has UUID `id` (null/omitted for new rows), `name` (80 UTF-8 bytes), `enabled`, `messages` (1–30 single lines, 450 UTF-8 bytes each), `message_mode` (`single`/`random`), optional `delivery_mode` (`regular`/`highlighted`, defaults to `regular` for older clients/archives), `interval_seconds` (60–86400), `min_messages` (0–1000), `stream_availability` (`anytime`/`live_only`/`offline_only`). Saved edits restart full intervals; both hosts enforce announcement availability. Highlighted sends use the configured user token and channel accent; 401/403 produce `authorization_required`/`permission_denied`, without Regular fallback. Body limit: 768 KiB. See [announcements](commands.md#scheduled-announcements). |
-| POST `custom-commands/save` | `command` object in the existing command format: `name`, `enabled`, `responses`, `permission`, `per_user_seconds`, `global_seconds`, `aliases`; an existing `id` edits that command; existing optional response-mode/burst fields are supported |
-| POST `custom-commands/delete` | `identifier` (saved command ID) |
-| GET `ai` | AI availability, enablement, memory, model and active personality |
-| POST `ai/enabled`, `ai/memory` | Boolean `enabled` |
-| GET `ai/models` | Active `provider_id`, selected/fallback models, presets and credential status, no secret values |
-| GET / POST `ai/setup` | GET: typed primary/fallback selections, connection status, documented capabilities, default shared instructions and retained restrictions. POST: `settings` containing `primary`, nullable `fallback` (each `provider`, `model`, `thinking`, `search`), `cross_provider_acknowledged`, `max_question_length` (1–4000), `max_answer_length` (1–450), nullable `shared_instructions` (empty is deliberate), and `provider_drafts`. Atomic non-secret save; credential operations remain separate. Imported cross-provider routing requires a fresh acknowledgement. |
-| GET / POST `setup/guide` | Profile-local dismiss/resume and optional-AI skip preferences. POST requires boolean `dismissed`, `ai_skipped`; this does not configure or authorize Twitch. |
-| POST `ai/models/discover` | Optional `provider` (otherwise active); bounded discovery with that provider's configured key, returns `provider_id` and `models`. An empty list is valid; listing does not prove generation/tool access and never changes saved models |
-| GET / POST `ai/language` | POST: `mode` (`auto` or `limited`), `allowed_languages` (codes), `fallback_language` |
-| GET `personalities` | Prompts, saved state, active personality and protected instructions |
-| POST `personalities/create` | `name`, `prompt` |
-| POST `personalities/rename` | `personality`, `name` |
-| POST `personalities/delete`, `personalities/activate`, `personalities/reset` | `personality` |
-| POST `personalities/save` | `personality`, `prompt` |
-| POST `personalities/apply` | `personality`, `prompt`; session-only |
-| POST `ai/instructions/save` / `ai/instructions/reset` | `prompt` / `{}` |
-| POST `ai/instructions/apply` | `prompt`; session-only |
-| GET `filters` | Active/saved word, phrase and pattern rules |
-| POST `filters/save` | `payload` object containing `words`, `phrases`, `patterns` lists |
-| POST `filters/apply` | Same as filters Save, session-only |
-| POST `filters/test` | `text`, `source` (`active` or `draft`), `payload` (`null` for active; filter object for draft) |
-| GET `blocked-users` | Compatibility view of migrated legacy AI rules; manage all access rules through `command-restrictions` |
-| POST `blocked-users/block`, `blocked-users/unblock` | Legacy `username` compatibility operations; creation migrates into visible channel AI restrictions |
-| GET `command-restrictions` | Private authenticated list, configured numeric `channel_id`, and current stable command IDs/labels |
-| POST `command-restrictions/save` | `data`: `username`, `command_ids` (empty means all), `expires_at` (UTC-offset ISO date or null), `note`; optional `scope` (`channel` default or `global_ai`, which requires exactly `["ask"]`), optional `id` edits while preserving identity/scope; unresolved legacy edits retry verification |
-| POST `command-restrictions/remove` | `restriction_id`; immediate removal, with other rules/global AI blocks still effective |
-| POST `privacy/opt-outs/list` | Optional `query` (stored username, up to 100 characters), `offset` (nonnegative integer), `limit` (1-100, default 50). Returns bounded `users`, `total`, `offset`, `limit`; each user has internal `twitch_user_id`, nullable stored `username` and nullable UTC `opted_out_at`. |
-| POST `privacy/opt-outs/add` | `username`; verifies identity and applies profile-wide deletion/suppression using the self-service operation. Repeated adds preserve the original timestamp. |
-| POST `privacy/opt-outs/withdraw` | `twitch_user_id`, `confirmed: true`; allows future storage without restoring history or permitting old in-flight work to save. |
-| GET / POST `triggers` | GET returns reactions in execution priority order and includes their `revision`. Optional `creation_order` is for the Commands display. POST accepts the complete `triggers` list with at most 100 unique IDs. Supply the GET `revision` to reject stale edits. |
-| POST `logs/recent` | Optional integer `after_id` (default 0), `limit` (1–200, default 100). With `after_id: 0`, optional `snapshot: true` uses the bounded retained window (up to 500 events and 1 MiB before projection). Returns allowlisted operator activity and `next_after_id`, which also advances across excluded entries. Authentication required. |
-| GET `logs/commands` | Returns up to five final command outcomes from the same retained activity, newest first. Each entry includes its UTC timestamp and command, without viewer identifiers or chat text. Authentication required. |
-| GET `diagnostics` | Process uptime, desired session state and settings/restart boundaries |
-
-When a rule fails validation, `filters/save` and `filters/apply` return HTTP 400
+| Operation | Arguments | Notes |
+|---|---|---|
+| `save_twitch_preset` | `preset_id` (`null` creates), `display_name`, `channel`, `channel_user_id` | stores a unique named target without applying it |
+| `delete_twitch_preset` | `preset_id` | deletes the preset without changing target or connectivity |
+| `switch_server_twitch_preset` | `preset_id` | explicitly applies the stored target through controlled shutdown and mode reconciliation, retaining bot credentials and OAuth |
+| `start_ai_playground` | `prompt` | starts one isolated test and returns `request_id`, `status: pending`; may consume real provider quota |
+| `get_analytics` | `days` = 1, 7, 30 or 60 UTC calendar days (default 7) | configured-channel totals, daily series/coverage, command/provider breakdowns, current retained-user snapshot, collection/pricing metadata and `count_chat_messages`; Playground excluded |
+| `get_leaderboards` | `{}` | returns the active channel’s monthly and current/last stream rankings together, with period, coverage, settings and `counting_enabled`. Uses the configured channel when disconnected. |
+| `save_leaderboard_settings` | `channel_id`, `exclusions` (up to 50 bot logins). The channel must match the current leaderboard view. Monthly rollover uses UTC. | ? |
+| `configure_leaderboard_counting` | `enabled` boolean | immediately saves the profile-wide chat message counting setting. Independent of aggregate analytics collection. |
+| `configure_analytics`, `reset_analytics` | `enabled` boolean persists collection preference | reset requires `confirmed: true` and clears all profile aggregates including pending updates |
+| `get_ai_memory_limits`, `save_ai_memory_limits` | Read returns `stored`, `context` | save requires integer `stored` 1–500 and `context` 1–50, no greater than stored; shared transactional prune/persist on both hosts |
+| `get_ai_balance` | `provider`, optional boolean `refresh` (default false) | optional cached DeepSeek currency balances with `state` and `updated_at`; unsupported/missing connections return unavailable; never returns keys |
+| `get_ai_playground_result`, `cancel_ai_playground` | `request_id` | inspect/cancel only the initiating bearer's current test; completed results include safe `generation` provider/model/thinking/fallback/search metadata |
+| `get_snapshot` | Combined `status` and `ai_status` for browser polling | ? |
+| `get_management_setup`, `get_about_info` | Effective non-secret setup status (including fixed management/callback URLs, `authorization_mode` and this session's `authorization_attempt`) / shared application metadata | ? |
+| `update_server_twitch_settings` | `client_id`, `bot_username`, `bot_user_id`, `channel`, `channel_user_id` | save/apply after stopping the old session |
+| `replace_credential` | `name` (`twitch_client_secret`, `gemini_api_key`, `deepseek_api_key` or `openai_api_key`), `value` | browser-managed credentials only |
+| `remove_credential`, `test_credential` | `name` | remove the browser value / check the effective value against its provider |
+| `begin_twitch_authorization` | `{}` | checks application credentials, stops the old session and returns Twitch's `url`, `expires_in` (300 seconds) |
+| `complete_twitch_authorization` | `callback_url` | authenticated paste completion for this session and the fixed configured redirect, returning no tokens; default local and configured HTTPS modes complete through GET `/oauth/callback` |
+| `cancel_twitch_authorization` | `{}` | cancels this session's pending attempt |
+| `get_app_status` | Running, Twitch connection state, session uptime, account/channel and `operation` policy/monitor status | ? |
+| `export_configuration` | `{}` | returns `filename` and ZIP `archive_base64` |
+| `preview_configuration_import` | `archive_base64` | validates ZIP and returns a ten-minute `preview_token`, source `application_version`, `format_version`, replacement `sections` with counts/details, `effects` and `preserved` settings |
+| `apply_configuration_import` | The same `archive_base64`, `preview_token` and `confirmed: true` | saves/applies only after revalidation against the preview and unchanged destination |
+| `start_bot`, `stop_bot` | `{}` | policy-aware connect/disconnect intent, `changed` and current `operation`; completion is asynchronous |
+| `set_bot_mode` | `mode`: `always_on`, `stream_only`, `manual` or `disabled` | persist and reconcile without process restart |
+| `get_commands` | Built-ins with stable `name` IDs, effective/default `primary_name` triggers, aliases, permissions, cooldowns, delivery and response pools | ? |
+| `save_command_settings` | Stable `command_name` ID, `enabled`, `per_user_seconds`, `global_seconds`, `permission`. Optional `options` includes `primary_name`, `aliases`, `display_name`, `burst_interval_ms`, `burst_max_count` and `reactivate_removed` to explicitly enable a legacy removed command. | ? |
+| `save_builtin_enabled` | Stable `command_name` and boolean `enabled`. Saves only the enabled state and clears legacy removal when enabling. A name conflict returns an error and leaves the command disabled. | ? |
+| `reset_command_settings`, `remove_builtin_command`, `restore_builtin_command` | `command_name`. Reset accepts `preserve_enabled: true` to keep the enabled state. Factory administrative permission floors remain enforced. | ? |
+| `apply_command_settings`, `reset_all_builtin_commands` | Apply uses the same settings as Save for the session. Reset all restores factory settings and responses and accepts `preserve_enabled: true` to keep each enabled state. | ? |
+| `save_command_responses` | `name` (`fate` or `tg`), `responses` (list of text) | ? |
+| `reset_command_responses` | `name` | ? |
+| `apply_command_responses` | Same as responses Save, session-only | ? |
+| `get_custom_commands` | Commands, allowed template variables and permissions. Optional `creation_order` orders entries created in the profile alongside chat reactions. | ? |
+| `get_announcements`, `save_announcements` | Read: saved schedules plus transient `status` (`next_run_at`, `last_sent_at`, `last_outcome`, `eligible_messages`). Save: complete `announcements` list, at most 50 | each has UUID `id` (null/omitted for new rows), `name` (80 UTF-8 bytes), `enabled`, `messages` (1–30 single lines, 450 UTF-8 bytes each), `message_mode` (`single`/`random`), optional `delivery_mode` (`regular`/`highlighted`, defaults to `regular` for older clients/archives), `interval_seconds` (60–86400), `min_messages` (0–1000), `stream_availability` (`anytime`/`live_only`/`offline_only`). Saved edits restart full intervals; both hosts enforce announcement availability. Highlighted sends use the configured user token and channel accent; 401/403 produce `authorization_required`/`permission_denied`, without Regular fallback. Body limit: 768 KiB. See [announcements](commands.md#scheduled-announcements). |
+| `save_custom_command` | `command` object in the existing command format: `name`, `enabled`, `responses`, `permission`, `per_user_seconds`, `global_seconds`, `aliases` | an existing `id` edits that command; existing optional response-mode/burst fields are supported |
+| `delete_custom_command` | `identifier` (saved command ID) | ? |
+| `get_ai_status` | AI availability, enablement, memory, model and active personality | ? |
+| `set_ai_enabled`, `set_ai_memory_enabled` | Boolean `enabled` | ? |
+| `get_ai_provider_settings` | Active `provider_id`, selected/fallback models, presets and credential status, no secret values | ? |
+| `get_ai_setup`, `save_ai_setup` | Read: typed primary/fallback selections, connection status, documented capabilities, default shared instructions and retained restrictions. Save: `settings` containing `primary`, nullable `fallback` (each `provider`, `model`, `thinking`, `search`), `cross_provider_acknowledged`, `max_question_length` (1–4000), `max_answer_length` (1–450), nullable `shared_instructions` (empty is deliberate), and `provider_drafts`. Atomic non-secret save | credential operations remain separate. Imported cross-provider routing requires a fresh acknowledgement. |
+| `get_setup_guide`, `save_setup_guide` | Profile-local dismiss/resume and optional-AI skip preferences. Save requires boolean `dismissed`, `ai_skipped` | this does not configure or authorize Twitch. |
+| `discover_ai_models` | Optional `provider` (otherwise active) | bounded discovery with that provider's configured key, returns `provider_id` and `models`. An empty list is valid; listing does not prove generation/tool access and never changes saved models |
+| `get_ai_language_settings`, `update_ai_language_settings` | Update: `mode` (`auto` or `limited`), `allowed_languages` (codes), `fallback_language` | ? |
+| `get_personalities` | Prompts, saved state, active personality and protected instructions | ? |
+| `create_personality` | `name`, `prompt` | ? |
+| `rename_personality` | `personality`, `name` | ? |
+| `delete_personality`, `set_active_personality`, `reset_personality` | `personality` | ? |
+| `save_personality` | `personality`, `prompt` | ? |
+| `apply_personality` | `personality`, `prompt` | session-only |
+| `save_profile_instructions`, `reset_profile_instructions` | `prompt` / `{}` | ? |
+| `apply_profile_instructions` | `prompt` | session-only |
+| `get_filters` | Active/saved word, phrase and pattern rules | ? |
+| `save_filters` | `payload` object containing `words`, `phrases`, `patterns` lists | ? |
+| `apply_filters` | Same as filters Save, session-only | ? |
+| `test_filters` | `text`, `source` (`active` or `draft`), `payload` (`null` for active | filter object for draft) |
+| `get_blocked_ai_users` | Compatibility view of migrated legacy AI rules | manage all access rules through `command-restrictions` |
+| `block_ai_user_only`, `unblock_ai_user` | Legacy `username` compatibility operations | creation migrates into visible channel AI restrictions |
+| `get_command_restrictions` | Private authenticated list, configured numeric `channel_id`, and current stable command IDs/labels | ? |
+| `save_command_restriction` | `data`: `username`, `command_ids` (empty means all), `expires_at` (UTC-offset ISO date or null), `note` | optional `scope` (`channel` default or `global_ai`, which requires exactly `["ask"]`), optional `id` edits while preserving identity/scope; unresolved legacy edits retry verification |
+| `remove_command_restriction` | `restriction_id` | immediate removal, with other rules/global AI blocks still effective |
+| `get_opt_outs` | Optional `query` (stored username, up to 100 characters), `offset` (nonnegative integer), `limit` (1-100, default 50). Returns bounded `users`, `total`, `offset`, `limit` | each user has internal `twitch_user_id`, nullable stored `username` and nullable UTC `opted_out_at`. |
+| `add_opt_out` | `username` | verifies identity and applies profile-wide deletion/suppression using the self-service operation. Repeated adds preserve the original timestamp. |
+| `withdraw_opt_out` | `twitch_user_id`, `confirmed: true` | allows future storage without restoring history or permitting old in-flight work to save. |
+| `get_message_triggers`, `save_message_triggers` | Read returns reactions in execution priority order and includes their `revision`. Optional `creation_order` is for the Commands display. Save accepts the complete `triggers` list with at most 100 unique IDs. Supply the returned `revision` to reject stale edits. | ? |
+| `get_recent_logs` | Optional integer `after_id` (default 0), `limit` (1–200, default 100). With `after_id: 0`, optional `snapshot: true` uses the bounded retained window (up to 500 events and 1 MiB before projection). Returns allowlisted operator activity and `next_after_id`, which also advances across excluded entries. Authentication required. | ? |
+| `get_recent_commands` | Returns up to five final command outcomes from the same retained activity, newest first. Each entry includes its UTC timestamp and command, without viewer identifiers or chat text. Authentication required. | ? |
+| `get_diagnostics` | Process uptime, desired session state and settings/restart boundaries | ? |
+When a rule fails validation, `save_filters` and `apply_filters` return HTTP 400
 with `invalid_rule.category` and the zero-based `invalid_rule.index` in the
 submitted list for that category.
 

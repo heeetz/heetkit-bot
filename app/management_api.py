@@ -170,65 +170,6 @@ def load_management_token() -> str:
     return token
 
 
-# 1.3B removes this: old /v1 paths still used by the frontend, mapped to operations.
-COMPAT_PATHS = {
-    ("GET", "/v1/ai/memory/limits"): "get_ai_memory_limits", ("GET", "/v1/status"): "get_app_status",
-    ("GET", "/v1/commands"): "get_commands", ("GET", "/v1/custom-commands"): "get_custom_commands",
-    ("GET", "/v1/announcements"): "get_announcements", ("GET", "/v1/triggers"): "get_message_triggers",
-    ("GET", "/v1/filters"): "get_filters", ("GET", "/v1/ai"): "get_ai_status",
-    ("GET", "/v1/ai/models"): "get_ai_provider_settings", ("GET", "/v1/ai/setup"): "get_ai_setup",
-    ("GET", "/v1/setup/guide"): "get_setup_guide", ("GET", "/v1/ai/language"): "get_ai_language_settings",
-    ("GET", "/v1/personalities"): "get_personalities", ("GET", "/v1/blocked-users"): "get_blocked_ai_users",
-    ("GET", "/v1/command-restrictions"): "get_command_restrictions", ("GET", "/v1/snapshot"): "get_snapshot",
-    ("GET", "/v1/about"): "get_about_info", ("GET", "/v1/setup"): "get_management_setup",
-    ("GET", "/v1/diagnostics"): "get_diagnostics", ("GET", "/v1/logs/commands"): "get_recent_commands",
-    ("POST", "/v1/triggers"): "save_message_triggers", ("POST", "/v1/analytics/query"): "get_analytics",
-    ("POST", "/v1/leaderboards/query"): "get_leaderboards", ("POST", "/v1/leaderboards/settings"): "save_leaderboard_settings",
-    ("POST", "/v1/leaderboards/configure"): "configure_leaderboard_counting",
-    ("POST", "/v1/analytics/configure"): "configure_analytics", ("POST", "/v1/analytics/reset"): "reset_analytics",
-    ("POST", "/v1/ai/balance"): "get_ai_balance", ("POST", "/v1/ai/memory/limits"): "save_ai_memory_limits",
-    ("POST", "/v1/privacy/opt-outs/list"): "get_opt_outs", ("POST", "/v1/privacy/opt-outs/add"): "add_opt_out",
-    ("POST", "/v1/privacy/opt-outs/withdraw"): "withdraw_opt_out",
-    ("POST", "/v1/configuration/export"): "export_configuration",
-    ("POST", "/v1/configuration/preview"): "preview_configuration_import",
-    ("POST", "/v1/configuration/import"): "apply_configuration_import",
-    ("POST", "/v1/commands/apply"): "apply_command_settings", ("POST", "/v1/commands/reset-all"): "reset_all_builtin_commands",
-    ("POST", "/v1/commands/save"): "save_command_settings", ("POST", "/v1/commands/reset"): "reset_command_settings",
-    ("POST", "/v1/commands/remove"): "remove_builtin_command", ("POST", "/v1/commands/restore"): "restore_builtin_command",
-    ("POST", "/v1/commands/enabled"): "save_builtin_enabled",
-    ("POST", "/v1/commands/responses/save"): "save_command_responses",
-    ("POST", "/v1/commands/responses/apply"): "apply_command_responses",
-    ("POST", "/v1/commands/responses/reset"): "reset_command_responses",
-    ("POST", "/v1/custom-commands/save"): "save_custom_command", ("POST", "/v1/custom-commands/delete"): "delete_custom_command",
-    ("POST", "/v1/announcements"): "save_announcements", ("POST", "/v1/ai/enabled"): "set_ai_enabled",
-    ("POST", "/v1/ai/memory"): "set_ai_memory_enabled", ("POST", "/v1/ai/setup"): "save_ai_setup",
-    ("POST", "/v1/setup/guide"): "save_setup_guide", ("POST", "/v1/ai/language"): "update_ai_language_settings",
-    ("POST", "/v1/personalities/create"): "create_personality", ("POST", "/v1/personalities/rename"): "rename_personality",
-    ("POST", "/v1/personalities/delete"): "delete_personality", ("POST", "/v1/personalities/activate"): "set_active_personality",
-    ("POST", "/v1/personalities/save"): "save_personality", ("POST", "/v1/personalities/apply"): "apply_personality",
-    ("POST", "/v1/personalities/reset"): "reset_personality",
-    ("POST", "/v1/ai/instructions/save"): "save_profile_instructions",
-    ("POST", "/v1/ai/instructions/apply"): "apply_profile_instructions",
-    ("POST", "/v1/ai/instructions/reset"): "reset_profile_instructions",
-    ("POST", "/v1/blocked-users/block"): "block_ai_user_only", ("POST", "/v1/blocked-users/unblock"): "unblock_ai_user",
-    ("POST", "/v1/command-restrictions/save"): "save_command_restriction",
-    ("POST", "/v1/command-restrictions/remove"): "remove_command_restriction",
-    ("POST", "/v1/ai/playground/start"): "start_ai_playground",
-    ("POST", "/v1/ai/playground/result"): "get_ai_playground_result",
-    ("POST", "/v1/ai/playground/cancel"): "cancel_ai_playground",
-    ("POST", "/v1/twitch/settings"): "update_server_twitch_settings", ("POST", "/v1/twitch/presets/save"): "save_twitch_preset",
-    ("POST", "/v1/twitch/presets/delete"): "delete_twitch_preset",
-    ("POST", "/v1/twitch/presets/switch"): "switch_server_twitch_preset",
-    ("POST", "/v1/credentials/replace"): "replace_credential", ("POST", "/v1/credentials/remove"): "remove_credential",
-    ("POST", "/v1/credentials/test"): "test_credential",
-    ("POST", "/v1/twitch/authorization/begin"): "begin_twitch_authorization",
-    ("POST", "/v1/twitch/authorization/complete"): "complete_twitch_authorization",
-    ("POST", "/v1/twitch/authorization/cancel"): "cancel_twitch_authorization",
-    ("POST", "/v1/ai/models/discover"): "discover_ai_models", ("POST", "/v1/bot/start"): "start_bot",
-    ("POST", "/v1/bot/stop"): "stop_bot", ("POST", "/v1/bot/mode"): "set_bot_mode",
-    ("POST", "/v1/filters/save"): "save_filters", ("POST", "/v1/filters/apply"): "apply_filters",
-    ("POST", "/v1/filters/test"): "test_filters", ("POST", "/v1/logs/recent"): "get_recent_logs",
-}
 OPERATIONS_PREFIX = "/v1/ops/"
 SERVER_ONLY = {SERVER}
 
@@ -720,7 +661,7 @@ class ManagementAPI:
         elif path in ("/v1/session", "/v1/session/logout"):
             return None
         else:
-            operation = OPERATIONS.get(COMPAT_PATHS.get((method, path), ""))
+            operation = None
         if operation is None:
             raise LookupError
         return operation
