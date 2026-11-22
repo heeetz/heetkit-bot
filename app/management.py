@@ -84,15 +84,21 @@ class ApplicationManagement:
         except OSError:
             return {"ok": False, "error": "Configuration storage failed. Inspect the private profile and config/import-backups before retrying; restore affected files while stopped if rollback could not finish."}
 
-    @operation(write=True)
+    @operation(write=True,
+               failure="Configuration transfer failed. Inspect current settings and private backups before retrying.",
+               validation_failure="Configuration transfer failed. Inspect current settings and private backups before retrying.")
     async def export_configuration(self) -> dict[str, object]:
         return await self._configuration_action("export")
 
-    @operation(write=True, max_body=TRANSFER_BODY)
+    @operation(write=True, max_body=TRANSFER_BODY,
+               failure="Configuration transfer failed. Inspect current settings and private backups before retrying.",
+               validation_failure="Configuration transfer failed. Inspect current settings and private backups before retrying.")
     async def preview_configuration_import(self, archive_base64: object) -> dict[str, object]:
         return await self._configuration_action("preview", archive_base64)
 
-    @operation(write=True, max_body=TRANSFER_BODY)
+    @operation(write=True, max_body=TRANSFER_BODY,
+               failure="Configuration transfer failed. Inspect current settings and private backups before retrying.",
+               validation_failure="Configuration transfer failed. Inspect current settings and private backups before retrying.")
     async def apply_configuration_import(
         self, archive_base64: object, preview_token: object, confirmed: object,
     ) -> dict[str, object]:
@@ -105,7 +111,9 @@ class ApplicationManagement:
             self._app_settings.update_ai_memory(enabled=enabled)
         self._backend.application.services.runtime_state.set_ai_memory_enabled(enabled)
 
-    @operation(write=True)
+    @operation(write=True,
+               failure="Management operation unavailable. Check profile storage and retry.",
+               validation_failure="Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N).")
     async def _save_ai_memory_limits(self, stored: object, context: object) -> None:
         """Persist and prune count settings on the shared backend loop."""
         if self._app_settings is None:
@@ -122,7 +130,9 @@ class ApplicationManagement:
         return {"ok": True, "stored": settings.ai_history_max_entries,
                 "context": settings.ai_context_max_entries}
 
-    @operation(write=True)
+    @operation(write=True,
+               failure="Management operation unavailable. Check profile storage and retry.",
+               validation_failure="Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N).")
     async def _get_ai_balance(self, provider: str, refresh: bool = False) -> dict[str, object]:
         from app.services.ai_balance import AIBalance
         provider = validate_ai_provider(provider)
@@ -135,7 +145,9 @@ class ApplicationManagement:
         secret = getattr(app.settings, provider + "_api_key", None)
         return await app.ai_balance.get(provider, secret.get_secret_value() if secret else None, refresh=refresh)
 
-    @operation(write=True)
+    @operation(write=True,
+               failure="Management operation unavailable. Check profile storage and retry.",
+               validation_failure="Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N).")
     async def _get_analytics(self, days: int = 7) -> dict[str, object]:
         if type(days) is not int or days not in (1, 7, 30, 60):
             raise ValueError("Select Today, 7, 30 or 60 UTC calendar days.")
@@ -191,12 +203,16 @@ class ApplicationManagement:
                 "providers": [{"name": name, "metrics": values} for name, values in sorted(providers.items())],
                 **{key: snapshot[key] for key in ("metadata", "enabled", "available", "pending", "dropped", "write_failures", "price_checked", "price_basis")}}
 
-    @operation(write=True)
+    @operation(write=True,
+               failure="Management operation unavailable. Check profile storage and retry.",
+               validation_failure="Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N).")
     async def _configure_analytics(self, enabled: bool) -> dict[str, object]:
         await self._backend.application.services.analytics.configure(enabled)
         return {"ok": True}
 
-    @operation(write=True)
+    @operation(write=True,
+               failure="Management operation unavailable. Check profile storage and retry.",
+               validation_failure="Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N).")
     async def _configure_leaderboard_counting(self, enabled: bool) -> dict[str, object]:
         await self._backend.application.services.twitch.leaderboards.configure_counting(enabled)
         return {"ok": True}
@@ -207,7 +223,9 @@ class ApplicationManagement:
         active, _ = twitch.leaderboard_connection() if getattr(twitch, "leaderboards", None) else (None, None)
         return active or verified_user_id(getattr(app.settings, "twitch_channel_user_id", None))
 
-    @operation(write=True)
+    @operation(write=True,
+               failure="Management operation unavailable. Check profile storage and retry.",
+               validation_failure="Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N).")
     async def _get_leaderboards(self):
         leaderboards = self._backend.application.services.twitch.leaderboards
         channel = self._leaderboard_channel()
@@ -220,7 +238,9 @@ class ApplicationManagement:
             return {"ok": False, "error": "The Twitch channel changed. Refresh leaderboards."}
         return {"ok": True, "leaderboards": snapshot}
 
-    @operation(write=True, passthrough_errors=True)
+    @operation(write=True, passthrough_errors=True,
+               failure="Management operation unavailable. Check profile storage and retry.",
+               validation_failure="Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N).")
     async def _save_leaderboard_settings(self, channel_id, exclusions):
         if channel_id != self._leaderboard_channel():
             return {"ok": False, "error": "The Twitch channel changed. Reload its leaderboard settings."}
@@ -230,7 +250,9 @@ class ApplicationManagement:
             return {"ok": False, "error": str(error)}
         return {"ok": True}
 
-    @operation(write=True)
+    @operation(write=True,
+               failure="Management operation unavailable. Check profile storage and retry.",
+               validation_failure="Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N).")
     async def _reset_analytics(self, confirmed: bool) -> dict[str, object]:
         if confirmed is not True:
             raise ValueError("Confirm clearing all profile analytics.")
@@ -278,7 +300,11 @@ class ApplicationManagement:
         except (OSError, ValueError):
             return {"ok": False, "error": "Could not load private restrictions. Check the profile policy file."}
 
-    @operation(write=True, passthrough_errors=True)
+    @operation(write=True, passthrough_errors=True,
+               failure="Could not save the private restriction. Check the profile policy file.",
+               validation_failure="Could not save the private restriction. Check the profile policy file.",
+               timeout_failure="Saving the restriction timed out or was cancelled. Refresh the list before retrying.",
+               cancelled_failure="Saving the restriction timed out or was cancelled. Refresh the list before retrying.")
     async def _save_command_restriction(self, data: object) -> dict[str, object]:
         try:
             fields = {"username", "command_ids", "expires_at", "note"}
@@ -327,7 +353,9 @@ class ApplicationManagement:
             raise ValueError("Could not resolve this login to a verified Twitch user ID. Connect Twitch or wait for this user to chat, then retry. No change was saved.")
         return user_id
 
-    @operation(write=True, passthrough_errors=True)
+    @operation(write=True, passthrough_errors=True,
+               failure="Privacy management could not complete. Refresh the list before retrying.",
+               validation_failure="Privacy management could not complete. Refresh the list before retrying.")
     async def _get_opt_outs(self, query="", offset=0, limit=50) -> dict[str, object]:
         try:
             users, total = await self._backend.application.services.users.list_opt_outs(query, offset, limit)
@@ -339,7 +367,9 @@ class ApplicationManagement:
         except Exception:
             return {"ok": False, "error": "Could not load opt-outs. Check profile storage and retry."}
 
-    @operation(write=True, passthrough_errors=True)
+    @operation(write=True, passthrough_errors=True,
+               failure="Privacy management could not complete. Refresh the list before retrying.",
+               validation_failure="Privacy management could not complete. Refresh the list before retrying.")
     async def _add_opt_out(self, username: object) -> dict[str, object]:
         try:
             username = normalize_ai_username(username)
@@ -353,7 +383,9 @@ class ApplicationManagement:
             return {"ok": False, "error": "Opt-out could not complete. Refresh and retry; inspect private recovery copies before restoring."}
         return await self._get_opt_outs()
 
-    @operation(write=True, passthrough_errors=True)
+    @operation(write=True, passthrough_errors=True,
+               failure="Privacy management could not complete. Refresh the list before retrying.",
+               validation_failure="Privacy management could not complete. Refresh the list before retrying.")
     async def _withdraw_opt_out(self, twitch_user_id: object, confirmed: object) -> dict[str, object]:
         try:
             if confirmed is not True or verified_user_id(twitch_user_id) is None:
@@ -572,12 +604,13 @@ class ApplicationManagement:
             return {"ok": False, "error": "Could not save chat reactions. Check profile storage."}
         return self._trigger_snapshot(saved)
 
-    @operation(write=False)
+    @operation(write=False, failure="Could not read announcement status.")
     async def _get_announcements(self) -> dict[str, object]:
         scheduler = self._backend.application.announcement_scheduler
         return {"ok": True, "announcements": scheduler.snapshot()}
 
-    @operation(write=True, max_body=ANNOUNCEMENTS_BODY)
+    @operation(write=True, max_body=ANNOUNCEMENTS_BODY,
+               failure="Could not save announcements. Reopen Commands to check saved settings.")
     async def _save_announcements(self, announcements: object) -> dict[str, object]:
         application = self._backend.application
         try:
@@ -1165,7 +1198,7 @@ class ApplicationManagement:
                 "default_shared_instructions": SHARED_AI_INSTRUCTIONS,
                 "retained_restrictions": "Local request and full-output checks remain enabled: prompt/secret extraction, sexual or fetish content, abuse of minors or protected traits, self-harm, threats/harassment/private data, restricted real-world political/violent events and illegal-substance instructions may be blocked. Profile filters, language policy, transport limits and provider policies also apply. Editing the shared text does not disable these checks."}
 
-    @operation(write=True, passthrough_errors=True, max_body=AI_SETUP_BODY)
+    @operation(write=True, passthrough_errors=True, max_body=AI_SETUP_BODY, failure="Could not save AI setup. Reload saved state before retrying.")
     async def _save_ai_setup(self, settings: object) -> dict[str, object]:
         try:
             updated = self._app_settings.update_ai_setup(settings)

@@ -13,8 +13,7 @@ import subprocess
 import sys
 import threading
 import webbrowser
-from functools import wraps
-from inspect import signature
+from inspect import isawaitable
 from urllib.parse import urlsplit
 from concurrent.futures import CancelledError as FutureCancelledError, Future, TimeoutError as FutureTimeoutError
 from contextlib import ExitStack
@@ -60,6 +59,7 @@ from app.runtime_paths import (
 )
 from app.system_tray import SystemTray
 from app.ui_messages import annotate_error
+from app.operations import DESKTOP, collect, operation
 from app.services.updates import (
     DOWNLOAD_TIMEOUT_SECONDS, ReleaseAssets, UpdateCheckError, VerifiedUpdate,
     authorize_installer, check_for_updates, download_installer, publisher_key,
@@ -90,43 +90,6 @@ BRIDGE_BOT_START_TIMEOUT_SECONDS = 10.0
 BRIDGE_BOT_STOP_TIMEOUT_SECONDS = 20.0
 BRIDGE_TWITCH_RECONNECT_TIMEOUT_SECONDS = 30.0
 TRAY_REFRESH_INTERVAL_SECONDS = 2.0
-
-# Register functions by exact name; never give pywebview an object to traverse.
-FRONTEND_OPERATIONS = (
-    "get_desktop_startup",
-    "get_interface_language", "set_interface_language",
-    "export_activity",
-    "export_configuration", "preview_configuration_import", "apply_configuration_import",
-    "get_app_status", "get_about_info", "check_for_updates", "get_commands", "get_custom_commands",
-    "prepare_desktop_update", "get_desktop_update_progress", "finish_desktop_update", "restart_desktop",
-    "get_announcements", "save_announcements",
-    "get_message_triggers", "save_message_triggers",
-    "get_analytics", "configure_analytics", "configure_leaderboard_counting", "reset_analytics", "get_ai_balance", "get_leaderboards", "save_leaderboard_settings",
-    "get_ai_memory_limits", "save_ai_memory_limits",
-    "get_filters", "get_ai_status", "get_personalities", "get_recent_logs", "get_recent_commands",
-    "start_ai_playground", "get_ai_playground_result", "cancel_ai_playground",
-    "apply_command_settings", "save_command_settings", "reset_command_settings",
-    "remove_builtin_command", "restore_builtin_command", "save_builtin_enabled", "reset_all_builtin_commands",
-    "apply_command_responses", "save_command_responses", "reset_command_responses",
-    "save_custom_command", "delete_custom_command", "apply_filters", "save_filters", "test_filters",
-    "set_ai_enabled", "set_ai_memory_enabled", "apply_personality", "create_personality",
-    "rename_personality", "delete_personality", "set_active_personality",
-    "save_personality", "reset_personality", "apply_profile_instructions",
-    "save_profile_instructions", "reset_profile_instructions", "get_app_settings",
-    "get_profile_info", "open_profile_folder", "update_app_settings",
-    "get_twitch_settings", "update_twitch_settings", "save_twitch_preset",
-    "delete_twitch_preset", "reconnect_twitch", "get_credentials",
-    "get_ai_provider_settings", "discover_ai_models",
-    "get_ai_setup", "save_ai_setup",
-    "get_setup_guide", "save_setup_guide",
-    "get_blocked_ai_users", "block_ai_user", "unblock_ai_user",
-    "get_command_restrictions", "save_command_restriction", "remove_command_restriction",
-    "get_opt_outs", "add_opt_out", "withdraw_opt_out",
-    "get_ai_language_settings", "update_ai_language_settings",
-    "replace_credential", "remove_credential", "test_credential", "start_bot", "stop_bot",
-    "open_external_link",
-)
-
 
 def application_version() -> str:
     return VERSION
@@ -363,7 +326,7 @@ class AsyncioBackendHost:
                 raise shutdown_error
 
 
-class WebUIBridge(ApplicationManagement):
+class DesktopOperations(ApplicationManagement):
     """Small application-level API exposed to the frontend."""
 
     def __init__(
@@ -389,6 +352,7 @@ class WebUIBridge(ApplicationManagement):
         self._prepared_update: Path | None = None
         self._update_progress: dict[str, object] = {}
 
+    @operation(write=False, hosts=(DESKTOP,))
     def get_desktop_startup(self) -> dict[str, object]:
         if self._relaunch_ready is not None:
             try:
@@ -434,29 +398,7 @@ class WebUIBridge(ApplicationManagement):
             )
             raise BridgeOperationTimedOut(operation) from error
 
-    def get_announcements(self) -> dict[str, object]:
-        try:
-            return self._wait_for_backend(self._get_announcements(), operation="get_announcements",
-                                          timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS)
-        except (OSError, RuntimeError, BridgeOperationTimedOut):
-            return {"ok": False, "error": "Could not read announcement status."}
-
-    def save_announcements(self, announcements: object) -> dict[str, object]:
-        try:
-            return self._wait_for_backend(self._save_announcements(announcements), operation="save_announcements",
-                                          timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS)
-        except (OSError, RuntimeError, BridgeOperationTimedOut):
-            return {"ok": False, "error": "Could not save announcements. Reopen Commands to check saved settings."}
-
-    def _configuration_bridge_action(self, action: str, *arguments) -> dict[str, object]:
-        try:
-            return self._wait_for_backend(
-                self._configuration_action(action, *arguments),
-                operation="configuration transfer", timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
-            )
-        except (OSError, RuntimeError, BridgeOperationTimedOut):
-            return {"ok": False, "error": "Configuration transfer failed. Inspect current settings and private backups before retrying."}
-
+    @operation(write=True, hosts=(DESKTOP,), failure="Configuration transfer failed. Inspect current settings and private backups before retrying.")
     def export_configuration(self) -> dict[str, object]:
         # pywebview deliberately disables browser downloads. Use a native Save
         # dialog for this explicit action instead of enabling arbitrary downloads.
@@ -464,7 +406,10 @@ class WebUIBridge(ApplicationManagement):
         import webview
         from app.configuration_transfer import ConfigurationTransfer
 
-        result = self._configuration_bridge_action("export")
+        result = self._wait_for_backend(
+            ApplicationManagement.export_configuration(self), operation="configuration transfer",
+            timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
+        )
         if not result.get("ok"):
             return result
         if self._window is None:
@@ -489,14 +434,6 @@ class WebUIBridge(ApplicationManagement):
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
 
-    def preview_configuration_import(self, archive_base64: object) -> dict[str, object]:
-        return self._configuration_bridge_action("preview", archive_base64)
-
-    def apply_configuration_import(
-        self, archive_base64: object, preview_token: object, confirmed: object,
-    ) -> dict[str, object]:
-        return self._configuration_bridge_action("apply", archive_base64, preview_token, confirmed)
-
     def _observe_late_backend_result(
         self,
         operation: str,
@@ -520,6 +457,7 @@ class WebUIBridge(ApplicationManagement):
             )
 
 
+    @operation(write=True, hosts=(DESKTOP,))
     def block_ai_user(self, username: object) -> dict[str, object]:
         try:
             self._wait_for_backend(
@@ -541,35 +479,11 @@ class WebUIBridge(ApplicationManagement):
             return {"ok": False, "error": "Could not save AI user block. Check the profile file and try again."}
         return self.get_blocked_ai_users()
 
-    def save_command_restriction(self, data: object) -> dict[str, object]:
-        try:
-            return self._wait_for_backend(self._save_command_restriction(data),
-                operation="save_command_restriction", timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS)
-        except (BridgeOperationTimedOut, FutureCancelledError):
-            return {"ok": False, "error": "Saving the restriction timed out or was cancelled. Refresh the list before retrying."}
-        except (ValueError, OSError, RuntimeError):
-            return {"ok": False, "error": "Could not save the private restriction. Check the profile policy file."}
-
-    def _privacy_operation(self, operation, *args):
-        try:
-            return self._wait_for_backend(operation(*args), operation="privacy_management",
-                                          timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS)
-        except (BridgeOperationTimedOut, FutureCancelledError, ValueError, OSError, RuntimeError):
-            return {"ok": False, "error": "Privacy management could not complete. Refresh the list before retrying."}
-
-    def get_opt_outs(self, query="", offset=0, limit=50):
-        return self._privacy_operation(self._get_opt_outs, query, offset, limit)
-
-    def add_opt_out(self, username):
-        return self._privacy_operation(self._add_opt_out, username)
-
-    def withdraw_opt_out(self, twitch_user_id, confirmed):
-        return self._privacy_operation(self._withdraw_opt_out, twitch_user_id, confirmed)
-
-
+    @operation(write=False, hosts=(DESKTOP,))
     def get_profile_info(self) -> dict[str, str]:
         return {"path": str(self._profile_root)}
 
+    @operation(write=False, hosts=(DESKTOP,))
     def check_for_updates(self) -> dict[str, object]:
         if not self._desktop_operation.acquire(blocking=False):
             return {"ok": False, "current_version": application_version(), "error": "A Desktop update is already in progress."}
@@ -627,9 +541,11 @@ class WebUIBridge(ApplicationManagement):
             self._prepared_update = None
         self._update_progress = {}
 
+    @operation(write=False, hosts=(DESKTOP,))
     def get_desktop_update_progress(self) -> dict[str, object]:
         return self._update_progress
 
+    @operation(write=True, hosts=(DESKTOP,))
     def prepare_desktop_update(self, version: object) -> dict[str, object]:
         if not self._desktop_operation.acquire(blocking=False):
             return {"ok": False, "error": "A Desktop update or restart is already in progress."}
@@ -666,9 +582,11 @@ class WebUIBridge(ApplicationManagement):
                 self._update_progress = {}
             self._desktop_operation.release()
 
+    @operation(write=True, hosts=(DESKTOP,))
     def finish_desktop_update(self, version: object) -> dict[str, object]:
         return self._schedule_desktop_relaunch(version, update_requested=True)
 
+    @operation(write=True, hosts=(DESKTOP,))
     def restart_desktop(self) -> dict[str, object]:
         return self._schedule_desktop_relaunch()
 
@@ -703,6 +621,7 @@ class WebUIBridge(ApplicationManagement):
         finally:
             self._desktop_operation.release()
 
+    @operation(write=True, hosts=(DESKTOP,))
     def open_profile_folder(self) -> dict[str, object]:
         """Open only this desktop's selected profile, never a frontend-supplied path."""
         try:
@@ -723,6 +642,7 @@ class WebUIBridge(ApplicationManagement):
             return {"ok": False, "error": "Could not open the profile folder in the system file manager."}
         return {"ok": True}
 
+    @operation(write=True, hosts=(DESKTOP,))
     def open_external_link(self, destination: object) -> dict[str, object]:
         if not isinstance(destination, str) or destination not in (*EXTERNAL_LINKS, "twitch_authorization"):
             return {"ok": False, "error": "That external link is not available."}
@@ -790,13 +710,16 @@ class WebUIBridge(ApplicationManagement):
         self._logger.info("Global filters %s", "saved" if save else "applied")
         return {"ok": True}
 
+    @operation(write=True, hosts=(DESKTOP,))
     def apply_filters(self, payload: object) -> dict[str, object]:
         return self._filter_action(payload, save=False)
 
+    @operation(write=True, hosts=(DESKTOP,))
     def save_filters(self, payload: object) -> dict[str, object]:
         return self._filter_action(payload, save=True)
 
 
+    @operation(write=True, hosts=(DESKTOP,))
     def test_filters(
         self, text: object, source: object, payload: object = None
     ) -> dict[str, object]:
@@ -818,64 +741,22 @@ class WebUIBridge(ApplicationManagement):
             return {"ok": False, "error": "Filter test timed out. Try again."}
 
 
-    def _playground_operation(
-        self, coroutine: Coroutine[Any, Any, dict[str, object]], operation: str,
-    ) -> dict[str, object]:
-        try:
-            return self._wait_for_backend(
-                coroutine, operation=operation, timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
-            )
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
-        except BridgeOperationTimedOut:
-            return {"ok": False, "error": "Playground control timed out. Try again."}
-        except Exception as error:
-            self._logger.warning("Playground control failed error_type=%s", type(error).__name__)
-            return {"ok": False, "error": "The Playground is unavailable. Try again."}
+    @operation(write=True, hosts=(DESKTOP,), failure="The Playground is unavailable. Try again.",
+               timeout_failure="Playground control timed out. Try again.")
+    async def start_ai_playground(self, prompt: object) -> dict[str, object]:
+        return self._backend.application.ai_playground.start(prompt)
 
-    def start_ai_playground(self, prompt: object) -> dict[str, object]:
-        return self._playground_operation(self._start_ai_playground(prompt), "start_ai_playground")
+    @operation(write=True, hosts=(DESKTOP,), failure="The Playground is unavailable. Try again.",
+               timeout_failure="Playground control timed out. Try again.")
+    async def get_ai_playground_result(self, request_id: object) -> dict[str, object]:
+        return self._backend.application.ai_playground.get(request_id)
 
-    def get_ai_playground_result(self, request_id: object) -> dict[str, object]:
-        return self._playground_operation(self._get_ai_playground_result(request_id), "get_ai_playground_result")
+    @operation(write=True, hosts=(DESKTOP,), failure="The Playground is unavailable. Try again.",
+               timeout_failure="Playground control timed out. Try again.")
+    async def cancel_ai_playground(self, request_id: object) -> dict[str, object]:
+        return self._backend.application.ai_playground.cancel(request_id)
 
-    def cancel_ai_playground(self, request_id: object) -> dict[str, object]:
-        return self._playground_operation(self._cancel_ai_playground(request_id), "cancel_ai_playground")
-
-    def _analytics_operation(self, coroutine, operation: str) -> dict[str, object]:
-        try:
-            result = self._wait_for_backend(coroutine, operation=operation,
-                                            timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS)
-            return result if isinstance(result, dict) else {"ok": True}
-        except ValueError:
-            return {"ok": False, "error": "Check the selected window, confirmation or memory limits (N 1–500, M 1–50, M ≤ N)."}
-        except Exception:
-            return {"ok": False, "error": "Management operation unavailable. Check profile storage and retry."}
-
-    def get_analytics(self, days: int = 7) -> dict[str, object]:
-        return self._analytics_operation(self._get_analytics(days), "get_analytics")
-
-    def get_leaderboards(self) -> dict[str, object]:
-        return self._analytics_operation(self._get_leaderboards(), "get_leaderboards")
-
-    def save_leaderboard_settings(self, channel_id, exclusions) -> dict[str, object]:
-        return self._analytics_operation(self._save_leaderboard_settings(channel_id, exclusions), "save_leaderboard_settings")
-
-    def configure_analytics(self, enabled: bool) -> dict[str, object]:
-        return self._analytics_operation(self._configure_analytics(enabled), "configure_analytics")
-
-    def configure_leaderboard_counting(self, enabled: bool) -> dict[str, object]:
-        return self._analytics_operation(self._configure_leaderboard_counting(enabled), "configure_leaderboard_counting")
-
-    def reset_analytics(self, confirmed: bool) -> dict[str, object]:
-        return self._analytics_operation(self._reset_analytics(confirmed), "reset_analytics")
-
-    def get_ai_balance(self, provider: str, refresh: bool = False) -> dict[str, object]:
-        return self._analytics_operation(self._get_ai_balance(provider, refresh), "get_ai_balance")
-
-    def save_ai_memory_limits(self, stored: object, context: object) -> dict[str, object]:
-        return self._analytics_operation(self._save_ai_memory_limits(stored, context), "save_ai_memory_limits")
-
+    @operation(write=True, hosts=(DESKTOP,))
     def set_ai_memory_enabled(self, enabled: object) -> dict[str, object]:
         try:
             parsed_enabled = self._validate_toggle(enabled)
@@ -909,11 +790,13 @@ class WebUIBridge(ApplicationManagement):
         return {"ok": True}
 
 
+    @operation(write=False, hosts=(DESKTOP,))
     def get_interface_language(self) -> dict[str, object]:
         if self._app_settings is None:
             return {"ok": True, "language": DEFAULT_INTERFACE_LANGUAGE}
         return {"ok": True, "language": self._app_settings.snapshot().interface.language}
 
+    @operation(write=True, hosts=(DESKTOP,))
     def set_interface_language(self, language: object) -> dict[str, object]:
         if self._app_settings is None:
             return {"ok": False, "error": "Desktop settings are not configured."}
@@ -928,6 +811,7 @@ class WebUIBridge(ApplicationManagement):
             refresh()
         return {"ok": True}
 
+    @operation(write=False, hosts=(DESKTOP,))
     def get_app_settings(self) -> dict[str, object]:
         if self._app_settings is None:
             return {"ok": False, "error": "Desktop settings are not configured."}
@@ -943,6 +827,7 @@ class WebUIBridge(ApplicationManagement):
             },
         }
 
+    @operation(write=True, hosts=(DESKTOP,))
     def update_app_settings(
         self,
         start_minimized: object,
@@ -973,6 +858,7 @@ class WebUIBridge(ApplicationManagement):
         )
         return {"ok": True}
 
+    @operation(write=False, hosts=(DESKTOP,))
     def get_twitch_settings(self) -> dict[str, object]:
         if self._app_settings is None:
             return {"ok": False, "error": "Desktop settings are not configured."}
@@ -1043,6 +929,7 @@ class WebUIBridge(ApplicationManagement):
             },
         }
 
+    @operation(write=True, hosts=(DESKTOP,))
     def update_twitch_settings(
         self,
         target_channel: object,
@@ -1100,6 +987,7 @@ class WebUIBridge(ApplicationManagement):
     def _twitch_cleanup_requires_restart(self) -> bool:
         return getattr(getattr(self._backend, "bot_runtime", None), "twitch_restart_required", False) is True
 
+    @operation(write=True, hosts=(DESKTOP,))
     def save_twitch_preset(
         self,
         preset_id: object,
@@ -1141,6 +1029,7 @@ class WebUIBridge(ApplicationManagement):
             "requires_reconnect": requires_reconnect,
         }
 
+    @operation(write=True, hosts=(DESKTOP,))
     def delete_twitch_preset(self, preset_id: object) -> dict[str, object]:
         if self._app_settings is None:
             return {"ok": False, "error": "Desktop settings are not configured."}
@@ -1160,6 +1049,7 @@ class WebUIBridge(ApplicationManagement):
         )
         return {"ok": True}
 
+    @operation(write=True, hosts=(DESKTOP,))
     def reconnect_twitch(self) -> dict[str, object]:
         if self._app_settings is None:
             return {"ok": False, "error": "Desktop settings are not configured."}
@@ -1202,6 +1092,7 @@ class WebUIBridge(ApplicationManagement):
         return {"ok": True, "changed": reconnected}
 
 
+    @operation(write=True, hosts=(DESKTOP,))
     def update_ai_language_settings(
         self, mode: object, allowed_languages: object, fallback_language: object,
     ) -> dict[str, object]:
@@ -1226,15 +1117,7 @@ class WebUIBridge(ApplicationManagement):
         return {"ok": True}
 
 
-    def save_ai_setup(self, settings: object) -> dict[str, object]:
-        try:
-            return self._wait_for_backend(self._save_ai_setup(settings), operation="save_ai_setup",
-                                          timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS)
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
-        except Exception:
-            return {"ok": False, "error": "Could not save AI setup. Reload saved state before retrying."}
-
+    @operation(write=True, hosts=(DESKTOP,))
     def discover_ai_models(self, provider: object = None) -> dict[str, object]:
         from app.config.ai_models import validate_ai_provider
         from app.services.ai_provider import AIModelDiscoveryError
@@ -1264,6 +1147,7 @@ class WebUIBridge(ApplicationManagement):
             return {"ok": False, "error": "Could not discover AI models."}
         return {"ok": True, "models": models, "provider_id": selected}
 
+    @operation(write=False, hosts=(DESKTOP,))
     def get_credentials(self) -> dict[str, object]:
         if self._credential_manager is None:
             return {"ok": False, "error": "Credential storage is not configured."}
@@ -1290,6 +1174,7 @@ class WebUIBridge(ApplicationManagement):
         )
         return {}
 
+    @operation(write=True, hosts=(DESKTOP,))
     def replace_credential(self, name: object, value: object) -> dict[str, object]:
         if self._credential_manager is None:
             return {"ok": False, "error": "Credential storage is not configured."}
@@ -1320,6 +1205,7 @@ class WebUIBridge(ApplicationManagement):
         )
         return {"ok": True, **outcome}
 
+    @operation(write=True, hosts=(DESKTOP,))
     def remove_credential(self, name: object) -> dict[str, object]:
         if self._credential_manager is None:
             return {"ok": False, "error": "Credential storage is not configured."}
@@ -1351,6 +1237,7 @@ class WebUIBridge(ApplicationManagement):
             )
         return {"ok": True, "changed": removed, **outcome}
 
+    @operation(write=True, hosts=(DESKTOP,))
     def test_credential(self, name: object) -> dict[str, object]:
         if self._credential_manager is None:
             return {"ok": False, "error": "Credential storage is not configured."}
@@ -1397,15 +1284,18 @@ class WebUIBridge(ApplicationManagement):
         )
         return {"ok": True}
 
+    @operation(write=False, hosts=(DESKTOP,))
     def get_recent_logs(self, after_id: int = 0, limit: int = 200, snapshot: bool = False) -> dict[str, object]:
         safe_after_id = after_id if type(after_id) is int and after_id >= 0 else 0
         safe_limit = limit if type(limit) is int else 200
         safe_limit = min(200, max(1, safe_limit))
         return self._log_buffer.activity(after_id=safe_after_id, limit=safe_limit, snapshot=snapshot is True and safe_after_id == 0)
 
+    @operation(write=False, hosts=(DESKTOP,))
     def get_recent_commands(self) -> dict[str, object]:
         return {"ok": True, "entries": self._log_buffer.recent_commands()}
 
+    @operation(write=True, hosts=(DESKTOP,))
     def export_activity(self, entry_ids: object) -> dict[str, object]:
         """Save only retained events selected by the confirmed view, via a native dialog."""
         import json
@@ -1442,6 +1332,7 @@ class WebUIBridge(ApplicationManagement):
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
 
+    @operation(write=True, hosts=(DESKTOP,))
     def start_bot(self) -> dict[str, object]:
         if self._app_settings is not None and self._twitch_setup_requires_restart(
             self._app_settings.snapshot().twitch
@@ -1476,6 +1367,7 @@ class WebUIBridge(ApplicationManagement):
         self._backend.run_intent = True
         return {"ok": True, "changed": started}
 
+    @operation(write=True, hosts=(DESKTOP,))
     def stop_bot(self) -> dict[str, object]:
         try:
             stopped = self._wait_for_backend(
@@ -1503,6 +1395,38 @@ class WebUIBridge(ApplicationManagement):
         )
         self._backend.run_intent = False
         return {"ok": True, "changed": stopped}
+
+
+class WebUIBridge(DesktopOperations):
+    """Validate and execute the Desktop registry through one pywebview entry point."""
+
+    def call(self, name: str, payload: object) -> dict[str, object]:
+        operation = DESKTOP_OPERATIONS.get(name) if isinstance(name, str) else None
+        if operation is None:
+            return {"ok": False, "error": "Unknown operation."}
+        try:
+            arguments = operation.bind(payload)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        try:
+            method = getattr(self, operation.attribute)
+            result = method(**arguments)
+            if isawaitable(result):
+                result = self._wait_for_backend(result, operation=name, timeout=operation.timeout)
+            return result if isinstance(result, dict) else {"ok": True}
+        except BridgeOperationTimedOut:
+            return {"ok": False, "error": operation.timeout_failure or operation.failure or "Management operation unavailable. Check profile storage and retry."}
+        except FutureCancelledError:
+            return {"ok": False, "error": operation.cancelled_failure or operation.failure or "Management operation unavailable. Check profile storage and retry."}
+        except ValueError as error:
+            return {"ok": False, "error": operation.validation_failure or str(error)}
+        except Exception:
+            self._logger.exception("Desktop operation failed operation=%s", name)
+            return {"ok": False, "error": operation.failure or "Management operation unavailable. Check profile storage and retry."}
+
+
+DESKTOP_OPERATIONS = {name: op for name, op in collect(ApplicationManagement, DesktopOperations).items()
+                      if DESKTOP in op.hosts}
 
 
 def resolve_frontend_url(dev_url: str | None) -> str:
@@ -1545,19 +1469,12 @@ def expose_frontend_operations(window: Any, bridge: WebUIBridge) -> None:
 
     window.events.initialized += pin_origin
 
-    def guarded(name: str) -> Any:
-        operation = getattr(bridge, name)
-        @wraps(operation)
-        def call(*args: Any, **kwargs: Any) -> Any:
-            if trusted_origin is None or _frontend_origin(window.get_current_url()) != trusted_origin:
-                return {"ok": False, "error": "This page cannot access the application bridge."}
-            return annotate_error(operation(*args, **kwargs))
+    def call(name: str, payload: object) -> Any:
+        if trusted_origin is None or _frontend_origin(window.get_current_url()) != trusted_origin:
+            return {"ok": False, "error": "This page cannot access the application bridge."}
+        return annotate_error(bridge.call(name, payload))
 
-        call.__signature__ = signature(operation)
-        call.__name__ = name
-        return call
-
-    window.expose(*(guarded(name) for name in FRONTEND_OPERATIONS))
+    window.expose(call)
 
 
 def resolve_auto_start(app_settings: AppSettings, override: bool | None) -> bool:

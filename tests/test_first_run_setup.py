@@ -72,10 +72,10 @@ def test_clean_profile_setup_restart_and_start_without_checkout_data(tmp_path, m
         assert settings.twitch_bot_username == ""
         assert bridge.replace_credential("twitch_client_secret", "synthetic-secret")["ok"]
         assert bridge.replace_credential("gemini_api_key", "synthetic-gemini")["ok"]
-        assert bridge.save_ai_setup({
+        assert bridge.call("save_ai_setup", {"settings": {
             "primary": {"provider": "gemini", "model": "gemini-ui-selected", "thinking": "default", "search": False},
             "fallback": {"provider": "gemini", "model": "gemini-ui-fallback", "thinking": "default", "search": False},
-        })["ok"]
+        }})["ok"]
         assert backend.application.settings.gemini_api_key.get_secret_value() == "synthetic-gemini"
     finally:
         backend.close()

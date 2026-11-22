@@ -17,7 +17,7 @@ from app.config.settings import Settings
 from app.runtime_paths import RuntimePaths
 from app.runtime_state import RuntimeState
 from app.services.ai_service import SharedAIService
-from app.webview_host import FRONTEND_OPERATIONS, WebUIBridge, apply_ai_app_settings
+from app.webview_host import DESKTOP_OPERATIONS, WebUIBridge, apply_ai_app_settings
 
 
 LIMITED = ResponseLanguageSettings("limited", ("en", "uk", "ru"), "en")
@@ -201,7 +201,7 @@ def test_bridge_saves_and_applies_language_and_discloses_same_protected_policy(t
     initial = bridge.get_ai_language_settings()
     assert initial["settings"]["mode"] == "auto"
     assert {item["code"] for item in initial["languages"]} == set(RESPONSE_LANGUAGES)
-    assert {"get_ai_language_settings", "update_ai_language_settings"} <= set(FRONTEND_OPERATIONS)
+    assert {"get_ai_language_settings", "update_ai_language_settings"} <= set(DESKTOP_OPERATIONS)
     state.apply_profile_instructions("Respond only in Spanish.")
     assert bridge.update_ai_language_settings("limited", ["en", "uk", "ru"], "en") == {"ok": True}
     assert settings.ai_response_language == store.snapshot().ai.response_language == LIMITED

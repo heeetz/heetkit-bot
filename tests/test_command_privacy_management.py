@@ -14,7 +14,7 @@ from app.database.database import Database
 from app.database.models import PrivacyOptOut
 from app.database.repository import AIMemoryRepository, UserRepository
 from app.management import ApplicationManagement
-from app.webview_host import FRONTEND_OPERATIONS, WebUIBridge
+from app.webview_host import DESKTOP_OPERATIONS, WebUIBridge
 
 
 def rule(**changes):
@@ -153,12 +153,12 @@ async def test_native_bridge_uses_same_privacy_operations_and_allowlist(privacy_
         calls.append(coroutine)
         return {"pending": coroutine}
     bridge._wait_for_backend = complete
-    assert {"get_opt_outs", "add_opt_out", "withdraw_opt_out"} <= set(FRONTEND_OPERATIONS)
-    result = bridge.add_opt_out("viewer")
+    assert {"get_opt_outs", "add_opt_out", "withdraw_opt_out"} <= set(DESKTOP_OPERATIONS)
+    result = bridge.call("add_opt_out", {"username": "viewer"})
     assert (await result["pending"])["ok"]
-    result = bridge.get_opt_outs("view", 0, 1)
+    result = bridge.call("get_opt_outs", {"query": "view", "offset": 0, "limit": 1})
     assert (await result["pending"])["total"] == 1
-    result = bridge.withdraw_opt_out("123", False)
+    result = bridge.call("withdraw_opt_out", {"twitch_user_id": "123", "confirmed": False})
     assert not (await result["pending"])["ok"]
-    result = bridge.withdraw_opt_out("123", True)
+    result = bridge.call("withdraw_opt_out", {"twitch_user_id": "123", "confirmed": True})
     assert (await result["pending"])["total"] == 0

@@ -194,10 +194,10 @@ try:
     assert bridge.get_twitch_settings()["settings"]["client_id"] == ""
     assert bridge.update_twitch_settings("target", "200", None, "client-id", "bot", "100")["ok"]
     assert bridge.get_twitch_settings()["settings"]["requires_restart"]
-    assert bridge.save_ai_setup({
+    assert bridge.call("save_ai_setup", {"settings": {
         "primary": {"provider": "gemini", "model": "gemini-installed", "thinking": "default", "search": False},
         "fallback": {"provider": "gemini", "model": "gemini-installed-fallback", "thinking": "default", "search": False},
-    })["ok"]
+    }})["ok"]
 finally:
     backend.close()
 saved = AppSettingsStore(paths.app_settings).snapshot()

@@ -28,6 +28,11 @@ class Operation:
     max_body: int
     # Server returns a failed result's own fields only for these; others get a generic text.
     passthrough_errors: bool
+    failure: str | None
+    timeout: float
+    timeout_failure: str | None
+    validation_failure: str | None
+    cancelled_failure: str | None
     arguments: type[BaseModel]
 
     def bind(self, payload: object) -> dict[str, Any]:
@@ -42,11 +47,16 @@ class Operation:
 
 
 def operation(name: str | None = None, *, write: bool, hosts: Iterable[str] = BOTH,
-              max_body: int = MAX_BODY, passthrough_errors: bool = False) -> Callable:
+              max_body: int = MAX_BODY, passthrough_errors: bool = False,
+              failure: str | None = None, timeout: float = 10.0,
+              timeout_failure: str | None = None, validation_failure: str | None = None,
+              cancelled_failure: str | None = None) -> Callable:
     def decorate(function: Callable) -> Callable:
         function.__operation__ = {
             "name": name or function.__name__.lstrip("_"), "write": write, "hosts": frozenset(hosts),
             "max_body": max_body, "passthrough_errors": passthrough_errors,
+            "failure": failure, "timeout": timeout, "timeout_failure": timeout_failure,
+            "validation_failure": validation_failure, "cancelled_failure": cancelled_failure,
         }
         return function
     return decorate
