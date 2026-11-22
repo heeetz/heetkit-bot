@@ -92,7 +92,7 @@ class Sandbox:
         register_fun_commands(registry, FunSettingsStore(path / 'fun.json'))
         self.state.configure_commands(registry.definitions())
         self.custom = CustomCommandStore(path / 'custom.json', {d.name for d in registry.definitions()})
-        for name, mode in [('single', 'single'), ('yt', 'burst')]:
+        for name, mode in [('single', 'single'), ('tg', 'burst'), ('yt', 'burst')]:
             raw = dict(name=name, enabled=True, responses=['Synthetic reply'], permission='MODERATOR',
                        aliases=[], per_user_seconds=0, global_seconds=0, response_mode=mode)
             if mode == 'burst':

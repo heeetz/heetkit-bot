@@ -84,7 +84,7 @@ the `!ask` permissions, availability and cooldowns under **Commands**. Check
 if only some prompts or users fail. **Logs** can distinguish generation from
 delivery. Missing usage in a log or result means the usage is unknown.
 
-## Conversation memory and account balance
+## Conversation memory
 
 Let HeetKit use earlier answers for a viewer in the same channel. You need AI
 chat configured. One pair is a question and its successfully delivered answer.
@@ -106,11 +106,6 @@ account and channel. Leave enough time for the command cooldown.
 Turning memory off stops new storage and use. Existing pairs remain subject to
 the count limit and 60-day expiry. See [AI processing and memory](data-and-privacy.md#ai-processing-and-memory)
 and [viewer opt-outs](data-and-privacy.md#privacy-notice-for-viewers).
-
-To check DeepSeek credit, open **Analytics** and select **Refresh** on
-**Provider balance**. HeetKit caches the account balance for at least 60 seconds.
-It shows stale or unavailable data on failure. Gemini and OpenAI balance is
-unavailable in HeetKit. Channel usage estimates are separate from account balance.
 
 ## Thinking, search and fallback boundaries
 

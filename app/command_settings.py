@@ -15,7 +15,7 @@ from app.settings_models import (SettingsModel, CommandName, StreamAvailability,
     EntryLimit, NonNegativeSeconds, ControlFree, PermissionName, field_value, parse)
 
 from app.errors import UserError
-from app.config.commands import BURST_HARD_MAX_COUNT, TG_DEFAULT_MAX_COUNT
+from app.config.commands import BURST_HARD_MAX_COUNT, BURST_DEFAULT_MAX_COUNT
 from app.twitch.permissions import Permission
 from app.settings_recovery import preserve_settings_recovery
 from app.utils.cooldown import CooldownPolicy
@@ -106,7 +106,7 @@ class CommandSettings:
     display_name: str = ""
     removed: bool = False
     burst_interval_ms: int = 0
-    burst_max_count: int = TG_DEFAULT_MAX_COUNT
+    burst_max_count: int = BURST_DEFAULT_MAX_COUNT
     stream_availability: str = "anytime"
     primary_name: str = ""
     send_as: str | None = None

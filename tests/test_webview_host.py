@@ -148,7 +148,7 @@ def test_analytics_and_memory_desktop_adapters_share_backend_operations(tmp_path
     twitch = SimpleNamespace(chat_connected=False, leaderboard_connection=lambda: (None, None))
     twitch.leaderboards = Leaderboards(UserRepository(database.session_factory), twitch, settings)
 
-    app = SimpleNamespace(settings=settings, ai_balance=None,
+    app = SimpleNamespace(settings=settings,
         registry=SimpleNamespace(definitions=lambda: [SimpleNamespace(name="ping")]),
         custom_commands=SimpleNamespace(list=lambda: []),
         database=SimpleNamespace(configure_memory_limits=configure), services=SimpleNamespace(
@@ -157,7 +157,7 @@ def test_analytics_and_memory_desktop_adapters_share_backend_operations(tmp_path
             analytics=collector, users=SimpleNamespace(retained_count=AsyncMock(return_value=9)),
             twitch=twitch))
     bridge = WebUIBridge(SimpleNamespace(application=app, submit=complete_bridge_coroutine), app_settings=store)
-    assert {"get_analytics", "configure_analytics", "configure_leaderboard_counting", "reset_analytics", "get_ai_balance", "get_ai_memory_limits", "save_ai_memory_limits"} <= set(DESKTOP_OPERATIONS)
+    assert {"get_analytics", "configure_analytics", "configure_leaderboard_counting", "reset_analytics", "get_ai_memory_limits", "save_ai_memory_limits"} <= set(DESKTOP_OPERATIONS)
     asyncio.run(asyncio.to_thread(collector._initialize))
     asyncio.run(database.initialize())
     try:
@@ -182,8 +182,6 @@ def test_analytics_and_memory_desktop_adapters_share_backend_operations(tmp_path
         assert bridge.call("configure_leaderboard_counting", {"enabled": "false"})["ok"] is False
         assert not bridge.call("reset_analytics", {"confirmed": False})["ok"]
         assert bridge.call("reset_analytics", {"confirmed": True})["ok"]
-        assert bridge.call("get_ai_balance", {"provider": "gemini"})["state"] == "unavailable"
-        assert bridge.call("get_ai_balance", {"provider": "deepseek"})["state"] == "unavailable"
     finally:
         asyncio.run(database.close())
         asyncio.run(collector.close())
@@ -1185,7 +1183,7 @@ def test_bridge_gets_commands_from_registry_and_effective_runtime_settings() -> 
                 "name": "erase",
                 "primary_name": "erase",
                 "aliases": ["forget"],
-                "display_name": "", "removed": False, "burst_interval_ms": 0, "burst_max_count": 10,
+                "display_name": "", "removed": False,
                 "minimum_permission": "BROADCASTER", "identity_editable": False,
                 "supports_send_as": False, "default_send_as": "chat", "send_as": None,
                 "description": "Delete a viewer’s AI memory for this channel.",
@@ -1204,7 +1202,7 @@ def test_bridge_gets_commands_from_registry_and_effective_runtime_settings() -> 
                     "enabled": False,
                     "primary_name": "erase",
                     "permission": "BROADCASTER",
-                    "aliases": ["forget"], "display_name": "", "removed": False, "burst_interval_ms": 0, "burst_max_count": 10,
+                    "aliases": ["forget"], "display_name": "", "removed": False,
                     "cooldown": {
                         "per_user_seconds": 3.0,
                         "global_seconds": 5.0,

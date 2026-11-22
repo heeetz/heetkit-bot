@@ -188,14 +188,7 @@ class RuntimeState:
             settings = replace(settings, permission=minimum)
         if settings.removed:
             settings = replace(settings, enabled=False)
-        if name != "tg" and settings.burst_interval_ms:
-            if not loading:
-                raise UserError("runtime_state.only_tg_supports_built_burst_interval")
-            settings = replace(settings, burst_interval_ms=0)
-        if name != "tg" and settings.burst_max_count != defaults.burst_max_count:
-            if not loading:
-                raise UserError("runtime_state.only_tg_supports_built_burst_maximum")
-            settings = replace(settings, burst_max_count=defaults.burst_max_count)
+        settings = replace(settings, burst_interval_ms=0, burst_max_count=defaults.burst_max_count)
         if settings.send_as is not None and not getattr(definition, "supports_send_as", True):
             if not loading:
                 raise UserError("runtime_state.command_uses_fixed_delivery_mode")

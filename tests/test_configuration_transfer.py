@@ -78,6 +78,21 @@ async def test_import_published_commands_entry_merges_into_help(profiles):
     assert saved["help"]["aliases"] == list(settings.aliases)
 
 
+async def test_import_legacy_community_command_as_custom_burst(profiles):
+    source, target = profiles("legacy-community"), profiles("destination-community")
+    payload, _, _ = unpack_configuration(source.export()["archive_base64"])
+    payload["commands"]["tg"] = {**payload["commands"]["ping"], "primary_name": "tg",
+        "aliases": ["community"], "burst_interval_ms": 200, "burst_max_count": 20}
+    payload["responses"]["tg"] = ["Community {sender}"]
+    encoded = pack_configuration(payload)
+    target.apply(encoded, target.preview(encoded)["preview_token"], True)
+    command = target.custom.get_by_name("community")
+    assert (command.name, command.response_mode, command.burst_max_count, command.burst_interval_ms) == ("tg", "burst", 20, 200)
+    assert command.responses == ("Community {{sender}}",)
+    assert "tg" not in target.snapshot()["commands"]
+    assert "tg" not in target.snapshot()["responses"]
+
+
 async def test_openai_transfer_retains_options_clears_consent_excludes_keys_and_rolls_back(profiles, monkeypatch):
     from dataclasses import asdict
     from pydantic import SecretStr
@@ -190,7 +205,6 @@ def seed(transfer):
                           "permission": "USER", "per_user_seconds": 2, "global_seconds": 1,
                           "aliases": ["greeting"]})
     transfer.fun.apply(["Portable fate"], "fate")
-    transfer.fun.apply(["Portable Tg"], "tg")
     transfer.blocks.block("blocked_viewer", "12345")
     transfer.triggers.save([{"id": "hello", "enabled": True, "match_mode": "exact", "text": "hello",
                             "case_sensitive": False, "probability": 1, "cooldown_seconds": 5,

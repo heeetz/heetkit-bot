@@ -136,8 +136,7 @@ async def test_analytics_private_scoped_windows_controls_and_memory_limits(api):
     collector = app.services.analytics
     for path, payload in (("/v1/ops/get_analytics", {"days": 7}), ("/v1/ops/configure_analytics", {"enabled": False}),
                           ("/v1/ops/configure_leaderboard_counting", {"enabled": False}),
-                          ("/v1/ops/reset_analytics", {"confirmed": True}), ("/v1/ops/save_ai_memory_limits", {"stored": 10, "context": 2}),
-                          ("/v1/ops/get_ai_balance", {"provider": "deepseek", "refresh": True})):
+                          ("/v1/ops/reset_analytics", {"confirmed": True}), ("/v1/ops/save_ai_memory_limits", {"stored": 10, "context": 2})):
         assert (await call("POST", path, json=payload, headers={"Authorization": ""}))[0] == 401
         assert (await call("POST", path, json=payload, headers={"Origin": "https://evil.test"}))[0] == 403
     assert (await call("POST", "/v1/ops/get_ai_memory_limits", headers={"Authorization": ""}))[0] == 401
@@ -275,21 +274,6 @@ async def test_analytics_inventory_refresh_disabled_aliases_range_and_popularity
     assert all(row["metrics"] == {} for row in result["commands"])
 
 
-async def test_balance_shared_service_secure_key_and_mocked_refresh(api, monkeypatch):
-    from pydantic import SecretStr
-    server, call = api
-    app = server.runtime.application
-    app.settings.deepseek_api_key = SecretStr("balance-key-private-sentinel")
-    get = AsyncMock(return_value={"ok": True, "provider": "deepseek", "state": "available", "balances": [
-        {"currency": "USD", "total_balance": "12.30", "granted_balance": "0", "topped_up_balance": "12.30"}], "updated_at": "2026-10-30T10:00:00Z"})
-    monkeypatch.setattr("app.services.ai_balance.AIBalance.get", get)
-    result = (await call("POST", "/v1/ops/get_ai_balance", json={"provider": "deepseek", "refresh": True}))[1]
-    assert result["state"] == "available" and "sentinel" not in json.dumps(result)
-    get.assert_awaited_once_with("deepseek", "balance-key-private-sentinel", refresh=True)
-    for payload in ({"provider": "invalid"}, {"provider": "deepseek", "refresh": 1}, {"provider": "deepseek", "key": "injected"}):
-        assert (await call("POST", "/v1/ops/get_ai_balance", json=payload))[0] == 400
-
-
 async def test_command_restrictions_authenticated_identity_errors_private_notes_and_immediate_removal(api, monkeypatch):
     server, call = api
     app = server.runtime.application
@@ -306,7 +290,7 @@ async def test_command_restrictions_authenticated_identity_errors_private_notes_
     result = (await call("POST", "/v1/ops/save_command_restriction", json={"data": raw}))[1]
     assert result["ok"]
     assert {row["id"] for row in result["commands"]} == {row.name for row in app.registry.definitions()}
-    assert {"ask", "tg", "erase", "seen", "help", "fate"} <= {row["id"] for row in result["commands"]}
+    assert {"ask", "erase", "seen", "help", "fate"} <= {row["id"] for row in result["commands"]}
     assert "commands" not in {row["id"] for row in result["commands"]}
     assert next(row["label"] for row in result["commands"] if row["id"] == "ask") == "!question"
     rule = result["restrictions"][0]

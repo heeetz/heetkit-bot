@@ -341,13 +341,12 @@ revokes the current session with `{}`.
 | `delete_twitch_preset` | `preset_id` | deletes the preset without changing target or connectivity |
 | `switch_server_twitch_preset` | `preset_id` | explicitly applies the stored target through controlled shutdown and mode reconciliation, retaining bot credentials and OAuth |
 | `start_ai_playground` | `prompt` | starts one isolated test and returns `request_id`, `status: pending`; may consume real provider quota |
-| `get_analytics` | `days` = 1, 7, 30 or 60 UTC calendar days (default 7) | configured-channel totals, daily series/coverage, command/provider breakdowns, current retained-user snapshot, collection/pricing metadata and `count_chat_messages`; Playground excluded |
+| `get_analytics` | `days` = 1, 7, 30 or 60 UTC calendar days (default 7) | configured-channel totals, daily series/coverage, command/provider breakdowns, current retained-user snapshot, collection metadata and `count_chat_messages`; Playground excluded |
 | `get_leaderboards` | `{}` | returns the active channel’s monthly and current/last stream rankings together, with period, coverage, settings and `counting_enabled`. Uses the configured channel when disconnected. |
 | `save_leaderboard_settings` | `channel_id`, `exclusions` (up to 50 bot logins). The channel must match the current leaderboard view. Monthly rollover uses UTC. | ? |
 | `configure_leaderboard_counting` | `enabled` boolean | immediately saves the profile-wide chat message counting setting. Independent of aggregate analytics collection. |
 | `configure_analytics`, `reset_analytics` | `enabled` boolean persists collection preference | reset requires `confirmed: true` and clears all profile aggregates including pending updates |
 | `get_ai_memory_limits`, `save_ai_memory_limits` | Read returns `stored`, `context` | save requires integer `stored` 1–500 and `context` 1–50, no greater than stored; shared transactional prune/persist on both hosts |
-| `get_ai_balance` | `provider`, optional boolean `refresh` (default false) | optional cached DeepSeek currency balances with `state` and `updated_at`; unsupported/missing connections return unavailable; never returns keys |
 | `get_ai_playground_result`, `cancel_ai_playground` | `request_id` | inspect/cancel only the initiating bearer's current test; completed results include safe `generation` provider/model/thinking/fallback/search metadata |
 | `get_snapshot` | Combined `status` and `ai_status` for browser polling | ? |
 | `get_management_setup`, `get_about_info` | Effective non-secret setup status (including fixed management/callback URLs, `authorization_mode` and this session's `authorization_attempt`) / shared application metadata | ? |
@@ -368,7 +367,7 @@ revokes the current session with `{}`.
 | `save_builtin_enabled` | Stable `command_name` and boolean `enabled`. Saves only the enabled state and clears legacy removal when enabling. A name conflict returns an error and leaves the command disabled. | ? |
 | `reset_command_settings`, `remove_builtin_command`, `restore_builtin_command` | `command_name`. Reset accepts `preserve_enabled: true` to keep the enabled state. Factory administrative permission floors remain enforced. | ? |
 | `apply_command_settings`, `reset_all_builtin_commands` | Apply uses the same settings as Save for the session. Reset all restores factory settings and responses and accepts `preserve_enabled: true` to keep each enabled state. | ? |
-| `save_command_responses` | `name` (`fate` or `tg`), `responses` (list of text) | ? |
+| `save_command_responses` | `name` (`fate`), `responses` (list of text) | ? |
 | `reset_command_responses` | `name` | ? |
 | `apply_command_responses` | Same as responses Save, session-only | ? |
 | `get_custom_commands` | Commands, allowed template variables and permissions. Optional `creation_order` orders entries created in the profile alongside chat reactions. | ? |

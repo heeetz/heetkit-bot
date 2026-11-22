@@ -160,14 +160,14 @@ test('Reset settings restores a modified built-in after confirmation and keeps i
   await expect(editor).toBeHidden()
 
   await page.getByRole('button', { name: 'Edit !ping', exact: true }).click()
-  await editor.getByRole('textbox', { name: 'Message', exact: true }).fill('Unsaved draft')
+  await editor.getByRole('textbox', { name: 'Responses', exact: true }).fill('Unsaved draft')
   await sections.getByRole('button', { name: 'Access & aliases' }).click()
   await editor.getByRole('button', { name: 'Reset settings', exact: true }).click()
   const confirmation = page.locator('dialog.confirmation-dialog[open]')
   await confirmation.getByRole('button', { name: 'Confirm' }).click()
   await expect(editor.getByLabel('Name in UI', { exact: true })).toHaveValue('')
   await sections.getByRole('button', { name: 'General' }).click()
-  await expect(editor.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('Unsaved draft')
+  await expect(editor.getByRole('textbox', { name: 'Responses', exact: true })).toHaveValue('Unsaved draft')
   expect(api.calls.find(({ path }) => path === '/v1/ops/reset_command_settings')?.body).toMatchObject({ command_name: 'ping' })
 })
 
@@ -191,7 +191,7 @@ test('a partial built-in save keeps the reply draft and retries only the failed 
   await sections.getByRole('button', { name: 'Access & aliases' }).click()
   await editor.getByLabel('Name in UI', { exact: true }).fill('Saved label')
   await sections.getByRole('button', { name: 'General' }).click()
-  const reply = editor.getByRole('textbox', { name: 'Message', exact: true })
+  const reply = editor.getByRole('textbox', { name: 'Responses', exact: true })
   await reply.fill('Reply to retry')
   const save = editor.getByRole('button', { name: 'Save command', exact: true })
   await save.click()
@@ -247,12 +247,13 @@ test('Burst enforces its permission floor and keeps delivery settings when toggl
   await permission.press('Escape')
   await sections.getByRole('button', { name: 'Conditions' }).click()
   await editor.getByLabel('Default repeat count').fill('5')
+  await editor.getByLabel('Maximum repeat count').fill('20')
   await editor.getByLabel('Allow argument count override').press('Space')
   await editor.getByRole('button', { name: 'Save command', exact: true }).click()
   await expect(editor).toBeHidden()
 
   const expected = { name: 'promo', responses: ['Join us, {sender}!'], aliases: ['discord', 'join'],
-    permission: 'MODERATOR', response_mode: 'burst', burst_count: 5, burst_allow_override: true }
+    permission: 'MODERATOR', response_mode: 'burst', burst_count: 5, burst_max_count: 20, burst_allow_override: true }
   const writes = () => api.calls.filter(({ path }) => path === '/v1/ops/save_custom_command')
   expect(writes()[0]?.body).toMatchObject({ command: expected })
   await selectOption(page.getByRole('combobox', { name: 'Status', exact: true }), 'all')
@@ -265,6 +266,7 @@ test('Burst enforces its permission floor and keeps delivery settings when toggl
   const review = page.getByRole('dialog', { name: 'Edit command' })
   await review.getByRole('navigation', { name: 'Editor sections' }).getByRole('button', { name: 'Conditions' }).click()
   await expect(review.getByLabel('Default repeat count')).toHaveValue('5')
+  await expect(review.getByLabel('Maximum repeat count')).toHaveValue('20')
   await expect(review.getByLabel('Allow argument count override')).toBeChecked()
 })
 

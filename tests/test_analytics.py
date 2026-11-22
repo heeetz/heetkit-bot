@@ -11,7 +11,6 @@ import pytest
 import pytest_asyncio
 
 from app.analytics import Analytics, analytics_scope, analytics_scope_for, checked_analytics_scope_for
-from app.analytics_pricing import estimate
 from app.database.database import Database
 from app.database.repository import UserRepository
 from app.utils.logging import event_metadata, operator_event, privacy_log_scope
@@ -75,8 +74,7 @@ async def test_fallback_attempts_and_unknown_tokens_do_not_become_command_errors
     assert result["ai.requests"] == result["ai.completed"] == result["ai.errors"] == result["ai.successes"] == result["ai.fallbacks"] == 1
     assert result["ai.attempts"] == 2
     assert result["ai.input_tokens"] == 105 and result["ai.output_tokens"] == 30
-    assert result["ai.usage_unknown"] == 1 and result["ai.price_missing"] == 1
-    assert result["ai.estimated_usd"] == pytest.approx(.000064)
+    assert result["ai.usage_unknown"] == 1
     assert result["ai.latency_le_0_5"] == result["ai.latency_le_2"] == 1
     assert "command.error" not in result
 
@@ -318,17 +316,6 @@ async def test_current_retained_users_excludes_expired_suppressed_and_other_chan
         assert await users.retained_count(channel_id="200") == 1
     finally:
         await database.close()
-
-
-def test_pricing_unknowns_dates_cache_and_reasoning_subsets():
-    now = datetime(2026, 10, 30, tzinfo=timezone.utc)
-    usage = {"input_tokens": 100, "output_tokens": 30, "cached_input_tokens": 80, "reasoning_tokens": 20}
-    assert estimate("openai", "gpt-4.1-mini", usage, now) == (pytest.approx(.000064), False)
-    assert estimate("deepseek", "unpriced", usage, now) == (None, True)
-    assert estimate("openai", "gpt-4.1-mini", usage, now - timedelta(days=1)) == (None, True)
-    assert estimate("openai", "gpt-4.1-mini", {"output_tokens": 30}, now) == (pytest.approx(.000048), True)
-    assert estimate("openai", "gpt-4.1-mini", {**usage, "search_requests": 1}, now)[1]
-    assert estimate("openai", "gpt-4.1-mini", {**usage, "search_requests": 1}, now)[0] == pytest.approx(.010064)
 
 
 @pytest.mark.asyncio

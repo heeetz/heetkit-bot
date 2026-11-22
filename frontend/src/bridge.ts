@@ -69,8 +69,6 @@ export interface CommandInfo {
   aliases: string[]
   display_name?: string
   removed?: boolean
-  burst_interval_ms?: number
-  burst_max_count?: number
   entry_limit?: number
   chat_template?: string
   minimum_permission?: string
@@ -88,7 +86,7 @@ export interface CommandInfo {
     defaults: string[]
     saved: boolean
     has_saved_override: boolean
-    response_mode: 'single' | 'random'
+    response_mode: 'random'
     max_responses: number
   } | null
   permission: string
@@ -109,8 +107,6 @@ export interface CommandSettings {
   removed?: boolean
   aliases?: string[]
   display_name?: string
-  burst_interval_ms?: number
-  burst_max_count?: number
   entry_limit?: number
   chat_template?: string
   permission: string
@@ -125,8 +121,6 @@ export interface CommandSettingsMetadata {
   primary_name?: string
   aliases?: string[]
   display_name?: string
-  burst_interval_ms?: number
-  burst_max_count?: number
   entry_limit?: number
   chat_template?: string
   stream_availability?: StreamAvailability
@@ -156,6 +150,7 @@ export interface CustomCommandInput {
   stream_availability?: StreamAvailability
   response_mode?: CustomResponseMode
   send_as?: SendAs
+  burst_max_count?: number
   burst_count?: number
   burst_allow_override?: boolean
   burst_interval_ms?: number
@@ -586,19 +581,10 @@ export interface AnalyticsResponse extends ActionResult {
   dropped: number
   write_failures: number
   metadata: Record<string, string>
-  price_checked: string
-  price_basis: string
   totals: Record<string, number>
   series: { day: string; metrics: Record<string, number>; coverage_seconds: number; new_users_coverage_seconds: number }[]
   commands: { name: string; label: string; metrics: Record<string, number> }[]
   providers: { name: string; metrics: Record<string, number> }[]
-}
-
-export interface AIBalanceResponse extends ActionResult {
-  provider: string
-  state: 'available' | 'stale' | 'unavailable'
-  updated_at: string | null
-  balances: { currency: string; total_balance: string; granted_balance: string; topped_up_balance: string }[]
 }
 
 export interface LogsResponse {
@@ -666,7 +652,6 @@ export interface PythonApi {
   configure_analytics(enabled: boolean): Promise<ActionResult>
   configure_leaderboard_counting(enabled: boolean): Promise<ActionResult>
   reset_analytics(confirmed: boolean): Promise<ActionResult>
-  get_ai_balance(provider: string, refresh?: boolean): Promise<AIBalanceResponse>
   get_ai_memory_limits(): Promise<ActionResult & { stored: number; context: number }>
   save_ai_memory_limits(stored: number, context: number): Promise<ActionResult>
   get_blocked_ai_users(): Promise<AIUserBlocksResponse>

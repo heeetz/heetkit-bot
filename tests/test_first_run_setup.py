@@ -173,7 +173,7 @@ def test_existing_owner_profile_and_keyring_survive_without_legacy_files(tmp_pat
     }), encoding="utf-8")
     paths.command_settings.write_text(json.dumps({"ask": {"enabled": False}}), encoding="utf-8")
     fun_path = paths.config / "fun_settings.json"
-    fun_path.write_text(json.dumps({"version": 1, "tg_message": "Local link", "fates": ["Local fortune"]}), encoding="utf-8")
+    fun_path.write_text(json.dumps({"version": 1, "fates": ["Local fortune"]}), encoding="utf-8")
     before = {path: path.read_bytes() for path in paths.config.iterdir()}
     monkeypatch.setenv("TWITCH_BOT_USERNAME", "processbot")
     monkeypatch.setenv("GEMINI_MODEL", "gemini-process")

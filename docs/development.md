@@ -285,8 +285,6 @@ enqueues `users.new` only after an eligible commit, serialized by the existing p
 lock and guarded by captured collection/privacy generations. Profile
 `users.coverage_seconds` distinguishes new-user collection from pre-upgrade coverage.
 No user IDs enter the aggregate store.
-Optional `services/ai_balance.py` uses a separate on-demand bounded query/cache and
-never occupies the chat request slot or persists provider credentials.
 
 Focused checks: `test_analytics.py`, `test_command_analytics.py`, `test_ai_usage.py`,
 the affected dispatch/send/provider/privacy/lifecycle cases, and announcement delivery

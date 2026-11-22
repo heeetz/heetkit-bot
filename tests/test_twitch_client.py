@@ -307,6 +307,7 @@ async def test_real_ingress_exposes_wait_and_quarantine_without_dispatching_drop
     from app.commands.fun import register_fun_commands
     from app.commands.registry import CommandRegistry
     from app.fun_settings import FunSettingsStore
+    from app.custom_commands import CustomCommandStore
     from app.services.twitch import TwitchAPIService
     from app.utils.cooldown import CooldownManager
     from app.utils.logging import RecentLogBuffer, OperatorActivityHandler
@@ -322,8 +323,11 @@ async def test_real_ingress_exposes_wait_and_quarantine_without_dispatching_drop
                                twitch=TwitchAPIService(), runtime_state=None)
     registry = CommandRegistry()
     register_fun_commands(registry, FunSettingsStore(tmp_path / "fun.json"))
+    custom = CustomCommandStore(tmp_path / "custom.json", set(registry.names()))
+    custom.save(dict(name="tg", enabled=True, responses=["Synthetic reply"], permission="MODERATOR",
+                     aliases=[], per_user_seconds=0, global_seconds=0, response_mode="burst"))
     dispatcher = CommandDispatcher(registry, CooldownManager(), logger, "!",
-                                   output_limiter=services.twitch.output_limiter)
+                                   output_limiter=services.twitch.output_limiter, custom_commands=custom)
     bot = TwitchChatBot(settings, settings.primary_account, services, dispatcher, logger)
     services.twitch.set_chat_ready(bot, True)
     entered, release = asyncio.Event(), asyncio.Event()
@@ -469,10 +473,11 @@ async def test_manual_bot_account_messages_reach_filters_persistence_and_dispatc
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("arguments,count", [("", 1), ("1", 1), ("5", 5), ("20", 20)])
-async def test_duplicate_tg_delivery_does_not_start_a_second_burst(tmp_path, arguments, count) -> None:
+async def test_duplicate_burst_delivery_does_not_start_a_second_burst(tmp_path, arguments, count) -> None:
     from app.commands.fun import register_fun_commands
     from app.commands.registry import CommandRegistry
     from app.fun_settings import FunSettingsStore
+    from app.custom_commands import CustomCommandStore
     from app.utils.cooldown import CooldownManager
 
     settings = build_settings()
@@ -480,10 +485,13 @@ async def test_duplicate_tg_delivery_does_not_start_a_second_burst(tmp_path, arg
     register_fun_commands(registry, FunSettingsStore(tmp_path / "fun.json"))
     state = RuntimeState()
     state.configure_commands(registry.definitions())
-    state.apply_command_settings("tg", burst_max_count=20)
+    custom = CustomCommandStore(tmp_path / "custom.json", set(registry.names()))
+    custom.save(dict(name="tg", enabled=True, responses=["Synthetic reply"], permission="MODERATOR",
+                     aliases=[], per_user_seconds=0, global_seconds=0, response_mode="burst",
+                     burst_count=1, burst_max_count=20, burst_allow_override=True))
     services = SimpleNamespace(twitch=None, users=RecordingUserRepository(),
                                filter_manager=AllowingFilterManager(), settings=settings)
-    dispatcher = CommandDispatcher(registry, CooldownManager(), logging.getLogger(__name__), "!", runtime_state=state)
+    dispatcher = CommandDispatcher(registry, CooldownManager(), logging.getLogger(__name__), "!", runtime_state=state, custom_commands=custom)
     bot = TwitchChatBot(settings, settings.primary_account, services, dispatcher, logging.getLogger(__name__))
     if getattr(services, "twitch", None) is not None:
         services.twitch.set_chat_ready(bot, True)

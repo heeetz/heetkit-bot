@@ -13,7 +13,6 @@ from app.errors import UserError
 from typing import Annotated
 from pydantic import Field, StrictStr
 from app.settings_models import SettingsModel, byte_limit, field_value, parse
-from app.config.commands import TG_MESSAGE
 from app.settings_recovery import preserve_settings_recovery
 
 FATES = ("Tomorrow brings a new opportunity.",)
@@ -27,7 +26,6 @@ FunResponse = Annotated[StrictStr, Field(pattern=r"\S"), byte_limit(450)]
 
 
 class FunSettingsModel(SettingsModel):
-    tg_message: FunResponse = TG_MESSAGE
     fates: Annotated[list[FunResponse], Field(strict=True, min_length=1, max_length=1000)] = list(FATES)
 
 
@@ -39,8 +37,6 @@ def _validate_responses(values: object, *, max_responses: int) -> tuple[str, ...
 def _response_options(command_name: str) -> tuple[str, tuple[str, ...], int]:
     if command_name == "fate":
         return "fates", FATES, 1000
-    if command_name == "tg":
-        return "tg_message", (TG_MESSAGE,), 1
     raise UserError("fun_settings.command_has_no_editable_responses")
 
 
@@ -52,7 +48,6 @@ class FunSettingsStore:
         self._lock = RLock()
         self._payload: dict[str, object] = {"version": 1}
         self._load_error = False
-        self.tg_message = TG_MESSAGE
         self._fates = FATES
         if path.exists():
             try:
@@ -64,17 +59,11 @@ class FunSettingsStore:
             except (OSError, UnicodeError, ValueError):
                 self._load_error = True
                 logging.getLogger(__name__).warning("Could not load local fun settings; using neutral defaults")
-        message = self._payload.get("tg_message", TG_MESSAGE)
-        try:
-            self.tg_message = parse(FunSettingsModel, {"tg_message": message}).tg_message
-        except ValueError:
-            pass
         try:
             self._fates = tuple(parse(FunSettingsModel, {"fates": self._payload.get("fates", list(FATES))}).fates)
         except ValueError:
             logging.getLogger(__name__).warning("Invalid local fate responses; using neutral defaults")
         self._saved_fates = self._fates
-        self._saved_tg_message = self.tg_message
 
     @property
     def fates(self) -> tuple[str, ...]:
@@ -84,13 +73,13 @@ class FunSettingsStore:
     def snapshot(self, command_name: str = "fate") -> dict[str, object]:
         field, defaults, max_responses = _response_options(command_name)
         with self._lock:
-            responses = (self.tg_message,) if command_name == "tg" else self._fates
-            saved_responses = (self._saved_tg_message,) if command_name == "tg" else self._saved_fates
+            responses = self._fates
+            saved_responses = self._saved_fates
             return {
                 "responses": list(responses), "defaults": list(defaults),
                 "saved": responses == saved_responses,
                 "has_saved_override": field in self._payload,
-                "response_mode": "single" if command_name == "tg" else "random",
+                "response_mode": "random",
                 "max_responses": max_responses,
             }
 
@@ -104,7 +93,7 @@ class FunSettingsStore:
         field, _, max_responses = _response_options(command_name)
         parsed = _validate_responses(responses, max_responses=max_responses)
         with self._lock:
-            payload = {**self._payload, field: parsed[0] if command_name == "tg" else list(parsed)}
+            payload = {**self._payload, field: list(parsed)}
             self._write(payload)
             self._payload = payload
             self._set_responses(command_name, parsed, saved=True)
@@ -119,23 +108,17 @@ class FunSettingsStore:
             self._set_responses(command_name, defaults, saved=True)
 
     def _set_responses(self, command_name: str, responses: tuple[str, ...], *, saved: bool) -> None:
-        if command_name == "tg":
-            self.tg_message = responses[0]
-            if saved:
-                self._saved_tg_message = responses[0]
-        else:
-            self._fates = responses
-            if saved:
-                self._saved_fates = responses
+        self._fates = responses
+        if saved:
+            self._saved_fates = responses
 
     def reset_all(self) -> None:
-        """Restore both factory response pools in one atomic profile write."""
+        """Restore the factory response pool in one atomic profile write."""
         with self._lock:
-            payload = {key: value for key, value in self._payload.items() if key not in ("fates", "tg_message")}
+            payload = {key: value for key, value in self._payload.items() if key != "fates"}
             self._write(payload)
             self._payload = payload
             self._set_responses("fate", FATES, saved=True)
-            self._set_responses("tg", (TG_MESSAGE,), saved=True)
 
     def _write(self, payload: dict[str, object]) -> None:
         if self._load_error:

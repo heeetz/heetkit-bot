@@ -142,19 +142,9 @@ test('leaderboards discard a previous channel response and exclusions cancel, re
   await expect(save).toBeDisabled()
 })
 
-test('analytics collection, chat counting and balance refresh use separate operations', async ({ page }) => {
+test('analytics collection and chat counting use separate operations', async ({ page }) => {
   await server(page)
   const api = await analytics(page)
-  const balances: unknown[] = []
-  let available = true
-  await page.route('**/v1/ops/get_ai_balance', async (route) => {
-    balances.push(route.request().postDataJSON())
-    await route.fulfill({ json: {
-      ok: true, provider: 'deepseek', state: available ? 'available' : 'unavailable',
-      balances: available ? [{ currency: 'USD', total_balance: '12.34', granted_balance: '2', topped_up_balance: '10.34' }] : [],
-      updated_at: '2026-11-21T12:00:00Z',
-    } })
-  })
   await signIn(page)
   await navigate(page, 'Analytics')
   const collect = page.getByRole('checkbox', { name: 'Collect analytics' })
@@ -174,15 +164,4 @@ test('analytics collection, chat counting and balance refresh use separate opera
     ['/v1/ops/configure_leaderboard_counting', { enabled: false }],
     ['/v1/ops/configure_analytics', { enabled: true }],
   ])
-
-  expect(balances).toHaveLength(0)
-  const refresh = page.getByRole('button', { name: 'Refresh balance' })
-  await refresh.click()
-  await expect(page.getByText('USD 12.34', { exact: true })).toBeVisible()
-  expect(balances[0]).toEqual({ provider: 'deepseek', refresh: true })
-  available = false
-  await refresh.click()
-  await expect(page.getByText('USD 12.34', { exact: true })).toHaveCount(0)
-  await selectOption(page.getByLabel('Balance provider'), 'openai')
-  await expect(refresh).toBeDisabled()
 })

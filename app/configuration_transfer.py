@@ -37,6 +37,7 @@ from app.config.personalities import AI_PERSONALITY_PROMPTS
 from app.custom_commands import parse_custom_command
 from app.filter_settings import apply_filter_settings, validate_filter_input
 from app.fun_settings import _validate_responses
+from app.legacy_tg import tg_custom_command
 from app.message_triggers import _TRIGGER_FIELDS, parse_message_trigger
 from app.personality_settings import (
     validate_personality_name, validate_personality_prompt, validate_profile_instructions,
@@ -197,11 +198,12 @@ class ConfigurationTransfer:
         words, phrases, patterns = self.app.services.filter_manager.snapshot()
         return {
             "commands": {name: {**{key: item for key, item in asdict(value).items()
-                                   if key not in {"send_as", "entry_limit", "chat_template"} or item is not None},
+                                   if key not in {"burst_interval_ms", "burst_max_count"}
+                                   and (key not in {"send_as", "entry_limit", "chat_template"} or item is not None)},
                                    "permission": value.permission.name, "aliases": list(value.aliases)}
                          for name in state.runtime_toggleable_commands
                          for value in (state.get_command_settings(name),)},
-            "responses": {name: self.fun.snapshot(name)["responses"] for name in ("fate", "tg")},
+            "responses": {"fate": self.fun.snapshot("fate")["responses"]},
             "custom_commands": [item.to_json(include_order=False) for item in self.custom.list()],
             "personalities": asdict(state.get_personality_settings_snapshot()[0]),
             "ai": {"memory_enabled": state.ai_memory_enabled,
@@ -228,10 +230,13 @@ class ConfigurationTransfer:
         incoming_names = payload["commands"].keys() if isinstance(payload["commands"], dict) else set()
         optional_commands = ({"top", "rank"} & command_names) - incoming_names
         has_old_commands = "commands" in incoming_names and "commands" not in command_names
-        _fields(payload["commands"], (command_names - optional_commands) | ({"commands"} if has_old_commands else set()))
+        has_legacy_tg = "tg" in incoming_names
+        _fields(payload["commands"], (command_names - optional_commands)
+                | ({"commands"} if has_old_commands else set()) | ({"tg"} if has_legacy_tg else set()))
         commands = {}
         for name, value in payload["commands"].items():
-            optional_fields = {"stream_availability", "primary_name", "send_as", "entry_limit", "chat_template"}
+            optional_fields = {"stream_availability", "primary_name", "send_as", "entry_limit", "chat_template",
+                               "burst_interval_ms", "burst_max_count"}
             fields = set(CommandSettings.__dataclass_fields__) - optional_fields
             if isinstance(value, dict):
                 fields |= optional_fields & value.keys()
@@ -241,7 +246,8 @@ class ConfigurationTransfer:
             # Same finite/nonnegative and administrative bounds as management edits.
             _, policy, permission = ApplicationManagement._parse_command_settings(
                 value["enabled"], cooldown["per_user_seconds"], cooldown["global_seconds"], value["permission"])
-            current = self.state.get_command_settings("help" if has_old_commands and name == "commands" else name)
+            current = (CommandSettings(True, policy, permission, primary_name="tg") if name == "tg" else
+                       self.state.get_command_settings("help" if has_old_commands and name == "commands" else name))
             commands[name] = CommandSettings(**{"primary_name": name,
                                                  "stream_availability": current.stream_availability,
                                                  "entry_limit": current.entry_limit, "chat_template": current.chat_template,
@@ -254,7 +260,7 @@ class ConfigurationTransfer:
         for raw in _list(payload["custom_commands"], 1000):
             if not isinstance(raw, dict) or set(raw) - {"id", "name", "enabled", "responses", "permission",
                     "per_user_seconds", "global_seconds", "aliases", "response_mode", "burst_count",
-                    "burst_allow_override", "burst_interval_ms", "stream_availability", "send_as"}:
+                    "burst_allow_override", "burst_interval_ms", "burst_max_count", "stream_availability", "send_as"}:
                 raise UserError("configuration_transfer.unknown_custom_command_fields")
             if "stream_availability" not in raw:
                 # Desktop/older exports carry no Server policy. Preserve the
@@ -267,6 +273,13 @@ class ConfigurationTransfer:
             command = parse_custom_command(raw)
             if command.id in existing_commands:
                 command = replace(command, creation_order=existing_commands[command.id].creation_order)
+            if command.id in customs:
+                raise UserError("configuration_transfer.duplicate_custom_command")
+            customs[command.id] = command
+        if has_legacy_tg:
+            _fields(payload["responses"], ("fate", "tg"))
+            message, = _validate_responses(payload["responses"]["tg"], max_responses=1)
+            command = parse_custom_command(tg_custom_command(commands.pop("tg"), message))
             if command.id in customs:
                 raise UserError("configuration_transfer.duplicate_custom_command")
             customs[command.id] = command
@@ -288,9 +301,9 @@ class ConfigurationTransfer:
                 if name in used:
                     raise UserError("configuration_transfer.duplicate_command_name_alias")
                 used.add(name)
-        _fields(payload["responses"], ("fate", "tg"))
+        _fields(payload["responses"], ("fate", "tg") if has_legacy_tg else ("fate",))
         responses = {name: _validate_responses(payload["responses"][name], max_responses=limit)
-                     for name, limit in (("fate", 1000), ("tg", 1))}
+                     for name, limit in (("fate", 1000),)}
         personality = payload["personalities"]
         _fields(personality, ("active_personality", "overrides", "profile_instructions"))
         prompts = personality["overrides"]
@@ -493,8 +506,7 @@ class ConfigurationTransfer:
             app_payload = _json(originals[self.settings._path])
         app_payload = {**app_payload, "ai": {**app_payload.get("ai", {}), **asdict(new_ai)}}
         old_fun = (self.fun._payload if originals[self.fun.path] is None else _json(originals[self.fun.path]))
-        fun_payload = {**old_fun, "fates": list(parsed.responses["fate"]),
-                       "tg_message": parsed.responses["tg"][0]}
+        fun_payload = {**old_fun, "fates": list(parsed.responses["fate"])}
         values = [
             {name: value.to_json() for name, value in overrides.items() if not value.is_empty},
             {"version": 2, "commands": [item.to_json() for item in parsed.customs.values()]},

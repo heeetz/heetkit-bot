@@ -39,8 +39,8 @@ def setup_dispatcher(tmp_path, *, tg_settings=None, **changes):
     limiter = OutputLimiter(interval=60)
     state = RuntimeState(command_settings_path=tmp_path / "builtin_settings.json")
     state.configure_commands(registry.definitions())
-    if tg_settings:
-        state.apply_command_settings("tg", **tg_settings)
+    store.save(burst_payload(name="tg", aliases=[], burst_count=1, burst_allow_override=True,
+                             **(tg_settings or {})))
     dispatcher = CommandDispatcher(
         registry, CooldownManager(), logging.getLogger(__name__), "!",
         output_limiter=limiter, custom_commands=store, runtime_state=state,
@@ -191,27 +191,18 @@ async def test_helper_cannot_exceed_configured_or_absolute_limit(maximum, count)
 
 
 @pytest.mark.parametrize("arguments", ["", "20"])
-async def test_tg_defaults_and_counts_are_exact_with_configured_limit(tmp_path, arguments):
+async def test_burst_defaults_and_counts_are_exact_with_configured_limit(tmp_path, arguments):
     dispatcher, _, _, services = setup_dispatcher(tmp_path, tg_settings={"burst_max_count": 20})
     respond = AsyncMock()
     await dispatcher.dispatch(message(f"!tg {arguments}", respond, is_moderator=True), services)
     assert respond.await_count == int(arguments or "1")
 
 
-@pytest.mark.parametrize("arguments", ["0", "21", "1.5", "1 5", "+5", "1_0"])
-async def test_tg_invalid_arguments_send_usage_without_a_partial_batch(tmp_path, arguments):
-    dispatcher, _, _, services = setup_dispatcher(tmp_path)
-    respond = AsyncMock()
-    await dispatcher.dispatch(message(f"!tg {arguments}", respond, is_moderator=True), services)
-    respond.assert_awaited_once()
-    assert respond.await_args.args[0].startswith("Usage: !tg")
-
-
 @pytest.mark.parametrize("roles,allowed", [({}, False), ({"is_subscriber": True}, False),
     ({"is_vip": True}, False), ({"is_moderator": True}, True), ({"is_broadcaster": True}, True)])
 async def test_burst_permission_floor_even_for_an_invalid_runtime_snapshot(tmp_path, roles, allowed):
     dispatcher, store, _, services = setup_dispatcher(tmp_path)
-    command = store.list()[0]
+    command = store.get_by_name("promo")
     # Defense in depth: even a faulty store adapter cannot lower Burst to viewer.
     store._publish({command.id: replace(command, permission=Permission.USER)})
     respond = AsyncMock()

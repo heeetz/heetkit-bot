@@ -40,8 +40,6 @@ interface CommandDraft {
   responsePool: string | null
   aliases: string
   displayName: string
-  burstIntervalMs: string
-  burstMaxCount: string
   streamAvailability: StreamAvailability
   sendAs: SendAs
 }
@@ -56,6 +54,7 @@ interface CustomDraft {
   message: string
   responseMode: CustomResponseMode
   burstCount: string
+  burstMaxCount: string
   burstAllowOverride: boolean
   burstIntervalMs: string
   permission: string
@@ -77,8 +76,6 @@ interface CommandConfirmation {
   description: string
   danger?: boolean
 }
-
-const DEFAULT_TG_BURST_MAX_COUNT = 10
 
 type Labels = Record<string, string>
 
@@ -102,11 +99,6 @@ function streamAvailability(value: StreamAvailability | undefined): StreamAvaila
   return value ?? 'anytime'
 }
 
-function tgBurstMaxCount(command: CommandInfo): number {
-  const count = command.burst_max_count ?? command.default_settings.burst_max_count ?? DEFAULT_TG_BURST_MAX_COUNT
-  return Number.isInteger(count) && count >= 1 && count <= 20 ? count : DEFAULT_TG_BURST_MAX_COUNT
-}
-
 function draftFromCommand(command: CommandInfo): CommandDraft {
   return {
     entryLimit: String(command.entry_limit ?? ''),
@@ -119,24 +111,17 @@ function draftFromCommand(command: CommandInfo): CommandDraft {
     responsePool: command.response_pool ? responsePoolText(command.response_pool) : null,
     aliases: command.aliases.join(', '),
     displayName: command.display_name ?? '',
-    burstIntervalMs: String(command.burst_interval_ms ?? 0),
-    burstMaxCount: String(tgBurstMaxCount(command)),
     streamAvailability: streamAvailability(command.stream_availability),
     sendAs: builtinSendAs(command),
   }
 }
 
 function responsePoolText(responsePool: NonNullable<CommandInfo['response_pool']>): string {
-  return responsePool.response_mode === 'random'
-    ? responsePool.responses.join('\n')
-    : responsePool.responses[0] ?? ''
+  return responsePool.responses.join('\n')
 }
 
-function parseResponsePool(responsePool: NonNullable<CommandInfo['response_pool']>, draft: string): string[] {
-  if (responsePool.response_mode === 'random') {
-    return draft.split(/\r?\n/).map((response) => response.trim()).filter(Boolean)
-  }
-  return draft.trim() === '' ? [] : [draft]
+function parseResponsePool(draft: string): string[] {
+  return draft.split(/\r?\n/).map((response) => response.trim()).filter(Boolean)
 }
 
 function parsedCooldown(value: string): number | null {
@@ -155,8 +140,6 @@ function settingsDraftIsDirty(command: CommandInfo, draft: CommandDraft): boolea
     || parsedCooldown(draft.globalSeconds) !== command.cooldown.global_seconds
     || JSON.stringify(parseAliases(draft.aliases)) !== JSON.stringify(command.aliases)
     || draft.displayName !== (command.display_name ?? '')
-    || parsedBurstInterval(draft.burstIntervalMs) !== (command.burst_interval_ms ?? 0)
-    || (command.name === 'tg' && parsedBurstMaxCount(draft.burstMaxCount) !== tgBurstMaxCount(command))
     || (command.entry_limit !== undefined && draft.entryLimit !== String(command.entry_limit))
     || (command.chat_template !== undefined && draft.chatTemplate !== command.chat_template)
     || draft.streamAvailability !== streamAvailability(command.stream_availability)
@@ -184,6 +167,7 @@ function newCustomDraft(permission: string): CustomDraft {
     message: '',
     responseMode: 'single',
     burstCount: '1',
+    burstMaxCount: '10',
     burstAllowOverride: false,
     burstIntervalMs: '0',
     permission,
@@ -204,6 +188,7 @@ function customDraftFromCommand(command: CustomCommandInfo): CustomDraft {
     message: command.response_mode === 'random' ? '' : command.responses[0] ?? '',
     responseMode: command.response_mode,
     burstCount: String(command.burst_count ?? 1),
+    burstMaxCount: String(command.burst_max_count ?? 10),
     burstAllowOverride: command.burst_allow_override ?? false,
     burstIntervalMs: String(command.burst_interval_ms ?? 0),
     permission: command.permission,
@@ -229,10 +214,10 @@ function parsedBurstInterval(value: string): number | null {
   return Number.isInteger(interval) && interval >= 0 && interval <= 1000 ? interval : null
 }
 
-function parsedBurstMaxCount(value: string): number | null {
+function parsedBurstMaxCount(value: string, defaultCount: string): number | null {
   if (value.trim() === '') return null
   const count = Number(value)
-  return Number.isInteger(count) && count >= 1 && count <= 20 ? count : null
+  return Number.isInteger(count) && count >= Math.max(1, parsedBurstCount(defaultCount) ?? 1) && count <= 20 ? count : null
 }
 
 function parseAliases(value: string): string[] {
@@ -244,7 +229,7 @@ function canEditIdentity(command: CommandInfo): boolean {
 }
 
 function commandPermissions(data: CommandsResponse, command: CommandInfo): string[] {
-  const minimum = command.minimum_permission ?? (command.name === 'tg' ? 'MODERATOR' : command.name === 'erase' ? 'MODERATOR' : 'USER')
+  const minimum = command.minimum_permission ?? (command.name === 'erase' ? 'MODERATOR' : 'USER')
   const levels = ['USER', 'SUBSCRIBER', 'VIP', 'MODERATOR', 'BROADCASTER']
   return data.permissions.filter((permission) => levels.indexOf(permission) >= levels.indexOf(minimum))
 }
@@ -318,8 +303,6 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           nextDraft.aliases = previousDraft.aliases
           nextDraft.primaryName = previousDraft.primaryName
           nextDraft.displayName = previousDraft.displayName
-          nextDraft.burstIntervalMs = previousDraft.burstIntervalMs
-          nextDraft.burstMaxCount = previousDraft.burstMaxCount
           nextDraft.streamAvailability = previousDraft.streamAvailability
           nextDraft.sendAs = previousDraft.sendAs
         }
@@ -336,8 +319,6 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         nextDraft.aliases = previousDraft.aliases
         nextDraft.primaryName = previousDraft.primaryName
         nextDraft.displayName = previousDraft.displayName
-        nextDraft.burstIntervalMs = previousDraft.burstIntervalMs
-        nextDraft.burstMaxCount = previousDraft.burstMaxCount
         nextDraft.streamAvailability = previousDraft.streamAvailability
         nextDraft.sendAs = previousDraft.sendAs
       }
@@ -441,21 +422,10 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       setError(text.cooldownInvalid)
       return
     }
-    const burstInterval = parsedBurstInterval(draft.burstIntervalMs)
-    if (action !== 'reset' && command.name === 'tg' && burstInterval === null) {
-      setError(text.burstIntervalInvalid)
-      return
-    }
-    const burstMaxCount = parsedBurstMaxCount(draft.burstMaxCount)
-    if (action !== 'reset' && command.name === 'tg' && burstMaxCount === null) {
-      setError(text.maxCountInvalid)
-      return
-    }
     const metadata = {
       primary_name: draft.primaryName,
       ...(draft.sendAs !== builtinSendAs(command) ? { send_as: draft.sendAs } : {}),
       ...(canEditIdentity(command) ? { aliases: parseAliases(draft.aliases), display_name: draft.displayName } : {}),
-      ...(command.name === 'tg' ? { burst_interval_ms: burstInterval!, burst_max_count: burstMaxCount! } : {}),
       ...(command.entry_limit !== undefined ? { entry_limit: Number(draft.entryLimit) } : {}),
       ...(command.chat_template !== undefined ? { chat_template: draft.chatTemplate } : {}),
       ...(isBrowserMode() ? { stream_availability: draft.streamAvailability } : {}),
@@ -464,7 +434,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     const responsePool = command.response_pool
     const saveResponses = action === 'save' && responsePool && draft.responsePool !== null
       && (responseDraftIsDirty(command, draft) || !responsePool.saved)
-    const responses = responsePool && draft.responsePool !== null ? parseResponsePool(responsePool, draft.responsePool) : []
+    const responses = responsePool && draft.responsePool !== null ? parseResponsePool(draft.responsePool) : []
     if (saveResponses && responses.length === 0) {
       setError(text.responseRequired)
       return
@@ -536,11 +506,10 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     if (!draft || !responsePool || draft.responsePool === null) {
       return
     }
-    const random = responsePool.response_mode === 'random'
     const commandName = `${data?.command_prefix ?? '!'}${command.primary_name ?? command.name}`
-    const updateFailed = random ? text.responsesUpdateFailed : text.messageUpdateFailed
+    const updateFailed = text.responsesUpdateFailed
     if (!await confirmAction({
-      title: fmt(random ? text.resetResponsesTitle : text.resetMessageTitle, { name: commandName }),
+      title: fmt(text.resetResponsesTitle, { name: commandName }),
       description: text.resetResponsesDescription,
       danger: true,
     })) {
@@ -557,7 +526,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         throw new Error(result.error ?? updateFailed)
       }
       await loadCommands(command.name, 'responses')
-      setNotice(fmt(random ? text.responsesReset : text.messageReset, { name: commandName }))
+      setNotice(fmt(text.responsesReset, { name: commandName }))
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : updateFailed)
     } finally {
@@ -625,6 +594,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       setError(text.customTooMany)
       return
     }
+    const burstMaxCount = parsedBurstMaxCount(customDraft.burstMaxCount, customDraft.burstCount)
     const burstCount = parsedBurstCount(customDraft.burstCount)
     const burstInterval = parsedBurstInterval(customDraft.burstIntervalMs)
     if (customDraft.responseMode === 'burst' && (burstCount === null || !burstPermissions.includes(customDraft.permission))) {
@@ -633,6 +603,11 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     }
     if (customDraft.responseMode === 'burst' && burstInterval === null) {
       setError(text.burstIntervalInvalid)
+      return
+    }
+
+    if (customDraft.responseMode === 'burst' && burstMaxCount === null) {
+      setError(text.maxCountInvalid)
       return
     }
 
@@ -648,7 +623,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       response_mode: customDraft.responseMode,
       send_as: customDraft.sendAs,
       ...(isBrowserMode() ? { stream_availability: customDraft.streamAvailability } : {}),
-      ...(customDraft.responseMode === 'burst' ? { burst_count: burstCount!, burst_allow_override: customDraft.burstAllowOverride, burst_interval_ms: burstInterval! } : {}),
+      ...(customDraft.responseMode === 'burst' ? { burst_count: burstCount!, burst_max_count: burstMaxCount!, burst_allow_override: customDraft.burstAllowOverride, burst_interval_ms: burstInterval! } : {}),
     }
     setBusyCustom(true)
     setError('')
@@ -687,7 +662,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         response_mode: command.response_mode,
         send_as: command.send_as,
         ...(isBrowserMode() ? { stream_availability: streamAvailability(command.stream_availability) } : {}),
-        ...(command.response_mode === 'burst' ? { burst_count: command.burst_count ?? 1, burst_allow_override: command.burst_allow_override ?? false, burst_interval_ms: command.burst_interval_ms ?? 0 } : {}),
+        ...(command.response_mode === 'burst' ? { burst_count: command.burst_count ?? 1, burst_max_count: command.burst_max_count ?? 10, burst_allow_override: command.burst_allow_override ?? false, burst_interval_ms: command.burst_interval_ms ?? 0 } : {}),
       })
       if (!result.ok) throw new Error(result.error ?? text.customUpdateFailed)
       await loadCustomCommands()
@@ -794,17 +769,13 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     const draft = drafts[command.name] ?? draftFromCommand(command)
     const perUserValid = parsedCooldown(draft.perUserSeconds) !== null
     const globalValid = parsedCooldown(draft.globalSeconds) !== null
-    const intervalValid = command.name !== 'tg' || parsedBurstInterval(draft.burstIntervalMs) !== null
-    const maxCountValid = command.name !== 'tg' || parsedBurstMaxCount(draft.burstMaxCount) !== null
-    const maxCount = parsedBurstMaxCount(draft.burstMaxCount) ?? tgBurstMaxCount(command)
     const settingsDirty = settingsDraftIsDirty(command, draft)
     const responseDirty = responseDraftIsDirty(command, draft)
     const dirty = settingsDirty || responseDirty
     const responsePool = command.response_pool
     const responseDraft = draft.responsePool
-    const parsedResponses = responsePool && responseDraft !== null ? parseResponsePool(responsePool, responseDraft) : []
+    const parsedResponses = responsePool && responseDraft !== null ? parseResponsePool(responseDraft) : []
     const responseValid = parsedResponses.length > 0
-    const isRandom = responsePool?.response_mode === 'random'
     const busy = busyCommand !== ''
     const aliasField = canEditIdentity(command) && <div className="form-field command-aliases">
       <label className="command-field-label" htmlFor={`aliases-${command.name}`}>{text.aliases}</label>
@@ -814,7 +785,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
       <label className="command-field-label" htmlFor={`display-name-${command.name}`}>{text.nameInUI}</label>
       <span className="command-context-control"><input id={`display-name-${command.name}`} aria-label={text.nameInUI} disabled={busy} value={draft.displayName} maxLength={80} onChange={(event) => updateDraft(command.name, { displayName: event.target.value })} placeholder={text.nameInUI} /></span>
     </div>
-    const supportsSendAs = command.supports_send_as ?? !['tg', 'erase'].includes(command.name)
+    const supportsSendAs = command.supports_send_as ?? command.name !== 'erase'
     const sections: CommandEditorSection[] = [
       {
         id: 'general', body: <div className="command-editor-stack">
@@ -848,7 +819,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           {!command.hidden && responsePool && responseDraft !== null && <div className="command-response-editor">
             <div className="custom-response-heading">
               <div>
-                <h3>{isRandom ? text.responsePool : text.commandMessage}</h3>
+                <h3>{text.responsePool}</h3>
               </div>
               <div className="command-response-badges">
                 {responsePool.has_saved_override && <span className="mini-badge saved-badge">{text.savedOverride}</span>}
@@ -858,18 +829,18 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
             </div>
             <div className="form-field command-response-field">
               <div className="command-response-control"><textarea
-                aria-label={isRandom ? text.responses : text.message}
+                aria-label={text.responses}
                 className="command-response-textarea"
                 disabled={busy}
-                rows={isRandom ? 7 : 5}
+                rows={7}
                 value={responseDraft}
                 onChange={(event) => updateDraft(command.name, { responsePool: event.target.value })}
-                placeholder={isRandom ? text.onePerLine : text.commandMessage}
+                placeholder={text.onePerLine}
               /></div>
             </div>
-            <p className="command-meta">{isRandom ? plural(text.responsesReady, parsedResponses.length) : responseValid ? text.messageReady : text.messageRequired}</p>
+            <p className="command-meta">{plural(text.responsesReady, parsedResponses.length)}</p>
           </div>}
-          {!command.hidden && responsePool && responseDraft !== null && <button type="button" className="ghost" disabled={busy || (!responseDirty && !responsePool.has_saved_override && responsePool.saved)} onClick={() => void runResponseAction(command)}>{isRandom ? text.resetResponses : text.resetMessage}</button>}
+          {!command.hidden && responsePool && responseDraft !== null && <button type="button" className="ghost" disabled={busy || (!responseDirty && !responsePool.has_saved_override && responsePool.saved)} onClick={() => void runResponseAction(command)}>{text.resetResponses}</button>}
           <div className="command-fields">
             <div className="form-field">
               <label className="command-field-label" htmlFor={`per-user-${command.name}`}>{text.perUserCooldown}</label>
@@ -897,27 +868,17 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
         </div>
       },
     ]
-    if (isBrowserMode() || command.name === 'tg') sections.push({
+    if (isBrowserMode()) sections.push({
       id: 'conditions', body: <div className="command-editor-stack">
         <div className="command-fields">
           {isBrowserMode() && <div className="form-field"><label className="command-field-label" htmlFor={`builtin-stream-${command.name}`}>{text.streamAvailabilityLabel}</label><span className="command-select-control"><Select id={`builtin-stream-${command.name}`} value={draft.streamAvailability} aria-label={text.streamAvailabilityLabel} disabled={busy} onChange={(value) => updateDraft(command.name, { streamAvailability: value as StreamAvailability })} options={streamAvailabilityOptions} /></span></div>}
         </div>
-        {command.name === 'tg' && <div className="command-burst-controls">
-          <div className="form-field command-burst-interval">
-            <label className="command-field-label" htmlFor="tg-burst-interval">{text.burstInterval}</label>
-            <input id="tg-burst-interval" aria-label={text.burstInterval} placeholder={text.intervalPlaceholder} disabled={busy} type="number" min="0" max="1000" step="1" aria-invalid={!intervalValid} className={intervalValid ? '' : 'invalid'} value={draft.burstIntervalMs} onChange={(event) => updateDraft(command.name, { burstIntervalMs: event.target.value })} />
-          </div>
-          <div className="form-field command-burst-max-count">
-            <label className="command-field-label" htmlFor="tg-burst-max-count">{text.maxRepeatCount}</label>
-            <input id="tg-burst-max-count" aria-label={text.maxRepeatCount} placeholder={text.maxCopies} disabled={busy} type="number" min="1" max="20" step="1" aria-invalid={!maxCountValid} className={maxCountValid ? '' : 'invalid'} value={draft.burstMaxCount} onChange={(event) => updateDraft(command.name, { burstMaxCount: event.target.value })} />
-          </div>
-        </div>}
       </div>
     })
     return <CommandEditorDialog id={`command-editor-${command.name}`} title={fmt(copy.editNamedCommand, { name: data.command_prefix + primaryName })}
       busy={busy} dirty={dirty} error={error} sections={sections}
       saveLabel={responsePool ? copy.saveCommand : copy.save}
-      saveDisabled={(!dirty && command.saved && (!responsePool || responsePool.saved)) || !perUserValid || !globalValid || !intervalValid || !maxCountValid || (responsePool !== null && !responseValid)}
+      saveDisabled={(!dirty && command.saved && (!responsePool || responsePool.saved)) || !perUserValid || !globalValid || (responsePool !== null && !responseValid)}
       onSave={() => void runAction(command, 'save')} onClose={() => void closeEditor()} />
   }
 
@@ -1034,6 +995,11 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
             <input id="custom-burst-interval" aria-label={text.burstInterval} placeholder={text.intervalPlaceholder} type="number" min="0" max="1000" step="1" className={parsedBurstInterval(customDraft.burstIntervalMs) === null ? 'invalid' : ''} aria-invalid={parsedBurstInterval(customDraft.burstIntervalMs) === null} value={customDraft.burstIntervalMs} onChange={(event) => updateCustomDraft({ burstIntervalMs: event.target.value })} />
             {parsedBurstInterval(customDraft.burstIntervalMs) === null && <span className="custom-field-hint command-editor-validation" role="alert">{text.intervalHint}</span>}
           </div>
+          <div className="form-field">
+            <label className="command-field-label" htmlFor="custom-burst-max-count">{text.maxRepeatCount}</label>
+            <input id="custom-burst-max-count" aria-label={text.maxRepeatCount} placeholder={text.maxCopies} type="number" min="1" max="20" step="1" className={parsedBurstMaxCount(customDraft.burstMaxCount, customDraft.burstCount) === null ? 'invalid' : ''} aria-invalid={parsedBurstMaxCount(customDraft.burstMaxCount, customDraft.burstCount) === null} value={customDraft.burstMaxCount} onChange={(event) => updateCustomDraft({ burstMaxCount: event.target.value })} />
+            {parsedBurstMaxCount(customDraft.burstMaxCount, customDraft.burstCount) === null && <span className="custom-field-hint command-editor-validation" role="alert">{text.maxCountInvalid}</span>}
+          </div>
           <div className="custom-field-label">
             <Switch checked={customDraft.burstAllowOverride} ariaLabel={text.allowOverride} onCheckedChange={(burstAllowOverride) => updateCustomDraft({ burstAllowOverride })}><span>{text.allowOverride}</span></Switch>
           </div>
@@ -1043,7 +1009,7 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
     return <CommandEditorDialog id="custom-command-editor" title={customDraft.id ? copy.editCommand : copy.newCommand}
       busy={busyCustom} dirty={customDirty} error={error} sections={sections}
       saveLabel={copy.saveCommand}
-      saveDisabled={customDraft.responseMode === 'burst' && (parsedBurstCount(customDraft.burstCount) === null || parsedBurstInterval(customDraft.burstIntervalMs) === null)}
+      saveDisabled={customDraft.responseMode === 'burst' && (parsedBurstMaxCount(customDraft.burstMaxCount, customDraft.burstCount) === null || parsedBurstCount(customDraft.burstCount) === null || parsedBurstInterval(customDraft.burstIntervalMs) === null)}
       onSave={() => void saveCustom()} onClose={() => void closeEditor()} />
   }
 

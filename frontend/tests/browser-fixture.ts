@@ -53,7 +53,7 @@ export async function server(page: Page, operationOverrides: OperationOverrides 
   let oauthCompleteResult: object = { ok: true }
   const command: CommandInfo = {
     name: 'ping', primary_name: 'ping', aliases: [], enabled: true, available: true, unavailable_reason: null,
-    response_pool: { responses: ['Pong'], defaults: ['Pong'], saved: true, has_saved_override: false, response_mode: 'single', max_responses: 1 },
+    response_pool: { responses: ['Pong'], defaults: ['Pong'], saved: true, has_saved_override: false, response_mode: 'random', max_responses: 1 },
     permission: 'EVERYONE', stream_availability: 'live_only', cooldown: { per_user_seconds: 1, global_seconds: 0 }, hidden: false,
     default_settings: { primary_name: 'ping', enabled: true, permission: 'EVERYONE', stream_availability: 'anytime', cooldown: { per_user_seconds: 1, global_seconds: 0 } },
     saved: true, has_saved_override: false,
