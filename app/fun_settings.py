@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 from threading import RLock
 
+from app.errors import UserError
 from app.config.commands import TG_MESSAGE
 from app.settings_recovery import preserve_settings_recovery
 
@@ -21,10 +22,10 @@ def validate_fates(values: object) -> tuple[str, ...]:
 
 def _validate_responses(values: object, *, max_responses: int) -> tuple[str, ...]:
     if not isinstance(values, list) or not 1 <= len(values) <= max_responses:
-        raise ValueError(f"Provide between 1 and {max_responses} command responses.")
+        raise UserError("fun_settings.provide_between_1_command_responses", maximum=str(max_responses))
     if any(not isinstance(value, str) or not value.strip() or len(value.encode("utf-8")) > 450
            for value in values):
-        raise ValueError("Each response must contain text and be at most 450 UTF-8 bytes.")
+        raise UserError("fun_settings.each_response_contain_text_most_450")
     return tuple(values)
 
 
@@ -33,7 +34,7 @@ def _response_options(command_name: str) -> tuple[str, tuple[str, ...], int]:
         return "fates", FATES, 1000
     if command_name == "tg":
         return "tg_message", (TG_MESSAGE,), 1
-    raise ValueError("This command has no editable responses.")
+    raise UserError("fun_settings.command_has_no_editable_responses")
 
 
 class FunSettingsStore:
@@ -51,7 +52,7 @@ class FunSettingsStore:
                 payload = json.loads(path.read_text(encoding="utf-8"))
                 if (not isinstance(payload, dict) or type(payload.get("version")) is not int
                         or payload["version"] != 1):
-                    raise ValueError("Unsupported fun settings")
+                    raise UserError("fun_settings.unsupported_fun_settings")
                 self._payload = payload
             except (OSError, UnicodeError, ValueError):
                 self._load_error = True
@@ -129,7 +130,7 @@ class FunSettingsStore:
 
     def _write(self, payload: dict[str, object]) -> None:
         if self._load_error:
-            raise ValueError("Repair the unreadable or unsupported fun_settings.json before saving responses.")
+            raise UserError("fun_settings.repair_unreadable_unsupported_fun_settings_json")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary: Path | None = None
         try:

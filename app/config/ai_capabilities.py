@@ -17,6 +17,7 @@ https://developers.openai.com/api/docs/guides/tools-web-search
 
 from typing import Any
 
+from app.errors import UserError
 from app.config.ai_models import validate_ai_provider, validate_provider_model_id
 
 _DEEPSEEK_MODELS = frozenset({
@@ -58,7 +59,7 @@ def model_capabilities(provider: str, model: str) -> dict[str, Any]:
     options = [dict(_DEFAULT)]
     known = False
     search = False
-    reason = "This model's search and thinking controls have not been verified for this API."
+    reason = str(UserError("ai_capabilities.controls_unverified"))
     if provider == "deepseek" and model in _DEEPSEEK_MODELS:
         known = search = True
         options += [{"value": value, "label": value.capitalize()} for value in ("off", "low", "high", "max")]
@@ -95,11 +96,11 @@ def model_capabilities(provider: str, model: str) -> dict[str, Any]:
 def validate_model_options(provider: str, model: str, thinking: str, search: bool) -> None:
     capabilities = model_capabilities(provider, model)
     if thinking not in {option["value"] for option in capabilities["thinking_options"]}:
-        raise ValueError("Thinking choice is unavailable for this model. Choose a supported option explicitly.")
+        raise UserError("ai_capabilities.thinking_choice_unavailable_model_choose_supported")
     if type(search) is not bool:
-        raise ValueError("Internet search must be on or off.")
+        raise UserError("ai_capabilities.internet_search_off")
     if search and not capabilities["search_supported"]:
-        raise ValueError(capabilities["search_reason"])
+        raise UserError("ai_capabilities.controls_unverified")
 
 
 def native_thinking_parameters(provider: str, model: str, thinking: str) -> dict[str, Any]:

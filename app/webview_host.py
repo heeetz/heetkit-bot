@@ -23,6 +23,7 @@ from typing import Any, Coroutine
 
 from pydantic import ValidationError
 
+from app.errors import UserError, UserRuntimeError, UserTimeoutError, error_result
 from app.app_settings import DEFAULT_INTERFACE_LANGUAGE, AppSettings, AppSettingsStore, TwitchSettings
 from app.bot_runtime import BotRuntime
 from app.management import APPLICATION_NAME, APPLICATION_SUBTITLE, EXTERNAL_LINKS, ApplicationManagement
@@ -59,7 +60,6 @@ from app.runtime_paths import (
     RuntimePaths, RuntimeDataError, prepare_runtime_data,
 )
 from app.system_tray import SystemTray
-from app.ui_messages import annotate_error
 from app.operations import DESKTOP, collect, operation
 from app.services.updates import (
     DOWNLOAD_TIMEOUT_SECONDS, ReleaseAssets, UpdateCheckError, VerifiedUpdate,
@@ -99,7 +99,6 @@ def application_version() -> str:
 class BridgeOperationTimedOut(RuntimeError):
     """A bounded frontend bridge wait expired."""
 
-
 class AsyncioBackendHost:
     """Own the application and its single asyncio loop on a background thread."""
 
@@ -126,13 +125,13 @@ class AsyncioBackendHost:
     @property
     def application(self) -> Application:
         if self._application is None:
-            raise RuntimeError("Desktop backend is not ready.")
+            raise UserRuntimeError("webview_host.desktop_backend_not_ready")
         return self._application
 
     @property
     def bot_runtime(self) -> BotRuntime:
         if self._bot_runtime is None:
-            raise RuntimeError("Desktop backend is not ready.")
+            raise UserRuntimeError("webview_host.desktop_backend_not_ready")
         return self._bot_runtime
 
     def start(self, timeout: float = 20.0) -> None:
@@ -145,11 +144,11 @@ class AsyncioBackendHost:
         )
         self._thread.start()
         if not self._ready.wait(timeout):
-            raise TimeoutError("Desktop backend startup timed out.")
+            raise UserTimeoutError("webview_host.desktop_backend_startup_timed_out")
         if self._startup_error is not None:
             if isinstance(self._startup_error, DatabaseMigrationError):
                 raise self._startup_error from None
-            raise RuntimeError("Desktop backend startup failed.") from self._startup_error
+            raise UserRuntimeError("webview_host.desktop_backend_startup_failed") from self._startup_error
 
     async def _complete_startup(self) -> None:
         await self.bot_runtime.startup()
@@ -250,7 +249,7 @@ class AsyncioBackendHost:
         loop = self._loop
         if loop is None or not loop.is_running():
             coroutine.close()
-            raise RuntimeError("Desktop backend is not running.")
+            raise UserRuntimeError("webview_host.desktop_backend_not_running")
         return asyncio.run_coroutine_threadsafe(coroutine, loop)
 
     def close(
@@ -406,7 +405,7 @@ class DesktopOperations(ApplicationManagement):
             )
             raise BridgeOperationTimedOut(operation) from error
 
-    @operation(write=True, hosts=(DESKTOP,), failure="Configuration transfer failed. Inspect current settings and private backups before retrying.")
+    @operation(write=True, hosts=(DESKTOP,), failure="webview_host.configuration_transfer_failed_inspect_current_settings")
     def export_configuration(self) -> dict[str, object]:
         # pywebview deliberately disables browser downloads. Use a native Save
         # dialog for this explicit action instead of enabling arbitrary downloads.
@@ -421,7 +420,7 @@ class DesktopOperations(ApplicationManagement):
         if not result.get("ok"):
             return result
         if self._window is None:
-            return {"ok": False, "error": "The desktop Save dialog is unavailable."}
+            return {"ok": False, "error_code": "webview_host.desktop_save_dialog_unavailable", "error_params": {}}
         temporary = None
         try:
             selected = self._window.create_file_dialog(
@@ -432,12 +431,12 @@ class DesktopOperations(ApplicationManagement):
                 return {"ok": True, "cancelled": True}
             path = Path(selected[0])
             if not path.is_absolute() or path.suffix.lower() != ".zip":
-                return {"ok": False, "error": "Select a filename ending in .zip in the Save dialog."}
+                return {"ok": False, "error_code": "webview_host.select_filename_ending_zip_save_dialog", "error_params": {}}
             temporary = ConfigurationTransfer.stage(path, base64.b64decode(result["archive_base64"], validate=True))
             os.replace(temporary, path)
             return {"ok": True, "saved": True}
         except Exception:
-            return {"ok": False, "error": "Could not save the configuration ZIP. Check the selected destination and try again."}
+            return {"ok": False, "error_code": "webview_host.could_not_save_configuration_zip_check", "error_params": {}}
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
@@ -474,17 +473,17 @@ class DesktopOperations(ApplicationManagement):
                 timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
             )
         except ValueError as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         except BridgeOperationTimedOut:
             return {
                 "ok": False,
-                "error": "Blocking the AI user timed out. Check Logs and reopen the AI page before trying again.",
+                "error_code": "webview_host.blocking_ai_user_timed_out_check", "error_params": {},
             }
         except FutureCancelledError:
-            return {"ok": False, "error": "Blocking the AI user was cancelled. Reopen the AI page and try again."}
+            return {"ok": False, "error_code": "webview_host.blocking_ai_user_cancelled_reopen_ai", "error_params": {}}
         except (OSError, RuntimeError):
             self._logger.exception("Could not save AI user block")
-            return {"ok": False, "error": "Could not save AI user block. Check the profile file and try again."}
+            return {"ok": False, "error_code": "webview_host.could_not_save_ai_user_block", "error_params": {}}
         return self.get_blocked_ai_users()
 
     @operation(write=False, hosts=(DESKTOP,))
@@ -494,7 +493,7 @@ class DesktopOperations(ApplicationManagement):
     @operation(write=False, hosts=(DESKTOP,))
     def check_for_updates(self) -> dict[str, object]:
         if not self._desktop_operation.acquire(blocking=False):
-            return {"ok": False, "current_version": application_version(), "error": "A Desktop update is already in progress."}
+            return {"ok": False, "current_version": application_version(), "error_code": "webview_host.desktop_update_already_progress", "error_params": {}}
         try:
             return self._check_for_updates()
         finally:
@@ -511,12 +510,12 @@ class DesktopOperations(ApplicationManagement):
                 timeout=BRIDGE_UPDATE_CHECK_TIMEOUT_SECONDS,
             )
         except BridgeOperationTimedOut:
-            return {"ok": False, "current_version": current_version, "error": "The update check timed out. Try again."}
+            return {"ok": False, "current_version": current_version, "error_code": "updates.update_check_timed_out_try_again", "error_params": {}}
         except UpdateCheckError as error:
-            return {"ok": False, "current_version": current_version, "error": str(error)}
+            return {"ok": False, "current_version": current_version, **error_result(error)}
         except Exception as error:
             self._logger.warning("Update check failed error_type=%s", type(error).__name__)
-            return {"ok": False, "current_version": current_version, "error": "Could not check for updates. Try again later."}
+            return {"ok": False, "current_version": current_version, "error_code": "webview_host.could_not_check_updates_try_again", "error_params": {}}
         assets = release.pop("_installer", None)
         result = {"ok": True, "current_version": current_version, **release}
         self._update_available = bool(release.get("update_available"))
@@ -525,11 +524,11 @@ class DesktopOperations(ApplicationManagement):
         if self._controller is None or not release["update_available"]:
             return result
         if desktop_relaunch.installed_directory() is None:
-            result["automatic_update_reason"] = "Use Open release / downloads to update this portable or source copy."
+            result["automatic_update_reason_code"] = "webview_host.use_open_release_downloads_update_portable"
         elif (key := publisher_key()) is None:
-            result["automatic_update_reason"] = "This build has no trusted update publisher key. Install the update manually."
+            result["automatic_update_reason_code"] = "webview_host.build_has_no_trusted_update_publisher"
         elif not isinstance(assets, ReleaseAssets):
-            result["automatic_update_reason"] = "This release has no matching installer with publisher verification. Install it manually."
+            result["automatic_update_reason_code"] = "webview_host.release_has_no_matching_installer_publisher"
         else:
             try:
                 self._update_offer = self._wait_for_backend(
@@ -537,9 +536,10 @@ class DesktopOperations(ApplicationManagement):
                     operation="verify_update_publisher", timeout=BRIDGE_UPDATE_CHECK_TIMEOUT_SECONDS,
                 )
             except UpdateCheckError as error:
-                result["automatic_update_reason"] = str(error)
+                result["automatic_update_reason_code"] = error.code
+                result["automatic_update_reason_params"] = error.params
             except (OSError, RuntimeError):
-                result["automatic_update_reason"] = "Publisher verification is unavailable. Install the update manually."
+                result["automatic_update_reason_code"] = "webview_host.publisher_verification_unavailable_install_update_manually"
         result["automatic_update"] = self._update_offer is not None
         return result
 
@@ -556,13 +556,13 @@ class DesktopOperations(ApplicationManagement):
     @operation(write=True, hosts=(DESKTOP,))
     def prepare_desktop_update(self, version: object) -> dict[str, object]:
         if not self._desktop_operation.acquire(blocking=False):
-            return {"ok": False, "error": "A Desktop update or restart is already in progress."}
+            return {"ok": False, "error_code": "webview_host.desktop_update_restart_already_progress", "error_params": {}}
         stage = None
         try:
             update = self._update_offer
             install = desktop_relaunch.installed_directory()
             if update is None or version != update.assets.version or install is None or self._controller is None:
-                return {"ok": False, "error": "Check for a verified update first."}
+                return {"ok": False, "error_code": "webview_host.check_verified_update_first", "error_params": {}}
             if self._prepared_update is not None:
                 return {"ok": True}
             stage = desktop_relaunch.new_work_directory(self._profile_root, install)
@@ -580,10 +580,10 @@ class DesktopOperations(ApplicationManagement):
             progress("ready", update.assets.size)
             return {"ok": True}
         except UpdateCheckError as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         except (OSError, RuntimeError) as error:
             self._logger.warning("Update preparation failed error_type=%s", type(error).__name__)
-            return {"ok": False, "error": "Could not prepare the update. Check free disk space and try again."}
+            return {"ok": False, "error_code": "webview_host.could_not_prepare_update_check_free", "error_params": {}}
         finally:
             if stage is not None and self._prepared_update != stage:
                 shutil.rmtree(stage, ignore_errors=True)
@@ -600,19 +600,19 @@ class DesktopOperations(ApplicationManagement):
 
     def _schedule_desktop_relaunch(self, version: object = None, *, update_requested: bool = False) -> dict[str, object]:
         if self._controller is None or not self._desktop_operation.acquire(blocking=False):
-            return {"ok": False, "error": "Desktop restart is unavailable or another operation is in progress."}
+            return {"ok": False, "error_code": "webview_host.desktop_restart_unavailable_another_operation_progress", "error_params": {}}
         stage = None
         try:
             if update_requested:
                 stage, update = self._prepared_update, self._update_offer
                 install = desktop_relaunch.installed_directory()
                 if stage is None or update is None or install is None or version != update.assets.version:
-                    return {"ok": False, "error": "Prepare a verified update first."}
+                    return {"ok": False, "error_code": "webview_host.prepare_verified_update_first", "error_params": {}}
             else:
                 update = install = None
                 pending = self._app_settings is not None and self._twitch_setup_requires_restart(self._app_settings.snapshot().twitch)
                 if not pending and not self._twitch_cleanup_requires_restart():
-                    return {"ok": False, "error": "There are no Twitch changes requiring a Desktop restart."}
+                    return {"ok": False, "error_code": "webview_host.there_no_twitch_changes_requiring_desktop", "error_params": {}}
                 stage = desktop_relaunch.new_work_directory(self._profile_root)
             self._controller.schedule_relaunch(stage, install=install, update=update)
             if update_requested:
@@ -625,7 +625,7 @@ class DesktopOperations(ApplicationManagement):
                 self._discard_prepared_update()
             elif stage is not None:
                 shutil.rmtree(stage, ignore_errors=True)
-            return {"ok": False, "error": "Could not start the Desktop relaunch. HeetKit is still running. Try again or use Exit from the tray."}
+            return {"ok": False, "error_code": "webview_host.could_not_start_desktop_relaunch_heetkit", "error_params": {}}
         finally:
             self._desktop_operation.release()
 
@@ -634,7 +634,7 @@ class DesktopOperations(ApplicationManagement):
         """Open only this desktop's selected profile, never a frontend-supplied path."""
         try:
             if not self._profile_root.is_dir():
-                return {"ok": False, "error": "The profile folder is no longer available."}
+                return {"ok": False, "error_code": "webview_host.profile_folder_no_longer_available", "error_params": {}}
             if sys.platform == "win32":
                 os.startfile(str(self._profile_root), "explore")
             else:
@@ -647,13 +647,13 @@ class DesktopOperations(ApplicationManagement):
                 )
         except (OSError, subprocess.SubprocessError):
             self._logger.warning("Could not open the profile folder")
-            return {"ok": False, "error": "Could not open the profile folder in the system file manager."}
+            return {"ok": False, "error_code": "webview_host.could_not_open_profile_folder_system", "error_params": {}}
         return {"ok": True}
 
     @operation(write=True, hosts=(DESKTOP,))
     def open_external_link(self, destination: object) -> dict[str, object]:
         if not isinstance(destination, str) or destination not in (*EXTERNAL_LINKS, "twitch_authorization"):
-            return {"ok": False, "error": "That external link is not available."}
+            return {"ok": False, "error_code": "webview_host.external_link_not_available", "error_params": {}}
         url = EXTERNAL_LINKS.get(destination, "")
         if destination == "twitch_authorization":
             result = self._twitch_setup.desktop_authorization_url()
@@ -664,9 +664,9 @@ class DesktopOperations(ApplicationManagement):
             opened = webbrowser.open(url, new=2)
         except Exception:
             self._logger.exception("Could not open external link destination=%s", destination)
-            return {"ok": False, "error": "Could not open the external link."}
+            return {"ok": False, "error_code": "webview_host.could_not_open_external_link", "error_params": {}}
         if not opened:
-            return {"ok": False, "error": "Could not open the external link."}
+            return {"ok": False, "error_code": "webview_host.could_not_open_external_link", "error_params": {}}
         self._logger.info("Opened external link destination=%s", destination)
         return {"ok": True}
 
@@ -681,15 +681,14 @@ class DesktopOperations(ApplicationManagement):
             )
         except FilterValidationError as error:
             return {
-                "ok": False,
-                "error": str(error),
+                **error_result(error),
                 "invalid_rule": {"category": error.category, "index": error.index},
             }
         except ValueError as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         except (OSError, BridgeOperationTimedOut):
             self._logger.exception("Could not %s filters", action)
-            return {"ok": False, "error": f"Could not {action} filters."}
+            return {"ok": False, "error_code": "webview_host.could_not_filters", "error_params": {"action": str(action)}}
         self._logger.info("Global filters %s", "saved" if save else "applied")
         return {"ok": True}
 
@@ -714,28 +713,27 @@ class DesktopOperations(ApplicationManagement):
             )
         except FilterValidationError as error:
             return {
-                "ok": False,
-                "error": str(error),
+                **error_result(error),
                 "invalid_rule": {"category": error.category, "index": error.index},
             }
         except ValueError as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         except BridgeOperationTimedOut:
-            return {"ok": False, "error": "Filter test timed out. Try again."}
+            return {"ok": False, "error_code": "webview_host.filter_test_timed_out_try_again", "error_params": {}}
 
 
-    @operation(write=True, hosts=(DESKTOP,), failure="The Playground is unavailable. Try again.",
-               timeout_failure="Playground control timed out. Try again.")
+    @operation(write=True, hosts=(DESKTOP,), failure="ai_playground.playground_unavailable_try_again",
+               timeout_failure="webview_host.playground_control_timed_out_try_again")
     async def start_ai_playground(self, prompt: object) -> dict[str, object]:
         return self._backend.application.ai_playground.start(prompt)
 
-    @operation(write=True, hosts=(DESKTOP,), failure="The Playground is unavailable. Try again.",
-               timeout_failure="Playground control timed out. Try again.")
+    @operation(write=True, hosts=(DESKTOP,), failure="ai_playground.playground_unavailable_try_again",
+               timeout_failure="webview_host.playground_control_timed_out_try_again")
     async def get_ai_playground_result(self, request_id: object) -> dict[str, object]:
         return self._backend.application.ai_playground.get(request_id)
 
-    @operation(write=True, hosts=(DESKTOP,), failure="The Playground is unavailable. Try again.",
-               timeout_failure="Playground control timed out. Try again.")
+    @operation(write=True, hosts=(DESKTOP,), failure="ai_playground.playground_unavailable_try_again",
+               timeout_failure="webview_host.playground_control_timed_out_try_again")
     async def cancel_ai_playground(self, request_id: object) -> dict[str, object]:
         return self._backend.application.ai_playground.cancel(request_id)
 
@@ -749,18 +747,18 @@ class DesktopOperations(ApplicationManagement):
                 timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
             )
         except ValueError as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         except BridgeOperationTimedOut:
             return {
                 "ok": False,
-                "error": "Saving the AI memory setting timed out. Check Logs for details.",
+                "error_code": "webview_host.saving_ai_memory_setting_timed_out", "error_params": {},
             }
         except OSError:
             self._logger.exception("Could not save AI memory setting")
-            return {"ok": False, "error": "Could not save AI memory setting."}
+            return {"ok": False, "error_code": "webview_host.could_not_save_ai_memory_setting", "error_params": {}}
         except Exception:
             self._logger.exception("Could not save AI memory setting")
-            return {"ok": False, "error": "Could not save AI memory setting."}
+            return {"ok": False, "error_code": "webview_host.could_not_save_ai_memory_setting", "error_params": {}}
         self._logger.info(
             "AI memory setting changed enabled=%s",
             parsed_enabled,
@@ -782,14 +780,14 @@ class DesktopOperations(ApplicationManagement):
     @operation(write=True, hosts=(DESKTOP,))
     def set_interface_language(self, language: object) -> dict[str, object]:
         if self._app_settings is None:
-            return {"ok": False, "error": "Desktop settings are not configured."}
+            return {"ok": False, "error_code": "management.desktop_settings_not_configured", "error_params": {}}
         try:
             self._app_settings.update_interface_language(language)
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
         except OSError:
             self._logger.exception("Could not save the interface language")
-            return {"ok": False, "error": "Could not save the interface language."}
+            return {"ok": False, "error_code": "webview_host.could_not_save_interface_language", "error_params": {}}
+        except ValueError as error:
+            return error_result(error)
         if (refresh := getattr(self._controller, "refresh_tray", None)) is not None:
             refresh()
         return {"ok": True}
@@ -797,7 +795,7 @@ class DesktopOperations(ApplicationManagement):
     @operation(write=False, hosts=(DESKTOP,))
     def get_app_settings(self) -> dict[str, object]:
         if self._app_settings is None:
-            return {"ok": False, "error": "Desktop settings are not configured."}
+            return {"ok": False, "error_code": "management.desktop_settings_not_configured", "error_params": {}}
         settings = self._app_settings.snapshot()
         return {
             "ok": True,
@@ -819,7 +817,7 @@ class DesktopOperations(ApplicationManagement):
         auto_start_bot: object,
     ) -> dict[str, object]:
         if self._app_settings is None:
-            return {"ok": False, "error": "Desktop settings are not configured."}
+            return {"ok": False, "error_code": "management.desktop_settings_not_configured", "error_params": {}}
         try:
             self._app_settings.update_desktop(
                 start_minimized=start_minimized,
@@ -827,11 +825,11 @@ class DesktopOperations(ApplicationManagement):
                 close_to_tray=close_to_tray,
                 auto_start_bot=auto_start_bot,
             )
-        except ValueError as error:
-            return {"ok": False, "error": str(error)}
         except OSError:
             self._logger.exception("Could not save desktop settings")
-            return {"ok": False, "error": "Could not save desktop settings."}
+            return {"ok": False, "error_code": "webview_host.could_not_save_desktop_settings", "error_params": {}}
+        except ValueError as error:
+            return error_result(error)
         self._logger.info(
             "Desktop application settings saved",
             extra={
@@ -889,19 +887,19 @@ class DesktopOperations(ApplicationManagement):
         self, mode: object, allowed_languages: object, fallback_language: object,
     ) -> dict[str, object]:
         if self._app_settings is None:
-            return {"ok": False, "error": "Desktop settings are not configured."}
+            return {"ok": False, "error_code": "management.desktop_settings_not_configured", "error_params": {}}
         try:
             self._wait_for_backend(
                 self._save_ai_response_language(mode, allowed_languages, fallback_language),
                 operation="save_ai_language", timeout=BRIDGE_SETTINGS_TIMEOUT_SECONDS,
             )
         except ValueError as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         except BridgeOperationTimedOut:
-            return {"ok": False, "error": "Saving response language settings timed out. Check Logs for details."}
+            return {"ok": False, "error_code": "webview_host.saving_response_language_settings_timed_out", "error_params": {}}
         except Exception:
             self._logger.exception("Could not save AI response language settings")
-            return {"ok": False, "error": "Could not save response language settings."}
+            return {"ok": False, "error_code": "webview_host.could_not_save_response_language_settings", "error_params": {}}
         self._logger.info(
             "AI response language settings saved",
             extra={"event_kind": "settings.ai", "event_action": "save"},
@@ -916,11 +914,11 @@ class DesktopOperations(ApplicationManagement):
         try:
             selected = validate_ai_provider(provider if provider is not None else self._backend.application.settings.ai_provider)
         except ValueError as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         service = self._backend.application.services.ai
         discover = getattr(service, "discover_models", None)
         if discover is None:
-            return {"ok": False, "error": "AI model discovery is unavailable."}
+            return {"ok": False, "error_code": "webview_host.ai_model_discovery_unavailable", "error_params": {}}
         try:
             models = self._wait_for_backend(
                 discover(selected),
@@ -928,15 +926,15 @@ class DesktopOperations(ApplicationManagement):
                 timeout=BRIDGE_MODEL_DISCOVERY_TIMEOUT_SECONDS,
             )
         except AIModelDiscoveryError as error:
-            return {"ok": False, "error": str(error), "error_code": error.code, "provider_id": selected}
+            return {**error_result(error), "provider_id": selected}
         except BridgeOperationTimedOut:
             return {
                 "ok": False,
-                "error": "AI model discovery timed out. Check Logs for details.",
+                "error_code": "webview_host.ai_model_discovery_timed_out_check", "error_params": {},
             }
         except Exception:
             self._logger.warning("AI model discovery failed")
-            return {"ok": False, "error": "Could not discover AI models."}
+            return {"ok": False, "error_code": "webview_host.could_not_discover_ai_models", "error_params": {}}
         return {"ok": True, "models": models, "provider_id": selected}
 
     @operation(write=False, hosts=(DESKTOP,))
@@ -977,12 +975,12 @@ class DesktopOperations(ApplicationManagement):
         if (not isinstance(entry_ids, list) or not 1 <= len(entry_ids) <= 500
                 or any(type(value) is not int or value < 1 for value in entry_ids)
                 or len(set(entry_ids)) != len(entry_ids)):
-            return {"ok": False, "error": "Select up to 500 retained events to export."}
+            return {"ok": False, "error_code": "webview_host.select_up_500_retained_events_export", "error_params": {}}
         retained = {entry["id"]: entry for entry in self._log_buffer.activity(limit=500)["entries"]}
         if any(value not in retained for value in entry_ids):
-            return {"ok": False, "error": "Some selected events have expired. Clear the view and select recent events."}
+            return {"ok": False, "error_code": "webview_host.some_selected_events_have_expired_clear", "error_params": {}}
         if self._window is None:
-            return {"ok": False, "error": "The desktop Save dialog is unavailable."}
+            return {"ok": False, "error_code": "webview_host.desktop_save_dialog_unavailable", "error_params": {}}
         payload = json.dumps({"exported_at": datetime.now(timezone.utc).isoformat(),
                               "entries": [retained[value] for value in entry_ids]}, ensure_ascii=False).encode("utf-8")
         temporary = None
@@ -993,12 +991,12 @@ class DesktopOperations(ApplicationManagement):
                 return {"ok": True, "cancelled": True}
             path = Path(selected[0])
             if not path.is_absolute() or path.suffix.lower() != ".json":
-                return {"ok": False, "error": "Select a filename ending in .json in the Save dialog."}
+                return {"ok": False, "error_code": "webview_host.select_filename_ending_json_save_dialog", "error_params": {}}
             temporary = ConfigurationTransfer.stage(path, payload)
             os.replace(temporary, path)
             return {"ok": True, "saved": True}
         except Exception:
-            return {"ok": False, "error": "Could not save activity. Check the selected destination and try again."}
+            return {"ok": False, "error_code": "webview_host.could_not_save_activity_check_selected", "error_params": {}}
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
@@ -1008,7 +1006,7 @@ class DesktopOperations(ApplicationManagement):
         if self._app_settings is not None and self._twitch_setup_requires_restart(
             self._app_settings.snapshot().twitch
         ):
-            return {"ok": False, "changed": False, "error": "Restart the application to apply the saved Twitch client ID, bot identity or secret."}
+            return {"ok": False, "changed": False, "error_code": "webview_host.restart_application_apply_saved_twitch_client", "error_params": {}}
         try:
             started = self._wait_for_backend(
                 self._backend.bot_runtime.start_bot(),
@@ -1016,16 +1014,16 @@ class DesktopOperations(ApplicationManagement):
                 timeout=BRIDGE_BOT_START_TIMEOUT_SECONDS,
             )
         except (TwitchConfigurationError, TwitchCleanupError) as error:
-            return {"ok": False, "changed": False, "error": str(error)}
+            return {"ok": False, "changed": False, **error_result(error)}
         except BridgeOperationTimedOut:
             return {
                 "ok": False,
                 "changed": False,
-                "error": "Starting the bot timed out. Check Logs for details.",
+                "error_code": "webview_host.starting_bot_timed_out_check_logs", "error_params": {},
             }
         except Exception:
             self._logger.exception("Desktop UI could not start the bot")
-            return {"ok": False, "changed": False, "error": "Could not start the bot."}
+            return {"ok": False, "changed": False, "error_code": "webview_host.could_not_start_bot", "error_params": {}}
         self._logger.info(
             "Desktop bot start requested changed=%s",
             started,
@@ -1050,11 +1048,11 @@ class DesktopOperations(ApplicationManagement):
             return {
                 "ok": False,
                 "changed": False,
-                "error": "Stopping the bot timed out. Check Logs for details.",
+                "error_code": "webview_host.stopping_bot_timed_out_check_logs", "error_params": {},
             }
         except Exception:
             self._logger.exception("Desktop UI could not stop the bot")
-            return {"ok": False, "changed": False, "error": "Could not stop the bot."}
+            return {"ok": False, "changed": False, "error_code": "webview_host.could_not_stop_bot", "error_params": {}}
         self._logger.info(
             "Desktop bot stop requested changed=%s",
             stopped,
@@ -1074,26 +1072,28 @@ class WebUIBridge(DesktopOperations):
     def call(self, name: str, payload: object) -> dict[str, object]:
         operation = DESKTOP_OPERATIONS.get(name) if isinstance(name, str) else None
         if operation is None:
-            return {"ok": False, "error": "Unknown operation."}
+            return {"ok": False, "error_code": "webview_host.unknown_operation", "error_params": {}}
         try:
             arguments = operation.bind(payload)
         except ValueError as error:
-            return {"ok": False, "error": str(error)}
+            return error_result(error)
         try:
             method = getattr(self, operation.attribute)
             result = method(**arguments)
             if isawaitable(result):
                 result = self._wait_for_backend(result, operation=name, timeout=operation.timeout)
             return result if isinstance(result, dict) else {"ok": True}
+        except UserError as error:
+            return error_result(error)
         except BridgeOperationTimedOut:
-            return {"ok": False, "error": operation.timeout_failure or operation.failure or "Management operation unavailable. Check profile storage and retry."}
+            return error_result(operation.timeout_failure or operation.failure or "webview_host.management_operation_unavailable_check_profile_storage")
         except FutureCancelledError:
-            return {"ok": False, "error": operation.cancelled_failure or operation.failure or "Management operation unavailable. Check profile storage and retry."}
+            return error_result(operation.cancelled_failure or operation.failure or "webview_host.management_operation_unavailable_check_profile_storage")
         except ValueError as error:
-            return {"ok": False, "error": operation.validation_failure or str(error)}
+            return error_result(operation.validation_failure or "operations.invalid_operation_arguments")
         except Exception:
             self._logger.exception("Desktop operation failed operation=%s", name)
-            return {"ok": False, "error": operation.failure or "Management operation unavailable. Check profile storage and retry."}
+            return error_result(operation.failure or "webview_host.management_operation_unavailable_check_profile_storage")
 
 
 DESKTOP_OPERATIONS = {name: op for name, op in collect(ApplicationManagement, DesktopOperations).items()
@@ -1103,11 +1103,11 @@ DESKTOP_OPERATIONS = {name: op for name, op in collect(ApplicationManagement, De
 def resolve_frontend_url(dev_url: str | None) -> str:
     if dev_url:
         if getattr(sys, "frozen", False) or SOURCE_ROOT is None:
-            raise ValueError("--dev-url is available only in a source checkout.")
+            raise UserError("webview_host.dev_url_is_available_only_in_a_source_checkout")
         origin = _frontend_origin(dev_url)
         parsed = urlsplit(dev_url)
         if origin is None or origin[1] not in {"localhost", "127.0.0.1", "::1"} or parsed.username is not None or parsed.password is not None:
-            raise ValueError("--dev-url must be an HTTP(S) loopback development server URL.")
+            raise UserError("webview_host.dev_url_must_be_an_http_s_loopback_development")
         return dev_url
     if PACKAGED_FRONTEND.is_file():
         return str(PACKAGED_FRONTEND)
@@ -1142,8 +1142,8 @@ def expose_frontend_operations(window: Any, bridge: WebUIBridge) -> None:
 
     def call(name: str, payload: object) -> Any:
         if trusted_origin is None or _frontend_origin(window.get_current_url()) != trusted_origin:
-            return {"ok": False, "error": "This page cannot access the application bridge."}
-        return annotate_error(bridge.call(name, payload))
+            return {"ok": False, "error_code": "webview_host.page_cannot_access_application_bridge", "error_params": {}}
+        return bridge.call(name, payload)
 
     window.expose(call)
 
@@ -1299,7 +1299,8 @@ class DesktopController:
             else self._bridge.start_bot()
         )
         if not result.get("ok"):
-            self._logger.error("Tray could not change bot state error=%s", result.get("error"))
+            error = UserError(result["error_code"], **result["error_params"])
+            self._logger.error("Tray could not change bot state error=%s", error)
         self._tray.update_menu()
 
     def schedule_relaunch(self, stage: Path, *, install: Path | None, update: VerifiedUpdate | None) -> None:

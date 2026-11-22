@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.errors import UserError
 import asyncio
 import hashlib
 import json
@@ -21,7 +22,7 @@ BALANCE_REQUEST_TIMEOUT_SECONDS = 8.0
 BALANCE_TRANSPORT_TIMEOUT_SECONDS = 6.0
 BALANCE_MAX_RESPONSE_BYTES = 64 * 1024
 BALANCE_MAX_CACHE_ENTRIES = 16
-_BALANCE_ERROR = "Balance is temporarily unavailable. Try again later."
+_BALANCE_ERROR = "ai_balance.balance_temporarily_unavailable"
 _BALANCE_VALUE = re.compile(r"^[0-9]{1,18}(?:\.[0-9]{1,12})?$")
 
 
@@ -169,19 +170,19 @@ class AIBalance:
                 headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
             ) as response:
                 if response.status_code != 200:
-                    raise ValueError("Balance request failed.")
+                    raise UserError("ai_balance.balance_request_failed")
                 chunks: list[bytes] = []
                 size = 0
                 async for chunk in response.aiter_bytes():
                     size += len(chunk)
                     if size > BALANCE_MAX_RESPONSE_BYTES:
-                        raise ValueError("Balance response exceeded its size limit.")
+                        raise UserError("ai_balance.balance_response_exceeded_size_limit")
                     chunks.append(chunk)
 
         payload = json.loads(b"".join(chunks))
         if (not isinstance(payload, dict) or not isinstance(payload.get("balance_infos"), list)
                 or not isinstance(payload.get("is_available"), bool)):
-            raise ValueError("Balance response was invalid.")
+            raise UserError("ai_balance.balance_response_invalid")
         result: list[dict[str, str]] = []
         for item in payload["balance_infos"][:4]:
             if not isinstance(item, dict):
@@ -197,7 +198,7 @@ class AIBalance:
                 continue
             result.append({"currency": currency, **values})  # type: ignore[dict-item]
         if not result:
-            raise ValueError("Balance response contained no supported balances.")
+            raise UserError("ai_balance.balance_response_contained_no_supported_balances")
         return result
 
     @staticmethod
@@ -222,7 +223,8 @@ class AIBalance:
             "updated_at": entry.updated_at,
         }
         if error:
-            result["error"] = error
+            result["error_code"] = error
+            result["error_params"] = {}
         return result
 
     @staticmethod
@@ -233,5 +235,5 @@ class AIBalance:
             "state": "unavailable",
             "balances": [],
             "updated_at": None,
-            "error": error,
+            "error_code": error, "error_params": {},
         }

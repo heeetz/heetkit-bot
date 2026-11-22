@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from threading import RLock
 
+from app.errors import UserError
 from app.settings_recovery import preserve_settings_recovery
 
 logger = logging.getLogger(__name__)
@@ -16,10 +17,10 @@ logger = logging.getLogger(__name__)
 
 def normalize_ai_username(value: object) -> str:
     if not isinstance(value, str):
-        raise ValueError("Enter a Twitch username.")
+        raise UserError("ai_user_blocks.enter_twitch_username")
     username = value.strip().removeprefix("@").lower()
     if not re.fullmatch(r"[a-z0-9_]{1,25}", username):
-        raise ValueError("Use a Twitch login of up to 25 letters, numbers or underscores.")
+        raise UserError("ai_user_blocks.use_twitch_login_up_25_letters")
     return username
 
 
@@ -55,18 +56,18 @@ class AIUserBlocklist:
     def block(self, username: object, user_id: str | None = None) -> None:
         username = normalize_ai_username(username)
         if user_id is not None and verified_user_id(user_id) is None:
-            raise ValueError("Invalid Twitch account ID.")
+            raise UserError("ai_user_blocks.invalid_twitch_account_id")
         with self._lock:
             if any(user.username == username or (user_id is not None and user.twitch_user_id == user_id)
                    for user in self._users):
-                raise ValueError("This Twitch user is already blocked from AI requests.")
+                raise UserError("ai_user_blocks.twitch_user_already_blocked_from_ai")
             self._save((*self._users, BlockedAIUser(username, user_id)))
 
     def unblock(self, username: object) -> None:
         username = normalize_ai_username(username)
         with self._lock:
             if not any(user.username == username for user in self._users):
-                raise ValueError("This Twitch user is not blocked.")
+                raise UserError("ai_user_blocks.twitch_user_not_blocked")
             self._save(tuple(user for user in self._users if user.username != username))
 
     def remember_observed_id(self, username: str, user_id: str) -> None:
@@ -102,13 +103,13 @@ class AIUserBlocklist:
         for raw in payload["users"]:
             try:
                 if not isinstance(raw, dict):
-                    raise ValueError("Invalid entry")
+                    raise UserError("ai_user_blocks.invalid_entry")
                 username = normalize_ai_username(raw.get("username"))
                 user_id = raw.get("twitch_user_id")
                 if user_id is not None and verified_user_id(user_id) is None:
-                    raise ValueError("Invalid account ID")
+                    raise UserError("ai_user_blocks.invalid_account_id")
                 if username in names or (user_id is not None and user_id in ids):
-                    raise ValueError("Duplicate entry")
+                    raise UserError("ai_user_blocks.duplicate_entry")
             except ValueError:
                 logger.warning("Ignoring invalid AI user blocklist entry")
                 continue

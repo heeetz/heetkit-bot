@@ -44,7 +44,7 @@ def test_inspection_marks_source_and_local_rules_and_invalid_regex(tmp_path: Pat
     ]
     assert state["phrases"]["rules"][0]["origin"] == "local"
     assert state["patterns"]["rules"][0]["valid"] is False
-    assert "Invalid regex" in state["patterns"]["rules"][0]["error"]
+    assert state["patterns"]["rules"][0]["error_code"] == "filter_settings.invalid_regex"
     assert state["patterns"]["rules"][1]["origin"] == "default"
     assert not manager.filter_message("source42")
 
@@ -54,8 +54,9 @@ def test_invalid_apply_does_not_change_valid_active_rules() -> None:
     manager.add_blocked_word("existing")
     payload = {"words": ["new"], "phrases": [], "patterns": ["broken["]}
 
-    with pytest.raises(ValueError, match="Invalid regex"):
+    with pytest.raises(ValueError) as error:
         apply_filter_settings(manager, validate_filter_input(payload))
+    assert error.value.code == "filter_settings.invalid_regex_in_pattern"
 
     assert not manager.filter_message("existing")
     assert manager.filter_message("new")
@@ -128,7 +129,7 @@ def test_unreadable_file_shows_active_rules_and_error(tmp_path: Path) -> None:
 
     state = get_filter_settings(manager, local, defaults)
 
-    assert state["words"]["load_error"]
+    assert state["words"]["load_error_code"] == "filter_settings.could_not_read_local_file"
     assert state["words"]["rules"][0]["value"] == "protected"
     assert not manager.filter_message("protected")
 
@@ -145,7 +146,7 @@ def test_invalid_only_file_shows_retained_active_rules(tmp_path: Path) -> None:
 
     state = get_filter_settings(manager, local, defaults)
 
-    assert state["patterns"]["load_error"]
+    assert state["patterns"]["load_error_code"] == "filter_settings.no_valid_rules"
     assert [entry["value"] for entry in state["patterns"]["rules"]] == ["broken[", "valid.*"]
     assert not manager.filter_message("valid text")
 
@@ -231,7 +232,7 @@ def test_draft_tester_uses_existing_normalization_and_python_validation() -> Non
     })
     assert not invalid["ok"]
     assert invalid["invalid_rule"] == {"category": "patterns", "index": 2}
-    assert "Invalid regex" in invalid["error"]
+    assert invalid["error_code"] == "filter_settings.invalid_regex_in_pattern"
     assert manager.snapshot() == (["active"], [], [])
 
 
@@ -254,7 +255,7 @@ def test_tester_rejects_bad_requests_without_changing_active_filters(text, sourc
     result = _test_bridge(manager).test_filters(text, source, payload)
 
     assert not result["ok"]
-    assert result["error"]
+    assert result["error_code"]
     assert "decision" not in result
     assert manager.snapshot() == (["active"], [], [])
 
@@ -284,5 +285,5 @@ def test_tester_reports_bridge_deadline_without_a_moderation_decision(monkeypatc
     result = bridge.test_filters("sample", "active")
 
     assert not result["ok"]
-    assert "timed out" in result["error"]
+    assert result["error_code"] == "webview_host.filter_test_timed_out_try_again"
     assert "decision" not in result

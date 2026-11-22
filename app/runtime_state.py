@@ -8,6 +8,7 @@ from threading import RLock
 from time import monotonic
 from typing import Literal
 
+from app.errors import UserError, UserRuntimeError
 from app.command_settings import (
     CommandNameConflict,
     CommandSettings,
@@ -183,32 +184,32 @@ class RuntimeState:
         minimum = getattr(definition, "minimum_permission", Permission.USER)
         if settings.permission < minimum:
             if not loading:
-                raise ValueError(f"This command requires at least {minimum.name.title()} permission.")
+                raise UserError("runtime_state.command_requires_least_permission", permission=str(minimum.name.title()))
             settings = replace(settings, permission=minimum)
         if settings.removed:
             settings = replace(settings, enabled=False)
         if name != "tg" and settings.burst_interval_ms:
             if not loading:
-                raise ValueError("Only Tg supports a built-in Burst interval.")
+                raise UserError("runtime_state.only_tg_supports_built_burst_interval")
             settings = replace(settings, burst_interval_ms=0)
         if name != "tg" and settings.burst_max_count != defaults.burst_max_count:
             if not loading:
-                raise ValueError("Only Tg supports a built-in Burst maximum repeat count.")
+                raise UserError("runtime_state.only_tg_supports_built_burst_maximum")
             settings = replace(settings, burst_max_count=defaults.burst_max_count)
         if settings.send_as is not None and not getattr(definition, "supports_send_as", True):
             if not loading:
-                raise ValueError("This command uses a fixed delivery mode.")
+                raise UserError("runtime_state.command_uses_fixed_delivery_mode")
             settings = replace(settings, send_as=None)
         if settings.entry_limit is not None and defaults.entry_limit is None:
-            raise ValueError("Only Top supports a leaderboard entry limit.")
+            raise UserError("runtime_state.only_top_supports_leaderboard_entry_limit")
         if settings.chat_template is not None:
             if defaults.chat_template is None:
-                raise ValueError("This command does not support a leaderboard message template.")
+                raise UserError("runtime_state.command_does_not_support_leaderboard_message")
             settings = replace(settings, chat_template=validate_leaderboard_template(name, settings.chat_template))
         if not getattr(definition, "identity_editable", True):
             if settings.aliases != defaults.aliases or settings.display_name != defaults.display_name:
                 if not loading:
-                    raise ValueError("This command's identity is protected.")
+                    raise UserError("runtime_state.command_s_identity_protected")
                 settings = replace(settings, aliases=defaults.aliases, display_name=defaults.display_name)
         validate_primary_name(settings.primary_name)
         # Keep legacy removed identities for explicit re-enablement, even if a
@@ -250,14 +251,14 @@ class RuntimeState:
             try:
                 return self._command_settings[command_name]
             except KeyError as error:
-                raise KeyError(f"Unknown command: {command_name}") from error
+                raise UserError("runtime_state.unknown_command", command=str(command_name)) from error
 
     def get_command_default_settings(self, command_name: str) -> CommandSettings:
         with self._lock:
             try:
                 return self._command_defaults[command_name]
             except KeyError as error:
-                raise KeyError(f"Unknown command: {command_name}") from error
+                raise UserError("runtime_state.unknown_command", command=str(command_name)) from error
 
     def command_settings_are_saved(self, command_name: str) -> bool:
         with self._lock:
@@ -362,7 +363,7 @@ class RuntimeState:
         settings: CommandSettings,
     ) -> None:
         if self._command_settings_path is None:
-            raise RuntimeError("Command settings persistence is not configured.")
+            raise UserRuntimeError("runtime_state.command_settings_persistence_not_configured")
         with self._lock:
             defaults = self._command_defaults[command_name]
             override = CommandSettingsOverride.from_settings(settings, defaults)
@@ -382,7 +383,7 @@ class RuntimeState:
             try:
                 defaults = self._command_defaults[command_name]
             except KeyError as error:
-                raise KeyError(f"Unknown command: {command_name}") from error
+                raise UserError("runtime_state.unknown_command", command=str(command_name)) from error
             updated = defaults
             if preserve_enabled:
                 current = self._command_settings[command_name]
@@ -423,7 +424,7 @@ class RuntimeState:
     def reset_all_command_settings(self, *, preserve_enabled: bool = False) -> None:
         with self._lock:
             if self._command_settings_path is None:
-                raise RuntimeError("Command settings persistence is not configured.")
+                raise UserRuntimeError("runtime_state.command_settings_persistence_not_configured")
             updated = dict(self._command_defaults)
             overrides: dict[str, CommandSettingsOverride] = {}
             if preserve_enabled:
@@ -469,7 +470,7 @@ class RuntimeState:
         with self._lock:
             current = self.get_command_settings("ask")
             if enabled and current.removed:
-                raise ValueError("Find the AI command under Disabled in Commands and enable it there.")
+                raise UserError("runtime_state.find_ai_command_under_disabled_commands")
             defaults = self.get_command_default_settings("ask")
             saved = self._persisted_command_overrides.get(
                 "ask", CommandSettingsOverride(),
@@ -504,7 +505,7 @@ class RuntimeState:
                 personality not in AI_PERSONALITY_PROMPTS
                 and personality not in self._persisted_personality_overrides
             ):
-                raise ValueError("Save the custom personality before setting it active.")
+                raise UserError("runtime_state.save_custom_personality_before_setting_active")
             self._save_personality_settings(personality, self._persisted_personality_overrides)
             self._persisted_active_ai_personality = personality
             self._active_ai_personality = personality
@@ -533,7 +534,7 @@ class RuntimeState:
             try:
                 return self._personality_prompts[personality]
             except KeyError as error:
-                raise ValueError(f"Unknown AI personality: {personality}") from error
+                raise UserError("personalities.unknown_ai_personality", personality=str(personality)) from error
 
     def get_builtin_ai_personality_prompt(self, personality: str) -> str:
         self.get_ai_personality_prompt(personality)
@@ -582,7 +583,7 @@ class RuntimeState:
     def _validate_new_personality_name(self, name: object) -> str:
         name = validate_personality_name(name)
         if any(existing.casefold() == name.casefold() for existing in self._personality_prompts):
-            raise ValueError("A personality with that name already exists.")
+            raise UserError("runtime_state.personality_name_already_exists")
         return name
 
     def create_ai_personality(self, name: object, prompt: object) -> str:
@@ -598,7 +599,7 @@ class RuntimeState:
     def _require_custom_personality(self, name: str) -> str:
         prompt = self.get_ai_personality_prompt(name)
         if name in AI_PERSONALITY_PROMPTS:
-            raise ValueError("Built-in personalities cannot be renamed or deleted.")
+            raise UserError("runtime_state.built_personalities_cannot_renamed_deleted")
         return prompt
 
     def rename_ai_personality(self, personality: str, name: object) -> str:
@@ -658,7 +659,7 @@ class RuntimeState:
         profile_instructions: str | None = None,
     ) -> None:
         if self._personality_settings_path is None:
-            raise RuntimeError("Personality settings persistence is not configured.")
+            raise UserRuntimeError("runtime_state.personality_settings_persistence_not_configured")
         save_personality_settings(
             self._personality_settings_path,
             PersonalitySettings(

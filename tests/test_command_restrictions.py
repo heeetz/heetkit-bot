@@ -348,7 +348,7 @@ async def test_management_resolution_edit_remove_and_unresolved_identity(core):
     assert management.remove_command_restriction(rule.id)["restrictions"] == []
     services.twitch.resolve_user_id.return_value = None
     result = await management._save_command_restriction(data())
-    assert not result["ok"] and "verified Twitch user ID" in result["error"]
+    assert not result["ok"] and result["error_code"] == "management.could_not_resolve_login_verified_twitch"
     assert rules.list() == ()
     services.users.get_by_username.return_value = SimpleNamespace(twitch_user_id="456")
     assert (await management._save_command_restriction(data()))["ok"]

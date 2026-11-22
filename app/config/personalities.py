@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timezone
 from importlib.resources import files
 
+from app.errors import UserError
 from app.config.ai import AI_MAX_RESPONSE_LENGTH
 from app.config.ai_language import ResponseLanguageSettings, build_response_language_instruction
 
@@ -43,7 +44,6 @@ Format:
 - Use plain text without headings or numbered lists.
 - Keep the final answer at or below {ai_max_response_length} characters.
 """
-
 
 BUILTIN_PERSONALITIES_RESOURCE = "personalities.json"
 
@@ -94,7 +94,7 @@ def build_ai_system_instruction(
     selected_personality = personality_name or ACTIVE_AI_PERSONALITY
     built_in_prompt = AI_PERSONALITY_PROMPTS.get(selected_personality)
     if built_in_prompt is None and personality_prompt is None:
-        raise ValueError(f"Unknown AI personality: {selected_personality}")
+        raise UserError("personalities.unknown_ai_personality", personality=str(selected_personality))
     if shared_instructions is None:
         shared_instructions = SHARED_AI_INSTRUCTIONS
     # Substitute only documented placeholders; owner braces remain literal.

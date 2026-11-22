@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+
+
 import json
 import os
 import re
@@ -28,7 +30,7 @@ class ServerCredentialStore:
 
     def _check_path(self) -> None:
         if any(path.is_symlink() for path in (self.path, *self.path.parents)):
-            raise CredentialError("Private credential storage must not use symbolic links.")
+            raise CredentialError("server_credentials.private_credential_storage_not_use_symbolic")
 
     def _read(self) -> dict[str, str]:
         try:
@@ -59,12 +61,12 @@ class ServerCredentialStore:
         except FileNotFoundError:
             return {}
         except (OSError, ValueError, UnicodeError):
-            raise CredentialError("Cannot read private server credentials. Restore a private backup or repair permissions while stopped.") from None
+            raise CredentialError("server_credentials.cannot_read_private_server_credentials_restore") from None
 
     @staticmethod
     def validate(value: object) -> str:
         if not isinstance(value, str) or not re.fullmatch(r"[!-~]{1,8192}", value.strip()):
-            raise CredentialError(f"Use a nonempty credential of at most {MAX_CREDENTIAL_LENGTH} visible ASCII characters.")
+            raise CredentialError("server_credentials.use_nonempty_credential_most_visible_ascii", maximum=str(MAX_CREDENTIAL_LENGTH))
         return value.strip()
 
     def get(self, name: CredentialName) -> str | None:
@@ -87,7 +89,7 @@ class ServerCredentialStore:
             os.chmod(temporary, 0o600)
             os.replace(temporary, self.path)
         except OSError:
-            raise CredentialError("Could not save private server credentials. Check persistent storage permissions.") from None
+            raise CredentialError("server_credentials.could_not_save_private_server_credentials") from None
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
@@ -134,7 +136,7 @@ class ServerCredentialManager(CredentialManager):
     def check_managed(self, name: object) -> CredentialName:
         parsed = self.parse_name(name)
         if self._environment_fallbacks[parsed]:
-            raise CredentialError("This credential is externally managed. Rotate or remove its environment/secret-file input and restart the server first.")
+            raise CredentialError("server_credentials.credential_externally_managed_rotate_remove_environment")
         return parsed
 
     def replace(self, name: object, value: object) -> None:

@@ -12,6 +12,7 @@ from hashlib import sha256
 from pathlib import Path
 from threading import RLock
 
+from app.errors import UserError
 from app.command_order import CommandCreationOrder, parse_creation_order
 from app.custom_commands import MAX_RESPONSE_LENGTH
 from app.settings_recovery import preserve_settings_recovery
@@ -63,44 +64,44 @@ class MessageTrigger:
 
 def _number(value: object, name: str, maximum: float) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"{name} must be a finite number.")
+        raise UserError("message_triggers.must_be_a_finite_number", name=str(name))
     if not 0 <= value <= maximum:
-        raise ValueError(f"{name} must be between 0 and {maximum}.")
+        raise UserError("message_triggers.between_0", name=str(name), maximum=str(maximum))
     if not math.isfinite(float(value)):
-        raise ValueError(f"{name} must be a finite number.")
+        raise UserError("message_triggers.must_be_a_finite_number", name=str(name))
     return float(value)
 
 
 def _response(value: object) -> str:
     if not isinstance(value, str) or not value.strip() or "\n" in value or "\r" in value:
-        raise ValueError("Responses must be non-empty single lines.")
+        raise UserError("message_triggers.responses_non_empty_single_lines")
     try:
         if len(value.encode("utf-8")) > MAX_RESPONSE_LENGTH:
-            raise ValueError("Responses must be at most 450 UTF-8 bytes.")
+            raise UserError("message_triggers.responses_most_450_utf_8_bytes")
     except UnicodeEncodeError as error:
-        raise ValueError("Responses must contain valid Unicode.") from error
+        raise UserError("message_triggers.responses_contain_valid_unicode") from error
     return value.strip()
 
 
 def parse_message_trigger(raw: object) -> MessageTrigger:
     if not isinstance(raw, dict):
-        raise ValueError("Trigger must be an object.")
+        raise UserError("message_triggers.trigger_must_be_an_object")
     identifier = raw.get("id")
     if not isinstance(identifier, str) or not identifier or len(identifier) > 40 or not all(
         character.isascii() and (character.isalnum() or character in "_-") for character in identifier
     ):
-        raise ValueError("Trigger ID must use 1-40 ASCII letters, digits, _ or -.")
+        raise UserError("message_triggers.trigger_id_use_1_40_ascii")
     if type(raw.get("enabled")) is not bool or type(raw.get("case_sensitive")) is not bool:
-        raise ValueError("Enabled and case_sensitive must be booleans.")
+        raise UserError("message_triggers.enabled_and_case_sensitive_must_be_booleans")
     mode = raw.get("match_mode")
     if mode not in ("contains", "exact"):
-        raise ValueError("Match mode must be contains or exact.")
+        raise UserError("message_triggers.match_mode_contains_exact")
     text = raw.get("text")
     if not isinstance(text, str) or not text.strip() or len(text) > 100 or "\n" in text or "\r" in text:
-        raise ValueError("Match text must be one non-empty line of at most 100 characters.")
+        raise UserError("message_triggers.match_text_one_non_empty_line")
     responses = raw.get("responses")
     if not isinstance(responses, list) or not 1 <= len(responses) <= 10:
-        raise ValueError("Provide 1-10 responses.")
+        raise UserError("message_triggers.provide_1_10_responses")
     parsed_responses = tuple(_response(response) for response in responses)
     return MessageTrigger(
         id=identifier,
@@ -171,7 +172,7 @@ class MessageTriggerStore:
             try:
                 trigger = parse_message_trigger(raw)
                 if trigger.id in used:
-                    raise ValueError("Duplicate trigger ID")
+                    raise UserError("message_triggers.duplicate_trigger_id")
             except ValueError as error:
                 logger.warning("Ignoring invalid message trigger path=%s: %s", path, error)
                 continue
@@ -189,25 +190,25 @@ class MessageTriggerStore:
     def save(self, payload: object, *, revision: str | None = None) -> tuple[MessageTrigger, ...]:
         """Validate and atomically persist a complete trigger collection."""
         if not isinstance(payload, list):
-            raise ValueError("Message triggers must be a list.")
+            raise UserError("message_triggers.message_triggers_must_be_a_list")
         if len(payload) > 100:
-            raise ValueError("Provide at most 100 message triggers.")
+            raise UserError("message_triggers.provide_most_100_message_triggers")
 
         with self._lock:
             if revision is not None and revision != trigger_revision(self._triggers):
-                raise ValueError("Chat reactions changed. Reload them before saving.")
+                raise UserError("message_triggers.chat_reactions_changed_reload_them_before")
             parsed: list[MessageTrigger] = []
             used: set[str] = set()
             previous_order = {trigger.id: trigger.creation_order for trigger in self._triggers}
             for raw in payload:
                 if not isinstance(raw, dict):
-                    raise ValueError("Trigger must be an object.")
+                    raise UserError("message_triggers.trigger_must_be_an_object")
                 unknown = set(raw) - _TRIGGER_FIELDS
                 if unknown:
-                    raise ValueError("Unknown trigger field.")
+                    raise UserError("message_triggers.unknown_trigger_field")
                 trigger = parse_message_trigger({**raw, "creation_order": 0})
                 if trigger.id in used:
-                    raise ValueError("Duplicate trigger ID")
+                    raise UserError("message_triggers.duplicate_trigger_id")
                 order = previous_order[trigger.id] if trigger.id in previous_order else self._creation_order.next()
                 parsed.append(replace(trigger, creation_order=order))
                 used.add(trigger.id)

@@ -424,7 +424,7 @@ async def test_runtime_latches_cleanup_failure_even_when_stop_was_requested(monk
         ready.set()
         await kwargs["stop_event"].wait()
         app.services.runtime_state.set_twitch_connection_state("failed")
-        raise lifecycle.TwitchCleanupError("unsafe cleanup")
+        raise lifecycle.TwitchCleanupError("client.cleanup_failed_restart")
     monkeypatch.setattr("app.bot_runtime.run_twitch_bot", session)
     runtime = BotRuntime(app, logging.getLogger("tests.runtime.cleanup"), headless=headless)
     await runtime.startup()

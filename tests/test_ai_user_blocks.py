@@ -66,8 +66,9 @@ def test_crud_normalization_id_matching_and_profile_restart(tmp_path):
     assert blocks.is_blocked("123", "renamed")
     assert not blocks.is_blocked("456", "viewer")  # A reused login/display name is not the original account.
     for username, user_id in [("VIEWER", None), ("renamed", "123")]:
-        with pytest.raises(ValueError, match="already blocked"):
+        with pytest.raises(ValueError) as error:
             blocks.block(username, user_id)
+        assert error.value.code == "ai_user_blocks.twitch_user_already_blocked_from_ai"
     assert AIUserBlocklist(tmp_path / "one" / "blocks.json").list() == blocks.list()
     assert AIUserBlocklist(tmp_path / "two" / "blocks.json").list() == ()
     blocks.unblock("@VIEWER")
@@ -246,8 +247,8 @@ def test_bridge_block_timeout_cancels_lookup_without_a_late_write(stopped_backen
     monkeypatch.setattr(backend.application.services.twitch, "resolve_user_id", pending_lookup)
     monkeypatch.setattr("app.webview_host.BRIDGE_SETTINGS_TIMEOUT_SECONDS", 0.05)
     result = bridge.block_ai_user("another")
-    assert result["ok"] is False and "timed out" in result["error"]
-    assert "Check Logs" in result["error"] and "reopen" in result["error"]
+    assert result["ok"] is False and result["error_code"] == "webview_host.blocking_ai_user_timed_out_check"
+    assert result["error_code"] == "webview_host.blocking_ai_user_timed_out_check"
     assert entered.is_set() and cancelled.wait(timeout=1)
     assert (paths.config / "ai_user_blocks.json").read_bytes() == original
     assert [user["username"] for user in bridge.get_blocked_ai_users()["users"]] == ["existing"]
@@ -271,7 +272,7 @@ def test_bridge_block_observes_uncancellable_late_results(tmp_path, monkeypatch,
             future.set_exception(OSError("synthetic late failure"))
         else:
             future.set_result(None)
-    assert result["ok"] is False and "timed out" in result["error"]
+    assert result["ok"] is False and result["error_code"] == "webview_host.blocking_ai_user_timed_out_check"
     assert "after its UI deadline operation=block_ai_user" in caplog.text
     assert bridge.get_blocked_ai_users() == {"ok": True, "users": []}
 
@@ -287,7 +288,7 @@ def test_bridge_cancelled_block_reports_actionable_failure(tmp_path, monkeypatch
 
     monkeypatch.setattr(bridge._backend, "submit", submit, raising=False)
     result = bridge.block_ai_user("viewer")
-    assert result["ok"] is False and "cancelled" in result["error"] and "try again" in result["error"]
+    assert result["ok"] is False and result["error_code"] == "webview_host.blocking_ai_user_cancelled_reopen_ai"
     assert bridge.get_blocked_ai_users() == {"ok": True, "users": []}
 
 
@@ -308,7 +309,10 @@ def test_bridge_save_failure_preserves_previous_list_and_file(tmp_path, monkeypa
     monkeypatch.setattr(bridge._backend, "submit", submit, raising=False)
     monkeypatch.setattr(blocks, "_save", Mock(side_effect=OSError("synthetic save failure")))
     result = bridge.unblock_ai_user("viewer") if unblock else bridge.block_ai_user("another")
-    assert result["ok"] is False and "Check the profile file" in result["error"]
+    assert result["ok"] is False
+    assert result["error_code"] == (
+        "management.could_not_remove_ai_user_block" if unblock else "webview_host.could_not_save_ai_user_block"
+    )
     assert (tmp_path / "ai_user_blocks.json").read_bytes() == original
     assert bridge.get_blocked_ai_users() == {"ok": True, "users": [{"username": "viewer", "has_user_id": False}]}
 

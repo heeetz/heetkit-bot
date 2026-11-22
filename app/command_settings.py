@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
 
+from app.errors import UserError
 from app.config.commands import BURST_HARD_MAX_COUNT, TG_DEFAULT_MAX_COUNT
 from app.twitch.permissions import Permission
 from app.settings_recovery import preserve_settings_recovery
@@ -26,7 +27,7 @@ LEADERBOARD_VARIABLES = {"top": ("entries",), "rank": ("place", "messages")}
 
 def validate_entry_limit(value):
     if type(value) is not int or not 1 <= value <= 10:
-        raise ValueError("Entry limit must be a whole number from 1 to 10.")
+        raise UserError("command_settings.entry_limit_whole_number_from_1")
     return value
 
 
@@ -34,63 +35,63 @@ def validate_leaderboard_template(name, value):
     return validate_chat_template(value, required=LEADERBOARD_VARIABLES[name], optional=("sender",))
 
 
-class CommandNameConflict(ValueError):
+class CommandNameConflict(UserError):
     def __init__(self, name: str) -> None:
-        super().__init__(f"Command name or alias already exists: {name}")
+        super().__init__("custom_commands.command_name_alias_already_exists", name=name)
 
 
 def validate_primary_name(value: object) -> str:
     if not isinstance(value, str):
-        raise ValueError("Command names must be text.")
+        raise UserError("command_settings.command_names_must_be_text")
     name = normalize_command_name(value)
     if not name or len(name) > 40 or any(char.isspace() or char in "!{}" for char in name):
-        raise ValueError("Command names must be single words of at most 40 characters.")
+        raise UserError("command_settings.command_names_single_words_most_40")
     return name
 
 
 def validate_stream_availability(value: object) -> str:
     if not isinstance(value, str) or value not in ("anytime", "live_only", "offline_only"):
-        raise ValueError("Stream availability must be Anytime, Live only or Offline only.")
+        raise UserError("command_settings.stream_availability_anytime_live_only_offline")
     return value
 
 
 def validate_send_as(value: object) -> str:
     if not isinstance(value, str) or value not in ("chat", "mention", "reply"):
-        raise ValueError("Send as must be Chat message, Mention sender or Reply to message.")
+        raise UserError("command_settings.send_as_chat_message_mention_sender")
     return value
 
 
 def validate_burst_max_count(value: object) -> int:
     if type(value) is not int or not 1 <= value <= BURST_HARD_MAX_COUNT:
-        raise ValueError(f"Burst maximum repeat count must be an integer from 1 to {BURST_HARD_MAX_COUNT}.")
+        raise UserError("command_settings.burst_maximum_repeat_count_integer_from", maximum=str(BURST_HARD_MAX_COUNT))
     return value
 
 
 def validate_burst_interval(value: object) -> int:
     if type(value) is not int or not 0 <= value <= 1000:
-        raise ValueError("Burst interval must be an integer from 0 to 1000 ms.")
+        raise UserError("command_settings.burst_interval_integer_from_0_1000")
     return value
 
 
 def validate_command_aliases(value: object) -> tuple[str, ...]:
     if not isinstance(value, (list, tuple)) or len(value) > 10:
-        raise ValueError("Provide at most 10 command aliases.")
+        raise UserError("command_settings.provide_most_10_command_aliases")
     aliases = []
     for alias in value:
         if not isinstance(alias, str):
-            raise ValueError("Command aliases must be text.")
+            raise UserError("command_settings.command_aliases_must_be_text")
         alias = normalize_command_name(alias)
         if not alias or len(alias) > 40 or any(char.isspace() or char in "!{}" for char in alias):
-            raise ValueError("Command aliases must be single words of at most 40 characters.")
+            raise UserError("command_settings.command_aliases_single_words_most_40")
         aliases.append(alias)
     if len(set(aliases)) != len(aliases):
-        raise ValueError("Command aliases must be unique.")
+        raise UserError("command_settings.command_aliases_unique")
     return tuple(aliases)
 
 
 def validate_display_name(value: object) -> str:
     if not isinstance(value, str) or len(value) > 80 or any(ord(char) < 32 for char in value):
-        raise ValueError("Display name must be a label of at most 80 characters.")
+        raise UserError("command_settings.display_name_label_most_80_characters")
     return value.strip()
 
 
@@ -114,26 +115,26 @@ class CommandSettings:
 
     def __post_init__(self) -> None:
         if type(self.enabled) is not bool:
-            raise TypeError("Command enabled setting must be a boolean.")
+            raise UserError("command_settings.command_enabled_setting_must_be_a_boolean")
         if not isinstance(self.cooldown, CooldownPolicy):
-            raise TypeError("Command cooldown setting must be a CooldownPolicy.")
+            raise UserError("command_settings.command_cooldown_setting_must_be_a_cooldownpolicy")
         if not isinstance(self.permission, Permission):
-            raise TypeError("Command permission setting must be a Permission.")
+            raise UserError("command_settings.command_permission_setting_must_be_a_permission")
         if type(self.removed) is not bool:
-            raise TypeError("Command removed setting must be a boolean.")
+            raise UserError("command_settings.command_removed_setting_must_be_a_boolean")
         if not isinstance(self.aliases, tuple) or validate_command_aliases(self.aliases) != self.aliases:
-            raise ValueError("Command aliases must be normalized unique names.")
+            raise UserError("command_settings.command_aliases_must_be_normalized_unique_names")
         if validate_display_name(self.display_name) != self.display_name:
-            raise ValueError("Display name must not have surrounding whitespace.")
+            raise UserError("command_settings.display_name_must_not_have_surrounding_whitespace")
         validate_burst_interval(self.burst_interval_ms)
         validate_burst_max_count(self.burst_max_count)
         validate_stream_availability(self.stream_availability)
         if self.send_as is not None:
             validate_send_as(self.send_as)
         if self.primary_name and validate_primary_name(self.primary_name) != self.primary_name:
-            raise ValueError("Command name must be normalized.")
+            raise UserError("command_settings.command_name_must_be_normalized")
         if not isinstance(self.primary_name, str):
-            raise ValueError("Command name must be text.")
+            raise UserError("command_settings.command_name_must_be_text")
         if self.entry_limit is not None:
             validate_entry_limit(self.entry_limit)
 

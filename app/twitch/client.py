@@ -28,6 +28,7 @@ from twitchio.payloads import TokenRefreshedPayload
 from twitchio.web import AiohttpAdapter
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.errors import UserError
 from app.commands.diagnostics import command_trace, current_trace, receipt_time
 from app.commands.registry import CommandContext, CommandDispatcher
 from app.config.settings import Settings, TwitchAccountSettings
@@ -44,13 +45,11 @@ from app.utils.logging import privacy_log_scope, operator_event_scope, operator_
 from app.analytics import analytics_scope_for
 
 
-class TwitchConnectionError(RuntimeError):
+class TwitchConnectionError(UserError, RuntimeError):
     """A Twitch connection failure that is safe to expose at the application boundary."""
-
 
 class TwitchCleanupError(TwitchConnectionError):
     """Ownership could not be released; do not allow another client to start."""
-
 
 # SDK backoff caps at 90s, welcome waits 11s, default keepalive is 10s (+5s
 # SDK tolerance). Leave time for a normal retry and subscription HTTP completion.
@@ -79,7 +78,7 @@ def validate_bot_authorization(token, settings: Settings) -> None:
             or token.user_id != settings.twitch_bot_user_id
             or (token.login or "").lower() != settings.twitch_bot_username.lower()
             or not set(CHAT_SCOPES.selected).issubset(token.scopes)):
-        raise TwitchConnectionError("Twitch authorization does not match the configured application, bot account or required scopes. Authorize again from Settings.")
+        raise TwitchConnectionError("client.twitch_authorization_does_not_match_the_configured_application_bot")
 
 
 def has_saved_bot_authorization(settings: Settings) -> bool:
@@ -617,7 +616,7 @@ class TwitchChatBot(commands.Bot):
     def begin_authorization(self) -> str:
         state = self._services.runtime_state
         if self._closing_requested or state is None or not state.status()[0] or state.twitch_connection_state not in ("auth_required", "connected"):
-            raise ValueError("Twitch authorization is not currently required.")
+            raise UserError("client.twitch_authorization_not_currently_required")
         return self.adapter.begin_authorization()
 
     async def close(self, *args, **kwargs) -> None:
@@ -659,9 +658,9 @@ class TwitchChatBot(commands.Bot):
                     if readers:
                         await asyncio.gather(*readers, return_exceptions=True)
                 if self._close_save_failed:
-                    raise TwitchCleanupError("Could not persist Twitch authorization during shutdown.")
+                    raise TwitchCleanupError("client.could_not_persist_twitch_authorization_during_shutdown")
             except BaseException:
-                self._close_failure = TwitchCleanupError("Twitch cleanup failed; verify private token storage and restart the application.")
+                self._close_failure = TwitchCleanupError("client.cleanup_failed_verify_storage_restart")
                 raise self._close_failure from None
             finally:
                 # SDK close cancels listeners but does not drain its reconnect
@@ -768,7 +767,7 @@ class TwitchChatBot(commands.Bot):
                 for field in ("token", "refresh")
             ) for record in cached.values()
         ):
-            raise TwitchConnectionError("Twitch authorization cache is malformed; restore a private backup or reauthorize.")
+            raise TwitchConnectionError("client.twitch_authorization_cache_is_malformed_restore_a_private_backup")
         self._cached_tokens = cached.copy()
         self._loading_tokens = True
         try:
@@ -791,7 +790,7 @@ class TwitchChatBot(commands.Bot):
                     users = await self.fetch_users(ids=[self._account.channel_user_id], token_for=self.bot_id)
                     if not any(str(user.id) == self._account.channel_user_id and
                                user.name.lower() == self._account.channel.lower() for user in users):
-                        raise TwitchConnectionError("Configured Twitch channel does not match its account ID. Correct Settings before reconnecting.")
+                        raise TwitchConnectionError("client.configured_twitch_channel_does_not_match_its_account_id")
             if self.bot_id in self.tokens:
                 self._cached_tokens = {}
         finally:
@@ -843,7 +842,7 @@ class TwitchChatBot(commands.Bot):
                 type(error).__name__,
                 extra={"event_kind": "twitch.failed"},
             )
-            raise TwitchConnectionError("Could not persist Twitch authorization.") from None
+            raise TwitchConnectionError("client.could_not_persist_twitch_authorization") from None
         finally:
             if temporary is not None:
                 try:
@@ -1026,7 +1025,7 @@ async def _retire_client(bot, start_task: asyncio.Task, logger) -> None:
             task.cancel()
             task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
         logger.error("Twitch cleanup deadline exceeded; replacement blocked", extra={"event_kind": "twitch.failed"})
-        raise TwitchCleanupError("Twitch cleanup did not finish; restart the application before reconnecting.")
+        raise TwitchCleanupError("client.twitch_cleanup_did_not_finish_restart_the_application_before")
     # Retrieve both results before raising: SDK start's finally and our explicit
     # close can both report the same failure. Neither may leak an unhandled task.
     start_error = None if start_task.cancelled() else start_task.exception()
@@ -1036,7 +1035,7 @@ async def _retire_client(bot, start_task: asyncio.Task, logger) -> None:
     # Startup failure is classified by the caller. Cleanup failure is always
     # terminal, including persistence errors; never silently replace that client.
     if closing.cancelled() or close_error is not None:
-        raise TwitchCleanupError("Twitch client shutdown failed; check private token storage and restart.") from None
+        raise TwitchCleanupError("client.twitch_client_shutdown_failed_check_private_token_storage_and") from None
 
 
 async def run_twitch_bot(
@@ -1078,8 +1077,8 @@ async def run_twitch_bot(
             extra={"event_kind": "twitch.auth_required" if auth else "twitch.failed"})
         if isinstance(error, InvalidTokenException):
             logger.error("Twitch user token validation failed status=%s invalid_type=%s", error.status, error.invalid_type)
-            return TwitchConnectionError("Twitch user token validation failed.")
-        return TwitchConnectionError("Twitch session failed; check authorization, access, configuration and private storage.")
+            return TwitchConnectionError("client.user_token_validation_failed")
+        return TwitchConnectionError("client.session_failed_check_authorization_storage")
 
     try:
         while not stop.is_set():
@@ -1126,7 +1125,7 @@ async def run_twitch_bot(
                         usable = bot.refresh_readiness()
                         state = runtime.twitch_connection_state if runtime is not None else None
                         if state == "failed" or (state == "auth_required" and headless):
-                            raise TwitchConnectionError("Twitch authorization/access needs attention.")
+                            raise TwitchConnectionError("client.twitch_authorization_access_needs_attention")
                         if state == "auth_required":
                             # Desktop intentionally keeps the local OAuth adapter
                             # alive for explicit owner authorization, without retries.
@@ -1168,7 +1167,7 @@ async def run_twitch_bot(
             if error is not None and not recoverable_failure(error):
                 # Preserve actionable states set by explicit revocation/monitoring.
                 if runtime is not None and runtime.twitch_connection_state in {"auth_required", "failed"}:
-                    raise TwitchConnectionError("Twitch authorization/access needs attention.") from None
+                    raise TwitchConnectionError("client.twitch_authorization_access_needs_attention") from None
                 raise terminal(error) from None
             failures = min(failures + 1, 6)
             delay = uniform(.5, 1.0) * min(BACKOFF_CAP, BACKOFF_BASE * 2 ** (failures - 1))

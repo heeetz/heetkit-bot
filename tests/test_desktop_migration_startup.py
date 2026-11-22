@@ -12,7 +12,6 @@ from app.config.settings import Settings
 from app.database import migrations
 from app.headless import run_headless
 from app.runtime_paths import RuntimePaths
-from app.ui_messages import message_code
 from app.webview_host import AsyncioBackendHost
 
 
@@ -77,7 +76,7 @@ async def test_headless_rejects_unsupported_database_with_update_guidance(legacy
     original = paths.database.read_bytes()
     with pytest.raises(migrations.DatabaseMigrationError) as error:
         migrations.initialize_schema(paths.database)
-    assert message_code(str(error.value)) == ("database.update_through_1_6", {})
+    assert error.value.code == "database.update_through_1_6"
 
     assert await run_headless(settings, AppSettings(), asyncio.Event()) == 1
     assert str(error.value) in caplog.text

@@ -2,6 +2,7 @@
 
 from dataclasses import asdict, dataclass, field, replace
 
+from app.errors import UserError
 from app.config.ai_models import (validate_ai_provider, validate_provider_model_id,
                                   DEFAULT_GEMINI_FALLBACK_MODEL, DEFAULT_DEEPSEEK_MODEL,
                                   DEFAULT_DEEPSEEK_FALLBACK_MODEL, AI_PROVIDERS,
@@ -32,16 +33,16 @@ class AISetup:
 
 def parse_ai_setup(value: object, *, capabilities: bool = True, require_consent: bool = True) -> AISetup:
     if not isinstance(value, dict) or set(value) - set(AISetup.__dataclass_fields__):
-        raise ValueError("Invalid AI setup fields.")
+        raise UserError("ai_setup.invalid_ai_setup_fields")
 
     def selection(raw: object, *, check: bool = True) -> AIModelSelection:
         if not isinstance(raw, dict) or set(raw) != set(AIModelSelection.__dataclass_fields__):
-            raise ValueError("Choose a provider, model, thinking option and search preference.")
+            raise UserError("ai_setup.choose_provider_model_thinking_option_search")
         provider = validate_ai_provider(raw["provider"])
         model = validate_provider_model_id(provider, raw["model"])
         thinking, search = raw["thinking"], raw["search"]
         if not isinstance(thinking, str) or len(thinking) > 32 or type(search) is not bool:
-            raise ValueError("Invalid thinking or search preference.")
+            raise UserError("ai_setup.invalid_thinking_or_search_preference")
         if capabilities and check:
             from app.config.ai_capabilities import validate_model_options
             validate_model_options(provider, model, thinking, search)
@@ -51,34 +52,34 @@ def parse_ai_setup(value: object, *, capabilities: bool = True, require_consent:
     fallback = selection(value["fallback"]) if value.get("fallback") is not None else None
     ack = value.get("cross_provider_acknowledged", False)
     if type(ack) is not bool:
-        raise ValueError("AI acknowledgement must be boolean.")
+        raise UserError("ai_setup.ai_acknowledgement_must_be_boolean")
     if fallback == primary:
-        raise ValueError("Fallback must differ from the primary selection.")
+        raise UserError("ai_setup.fallback_differ_from_primary_selection")
     if require_consent and fallback and fallback.provider != primary.provider and not ack:
-        raise ValueError("Acknowledge sending questions, instructions and permitted memory to the fallback provider.")
+        raise UserError("ai_setup.acknowledge_sending_questions_instructions_permitted_memory")
     lengths = {}
     for name, default, maximum in (("max_question_length", 300, 4000), ("max_answer_length", 220, 450)):
         number = value.get(name, default)
         if type(number) is not int or not 1 <= number <= maximum:
-            raise ValueError(f"{name.replace('_', ' ').capitalize()} must be between 1 and {maximum} characters.")
+            raise UserError("ai_setup.between_1_characters", field=str(name.replace('_', ' ').capitalize()), maximum=str(maximum))
         lengths[name] = number
     instructions = value.get("shared_instructions")
     if instructions is not None:
         if not isinstance(instructions, str) or len(instructions) > MAX_SHARED_INSTRUCTIONS:
-            raise ValueError("Shared instructions must be text of at most 20000 characters.")
+            raise UserError("ai_setup.shared_instructions_must_be_text_of_at_most_20000")
         try:
             instructions.encode("utf-8")
         except UnicodeError:
-            raise ValueError("Shared instructions must contain valid Unicode.") from None
+            raise UserError("ai_setup.shared_instructions_contain_valid_unicode") from None
     drafts = value.get("provider_drafts", {})
     draft_keys = {key for provider in AI_PROVIDERS for key in (provider, f"primary:{provider}", f"fallback:{provider}")}
     if not isinstance(drafts, dict) or set(drafts) - draft_keys:
-        raise ValueError("Invalid saved provider choices.")
+        raise UserError("ai_setup.invalid_saved_provider_choices")
     parsed_drafts = {}
     for provider, draft in drafts.items():
         saved = selection(draft, check=False)
         if saved.provider != provider.split(":")[-1]:
-            raise ValueError("Saved provider choice belongs to another provider.")
+            raise UserError("ai_setup.saved_provider_choice_belongs_to_another_provider")
         parsed_drafts[provider] = asdict(saved)
     return AISetup(primary, fallback, ack, **lengths, shared_instructions=instructions,
                    provider_drafts=parsed_drafts)

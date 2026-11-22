@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 
 from aiohttp import web
 
-from app.ui_messages import annotate_error
+from app.errors import UserError, error_result
 from app.app_settings import AppSettingsStore
 from app.bot_runtime import BotRuntime
 from app.operation_policy import OperationPolicy
@@ -57,16 +57,16 @@ class ManagementConfig:
     def __post_init__(self) -> None:
         address = ipaddress.ip_address(self.host)
         if not (address.is_loopback or address.is_private or address.is_unspecified) or address.is_multicast:
-            raise ValueError("Management must bind to loopback or a trusted private interface.")
+            raise UserError("management_api.management_must_bind_to_loopback_or_a_trusted_private")
         if type(self.port) is not int or not 1 <= self.port <= 65535:
-            raise ValueError("Management port must be between 1 and 65535.")
+            raise UserError("management_api.management_port_must_be_between_1_and_65535")
         if not TOKEN_PATTERN.fullmatch(self.token):
-            raise ValueError("Management token must be 43-128 URL-safe characters; generate at least 32 random bytes.")
+            raise UserError("management_api.management_token_must_be_43_128_url_safe_characters")
         if self.allowed_host is not None:
             # An exact literal authority, never a wildcard, URL, proxy header or DNS suffix.
             match = re.fullmatch(r"(\[[0-9a-fA-F:]+\]|[0-9.]+):([0-9]{1,5})", self.allowed_host)
             if match is None or not 1 <= int(match[2]) <= 65535:
-                raise ValueError("Management allowed host must be an exact IP:port authority.")
+                raise UserError("management_api.management_allowed_host_must_be_an_exact_ip_port")
             ipaddress.ip_address(match[1].strip("[]"))
         if self.trusted_origin is not None:
             # Canonical ASCII DNS origin, with an optional non-default port. No
@@ -74,25 +74,25 @@ class ManagementConfig:
             origin = self.trusted_origin
             match = re.fullmatch(r"https://([a-z0-9.-]+)(?::([0-9]{1,5}))?", origin)
             if match is None or len(match[1]) > 253 or "." not in match[1]:
-                raise ValueError("Trusted origin must be an exact lowercase HTTPS DNS origin without a path.")
+                raise UserError("management_api.trusted_origin_must_be_an_exact_lowercase_https_dns")
             if any(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) is None
                    for label in match[1].split(".")) or match[1].replace(".", "").isdigit():
-                raise ValueError("Trusted origin must contain a valid DNS hostname.")
+                raise UserError("management_api.trusted_origin_must_contain_a_valid_dns_hostname")
             if match[2] is not None and (not 1 <= int(match[2]) <= 65535
                     or match[2] != str(int(match[2])) or int(match[2]) == 443):
-                raise ValueError("Trusted origin port must be canonical; omit the default HTTPS port.")
+                raise UserError("management_api.trusted_origin_port_must_be_canonical_omit_the_default")
             if self.allowed_host is not None or not self.trusted_proxies:
-                raise ValueError("HTTPS proxy mode requires trusted proxy IPs and replaces allowed-host.")
+                raise UserError("management_api.https_proxy_mode_requires_trusted_proxy_ips_and_replaces")
         elif self.trusted_proxies or self.twitch_redirect_uri is not None:
-            raise ValueError("Trusted proxies and a remote callback require an explicit trusted HTTPS origin.")
+            raise UserError("management_api.trusted_proxies_and_a_remote_callback_require_an_explicit")
         for proxy in self.trusted_proxies:
             peer = ipaddress.ip_address(proxy)
             if peer.is_unspecified or peer.is_multicast or str(peer) != proxy:
-                raise ValueError("Trusted proxies must be exact canonical IPs, never networks or wildcard addresses.")
+                raise UserError("management_api.trusted_proxies_must_be_exact_canonical_ips_never_networks")
         if self.twitch_redirect_uri is not None and self.twitch_redirect_uri != self.trusted_origin + "/oauth/callback":
-            raise ValueError("Twitch redirect must be the trusted HTTPS origin followed by /oauth/callback.")
+            raise UserError("management_api.twitch_redirect_must_be_the_trusted_https_origin_followed")
         if address.is_unspecified and self.allowed_host is None and self.trusted_origin is None:
-            raise ValueError("An all-interface bind requires an explicit management allowed host.")
+            raise UserError("management_api.an_all_interface_bind_requires_an_explicit_management_allowed")
 
     @property
     def authorities(self) -> set[str]:
@@ -151,7 +151,7 @@ def load_management_token() -> str:
     filename = os.environ.get("HEETKIT_MANAGEMENT_TOKEN_FILE")
     if filename:
         if token:
-            raise ValueError("Set only HEETKIT_MANAGEMENT_TOKEN or HEETKIT_MANAGEMENT_TOKEN_FILE.")
+            raise UserError("management_api.set_only_heetkit_management_token_or_heetkit_management_token")
         try:
             descriptor = os.open(filename, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
             with os.fdopen(descriptor, "rb") as source:
@@ -162,9 +162,9 @@ def load_management_token() -> str:
                 raise ValueError
             token = raw.decode("ascii").strip()
         except (OSError, ValueError):
-            raise ValueError("Cannot read management token file; use a private regular ASCII file of at most 1 KiB.") from None
+            raise UserError("management_api.cannot_read_management_token_file_use_a_private_regular") from None
     if not TOKEN_PATTERN.fullmatch(token):
-        raise ValueError("Supply a private management token generated from at least 32 random bytes (43-128 URL-safe characters).")
+        raise UserError("management_api.supply_a_private_management_token_generated_from_at_least")
     return token
 
 
@@ -238,7 +238,7 @@ class ServerOperations:
         try:
             models = await application.services.ai.discover_models(provider)
         except AIModelDiscoveryError as error:
-            return {"ok": False, "error": str(error), "error_code": error.code, "provider_id": provider}
+            return {**error_result(error), "provider_id": provider}
         return {"ok": True, "models": models, "provider_id": provider}
 
     @operation(write=True, hosts=SERVER_ONLY)
@@ -259,7 +259,7 @@ class ServerOperations:
             await self.service._change_filters(payload, save=save)
         except FilterValidationError as error:
             return {"ok": False,
-                    "error": "Invalid regex rule." if error.category == "patterns" else "Invalid filter rule text.",
+                    "error_code": "management_api.invalid_regex_rule" if error.category == "patterns" else "management_api.invalid_filter_rule_text", "error_params": {},
                     "invalid_rule": {"category": error.category, "index": error.index}}
         return {"ok": True}
 
@@ -354,13 +354,13 @@ def _unique_object(pairs):
     result = {}
     for key, value in pairs:
         if key in result:
-            raise ValueError("Duplicate JSON key.")
+            raise UserError("management_api.duplicate_json_key")
         result[key] = value
     return result
 
 
 def _invalid_constant(_value):
-    raise ValueError("Non-finite JSON number.")
+    raise UserError("management_api.non_finite_json_number")
 
 
 class ManagementAPI:
@@ -448,12 +448,12 @@ class ManagementAPI:
                 or "Transfer-Encoding" in request.headers or "Content-Encoding" in request.headers
                 or request.raw_path.split("?", 1)[0] != "/oauth/callback"):
             if not self._admit_request(self.public_requests, now):
-                return self.response(429, {"ok": False, "error": "Management request limit reached."})
-            return self.response(400, {"ok": False, "error": "Invalid OAuth callback."})
+                return self.response(429, {"ok": False, "error_code": "management_api.management_request_limit_reached", "error_params": {}})
+            return self.response(400, {"ok": False, "error_code": "management_api.invalid_oauth_callback", "error_params": {}})
         attempt = self.setup.pending_callback(request.rel_url.raw_query_string)
         if attempt is None or self.callback_active:
             if not self._admit_request(self.public_requests, now):
-                return self.response(429, {"ok": False, "error": "Management request limit reached."})
+                return self.response(429, {"ok": False, "error_code": "management_api.management_request_limit_reached", "error_params": {}})
         else:
             self.callback_active = True
             try:
@@ -472,9 +472,9 @@ class ManagementAPI:
 
     @staticmethod
     def response(status: int, payload: dict) -> web.Response:
-        encoded = json.dumps(annotate_error(payload), ensure_ascii=True, allow_nan=False)
+        encoded = json.dumps(payload, ensure_ascii=True, allow_nan=False)
         if len(encoded) > 2 * 1024 * 1024:
-            status, encoded = 500, '{"ok":false,"error":"Response exceeds limit."}'
+            status, encoded = 500, json.dumps(error_result("management_api.response_exceeds_limit"))
         response = web.Response(status=status, text=encoded, content_type="application/json",
             headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
                      "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
@@ -493,10 +493,10 @@ class ManagementAPI:
             content_type = "text/javascript" if path.endswith(".js") else "text/css"
         else:
             if not self._admit_request(self.public_requests, now):
-                return self.response(429, {"ok": False, "error": "Management request limit reached."})
-            return self.response(404, {"ok": False, "error": "Unknown management resource."})
+                return self.response(429, {"ok": False, "error_code": "management_api.management_request_limit_reached", "error_params": {}})
+            return self.response(404, {"ok": False, "error_code": "management_api.unknown_management_resource", "error_params": {}})
         if not self._admit_request(self.asset_requests, now):
-            return self.response(429, {"ok": False, "error": "Management request limit reached."})
+            return self.response(429, {"ok": False, "error_code": "management_api.management_request_limit_reached", "error_params": {}})
         target = self.frontend / relative
         try:
             # The asset root is fixed by installation/source discovery, not a
@@ -512,7 +512,7 @@ class ManagementAPI:
             if relative == "index.html":
                 body = body.replace(b"<head>", b'<head><meta name="heetkit-transport" content="http">', 1)
         except OSError:
-            return self.response(503, {"ok": False, "error": "Browser panel assets unavailable; build the frontend before starting management."})
+            return self.response(503, {"ok": False, "error_code": "management_api.browser_panel_assets_unavailable_build_the_frontend_before_starting", "error_params": {}})
         response = web.Response(body=body, content_type=content_type, headers={
             "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
             "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
@@ -523,12 +523,12 @@ class ManagementAPI:
         return response
 
     async def handle(self, request: web.BaseRequest) -> web.Response:
-        def reject(status, message):
-            return self.response(status, {"ok": False, "error": message})
+        def reject(status, code):
+            return self.response(status, error_result(code))
 
         def reject_public(status, message):
             if not self._admit_request(self.public_requests, now):
-                return reject(429, "Management request limit reached.")
+                return reject(429, "management_api.management_request_limit_reached")
             return reject(status, message)
 
         now = time.monotonic()
@@ -537,9 +537,9 @@ class ManagementAPI:
             and request.headers.get("Host") == urlsplit(self.config.oauth_redirect_uri).netloc)
         if (len(request.headers.getall("Host", [])) != 1 or
                 (request.headers.get("Host") not in self.config.authorities and not oauth_navigation)):
-            return reject_public(403, "Untrusted Host.")
+            return reject_public(403, "management_api.untrusted_host")
         if not self.config.accepts_proxy(request):
-            return reject_public(403, "Untrusted proxy headers or peer; check the configured HTTPS proxy boundary.")
+            return reject_public(403, "management_api.untrusted_proxy_headers_or_peer_check_the_configured_https")
         origins = request.headers.getall("Origin", [])
         host = request.headers["Host"]
         allowed_origins = {self.config.trusted_origin or "https://" + host}
@@ -554,19 +554,19 @@ class ManagementAPI:
         # Ignore them: only the explicit bearer below can grant authority.
         if (len(origins) > 1 or (origins and origins[0] not in allowed_origins)
                 or (not oauth_navigation and request.headers.get("Sec-Fetch-Site", "none") not in ("none", "same-origin"))):
-            return reject_public(403, "Untrusted browser origin.")
+            return reject_public(403, "management_api.untrusted_browser_origin")
         if callback:
             return await self.oauth_callback(request, now)
         if request.query_string or request.raw_path != request.path:
-            return reject_public(400, "Use an exact path without query parameters.")
+            return reject_public(400, "management_api.use_an_exact_path_without_query_parameters")
         if request.method not in ("GET", "POST"):
-            return reject_public(405, "Method not supported.")
+            return reject_public(405, "management_api.method_not_supported")
         if not request.path.startswith("/v1/"):
             if request.method != "GET" or request.content_length not in (None, 0):
-                return reject_public(405, "Assets require GET without a body.")
+                return reject_public(405, "management_api.assets_require_get_without_a_body")
             if request.path == "/oauth/result" and oauth_navigation:
                 if not self._admit_request(self.asset_requests, now):
-                    return reject(429, "Management request limit reached.")
+                    return reject(429, "management_api.management_request_limit_reached")
                 response = self.response(200, {})
                 response.text = "Twitch authorization attempt finished. Close this tab and return to the signed-in Settings tab for the result. If it is still waiting, check callback reachability, registered redirect and proxy settings, then try again."
                 response.content_type = "text/plain"
@@ -580,39 +580,39 @@ class ManagementAPI:
         digest = hashlib.sha256(supplied.removeprefix("Bearer ").encode("utf-8")).digest()
         session = supplied.startswith("Bearer ") and digest in self.sessions
         if not (admin or session):
-            return reject_public(401, "Authentication required.")
+            return reject_public(401, "management_api.authentication_required")
         if request.path == "/v1/session" and (admin != (request.method == "POST")):
-            return reject(401, "Authentication required.")
+            return reject(401, "management_api.authentication_required")
         if self.active >= 16 or not self._admit_request(self.requests, now):
-            return reject(429, "Management request limit reached.")
+            return reject(429, "management_api.management_request_limit_reached")
         if "Content-Encoding" in request.headers or "Transfer-Encoding" in request.headers:
-            return reject(400, "Encoded or streamed bodies are not supported.")
+            return reject(400, "management_api.encoded_or_streamed_bodies_are_not_supported")
         self.active += 1
         try:
             async with asyncio.timeout(REQUEST_SECONDS):
                 payload = {}
                 if request.method == "POST":
                     if request.content_type != "application/json":
-                        return reject(415, "Use application/json.")
+                        return reject(415, "management_api.use_application_json")
                     length = request.content_length
                     operation = self.operation_for(request.method, request.path)
                     maximum = operation.max_body if operation is not None else MAX_BODY
                     if length is None or length < 2 or length > maximum:
-                        return reject(413, "JSON body exceeds this operation's size limit.")
+                        return reject(413, "management_api.json_body_exceeds_this_operation_s_size_limit")
                     async with asyncio.timeout(5):
                         raw = await request.content.readexactly(length)
                     payload = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object,
                                          parse_constant=_invalid_constant)
                     if not isinstance(payload, dict):
-                        return reject(400, "JSON body must be an object.")
+                        return reject(400, "management_api.json_body_must_be_an_object")
                 elif request.content_length not in (None, 0):
-                    return reject(400, "GET does not accept a body.")
+                    return reject(400, "management_api.get_does_not_accept_a_body")
                 # The lock spans awaited lifecycle/block operations as well as
                 # synchronous store transactions. All mutations run on the core loop.
                 async with self.lock:
                     # A queued request must not outlive logout/session expiry.
                     if session and self.sessions.get(digest, 0) <= time.monotonic():
-                        return reject(401, "Session expired; sign in again.")
+                        return reject(401, "management_api.session_expired_sign_again")
                     if request.path == "/v1/session":
                         if payload:
                             raise ValueError
@@ -638,17 +638,17 @@ class ManagementAPI:
                 status = 200 if result.get("ok", True) else 400
                 return self.response(status, result)
         except TimeoutError:
-            return reject(504, "Management operation timed out; inspect current state before retrying.")
+            return reject(504, "management_api.management_operation_timed_out_inspect_current")
         except LookupError:
-            return reject(404, "Unknown management resource.")
+            return reject(404, "management_api.unknown_management_resource")
         except (CredentialError, TwitchConfigurationError) as error:
-            return reject(400, str(error))
+            return self.response(400, error_result(error))
         except (ValueError, TypeError, RecursionError, UnicodeError, asyncio.IncompleteReadError):
-            return reject(400, "Invalid management input.")
+            return reject(400, "management_api.invalid_management_input")
         except Exception:
             # Domain errors may contain provider secrets or paths; never serialize
             # exception strings/tracebacks, even for authenticated administrators.
-            return reject(500, "Management operation failed; check private profile storage and connection state.")
+            return reject(500, "management_api.management_operation_failed_check_private_profile")
         finally:
             self.active -= 1
 
@@ -669,12 +669,15 @@ class ManagementAPI:
         return await self.call(self.operation_for(method, path), payload, owner=owner)
 
     async def call(self, operation, payload: dict, *, owner: bytes = b"") -> dict:
-        arguments = operation.bind(payload)
         server_owned = operation.name in SERVER_OPERATIONS
-        method = getattr(self.operations if server_owned else self.service, operation.attribute)
-        result = method(**arguments, **private_context(method, owner=owner))
-        if inspect.isawaitable(result):
-            result = await result
+        try:
+            arguments = operation.bind(payload)
+            method = getattr(self.operations if server_owned else self.service, operation.attribute)
+            result = method(**arguments, **private_context(method, owner=owner))
+            if inspect.isawaitable(result):
+                result = await result
+        except UserError as error:
+            result = error_result(error)
         if not isinstance(result, dict):
             result = {"ok": True}
         # Domain validators remain authoritative; never echo their exception
@@ -682,7 +685,7 @@ class ManagementAPI:
         if result.get("ok") is False:
             if operation.passthrough_errors or result.get("code") == "command_name_conflict":
                 return result
-            return {"ok": False, "error": "Operation rejected; check input, profile storage and current state."}
+            return {"ok": False, "error_code": "management_api.operation_rejected_check_input_profile_storage", "error_params": {}}
         if operation.write and not server_owned:
             self.policy.refresh_command_monitoring()
         return result

@@ -53,7 +53,7 @@ class BotRuntime:
 
     def _start_bot_locked(self) -> bool:
         if self._cleanup_failed:
-            raise TwitchCleanupError("Previous Twitch cleanup failed; restart the application before reconnecting.")
+            raise TwitchCleanupError("client.previous_cleanup_failed_restart")
         if self._shutdown:
             raise RuntimeError("Application has already shut down.")
         if not self._started:
@@ -132,7 +132,7 @@ class BotRuntime:
                 with suppress(Exception):
                     await asyncio.shield(task)
             if self._cleanup_failed:
-                raise TwitchCleanupError("Twitch cleanup failed; restart the application before reconnecting.")
+                raise TwitchCleanupError("client.cleanup_failed_restart")
         return True
 
     async def wait_until_stopped(self) -> None:

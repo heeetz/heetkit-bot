@@ -242,6 +242,6 @@ def test_bridge_does_not_log_secret_when_secure_storage_fails(caplog) -> None:
 
     assert result == {
         "ok": False,
-        "error": "Could not store the credential securely.",
+        "error_code": "credentials.could_not_store_credential_securely", "error_params": {},
     }
     assert "never-log-this" not in caplog.text

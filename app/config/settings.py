@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.errors import UserError
 from app.config.ai_models import (
     DEFAULT_GEMINI_FALLBACK_MODEL,
     DEFAULT_DEEPSEEK_MODEL, DEFAULT_DEEPSEEK_FALLBACK_MODEL, validate_provider_model_id,
@@ -25,9 +26,8 @@ if TYPE_CHECKING:
     from app.credentials import CredentialManager, CredentialStore
 
 
-class TwitchConfigurationError(ValueError):
+class TwitchConfigurationError(UserError):
     """Safe setup error with field names only, never credential values."""
-
 
 class TwitchAccountSettings(BaseSettings):
     """Identity and channel information for one bot account."""
@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     @classmethod
     def validate_command_prefix(cls, value: str) -> str:
         if not value or value.isspace():
-            raise ValueError("COMMAND_PREFIX must contain at least one visible character.")
+            raise UserError("settings.command_prefix_must_contain_at_least_one_visible_character")
         return value
 
     @field_validator("gemini_model", "gemini_fallback_model")
@@ -131,7 +131,7 @@ class Settings(BaseSettings):
             missing.append("TWITCH_CLIENT_SECRET")
         if missing:
             raise TwitchConfigurationError(
-                "Configure Twitch before starting the bot. Missing: " + ", ".join(missing) + "."
+                "settings.configure_twitch_before_starting_bot_missing", fields=", ".join(missing)
             )
 
     @property

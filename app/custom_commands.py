@@ -15,6 +15,7 @@ from pathlib import Path
 from threading import RLock
 from uuid import UUID, uuid4
 
+from app.errors import UserError
 from app.twitch.permissions import Permission
 from app.command_order import CommandCreationOrder, parse_creation_order
 from app.command_settings import validate_burst_interval, validate_send_as, validate_stream_availability
@@ -75,76 +76,76 @@ class CustomCommand:
 
 def _name(value: object) -> str:
     if not isinstance(value, str):
-        raise ValueError("Command names and aliases must be text.")
+        raise UserError("custom_commands.command_names_and_aliases_must_be_text")
     normalized = normalize_command_name(value)
     if not normalized or len(normalized) > 40 or any(char.isspace() or char in "!{}" for char in normalized):
-        raise ValueError("Command names and aliases must be single words of at most 40 characters.")
+        raise UserError("custom_commands.command_names_aliases_single_words_most")
     return normalized
 
 
 def _cooldown(value: object) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0 or value > 86400 or not math.isfinite(float(value)):
-        raise ValueError("Cooldowns must be numbers from 0 to 86400 seconds.")
+        raise UserError("custom_commands.cooldowns_numbers_from_0_86400_seconds")
     return float(value)
 
 
 def _response(value: object) -> str:
     if not isinstance(value, str) or not value.strip() or len(value) > 2000 or "\n" in value or "\r" in value:
-        raise ValueError("Each response must be one non-empty line of at most 2000 characters.")
+        raise UserError("custom_commands.each_response_one_non_empty_line")
     variables = _VARIABLE_PATTERN.findall(value)
     if any(variable not in VARIABLES for variable in variables):
-        raise ValueError("Response contains an unknown variable.")
+        raise UserError("custom_commands.response_contains_unknown_variable")
     if "{" in _VARIABLE_PATTERN.sub("", value) or "}" in _VARIABLE_PATTERN.sub("", value):
-        raise ValueError("Response has an invalid variable placeholder.")
+        raise UserError("custom_commands.response_has_invalid_variable_placeholder")
     return value.strip()
 
 
 def parse_custom_command(raw: object, *, command_id: str | None = None) -> CustomCommand:
     if not isinstance(raw, dict):
-        raise ValueError("Custom command must be an object.")
+        raise UserError("custom_commands.custom_command_must_be_an_object")
     identifier = command_id if command_id is not None else raw.get("id")
     try:
         identifier = str(UUID(str(identifier)))
     except (ValueError, AttributeError) as error:
-        raise ValueError("Custom command ID is invalid.") from error
+        raise UserError("custom_commands.custom_command_id_is_invalid") from error
     name = _name(raw.get("name"))
     enabled = raw.get("enabled")
     if type(enabled) is not bool:
-        raise ValueError("Enabled must be a boolean.")
+        raise UserError("announcements.enabled_must_be_a_boolean")
     responses = raw.get("responses")
     if not isinstance(responses, list) or not 1 <= len(responses) <= 30:
-        raise ValueError("Provide 1 to 30 response templates.")
+        raise UserError("custom_commands.provide_1_30_response_templates")
     parsed_responses = tuple(_response(response) for response in responses)
     permission = raw.get("permission")
     if not isinstance(permission, str) or permission not in Permission.__members__:
-        raise ValueError("Permission must be a valid user level.")
+        raise UserError("custom_commands.permission_valid_user_level")
     inferred_mode = "random" if len(parsed_responses) > 1 else "single"
     response_mode = raw.get("response_mode", inferred_mode)
     if response_mode not in ("single", "random", "burst"):
-        raise ValueError("Response mode must be Single, Random or Burst.")
+        raise UserError("custom_commands.response_mode_single_random_burst")
     if response_mode != "random" and len(parsed_responses) != 1:
-        raise ValueError("Single and Burst modes require exactly one response template.")
+        raise UserError("custom_commands.single_burst_modes_require_exactly_one")
     burst_count = 1
     burst_allow_override = False
     burst_interval_ms = 0
     if response_mode == "burst":
         if Permission[permission] < Permission.MODERATOR:
-            raise ValueError("Burst mode requires Moderator or Broadcaster permission.")
+            raise UserError("custom_commands.burst_mode_requires_moderator_broadcaster_permission")
         burst_count = raw.get("burst_count", 1)
         if type(burst_count) is not int or not 1 <= burst_count <= 10:
-            raise ValueError("Burst repeat count must be an integer from 1 to 10.")
+            raise UserError("custom_commands.burst_repeat_count_integer_from_1")
         burst_allow_override = raw.get("burst_allow_override", False)
         if type(burst_allow_override) is not bool:
-            raise ValueError("Burst argument override must be a boolean.")
+            raise UserError("custom_commands.burst_argument_override_must_be_a_boolean")
         burst_interval_ms = validate_burst_interval(raw.get("burst_interval_ms", 0))
     elif any(key in raw for key in ("burst_count", "burst_allow_override", "burst_interval_ms")):
-        raise ValueError("Burst settings require Burst response mode.")
+        raise UserError("custom_commands.burst_settings_require_burst_response_mode")
     aliases = raw.get("aliases")
     if not isinstance(aliases, list) or len(aliases) > 10:
-        raise ValueError("Provide at most 10 aliases.")
+        raise UserError("custom_commands.provide_most_10_aliases")
     parsed_aliases = tuple(_name(alias) for alias in aliases)
     if len({name, *parsed_aliases}) != 1 + len(parsed_aliases):
-        raise ValueError("Command name and aliases must be unique.")
+        raise UserError("custom_commands.command_name_aliases_unique")
     return CustomCommand(
         id=identifier,
         name=name,
@@ -201,11 +202,11 @@ class CustomCommandStore:
 
     def save(self, raw: object) -> CustomCommand:
         if not isinstance(raw, dict):
-            raise ValueError("Custom command must be an object.")
+            raise UserError("custom_commands.custom_command_must_be_an_object")
         with self._lock:
             requested_id = raw.get("id")
             if requested_id is not None and requested_id not in self._commands:
-                raise ValueError("Unknown custom command ID.")
+                raise UserError("custom_commands.unknown_custom_command_id")
             if requested_id is not None:
                 current = self._commands[requested_id]
                 raw = {"stream_availability": current.stream_availability, "send_as": current.send_as, **raw}
@@ -222,7 +223,7 @@ class CustomCommandStore:
     def delete(self, identifier: str) -> None:
         with self._lock:
             if identifier not in self._commands:
-                raise ValueError("Unknown custom command ID.")
+                raise UserError("custom_commands.unknown_custom_command_id")
             updated = dict(self._commands)
             del updated[identifier]
             self._write(updated)
@@ -233,7 +234,7 @@ class CustomCommandStore:
         for command in commands.values():
             for name in (command.name, *command.aliases):
                 if name in used:
-                    raise ValueError(f"Command name or alias already exists: {name}")
+                    raise UserError("custom_commands.command_name_alias_already_exists", name=str(name))
                 used.add(name)
 
     def bind_builtin_names(self, provider: Callable[[], set[str]]) -> None:
@@ -262,7 +263,7 @@ class CustomCommandStore:
             try:
                 command = parse_custom_command(raw)
                 if command.id in commands or any(name in used for name in (command.name, *command.aliases)):
-                    raise ValueError("Duplicate command ID, name, or alias")
+                    raise UserError("custom_commands.duplicate_command_id_name_or_alias")
             except ValueError as error:
                 logger.warning("Ignoring invalid custom command: %s", error)
                 continue

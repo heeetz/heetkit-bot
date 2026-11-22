@@ -65,22 +65,24 @@ async def test_numeric_stable_version_comparison_and_public_request(current, lat
 ])
 async def test_malformed_or_nonstable_release_is_rejected(payload) -> None:
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=payload))) as client:
-        with pytest.raises(UpdateCheckError, match="invalid stable release information"):
+        with pytest.raises(UpdateCheckError) as error:
             await check_for_updates(client, "1.0.0")
+        assert error.value.code == "updates.invalid_stable_release_information"
 
 
 @pytest.mark.parametrize("content", [b"<html>unavailable</html>", b"{", b"\xff", b"x" * (MAX_RESPONSE_BYTES + 1)],
                          ids=["html", "truncated-json", "non-utf8", "oversized"])
 async def test_malformed_or_oversized_body_is_rejected(content) -> None:
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, content=content))) as client:
-        with pytest.raises(UpdateCheckError, match="invalid stable release information"):
+        with pytest.raises(UpdateCheckError) as error:
             await check_for_updates(client, "1.0.0")
+        assert error.value.code == "updates.invalid_stable_release_information"
 
 
 @pytest.mark.parametrize(("status", "message"), [
-    (403, "temporarily limited"), (429, "temporarily limited"),
-    (404, "No stable release"), (500, "unavailable"), (503, "unavailable"),
-    (204, "unavailable"), (302, "unavailable"),
+    (403, "updates.github_update_checks_temporarily_limited_try"), (429, "updates.github_update_checks_temporarily_limited_try"),
+    (404, "updates.no_stable_release_currently_available_try"), (500, "updates.github_release_information_unavailable_try_again"), (503, "updates.github_release_information_unavailable_try_again"),
+    (204, "updates.github_release_information_unavailable_try_again"), (302, "updates.github_release_information_unavailable_try_again"),
 ])
 async def test_http_failures_do_not_retry_or_follow_external_redirects(status, message) -> None:
     requests = []
@@ -90,22 +92,24 @@ async def test_http_failures_do_not_retry_or_follow_external_redirects(status, m
         return httpx.Response(status, headers={"Location": "https://attacker.test/installer.exe"})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=True) as client:
-        with pytest.raises(UpdateCheckError, match=message):
+        with pytest.raises(UpdateCheckError) as captured:
             await check_for_updates(client, "1.0.0")
+        assert captured.value.code == message
     assert len(requests) == 1
 
 
 @pytest.mark.parametrize(("error_type", "message"), [
-    (httpx.ConnectError, "Could not reach GitHub"),
-    (httpx.ReadTimeout, "timed out"), (httpx.ConnectTimeout, "timed out"),
+    (httpx.ConnectError, "updates.could_not_reach_github_check_internet"),
+    (httpx.ReadTimeout, "updates.update_check_timed_out_try_again"), (httpx.ConnectTimeout, "updates.update_check_timed_out_try_again"),
 ])
 async def test_network_errors_have_safe_retry_messages(error_type, message) -> None:
     def handler(request):
         raise error_type("private transport details", request=request)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        with pytest.raises(UpdateCheckError, match=message) as captured:
+        with pytest.raises(UpdateCheckError) as captured:
             await check_for_updates(client, "1.0.0")
+        assert captured.value.code == message
     assert "private" not in str(captured.value)
 
 
@@ -116,8 +120,9 @@ async def test_total_deadline_bounds_slow_release_response(monkeypatch) -> None:
 
     monkeypatch.setattr("app.services.updates.UPDATE_CHECK_TIMEOUT_SECONDS", 0.01)
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        with pytest.raises(UpdateCheckError, match="timed out"):
+        with pytest.raises(UpdateCheckError) as error:
             await check_for_updates(client, "1.0.0")
+        assert error.value.code == "updates.update_check_timed_out_try_again"
 
 
 async def test_each_manual_check_is_fresh_and_summary_is_bounded_plain_text() -> None:

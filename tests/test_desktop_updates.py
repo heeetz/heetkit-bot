@@ -53,14 +53,16 @@ async def test_release_verifies_the_publisher_and_manifest_binding(signed_releas
         verified = await updates.authorize_installer(client, assets, key)
         assert verified.sha256 == assets.digest.removeprefix("sha256:")
         files[assets.url(".manifest.sig")] = b"?" * 64
-        with pytest.raises(updates.UpdateCheckError, match="publisher verification"):
+        with pytest.raises(updates.UpdateCheckError) as error:
             await updates.authorize_installer(client, assets, key)
+        assert error.value.code == "updates.release_manifest_failed_publisher_verification"
 
     private_key = Ed25519PrivateKey.generate()
     different_version = manifest.replace(b"2.0.0", b"2.0.1")
-    with pytest.raises(updates.UpdateCheckError, match="does not match"):
+    with pytest.raises(updates.UpdateCheckError) as error:
         updates.verify_manifest(assets, different_version, private_key.sign(different_version),
                                 private_key.public_key().public_bytes_raw())
+    assert error.value.code == "updates.signed_release_manifest_does_not_match"
 
 
 @pytest.mark.parametrize("case", ["ok", "hash", "short", "large", "interrupt", "redirect"])
@@ -105,7 +107,7 @@ def test_portable_has_no_automatic_update_and_overlapping_requests_are_rejected(
     monkeypatch.setattr(relaunch, "installed_directory", lambda: None)
     result = bridge.check_for_updates()
     assert result["automatic_update"] is False
-    assert "portable" in result["automatic_update_reason"]
+    assert result["automatic_update_reason_code"] == "webview_host.use_open_release_downloads_update_portable"
     assert not bridge.prepare_desktop_update("2.0.0")["ok"]
     with bridge._desktop_operation:
         assert not bridge.prepare_desktop_update("2.0.0")["ok"]

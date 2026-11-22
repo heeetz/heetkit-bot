@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ast
+import json
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,9 +11,13 @@ from typing import cast
 
 import pytest
 
+from app import webview_host
 from app.app_settings import AppSettingsStore
 from app.system_tray import TRAY_TEXT, SystemTray, tray_status_text, tray_text
-from app.ui_messages import MESSAGES, annotate_error, message_code
+from app.errors import UserError, UserOSError, UserRuntimeError, UserTimeoutError, error_result
+from app.management_api import ManagementAPI
+from app.operations import collect, operation
+from app.ui_messages import MESSAGES
 from app.webview_host import AsyncioBackendHost, DesktopController, WebUIBridge
 
 ROOT = Path(__file__).parents[1]
@@ -22,8 +28,16 @@ def _catalog_block(source: str, language: str) -> dict[str, str]:
     start = source.index(f"\n  {language}: {{\n")
     end = source.index("\n  },", start)
     entries = re.findall(r'^    "([^"]+)": "((?:[^"\\]|\\.)*)",$', source[start:end], re.MULTILINE)
-    return {key: bytes(value, "utf-8").decode("unicode_escape").encode("latin-1").decode("utf-8")
-            if "\\" in value else value for key, value in entries}
+    return {key: json.loads(f'"{value}"') for key, value in entries}
+
+
+def _literal_codes(value: ast.expr) -> list[str]:
+    if isinstance(value, ast.Constant) and isinstance(value.value, str):
+        return [value.value]
+    if isinstance(value, ast.IfExp):
+        # The condition may contain ordinary strings, such as a filter category.
+        return _literal_codes(value.body) + _literal_codes(value.orelse)
+    return []
 
 
 def test_frontend_catalog_matches_backend_messages() -> None:
@@ -39,36 +53,94 @@ def test_frontend_catalog_matches_backend_messages() -> None:
             assert sorted(PLACEHOLDER.findall(translated[code])) == parameters, code
             assert english[code].strip(), code
             assert translated[code].strip(), code
-            assert translated[code] != english[code] or code == "timeout", code
+    used: set[str] = set()
+    for path in (ROOT / "app").rglob("*.py"):
+        if path.name == "ui_messages.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in MESSAGES:
+                used.add(node.value)
+            if isinstance(node, ast.Dict):
+                for key, value in zip(node.keys, node.values):
+                    if isinstance(key, ast.Constant) and key.value in {
+                        "error_code", "automatic_update_reason_code", "load_error_code",
+                    }:
+                        for code in _literal_codes(value):
+                            assert code in MESSAGES, (path, code)
+            if isinstance(node, ast.Call):
+                name = getattr(node.func, "id", "")
+                if name in {"UserError", "UserOSError", "UserRuntimeError", "UserTimeoutError", "InstallationInUseError",
+                            "CredentialError", "UpdateCheckError", "TwitchConfigurationError",
+                            "AIModelDiscoveryError",
+                            "DatabaseMigrationError", "TwitchConnectionError", "TwitchCleanupError", "error_result"}:
+                    if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                        assert node.args[0].value in MESSAGES, (path, node.args[0].value)
+                if name == "FilterValidationError" and len(node.args) >= 3:
+                    for code in _literal_codes(node.args[2]):
+                        assert code in MESSAGES, (path, code)
+                for argument in node.keywords:
+                    if argument.arg in {"failure", "validation_failure", "timeout_failure", "cancelled_failure", "fallback"}:
+                        if isinstance(argument.value, ast.Constant) and isinstance(argument.value.value, str):
+                            assert argument.value.value in MESSAGES, (path, argument.value.value)
+    assert used == MESSAGES.keys(), MESSAGES.keys() - used
 
 
-def test_annotation_adds_codes_and_parameters() -> None:
-    assert annotate_error({"ok": False, "error": "Desktop settings are not configured."}) == {
-        "ok": False, "error": "Desktop settings are not configured.",
-        "error_code": "management.desktop_settings_not_configured",
+def test_user_error_preserves_code_parameters_and_legacy_rendering() -> None:
+    error = UserError("custom_commands.command_name_alias_already_exists", name="hello")
+    assert isinstance(error, ValueError)
+    assert str(error) == MESSAGES[error.code].format(**error.params)
+    assert error_result(error) == {
+        "ok": False, "error_code": "custom_commands.command_name_alias_already_exists",
+        "error_params": {"name": "hello"},
     }
-    annotated = annotate_error({"ok": False, "error": "Command name or alias already exists: hello"})
-    assert annotated["error_code"] == "custom_commands.command_name_alias_already_exists"
-    assert annotated["error_params"] == {"name": "hello"}
-    # Unknown text keeps only the English message; existing codes are not replaced.
-    assert annotate_error({"ok": False, "error": "Synthetic unknown failure."}) == {
-        "ok": False, "error": "Synthetic unknown failure."}
-    coded = {"ok": False, "error": "The provider rejected the configured key.", "error_code": "credential_rejected"}
-    assert annotate_error(coded) is coded
-    assert annotate_error({"ok": True}) == {"ok": True}
-    update = annotate_error({"ok": True, "automatic_update_reason": "Publisher verification is unavailable. Install the update manually."})
-    assert update["automatic_update_reason_code"] == "webview_host.publisher_verification_unavailable_install_update_manually"
-    assert "error_code" not in update
+    assert "error" not in error_result(ValueError("private diagnostic"))
+    assert error_result(ValueError("private diagnostic"))["error_code"] == (
+        "webview_host.management_operation_unavailable_check_profile_storage"
+    )
+    exit_error = UserError("desktop_relaunch.heetkit_setup_failed_exit_code_close", code="42")
+    assert exit_error.params == {"code": "42"}
+    assert str(exit_error) == MESSAGES[exit_error.code].format(code="42")
 
 
 def test_settings_validation_errors_are_coded(tmp_path) -> None:
     store = AppSettingsStore(tmp_path / "app_settings.json")
-    with pytest.raises(ValueError) as error:
+    with pytest.raises(UserError) as error:
         store.update_twitch(channel="bad channel", channel_user_id="1")
-    assert message_code(str(error.value)) == ("app_settings.twitch_target_channel_not_contain_whitespace", {})
-    with pytest.raises(ValueError) as error:
+    assert error.value.code == "app_settings.twitch_target_channel_not_contain_whitespace"
+    with pytest.raises(UserError) as error:
         store.update_interface_language("de")
-    assert message_code(str(error.value)) == ("app_settings.choose_english_ukrainian_russian", {})
+    assert error.value.code == "app_settings.choose_english_ukrainian_russian"
+
+
+@pytest.mark.parametrize("passthrough", [False, True])
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize("error_type", [UserError, UserOSError, UserRuntimeError, UserTimeoutError])
+async def test_both_hosts_serialize_source_codes(monkeypatch, passthrough, asynchronous, error_type) -> None:
+    def fail(self):
+        raise error_type("custom_commands.command_name_alias_already_exists", name="synthetic")
+
+    async def fail_async(self):
+        fail(self)
+
+    method = operation(write=False, passthrough_errors=passthrough)(fail_async if asynchronous else fail)
+    operations = type("SyntheticOperations", (), {"fail": method})
+    registered = next(iter(collect(operations).values()))
+    service = operations()
+    server = ManagementAPI.__new__(ManagementAPI)
+    server.service = service
+    result = await server.call(registered, {})
+    expected = {
+        "ok": False, "error_code": "custom_commands.command_name_alias_already_exists",
+        "error_params": {"name": "synthetic"},
+    }
+    assert result == (expected if passthrough else {
+        "ok": False, "error_code": "management_api.operation_rejected_check_input_profile_storage",
+        "error_params": {},
+    })
+    if not asynchronous:
+        monkeypatch.setitem(webview_host.DESKTOP_OPERATIONS, registered.name, registered)
+        assert WebUIBridge.call(cast(WebUIBridge, service), registered.name, {}) == expected
 
 
 def test_tray_text_has_every_label_in_every_language() -> None:
@@ -179,7 +251,7 @@ def test_interface_language_bridge_persists_and_refreshes_tray(tmp_path) -> None
         assert tray.update_calls == 2
         rejected = bridge.set_interface_language("de")
         assert rejected["ok"] is False
-        assert annotate_error(rejected)["error_code"] == "app_settings.choose_english_ukrainian_russian"
+        assert rejected["error_code"] == "app_settings.choose_english_ukrainian_russian"
         assert store.snapshot().interface.language == "ru"
     finally:
         controller._tray_refresh_stop.set()

@@ -1,5 +1,6 @@
 """Small text normalization helpers."""
 
+from app.errors import UserError
 import re
 import unicodedata
 
@@ -10,15 +11,15 @@ _VARIABLE_PATTERN = re.compile(r"\{([^{}]+)\}")
 
 def validate_chat_template(value, *, required, optional=()):
     if not isinstance(value, str) or not value.strip() or any(char in value for char in "\r\n\x00"):
-        raise ValueError("Enter a single-line chat message.")
+        raise UserError("text.enter_a_single_line_chat_message")
     if len(value.encode("utf-8")) > CHAT_RESPONSE_BYTES:
-        raise ValueError(f"Chat messages can use up to {CHAT_RESPONSE_BYTES} UTF-8 bytes.")
+        raise UserError("text.chat_messages_can_use_up_to_utf_8_bytes", value1=str(CHAT_RESPONSE_BYTES))
     variables = set(_VARIABLE_PATTERN.findall(value))
     if not set(required) <= variables or not variables <= set((*required, *optional)):
         allowed = ", ".join(f"{{{name}}}" for name in required)
-        raise ValueError(f"The message must include {allowed} and may include {{sender}}.")
+        raise UserError("text.the_message_must_include_and_may_include", allowed=str(allowed), sender="{sender}")
     if any(char in _VARIABLE_PATTERN.sub("", value) for char in "{}"):
-        raise ValueError("Use braces only for supported template variables.")
+        raise UserError("text.use_braces_only_for_supported_template_variables")
     return value.strip()
 
 

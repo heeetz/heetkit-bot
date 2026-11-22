@@ -40,8 +40,9 @@ def test_registry_overrides_and_private_host_context():
     assert registry["save"].timeout == 20
     assert registry["save"].bind({}) == {}
     assert private_context(Desktop().save, owner=b"host", ignored=True) == {"owner": b"host"}
-    with pytest.raises(ValueError, match="Invalid operation arguments"):
+    with pytest.raises(ValueError) as error:
         registry["save"].bind({"owner": "frontend"})
+    assert error.value.code == "operations.invalid_operation_arguments"
 
 
 @pytest.mark.parametrize("payload", [None, [], "value", {"extra": True}, {}])

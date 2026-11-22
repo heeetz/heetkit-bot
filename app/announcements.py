@@ -17,6 +17,7 @@ from uuid import UUID, uuid4
 
 from twitchio.exceptions import HTTPException
 
+from app.errors import UserError
 from app.command_settings import validate_stream_availability
 from app.settings_recovery import preserve_settings_recovery
 from app.twitch.sending import ChatSessionClosedError
@@ -45,48 +46,48 @@ class Announcement:
 
 def _text(value: object, label: str, maximum: int) -> str:
     if not isinstance(value, str) or not value.strip() or any(ord(char) < 32 or ord(char) == 127 for char in value):
-        raise ValueError(f"{label} must be non-empty single-line text without control characters.")
+        raise UserError("announcements.non_empty_single_line_text_without", field=str(label))
     try:
         if len(value.encode("utf-8")) > maximum:
-            raise ValueError(f"{label} must be at most {maximum} UTF-8 bytes.")
+            raise UserError("announcements.most_utf_8_bytes", field=str(label), maximum=str(maximum))
     except UnicodeEncodeError as error:
-        raise ValueError(f"{label} must contain valid Unicode.") from error
+        raise UserError("announcements.contain_valid_unicode", field=str(label)) from error
     return value.strip()
 
 
 def parse_announcements(payload: object, *, allow_new: bool = False) -> tuple[Announcement, ...]:
     if not isinstance(payload, list) or len(payload) > 50:
-        raise ValueError("Provide at most 50 announcements.")
+        raise UserError("announcements.provide_most_50_announcements")
     result, used = [], set()
     for raw in payload:
         if not isinstance(raw, dict) or set(raw) - FIELDS or FIELDS - {"id", "delivery_mode"} - set(raw):
-            raise ValueError("Unexpected or missing announcement fields.")
+            raise UserError("announcements.unexpected_or_missing_announcement_fields")
         identifier = raw.get("id")
         if identifier is None and allow_new:
             identifier = str(uuid4())
         try:
             identifier = str(UUID(identifier))
         except (ValueError, TypeError, AttributeError) as error:
-            raise ValueError("Announcement ID is invalid.") from error
+            raise UserError("announcements.announcement_id_is_invalid") from error
         if identifier in used:
-            raise ValueError("Duplicate announcement ID.")
+            raise UserError("announcements.duplicate_announcement_id")
         used.add(identifier)
         if type(raw["enabled"]) is not bool:
-            raise ValueError("Enabled must be a boolean.")
+            raise UserError("announcements.enabled_must_be_a_boolean")
         messages = raw["messages"]
         if not isinstance(messages, list) or not 1 <= len(messages) <= 30:
-            raise ValueError("Provide 1 to 30 announcement messages.")
+            raise UserError("announcements.provide_1_30_announcement_messages")
         mode = raw["message_mode"]
         if mode not in ("single", "random") or (mode == "single" and len(messages) != 1):
-            raise ValueError("Single mode requires one message; Random chooses one from the saved messages.")
+            raise UserError("announcements.single_mode_requires_one_message_random")
         interval, minimum = raw["interval_seconds"], raw["min_messages"]
         if type(interval) is not int or not 60 <= interval <= 86400:
-            raise ValueError("Announcement interval must be 60 to 86400 whole seconds.")
+            raise UserError("announcements.announcement_interval_60_86400_whole_seconds")
         if type(minimum) is not int or not 0 <= minimum <= 1000:
-            raise ValueError("Minimum eligible messages must be an integer from 0 to 1000.")
+            raise UserError("announcements.minimum_eligible_messages_integer_from_0")
         delivery = raw.get("delivery_mode", "regular")
         if delivery not in ("regular", "highlighted"):
-            raise ValueError("Announcement type must be regular or highlighted.")
+            raise UserError("announcements.announcement_type_regular_highlighted")
         result.append(Announcement(identifier, _text(raw["name"], "Name", 80), raw["enabled"],
             tuple(_text(message, "Message", 450) for message in messages), mode, interval, minimum,
             validate_stream_availability(raw["stream_availability"]), delivery))
@@ -102,7 +103,7 @@ class AnnouncementStore:
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(payload, dict) or set(payload) != {"version", "announcements"} or type(payload["version"]) is not int or payload["version"] != 1:
-                raise ValueError("Unsupported announcement settings.")
+                raise UserError("announcements.unsupported_announcement_settings")
             self._announcements = parse_announcements(payload["announcements"])
         except FileNotFoundError:
             pass

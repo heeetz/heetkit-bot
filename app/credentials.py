@@ -12,6 +12,8 @@ from enum import StrEnum
 from typing import Protocol
 
 import httpx
+
+from app.errors import UserError
 from app.runtime_paths import RuntimePaths
 
 logger = logging.getLogger(__name__)
@@ -39,9 +41,8 @@ CREDENTIAL_LABELS = {
 }
 
 
-class CredentialError(RuntimeError):
+class CredentialError(UserError, RuntimeError):
     """Safe credential error suitable for the desktop bridge."""
-
 
 class KeyringBackend(Protocol):
     def get_password(self, service_name: str, username: str) -> str | None: ...
@@ -83,14 +84,14 @@ class CredentialStore:
         try:
             value = self._backend.get_password(self._service_name, name.value)
         except self._keyring_error as error:
-            raise CredentialError("Secure credential storage is unavailable.") from error
+            raise CredentialError("credentials.secure_credential_storage_unavailable") from error
         return value or None
 
     def replace(self, name: CredentialName, value: str) -> None:
         try:
             self._backend.set_password(self._service_name, name.value, value)
         except self._keyring_error as error:
-            raise CredentialError("Could not store the credential securely.") from error
+            raise CredentialError("credentials.could_not_store_credential_securely") from error
 
     def remove(self, name: CredentialName) -> bool:
         if self.get(name) is None:
@@ -100,7 +101,7 @@ class CredentialStore:
         except self._delete_error:
             return False
         except self._keyring_error as error:
-            raise CredentialError("Could not remove the stored credential.") from error
+            raise CredentialError("credentials.could_not_remove_stored_credential") from error
         return True
 
 
@@ -120,11 +121,11 @@ class CredentialManager:
     @staticmethod
     def parse_name(name: object) -> CredentialName:
         if not isinstance(name, str):
-            raise ValueError("Unknown credential.")
+            raise UserError("credentials.unknown_credential")
         try:
             return CredentialName(name)
         except ValueError as error:
-            raise ValueError("Unknown credential.") from error
+            raise UserError("credentials.unknown_credential") from error
 
     def _secure_value(self, name: CredentialName) -> tuple[str | None, bool]:
         try:
@@ -173,14 +174,12 @@ class CredentialManager:
     def replace(self, name: object, value: object) -> None:
         parsed_name = self.parse_name(name)
         if not isinstance(value, str):
-            raise ValueError("Credential must be text.")
+            raise UserError("credentials.credential_must_be_text")
         normalized = value.strip()
         if not normalized:
-            raise ValueError("Credential must not be empty.")
+            raise UserError("credentials.credential_not_empty")
         if len(normalized) > MAX_CREDENTIAL_LENGTH:
-            raise ValueError(
-                f"Credential must not exceed {MAX_CREDENTIAL_LENGTH} characters."
-            )
+            raise UserError("credentials.credential_must_not_exceed_characters", value1=str(MAX_CREDENTIAL_LENGTH))
         self._store.replace(parsed_name, normalized)
 
     def remove(self, name: object) -> bool:
@@ -196,7 +195,7 @@ class CredentialManager:
         parsed_name = self.parse_name(name)
         value = self.effective_value(parsed_name)
         if value is None:
-            raise CredentialError("Credential is not configured.")
+            raise CredentialError("credentials.credential_not_configured")
 
         try:
             if parsed_name in {CredentialName.DEEPSEEK_API_KEY, CredentialName.OPENAI_API_KEY}:
@@ -223,10 +222,10 @@ class CredentialManager:
                 )
         except (httpx.RequestError, TimeoutError, ValueError):
             # Header validation can include the supplied secret in its exception.
-            raise CredentialError("Credential service could not be reached or rejected its input.") from None
+            raise CredentialError("credentials.credential_service_could_not_reached_rejected") from None
 
         if 200 <= response.status_code < 300:
             return
         if response.status_code in {400, 401, 403}:
-            raise CredentialError("Credential was rejected by the provider.")
-        raise CredentialError("Credential could not be verified by the provider.")
+            raise CredentialError("credentials.credential_rejected_by_provider")
+        raise CredentialError("credentials.credential_could_not_verified_by_provider")

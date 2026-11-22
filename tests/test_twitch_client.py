@@ -154,8 +154,9 @@ async def test_bot_issues_state_for_running_initial_or_explicit_renewal_only() -
         dispatcher=cast(CommandDispatcher, object()), logger=logging.getLogger("tests.twitch"),
     )
     try:
-        with pytest.raises(ValueError, match="not currently required"):
+        with pytest.raises(ValueError) as error:
             bot.begin_authorization()
+        assert error.value.code == "client.twitch_authorization_not_currently_required"
         state.set_bot_running(True)
         state.set_twitch_connection_state("auth_required")
         url = urlsplit(bot.begin_authorization())
@@ -164,13 +165,15 @@ async def test_bot_issues_state_for_running_initial_or_explicit_renewal_only() -
         state.set_twitch_connection_state("connected")
         assert parse_qs(urlsplit(bot.begin_authorization()).query)["state"]
         state.set_twitch_connection_state("reconnecting")
-        with pytest.raises(ValueError, match="not currently required"):
+        with pytest.raises(ValueError) as error:
             bot.begin_authorization()
+        assert error.value.code == "client.twitch_authorization_not_currently_required"
     finally:
         await bot.close(save_tokens=False)
     state.set_twitch_connection_state("auth_required")
-    with pytest.raises(ValueError, match="not currently required"):
+    with pytest.raises(ValueError) as error:
         bot.begin_authorization()
+    assert error.value.code == "client.twitch_authorization_not_currently_required"
 
 
 class FakeTwitchMessage:

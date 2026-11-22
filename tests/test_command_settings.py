@@ -5,6 +5,8 @@ import logging
 
 import pytest
 
+from app.errors import UserError
+
 from app.command_settings import save_command_overrides
 from app.commands.info import register_info_commands
 from app.commands.registry import CommandRegistry
@@ -203,12 +205,15 @@ def test_runtime_operations_reject_invalid_typed_values() -> None:
     runtime_state = RuntimeState()
     runtime_state.configure_commands(build_registry().definitions())
 
-    with pytest.raises(TypeError, match="boolean"):
+    with pytest.raises(UserError) as error:
         runtime_state.apply_command_settings("ping", enabled="false")  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="Permission"):
+    assert error.value.code == "command_settings.command_enabled_setting_must_be_a_boolean"
+    with pytest.raises(UserError) as error:
         runtime_state.apply_command_settings("ping", permission="MODERATOR")  # type: ignore[arg-type]
-    with pytest.raises(KeyError, match="Unknown command"):
+    assert error.value.code == "command_settings.command_permission_setting_must_be_a_permission"
+    with pytest.raises(UserError) as error:
         runtime_state.apply_command_settings("missing", enabled=False)
+    assert error.value.code == "runtime_state.unknown_command"
 
 
 def test_failed_atomic_write_cleans_up_temporary_file(tmp_path, monkeypatch) -> None:

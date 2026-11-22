@@ -5,6 +5,7 @@ import time
 from dataclasses import asdict
 from uuid import uuid4
 
+from app.errors import UserError
 from app.config.ai import AI_REQUEST_TIMEOUT_SECONDS
 from app.config.ai_setup import effective_ai_setup
 from app.services.ai_request_policy import PolicyDecision
@@ -27,16 +28,16 @@ class AIPlayground:
     def start(self, prompt: object, *, owner: bytes | None = None,
               expires_at: float | None = None) -> dict:
         if self.closed:
-            return {"ok": False, "error": "The Playground is unavailable. Try again."}
+            return {"ok": False, "error_code": "ai_playground.playground_unavailable_try_again", "error_params": {}}
         if not isinstance(prompt, str) or not prompt.strip():
-            raise ValueError("Enter a prompt to test.")
+            raise UserError("ai_playground.enter_prompt_test")
         maximum = effective_ai_setup(self.settings).max_question_length
         if len(prompt.strip()) > maximum:
-            raise ValueError(f"Use at most {maximum} characters, the same limit as Ask.")
+            raise UserError("ai_playground.use_most_characters_same_limit_as", maximum=str(maximum))
         if expires_at is not None and expires_at <= time.monotonic():
-            raise ValueError("That Playground session has ended.")
+            raise UserError("ai_playground.playground_session_has_ended")
         if self.task is not None and not self.task.done():
-            return {"ok": False, "error": "A Playground request is already running."}
+            return {"ok": False, "error_code": "ai_playground.playground_request_already_running", "error_params": {}}
         self._clear_expiry()
         self.request_id = uuid4().hex
         self.owner = owner
@@ -89,7 +90,7 @@ class AIPlayground:
     def get(self, request_id: object, *, owner: bytes | None = None) -> dict:
         if (not isinstance(request_id, str) or request_id != self.request_id
                 or self.task is None or owner != self.owner or self.closed):
-            raise ValueError("That Playground request is no longer available.")
+            raise UserError("ai_playground.playground_request_no_longer_available")
         if not self.task.done():
             result = {"status": "pending"}
         elif self.task.cancelled() or self.cancel_requested:

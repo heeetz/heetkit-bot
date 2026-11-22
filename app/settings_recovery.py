@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.errors import UserError
 import json
 import logging
 import os
@@ -47,24 +48,21 @@ def preserve_settings_recovery(
     Unknown fields, skipped entries and externally changed values survive in a
     unique, exact-byte recovery file. Failure to preserve it aborts the save.
     """
-    repair = (
-        f"Cannot save {path.name}. Quit the app, back up and repair this profile file "
-        "(or move it aside to reset), then restart."
-    )
+    repair = UserError("settings_recovery.cannot_save_profile", filename=path.name)
     try:
         original_bytes = path.read_bytes()
     except FileNotFoundError:
         return
     except OSError as error:
-        raise ValueError(repair) from error
+        raise repair from error
     try:
         original = json.loads(original_bytes.decode(encoding), object_pairs_hook=_unique_object)
     except (UnicodeError, ValueError) as error:
-        raise ValueError(repair) from error
+        raise repair from error
     if not isinstance(original, dict):
-        raise ValueError(repair)
+        raise repair
     if version is not None and (type(original.get("version")) is not int or original["version"] != version):
-        raise ValueError(repair)
+        raise repair
     if _is_recovered(original, recovered):
         return
 

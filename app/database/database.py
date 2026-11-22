@@ -1,5 +1,6 @@
 """Async SQLAlchemy database lifecycle."""
 
+
 import asyncio
 import logging
 from dataclasses import dataclass, field
@@ -64,14 +65,14 @@ class Database:
                         await connection.exec_driver_sql("INSERT INTO schema_metadata VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
                         await connection.exec_driver_sql(f"PRAGMA user_version={SCHEMA_VERSION}")
                     elif version != SCHEMA_VERSION:
-                        raise DatabaseMigrationError("Unsupported database version.")
+                        raise DatabaseMigrationError("database.unsupported_database_version")
             await self.cleanup_expired()
         except BaseException as error:
             if self._guard is not None:
                 self._guard.__exit__(type(error), error, error.__traceback__)
                 self._guard = None
             if isinstance(error, DesktopAlreadyRunningError):
-                raise DatabaseMigrationError("Database is in use; stop all profile processes before upgrading.") from None
+                raise DatabaseMigrationError("database.database_is_in_use_stop_all_profile_processes_before") from None
             raise
         if self._retention_task is None:
             self._retention_task = asyncio.create_task(self._maintain_retention())

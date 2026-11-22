@@ -298,7 +298,7 @@ async def test_command_restrictions_authenticated_identity_errors_private_notes_
     assert (await call("POST", "/v1/ops/save_command_restriction", json={"data": raw},
                        headers={"Authorization": ""}))[0] == 401
     unresolved = (await call("POST", "/v1/ops/save_command_restriction", json={"data": raw}))[1]
-    assert not unresolved["ok"] and "verified Twitch user ID" in unresolved["error"]
+    assert not unresolved["ok"] and unresolved["error_code"] == "management.could_not_resolve_login_verified_twitch"
     monkeypatch.setattr(app.services.twitch, "resolve_user_id", AsyncMock(return_value="123"))
     # Every factory command stays selectable, even hidden/admin/disabled/removed.
     app.services.runtime_state.remove_builtin_command("fate")
@@ -398,7 +398,7 @@ async def test_ai_setup_save_reload_validation_and_guide_use_authenticated_share
     assert (await call("POST", "/v1/ops/get_ai_setup"))[1]["settings"] == settings
     settings["primary"]["thinking"] = "invented"
     status, result, _ = await call("POST", "/v1/ops/save_ai_setup", json={"settings": settings})
-    assert status == 400 and "Thinking choice" in result["error"]
+    assert status == 400 and result["error_code"] == "ai_capabilities.thinking_choice_unavailable_model_choose_supported"
     assert (await call("POST", "/v1/ops/get_ai_setup"))[1]["settings"]["primary"]["thinking"] != "invented"
     status, result, _ = await call("POST", "/v1/ops/save_setup_guide", json={"dismissed": True, "ai_skipped": True})
     assert status == 200 and result["dismissed"] and result["ai_skipped"]
@@ -761,8 +761,7 @@ async def test_management_applies_and_persists_existing_stores(api):
     assert status == 400
     assert rejected_rule == {
         "ok": False,
-        "error": "Invalid regex rule.",
-        "error_code": "management_api.invalid_regex_rule",
+        "error_code": "management_api.invalid_regex_rule", "error_params": {},
         "invalid_rule": {"category": "patterns", "index": 1},
     }
     result = await save("/v1/ops/test_filters", {"text": "syntheticblocked", "source": "active", "payload": None})
@@ -783,7 +782,7 @@ async def test_management_applies_and_persists_existing_stores(api):
     assert orders == sorted(set(orders))
     assert orders[0] == initial["triggers"][0]["creation_order"]
     status, stale, _ = await call("POST", "/v1/ops/save_message_triggers", json={"triggers": [], "revision": initial["revision"]})
-    assert status == 400 and "changed" in stale["error"]
+    assert status == 400 and stale["error_code"] == "message_triggers.chat_reactions_changed_reload_them_before"
     assert server.runtime.application.services.runtime_state.active_ai_personality == "Synthetic"
     assert not server.runtime.application.services.runtime_state.ai_memory_enabled
     assert server.runtime.application.dispatcher._message_triggers.list()[0].matches("HELLO")
@@ -1365,8 +1364,8 @@ async def test_server_setup_guide_save_failure_retry_and_profile_reload(api, mon
             raise OSError("private path")
         patch.setattr("app.app_settings.save_app_settings", reject)
         _, failure, _ = await call("POST", "/v1/ops/save_setup_guide", json={"dismissed": False, "ai_skipped": True})
-        assert not failure["ok"] and "profile can be written" in failure["error"]
-        assert "private path" not in failure["error"]
+        assert not failure["ok"] and failure["error_code"] == "management.could_not_save_setup_guidance_check"
+        assert "error" not in failure
     assert not AppSettingsStore(path).snapshot().ai.setup_guide_ai_skipped
     _, saved, _ = await call("POST", "/v1/ops/save_setup_guide", json={"dismissed": False, "ai_skipped": True})
     assert saved == {"ok": True, "dismissed": False, "ai_skipped": True}

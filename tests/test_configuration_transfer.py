@@ -334,8 +334,9 @@ async def test_import_rejects_thirty_one_random_templates_without_writes(profile
     payload["custom_commands"][0].update(response_mode="random", responses=[f"Reply {index}" for index in range(31)])
     before = file_state(transfer)
     snapshot = transfer.snapshot()
-    with pytest.raises(ValueError, match="1 to 30 response templates"):
+    with pytest.raises(ValueError) as error:
         transfer.preview(pack_configuration(payload))
+    assert error.value.code == "custom_commands.provide_1_30_response_templates"
     assert file_state(transfer) == before
     assert transfer.snapshot() == snapshot
     assert not (transfer.config / "import-backups").exists()

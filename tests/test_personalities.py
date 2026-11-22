@@ -343,8 +343,9 @@ def test_create_rejects_duplicate_and_builtin_names(tmp_path, name) -> None:
     state = RuntimeState(personality_settings_path=path)
     state.create_ai_personality("local", "Keep this")
     original = path.read_bytes()
-    with pytest.raises(ValueError, match="already exists"):
+    with pytest.raises(ValueError) as error:
         state.create_ai_personality(name, "replacement")
+    assert error.value.code == "runtime_state.personality_name_already_exists"
     assert path.read_bytes() == original
     assert state.get_ai_personality_prompt("local") == "Keep this"
 
@@ -376,8 +377,9 @@ def test_rename_rejects_collisions_without_changes(tmp_path, name) -> None:
     state.create_ai_personality("other", "Other")
     state.save_active_ai_personality("local")
     original = path.read_bytes()
-    with pytest.raises(ValueError, match="already exists"):
+    with pytest.raises(ValueError) as error:
         state.rename_ai_personality("local", name)
+    assert error.value.code == "runtime_state.personality_name_already_exists"
     assert path.read_bytes() == original
     assert state.active_ai_personality == "local"
     assert state.get_ai_personality_prompt("local") == "Original"
@@ -408,8 +410,9 @@ def test_builtin_cannot_be_renamed_or_deleted_even_when_overridden(tmp_path) -> 
     original = path.read_bytes()
     for action in (lambda: state.rename_ai_personality("neutral", "new"),
                    lambda: state.delete_ai_personality("neutral")):
-        with pytest.raises(ValueError, match="Built-in personalities"):
+        with pytest.raises(ValueError) as error:
             action()
+        assert error.value.code == "runtime_state.built_personalities_cannot_renamed_deleted"
         assert path.read_bytes() == original
         assert state.get_ai_personality_prompt("neutral") == "Override"
 
@@ -497,8 +500,9 @@ def test_collection_operations_preserve_malformed_files(tmp_path, action) -> Non
         "delete": lambda: state.delete_ai_personality("local"),
         "activate": lambda: state.save_active_ai_personality("local"),
     }
-    with pytest.raises(ValueError, match="Quit the app, back up and repair"):
+    with pytest.raises(ValueError) as error:
         operations[action]()
+    assert error.value.code == "settings_recovery.cannot_save_profile"
     assert state.get_personality_settings_snapshot() == before
     assert path.read_bytes() == b"{broken"
 

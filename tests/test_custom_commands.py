@@ -44,14 +44,18 @@ def test_store_normalizes_aliases_rejects_collisions_and_persists(tmp_path) -> N
     assert store.get_by_name("!gReEt") == saved
     assert saved.response_mode == "single"
     assert CustomCommandStore(path, {"ping", "p"}).get_by_name("greet") == saved
-    with pytest.raises(ValueError, match="already exists"):
+    with pytest.raises(ValueError) as error:
         store.save(payload(name="Ping"))
-    with pytest.raises(ValueError, match="already exists"):
+    assert error.value.code == "custom_commands.command_name_alias_already_exists"
+    with pytest.raises(ValueError) as error:
         store.save(payload(name="other", aliases=["HELLO"]))
-    with pytest.raises(ValueError, match="unique"):
+    assert error.value.code == "custom_commands.command_name_alias_already_exists"
+    with pytest.raises(ValueError) as error:
         store.save(payload(aliases=["GREET"]))
-    with pytest.raises(ValueError, match="unknown variable"):
+    assert error.value.code == "custom_commands.command_name_aliases_unique"
+    with pytest.raises(ValueError) as error:
         store.save(payload(responses=["{execute}"]))
+    assert error.value.code == "custom_commands.response_contains_unknown_variable"
     assert json.loads(path.read_text(encoding="utf-8"))["commands"] == [saved.to_json()]
     store.delete(saved.id)
     assert store.get_by_name("hello") is None
@@ -85,21 +89,23 @@ def test_random_pool_invalid_size_rejected_without_changing_saved_command(tmp_pa
     store = CustomCommandStore(path, set())
     saved = store.save(payload(response_mode="random", responses=["Reply"] * 30))
     before = path.read_bytes()
-    with pytest.raises(ValueError, match="1 to 30 response templates"):
+    with pytest.raises(ValueError) as error:
         store.save({**saved.to_json(), "responses": responses})
+    assert error.value.code == "custom_commands.provide_1_30_response_templates"
     assert store.list() == (saved,)
     assert path.read_bytes() == before
 
 
 @pytest.mark.parametrize("changes,match", [
-    ({"response_mode": "single", "responses": ["Reply"] * 30}, "exactly one"),
-    ({"response_mode": "burst", "permission": "MODERATOR", "responses": ["Reply"] * 30}, "exactly one"),
-    ({"aliases": [f"alias{index}" for index in range(11)]}, "at most 10 aliases"),
-    ({"responses": ["Reply"] * 29 + ["x" * 2001]}, "at most 2000 characters"),
+    ({"response_mode": "single", "responses": ["Reply"] * 30}, "custom_commands.single_burst_modes_require_exactly_one"),
+    ({"response_mode": "burst", "permission": "MODERATOR", "responses": ["Reply"] * 30}, "custom_commands.single_burst_modes_require_exactly_one"),
+    ({"aliases": [f"alias{index}" for index in range(11)]}, "custom_commands.provide_most_10_aliases"),
+    ({"responses": ["Reply"] * 29 + ["x" * 2001]}, "custom_commands.each_response_one_non_empty_line"),
 ])
 def test_larger_random_pool_preserves_other_custom_limits(tmp_path, changes, match):
-    with pytest.raises(ValueError, match=match):
+    with pytest.raises(ValueError) as error:
         CustomCommandStore(tmp_path / "commands.json", set()).save(payload(**changes))
+    assert error.value.code == match
 
 
 @pytest.mark.asyncio
