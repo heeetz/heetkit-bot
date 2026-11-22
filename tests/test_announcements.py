@@ -23,6 +23,23 @@ def entry(**changes):
         "stream_availability": "anytime", "delivery_mode": "regular", **changes}
 
 
+@pytest.mark.parametrize("changes,code,params", [
+    ({"interval_seconds": True}, "validation.type", {"field": "interval_seconds", "expected": "integer"}),
+    ({"interval_seconds": 59}, "validation.minimum", {"field": "interval_seconds", "limit": "60"}),
+    ({"messages": ["é" * 226]}, "validation.bytes", {"field": "messages", "max": "450"}),
+    ({"extra": "ignored?"}, "validation.unknown_field", {"field": "extra"}),
+])
+def test_announcement_constraints_report_fields_without_writing(tmp_path, changes, code, params):
+    from app.errors import UserError
+
+    path = tmp_path / "announcements.json"
+    store = AnnouncementStore(path)
+    with pytest.raises(UserError) as error:
+        store.save([entry(**changes)])
+    assert (error.value.code, error.value.params) == (code, params)
+    assert not path.exists()
+
+
 @pytest.fixture
 async def rig(tmp_path):
     now = [0.0]

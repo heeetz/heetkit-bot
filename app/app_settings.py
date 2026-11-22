@@ -13,10 +13,14 @@ from pathlib import Path
 from threading import RLock
 
 from app.errors import UserError
+from typing import Annotated, Literal
+from pydantic import BeforeValidator, Field, StrictBool, StrictInt, StrictStr, StringConstraints, model_validator
+from app.settings_models import (SettingsModel, InterfaceLanguage, OperationMode,
+    field_value, parse)
 from app.config.ai_models import validate_ai_provider, validate_provider_models
 from app.settings_recovery import preserve_settings_recovery
 from app.config.ai import AI_MEMORY_ENABLED
-from app.config.privacy import AI_HISTORY_MAX_ENTRIES, AI_CONTEXT_MAX_ENTRIES, validate_memory_limits
+from app.config.privacy import AI_HISTORY_MAX_ENTRIES, AI_CONTEXT_MAX_ENTRIES
 from app.config.ai_setup import AISetup, parse_ai_setup
 from app.config.ai_language import ResponseLanguageSettings, validate_response_language
 
@@ -96,29 +100,98 @@ class AppSettings:
     interface: InterfaceSettings = field(default_factory=InterfaceSettings)
 
 
+class WindowSettingsModel(SettingsModel):
+    start_minimized: StrictBool = False
+    minimize_to_tray: StrictBool = False
+    close_to_tray: StrictBool = False
+
+
+class StartupSettingsModel(SettingsModel):
+    auto_start_bot: StrictBool = False
+    operation_mode: OperationMode = "always_on"
+
+
+class InterfaceSettingsModel(SettingsModel):
+    language: InterfaceLanguage = DEFAULT_INTERFACE_LANGUAGE
+
+
+class AIFlagsModel(SettingsModel):
+    memory_enabled: StrictBool = AI_MEMORY_ENABLED
+    setup_guide_dismissed: StrictBool = False
+    setup_guide_ai_skipped: StrictBool = False
+
+
+class AIMemoryLimitsModel(SettingsModel):
+    history_max_entries: Annotated[StrictInt, Field(ge=1, le=500)] = AI_HISTORY_MAX_ENTRIES
+    context_max_entries: Annotated[StrictInt, Field(ge=1, le=50)] = AI_CONTEXT_MAX_ENTRIES
+
+    @model_validator(mode="after")
+    def context_limit(self):
+        if self.context_max_entries > self.history_max_entries:
+            raise UserError("validation.maximum", field="context_max_entries", limit=str(self.history_max_entries))
+        return self
+
+
+def _memory_limits(stored, context):
+    item = parse(AIMemoryLimitsModel, dict(history_max_entries=stored, context_max_entries=context))
+    return item.history_max_entries, item.context_max_entries
+
+
+class AISettingsModel(AIMemoryLimitsModel, AIFlagsModel):
+    selected_model: StrictStr | None = None
+    fallback_model: StrictStr | None = None
+    provider: Literal["gemini", "deepseek", "openai"] | None = None
+    deepseek_selected_model: StrictStr | None = None
+    deepseek_fallback_model: StrictStr | None = None
+    openai_selected_model: StrictStr | None = None
+    openai_fallback_model: StrictStr | None = None
+    cooldown_bypass_user_id: StrictStr | None = None
+    response_language: ResponseLanguageSettings
+    setup: AISetup | None = None
+
+
+def _ai_settings(**values):
+    item = parse(AISettingsModel, values)
+    return AISettings(**{name: getattr(item, name) for name in AISettingsModel.model_fields})
+
+
+TrimmedText = Annotated[StrictStr, StringConstraints(strip_whitespace=True, min_length=1)]
+PresetId = Annotated[StrictStr, Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")]
+PresetName = Annotated[TrimmedText, Field(max_length=80)]
+
+
+class TwitchTargetModel(SettingsModel):
+    channel: Annotated[StrictStr,
+        BeforeValidator(lambda value: value.strip().lower().removeprefix("#") if isinstance(value, str) else value),
+        Field(min_length=1, max_length=100, pattern=r"^\S+$")]
+    channel_user_id: Annotated[TrimmedText, Field(pattern=r"^\d+$")]
+
+
+class TwitchIdentityModel(SettingsModel):
+    client_id: Annotated[TrimmedText, Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+    bot_username: Annotated[TrimmedText, Field(pattern=r"^[A-Za-z0-9_]{1,25}$")]
+    bot_user_id: Annotated[TrimmedText, Field(pattern=r"^[0-9]{1,20}$")]
+
+
+class TwitchPresetModel(TwitchTargetModel):
+    id: PresetId
+    display_name: PresetName
+
+
+def _recover_fields(model, section):
+    values = {}
+    for name, definition in model.model_fields.items():
+        if name not in section:
+            continue
+        try:
+            values[name] = field_value(definition.rebuild_annotation(), section[name], name)
+        except ValueError:
+            logger.warning("Ignoring invalid application setting name=%s", name)
+    return model(**values).model_dump()
+
+
 def validate_interface_language(language: object) -> str:
-    if not isinstance(language, str) or language not in INTERFACE_LANGUAGES:
-        raise UserError("app_settings.choose_english_ukrainian_russian")
-    return language
-
-
-def _read_boolean(
-    section: dict[str, object],
-    section_name: str,
-    field_name: str,
-    default: bool,
-) -> bool:
-    if field_name not in section:
-        return default
-    value = section[field_name]
-    if type(value) is bool:
-        return value
-    logger.warning(
-        "Ignoring invalid application setting name=%s.%s",
-        section_name,
-        field_name,
-    )
-    return default
+    return field_value(InterfaceLanguage, language, "language")
 
 
 def _read_section(payload: dict[str, object], section_name: str) -> dict[str, object]:
@@ -137,89 +210,54 @@ def _read_optional_string(
     value = section.get(field_name)
     if value is None:
         return None
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    logger.warning(
-        "Ignoring invalid application setting name=%s.%s",
-        section_name,
-        field_name,
-    )
-    return None
+    try:
+        return field_value(TrimmedText, value, field_name)
+    except ValueError:
+        logger.warning("Ignoring invalid application setting name=%s.%s", section_name, field_name)
+        return None
 
 
 def _validate_twitch_target(channel: object, channel_user_id: object) -> tuple[str, str]:
-    if not isinstance(channel, str) or not channel.strip():
-        raise UserError("app_settings.twitch_target_channel_not_empty")
-    parsed_channel = channel.strip().lower().removeprefix("#")
-    if not parsed_channel or any(character.isspace() for character in parsed_channel):
-        raise UserError("app_settings.twitch_target_channel_not_contain_whitespace")
-    if len(parsed_channel) > 100:
-        raise UserError("app_settings.twitch_target_channel_too_long")
-    if not isinstance(channel_user_id, str) or not channel_user_id.strip().isdigit():
-        raise UserError("app_settings.twitch_channel_user_id_contain_digits")
-    return parsed_channel, channel_user_id.strip()
+    item = parse(TwitchTargetModel, dict(channel=channel, channel_user_id=channel_user_id))
+    return item.channel, item.channel_user_id
 
 
 def _validate_preset_id(preset_id: object) -> str:
-    if not isinstance(preset_id, str) or not re.fullmatch(
-        r"[A-Za-z0-9_-]{1,64}", preset_id
-    ):
-        raise UserError("app_settings.twitch_preset_id_is_invalid")
-    return preset_id
+    return field_value(PresetId, preset_id, "id")
 
 
-def validate_twitch_identity(
-    client_id: object, bot_username: object, bot_user_id: object,
-) -> tuple[str, str, str]:
-    if not isinstance(client_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", client_id.strip()):
-        raise UserError("app_settings.twitch_client_id_contain_only_letters")
-    if not isinstance(bot_username, str) or not re.fullmatch(r"[A-Za-z0-9_]{1,25}", bot_username.strip()):
-        raise UserError("app_settings.twitch_bot_username_login_name_letters")
-    if not isinstance(bot_user_id, str) or not re.fullmatch(r"[0-9]{1,20}", bot_user_id.strip()):
-        raise UserError("app_settings.twitch_bot_user_id_contain_digits")
-    return client_id.strip(), bot_username.strip().lower(), bot_user_id.strip()
+def validate_twitch_identity(client_id: object, bot_username: object, bot_user_id: object) -> tuple[str, str, str]:
+    item = parse(TwitchIdentityModel, dict(client_id=client_id, bot_username=bot_username, bot_user_id=bot_user_id))
+    return item.client_id, item.bot_username.lower(), item.bot_user_id
 
 
 def _validate_preset_name(display_name: object) -> str:
-    if not isinstance(display_name, str) or not display_name.strip():
-        raise UserError("app_settings.twitch_preset_name_not_empty")
-    parsed_name = display_name.strip()
-    if len(parsed_name) > 80:
-        raise UserError("app_settings.twitch_preset_name_too_long")
-    return parsed_name
+    return field_value(PresetName, display_name, "display_name")
+
+
+class TwitchSettingsModel(TwitchTargetModel):
+    presets: tuple[TwitchConnectionPreset, ...] = ()
+    selected_preset_id: PresetId | None = None
+
+    @model_validator(mode="after")
+    def selected_target(self):
+        if self.selected_preset_id is not None:
+            selected = next((preset for preset in self.presets if preset.id == self.selected_preset_id), None)
+            if selected is None:
+                raise UserError("app_settings.unknown_twitch_connection_preset")
+            if (selected.channel, selected.channel_user_id) != (self.channel, self.channel_user_id):
+                raise UserError("app_settings.selected_twitch_preset_does_not_match")
+        return self
 
 
 def validate_twitch_settings(
-    channel: object,
-    channel_user_id: object,
-    *,
-    presets: tuple[TwitchConnectionPreset, ...] = (),
-    selected_preset_id: object = None,
+    channel: object, channel_user_id: object, *,
+    presets: tuple[TwitchConnectionPreset, ...] = (), selected_preset_id: object = None,
 ) -> TwitchSettings:
-    parsed_channel, parsed_channel_user_id = _validate_twitch_target(
-        channel,
-        channel_user_id,
-    )
-    parsed_selected_preset_id: str | None = None
-    if selected_preset_id is not None:
-        parsed_selected_preset_id = _validate_preset_id(selected_preset_id)
-        selected = next(
-            (preset for preset in presets if preset.id == parsed_selected_preset_id),
-            None,
-        )
-        if selected is None:
-            raise UserError("app_settings.unknown_twitch_connection_preset")
-        if (
-            selected.channel != parsed_channel
-            or selected.channel_user_id != parsed_channel_user_id
-        ):
-            raise UserError("app_settings.selected_twitch_preset_does_not_match")
-    return TwitchSettings(
-        channel=parsed_channel,
-        channel_user_id=parsed_channel_user_id,
-        presets=presets,
-        selected_preset_id=parsed_selected_preset_id,
-    )
+    item = parse(TwitchSettingsModel, dict(channel=channel, channel_user_id=channel_user_id,
+                                          presets=presets, selected_preset_id=selected_preset_id))
+    return TwitchSettings(channel=item.channel, channel_user_id=item.channel_user_id,
+                          presets=item.presets, selected_preset_id=item.selected_preset_id)
 
 
 def _read_twitch_presets(section: dict[str, object]) -> tuple[TwitchConnectionPreset, ...]:
@@ -232,34 +270,31 @@ def _read_twitch_presets(section: dict[str, object]) -> tuple[TwitchConnectionPr
     known_ids: set[str] = set()
     known_names: set[str] = set()
     for item in payload:
-        if not isinstance(item, dict):
-            logger.warning("Ignoring malformed Twitch connection preset")
-            continue
         try:
-            preset_id = _validate_preset_id(item.get("id"))
-            display_name = _validate_preset_name(item.get("display_name"))
-            channel, channel_user_id = _validate_twitch_target(
-                item.get("channel"),
-                item.get("channel_user_id"),
-            )
+            preset = parse(TwitchPresetModel, item)
         except ValueError:
             logger.warning("Ignoring invalid Twitch connection preset")
             continue
-        normalized_name = display_name.casefold()
-        if preset_id in known_ids or normalized_name in known_names:
+        normalized_name = preset.display_name.casefold()
+        if preset.id in known_ids or normalized_name in known_names:
             logger.warning("Ignoring duplicate Twitch connection preset")
             continue
-        known_ids.add(preset_id)
+        known_ids.add(preset.id)
         known_names.add(normalized_name)
-        presets.append(
-            TwitchConnectionPreset(
-                id=preset_id,
-                display_name=display_name,
-                channel=channel,
-                channel_user_id=channel_user_id,
-            )
-        )
+        presets.append(TwitchConnectionPreset(**preset.model_dump()))
     return tuple(presets)
+
+
+def _read_models(section, provider):
+    prefix = "" if provider == "gemini" else provider + "_"
+    values = tuple(_read_optional_string(section, "ai", prefix + key) if provider == "gemini"
+                   else section.get(prefix + key) for key in ("selected_model", "fallback_model"))
+    if any(value is not None for value in values):
+        try:
+            return validate_provider_models(provider, *values)
+        except ValueError:
+            logger.warning("Ignoring invalid %s model settings override", provider)
+    return None, None
 
 
 def load_app_settings(path: Path) -> AppSettings:
@@ -347,50 +382,19 @@ def load_app_settings(path: Path) -> AppSettings:
         except ValueError:
             logger.warning("Ignoring invalid or incomplete Twitch identity override")
 
-    selected_model = _read_optional_string(ai_payload, "ai", "selected_model")
-    fallback_model = _read_optional_string(ai_payload, "ai", "fallback_model")
+    selected_model, fallback_model = _read_models(ai_payload, "gemini")
     cooldown_bypass_user_id = _read_optional_string(ai_payload, "ai", "cooldown_bypass_user_id")
     if cooldown_bypass_user_id is not None and re.fullmatch(r"[0-9]+", cooldown_bypass_user_id) is None:
         logger.warning("Ignoring invalid application setting name=ai.cooldown_bypass_user_id")
         cooldown_bypass_user_id = None
-    if selected_model is not None and fallback_model is not None:
-        try:
-            selected_model, fallback_model = validate_provider_models(
-                "gemini",
-                selected_model,
-                fallback_model,
-            )
-        except ValueError:
-            logger.warning("Ignoring invalid Gemini model settings override")
-            selected_model = None
-            fallback_model = None
-    elif (selected_model is None) != (fallback_model is None):
-        logger.warning("Ignoring incomplete Gemini model settings override")
-        selected_model = None
-        fallback_model = None
-
     response_language = ResponseLanguageSettings()
     try:
         provider = validate_ai_provider(ai_payload["provider"]) if ai_payload.get("provider") is not None else None
     except ValueError:
         logger.warning("Ignoring invalid AI provider selection")
         provider = None
-    deepseek_selected = ai_payload.get("deepseek_selected_model")
-    deepseek_fallback = ai_payload.get("deepseek_fallback_model")
-    if deepseek_selected is not None or deepseek_fallback is not None:
-        try:
-            deepseek_selected, deepseek_fallback = validate_provider_models("deepseek", deepseek_selected, deepseek_fallback)
-        except ValueError:
-            logger.warning("Ignoring invalid DeepSeek model settings override")
-            deepseek_selected = deepseek_fallback = None
-    openai_selected = ai_payload.get("openai_selected_model")
-    openai_fallback = ai_payload.get("openai_fallback_model")
-    if openai_selected is not None or openai_fallback is not None:
-        try:
-            openai_selected, openai_fallback = validate_provider_models("openai", openai_selected, openai_fallback)
-        except ValueError:
-            logger.warning("Ignoring invalid OpenAI model settings override")
-            openai_selected = openai_fallback = None
+    deepseek_selected, deepseek_fallback = _read_models(ai_payload, "deepseek")
+    openai_selected, openai_fallback = _read_models(ai_payload, "openai")
     if "response_language" in ai_payload:
         language_payload = ai_payload["response_language"]
         try:
@@ -411,50 +415,18 @@ def load_app_settings(path: Path) -> AppSettings:
         except ValueError:
             logger.warning("Invalid saved AI setup; retaining legacy model settings")
     try:
-        history_limit, context_limit = validate_memory_limits(ai_payload.get("history_max_entries", AI_HISTORY_MAX_ENTRIES),
+        history_limit, context_limit = _memory_limits(ai_payload.get("history_max_entries", AI_HISTORY_MAX_ENTRIES),
                                                              ai_payload.get("context_max_entries", AI_CONTEXT_MAX_ENTRIES))
     except ValueError:
         # Reject invalid policy rather than silently expanding a requested cap.
         raise UserError("app_settings.invalid_saved_ai_history_context_limits_correct_profile_settings") from None
     return AppSettings(
-        window=WindowSettings(
-            start_minimized=_read_boolean(
-                window_payload,
-                "window",
-                "start_minimized",
-                defaults.window.start_minimized,
-            ),
-            minimize_to_tray=_read_boolean(
-                window_payload,
-                "window",
-                "minimize_to_tray",
-                defaults.window.minimize_to_tray,
-            ),
-            close_to_tray=_read_boolean(
-                window_payload,
-                "window",
-                "close_to_tray",
-                defaults.window.close_to_tray,
-            ),
-        ),
-        startup=StartupSettings(
-            operation_mode=operation_mode,
-            auto_start_bot=_read_boolean(
-                startup_payload,
-                "startup",
-                "auto_start_bot",
-                defaults.startup.auto_start_bot,
-            ),
-        ),
-        ai=AISettings(
+        window=WindowSettings(**_recover_fields(WindowSettingsModel, window_payload)),
+        startup=StartupSettings(**{**_recover_fields(StartupSettingsModel, startup_payload), "operation_mode": operation_mode}),
+        ai=_ai_settings(
             history_max_entries=history_limit,
             context_max_entries=context_limit,
-            memory_enabled=_read_boolean(
-                ai_payload,
-                "ai",
-                "memory_enabled",
-                defaults.ai.memory_enabled,
-            ),
+            **_recover_fields(AIFlagsModel, ai_payload),
             selected_model=selected_model,
             fallback_model=fallback_model,
             provider=provider,
@@ -465,8 +437,6 @@ def load_app_settings(path: Path) -> AppSettings:
             cooldown_bypass_user_id=cooldown_bypass_user_id,
             response_language=response_language,
             setup=setup,
-            setup_guide_dismissed=_read_boolean(ai_payload, "ai", "setup_guide_dismissed", False),
-            setup_guide_ai_skipped=_read_boolean(ai_payload, "ai", "setup_guide_ai_skipped", False),
         ),
         twitch=twitch,
         interface=InterfaceSettings(language=str(interface_language)),
@@ -527,8 +497,7 @@ class AppSettingsStore:
             return self._settings
 
     def update_operation_mode(self, mode: object) -> AppSettings:
-        if not isinstance(mode, str) or mode not in OPERATION_MODES:
-            raise UserError("app_settings.unknown_operation_mode")
+        mode = field_value(OperationMode, mode, "operation_mode")
         with self._lock:
             updated = replace(self._settings, startup=replace(self._settings.startup, operation_mode=mode))
             save_app_settings(self._path, updated, recovered_settings=self._settings)
@@ -566,22 +535,13 @@ class AppSettingsStore:
         close_to_tray: object,
         auto_start_bot: object,
     ) -> AppSettings:
-        values = (
-            start_minimized,
-            minimize_to_tray,
-            close_to_tray,
-            auto_start_bot,
-        )
-        if any(type(value) is not bool for value in values):
-            raise UserError("app_settings.desktop_settings_must_be_boolean_values")
+        window = parse(WindowSettingsModel, dict(start_minimized=start_minimized,
+            minimize_to_tray=minimize_to_tray, close_to_tray=close_to_tray))
+        auto_start_bot = field_value(StrictBool, auto_start_bot, "auto_start_bot")
         with self._lock:
             updated = replace(
                 self._settings,
-                window=WindowSettings(
-                    start_minimized=start_minimized,
-                    minimize_to_tray=minimize_to_tray,
-                    close_to_tray=close_to_tray,
-                ),
+                window=WindowSettings(**window.model_dump()),
                 startup=replace(self._settings.startup, auto_start_bot=auto_start_bot),
                 ai=self._settings.ai,
                 twitch=self._settings.twitch,
@@ -591,7 +551,7 @@ class AppSettingsStore:
         return updated
 
     def update_ai_memory_limits(self, *, stored: object, context: object) -> AppSettings:
-        stored, context = validate_memory_limits(stored, context)
+        stored, context = _memory_limits(stored, context)
         with self._lock:
             updated = replace(self._settings, ai=replace(self._settings.ai,
                               history_max_entries=stored, context_max_entries=context))
@@ -600,8 +560,7 @@ class AppSettingsStore:
         return updated
 
     def update_ai_memory(self, *, enabled: object) -> AppSettings:
-        if type(enabled) is not bool:
-            raise UserError("app_settings.ai_memory_setting_must_be_a_boolean_value")
+        enabled = field_value(StrictBool, enabled, "memory_enabled")
         with self._lock:
             updated = replace(
                 self._settings,
@@ -624,8 +583,8 @@ class AppSettingsStore:
         return updated
 
     def update_setup_guide(self, dismissed: object, ai_skipped: object) -> AppSettings:
-        if type(dismissed) is not bool or type(ai_skipped) is not bool:
-            raise UserError("app_settings.setup_guide_preferences_must_be_boolean")
+        dismissed = field_value(StrictBool, dismissed, "setup_guide_dismissed")
+        ai_skipped = field_value(StrictBool, ai_skipped, "setup_guide_ai_skipped")
         with self._lock:
             updated = replace(self._settings, ai=replace(self._settings.ai,
                               setup_guide_dismissed=dismissed, setup_guide_ai_skipped=ai_skipped))

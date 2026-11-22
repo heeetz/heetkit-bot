@@ -65,13 +65,13 @@ def complete_bridge_coroutine(coroutine) -> Future:
     ("save_twitch_preset", {"preset_id": None, "display_name": "Test", "target_channel": "channel", "target_channel_user_id": "200"}, {"ok": True}, {"ok": True}),
     ("start_ai_playground", {"prompt": "Hello"}, {"ok": True, "request_id": "test"}, {"ok": True, "request_id": "test"}),
     ("get_announcements", {}, OSError(), {"ok": False, "error_code": "webview_host.could_not_read_announcement_status", "error_params": {}}),
-    ("save_ai_setup", {"settings": {}}, RuntimeError(), {"ok": False, "error_code": "webview_host.could_not_save_ai_setup_reload", "error_params": {}}),
+    ("save_ai_setup", {"settings": {"primary": {"provider": "gemini", "model": "gemini-synthetic", "thinking": "default", "search": False}}}, RuntimeError(), {"ok": False, "error_code": "webview_host.could_not_save_ai_setup_reload", "error_params": {}}),
     ("get_analytics", {"days": 2}, ValueError(), {"ok": False, "error_code": "webview_host.check_selected_window_confirmation_memory_limits", "error_params": {}}),
     ("start_ai_playground", {"prompt": "Hello"}, BridgeOperationTimedOut(), {"ok": False, "error_code": "webview_host.playground_control_timed_out_try_again", "error_params": {}}),
-    ("save_command_restriction", {"data": {}}, FutureCancelledError(), {"ok": False, "error_code": "webview_host.saving_restriction_timed_out_cancelled_refresh", "error_params": {}}),
+    ("save_command_restriction", {"data": {"username": "viewer", "command_ids": ["ask"], "expires_at": None, "note": ""}}, FutureCancelledError(), {"ok": False, "error_code": "webview_host.saving_restriction_timed_out_cancelled_refresh", "error_params": {}}),
     ("get_opt_outs", {}, OSError(), {"ok": False, "error_code": "webview_host.privacy_management_could_not_complete_refresh", "error_params": {}}),
-    ("get_profile_info", {"path": "injected"}, None, {"ok": False, "error_code": "operations.invalid_operation_arguments", "error_params": {}}),
-    ("save_announcements", {}, None, {"ok": False, "error_code": "operations.invalid_operation_arguments", "error_params": {}}),
+    ("get_profile_info", {"path": "injected"}, None, {"ok": False, "error_code": "validation.unknown_field", "error_params": {"field": "path"}}),
+    ("save_announcements", {}, None, {"ok": False, "error_code": "validation.required", "error_params": {"field": "announcements"}}),
     ("get_profile_info", [], None, {"ok": False, "error_code": "operations.operation_arguments_must_be_a_json_object", "error_params": {}}),
     ("_backend.application", {}, None, {"ok": False, "error_code": "webview_host.unknown_operation", "error_params": {}}),
     ("set_bot_mode", {"mode": "manual"}, None, {"ok": False, "error_code": "webview_host.unknown_operation", "error_params": {}}),
@@ -95,7 +95,7 @@ def test_desktop_registry_call(name, payload, outcome, expected, monkeypatch):
         asynchronous = inspect.iscoroutinefunction(getattr(bridge, operation.attribute))
         monkeypatch.setattr(bridge, operation.attribute, execute_async if asynchronous else execute)
     assert bridge.call(name, payload) == expected
-    if expected.get("error_code") in {"operations.invalid_operation_arguments", "operations.operation_arguments_must_be_a_json_object"}:
+    if expected.get("error_code") in {"validation.unknown_field", "validation.required", "operations.operation_arguments_must_be_a_json_object"}:
         assert calls == []
     elif operation is not None:
         assert calls == [payload]

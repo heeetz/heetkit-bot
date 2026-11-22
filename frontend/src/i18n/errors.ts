@@ -1,4 +1,4 @@
-import { backendErrors } from './backendErrors'
+import { backendErrors, validationFields } from './backendErrors'
 import { catalogFor, fmt } from './core'
 
 type Localizable = { error?: unknown; error_code?: unknown; error_params?: unknown }
@@ -14,6 +14,11 @@ export function localizedError(result: Localizable): string | undefined {
   const params = result.error_params && typeof result.error_params === 'object'
     ? Object.fromEntries(Object.entries(result.error_params as Record<string, unknown>).map(([key, value]) => [key, String(value)]))
     : {}
+  if (code.startsWith('validation.')) {
+    const labels = catalogFor(validationFields) as Record<string, string>
+    if (params.field) params.field = labels[`fields.${params.field}`] ?? params.field
+    if (params.expected) params.expected = labels[`types.${params.expected}`] ?? params.expected
+  }
   return fmt(template, params)
 }
 

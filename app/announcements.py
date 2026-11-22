@@ -18,14 +18,14 @@ from uuid import UUID, uuid4
 from twitchio.exceptions import HTTPException
 
 from app.errors import UserError
-from app.command_settings import validate_stream_availability
+from typing import Annotated, Literal
+from pydantic import AfterValidator, ConfigDict, Field, StrictBool, StrictInt, model_validator
+from app.settings_models import SettingsModel, ControlFree, StreamAvailability, byte_limit, single_line, parse, field_value
 from app.settings_recovery import preserve_settings_recovery
 from app.twitch.sending import ChatSessionClosedError
 
 
 logger = logging.getLogger(__name__)
-FIELDS = {"id", "name", "enabled", "messages", "message_mode", "interval_seconds",
-          "min_messages", "stream_availability", "delivery_mode"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,53 +44,38 @@ class Announcement:
         return {**asdict(self), "messages": list(self.messages)}
 
 
-def _text(value: object, label: str, maximum: int) -> str:
-    if not isinstance(value, str) or not value.strip() or any(ord(char) < 32 or ord(char) == 127 for char in value):
-        raise UserError("announcements.non_empty_single_line_text_without", field=str(label))
-    try:
-        if len(value.encode("utf-8")) > maximum:
-            raise UserError("announcements.most_utf_8_bytes", field=str(label), maximum=str(maximum))
-    except UnicodeEncodeError as error:
-        raise UserError("announcements.contain_valid_unicode", field=str(label)) from error
-    return value.strip()
+class AnnouncementModel(SettingsModel):
+    model_config = ConfigDict(extra="forbid")
+    id: UUID
+    name: Annotated[ControlFree, byte_limit(80), AfterValidator(single_line)]
+    enabled: StrictBool
+    messages: Annotated[list[Annotated[ControlFree, byte_limit(450), AfterValidator(single_line)]], Field(strict=True, min_length=1, max_length=30)]
+    message_mode: Literal["single", "random"]
+    interval_seconds: Annotated[StrictInt, Field(ge=60, le=86400)]
+    min_messages: Annotated[StrictInt, Field(ge=0, le=1000)]
+    stream_availability: StreamAvailability
+    delivery_mode: Literal["regular", "highlighted"] = "regular"
+
+    @model_validator(mode="after")
+    def message_count(self):
+        if self.message_mode == "single" and len(self.messages) != 1:
+            raise UserError("announcements.single_mode_requires_one_message_random")
+        return self
 
 
 def parse_announcements(payload: object, *, allow_new: bool = False) -> tuple[Announcement, ...]:
-    if not isinstance(payload, list) or len(payload) > 50:
-        raise UserError("announcements.provide_most_50_announcements")
+    rows = field_value(Annotated[list, Field(strict=True, max_length=50)], payload, "announcements")
     result, used = [], set()
-    for raw in payload:
-        if not isinstance(raw, dict) or set(raw) - FIELDS or FIELDS - {"id", "delivery_mode"} - set(raw):
-            raise UserError("announcements.unexpected_or_missing_announcement_fields")
-        identifier = raw.get("id")
-        if identifier is None and allow_new:
-            identifier = str(uuid4())
-        try:
-            identifier = str(UUID(identifier))
-        except (ValueError, TypeError, AttributeError) as error:
-            raise UserError("announcements.announcement_id_is_invalid") from error
+    for raw in rows:
+        if allow_new and isinstance(raw, dict) and raw.get("id") is None:
+            raw = {**raw, "id": str(uuid4())}
+        item = parse(AnnouncementModel, raw)
+        identifier = str(item.id)
         if identifier in used:
             raise UserError("announcements.duplicate_announcement_id")
         used.add(identifier)
-        if type(raw["enabled"]) is not bool:
-            raise UserError("announcements.enabled_must_be_a_boolean")
-        messages = raw["messages"]
-        if not isinstance(messages, list) or not 1 <= len(messages) <= 30:
-            raise UserError("announcements.provide_1_30_announcement_messages")
-        mode = raw["message_mode"]
-        if mode not in ("single", "random") or (mode == "single" and len(messages) != 1):
-            raise UserError("announcements.single_mode_requires_one_message_random")
-        interval, minimum = raw["interval_seconds"], raw["min_messages"]
-        if type(interval) is not int or not 60 <= interval <= 86400:
-            raise UserError("announcements.announcement_interval_60_86400_whole_seconds")
-        if type(minimum) is not int or not 0 <= minimum <= 1000:
-            raise UserError("announcements.minimum_eligible_messages_integer_from_0")
-        delivery = raw.get("delivery_mode", "regular")
-        if delivery not in ("regular", "highlighted"):
-            raise UserError("announcements.announcement_type_regular_highlighted")
-        result.append(Announcement(identifier, _text(raw["name"], "Name", 80), raw["enabled"],
-            tuple(_text(message, "Message", 450) for message in messages), mode, interval, minimum,
-            validate_stream_availability(raw["stream_availability"]), delivery))
+        values = item.model_dump(exclude={"id", "messages"})
+        result.append(Announcement(id=identifier, messages=tuple(item.messages), **values))
     return tuple(result)
 
 

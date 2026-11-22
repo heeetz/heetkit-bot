@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import os
 import random
 import re
@@ -14,11 +13,15 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from threading import RLock
 from uuid import UUID, uuid4
+from typing import Annotated, Literal
+from pydantic import AfterValidator, Field, StrictBool, StrictInt, StrictStr, model_validator
+
+from app.settings_models import (SettingsModel, CommandName, CooldownSeconds, BurstInterval,
+    CreationOrder, PermissionName, StreamAvailability, SendAs, single_line, parse)
 
 from app.errors import UserError
 from app.twitch.permissions import Permission
-from app.command_order import CommandCreationOrder, parse_creation_order
-from app.command_settings import validate_burst_interval, validate_send_as, validate_stream_availability
+from app.command_order import CommandCreationOrder
 from app.settings_recovery import preserve_settings_recovery
 from app.utils.cooldown import CooldownPolicy
 from app.utils.text import CHAT_RESPONSE_BYTES, normalize_command_name, render_chat_template
@@ -74,24 +77,7 @@ class CustomCommand:
         return result
 
 
-def _name(value: object) -> str:
-    if not isinstance(value, str):
-        raise UserError("custom_commands.command_names_and_aliases_must_be_text")
-    normalized = normalize_command_name(value)
-    if not normalized or len(normalized) > 40 or any(char.isspace() or char in "!{}" for char in normalized):
-        raise UserError("custom_commands.command_names_aliases_single_words_most")
-    return normalized
-
-
-def _cooldown(value: object) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0 or value > 86400 or not math.isfinite(float(value)):
-        raise UserError("custom_commands.cooldowns_numbers_from_0_86400_seconds")
-    return float(value)
-
-
 def _response(value: object) -> str:
-    if not isinstance(value, str) or not value.strip() or len(value) > 2000 or "\n" in value or "\r" in value:
-        raise UserError("custom_commands.each_response_one_non_empty_line")
     variables = _VARIABLE_PATTERN.findall(value)
     if any(variable not in VARIABLES for variable in variables):
         raise UserError("custom_commands.response_contains_unknown_variable")
@@ -100,71 +86,50 @@ def _response(value: object) -> str:
     return value.strip()
 
 
+class CustomCommandModel(SettingsModel):
+    id: UUID
+    name: CommandName
+    enabled: StrictBool
+    responses: Annotated[list[Annotated[StrictStr, Field(max_length=2000), AfterValidator(single_line)]], Field(strict=True, min_length=1, max_length=30)]
+    permission: PermissionName
+    per_user_seconds: CooldownSeconds
+    global_seconds: CooldownSeconds
+    aliases: Annotated[list[CommandName], Field(strict=True, max_length=10)]
+    response_mode: Literal["single", "random", "burst"] | None = None
+    burst_count: Annotated[StrictInt, Field(ge=1, le=10)] = 1
+    burst_allow_override: StrictBool = False
+    burst_interval_ms: BurstInterval = 0
+    stream_availability: StreamAvailability = "anytime"
+    send_as: SendAs = "chat"
+    creation_order: CreationOrder = 0
+
+    @model_validator(mode="after")
+    def command_rules(self):
+        if self.response_mode is None:
+            if "response_mode" in self.model_fields_set:
+                raise UserError("validation.choice", field="response_mode", options="single, random, burst")
+            self.response_mode = "random" if len(self.responses) > 1 else "single"
+        self.responses = [_response(value) for value in self.responses]
+        if self.response_mode != "random" and len(self.responses) != 1:
+            raise UserError("custom_commands.single_burst_modes_require_exactly_one")
+        if self.response_mode == "burst":
+            if Permission[self.permission] < Permission.MODERATOR:
+                raise UserError("custom_commands.burst_mode_requires_moderator_broadcaster_permission")
+        elif self.model_fields_set & {"burst_count", "burst_allow_override", "burst_interval_ms"}:
+            raise UserError("custom_commands.burst_settings_require_burst_response_mode")
+        if len({self.name, *self.aliases}) != 1 + len(self.aliases):
+            raise UserError("custom_commands.command_name_aliases_unique")
+        return self
+
+
 def parse_custom_command(raw: object, *, command_id: str | None = None) -> CustomCommand:
-    if not isinstance(raw, dict):
-        raise UserError("custom_commands.custom_command_must_be_an_object")
-    identifier = command_id if command_id is not None else raw.get("id")
-    try:
-        identifier = str(UUID(str(identifier)))
-    except (ValueError, AttributeError) as error:
-        raise UserError("custom_commands.custom_command_id_is_invalid") from error
-    name = _name(raw.get("name"))
-    enabled = raw.get("enabled")
-    if type(enabled) is not bool:
-        raise UserError("announcements.enabled_must_be_a_boolean")
-    responses = raw.get("responses")
-    if not isinstance(responses, list) or not 1 <= len(responses) <= 30:
-        raise UserError("custom_commands.provide_1_30_response_templates")
-    parsed_responses = tuple(_response(response) for response in responses)
-    permission = raw.get("permission")
-    if not isinstance(permission, str) or permission not in Permission.__members__:
-        raise UserError("custom_commands.permission_valid_user_level")
-    inferred_mode = "random" if len(parsed_responses) > 1 else "single"
-    response_mode = raw.get("response_mode", inferred_mode)
-    if response_mode not in ("single", "random", "burst"):
-        raise UserError("custom_commands.response_mode_single_random_burst")
-    if response_mode != "random" and len(parsed_responses) != 1:
-        raise UserError("custom_commands.single_burst_modes_require_exactly_one")
-    burst_count = 1
-    burst_allow_override = False
-    burst_interval_ms = 0
-    if response_mode == "burst":
-        if Permission[permission] < Permission.MODERATOR:
-            raise UserError("custom_commands.burst_mode_requires_moderator_broadcaster_permission")
-        burst_count = raw.get("burst_count", 1)
-        if type(burst_count) is not int or not 1 <= burst_count <= 10:
-            raise UserError("custom_commands.burst_repeat_count_integer_from_1")
-        burst_allow_override = raw.get("burst_allow_override", False)
-        if type(burst_allow_override) is not bool:
-            raise UserError("custom_commands.burst_argument_override_must_be_a_boolean")
-        burst_interval_ms = validate_burst_interval(raw.get("burst_interval_ms", 0))
-    elif any(key in raw for key in ("burst_count", "burst_allow_override", "burst_interval_ms")):
-        raise UserError("custom_commands.burst_settings_require_burst_response_mode")
-    aliases = raw.get("aliases")
-    if not isinstance(aliases, list) or len(aliases) > 10:
-        raise UserError("custom_commands.provide_most_10_aliases")
-    parsed_aliases = tuple(_name(alias) for alias in aliases)
-    if len({name, *parsed_aliases}) != 1 + len(parsed_aliases):
-        raise UserError("custom_commands.command_name_aliases_unique")
-    return CustomCommand(
-        id=identifier,
-        name=name,
-        enabled=enabled,
-        responses=parsed_responses,
-        permission=Permission[permission],
-        cooldown=CooldownPolicy(
-            per_user_seconds=_cooldown(raw.get("per_user_seconds")),
-            global_seconds=_cooldown(raw.get("global_seconds")),
-        ),
-        aliases=parsed_aliases,
-        response_mode=response_mode,
-        burst_count=burst_count,
-        burst_allow_override=burst_allow_override,
-        burst_interval_ms=burst_interval_ms,
-        stream_availability=validate_stream_availability(raw.get("stream_availability", "anytime")),
-        send_as=validate_send_as(raw.get("send_as", "chat")),
-        creation_order=parse_creation_order(raw.get("creation_order", 0)),
-    )
+    if command_id is not None and isinstance(raw, dict):
+        raw = {**raw, "id": command_id}
+    item = parse(CustomCommandModel, raw)
+    values = item.model_dump(exclude={"per_user_seconds", "global_seconds", "permission", "id"})
+    return CustomCommand(**{**values, "responses": tuple(item.responses), "aliases": tuple(item.aliases)},
+        id=str(item.id), permission=Permission[item.permission],
+        cooldown=CooldownPolicy(item.per_user_seconds, item.global_seconds))
 
 
 def render_response(command: CustomCommand, arguments: str, sender: str, random_user: str,

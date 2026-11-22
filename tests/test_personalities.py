@@ -268,8 +268,10 @@ def test_invalid_profile_instructions_do_not_change_state_or_leak_into_logs(tmp_
     assert "Ignoring invalid AI profile instructions" in caplog.text
     original = path.read_bytes()
     for action in (state.apply_profile_instructions, state.save_profile_instructions):
-        with pytest.raises((TypeError, ValueError), match="Profile instructions"):
+        with pytest.raises(ValueError) as error:
             action(invalid)
+        assert error.value.code == ("validation.too_long" if isinstance(invalid, str) else "validation.type")
+        assert error.value.params["field"] == "profile_instructions"
         assert state.profile_instructions == ""
         assert path.read_bytes() == original
 
@@ -331,8 +333,10 @@ def test_create_custom_personality_is_profile_owned_and_does_not_activate(tmp_pa
 def test_create_rejects_invalid_names_without_changing_profile(tmp_path, name) -> None:
     path = tmp_path / "personality_settings.json"
     state = RuntimeState(personality_settings_path=path)
-    with pytest.raises(ValueError, match="Personality name"):
+    with pytest.raises(ValueError) as error:
         state.create_ai_personality(name, "prompt")
+    assert error.value.code == ("validation.type" if not isinstance(name, str) else
+                                "validation.too_long" if len(name) > 64 else "validation.minimum")
     assert not path.exists()
     assert state.available_personalities == ("neutral",)
 
@@ -525,8 +529,10 @@ def test_rename_validates_names_in_backend(tmp_path, name) -> None:
     state = RuntimeState(personality_settings_path=path)
     state.create_ai_personality("local", "Keep")
     original = path.read_bytes()
-    with pytest.raises(ValueError, match="Personality name"):
+    with pytest.raises(ValueError) as error:
         state.rename_ai_personality("local", name)
+    assert error.value.code == ("validation.type" if name is None else
+                                "validation.too_long" if len(name) > 64 else "validation.minimum")
     assert path.read_bytes() == original
 
 
@@ -534,8 +540,9 @@ def test_rename_validates_names_in_backend(tmp_path, name) -> None:
 def test_create_validates_prompt_and_accepts_existing_name_limit(tmp_path, prompt) -> None:
     path = tmp_path / "personality_settings.json"
     state = RuntimeState(personality_settings_path=path)
-    with pytest.raises((ValueError, TypeError), match="Personality prompt"):
+    with pytest.raises(ValueError) as error:
         state.create_ai_personality("x" * 64, prompt)
+    assert error.value.code == ("validation.too_long" if isinstance(prompt, str) else "validation.type")
     assert not path.exists()
     state.create_ai_personality("x" * 64, "")
     assert RuntimeState(personality_settings_path=path).get_ai_personality_prompt("x" * 64) == ""

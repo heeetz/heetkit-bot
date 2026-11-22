@@ -336,7 +336,7 @@ async def test_import_rejects_thirty_one_random_templates_without_writes(profile
     snapshot = transfer.snapshot()
     with pytest.raises(ValueError) as error:
         transfer.preview(pack_configuration(payload))
-    assert error.value.code == "custom_commands.provide_1_30_response_templates"
+    assert error.value.code == "validation.too_many"
     assert file_state(transfer) == before
     assert transfer.snapshot() == snapshot
     assert not (transfer.config / "import-backups").exists()

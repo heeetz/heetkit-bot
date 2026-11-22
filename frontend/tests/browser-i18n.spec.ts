@@ -18,7 +18,7 @@ test('code-only backend errors and update reasons render in every language', asy
     const catalogPath = '/src/i18n/backendErrors.ts'
     const { localizeResult } = await import(errorsPath)
     const { applyLanguage, fmt } = await import(corePath)
-    const { backendErrors } = await import(catalogPath)
+    const { backendErrors, validationFields } = await import(catalogPath)
     return ['en', 'uk', 'ru'].map(language => {
       applyLanguage(language)
       const code = 'custom_commands.command_name_alias_already_exists'
@@ -27,10 +27,15 @@ test('code-only backend errors and update reasons render in every language', asy
         ok: false, error_code: code, error_params: { name: 'synthetic' },
         automatic_update_reason_code: reason,
         nested: [{ error_code: code, error_params: { name: 'nested' } }],
+        validation: { error_code: 'validation.type', error_params: { field: 'enabled', expected: 'boolean' } },
       })
       return {
         error: result.error, expected: fmt(backendErrors[language][code], { name: 'synthetic' }),
         reason: result.automatic_update_reason, expectedReason: backendErrors[language][reason],
+        validation: result.validation.error,
+        expectedValidation: fmt(backendErrors[language]['validation.type'], {
+          field: validationFields[language]['fields.enabled'], expected: validationFields[language]['types.boolean'],
+        }),
         nested: result.nested[0].error, expectedNested: fmt(backendErrors[language][code], { name: 'nested' }),
       }
     })
@@ -39,6 +44,7 @@ test('code-only backend errors and update reasons render in every language', asy
     expect(result.error).toBe(result.expected)
     expect(result.reason).toBe(result.expectedReason)
     expect(result.nested).toBe(result.expectedNested)
+    expect(result.validation).toBe(result.expectedValidation)
   }
 })
 

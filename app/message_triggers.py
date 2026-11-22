@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import os
 import tempfile
 from dataclasses import asdict, dataclass, replace
@@ -13,26 +12,16 @@ from pathlib import Path
 from threading import RLock
 
 from app.errors import UserError
-from app.command_order import CommandCreationOrder, parse_creation_order
-from app.custom_commands import MAX_RESPONSE_LENGTH
+from app.command_order import CommandCreationOrder
+from typing import Annotated, Literal
+from pydantic import AfterValidator, ConfigDict, Field, StrictBool, StrictStr
+from app.settings_models import (SettingsModel, Identifier, ChatLine, CooldownSeconds, single_line, field_value,
+    CreationOrder, parse)
 from app.settings_recovery import preserve_settings_recovery
 
 
 logger = logging.getLogger(__name__)
 SCHEMA_VERSION = 1
-_TRIGGER_FIELDS = frozenset(
-    {
-        "id",
-        "enabled",
-        "match_mode",
-        "text",
-        "case_sensitive",
-        "probability",
-        "cooldown_seconds",
-        "responses",
-        "creation_order",
-    }
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,58 +51,28 @@ class MessageTrigger:
         return needle in haystack
 
 
-def _number(value: object, name: str, maximum: float) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise UserError("message_triggers.must_be_a_finite_number", name=str(name))
-    if not 0 <= value <= maximum:
-        raise UserError("message_triggers.between_0", name=str(name), maximum=str(maximum))
-    if not math.isfinite(float(value)):
-        raise UserError("message_triggers.must_be_a_finite_number", name=str(name))
-    return float(value)
+class MessageTriggerModel(SettingsModel):
+    id: Identifier
+    enabled: StrictBool
+    match_mode: Literal["contains", "exact"]
+    text: Annotated[StrictStr, Field(max_length=100), AfterValidator(single_line)]
+    case_sensitive: StrictBool
+    probability: Annotated[CooldownSeconds, Field(le=1)]
+    cooldown_seconds: CooldownSeconds
+    responses: Annotated[list[ChatLine], Field(strict=True, min_length=1, max_length=10)]
+    creation_order: CreationOrder = 0
 
 
-def _response(value: object) -> str:
-    if not isinstance(value, str) or not value.strip() or "\n" in value or "\r" in value:
-        raise UserError("message_triggers.responses_non_empty_single_lines")
-    try:
-        if len(value.encode("utf-8")) > MAX_RESPONSE_LENGTH:
-            raise UserError("message_triggers.responses_most_450_utf_8_bytes")
-    except UnicodeEncodeError as error:
-        raise UserError("message_triggers.responses_contain_valid_unicode") from error
-    return value.strip()
+_TRIGGER_FIELDS = frozenset(MessageTriggerModel.model_fields)
+
+
+class MessageTriggerInput(MessageTriggerModel):
+    model_config = ConfigDict(extra="forbid")
 
 
 def parse_message_trigger(raw: object) -> MessageTrigger:
-    if not isinstance(raw, dict):
-        raise UserError("message_triggers.trigger_must_be_an_object")
-    identifier = raw.get("id")
-    if not isinstance(identifier, str) or not identifier or len(identifier) > 40 or not all(
-        character.isascii() and (character.isalnum() or character in "_-") for character in identifier
-    ):
-        raise UserError("message_triggers.trigger_id_use_1_40_ascii")
-    if type(raw.get("enabled")) is not bool or type(raw.get("case_sensitive")) is not bool:
-        raise UserError("message_triggers.enabled_and_case_sensitive_must_be_booleans")
-    mode = raw.get("match_mode")
-    if mode not in ("contains", "exact"):
-        raise UserError("message_triggers.match_mode_contains_exact")
-    text = raw.get("text")
-    if not isinstance(text, str) or not text.strip() or len(text) > 100 or "\n" in text or "\r" in text:
-        raise UserError("message_triggers.match_text_one_non_empty_line")
-    responses = raw.get("responses")
-    if not isinstance(responses, list) or not 1 <= len(responses) <= 10:
-        raise UserError("message_triggers.provide_1_10_responses")
-    parsed_responses = tuple(_response(response) for response in responses)
-    return MessageTrigger(
-        id=identifier,
-        enabled=raw["enabled"],
-        match_mode=mode,
-        text=text.strip(),
-        case_sensitive=raw["case_sensitive"],
-        probability=_number(raw.get("probability"), "Probability", 1),
-        cooldown_seconds=_number(raw.get("cooldown_seconds"), "Cooldown", 86400),
-        responses=parsed_responses,
-        creation_order=parse_creation_order(raw.get("creation_order", 0)),
-    )
+    item = parse(MessageTriggerModel, raw)
+    return MessageTrigger(**{**item.model_dump(), "responses": tuple(item.responses)})
 
 
 def trigger_revision(triggers: tuple[MessageTrigger, ...]) -> str:
@@ -189,10 +148,7 @@ class MessageTriggerStore:
 
     def save(self, payload: object, *, revision: str | None = None) -> tuple[MessageTrigger, ...]:
         """Validate and atomically persist a complete trigger collection."""
-        if not isinstance(payload, list):
-            raise UserError("message_triggers.message_triggers_must_be_a_list")
-        if len(payload) > 100:
-            raise UserError("message_triggers.provide_most_100_message_triggers")
+        payload = field_value(Annotated[list, Field(strict=True, max_length=100)], payload, "triggers")
 
         with self._lock:
             if revision is not None and revision != trigger_revision(self._triggers):
@@ -201,12 +157,10 @@ class MessageTriggerStore:
             used: set[str] = set()
             previous_order = {trigger.id: trigger.creation_order for trigger in self._triggers}
             for raw in payload:
-                if not isinstance(raw, dict):
-                    raise UserError("message_triggers.trigger_must_be_an_object")
-                unknown = set(raw) - _TRIGGER_FIELDS
-                if unknown:
-                    raise UserError("message_triggers.unknown_trigger_field")
-                trigger = parse_message_trigger({**raw, "creation_order": 0})
+                if isinstance(raw, dict):
+                    raw = {**raw, "creation_order": 0}
+                item = parse(MessageTriggerInput, raw)
+                trigger = MessageTrigger(**{**item.model_dump(), "responses": tuple(item.responses)})
                 if trigger.id in used:
                     raise UserError("message_triggers.duplicate_trigger_id")
                 order = previous_order[trigger.id] if trigger.id in previous_order else self._creation_order.next()
