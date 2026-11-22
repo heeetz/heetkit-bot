@@ -264,7 +264,7 @@ def load_command_overrides(
 
         if old_commands:
             raw_override = {key: value for key, value in raw_override.items()
-                            if key in {"enabled", "removed", "aliases", "primary_name"}}
+                            if key in {"enabled", "removed", "aliases", "primary_name", "cooldown", "send_as"}}
         override = _parse_override(command_name, raw_override, defaults["help" if old_commands else command_name])
         if old_commands or not override.is_empty:
             overrides[command_name] = override
@@ -277,6 +277,7 @@ def merge_commands_into_help(
     used_names: set[str],
 ) -> CommandSettings:
     aliases = tuple(alias for alias in help_settings.aliases if alias != "commands")
+    changes = {}
     if old_commands.enabled is not False and not old_commands.removed:
         used_names = used_names | {help_settings.primary_name}
         aliases = tuple(dict.fromkeys(("commands", *aliases, old_commands.primary_name,
@@ -284,7 +285,15 @@ def merge_commands_into_help(
         aliases = tuple(alias for alias in aliases if alias and alias not in used_names)
         if len(aliases) > 10:
             logger.warning("Dropping %d aliases when merging !commands into !help (limit: 10)", len(aliases) - 10)
-    return replace(help_settings, aliases=aliases[:10])
+        if not help_settings.enabled or help_settings.removed:
+            # The operator used !commands instead of !help: the merged command keeps working
+            # and takes over the delivery and cooldown that !commands had.
+            changes = {"enabled": True, "removed": False}
+            if old_commands.cooldown is not None:
+                changes["cooldown"] = old_commands.cooldown
+            if old_commands.send_as is not None:
+                changes["send_as"] = old_commands.send_as
+    return replace(help_settings, aliases=aliases[:10], **changes)
 
 
 def save_command_overrides(

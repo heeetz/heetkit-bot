@@ -127,8 +127,8 @@ class RuntimeState:
                     self._command_settings["help"], old_commands, self._used_command_names("help"),
                 )
                 self._command_settings["help"] = help_settings
-                override = self._persisted_command_overrides.get("help", CommandSettingsOverride())
-                self._persisted_command_overrides["help"] = replace(override, aliases=help_settings.aliases)
+                self._persisted_command_overrides["help"] = CommandSettingsOverride.from_settings(
+                    help_settings, self._command_defaults["help"])
             self._apply_loaded_command_policies()
 
     @property

@@ -67,6 +67,31 @@ def test_saved_commands_settings_convert_on_next_write(tmp_path, caplog, old, he
     assert restarted.get_command_settings("help") == help_settings
 
 
+def test_active_commands_replaces_a_disabled_help_with_its_delivery_and_cooldown(tmp_path):
+    # Real 1.6 profile shape: !help switched off, !commands used instead.
+    path = tmp_path / "command_settings.json"
+    path.write_text(json.dumps({
+        "help": {"enabled": False, "cooldown": {"global_seconds": 10.0, "per_user_seconds": 300.0}},
+        "commands": {"aliases": ["команды"], "send_as": "reply", "cooldown": {"global_seconds": 20.0, "per_user_seconds": 0.0}},
+    }), encoding="utf-8")
+    registry = build_registry()
+    register_info_commands(registry)
+    state = RuntimeState(path)
+    state.configure_commands(registry.definitions())
+
+    help_settings = state.get_command_settings("help")
+    assert help_settings.enabled is True and not help_settings.removed
+    assert help_settings.aliases == ("commands", "команды")
+    assert help_settings.send_as == "reply"
+    assert (help_settings.cooldown.global_seconds, help_settings.cooldown.per_user_seconds) == (20.0, 0.0)
+    assert state.resolve_command_alias("команды") == "help"
+
+    state.save_command_override("weather")
+    restarted = RuntimeState(path)
+    restarted.configure_commands(registry.definitions())
+    assert restarted.get_command_settings("help") == help_settings
+
+
 def test_settings_derive_from_registry_and_apply_runtime_changes() -> None:
     registry = build_registry()
     runtime_state = RuntimeState()
