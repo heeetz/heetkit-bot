@@ -76,7 +76,6 @@ async def api(unused_tcp_port):
     await runtime.shutdown()
 
 
-@pytest.mark.asyncio
 async def test_authentication_origin_host_and_private_surface(api):
     server, call = api
     for headers, expected in [
@@ -550,7 +549,6 @@ async def test_server_availability_http_save_reset_and_monitor_demand(api, monke
     assert not server.policy._monitoring
 
 
-@pytest.mark.asyncio
 async def test_unrelated_cookies_are_ignored_without_granting_authority(api):
     server, call = api
     origin = f"http://127.0.0.1:{server.config.port}"
@@ -577,7 +575,6 @@ async def test_unrelated_cookies_are_ignored_without_granting_authority(api):
     assert (await call("POST", "/v1/ops/get_app_status", headers=browser))[0] == 401
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("authority", ["127.0.0.2:8765", "127.23.45.67:9765", "[::1]:9765"])
 async def test_exact_loopback_origin_uses_published_authority_not_container_port(api, authority):
     server, call = api
@@ -606,7 +603,6 @@ async def test_exact_loopback_origin_uses_published_authority_not_container_port
             await writer.wait_closed()
 
 
-@pytest.mark.asyncio
 async def test_strict_bounded_json_and_no_partial_mutation(api):
     server, call = api
     for raw in ('{"enabled":true,"enabled":false}', '{"enabled":NaN}', '[]', '{ ',
@@ -668,7 +664,6 @@ async def test_operation_mode_auth_validation_persistence_and_disabled_start(api
     assert server.policy.mode == "disabled" and store._section.path.read_bytes() == original
 
 
-@pytest.mark.asyncio
 async def test_configuration_transfer_authenticated_preview_confirm_and_live_apply(api):
     from app.configuration_transfer import pack_configuration, unpack_configuration
 
@@ -710,7 +705,6 @@ async def test_configuration_transfer_authenticated_preview_confirm_and_live_app
     assert server.service.get_commands() == before
 
 
-@pytest.mark.asyncio
 async def test_management_applies_and_persists_existing_stores(api):
     server, call = api
     async def save(path, payload):
@@ -802,7 +796,6 @@ async def test_management_applies_and_persists_existing_stores(api):
         await clone.shutdown()
 
 
-@pytest.mark.asyncio
 async def test_serialized_updates_failures_limits_and_safe_logs(api, monkeypatch):
     server, call = api
     replies = await asyncio.gather(*[call("POST", "/v1/ops/set_ai_memory_enabled", json={"enabled": bool(n % 2)}) for n in range(8)])
@@ -825,7 +818,6 @@ async def test_serialized_updates_failures_limits_and_safe_logs(api, monkeypatch
     assert (await call("POST", "/v1/ops/get_app_status"))[0] == 429
 
 
-@pytest.mark.asyncio
 async def test_authenticated_activity_matches_desktop_without_raw_prose(api):
     from app.webview_host import WebUIBridge
     from types import SimpleNamespace
@@ -881,7 +873,6 @@ async def test_recent_commands_share_logs_and_return_only_five_terminal_events(a
     assert all(entry in desktop.get_recent_logs()["entries"] for entry in body["entries"])
 
 
-@pytest.mark.asyncio
 async def test_authenticated_correlation_and_filter_projection_is_sanitized(api):
     server, call = api
     handler = OperatorActivityHandler(server.log_buffer)
@@ -903,7 +894,6 @@ async def test_authenticated_correlation_and_filter_projection_is_sanitized(api)
     assert all(e["text"] is None for e in body["entries"])
 
 
-@pytest.mark.asyncio
 async def test_partial_connections_headers_and_operation_deadlines_are_bounded(api, monkeypatch):
     server, call = api
     monkeypatch.setattr("app.management_api.CONNECTION_SECONDS", 0.1)
@@ -941,7 +931,6 @@ async def test_partial_connections_headers_and_operation_deadlines_are_bounded(a
     assert not server.lock.locked()
 
 
-@pytest.mark.asyncio
 async def test_api_cleanup_failure_still_closes_application(monkeypatch, unused_tcp_port):
     value = settings()
     stop = asyncio.Event()
@@ -967,7 +956,6 @@ async def test_api_cleanup_failure_still_closes_application(monkeypatch, unused_
     assert closed == [True]
 
 
-@pytest.mark.asyncio
 async def test_headless_api_stop_start_keeps_supervisor_and_state(monkeypatch, unused_tcp_port):
     value = settings()
     stop = asyncio.Event()
@@ -1184,7 +1172,6 @@ def test_private_bind_token_files_and_secret_safe_configuration(tmp_path, monkey
     assert ManagementConfig(TOKEN, host="0.0.0.0", allowed_host="127.0.0.1:8765").authorities == {"127.0.0.1:8765"}
 
 
-@pytest.mark.asyncio
 async def test_browser_session_origin_expiry_revocation_and_capacity(api):
     server, call = api
     origin = f"http://127.0.0.1:{server.config.port}"
@@ -1222,7 +1209,6 @@ async def test_browser_session_origin_expiry_revocation_and_capacity(api):
             "Sec-Fetch-Site": "same-origin"}))[0] == expected
 
 
-@pytest.mark.asyncio
 async def test_session_queued_before_logout_cannot_mutate(api):
     server, call = api
     _, body, _ = await call("POST", "/v1/session", json={})
@@ -1243,7 +1229,6 @@ async def test_session_queued_before_logout_cannot_mutate(api):
     assert server.runtime.application.services.runtime_state.ai_memory_enabled
 
 
-@pytest.mark.asyncio
 async def test_built_frontend_delivery_is_allowlisted_and_isolated(api, tmp_path):
     server, call = api
     server.frontend = tmp_path / "ui"
@@ -1284,7 +1269,6 @@ async def test_built_frontend_delivery_is_allowlisted_and_isolated(api, tmp_path
     assert (await call("POST", "/v1/ops/get_app_status", headers={"Authorization": ""}))[0] == 401
 
 
-@pytest.mark.asyncio
 async def test_browser_presentation_routes_apply_save_and_log_cursor(api, monkeypatch):
     server, call = api
     for path in ("/v1/ops/get_snapshot", "/v1/ops/get_management_setup", "/v1/ops/get_about_info"):

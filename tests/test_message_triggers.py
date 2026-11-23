@@ -185,7 +185,6 @@ def test_save_refuses_to_replace_unreadable_source(tmp_path):
     assert not list(tmp_path.glob("*.tmp"))
 
 
-@pytest.mark.asyncio
 async def test_trigger_dispatch_skips_commands_and_bot_and_reuses_cooldown_and_output_limit(tmp_path, monkeypatch):
     path = tmp_path / "message_triggers.json"
     store = save(path, trigger(), trigger(id="other", text="hello", cooldown_seconds=0))
@@ -224,7 +223,6 @@ async def test_trigger_dispatch_skips_commands_and_bot_and_reuses_cooldown_and_o
     assert responses == ["first", "first"]  # Shared output limiter blocks the second reaction.
 
 
-@pytest.mark.asyncio
 async def test_reordering_matching_reactions_changes_which_rule_responds(tmp_path, monkeypatch):
     store = save(
         tmp_path / "message_triggers.json",
@@ -249,7 +247,6 @@ async def test_reordering_matching_reactions_changes_which_rule_responds(tmp_pat
     assert replies == ["First", "Second"]
 
 
-@pytest.mark.asyncio
 async def test_probability_and_disabled_trigger_do_not_send(tmp_path, monkeypatch):
     path = tmp_path / "message_triggers.json"
     store = save(path, trigger(id="off", enabled=False), trigger(id="rare", probability=0.1))

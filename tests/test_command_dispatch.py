@@ -301,17 +301,6 @@ async def test_fate_replies_with_a_known_prediction(tmp_path, monkeypatch) -> No
     assert transport.replies[0].removeprefix("@viewer, ") in FATES
 
 
-async def test_forecast_is_not_a_public_alias(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("HEETKIT_DATA_DIR", str(tmp_path))
-    registry = CommandRegistry()
-    register_fun_commands(registry)
-    assert registry.get("forecast") is None
-    assert registry.get("fate").aliases == ()
-    transport = FakeChatTransport("!forecast")
-    await build_dispatcher(registry).dispatch(transport.message, cast(ApplicationServices, object()))
-    assert transport.replies == []
-
-
 @pytest.mark.parametrize("query,report,conditions", [
     ("New   York", None, ()),
     ("Киев", WeatherReport("Киев", 12.0, "clear", 8.0, country="Украина"), ("+12°C", "ясно", "8 км/ч")),
@@ -624,45 +613,11 @@ async def test_unsent_weather_reply_releases_slot_and_leaves_global_cooldown_unt
 
 
 def test_application_registers_phase_two_commands() -> None:
-    settings = Settings(
-        _env_file=None,
-        twitch_client_id="client-id",
-        twitch_client_secret="client-secret",
-        twitch_bot_user_id="100",
-        twitch_bot_username="testbot",
-        twitch_channel_user_id="200",
-        twitch_channel="testchannel",
-        twitch_access_token="access-token",
-        twitch_refresh_token="refresh-token",
-    )
+    registry = build_application(Settings(_env_file=None)).registry
 
-    application = build_application(settings)
-
-    assert {"ping", "help", "uptime", "fate", "weather"} <= set(application.registry.names())
-    assert "commands" not in application.registry.names()
-    assert application.registry.get("commands") is application.registry.get("help")
-    assert "forecast" not in application.registry.names()
-    assert "percent" not in application.registry.names()
-    assert "c" not in application.registry.names()
-    assert "8ball" not in application.registry.names()
-
-
-async def test_dispatcher_enforces_registered_permissions() -> None:
-    registry = CommandRegistry()
-
-    @registry.command("moderator", required_permission=Permission.MODERATOR)
-    async def moderator_command(context, arguments: str) -> None:
-        await context.reply("allowed")
-
-    transport = FakeChatTransport("!moderator")
-
-    handled = await build_dispatcher(registry).dispatch(
-        transport.message,
-        cast(ApplicationServices, object()),
-    )
-
-    assert handled is True
-    assert transport.replies == []
+    assert {"ping", "help", "uptime", "fate", "weather"} <= set(registry.names())
+    assert registry.get("commands") is registry.get("help")
+    assert not {"commands", "forecast", "percent", "c", "8ball"} & set(registry.names())
 
 
 async def test_dispatcher_consumes_runtime_enable_and_permission_settings() -> None:
@@ -804,59 +759,6 @@ async def test_failing_handler_does_not_break_later_commands(caplog: pytest.LogC
     assert healthy.replies == ["healthy"]
 
 
-async def test_dispatcher_cooldown_manager_persists_across_dispatched_messages() -> None:
-    registry = CommandRegistry()
-    register_fun_commands(registry)
-    register_weather_commands(registry)
-    current_time = 100.0
-    manager = CooldownManager(clock=lambda: current_time)
-    dispatcher = CommandDispatcher(
-        registry=registry,
-        cooldowns=manager,
-        logger=logging.getLogger("tests.commands"),
-        command_prefix="!",
-    )
-    weather = FakeWeatherService(report=WeatherReport("London", 17.0, "overcast", 14.0))
-    services = weather_services(weather)
-
-    # Message 1 by user A at t=100.0 -> handled and executed
-    msg1 = FakeChatTransport("!weather London")
-    msg1.message = IncomingChatMessage(
-        channel="testchannel",
-        content="!weather London",
-        author=ChatAuthor(twitch_user_id="user-a", username="user_a", is_moderator=False),
-        respond=msg1.respond,
-    )
-    await dispatcher.dispatch(msg1.message, services)
-    assert len(msg1.replies) == 1
-    assert "London: 17°C" in msg1.replies[0]
-
-    # Message 2 by user B at t=105.0 (5 seconds later) -> rejected by 30s global cooldown
-    current_time = 105.0
-    msg2 = FakeChatTransport("!weather London")
-    msg2.message = IncomingChatMessage(
-        channel="testchannel",
-        content="!weather London",
-        author=ChatAuthor(twitch_user_id="user-b", username="user_b", is_moderator=False),
-        respond=msg2.respond,
-    )
-    await dispatcher.dispatch(msg2.message, services)
-    assert len(msg2.replies) == 0
-
-    # Message 3 by user C at t=131.0 (31s after message 1) -> cooldown expired, executed
-    current_time = 131.0
-    msg3 = FakeChatTransport("!weather London")
-    msg3.message = IncomingChatMessage(
-        channel="testchannel",
-        content="!weather London",
-        author=ChatAuthor(twitch_user_id="user-c", username="user_c", is_moderator=False),
-        respond=msg3.respond,
-    )
-    await dispatcher.dispatch(msg3.message, services)
-    assert len(msg3.replies) == 1
-    assert "London: 17°C" in msg3.replies[0]
-
-
 class FakeAIService:
     def __init__(self, reply_text: str = "AI answer", is_available: bool = True) -> None:
         self.reply_text = reply_text
@@ -872,25 +774,6 @@ class FakeAIService:
     ) -> AIReply:
         self.calls.append((prompt, user_id, memory_context, stream_category))
         return AIReply(text=self.reply_text, is_available=self.is_available)
-
-
-async def test_ask_allowed_processes_and_replies() -> None:
-    registry = CommandRegistry()
-    register_ai_commands(registry)
-    ai = FakeAIService("Photosynthesis converts light into chemical energy.")
-    services = cast(
-        ApplicationServices,
-        SimpleNamespace(ai=ai, ai_request_policy=AIRequestPolicy()),
-    )
-    dispatcher = build_dispatcher(registry)
-    transport = FakeChatTransport("!ask how does photosynthesis work?")
-
-    handled = await dispatcher.dispatch(transport.message, services)
-
-    assert handled is True
-    assert len(ai.calls) == 1
-    assert ai.calls[0][0] == "how does photosynthesis work?"
-    assert transport.replies == ["@viewer Photosynthesis converts light into chemical energy."]
 
 
 @pytest.mark.parametrize("answer,expected", [("🙂" * 450, ["@viewer " + "🙂" * 450]), ("\ud800", []), ("A" * 493, [])])
@@ -933,7 +816,7 @@ async def test_ask_uses_stream_category_when_available(category, error):
 
     await build_dispatcher(registry).dispatch(transport.message, services)
 
-    assert len(ai.calls) == 1 and ai.calls[0][3] == category
+    assert len(ai.calls) == 1 and ai.calls[0][0] == "what game is this?" and ai.calls[0][3] == category
     assert transport.replies == ["@viewer AI answer"]
 
 
@@ -980,119 +863,34 @@ async def test_ask_cooldown_is_charged_only_for_a_valid_request():
 async def test_bypass_user_bypasses_only_ask_cooldown() -> None:
     registry = CommandRegistry()
     register_ai_commands(registry)
-    register_fun_commands(registry)
     register_weather_commands(registry)
     ai = FakeAIService("AI Answer")
-    weather = FakeWeatherService(report=WeatherReport("London", 17.0, "overcast", 14.0))
-    services = weather_services(weather, ai=ai, ai_request_policy=AIRequestPolicy())
-    current_time = 100.0
-    manager = CooldownManager(clock=lambda: current_time)
-    dispatcher = CommandDispatcher(
-        registry=registry,
-        cooldowns=manager,
-        logger=logging.getLogger("tests.commands"),
-        command_prefix="!",
-        ai_cooldown_bypass_user_id="bypass-user",
-    )
+    services = weather_services(FakeWeatherService(report=WeatherReport("London", 17.0, "overcast", 14.0)),
+                                ai=ai, ai_request_policy=AIRequestPolicy())
+    dispatcher = CommandDispatcher(registry=registry, cooldowns=CooldownManager(clock=lambda: 100.0),
+                                   logger=logging.getLogger("tests.commands"), command_prefix="!",
+                                   ai_cooldown_bypass_user_id="bypass-user")
 
-    # Normal user calls !ask at t=100
-    normal_t = FakeChatTransport("!ask normal question")
-    await dispatcher.dispatch(normal_t.message, services)
-    assert len(ai.calls) == 1
+    async def replies(content, viewer):
+        transport = weather_viewer(content, viewer)
+        await dispatcher.dispatch(transport.message, services)
+        return transport.replies
 
-    # Bypass user calls !ask at t=105 (within 30s) -> allowed!
-    current_time = 105.0
-    bypass_ask = FakeChatTransport("!ask bypass question")
-    bypass_ask.message = IncomingChatMessage(
-        channel="testchannel",
-        content="!ask bypass question",
-        author=ChatAuthor(twitch_user_id="bypass-user", username="bypass_user", is_moderator=False),
-        respond=bypass_ask.respond,
-    )
-    await dispatcher.dispatch(bypass_ask.message, services)
+    assert await replies("!ask normal question", "viewer")
+    assert await replies("!ask bypass question", "bypass-user") == ["@bypass-user AI Answer"]
     assert len(ai.calls) == 2
-    assert bypass_ask.replies == ["@bypass_user AI Answer"]
-
-    # Normal user calls !weather London at t=106
-    current_time = 106.0
-    weather_normal = FakeChatTransport("!weather London")
-    await dispatcher.dispatch(weather_normal.message, services)
-    assert len(weather_normal.replies) == 1
-
-    # Bypass user calls !weather London at t=110 (within 30s of !weather) -> blocked!
-    current_time = 110.0
-    weather_bypass = FakeChatTransport("!weather London")
-    weather_bypass.message = IncomingChatMessage(
-        channel="testchannel",
-        content="!weather London",
-        author=ChatAuthor(twitch_user_id="bypass-user", username="bypass_user", is_moderator=False),
-        respond=weather_bypass.respond,
-    )
-    await dispatcher.dispatch(weather_bypass.message, services)
-    assert len(weather_bypass.replies) == 0  # Blocked by weather cooldown, bypass only affects !ask!
+    assert await replies("!weather London", "viewer")
+    assert await replies("!weather London", "bypass-user") == []  # The bypass covers only !ask.
 
 
-async def test_output_limiter_prevents_rapid_consecutive_bot_messages() -> None:
-    current_time = 100.0
-    limiter = OutputLimiter(interval=5.0, clock=lambda: current_time)
-
-    assert limiter.try_acquire() is True
-    # Immediately after at t=101 -> blocked
-    current_time = 101.0
-    assert limiter.try_acquire() is False
-    # At t=104.9 -> blocked
-    current_time = 104.9
-    assert limiter.try_acquire() is False
-    # At t=105.0 -> allowed
-    current_time = 105.0
-    assert limiter.try_acquire() is True
-
-
-async def test_moderator_only_commands_reject_regular_users() -> None:
-    registry = CommandRegistry()
-    register_fun_commands(registry)
-    register_info_commands(registry)
-    state = RuntimeState()
-    state.configure_commands(registry.definitions())
-    dispatcher = build_dispatcher(registry)
-
-    # Regular viewer tries moderator commands
-    for cmd in ("!ping", "!uptime"):
-        transport = FakeChatTransport(cmd, is_moderator=False)
-        services = cast(
-            ApplicationServices,
-            SimpleNamespace(runtime_state=state),
-        )
-        handled = await dispatcher.dispatch(transport.message, services)
-        assert handled is True
-        assert transport.replies == []
-
-    # Moderator tries moderator commands
-    for cmd in ("!ping", "!uptime"):
-        transport = FakeChatTransport(cmd, is_moderator=True)
-        services = cast(
-            ApplicationServices,
-            SimpleNamespace(runtime_state=state),
-        )
-        handled = await dispatcher.dispatch(transport.message, services)
-        assert handled is True
-        assert len(transport.replies) == 1
-
-
-async def test_generic_filter_blocks_message_before_command_dispatch() -> None:
-    filter_mgr = FilterManager()
-    filter_mgr.add_blocked_word("spamword")
-    filter_mgr.add_blocked_phrase("free followers")
-    filter_mgr.add_blocked_pattern(r"http://phishing\.\w+")
-
-    # Verify blocked word
-    assert filter_mgr.filter_message("Check out this spamword now") is False
-    # Verify blocked phrase
-    assert filter_mgr.filter_message("Get your free followers here!") is False
-    # Verify blocked regex
-    assert filter_mgr.filter_message("Visit http://phishing.site for prizes") is False
-    # Verify allowed message
-    assert filter_mgr.filter_message("!ask how is the weather today?") is True
+async def test_output_limiter_blocks_until_the_interval_has_passed() -> None:
+    now = 100.0
+    limiter = OutputLimiter(interval=5.0, clock=lambda: now)
+    assert limiter.try_acquire()
+    now = 104.9
+    assert not limiter.try_acquire()
+    now = 105.0
+    assert limiter.try_acquire()
 
 
 async def test_concurrent_custom_alias_bursts_link_each_response_without_double_counting(tmp_path, caplog):

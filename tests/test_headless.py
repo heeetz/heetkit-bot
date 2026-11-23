@@ -57,7 +57,6 @@ def in_memory_application(monkeypatch):
     return application
 
 
-@pytest.mark.asyncio
 async def test_real_core_restarts_with_saved_profile_and_sqlite(monkeypatch):
     value = settings()
     paths = RuntimePaths.default()
@@ -89,7 +88,6 @@ async def test_real_core_restarts_with_saved_profile_and_sqlite(monkeypatch):
     assert paths.database.is_file()
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["auth_required", "failed", "exception", "ended", "timeout"])
 async def test_headless_fails_actionably_without_exposing_payloads(monkeypatch, caplog, failure, in_memory_application):
     async def session(**kwargs):
@@ -112,7 +110,6 @@ async def test_headless_fails_actionably_without_exposing_payloads(monkeypatch, 
         assert "authorize" in caplog.text
 
 
-@pytest.mark.asyncio
 async def test_authorization_revoked_after_readiness_exits(monkeypatch):
     async def session(**kwargs):
         state = kwargs["services"].runtime_state
@@ -125,7 +122,6 @@ async def test_authorization_revoked_after_readiness_exits(monkeypatch):
     assert await headless.run_headless(settings(), AppSettings(), asyncio.Event(), startup_timeout=1, shutdown_timeout=1) == 1
 
 
-@pytest.mark.asyncio
 async def test_connected_service_outlives_startup_deadline(monkeypatch, in_memory_application):
     stop = asyncio.Event()
     async def session(**kwargs):
@@ -137,7 +133,6 @@ async def test_connected_service_outlives_startup_deadline(monkeypatch, in_memor
     assert await headless.run_headless(in_memory_application.settings, AppSettings(), stop, startup_timeout=1, shutdown_timeout=1) == 0
 
 
-@pytest.mark.asyncio
 async def test_shared_recovery_outlives_host_startup_deadline(monkeypatch, in_memory_application):
     stop, started = asyncio.Event(), asyncio.Event()
     state = in_memory_application.services.runtime_state
@@ -170,7 +165,6 @@ async def test_shared_recovery_outlives_host_startup_deadline(monkeypatch, in_me
     assert observations.count("reconnecting") >= 2
 
 
-@pytest.mark.asyncio
 async def test_outer_startup_timeout_does_not_cancel_active_shared_recovery(monkeypatch, in_memory_application):
     stop, started = asyncio.Event(), asyncio.Event()
     state = in_memory_application.services.runtime_state
@@ -199,7 +193,6 @@ async def test_outer_startup_timeout_does_not_cancel_active_shared_recovery(monk
     assert timed_out
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("terminal", ["auth_required", "failed"])
 async def test_shared_recovery_marker_never_hides_terminal_failure(monkeypatch, terminal, in_memory_application):
     async def session(**kwargs):
@@ -213,7 +206,6 @@ async def test_shared_recovery_marker_never_hides_terminal_failure(monkeypatch, 
         startup_timeout=1, shutdown_timeout=1) == 1
 
 
-@pytest.mark.asyncio
 async def test_shutdown_session_failure_returns_nonzero_and_closes_database(monkeypatch):
     stop = asyncio.Event()
     applications = []
@@ -234,7 +226,6 @@ async def test_shutdown_session_failure_returns_nonzero_and_closes_database(monk
     assert applications[0].database._retention_task is None
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("startup_failure", [True, False])
 async def test_partial_startup_or_slow_stop_still_attempts_application_cleanup(monkeypatch, startup_failure):
     from app.runtime_state import RuntimeState

@@ -99,7 +99,6 @@ class ProviderError(Exception):
         self.code = code
 
 
-@pytest.mark.asyncio
 async def test_unavailable_selected_model_uses_configured_fallback() -> None:
     service = GeminiProvider(
         SimpleNamespace(
@@ -122,7 +121,6 @@ async def test_unavailable_selected_model_uses_configured_fallback() -> None:
     assert requested == ["gemini-selected", "gemini-fallback"]
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("error", [ProviderError(401), ProviderError(403), ProviderError(429), OSError("network")])
 async def test_auth_policy_rate_and_network_errors_do_not_use_fallback(error) -> None:
     service = GeminiProvider(
@@ -143,7 +141,6 @@ async def test_auth_policy_rate_and_network_errors_do_not_use_fallback(error) ->
     assert requested == ["gemini-selected"]
 
 
-@pytest.mark.asyncio
 async def test_attempt_events_capture_effective_model_usage_and_snapshot_without_payloads(caplog):
     import logging
     from app.utils.logging import operator_event_scope
@@ -178,7 +175,6 @@ async def test_attempt_events_capture_effective_model_usage_and_snapshot_without
     assert "PRIVATE" not in str([vars(record) for record in events])
 
 
-@pytest.mark.asyncio
 async def test_cancelled_attempt_and_fallback_failure_have_explicit_terminal_events(caplog):
     import asyncio
     import logging
@@ -197,7 +193,6 @@ async def test_cancelled_attempt_and_fallback_failure_have_explicit_terminal_eve
         ("first", "provider_failure"), ("second", "provider_failure"), ("first", "cancelled")]
 
 
-@pytest.mark.asyncio
 async def test_discovery_and_generation_reuse_client_with_live_model_settings(monkeypatch) -> None:
     from google import genai
 
@@ -233,7 +228,6 @@ async def test_discovery_and_generation_reuse_client_with_live_model_settings(mo
     assert clients[0].async_closed and clients[0].sync_closed
 
 
-@pytest.mark.asyncio
 async def test_credential_rotation_waits_for_old_client_users(monkeypatch) -> None:
     from google import genai
 
@@ -264,7 +258,6 @@ async def test_credential_rotation_waits_for_old_client_users(monkeypatch) -> No
             pass
 
 
-@pytest.mark.asyncio
 async def test_application_shutdown_waits_for_gemini_and_closes_resources(monkeypatch) -> None:
     from google import genai
 

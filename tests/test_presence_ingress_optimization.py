@@ -10,11 +10,10 @@ from sqlalchemy.dialects.sqlite import insert
 
 from app.commands.diagnostics import command_trace, receipt_time
 from app.database.database import Database
-from app.database.models import LeaderboardCount, User
+from app.database.models import LeaderboardCount
 from app.database.repository import UserRepository
 
 
-@pytest.mark.asyncio
 async def test_upsert_seen_keeps_default_return_and_skips_final_presence_read(tmp_path):
     database = Database(f"sqlite+aiosqlite:///{tmp_path / 'profile.sqlite3'}")
     await database.initialize()
@@ -43,7 +42,6 @@ async def test_upsert_seen_keeps_default_return_and_skips_final_presence_read(tm
     await database.close()
 
 
-@pytest.mark.asyncio
 async def test_skipped_return_preserves_counts_optout_and_file_backed_recovery(tmp_path):
     path = tmp_path / "profile.sqlite3"
     database = Database(f"sqlite+aiosqlite:///{path}")
@@ -94,10 +92,7 @@ async def test_skipped_return_preserves_counts_optout_and_file_backed_recovery(t
             await database.close()
 
 
-@pytest.mark.asyncio
-async def test_command_trace_records_presence_lock_wait(caplog):
-    database = Database("sqlite+aiosqlite:///:memory:")
-    await database.initialize()
+async def test_command_trace_records_presence_lock_wait(caplog, database):
     users = UserRepository(database.session_factory)
     caplog.set_level(logging.INFO, logger="app.command_diagnostics")
 
@@ -120,13 +115,10 @@ async def test_command_trace_records_presence_lock_wait(caplog):
     finally:
         if users.policy.lock.locked():
             users.policy.lock.release()
-    try:
-        payload = next(
-            json.loads(record.getMessage().removeprefix("Command trace "))
-            for record in caplog.records
-            if getattr(record, "event_kind", None) == "command.trace"
-            and '"phase":"terminal"' in record.getMessage()
-        )
-        assert payload["db_wait_ms"] >= 10
-    finally:
-        await database.close()
+    payload = next(
+        json.loads(record.getMessage().removeprefix("Command trace "))
+        for record in caplog.records
+        if getattr(record, "event_kind", None) == "command.trace"
+        and '"phase":"terminal"' in record.getMessage()
+    )
+    assert payload["db_wait_ms"] >= 10

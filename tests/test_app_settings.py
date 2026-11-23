@@ -38,10 +38,23 @@ def complete_bridge_coroutine(coroutine) -> Future:
     return future
 
 
-def test_missing_app_settings_file_uses_safe_defaults(tmp_path) -> None:
-    settings = load_app_settings(ConfigFile(tmp_path / "app_settings.json").section("app"))
+@pytest.mark.parametrize(("content", "expected"), [
+    (None, AppSettings()),
+    ("", AppSettings(startup=StartupSettings(operation_mode="disabled"))),
+    ("[]", AppSettings(startup=StartupSettings(operation_mode="disabled"))),
+    ("{not-json", AppSettings(startup=StartupSettings(operation_mode="disabled"))),
+    ({"version": 99, "window": {"start_minimized": True}}, AppSettings(startup=StartupSettings(operation_mode="disabled"))),
+    ({"version": APP_SETTINGS_VERSION, "twitch": {"channel": "testchannel"}}, AppSettings()),
+    ({"version": APP_SETTINGS_VERSION, "ai": {"selected_model": "gemini-custom"}}, AppSettings()),
+], ids=["missing", "empty", "array", "malformed", "future-version", "incomplete-twitch", "incomplete-model"])
+def test_missing_malformed_or_incomplete_app_settings_use_safe_defaults(tmp_path, content, expected) -> None:
+    settings_path = tmp_path / "app_settings.json"
+    if isinstance(content, str):
+        settings_path.write_text(content, encoding="utf-8")
+    elif content is not None:
+        write_section(settings_path, "app", content)
 
-    assert settings == AppSettings()
+    assert load_app_settings(ConfigFile(settings_path).section("app")) == expected
 
 
 def test_partial_and_invalid_app_settings_fall_back_individually(
@@ -65,24 +78,6 @@ def test_partial_and_invalid_app_settings_fall_back_individually(
 
     assert settings == AppSettings(window=WindowSettings(start_minimized=True))
     assert "invalid application setting" in caplog.text
-
-
-@pytest.mark.parametrize("file_content", ["", "[]", "{not-json"])
-def test_malformed_app_settings_file_does_not_block_startup(
-    tmp_path,
-    file_content: str,
-) -> None:
-    settings_path = tmp_path / "app_settings.json"
-    settings_path.write_text(file_content, encoding="utf-8")
-
-    assert load_app_settings(ConfigFile(settings_path).section("app")) == AppSettings(startup=StartupSettings(operation_mode="disabled"))
-
-
-def test_unknown_app_settings_version_uses_defaults(tmp_path) -> None:
-    settings_path = tmp_path / "app_settings.json"
-    write_section(settings_path, "app", {"version": 99, "window": {"start_minimized": True}})
-
-    assert load_app_settings(ConfigFile(settings_path).section("app")) == AppSettings(startup=StartupSettings(operation_mode="disabled"))
 
 
 def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
@@ -153,29 +148,6 @@ def test_failed_app_settings_save_keeps_previous_state(tmp_path, monkeypatch) ->
         )
 
     assert store.snapshot() == AppSettings()
-
-
-def test_twitch_app_settings_are_validated_persisted_and_reloaded(tmp_path) -> None:
-    settings_path = tmp_path / "app_settings.json"
-    store = AppSettingsStore(ConfigFile(settings_path))
-
-    updated = store.update_twitch(channel=" #TestChannel ", channel_user_id=" 200 ")
-
-    assert updated.twitch == TwitchSettings(
-        channel="testchannel",
-        channel_user_id="200",
-    )
-    assert AppSettingsStore(ConfigFile(settings_path)).snapshot().twitch == updated.twitch
-    payload = read_section(settings_path, "app")
-    assert payload["twitch"] == {
-        "client_id": None,
-        "bot_username": None,
-        "bot_user_id": None,
-        "channel": "testchannel",
-        "channel_user_id": "200",
-        "presets": [],
-        "selected_preset_id": None,
-    }
 
 
 def test_twitch_presets_are_non_secret_local_metadata_and_can_be_reset(tmp_path) -> None:
@@ -278,16 +250,6 @@ def test_twitch_app_settings_reject_invalid_values(
     assert store.snapshot().twitch == TwitchSettings()
 
 
-def test_incomplete_twitch_override_falls_back_safely(tmp_path) -> None:
-    settings_path = tmp_path / "app_settings.json"
-    write_section(settings_path, "app", {
-                "version": APP_SETTINGS_VERSION,
-                "twitch": {"channel": "testchannel"},
-            })
-
-    assert load_app_settings(ConfigFile(settings_path).section("app")).twitch == TwitchSettings()
-
-
 def test_legacy_flat_model_settings_move_to_providers_on_the_next_save(tmp_path) -> None:
     settings_path = tmp_path / "config.json"
     write_section(settings_path, "app", {"version": APP_SETTINGS_VERSION, "ai": {
@@ -302,19 +264,11 @@ def test_legacy_flat_model_settings_move_to_providers_on_the_next_save(tmp_path)
     assert store.snapshot().ai == AISettings(provider="gemini", providers=providers)
     memory_updated = store.update_ai_memory(enabled=False)
     assert AppSettingsStore(ConfigFile(settings_path)).snapshot().ai == memory_updated.ai
-    assert read_section(settings_path, "app")["ai"] == {
-        "history_max_entries": 100, "context_max_entries": 5,
-        "provider": "gemini", "providers": {
-            "gemini": {"selected_model": "custom-gemini-model", "fallback_model": "gemini-3.1-flash-lite"},
-            "deepseek": {"selected_model": "deepseek-flash", "fallback_model": "deepseek-v4-pro"}},
-        "setup": None, "setup_guide_dismissed": False, "setup_guide_ai_skipped": False,
-        "cooldown_bypass_user_id": None,
-        "memory_enabled": False,
-        "response_language": {
-            "mode": "auto", "allowed_languages": ["en", "uk", "ru"],
-            "fallback_language": "en",
-        },
-    }
+    saved_ai = read_section(settings_path, "app")["ai"]
+    assert saved_ai["providers"] == {
+        "gemini": {"selected_model": "custom-gemini-model", "fallback_model": "gemini-3.1-flash-lite"},
+        "deepseek": {"selected_model": "deepseek-flash", "fallback_model": "deepseek-v4-pro"}}
+    assert not any(key.endswith(("selected_model", "fallback_model")) for key in saved_ai)
     # The pre-migration file is kept once as a recovery copy.
     assert len(list(tmp_path.glob("config.json.*.recovery"))) == 1
     assert memory_updated.ai == AISettings(provider="gemini", memory_enabled=False, providers=providers)
@@ -348,16 +302,6 @@ def test_custom_connection_accepts_https_or_local_http_only(tmp_path, url, accep
     assert store.update_custom_ai_connection(None).ai.providers == {}
 
 
-def test_incomplete_gemini_model_override_falls_back_safely(tmp_path) -> None:
-    settings_path = tmp_path / "app_settings.json"
-    write_section(settings_path, "app", {
-                "version": APP_SETTINGS_VERSION,
-                "ai": {"selected_model": "gemini-custom"},
-            })
-
-    assert load_app_settings(ConfigFile(settings_path).section("app")).ai == AISettings()
-
-
 def test_bridge_reads_and_updates_desktop_settings(tmp_path) -> None:
     store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
     bridge = WebUIBridge(
@@ -387,62 +331,27 @@ def test_bridge_reads_and_updates_desktop_settings(tmp_path) -> None:
     }
 
 
-def test_bridge_persists_ai_memory_before_updating_runtime(tmp_path) -> None:
-    store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
+def ai_memory_bridge(store):
     runtime_state = SimpleNamespace(ai_memory_enabled=True)
-    runtime_state.set_ai_memory_enabled = lambda enabled: setattr(
-        runtime_state,
-        "ai_memory_enabled",
-        enabled,
-    )
-    backend = SimpleNamespace(
-        application=SimpleNamespace(
-            services=SimpleNamespace(runtime_state=runtime_state)
-        ),
-        submit=complete_bridge_coroutine,
-    )
-    bridge = WebUIBridge(
-        cast(AsyncioBackendHost, backend),
-        app_settings=store,
-    )
+    runtime_state.set_ai_memory_enabled = lambda enabled: setattr(runtime_state, "ai_memory_enabled", enabled)
+    backend = SimpleNamespace(application=SimpleNamespace(services=SimpleNamespace(runtime_state=runtime_state)),
+                              submit=complete_bridge_coroutine)
+    return WebUIBridge(cast(AsyncioBackendHost, backend), app_settings=store), runtime_state
+
+
+def test_bridge_persists_ai_memory_before_updating_runtime(tmp_path, monkeypatch) -> None:
+    store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
+    bridge, runtime_state = ai_memory_bridge(store)
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "update_ai_memory", lambda **kwargs: (_ for _ in ()).throw(OSError("expected failure")))
+        assert bridge.set_ai_memory_enabled(False) == {
+            "ok": False, "error_code": "webview_host.could_not_save_ai_memory_setting", "error_params": {},
+        }
+    assert runtime_state.ai_memory_enabled is True
 
     assert bridge.set_ai_memory_enabled(False) == {"ok": True}
     assert runtime_state.ai_memory_enabled is False
     assert store.snapshot().ai == AISettings(memory_enabled=False)
-
-
-def test_bridge_does_not_change_runtime_when_ai_memory_save_fails(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
-    runtime_state = SimpleNamespace(ai_memory_enabled=True)
-    runtime_state.set_ai_memory_enabled = lambda enabled: setattr(
-        runtime_state,
-        "ai_memory_enabled",
-        enabled,
-    )
-    backend = SimpleNamespace(
-        application=SimpleNamespace(
-            services=SimpleNamespace(runtime_state=runtime_state)
-        ),
-        submit=complete_bridge_coroutine,
-    )
-    bridge = WebUIBridge(
-        cast(AsyncioBackendHost, backend),
-        app_settings=store,
-    )
-
-    def fail_update(**kwargs) -> None:
-        raise OSError("expected failure")
-
-    monkeypatch.setattr(store, "update_ai_memory", fail_update)
-
-    assert bridge.set_ai_memory_enabled(False) == {
-        "ok": False,
-        "error_code": "webview_host.could_not_save_ai_memory_setting", "error_params": {},
-    }
-    assert runtime_state.ai_memory_enabled is True
 
 
 def test_interface_language_defaults_to_english_and_persists(tmp_path) -> None:

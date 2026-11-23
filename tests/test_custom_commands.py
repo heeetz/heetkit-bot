@@ -16,7 +16,6 @@ from app.config_file import ConfigFile
 from config_helpers import read_section, write_section
 
 
-@pytest.mark.asyncio
 async def test_manual_broadcaster_using_bot_account_executes_custom_alias(tmp_path):
     store = CustomCommandStore(ConfigFile(tmp_path / "commands.json"), set())
     store.save(payload(responses=["Hello {sender}"]))
@@ -38,7 +37,6 @@ def payload(**changes):
 
 
 @pytest.mark.parametrize("case", ["enabled", "disabled", "customized", "absent"])
-@pytest.mark.asyncio
 async def test_legacy_tg_converts_once_to_an_ordinary_burst_command(tmp_path, case):
     from app.fun_settings import FunSettingsStore
     from app.legacy_tg import migrate_tg
@@ -178,7 +176,6 @@ def test_larger_random_pool_preserves_other_custom_limits(tmp_path, changes, mat
     assert error.value.code == match
 
 
-@pytest.mark.asyncio
 async def test_dispatch_selects_from_entire_thirty_template_pool(tmp_path, monkeypatch):
     store = CustomCommandStore(ConfigFile(tmp_path / "commands.json"), set())
     responses = [f"Reply {index} to {{sender}}" for index in range(29)] + ["{sender} " + "😀" * 200]
@@ -282,7 +279,6 @@ def test_bridge_exposes_modes_defaults_and_reports_invalid_burst(tmp_path):
     assert bridge.delete_custom_command(command["id"]) == {"ok": True}
 
 
-@pytest.mark.asyncio
 async def test_dispatch_alias_permission_cooldown_random_response_and_output_limit(tmp_path, monkeypatch) -> None:
     registry = CommandRegistry()
     @registry.command("ping")

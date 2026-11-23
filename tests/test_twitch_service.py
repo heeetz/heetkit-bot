@@ -24,7 +24,6 @@ class FakeTwitchClient:
         return streams()
 
 
-@pytest.mark.asyncio
 async def test_authorization_delegates_only_to_the_bound_bot() -> None:
     service = TwitchAPIService()
     with pytest.raises(ValueError, match="not ready"):
@@ -33,7 +32,6 @@ async def test_authorization_delegates_only_to_the_bound_bot() -> None:
     assert await service.begin_authorization() == "synthetic-attempt"
 
 
-@pytest.mark.asyncio
 async def test_current_category_is_cached_until_ttl_expires() -> None:
     now = 100.0
     client = FakeTwitchClient(["Counter-Strike 2", "Just Chatting"])
@@ -50,7 +48,6 @@ async def test_current_category_is_cached_until_ttl_expires() -> None:
     assert client.fetch_count == 2
 
 
-@pytest.mark.asyncio
 async def test_offline_category_result_is_cached() -> None:
     now = 100.0
     client = FakeTwitchClient([None, "Science & Technology"])
@@ -63,7 +60,6 @@ async def test_offline_category_result_is_cached() -> None:
     assert client.fetch_count == 1
 
 
-@pytest.mark.asyncio
 async def test_category_api_failure_returns_none_and_is_cached() -> None:
     class FailingClient:
         def __init__(self) -> None:

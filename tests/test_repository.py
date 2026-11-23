@@ -2,14 +2,12 @@
 
 from datetime import timedelta
 
-import pytest
 
 from app.database.database import Database
 from app.database.repository import UserRepository
 from app.database.models import utcnow
 
 
-@pytest.mark.asyncio
 async def test_user_repository_creates_and_updates_user() -> None:
     database = Database("sqlite+aiosqlite:///:memory:")
     await database.initialize()
@@ -28,7 +26,6 @@ async def test_user_repository_creates_and_updates_user() -> None:
     await database.close()
 
 
-@pytest.mark.asyncio
 async def test_recent_usernames_excludes_old_users_and_ids() -> None:
     database = Database("sqlite+aiosqlite:///:memory:")
     await database.initialize()

@@ -114,7 +114,6 @@ def test_unavailable_secure_store_falls_back_to_environment(caplog) -> None:
     assert "env-gemini" not in caplog.text
 
 
-@pytest.mark.asyncio
 async def test_provider_tests_do_not_put_gemini_secret_in_the_url() -> None:
     backend = FakeKeyring()
     manager = build_manager(backend)

@@ -1011,115 +1011,55 @@ def test_bridge_observes_backend_completion_after_timeout(
 
 
 
-def test_bridge_exposes_and_saves_non_secret_twitch_settings(tmp_path) -> None:
-    token_path = tmp_path / "tokens.json"
-    token_path.write_text("{}", encoding="utf-8")
-    runtime_state = SimpleNamespace(
-        status=lambda: (True, 12),
-        twitch_connected=True,
-    )
+def twitch_settings_bridge(tmp_path, bot_username="testbot", **backend):
     application = SimpleNamespace(
-        services=SimpleNamespace(runtime_state=runtime_state),
-        settings=SimpleNamespace(
-            twitch_channel="environment-channel",
-            twitch_channel_user_id="200",
-            twitch_bot_username="testbot",
-            twitch_bot_user_id="100",
-            twitch_token_file=str(token_path),
-        ),
+        services=SimpleNamespace(runtime_state=SimpleNamespace(status=lambda: (True, 12), twitch_connected=True)),
+        settings=SimpleNamespace(twitch_channel="environment-channel", twitch_channel_user_id="200",
+                                 twitch_bot_username=bot_username, twitch_bot_user_id="100",
+                                 twitch_token_file=str(tmp_path / "tokens.json")),
     )
     store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
-    bridge = WebUIBridge(
-        cast(AsyncioBackendHost, SimpleNamespace(application=application)),
-        app_settings=store,
-    )
+    bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace(application=application, **backend)),
+                         app_settings=store)
+    return bridge, store, application
 
-    initial = bridge.get_twitch_settings()
-    assert initial["settings"] == {
-        "target_channel": "environment-channel",
-        "target_channel_user_id": "200",
-        "active_channel": "environment-channel",
-        "active_channel_user_id": "200",
-        "presets": [],
-        "selected_preset_id": None,
-        "active_preset_id": None,
-        "requires_reconnect": False,
-        "bot_username": "testbot",
-        "bot_user_id": "100",
-        "client_id": "",
-        "active_client_id": "",
-        "active_bot_username": "testbot",
-        "active_bot_user_id": "100",
-        "requires_secret_restart": False,
-        "requires_cleanup_restart": False,
-        "requires_restart": False,
-        "running": True,
-        "connected": True,
-        "oauth_token_available": True,
-        "saved_bot_authorization": False,
-        "oauth_callback_url": OAUTH_REDIRECT_URI,
-        "has_local_override": False,
+
+def test_bridge_exposes_and_saves_non_secret_twitch_settings(tmp_path) -> None:
+    (tmp_path / "tokens.json").write_text("{}", encoding="utf-8")
+    bridge, store, _ = twitch_settings_bridge(tmp_path)
+
+    assert bridge.get_twitch_settings()["settings"] == {
+        "target_channel": "environment-channel", "target_channel_user_id": "200",
+        "active_channel": "environment-channel", "active_channel_user_id": "200",
+        "presets": [], "selected_preset_id": None, "active_preset_id": None, "requires_reconnect": False,
+        "bot_username": "testbot", "bot_user_id": "100", "client_id": "", "active_client_id": "",
+        "active_bot_username": "testbot", "active_bot_user_id": "100",
+        "requires_secret_restart": False, "requires_cleanup_restart": False, "requires_restart": False,
+        "running": True, "connected": True, "oauth_token_available": True, "saved_bot_authorization": False,
+        "oauth_callback_url": OAUTH_REDIRECT_URI, "has_local_override": False,
     }
     assert bridge.update_twitch_settings("NewChannel", "300") == {
-        "ok": True,
-        "requires_reconnect": True,
-        "requires_restart": False,
+        "ok": True, "requires_reconnect": True, "requires_restart": False,
     }
-    assert store.snapshot().twitch == TwitchSettings(
-        channel="newchannel",
-        channel_user_id="300",
-    )
+    assert store.snapshot().twitch == TwitchSettings(channel="newchannel", channel_user_id="300")
 
 
 def test_bridge_manages_twitch_presets_without_changing_bot_identity(tmp_path) -> None:
-    application = SimpleNamespace(
-        services=SimpleNamespace(
-            runtime_state=SimpleNamespace(
-                status=lambda: (True, 12),
-                twitch_connected=True,
-            )
-        ),
-        settings=SimpleNamespace(
-            twitch_channel="environment-channel",
-            twitch_channel_user_id="200",
-            twitch_bot_username="fixedbot",
-            twitch_bot_user_id="100",
-            twitch_token_file=str(tmp_path / "tokens.json"),
-        ),
-    )
-    store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
-    bridge = WebUIBridge(
-        cast(AsyncioBackendHost, SimpleNamespace(application=application)),
-        app_settings=store,
-    )
+    bridge, store, application = twitch_settings_bridge(tmp_path, "fixedbot")
 
-    created = bridge.save_twitch_preset(
-        None,
-        "Personal test",
-        "TestChannel",
-        "300",
-    )
+    created = bridge.save_twitch_preset(None, "Personal test", "TestChannel", "300")
 
-    assert created["ok"] is True
-    assert created["requires_reconnect"] is True
+    assert created["ok"] is True and created["requires_reconnect"] is True
     preset_id = created["preset_id"]
     settings = bridge.get_twitch_settings()["settings"]
     assert settings["selected_preset_id"] == preset_id
     assert settings["active_preset_id"] is None
     assert settings["requires_reconnect"] is True
     assert settings["bot_username"] == "fixedbot"
-    assert settings["presets"] == [
-        {
-            "id": preset_id,
-            "display_name": "Personal test",
-            "target_channel": "testchannel",
-            "target_channel_user_id": "300",
-        }
-    ]
+    assert settings["presets"] == [{"id": preset_id, "display_name": "Personal test",
+                                    "target_channel": "testchannel", "target_channel_user_id": "300"}]
     assert bridge.update_twitch_settings("testchannel", "300", preset_id) == {
-        "ok": True,
-        "requires_reconnect": True,
-        "requires_restart": False,
+        "ok": True, "requires_reconnect": True, "requires_restart": False,
     }
     assert bridge.delete_twitch_preset(preset_id) == {"ok": True}
     assert store.snapshot().twitch.presets == ()
@@ -1129,38 +1069,13 @@ def test_bridge_manages_twitch_presets_without_changing_bot_identity(tmp_path) -
 def test_bridge_reconnects_through_existing_bot_runtime(tmp_path) -> None:
     calls: list[tuple[str, str]] = []
 
-    class FakeBotRuntime:
-        async def reconnect_twitch(self, *, channel: str, channel_user_id: str) -> bool:
-            calls.append((channel, channel_user_id))
-            return True
+    async def reconnect_twitch(*, channel: str, channel_user_id: str) -> bool:
+        calls.append((channel, channel_user_id))
+        return True
 
-    class FakeBackend:
-        def __init__(self) -> None:
-            self.application = SimpleNamespace(
-                services=SimpleNamespace(
-                    runtime_state=SimpleNamespace(
-                        status=lambda: (True, 1),
-                        twitch_connected=True,
-                    )
-                ),
-                settings=SimpleNamespace(
-                    twitch_channel="oldchannel",
-                    twitch_channel_user_id="200",
-                ),
-            )
-            self.bot_runtime = FakeBotRuntime()
-
-        def submit(self, coroutine):
-            future: Future[bool] = Future()
-            future.set_result(asyncio.run(coroutine))
-            return future
-
-    store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
+    bridge, store, _ = twitch_settings_bridge(tmp_path, bot_runtime=SimpleNamespace(reconnect_twitch=reconnect_twitch),
+                                              submit=complete_bridge_coroutine)
     store.update_twitch(channel="newchannel", channel_user_id="300")
-    bridge = WebUIBridge(
-        cast(AsyncioBackendHost, FakeBackend()),
-        app_settings=store,
-    )
 
     assert bridge.reconnect_twitch() == {"ok": True, "changed": True}
     assert calls == [("newchannel", "300")]

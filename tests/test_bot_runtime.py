@@ -47,7 +47,6 @@ class FakeApplication:
         self.shutdown_calls += 1
 
 
-@pytest.mark.asyncio
 async def test_unconfigured_start_does_not_create_twitch_session(monkeypatch) -> None:
     application = FakeApplication()
     application.settings.twitch_client_secret = None
@@ -60,7 +59,6 @@ async def test_unconfigured_start_does_not_create_twitch_session(monkeypatch) ->
     assert application.services.runtime_state.twitch_connection_state == "stopped"
     await runtime.shutdown()
 
-@pytest.mark.asyncio
 async def test_runtime_starts_and_stops_one_bot_session(monkeypatch) -> None:
     application = FakeApplication()
     bot_started = asyncio.Event()
@@ -86,7 +84,6 @@ async def test_runtime_starts_and_stops_one_bot_session(monkeypatch) -> None:
     assert application.shutdown_calls == 1
 
 
-@pytest.mark.asyncio
 async def test_concurrent_start_waits_for_close_before_creating_another_session(monkeypatch):
     application = FakeApplication()
     closing, release = asyncio.Event(), asyncio.Event()
@@ -114,7 +111,6 @@ async def test_concurrent_start_waits_for_close_before_creating_another_session(
         await runtime.start_bot()
 
 
-@pytest.mark.asyncio
 async def test_runtime_reconnects_running_session_with_new_channel(monkeypatch) -> None:
     application = FakeApplication()
     session_count = 0
@@ -143,7 +139,6 @@ async def test_runtime_reconnects_running_session_with_new_channel(monkeypatch) 
     await runtime.shutdown()
 
 
-@pytest.mark.asyncio
 async def test_runtime_applies_twitch_settings_without_starting_stopped_bot(
     monkeypatch,
 ) -> None:
@@ -169,7 +164,6 @@ async def test_runtime_applies_twitch_settings_without_starting_stopped_bot(
     await runtime.shutdown()
 
 
-@pytest.mark.asyncio
 async def test_runtime_requires_application_startup() -> None:
     runtime = BotRuntime(
         cast(Application, FakeApplication()),
@@ -180,7 +174,6 @@ async def test_runtime_requires_application_startup() -> None:
         await runtime.start_bot()
 
 
-@pytest.mark.asyncio
 async def test_stop_requested_during_startup_prevents_first_bot_session(monkeypatch) -> None:
     application = FakeApplication()
     run_calls = 0
@@ -203,7 +196,6 @@ async def test_stop_requested_during_startup_prevents_first_bot_session(monkeypa
     await runtime.shutdown()
 
 
-@pytest.mark.asyncio
 async def test_failed_startup_still_releases_application_resources() -> None:
     application = FakeApplication()
 

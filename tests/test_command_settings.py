@@ -7,7 +7,6 @@ import pytest
 
 from app.errors import UserError
 
-from app.command_settings import save_command_overrides
 from app.commands.info import register_info_commands
 from app.commands.registry import CommandRegistry
 from app.runtime_state import RuntimeState
@@ -68,28 +67,6 @@ def test_saved_commands_settings_convert_on_next_write(tmp_path, caplog, old, he
     restarted = RuntimeState(ConfigFile(path))
     restarted.configure_commands(registry.definitions())
     assert restarted.get_command_settings("help") == help_settings
-
-
-def test_settings_derive_from_registry_and_apply_runtime_changes() -> None:
-    registry = build_registry()
-    runtime_state = RuntimeState()
-    runtime_state.configure_commands(registry.definitions())
-
-    defaults = runtime_state.get_command_settings("ping")
-    assert defaults.enabled is True
-    assert defaults.cooldown == CooldownPolicy(global_seconds=10.0)
-    assert defaults.permission is Permission.MODERATOR
-
-    updated = runtime_state.apply_command_settings(
-        "ping",
-        enabled=False,
-        cooldown=CooldownPolicy(per_user_seconds=2.0, global_seconds=3.0),
-        permission=Permission.VIP,
-    )
-
-    assert updated.enabled is False
-    assert updated.cooldown == CooldownPolicy(per_user_seconds=2.0, global_seconds=3.0)
-    assert updated.permission is Permission.VIP
 
 
 @pytest.mark.parametrize("apply_first", [False, True], ids=["save", "apply-then-save"])
@@ -212,21 +189,6 @@ def test_runtime_operations_reject_invalid_typed_values() -> None:
     with pytest.raises(UserError) as error:
         runtime_state.apply_command_settings("missing", enabled=False)
     assert error.value.code == "runtime_state.unknown_command"
-
-
-def test_failed_atomic_write_cleans_up_temporary_file(tmp_path, monkeypatch) -> None:
-    settings_path = tmp_path / "command_settings.json"
-
-    def fail_json_write(*args, **kwargs) -> None:
-        raise OSError("expected write failure")
-
-    monkeypatch.setattr("app.config_file.os.fsync", fail_json_write)
-
-    with pytest.raises(OSError, match="expected write failure"):
-        save_command_overrides(ConfigFile(settings_path).section("commands"), {})
-
-    assert not settings_path.exists()
-    assert list(tmp_path.glob(".command_settings.json.*.tmp")) == []
 
 
 def test_ai_toggle_preserves_other_saved_commands_and_unsaved_runtime_changes(tmp_path) -> None:

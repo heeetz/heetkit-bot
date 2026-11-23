@@ -69,7 +69,6 @@ def test_benign_ai_requests_remain_allowed(prompt: str) -> None:
 
 
 @pytest.mark.parametrize("padding", ["", "A friendly puppy story. " * 40])
-@pytest.mark.asyncio
 async def test_editable_instructions_cannot_bypass_generated_response_filter(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -173,7 +172,6 @@ async def test_editable_instructions_cannot_bypass_generated_response_filter(
 
 
 @pytest.mark.parametrize("prefix, command", [("!", "ask"), ("$", "ＡＳＫ"), ("!", "a\u200bsk"), ("!", "question")])
-@pytest.mark.asyncio
 async def test_ignored_ask_content_is_not_logged_or_saved(
     caplog: pytest.LogCaptureFixture,
     prefix: str,

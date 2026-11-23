@@ -85,7 +85,6 @@ def test_clean_backend_provider_changes_restore_availability_and_preserve_saved_
         backend.close()
 
 
-@pytest.mark.asyncio
 async def test_unavailable_ai_does_not_consume_cooldown_or_block_normal_commands(tmp_path, monkeypatch):
     monkeypatch.setenv("HEETKIT_DATA_DIR", str(tmp_path))
     registry = CommandRegistry()
