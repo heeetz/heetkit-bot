@@ -11,7 +11,6 @@ import pytest
 import pytest_asyncio
 
 from app.analytics import Analytics, analytics_scope, analytics_scope_for, checked_analytics_scope_for
-from app.database.database import Database
 from app.database.repository import UserRepository
 from app.utils.logging import event_metadata, operator_event, privacy_log_scope
 
@@ -40,7 +39,6 @@ def totals(records):
     return result
 
 
-@pytest.mark.asyncio
 async def test_structured_events_are_independent_of_log_handlers_and_exclude_content(collector):
     logger = logging.getLogger("tests.aggregate.disabled")
     logger.disabled = True
@@ -59,7 +57,6 @@ async def test_structured_events_are_independent_of_log_handlers_and_exclude_con
         logger.disabled = False
 
 
-@pytest.mark.asyncio
 async def test_fallback_attempts_and_unknown_tokens_do_not_become_command_errors(collector):
     with analytics_scope(collector, "200"):
         event_metadata("ai.logical_start")
@@ -79,7 +76,6 @@ async def test_fallback_attempts_and_unknown_tokens_do_not_become_command_errors
     assert "command.error" not in result
 
 
-@pytest.mark.asyncio
 async def test_playground_separate_and_optout_failure_suppresses_events(collector):
     with analytics_scope(collector, "playground"):
         event_metadata("ai.logical_start")
@@ -89,53 +85,38 @@ async def test_playground_separate_and_optout_failure_suppresses_events(collecto
     assert await rows(collector) == []
 
 
-@pytest.mark.asyncio
-async def test_optout_revokes_queued_and_late_events_even_after_withdrawal(collector, tmp_path):
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'personal.sqlite3'}")
-    await database.initialize()
+async def test_optout_revokes_queued_and_late_events_even_after_withdrawal(collector, tmp_path, database):
     users = UserRepository(database.session_factory)
     users.analytics = collector
     message = NS(author=NS(twitch_user_id="300"), channel_id="200")
-    try:
-        with users.storage_scope("300"), analytics_scope_for(NS(analytics=collector, users=users), message):
-            event_metadata("ai.logical_start")
-            await users.opt_out("300")
-            await users.withdraw_opt_out("300")
-            event_metadata("ai.logical_finish", outcome="success")
-        assert await rows(collector) == []
-        with analytics_scope_for(NS(analytics=collector, users=users), message):
-            event_metadata("ai.logical_start")
-        assert totals(await rows(collector)) == {"ai.requests": 1}
-    finally:
-        await database.close()
+    with users.storage_scope("300"), analytics_scope_for(NS(analytics=collector, users=users), message):
+        event_metadata("ai.logical_start")
+        await users.opt_out("300")
+        await users.withdraw_opt_out("300")
+        event_metadata("ai.logical_finish", outcome="success")
+    assert await rows(collector) == []
+    with analytics_scope_for(NS(analytics=collector, users=users), message):
+        event_metadata("ai.logical_start")
+    assert totals(await rows(collector)) == {"ai.requests": 1}
 
 
-@pytest.mark.asyncio
-async def test_direct_dispatch_scope_honors_existing_suppression_and_check_failure(collector, tmp_path):
+async def test_direct_dispatch_scope_honors_existing_suppression_and_check_failure(collector, tmp_path, database):
     from unittest.mock import AsyncMock
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'personal.sqlite3'}")
-    await database.initialize()
     users = UserRepository(database.session_factory)
     message = NS(author=NS(twitch_user_id="300"), channel_id="200")
-    try:
-        await users.opt_out("300")
-        fresh_users = UserRepository(database.session_factory)
-        services = NS(analytics=collector, users=fresh_users)
-        with await checked_analytics_scope_for(services, message):
-            event_metadata("ai.logical_start")
-        services.users = NS(is_storage_opted_out=AsyncMock(side_effect=OSError))
-        with await checked_analytics_scope_for(services, message):
-            event_metadata("ai.logical_start")
-        assert await rows(collector) == []
-    finally:
-        await database.close()
+    await users.opt_out("300")
+    fresh_users = UserRepository(database.session_factory)
+    services = NS(analytics=collector, users=fresh_users)
+    with await checked_analytics_scope_for(services, message):
+        event_metadata("ai.logical_start")
+    services.users = NS(is_storage_opted_out=AsyncMock(side_effect=OSError))
+    with await checked_analytics_scope_for(services, message):
+        event_metadata("ai.logical_start")
+    assert await rows(collector) == []
 
 
-@pytest.mark.asyncio
-async def test_optout_waits_for_inflight_batch_and_revokes_its_contribution(collector, tmp_path, monkeypatch):
+async def test_optout_waits_for_inflight_batch_and_revokes_its_contribution(collector, tmp_path, monkeypatch, database):
     from threading import Event
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'personal.sqlite3'}")
-    await database.initialize()
     users = UserRepository(database.session_factory)
     users.analytics = collector
     entered, release = Event(), Event()
@@ -159,10 +140,8 @@ async def test_optout_waits_for_inflight_batch_and_revokes_its_contribution(coll
         assert await rows(collector) == []
     finally:
         release.set()
-        await database.close()
 
 
-@pytest.mark.asyncio
 async def test_collector_observer_failure_cannot_break_command_events(collector, monkeypatch):
     monkeypatch.setattr(collector, "observe", lambda *args, **kwargs: (_ for _ in ()).throw(OSError()))
     with analytics_scope(collector, "200"):
@@ -170,7 +149,6 @@ async def test_collector_observer_failure_cannot_break_command_events(collector,
     assert collector.dropped == 1
 
 
-@pytest.mark.asyncio
 async def test_cancelled_flush_keeps_barrier_until_real_writer_exits(collector, monkeypatch):
     from threading import Event
     entered, release = Event(), Event()
@@ -194,7 +172,6 @@ async def test_cancelled_flush_keeps_barrier_until_real_writer_exits(collector, 
     assert totals(await rows(collector)) == {"activity.observed": 1}
 
 
-@pytest.mark.asyncio
 async def test_disable_reset_clear_pending_and_invalidate_late_scopes(collector):
     with analytics_scope(collector, "200"):
         event_metadata("ai.logical_start")
@@ -213,7 +190,6 @@ async def test_disable_reset_clear_pending_and_invalidate_late_scopes(collector)
     con.close()
 
 
-@pytest.mark.asyncio
 async def test_midnight_retention_and_connection_time_split(collector):
     collector.connection("200", True)
     collector.test_time[0] += timedelta(seconds=2)
@@ -236,7 +212,6 @@ async def test_midnight_retention_and_connection_time_split(collector):
     con.close()
 
 
-@pytest.mark.asyncio
 async def test_writer_lock_failure_drops_visible_batch_and_recovers_without_replay(collector):
     con = sqlite3.connect(collector.path)
     con.execute("BEGIN IMMEDIATE")
@@ -250,7 +225,6 @@ async def test_writer_lock_failure_drops_visible_batch_and_recovers_without_repl
     assert collector.available
 
 
-@pytest.mark.asyncio
 async def test_bounded_busy_chat_and_query_plans(collector):
     latencies = []
     start = time.perf_counter()
@@ -279,7 +253,6 @@ async def test_bounded_busy_chat_and_query_plans(collector):
     con.close()
 
 
-@pytest.mark.asyncio
 async def test_overload_is_bounded_and_drops_are_persisted(collector):
     for _ in range(collector.capacity + 10):
         collector.record("activity.observed", channel_id="200")
@@ -288,7 +261,6 @@ async def test_overload_is_bounded_and_drops_are_persisted(collector):
     assert (await collector.snapshot("200"))["metadata"]["dropped"] == "10"
 
 
-@pytest.mark.asyncio
 async def test_dimensions_and_channels_stay_bounded(collector):
     for index in range(300):
         collector.record("command.attempts", channel_id="200", dimension=f"custom:{index}")
@@ -302,23 +274,16 @@ async def test_dimensions_and_channels_stay_bounded(collector):
     con.close()
 
 
-@pytest.mark.asyncio
-async def test_current_retained_users_excludes_expired_suppressed_and_other_channels(tmp_path):
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'personal.sqlite3'}")
-    await database.initialize()
+async def test_current_retained_users_excludes_expired_suppressed_and_other_channels(tmp_path, database):
     users = UserRepository(database.session_factory)
-    try:
-        await users.upsert_seen("1", "synthetic", channel_id="200")
-        await users.upsert_seen("2", "synthetic", channel_id="201")
-        await users.upsert_seen("3", "synthetic", channel_id="200", seen_at=datetime.now(timezone.utc) - timedelta(days=61))
-        await users.upsert_seen("4", "synthetic", channel_id="200")
-        await users.opt_out("4")
-        assert await users.retained_count(channel_id="200") == 1
-    finally:
-        await database.close()
+    await users.upsert_seen("1", "synthetic", channel_id="200")
+    await users.upsert_seen("2", "synthetic", channel_id="201")
+    await users.upsert_seen("3", "synthetic", channel_id="200", seen_at=datetime.now(timezone.utc) - timedelta(days=61))
+    await users.upsert_seen("4", "synthetic", channel_id="200")
+    await users.opt_out("4")
+    assert await users.retained_count(channel_id="200") == 1
 
 
-@pytest.mark.asyncio
 async def test_hourly_observations_and_coverage_split_at_utc_hours_and_midnight(collector):
     collector.test_time[0] = datetime(2026, 10, 30, 23, 59, 59, tzinfo=timezone.utc)
     collector.connection("200", True)
@@ -345,7 +310,6 @@ async def test_hourly_observations_and_coverage_split_at_utc_hours_and_midnight(
     assert (await collector.snapshot("200", 1))["hourly_rows"] == today["hourly_rows"]
 
 
-@pytest.mark.asyncio
 async def test_snapshot_captures_one_utc_window_before_offloop_read(collector, monkeypatch):
     before_midnight = collector.clock()
     collector.record("command.attempts", channel_id="200", at=before_midnight)
@@ -368,7 +332,6 @@ async def test_snapshot_captures_one_utc_window_before_offloop_read(collector, m
     assert totals(current["rows"]) == totals(current["hourly_rows"]) == {"command.attempts": 2}
 
 
-@pytest.mark.asyncio
 async def test_hourly_coverage_does_not_bridge_disabled_gaps(collector):
     collector.test_time[0] = datetime(2026, 10, 31, 0, tzinfo=timezone.utc)
     collector._coverage_at = collector.clock()
@@ -392,7 +355,6 @@ async def test_hourly_coverage_does_not_bridge_disabled_gaps(collector):
     assert totals((await collector.snapshot("200", 1))["hourly_rows"])["connection.seconds"] == 5400
 
 
-@pytest.mark.asyncio
 async def test_daily_only_upgrade_is_repeatable_and_never_backfills_hours(tmp_path):
     path = tmp_path / "old.analytics.sqlite3"
     now = [datetime(2026, 10, 31, 12, tzinfo=timezone.utc)]
@@ -423,102 +385,75 @@ async def test_daily_only_upgrade_is_repeatable_and_never_backfills_hours(tmp_pa
     con.close()
 
 
-@pytest.mark.asyncio
-async def test_new_users_concurrent_first_messages_replay_rename_and_channel_isolation(collector, tmp_path):
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'personal.sqlite3'}")
-    await database.initialize()
+async def test_new_users_concurrent_first_messages_replay_rename_and_channel_isolation(collector, tmp_path, database):
     users = UserRepository(database.session_factory)
     users.analytics = collector
-    try:
-        await asyncio.gather(*(users.upsert_seen("300", "synthetic", channel_id="200") for _ in range(20)))
-        await users.upsert_seen("300", "renamed", channel_id="200")
-        await users.upsert_seen("300", "renamed", channel_id="201")
-        assert totals(await rows(collector))["users.new"] == 1
-        assert totals(await rows(collector, "201"))["users.new"] == 1
-        await users.upsert_seen("301", "different", channel_id="200")
-        assert totals(await rows(collector))["users.new"] == 2
-    finally:
-        await database.close()
+    await asyncio.gather(*(users.upsert_seen("300", "synthetic", channel_id="200") for _ in range(20)))
+    await users.upsert_seen("300", "renamed", channel_id="200")
+    await users.upsert_seen("300", "renamed", channel_id="201")
+    assert totals(await rows(collector))["users.new"] == 1
+    assert totals(await rows(collector, "201"))["users.new"] == 1
+    await users.upsert_seen("301", "different", channel_id="200")
+    assert totals(await rows(collector))["users.new"] == 2
 
 
-@pytest.mark.asyncio
-async def test_new_users_expired_presence_counts_again_without_historical_backfill(collector, tmp_path):
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'personal.sqlite3'}")
-    await database.initialize()
+async def test_new_users_expired_presence_counts_again_without_historical_backfill(collector, tmp_path, database):
     users = UserRepository(database.session_factory)
-    try:
-        await users.upsert_seen("300", "expired", datetime.now(timezone.utc) - timedelta(days=61), channel_id="200")
-        await users.upsert_seen("301", "retained", channel_id="200")
-        users.analytics = collector
-        assert "users.new" not in totals(await rows(collector))
-        await users.upsert_seen("300", "returned", channel_id="200")
-        await users.upsert_seen("301", "returned", channel_id="200")
-        assert totals(await rows(collector))["users.new"] == 1
-    finally:
-        await database.close()
+    await users.upsert_seen("300", "expired", datetime.now(timezone.utc) - timedelta(days=61), channel_id="200")
+    await users.upsert_seen("301", "retained", channel_id="200")
+    users.analytics = collector
+    assert "users.new" not in totals(await rows(collector))
+    await users.upsert_seen("300", "returned", channel_id="200")
+    await users.upsert_seen("301", "returned", channel_id="200")
+    assert totals(await rows(collector))["users.new"] == 1
 
 
-@pytest.mark.asyncio
-async def test_new_users_optout_pending_epoch_and_collection_generation_guards(collector, tmp_path):
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'personal.sqlite3'}")
-    await database.initialize()
+async def test_new_users_optout_pending_epoch_and_collection_generation_guards(collector, tmp_path, database):
     users = UserRepository(database.session_factory)
     users.analytics = collector
-    try:
-        await users.upsert_seen("300", "queued", channel_id="200")
+    await users.upsert_seen("300", "queued", channel_id="200")
+    await users.opt_out("300")
+    await users.withdraw_opt_out("300")
+    assert await rows(collector) == []
+    with users.storage_scope("300"):
         await users.opt_out("300")
         await users.withdraw_opt_out("300")
+        assert await users.upsert_seen("300", "stale", channel_id="200") is None
+    await users.opt_out("301")
+    fresh_users = UserRepository(database.session_factory)
+    fresh_users.analytics = collector
+    assert await fresh_users.upsert_seen("301", "suppressed", channel_id="200") is None
+    assert await rows(collector) == []
+    for operation in (collector.reset, lambda: collector.configure(False)):
+        async with users.policy.lock:
+            pending = asyncio.create_task(users.upsert_seen("302", "pending", channel_id="200"))
+            await asyncio.sleep(0)
+            await operation()
+        await pending
         assert await rows(collector) == []
-        with users.storage_scope("300"):
-            await users.opt_out("300")
-            await users.withdraw_opt_out("300")
-            assert await users.upsert_seen("300", "stale", channel_id="200") is None
-        await users.opt_out("301")
-        fresh_users = UserRepository(database.session_factory)
-        fresh_users.analytics = collector
-        assert await fresh_users.upsert_seen("301", "suppressed", channel_id="200") is None
-        assert await rows(collector) == []
-        for operation in (collector.reset, lambda: collector.configure(False)):
-            async with users.policy.lock:
-                pending = asyncio.create_task(users.upsert_seen("302", "pending", channel_id="200"))
-                await asyncio.sleep(0)
-                await operation()
-            await pending
-            assert await rows(collector) == []
-        await collector.configure(True)
-        # A presence retained while disabled is not backfilled on re-enable.
-        await users.upsert_seen("302", "returned", channel_id="200")
-        await users.upsert_seen("303", "new", channel_id="200")
-        assert totals(await rows(collector))["users.new"] == 1
-    finally:
-        await database.close()
+    await collector.configure(True)
+    # A presence retained while disabled is not backfilled on re-enable.
+    await users.upsert_seen("302", "returned", channel_id="200")
+    await users.upsert_seen("303", "new", channel_id="200")
+    assert totals(await rows(collector))["users.new"] == 1
 
 
-@pytest.mark.asyncio
-async def test_new_users_failed_commit_does_not_count(collector, tmp_path, monkeypatch):
+async def test_new_users_failed_commit_does_not_count(collector, tmp_path, monkeypatch, database):
     from sqlalchemy.ext.asyncio import AsyncSession
     from unittest.mock import AsyncMock
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'personal.sqlite3'}")
-    await database.initialize()
     users = UserRepository(database.session_factory)
     users.analytics = collector
-    try:
-        with monkeypatch.context() as patch:
-            patch.setattr(AsyncSession, "commit", AsyncMock(side_effect=OSError("synthetic failure")))
-            with pytest.raises(OSError):
-                await users.upsert_seen("300", "uncommitted", channel_id="200")
-        assert await rows(collector) == []
-        await users.upsert_seen("300", "committed", channel_id="200")
-        assert totals(await rows(collector))["users.new"] == 1
-    finally:
-        await database.close()
+    with monkeypatch.context() as patch:
+        patch.setattr(AsyncSession, "commit", AsyncMock(side_effect=OSError("synthetic failure")))
+        with pytest.raises(OSError):
+            await users.upsert_seen("300", "uncommitted", channel_id="200")
+    assert await rows(collector) == []
+    await users.upsert_seen("300", "committed", channel_id="200")
+    assert totals(await rows(collector))["users.new"] == 1
 
 
-@pytest.mark.asyncio
-async def test_new_users_optout_during_commit_cannot_leave_a_queued_contribution(collector, tmp_path, monkeypatch):
+async def test_new_users_optout_during_commit_cannot_leave_a_queued_contribution(collector, tmp_path, monkeypatch, database):
     from sqlalchemy.ext.asyncio import AsyncSession
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'personal.sqlite3'}")
-    await database.initialize()
     users = UserRepository(database.session_factory)
     users.analytics = collector
     entered, release = asyncio.Event(), asyncio.Event()
@@ -548,4 +483,3 @@ async def test_new_users_optout_during_commit_cannot_leave_a_queued_contribution
         assert snapshot["metadata"]["hourly_start"] == snapshot["metadata"]["new_users_start"] == collector.clock().isoformat()
     finally:
         release.set()
-        await database.close()

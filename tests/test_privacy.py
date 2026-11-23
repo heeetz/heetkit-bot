@@ -1,7 +1,6 @@
 """Retention and manual privacy requests use disposable synthetic databases only."""
 
 import asyncio
-from contextlib import closing
 from datetime import timedelta
 import sqlite3
 from types import SimpleNamespace
@@ -34,73 +33,54 @@ async def stored(database, model):
         return list((await session.scalars(select(model))).all())
 
 
-@pytest.mark.asyncio
-async def test_history_retains_more_than_five_but_context_uses_last_five():
-    database = Database("sqlite+aiosqlite:///:memory:")
-    await database.initialize()
-    try:
-        memory = AIMemoryService(AIMemoryRepository(database.session_factory))
-        for index in range(8):
-            await memory.save_exchange("123", f"question-{index}", f"reply-{index}", channel_id="100")
-        await memory.save_exchange("456", "unaffected", "other reply", channel_id="100")
-        assert len(await stored(database, AIMemoryEntry)) == 9
-        entries = await memory.get_recent("123", channel_id="100")
-        assert [entry.request_text for entry in entries] == [f"question-{index}" for index in range(3, 8)]
-        assert "question-2" not in memory.format_context(entries)
-        await memory.erase_for_user("123", channel_id="100")
-        assert [entry.twitch_user_id for entry in await stored(database, AIMemoryEntry)] == ["456"]
-    finally:
-        await database.close()
+async def test_history_retains_more_than_five_but_context_uses_last_five(database):
+    memory = AIMemoryService(AIMemoryRepository(database.session_factory))
+    for index in range(8):
+        await memory.save_exchange("123", f"question-{index}", f"reply-{index}", channel_id="100")
+    await memory.save_exchange("456", "unaffected", "other reply", channel_id="100")
+    assert len(await stored(database, AIMemoryEntry)) == 9
+    entries = await memory.get_recent("123", channel_id="100")
+    assert [entry.request_text for entry in entries] == [f"question-{index}" for index in range(3, 8)]
+    assert "question-2" not in memory.format_context(entries)
+    await memory.erase_for_user("123", channel_id="100")
+    assert [entry.twitch_user_id for entry in await stored(database, AIMemoryEntry)] == ["456"]
 
 
-@pytest.mark.asyncio
-async def test_retention_boundaries_inactive_users_and_unaffected_users():
-    database = Database("sqlite+aiosqlite:///:memory:")
-    await database.initialize()
-    try:
-        now = utcnow()
-        async with database.session_factory() as session:
-            for user_id, days in (("expired", 60), ("active", 59), ("old", 61)):
-                session.add(User(twitch_user_id=user_id, username=user_id, created_at=now - timedelta(days=200),
-                                 last_seen_at=now - timedelta(days=days), channel_id="100"))
-            for user_id, age in (("active", timedelta(days=60)), ("active", timedelta(days=60, microseconds=-1)),
-                                 ("expired", timedelta(days=1)), ("old", timedelta(days=61))):
-                session.add(AIMemoryEntry(twitch_user_id=user_id, request_text="synthetic", response_text="reply",
-                                          created_at=now - age, channel_id="100"))
-            session.add(PrivacyOptOut(twitch_user_id="999"))
-            await session.commit()
-        await database.cleanup_expired(now)
-        assert [user.twitch_user_id for user in await stored(database, User)] == ["active"]
-        entries = await stored(database, AIMemoryEntry)
-        assert len(entries) == 2  # AI age is independent of presence inactivity.
-        assert entries[0].created_at == now - timedelta(days=60, microseconds=-1)
-        assert [item.twitch_user_id for item in await stored(database, PrivacyOptOut)] == ["999"]
-    finally:
-        await database.close()
+async def test_retention_boundaries_inactive_users_and_unaffected_users(database):
+    now = utcnow()
+    async with database.session_factory() as session:
+        for user_id, days in (("expired", 60), ("active", 59), ("old", 61)):
+            session.add(User(twitch_user_id=user_id, username=user_id, created_at=now - timedelta(days=200),
+                             last_seen_at=now - timedelta(days=days), channel_id="100"))
+        for user_id, age in (("active", timedelta(days=60)), ("active", timedelta(days=60, microseconds=-1)),
+                             ("expired", timedelta(days=1)), ("old", timedelta(days=61))):
+            session.add(AIMemoryEntry(twitch_user_id=user_id, request_text="synthetic", response_text="reply",
+                                      created_at=now - age, channel_id="100"))
+        session.add(PrivacyOptOut(twitch_user_id="999"))
+        await session.commit()
+    await database.cleanup_expired(now)
+    assert [user.twitch_user_id for user in await stored(database, User)] == ["active"]
+    entries = await stored(database, AIMemoryEntry)
+    assert len(entries) == 2  # AI age is independent of presence inactivity.
+    assert entries[0].created_at == now - timedelta(days=60, microseconds=-1)
+    assert [item.twitch_user_id for item in await stored(database, PrivacyOptOut)] == ["999"]
 
 
-@pytest.mark.asyncio
-async def test_expired_data_is_hidden_before_sweep_and_active_user_refresh_survives():
-    database = Database("sqlite+aiosqlite:///:memory:")
-    await database.initialize()
-    try:
-        users = UserRepository(database.session_factory)
-        memory = AIMemoryRepository(database.session_factory)
-        await users.upsert_seen("123", "oldname", utcnow() - timedelta(days=181), channel_id="100")
-        async with database.session_factory() as session:
-            session.add(AIMemoryEntry(twitch_user_id="123", request_text="expired", response_text="reply",
-                                      created_at=utcnow() - timedelta(days=91), channel_id="100"))
-            await session.commit()
-        assert await users.get_by_username("oldname", channel_id="100") is None
-        assert await memory.get_recent("123", 5, channel_id="100") == []
-        await users.upsert_seen("123", "renamed", channel_id="100")
-        await database.cleanup_expired()
-        assert (await users.get_by_username("renamed", channel_id="100")).twitch_user_id == "123"
-    finally:
-        await database.close()
+async def test_expired_data_is_hidden_before_sweep_and_active_user_refresh_survives(database):
+    users = UserRepository(database.session_factory)
+    memory = AIMemoryRepository(database.session_factory)
+    await users.upsert_seen("123", "oldname", utcnow() - timedelta(days=181), channel_id="100")
+    async with database.session_factory() as session:
+        session.add(AIMemoryEntry(twitch_user_id="123", request_text="expired", response_text="reply",
+                                  created_at=utcnow() - timedelta(days=91), channel_id="100"))
+        await session.commit()
+    assert await users.get_by_username("oldname", channel_id="100") is None
+    assert await memory.get_recent("123", 5, channel_id="100") == []
+    await users.upsert_seen("123", "renamed", channel_id="100")
+    await database.cleanup_expired()
+    assert (await users.get_by_username("renamed", channel_id="100")).twitch_user_id == "123"
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("action", ["delete", "opt-out"])
 async def test_manual_deletion_and_persistent_opt_out(tmp_path, action):
     path = tmp_path / "synthetic.db"
@@ -148,7 +128,6 @@ async def test_manual_deletion_and_persistent_opt_out(tmp_path, action):
             await database.close()
 
 
-@pytest.mark.asyncio
 async def test_periodic_cleanup_runs_without_chat_and_task_stops_on_close(monkeypatch):
     monkeypatch.setattr("app.database.database.RETENTION_CHECK_SECONDS", 0.01)
     database = Database("sqlite+aiosqlite:///:memory:")
@@ -179,15 +158,12 @@ def test_manual_tool_refuses_missing_database_and_invalid_identity(tmp_path):
     assert not path.exists()
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("memory_enabled,opted_out,delivered", [
     (False, False, True), (True, False, True), (True, True, True), (True, False, False),
     (True, False, None),
 ])
-async def test_chat_storage_memory_off_opt_out_and_erase_remain_scoped(tmp_path, monkeypatch, memory_enabled, opted_out, delivered):
+async def test_chat_storage_memory_off_opt_out_and_erase_remain_scoped(tmp_path, monkeypatch, memory_enabled, opted_out, delivered, database):
     monkeypatch.setenv("HEETKIT_DATA_DIR", str(tmp_path))
-    database = Database("sqlite+aiosqlite:///:memory:")
-    await database.initialize()
     buffer = RecentLogBuffer()
     logger = logging.getLogger("tests.privacy.chat")
     handler = RecentLogHandler(buffer)
@@ -246,10 +222,8 @@ async def test_chat_storage_memory_off_opt_out_and_erase_remain_scoped(tmp_path,
     finally:
         logger.removeHandler(handler)
         logger.setLevel(original_level)
-        await database.close()
 
 
-@pytest.mark.asyncio
 async def test_private_log_scope_does_not_hide_concurrent_viewer_or_later_logs():
     buffer = RecentLogBuffer()
     handler = RecentLogHandler(buffer)
@@ -280,7 +254,6 @@ async def test_private_log_scope_does_not_hide_concurrent_viewer_or_later_logs()
     assert [entry["message"] for entry in buffer.recent()] == stream
 
 
-@pytest.mark.asyncio
 async def test_retention_failure_is_private_and_next_interval_recovers(monkeypatch, caplog):
     monkeypatch.setattr("app.database.database.RETENTION_CHECK_SECONDS", 0.01)
     database = Database("sqlite+aiosqlite:///:memory:")
@@ -307,7 +280,6 @@ async def test_retention_failure_is_private_and_next_interval_recovers(monkeypat
         await database.close()
 
 
-@pytest.mark.asyncio
 async def test_channel_membership_rename_expiry_and_independent_profile(tmp_path):
     databases = [Database("sqlite+aiosqlite:///" + str(tmp_path / profile / "synthetic.db")) for profile in ("one", "two")]
     for database in databases:
@@ -333,7 +305,6 @@ async def test_channel_membership_rename_expiry_and_independent_profile(tmp_path
             await database.close()
 
 
-@pytest.mark.asyncio
 async def test_nm_caps_are_enforced_on_writes_and_settings_for_each_scope(tmp_path):
     from app.app_settings import AppSettingsStore
     database = Database("sqlite+aiosqlite:///:memory:", history_limit=3, context_limit=2)
@@ -388,56 +359,42 @@ def twitch_message(text, user_id="123", channel_id="100"):
         respond=AsyncMock(return_value=SimpleNamespace(sent=True)))
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("channel_id", ["", "nickname", "None", "1" * 33, 123])
-async def test_storage_never_infers_channel_identity_from_a_nickname(channel_id):
-    database = Database("sqlite+aiosqlite:///:memory:")
-    await database.initialize()
-    try:
-        await UserRepository(database.session_factory).upsert_seen("123", "viewer", channel_id=channel_id)
-        await AIMemoryRepository(database.session_factory).append("123", "question", "answer", channel_id=channel_id)
-        assert await stored(database, User) == []
-        assert await stored(database, AIMemoryEntry) == []
-    finally:
-        await database.close()
+async def test_storage_never_infers_channel_identity_from_a_nickname(channel_id, database):
+    await UserRepository(database.session_factory).upsert_seen("123", "viewer", channel_id=channel_id)
+    await AIMemoryRepository(database.session_factory).append("123", "question", "answer", channel_id=channel_id)
+    assert await stored(database, User) == []
+    assert await stored(database, AIMemoryEntry) == []
 
 
-@pytest.mark.asyncio
-async def test_optout_precedes_filters_bans_cooldowns_and_never_targets_arguments():
+async def test_optout_precedes_filters_bans_cooldowns_and_never_targets_arguments(database):
     from app.utils.logging import OperatorActivityHandler
-    database = Database("sqlite+aiosqlite:///:memory:")
-    await database.initialize()
-    try:
-        users = UserRepository(database.session_factory)
-        memory = AIMemoryService(AIMemoryRepository(database.session_factory))
-        for viewer in ("123", "456"):
-            for channel in ("100", "200"):
-                await users.upsert_seen(viewer, "viewer" + viewer, channel_id=channel)
-                await memory.save_exchange(viewer, "question", "answer", channel_id=channel)
-        filters = SimpleNamespace(filter_message=lambda _: pytest.fail("Filter ran before opt-out"))
-        services = SimpleNamespace(users=users, filter_manager=filters, settings=SimpleNamespace(command_prefix="?"), ai_user_blocks=object())
-        dispatcher = SimpleNamespace(dispatch=AsyncMock(), is_ai_request_blocked=lambda *_: pytest.fail("Access policy ran before opt-out"))
-        buffer = RecentLogBuffer()
-        logger = logging.Logger("synthetic.optout", logging.INFO)
-        logger.addHandler(OperatorActivityHandler(buffer))
-        incoming = twitch_message("?optout 456", channel_id="200")
-        await process_twitch_message(incoming, services, dispatcher, logger)
-        repeated = twitch_message("?optout", channel_id="200")
-        incoming.id, repeated.id = "first", "distinct"
-        await process_twitch_message(repeated, services, dispatcher, logger)
-        assert [row.twitch_user_id for row in await stored(database, PrivacyOptOut)] == ["123"]
-        assert {row.twitch_user_id for row in await stored(database, User)} == {"456"}
-        assert {row.twitch_user_id for row in await stored(database, AIMemoryEntry)} == {"456"}
-        assert buffer.activity()["entries"] == []
-        assert "provider" in incoming.respond.await_args.args[0]
-        repeated.respond.assert_not_awaited()
-        dispatcher.dispatch.assert_not_awaited()
-    finally:
-        await database.close()
+    users = UserRepository(database.session_factory)
+    memory = AIMemoryService(AIMemoryRepository(database.session_factory))
+    for viewer in ("123", "456"):
+        for channel in ("100", "200"):
+            await users.upsert_seen(viewer, "viewer" + viewer, channel_id=channel)
+            await memory.save_exchange(viewer, "question", "answer", channel_id=channel)
+    filters = SimpleNamespace(filter_message=lambda _: pytest.fail("Filter ran before opt-out"))
+    services = SimpleNamespace(users=users, filter_manager=filters, settings=SimpleNamespace(command_prefix="?"), ai_user_blocks=object())
+    dispatcher = SimpleNamespace(dispatch=AsyncMock(), is_ai_request_blocked=lambda *_: pytest.fail("Access policy ran before opt-out"))
+    buffer = RecentLogBuffer()
+    logger = logging.Logger("synthetic.optout", logging.INFO)
+    logger.addHandler(OperatorActivityHandler(buffer))
+    incoming = twitch_message("?optout 456", channel_id="200")
+    await process_twitch_message(incoming, services, dispatcher, logger)
+    repeated = twitch_message("?optout", channel_id="200")
+    incoming.id, repeated.id = "first", "distinct"
+    await process_twitch_message(repeated, services, dispatcher, logger)
+    assert [row.twitch_user_id for row in await stored(database, PrivacyOptOut)] == ["123"]
+    assert {row.twitch_user_id for row in await stored(database, User)} == {"456"}
+    assert {row.twitch_user_id for row in await stored(database, AIMemoryEntry)} == {"456"}
+    assert buffer.activity()["entries"] == []
+    assert "provider" in incoming.respond.await_args.args[0]
+    repeated.respond.assert_not_awaited()
+    dispatcher.dispatch.assert_not_awaited()
 
-async def test_optout_coalesces_and_retries_recovery_without_repeating_deletion(monkeypatch):
-    database = Database("sqlite+aiosqlite:///:memory:")
-    await database.initialize()
+async def test_optout_coalesces_and_retries_recovery_without_repeating_deletion(monkeypatch, database):
     users = UserRepository(database.session_factory)
     services = SimpleNamespace(users=users, settings=SimpleNamespace(command_prefix="!"))
     logger = logging.getLogger("test.optout")
@@ -456,44 +413,38 @@ async def test_optout_coalesces_and_retries_recovery_without_repeating_deletion(
             raise OSError("synthetic recovery failure")
 
     monkeypatch.setattr(users, "_update_recovery", scrub)
+    first = twitch_message("!optout")
+    first.id = "first"
+    pending = asyncio.create_task(process_twitch_message(first, services, None, logger))
+    await entered.wait()
+    overlap = twitch_message("!optout")
+    overlap.id = "second"
     try:
-        first = twitch_message("!optout")
-        first.id = "first"
-        pending = asyncio.create_task(process_twitch_message(first, services, None, logger))
-        await entered.wait()
-        overlap = twitch_message("!optout")
-        overlap.id = "second"
-        try:
-            await asyncio.wait_for(process_twitch_message(overlap, services, None, logger), 1)
-        finally:
-            resume.set()
-            await pending
-        overlap.respond.assert_not_awaited()
-        assert "could not complete" in first.respond.await_args.args[0]
-        assert await users.is_storage_opted_out("123")
-
-        retry = twitch_message("!optout")
-        retry.id = "third"
-        await process_twitch_message(retry, services, None, logger)
-        retry.respond.assert_not_awaited()
-        now[0] += 6
-        await process_twitch_message(retry, services, None, logger)
-        assert "storage disabled" in retry.respond.await_args.args[0]
-        assert users.policy.privacy_epochs["123"] == 1
-        assert attempts == [("123",), ("123",)]
-        assert await users.opt_out("123", chat=True) is False
-        await users.withdraw_opt_out("123")
-        assert await users.opt_out("123", chat=True) is True
+        await asyncio.wait_for(process_twitch_message(overlap, services, None, logger), 1)
     finally:
-        await database.close()
+        resume.set()
+        await pending
+    overlap.respond.assert_not_awaited()
+    assert "could not complete" in first.respond.await_args.args[0]
+    assert await users.is_storage_opted_out("123")
+
+    retry = twitch_message("!optout")
+    retry.id = "third"
+    await process_twitch_message(retry, services, None, logger)
+    retry.respond.assert_not_awaited()
+    now[0] += 6
+    await process_twitch_message(retry, services, None, logger)
+    assert "storage disabled" in retry.respond.await_args.args[0]
+    assert users.policy.privacy_epochs["123"] == 1
+    assert attempts == [("123",), ("123",)]
+    assert await users.opt_out("123", chat=True) is False
+    await users.withdraw_opt_out("123")
+    assert await users.opt_out("123", chat=True) is True
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("opt_out,withdraw", [(False, False), (True, False), (True, True)])
-async def test_pending_ai_keeps_original_channel_and_optout_guards_late_logs_writes(opt_out, withdraw):
+async def test_pending_ai_keeps_original_channel_and_optout_guards_late_logs_writes(opt_out, withdraw, database):
     from app.utils.logging import OperatorActivityHandler, operator_event
-    database = Database("sqlite+aiosqlite:///:memory:")
-    await database.initialize()
     started, release = asyncio.Event(), asyncio.Event()
     users = UserRepository(database.session_factory)
     memory = AIMemoryService(AIMemoryRepository(database.session_factory))
@@ -536,4 +487,3 @@ async def test_pending_ai_keeps_original_channel_and_optout_guards_late_logs_wri
     finally:
         release.set()
         await pending
-        await database.close()

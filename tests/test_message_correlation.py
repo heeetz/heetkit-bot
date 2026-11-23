@@ -25,7 +25,6 @@ def correlation_activity():
     return buffer, handler, logger
 
 
-@pytest.mark.asyncio
 async def test_concurrent_send_race_identical_manual_text_and_channel_account_isolation():
     correlation = ChatMessageCorrelation()
     entered, release = asyncio.Event(), asyncio.Event()
@@ -52,7 +51,6 @@ async def test_concurrent_send_race_identical_manual_text_and_channel_account_is
     assert not correlation.pending
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["reject", "error", "missing", "cancel", "timeout"])
 async def test_failed_sends_release_waiters_without_text_matching(failure):
     now = [0.0]
@@ -82,7 +80,6 @@ async def test_failed_sends_release_waiters_without_text_matching(failure):
     assert not await correlation.is_outgoing("bot", "channel", ("manual",))
 
 
-@pytest.mark.asyncio
 async def test_caches_bound_expire_and_survive_transport_rebind():
     from app.services.twitch import TwitchAPIService
 
@@ -103,7 +100,6 @@ async def test_caches_bound_expire_and_survive_transport_rebind():
     assert not await correlation.is_outgoing("bot", "channel", ("three",))
 
 
-@pytest.mark.asyncio
 async def test_cancelled_ingress_does_not_cancel_send_completion():
     correlation = ChatMessageCorrelation()
     entered, release = asyncio.Event(), asyncio.Event()
@@ -122,7 +118,6 @@ async def test_cancelled_ingress_does_not_cancel_send_completion():
     assert await correlation.is_outgoing("bot", "channel", ("sent",))
 
 
-@pytest.mark.asyncio
 async def test_oversized_ids_cannot_expand_retained_cache_bytes():
     correlation = ChatMessageCorrelation(limit=2)
     huge_id = "😀" * 256
@@ -140,7 +135,6 @@ async def test_oversized_ids_cannot_expand_retained_cache_bytes():
     assert not correlation.pending
 
 
-@pytest.mark.asyncio
 async def test_sdk_rejection_is_failed_without_quarantine_or_private_error_text(caplog):
     from app.commands.registry import CommandContext
     from app.twitch.events import ChatAuthor, IncomingChatMessage
@@ -164,7 +158,6 @@ async def test_sdk_rejection_is_failed_without_quarantine_or_private_error_text(
     assert "PRIVATE" not in caplog.text
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("initial_time", [0.0, 930.7916665])
 async def test_pause_drops_are_sanitized_aggregated_and_expire_without_new_input(monkeypatch, caplog, initial_time):
     loop = asyncio.get_running_loop()
@@ -208,7 +201,6 @@ async def test_pause_drops_are_sanitized_aggregated_and_expire_without_new_input
         logger.removeHandler(handler)
 
 
-@pytest.mark.asyncio
 async def test_extension_cancels_old_expiry_and_keeps_quarantine_across_rebind(monkeypatch, caplog):
     from app.services.twitch import TwitchAPIService
     loop = asyncio.get_running_loop()
@@ -235,7 +227,6 @@ async def test_extension_cancels_old_expiry_and_keeps_quarantine_across_rebind(m
     assert not await correlation.is_outgoing("bot", "channel", ("manual",))
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("failure,reason", [("cancel", "send_cancelled"), ("timeout", "send_timeout"),
                                          ("network", "send_error")])
 async def test_pause_reasons_preserve_uncertain_send_classification(failure, reason, caplog):
@@ -259,7 +250,6 @@ async def test_pause_reasons_preserve_uncertain_send_classification(failure, rea
     assert "PRIVATE" not in caplog.text
 
 
-@pytest.mark.asyncio
 async def test_pending_wait_echo_and_replay_decisions_are_bounded_without_changing_results(caplog):
     caplog.set_level(logging.INFO)
     correlation = ChatMessageCorrelation(limit=2)
@@ -289,7 +279,6 @@ async def test_pending_wait_echo_and_replay_decisions_are_bounded_without_changi
     assert len(correlation._decisions) <= correlation.limit
 
 
-@pytest.mark.asyncio
 async def test_diagnostic_timers_and_counters_respect_cache_bound_and_request_privacy(monkeypatch, caplog):
     loop = asyncio.get_running_loop()
     now = [loop.time()]

@@ -4,7 +4,6 @@ import logging
 from dataclasses import replace
 from types import SimpleNamespace
 
-import pytest
 from pydantic import SecretStr
 
 from app.services.ai_provider import (
@@ -48,7 +47,6 @@ def test_partial_rounds_retain_reported_usage_and_mark_omissions():
     assert UsageAccumulator().metadata() == {"usage_incomplete": True}
 
 
-@pytest.mark.asyncio
 async def test_deepseek_failed_search_continuation_preserves_all_reported_usage(monkeypatch, caplog):
     provider = DeepSeekProvider(SimpleNamespace(
         deepseek_api_key=SecretStr("synthetic"), deepseek_model="deepseek-flash",
@@ -80,7 +78,6 @@ async def test_deepseek_failed_search_continuation_preserves_all_reported_usage(
     assert result.usage_incomplete  # The second round did not report its cache breakdown.
 
 
-@pytest.mark.asyncio
 async def test_openai_http_error_usage_reaches_attempt_event(monkeypatch, caplog):
     provider = OpenAIProvider(SimpleNamespace(openai_api_key=SecretStr("synthetic"),
                                             openai_model="gpt-5-mini", openai_fallback_model="gpt-5-mini"))

@@ -2,6 +2,7 @@ import sys
 from importlib.util import find_spec
 
 import pytest
+import pytest_asyncio
 
 
 # These cases live in modules reserved for the next slices.
@@ -35,3 +36,14 @@ def pytest_collection_modifyitems(items):
             item.add_marker(pytest.mark.skip(reason="Requires the optional pywebview package"))
         if item.get_closest_marker("windows") and sys.platform != "win32":
             item.add_marker(pytest.mark.skip(reason="Requires the Windows runtime"))
+
+
+@pytest_asyncio.fixture
+async def database(tmp_path):
+    """An initialized synthetic personal database that is closed after the test."""
+    from app.database.database import Database
+
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'personal.sqlite3'}")
+    await database.initialize()
+    yield database
+    await database.close()

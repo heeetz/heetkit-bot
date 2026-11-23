@@ -204,7 +204,6 @@ def test_active_sqlite_writer_refuses_migration_without_backup(tmp_path):
     assert read(path, "PRAGMA user_version") == [(2,)]
 
 
-@pytest.mark.asyncio
 async def test_migrated_seen_memory_and_optout_on_both_host_lifecycles(tmp_path, monkeypatch):
     from app.bot_runtime import BotRuntime
     from app.container import build_application
@@ -244,7 +243,6 @@ async def test_migrated_seen_memory_and_optout_on_both_host_lifecycles(tmp_path,
     assert not backup.exists()
 
 
-@pytest.mark.asyncio
 async def test_exclusive_database_guard_and_restart_catchup(tmp_path):
     path = tmp_path / "synthetic.db"
     first = Database("sqlite+aiosqlite:///" + str(path))
@@ -290,7 +288,6 @@ def test_recovery_privacy_actions_preserve_their_exact_scope_and_fixed_expiry(tm
     assert metadata["sha256"] == hashlib.sha256(backup.read_bytes()).hexdigest()
 
 
-@pytest.mark.asyncio
 async def test_cancelled_startup_keeps_guard_until_migration_worker_finishes(tmp_path, monkeypatch):
     import asyncio
     import threading
@@ -322,7 +319,6 @@ async def test_cancelled_startup_keeps_guard_until_migration_worker_finishes(tmp
         await second.close()
 
 
-@pytest.mark.asyncio
 async def test_database_beside_settings_does_not_collide_with_own_profile_guard(tmp_path):
     path = tmp_path / "synthetic.db"
     database = Database("sqlite+aiosqlite:///" + str(path))

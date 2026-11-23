@@ -3,7 +3,6 @@
 import logging
 import json
 import asyncio
-import pytest
 
 from app.utils.logging import RecentLogBuffer, RecentLogHandler, OperatorActivityHandler
 
@@ -112,7 +111,6 @@ def test_operator_metadata_bounds_scalars_and_excludes_unapproved_payloads():
     assert "event_request_id" not in event_metadata("later")
 
 
-@pytest.mark.asyncio
 async def test_private_operator_events_do_not_leak_or_suppress_concurrent_requests():
     from app.utils.logging import operator_event, operator_event_scope, privacy_log_scope, PrivacyLogFilter
     buffer = RecentLogBuffer()

@@ -31,7 +31,6 @@ def events(caplog, kind):
     return [record for record in caplog.records if getattr(record, "event_kind", None) == kind]
 
 
-@pytest.mark.asyncio
 async def test_known_attempts_aliases_and_early_ingress_scope_are_one_logical_attempt(caplog):
     registry = CommandRegistry()
     @registry.command("ping", aliases=("p",))
@@ -51,7 +50,6 @@ async def test_known_attempts_aliases_and_early_ingress_scope_are_one_logical_at
     assert terminal.event_reason == "confirmed_delivery"
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("mode,expected", [("return", "incomplete"), ("complete", "success"),
                                          ("raise", "error"), ("uncertain", "uncertain"),
                                          ("failed", "error")])
@@ -74,7 +72,6 @@ async def test_normal_return_is_not_success_and_delivery_is_explicit(caplog, mod
     assert "PRIVATE" not in caplog.text
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["permission", "disabled", "precheck", "cooldown", "restriction", "limiter"])
 async def test_precheck_denials_never_become_execution_errors(caplog, mode):
     registry = CommandRegistry()
@@ -98,7 +95,6 @@ async def test_precheck_denials_never_become_execution_errors(caplog, mode):
     assert len(events(caplog, "command.start")) == (1 if mode == "limiter" else 0)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("results,expected,reason", [
     ([True, True, True], "success", "confirmed_delivery"),
     ([True, False, False], "partial", "incomplete_delivery"),
@@ -124,7 +120,6 @@ async def test_burst_has_one_start_and_one_mutually_exclusive_terminal(caplog, r
     assert (terminal.event_outcome, terminal.event_reason) == (expected, reason)
 
 
-@pytest.mark.asyncio
 async def test_custom_alias_uses_saved_id_across_rename(tmp_path, caplog):
     registry = CommandRegistry()
     store = CustomCommandStore(ConfigFile(tmp_path / "custom.json"), set())
@@ -139,7 +134,6 @@ async def test_custom_alias_uses_saved_id_across_rename(tmp_path, caplog):
     assert [r.event_command_id for r in events(caplog, "command.attempt")] == [f"custom:{first.id}"] * 2
 
 
-@pytest.mark.asyncio
 async def test_limiter_after_confirmed_response_is_partial_not_precheck_skip(caplog):
     registry = CommandRegistry()
     @registry.command("work")
@@ -152,7 +146,6 @@ async def test_limiter_after_confirmed_response_is_partial_not_precheck_skip(cap
     assert terminal.event_outcome == "partial"
 
 
-@pytest.mark.asyncio
 async def test_cancelled_burst_drains_children_and_reports_partial_once(caplog):
     registry = CommandRegistry()
     waiting = asyncio.Event()

@@ -77,7 +77,6 @@ def oauth_request(query):
     return make_mocked_request("GET", "/oauth/callback?" + query, headers={"Host": "localhost:4343"})
 
 
-@pytest.mark.asyncio
 async def test_oauth_state_requires_desktop_initiation_and_is_single_use(monkeypatch) -> None:
     adapter, exchanges = oauth_adapter_probe(monkeypatch)
     assert (await adapter.oauth_redirect(oauth_request("scopes=user:read:chat"))).status == 403
@@ -94,7 +93,6 @@ async def test_oauth_state_requires_desktop_initiation_and_is_single_use(monkeyp
     assert exchanges == ["synthetic"]
 
 
-@pytest.mark.asyncio
 async def test_oauth_state_expires_and_cannot_cross_attempts_or_profiles(monkeypatch) -> None:
     now = 0.0
     adapter, exchanges = oauth_adapter_probe(monkeypatch, clock=lambda: now)
@@ -109,7 +107,6 @@ async def test_oauth_state_expires_and_cannot_cross_attempts_or_profiles(monkeyp
     assert exchanges == []
 
 
-@pytest.mark.asyncio
 async def test_oauth_state_is_consumed_before_exchange_yields_and_on_close(monkeypatch) -> None:
     import asyncio
     from aiohttp import web
@@ -135,7 +132,6 @@ async def test_oauth_state_is_consumed_before_exchange_yields_and_on_close(monke
     assert (await adapter.oauth_callback(oauth_request(f"code=synthetic&state={state}"))).status == 400
 
 
-@pytest.mark.asyncio
 async def test_oauth_denial_consumes_state_without_exchanging_a_token(monkeypatch) -> None:
     adapter, exchanges = oauth_adapter_probe(monkeypatch)
     monkeypatch.setattr(adapter, "fetch_token", DesktopOAuthAdapter.fetch_token.__get__(adapter))
@@ -145,7 +141,6 @@ async def test_oauth_denial_consumes_state_without_exchanging_a_token(monkeypatc
     assert exchanges == []
 
 
-@pytest.mark.asyncio
 async def test_bot_issues_state_for_running_initial_or_explicit_renewal_only() -> None:
     settings = build_settings()
     state = RuntimeState()
@@ -224,7 +219,6 @@ class ReplyingDispatcher:
         return True
 
 
-@pytest.mark.asyncio
 async def test_self_optout_runs_once_after_replay_and_outgoing_echo_validation():
     from app.services.twitch import TwitchAPIService
     settings = build_settings()
@@ -252,7 +246,6 @@ async def test_self_optout_runs_once_after_replay_and_outgoing_echo_validation()
         await bot.close(save_tokens=False)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("opted_out,filtered", [(False, False), (True, False), (False, True), (True, True)])
 async def test_activity_captures_commands_and_replies_but_not_ordinary_chat(opted_out, filtered):
     from app.commands.registry import CommandRegistry
@@ -286,7 +279,6 @@ async def test_activity_captures_commands_and_replies_but_not_ordinary_chat(opte
         assert cooldown["context"]["retry_after_seconds"] > 0
 
 
-@pytest.mark.asyncio
 async def test_filter_diagnostic_stays_suppressed_when_privacy_lookup_fails():
     from app.commands.registry import CommandRegistry
     from app.utils.cooldown import CooldownManager
@@ -303,7 +295,6 @@ async def test_filter_diagnostic_stays_suppressed_when_privacy_lookup_fails():
     assert users.seen_user_ids == []
 
 
-@pytest.mark.asyncio
 async def test_real_ingress_exposes_wait_and_quarantine_without_dispatching_dropped_input(tmp_path, caplog):
     from app.commands.fun import register_fun_commands
     from app.commands.registry import CommandRegistry
@@ -382,7 +373,6 @@ def build_settings() -> Settings:
     )
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("same_account", [False, True])
 async def test_commands_response_echo_cannot_invoke_ask_or_consume_viewer_cooldown(same_account, caplog) -> None:
     from app.commands.ai import register_ai_commands
@@ -454,7 +444,6 @@ async def test_commands_response_echo_cannot_invoke_ask_or_consume_viewer_cooldo
         await bot.close(save_tokens=False)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("content", ["!ask question", "!ping", "!custom", "ordinary reaction"])
 async def test_manual_bot_account_messages_reach_filters_persistence_and_dispatch(content):
     settings = build_settings()
@@ -472,7 +461,6 @@ async def test_manual_bot_account_messages_reach_filters_persistence_and_dispatc
     assert raw.responses == ["pong"]
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("arguments,count", [("", 1), ("1", 1), ("5", 5), ("20", 20)])
 async def test_duplicate_burst_delivery_does_not_start_a_second_burst(tmp_path, arguments, count) -> None:
     from app.commands.fun import register_fun_commands
@@ -511,7 +499,6 @@ async def test_duplicate_burst_delivery_does_not_start_a_second_burst(tmp_path, 
         await bot.close(save_tokens=False)
 
 
-@pytest.mark.asyncio
 async def test_chat_delivery_cache_is_bounded_and_does_not_match_message_text(monkeypatch) -> None:
     settings = build_settings()
     services = SimpleNamespace(twitch=None, users=RecordingUserRepository(), filter_manager=AllowingFilterManager())
@@ -531,7 +518,6 @@ async def test_chat_delivery_cache_is_bounded_and_does_not_match_message_text(mo
         await bot.close(save_tokens=False)
 
 
-@pytest.mark.asyncio
 async def test_twitch_message_maps_to_dto_persists_user_and_sends_response(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -566,7 +552,6 @@ async def test_twitch_message_maps_to_dto_persists_user_and_sends_response(
     assert "!ping" not in caplog.text
 
 
-@pytest.mark.asyncio
 async def test_direct_twitch_start_requires_credentials_before_creating_client(monkeypatch) -> None:
     settings = build_settings()
     settings.twitch_client_secret = None
@@ -576,7 +561,6 @@ async def test_direct_twitch_start_requires_credentials_before_creating_client(m
                              cast(CommandDispatcher, object()), logging.getLogger(__name__))
 
 
-@pytest.mark.asyncio
 async def test_run_twitch_bot_loads_and_saves_managed_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
     stop = asyncio.Event()
@@ -610,7 +594,6 @@ async def test_run_twitch_bot_loads_and_saves_managed_tokens(monkeypatch: pytest
     assert calls[2] == ("close", (), {"save_tokens": False})
 
 
-@pytest.mark.asyncio
 async def test_token_failure_is_logged_without_oauth_values(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -642,7 +625,6 @@ async def test_token_failure_is_logged_without_oauth_values(
     assert str(error.value) == "Twitch user token validation failed."
 
 
-@pytest.mark.asyncio
 async def test_websocket_loss_and_welcome_update_connection_state(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -688,7 +670,6 @@ async def test_websocket_loss_and_welcome_update_connection_state(
     await bot.close(save_tokens=False)
 
 
-@pytest.mark.asyncio
 async def test_missing_oauth_and_terminal_auth_failure_are_distinct_from_recovery(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -731,7 +712,6 @@ async def test_missing_oauth_and_terminal_auth_failure_are_distinct_from_recover
     assert state.twitch_connection_state == "connecting"
 
 
-@pytest.mark.asyncio
 async def test_terminal_configuration_failure_stops_in_failed_state(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -760,7 +740,6 @@ async def test_terminal_configuration_failure_stops_in_failed_state(
     assert any(getattr(record, "event_kind", None) == "twitch.failed" for record in caplog.records)
 
 
-@pytest.mark.asyncio
 async def test_revoked_chat_authorization_is_not_reported_as_reconnecting() -> None:
     settings = build_settings()
     state = RuntimeState()
@@ -787,7 +766,6 @@ async def test_revoked_chat_authorization_is_not_reported_as_reconnecting() -> N
     await bot.close(save_tokens=False)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("renewal", [False, True])
 async def test_oauth_callback_accepts_the_configured_bot_account(monkeypatch: pytest.MonkeyPatch, renewal) -> None:
     settings = build_settings()
@@ -826,7 +804,6 @@ async def test_oauth_callback_accepts_the_configured_bot_account(monkeypatch: py
     await bot.close(save_tokens=False)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("changes", [
     {"user_id": "unexpected-user"}, {"user_id": "200"},
     {"client_id": "other-app"}, {"login": "otherbot"}, {"scopes": ["user:write:chat"]},
@@ -868,7 +845,6 @@ async def test_oauth_callback_rejects_mismatched_renewal(monkeypatch, changes, r
         await bot.close(save_tokens=False)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("result", ["confirmed", "rejected", "missing_id"])
 async def test_twitch_native_command_reply_uses_invoking_id_and_existing_correlation(result, monkeypatch):
     from twitchio.http import HTTPClient

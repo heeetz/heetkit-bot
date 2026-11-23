@@ -54,7 +54,6 @@ def test_onboarding_checks_saved_grant_for_current_account_and_application(tmp_p
         assert not has_saved_bot_authorization(settings.model_copy(update=change))
 
 
-@pytest.mark.asyncio
 async def test_startup_rotation_final_flush_and_restart_preserve_managed_format(tmp_path, monkeypatch):
     bot = bot_at(tmp_path)
     path = bot._token_file
@@ -93,7 +92,6 @@ async def test_startup_rotation_final_flush_and_restart_preserve_managed_format(
     await restarted.close()
 
 
-@pytest.mark.asyncio
 async def test_failed_atomic_replace_preserves_cache_reports_failure_and_closes(tmp_path, monkeypatch, caplog):
     bot = bot_at(tmp_path)
     path = bot._token_file
@@ -117,7 +115,6 @@ async def test_failed_atomic_replace_preserves_cache_reports_failure_and_closes(
     assert "new-refresh" not in caplog.text
 
 
-@pytest.mark.asyncio
 async def test_malformed_cache_survives_partial_startup_and_shutdown(tmp_path):
     bot = bot_at(tmp_path)
     path = bot._token_file
@@ -129,7 +126,6 @@ async def test_malformed_cache_survives_partial_startup_and_shutdown(tmp_path):
     assert path.read_text() == "{invalid-private-cache"
 
 
-@pytest.mark.asyncio
 async def test_partial_load_failure_retains_rotation_and_unprocessed_cache(tmp_path, monkeypatch):
     bot = bot_at(tmp_path)
     path = bot._token_file
@@ -149,7 +145,6 @@ async def test_partial_load_failure_retains_rotation_and_unprocessed_cache(tmp_p
     assert saved["200"] == original["200"]
 
 
-@pytest.mark.asyncio
 async def test_rejected_cached_token_reaches_authorization_required(tmp_path, monkeypatch):
     bot = bot_at(tmp_path)
     bot._token_file.parent.mkdir()
@@ -166,7 +161,6 @@ async def test_rejected_cached_token_reaches_authorization_required(tmp_path, mo
     assert json.loads(bot._token_file.read_text()) == cache()
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("valid", [True, False])
 async def test_desktop_cache_verifies_base_grant_before_activation(tmp_path, monkeypatch, valid):
     async def validate(self, token):
@@ -188,7 +182,6 @@ async def test_desktop_cache_verifies_base_grant_before_activation(tmp_path, mon
         assert bot._token_file.read_text() == original
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["library", "removed", "listener"])
 async def test_headless_disables_callback_and_distinguishes_handler_errors_from_revocation(tmp_path, monkeypatch, caplog, failure):
     from twitch_fakes import established_socket

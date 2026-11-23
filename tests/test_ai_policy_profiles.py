@@ -17,7 +17,6 @@ from app.services.ai_service import SharedAIService
 from app.twitch.client import process_twitch_message
 
 
-@pytest.mark.asyncio
 async def test_provider_request_uses_protected_profile_and_personality_order(monkeypatch) -> None:
     from google import genai
 
@@ -45,7 +44,6 @@ async def test_provider_request_uses_protected_profile_and_personality_order(mon
         await service.aclose()
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("category", "rule", "reference"),
     [

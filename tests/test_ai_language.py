@@ -238,7 +238,6 @@ def test_language_policy_precedes_conflicting_profile_and_style_instructions():
     assert "Fallback language: English (en)" in instruction
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(("prompt", "selection_rule"), [
     ("Tell me a friendly story", "clear single language"),
     ("Розкажи веселу історію", "clear single language"),
@@ -279,7 +278,6 @@ async def test_provider_receives_current_input_and_predictable_selection_guidanc
         await service.aclose()
 
 
-@pytest.mark.asyncio
 async def test_live_policy_change_affects_next_request_but_not_inflight_model_fallback(monkeypatch):
     from google import genai
     from google.genai import errors
