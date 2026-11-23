@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import os
 import random
-import tempfile
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from threading import RLock
 from time import monotonic
 from uuid import UUID, uuid4
@@ -21,7 +17,7 @@ from app.errors import UserError
 from typing import Annotated, Literal
 from pydantic import AfterValidator, ConfigDict, Field, StrictBool, StrictInt, model_validator
 from app.settings_models import SettingsModel, ControlFree, StreamAvailability, byte_limit, single_line, parse, field_value
-from app.settings_recovery import preserve_settings_recovery
+from app.config_file import ConfigFile
 from app.twitch.sending import ChatSessionClosedError
 
 
@@ -82,11 +78,11 @@ def parse_announcements(payload: object, *, allow_new: bool = False) -> tuple[An
 class AnnouncementStore:
     """Publish a complete immutable collection only after its atomic save."""
 
-    def __init__(self, path: Path) -> None:
-        self._path, self._lock = path, RLock()
+    def __init__(self, config: ConfigFile) -> None:
+        self._section, self._lock = config.section("announcements"), RLock()
         self._announcements: tuple[Announcement, ...] = ()
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload = self._section.load()
             if not isinstance(payload, dict) or set(payload) != {"version", "announcements"} or type(payload["version"]) is not int or payload["version"] != 1:
                 raise UserError("announcements.unsupported_announcement_settings")
             self._announcements = parse_announcements(payload["announcements"])
@@ -102,24 +98,10 @@ class AnnouncementStore:
     def save(self, payload: object) -> None:
         with self._lock:
             parsed = parse_announcements(payload, allow_new=True)
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = None
-            try:
-                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self._path.parent,
-                        prefix=".announcements-", delete=False) as output:
-                    temporary = Path(output.name)
-                    json.dump({"version": 1, "announcements": [item.to_json() for item in parsed]}, output,
-                              ensure_ascii=True, indent=2)
-                    output.write("\n")
-                    output.flush()
-                    os.fsync(output.fileno())
-                preserve_settings_recovery(self._path, {"version": 1,
-                    "announcements": [item.to_json() for item in self._announcements]}, version=1)
-                os.replace(temporary, self._path)
-                self._announcements = parsed
-            finally:
-                if temporary is not None:
-                    temporary.unlink(missing_ok=True)
+            self._section.save({"version": 1, "announcements": [item.to_json() for item in parsed]},
+                               recovered={"version": 1, "announcements": [item.to_json() for item in self._announcements]},
+                               version=1)
+            self._announcements = parsed
 
 
 @dataclass(slots=True)

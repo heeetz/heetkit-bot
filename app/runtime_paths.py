@@ -11,6 +11,8 @@ from pathlib import Path
 from platformdirs import user_data_path
 from sqlalchemy.engine import make_url
 
+from app.config_file import migrate_config
+
 
 _PACKAGE_ROOT = Path(__file__).resolve().parent
 _CANDIDATE_SOURCE_ROOT = _PACKAGE_ROOT.parent
@@ -62,24 +64,13 @@ class RuntimePaths:
         return self.config / "filters"
 
     @property
-    def app_settings(self) -> Path:
+    def config_file(self) -> Path:
+        return self.config / "config.json"
+
+    @property
+    def instance_guard(self) -> Path:
+        # The 1.6 settings path: keeps the single-instance identity shared with older binaries.
         return self.config / "app_settings.json"
-
-    @property
-    def command_settings(self) -> Path:
-        return self.config / "command_settings.json"
-
-    @property
-    def custom_commands(self) -> Path:
-        return self.config / "custom_commands.json"
-
-    @property
-    def message_triggers(self) -> Path:
-        return self.config / "message_triggers.json"
-
-    @property
-    def personality_settings(self) -> Path:
-        return self.config / "personality_settings.json"
 
     @property
     def database(self) -> Path:
@@ -125,7 +116,7 @@ def prepare_runtime_data(
             directory.mkdir(parents=True, exist_ok=True)
         for filename in FILTER_NAMES:
             _copy_if_missing(DEFAULT_FILTERS / filename, paths.filters / filename)
-        _copy_if_missing(DEFAULT_TRIGGERS, paths.message_triggers)
+        migrate_config(paths.config, DEFAULT_TRIGGERS)
     except OSError as error:
         raise RuntimeDataError("Could not prepare the application data directory") from error
 

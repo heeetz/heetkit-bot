@@ -25,6 +25,8 @@ from app.twitch.client import process_twitch_message
 from app.utils.cooldown import CooldownManager
 from app.utils.logging import PrivacyLogFilter, RecentLogBuffer, RecentLogHandler, privacy_log_scope
 from scripts.privacy_request import apply_request
+from app.config_file import ConfigFile
+from config_helpers import write_section
 
 
 async def stored(database, model):
@@ -345,11 +347,11 @@ async def test_nm_caps_are_enforced_on_writes_and_settings_for_each_scope(tmp_pa
                     await memory.save_exchange(viewer, f"question-{index}", "answer", channel_id=channel)
         assert len(await stored(database, AIMemoryEntry)) == 12
         assert [item.request_text for item in await memory.get_recent("123", channel_id="100")] == ["question-3", "question-4"]
-        settings = AppSettingsStore(tmp_path / "app_settings.json")
+        settings = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
         await database.configure_memory_limits(2, 1, persist=lambda: settings.update_ai_memory_limits(stored=2, context=1))
         assert len(await stored(database, AIMemoryEntry)) == 8
         assert len(await memory.get_recent("123", channel_id="100")) == 1
-        assert AppSettingsStore(tmp_path / "app_settings.json").snapshot().ai.history_max_entries == 2
+        assert AppSettingsStore(ConfigFile(tmp_path / "app_settings.json")).snapshot().ai.history_max_entries == 2
         async def late_write():
             await memory.save_exchange("123", "late question", "answer", channel_id="100")
         await asyncio.gather(late_write(), database.configure_memory_limits(1, 1))
@@ -367,15 +369,14 @@ async def test_nm_caps_are_enforced_on_writes_and_settings_for_each_scope(tmp_pa
 def test_nm_settings_validate_without_silent_expansion(tmp_path, stored_count, context_count):
     from app.app_settings import AppSettingsStore, load_app_settings
     from app.config.settings import Settings
-    import json
     path = tmp_path / "app_settings.json"
-    store = AppSettingsStore(path)
+    store = AppSettingsStore(ConfigFile(path))
     with pytest.raises(ValueError):
         store.update_ai_memory_limits(stored=stored_count, context=context_count)
     assert not path.exists()
-    path.write_text(json.dumps({"version": 1, "ai": {"history_max_entries": stored_count, "context_max_entries": context_count}}))
+    write_section(path, "app", {"version": 1, "ai": {"history_max_entries": stored_count, "context_max_entries": context_count}})
     with pytest.raises(ValueError) as error:
-        load_app_settings(path)
+        load_app_settings(ConfigFile(path).section("app"))
     assert error.value.code == "app_settings.invalid_saved_ai_history_context_limits_correct_profile_settings"
     with pytest.raises(ValueError):
         Settings(ai_history_max_entries=stored_count, ai_context_max_entries=context_count)

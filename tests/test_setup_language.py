@@ -1,6 +1,5 @@
 """Windows Setup language choice and its one-time hand-off to the app (task 2.3)."""
 
-import json
 import re
 from pathlib import Path
 
@@ -8,6 +7,8 @@ import pytest
 
 from app import webview_host
 from app.app_settings import AppSettingsStore
+from app.config_file import ConfigFile
+from config_helpers import write_section
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = (ROOT / "packaging/windows/HeetKit.iss").read_text(encoding="utf-8")
@@ -19,18 +20,18 @@ SCRIPT = (ROOT / "packaging/windows/HeetKit.iss").read_text(encoding="utf-8")
 def test_setup_seeds_only_profiles_without_a_saved_language(tmp_path, existing, expected, seeded):
     path = tmp_path / "app_settings.json"
     if existing == "legacy":
-        path.write_text(json.dumps({"version": 1, "window": {}}), encoding="utf-8")
+        write_section(path, "app", {"version": 1, "window": {}})
     elif existing == "saved":
-        AppSettingsStore(path).update_interface_language("en")
-    assert AppSettingsStore(path).seed_interface_language("uk") is seeded
-    assert AppSettingsStore(path).seed_interface_language("ru") is False
-    assert AppSettingsStore(path).snapshot().interface.language == expected
+        AppSettingsStore(ConfigFile(path)).update_interface_language("en")
+    assert AppSettingsStore(ConfigFile(path)).seed_interface_language("uk") is seeded
+    assert AppSettingsStore(ConfigFile(path)).seed_interface_language("ru") is False
+    assert AppSettingsStore(ConfigFile(path)).snapshot().interface.language == expected
 
 
 @pytest.mark.parametrize("value", [None, "", "de", "UK", 3])
 def test_missing_or_unknown_setup_values_are_ignored(tmp_path, value) -> None:
     path = tmp_path / "app_settings.json"
-    store = AppSettingsStore(path)
+    store = AppSettingsStore(ConfigFile(path))
     assert store.seed_interface_language(value) is False
     assert store.snapshot().interface.language == "en"
     assert not path.exists()

@@ -28,17 +28,18 @@ from app.twitch.client import process_twitch_message
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.utils.cooldown import CooldownManager
 from app.webview_host import AsyncioBackendHost, WebUIBridge
+from app.config_file import ConfigFile
 
 
 def setup(root):
     registry = CommandRegistry()
     register_ai_commands(registry)
     register_info_commands(registry)
-    register_fun_commands(registry, FunSettingsStore(root / "fun.json"))
+    register_fun_commands(registry, FunSettingsStore(ConfigFile(root / "fun.json")))
     with_alias = CommandRegistry()
     for definition in registry.definitions():
         with_alias.register(replace(definition, aliases=("question",)) if definition.name == "ask" else definition)
-    state = RuntimeState(command_settings_path=root / "commands.json")
+    state = RuntimeState(ConfigFile(root / "commands.json"))
     state.configure_commands(with_alias.definitions())
     blocks = AIUserBlocklist(root / "ai_user_blocks.json")
     cooldowns = CooldownManager()

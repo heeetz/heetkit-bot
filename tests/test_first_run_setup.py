@@ -1,6 +1,5 @@
 """Offline UI setup and process environment/profile compatibility checks."""
 
-import json
 import pytest
 
 from app import webview_host
@@ -8,6 +7,8 @@ from app.app_settings import AppSettingsStore
 from app.config.settings import Settings, load_settings_with_credentials
 from app.credentials import CredentialStore
 from app.runtime_paths import RuntimePaths, prepare_runtime_data
+from app.config_file import ConfigFile
+from config_helpers import read_section, write_section
 
 
 class MemoryKeyring:
@@ -62,7 +63,7 @@ def test_clean_profile_setup_restart_and_start_without_checkout_data(tmp_path, m
     backend = webview_host.AsyncioBackendHost(settings)
     try:
         backend.start()
-        store = AppSettingsStore(paths.app_settings)
+        store = AppSettingsStore(ConfigFile(paths.config_file))
         bridge = webview_host.WebUIBridge(backend, app_settings=store, credential_manager=manager)
         assert not bridge.start_bot()["ok"]
         result = bridge.update_twitch_settings("#Target", "200", None, "client-id", "NewBot", "100")
@@ -80,13 +81,13 @@ def test_clean_profile_setup_restart_and_start_without_checkout_data(tmp_path, m
     finally:
         backend.close()
 
-    payload = json.loads(paths.app_settings.read_text())
+    payload = read_section(paths.config_file, "app")
     assert payload["twitch"]["client_id"] == "client-id"
-    assert "synthetic-secret" not in paths.app_settings.read_text()
-    assert "synthetic-gemini" not in paths.app_settings.read_text()
+    assert "synthetic-secret" not in paths.config_file.read_text()
+    assert "synthetic-gemini" not in paths.config_file.read_text()
     assert not paths.tokens.exists()
     restarted, _ = load_settings_with_credentials(credential_store)
-    saved = AppSettingsStore(paths.app_settings).snapshot()
+    saved = AppSettingsStore(ConfigFile(paths.config_file)).snapshot()
     restarted = webview_host.apply_twitch_app_settings(restarted, saved)
     restarted = webview_host.apply_ai_app_settings(restarted, saved)
     restarted.validate_twitch_configuration()
@@ -106,7 +107,7 @@ def test_clean_profile_setup_restart_and_start_without_checkout_data(tmp_path, m
     backend = webview_host.AsyncioBackendHost(restarted)
     try:
         backend.start()
-        bridge = webview_host.WebUIBridge(backend, app_settings=AppSettingsStore(paths.app_settings))
+        bridge = webview_host.WebUIBridge(backend, app_settings=AppSettingsStore(ConfigFile(paths.config_file)))
         assert bridge.get_twitch_settings()["settings"]["requires_restart"] is False
         assert bridge.start_bot()["ok"]
         assert bridge.stop_bot()["ok"]
@@ -123,7 +124,7 @@ def test_clean_profile_setup_restart_and_start_without_checkout_data(tmp_path, m
 ])
 def test_invalid_setup_never_saves_a_partial_target_or_identity(tmp_path, identity):
     path = tmp_path / "app_settings.json"
-    store = AppSettingsStore(path)
+    store = AppSettingsStore(ConfigFile(path))
     before = store.snapshot()
     with pytest.raises(ValueError):
         store.update_twitch(channel="target", channel_user_id="200", client_id=identity[0],
@@ -134,22 +135,22 @@ def test_invalid_setup_never_saves_a_partial_target_or_identity(tmp_path, identi
 
 def test_target_presets_and_unrelated_saves_preserve_identity(tmp_path):
     path = tmp_path / "app_settings.json"
-    store = AppSettingsStore(path)
+    store = AppSettingsStore(ConfigFile(path))
     store.update_twitch(channel="target", channel_user_id="200", client_id="client-id",
                         bot_username="Bot", bot_user_id="100")
     _, preset = store.save_twitch_preset(display_name="Another channel", channel="another", channel_user_id="300")
     store.delete_twitch_preset(preset.id)
     store.update_twitch(channel="target", channel_user_id="200")
     store.update_ai_memory(enabled=False)
-    saved = AppSettingsStore(path).snapshot().twitch
+    saved = AppSettingsStore(ConfigFile(path)).snapshot().twitch
     assert (saved.client_id, saved.bot_username, saved.bot_user_id) == ("client-id", "bot", "100")
 
 
 def test_legacy_target_only_settings_preserve_deployment_identity(tmp_path):
     path = tmp_path / "app_settings.json"
-    path.write_text(json.dumps({"version": 1, "twitch": {"channel": "target", "channel_user_id": "200"}}))
+    write_section(path, "app", {"version": 1, "twitch": {"channel": "target", "channel_user_id": "200"}})
     settings = Settings(_env_file=None, twitch_client_id="legacy-client", twitch_bot_username="legacybot", twitch_bot_user_id="100")
-    applied = webview_host.apply_twitch_app_settings(settings, AppSettingsStore(path).snapshot())
+    applied = webview_host.apply_twitch_app_settings(settings, AppSettingsStore(ConfigFile(path)).snapshot())
     assert applied.twitch_client_id == "legacy-client"
     assert applied.twitch_bot_username == "legacybot"
     assert applied.twitch_channel == "target"
@@ -161,19 +162,19 @@ def test_existing_owner_profile_and_keyring_survive_without_legacy_files(tmp_pat
     paths = RuntimePaths.default()
     paths.config.mkdir()
     # Existing v1 and domain-store formats, with no new format requirement.
-    paths.app_settings.write_text(json.dumps({
+    write_section(paths.config_file, "app", {
         "version": 1, "window": {"close_to_tray": True},
         "ai": {"memory_enabled": False, "selected_model": "gemini-owner",
                "fallback_model": "gemini-owner-fallback", "cooldown_bypass_user_id": "123"},
         "twitch": {"client_id": "saved-client", "bot_username": "savedbot", "bot_user_id": "100",
                    "channel": "savedtarget", "channel_user_id": "200"},
-    }), encoding="utf-8")
-    paths.personality_settings.write_text(json.dumps({
+    })
+    write_section(paths.config_file, "personalities", {
         "active_personality": "local-style", "overrides": {"local-style": "Private local style"},
-    }), encoding="utf-8")
-    paths.command_settings.write_text(json.dumps({"ask": {"enabled": False}}), encoding="utf-8")
+    })
+    write_section(paths.config_file, "commands", {"ask": {"enabled": False}})
     fun_path = paths.config / "fun_settings.json"
-    fun_path.write_text(json.dumps({"version": 1, "fates": ["Local fortune"]}), encoding="utf-8")
+    write_section(fun_path, "fun", {"version": 1, "fates": ["Local fortune"]})
     before = {path: path.read_bytes() for path in paths.config.iterdir()}
     monkeypatch.setenv("TWITCH_BOT_USERNAME", "processbot")
     monkeypatch.setenv("GEMINI_MODEL", "gemini-process")
@@ -183,7 +184,7 @@ def test_existing_owner_profile_and_keyring_survive_without_legacy_files(tmp_pat
     keyring.values = {("heetkit", "twitch_client_secret"): "synthetic-owner-secret",
                       ("heetkit", "gemini_api_key"): "synthetic-owner-key"}
     settings, manager = load_settings_with_credentials(CredentialStore(keyring))
-    app_settings = AppSettingsStore(paths.app_settings).snapshot()
+    app_settings = AppSettingsStore(ConfigFile(paths.config_file)).snapshot()
     settings = webview_host.apply_twitch_app_settings(settings, app_settings)
     settings = webview_host.apply_ai_app_settings(settings, app_settings)
     settings.validate_twitch_configuration()
@@ -197,7 +198,7 @@ def test_existing_owner_profile_and_keyring_survive_without_legacy_files(tmp_pat
     backend = webview_host.AsyncioBackendHost(settings, initial_ai_memory_enabled=app_settings.ai.memory_enabled)
     try:
         backend.start()
-        bridge = webview_host.WebUIBridge(backend, app_settings=AppSettingsStore(paths.app_settings), credential_manager=manager)
+        bridge = webview_host.WebUIBridge(backend, app_settings=AppSettingsStore(ConfigFile(paths.config_file)), credential_manager=manager)
         state = backend.application.services.runtime_state
         assert state.active_ai_personality == "local-style"
         assert state.get_ai_personality_prompt("local-style") == "Private local style"
@@ -211,15 +212,15 @@ def test_existing_owner_profile_and_keyring_survive_without_legacy_files(tmp_pat
 
 def test_profile_cooldown_exception_is_preserved_on_unrelated_saves(tmp_path):
     path = tmp_path / "app_settings.json"
-    path.write_text(json.dumps({"version": 1, "ai": {"cooldown_bypass_user_id": "123"}}))
-    store = AppSettingsStore(path)
+    write_section(path, "app", {"version": 1, "ai": {"cooldown_bypass_user_id": "123"}})
+    store = AppSettingsStore(ConfigFile(path))
     store.update_ai_memory(enabled=False)
     store.update_ai_setup({
         "primary": {"provider": "gemini", "model": "gemini-new", "thinking": "default", "search": False},
         "fallback": {"provider": "gemini", "model": "gemini-safe", "thinking": "default", "search": False},
     })
     store.update_desktop(start_minimized=False, minimize_to_tray=False, close_to_tray=False, auto_start_bot=False)
-    saved = AppSettingsStore(path).snapshot()
+    saved = AppSettingsStore(ConfigFile(path)).snapshot()
     assert saved.ai.cooldown_bypass_user_id == "123"
     settings = webview_host.apply_ai_app_settings(Settings(_env_file=None), saved)
     assert settings.ai_cooldown_bypass_user_id == "123"
@@ -228,5 +229,5 @@ def test_profile_cooldown_exception_is_preserved_on_unrelated_saves(tmp_path):
 @pytest.mark.parametrize("value", ["", " ", "abc", 123, "12 34"])
 def test_invalid_profile_cooldown_exception_is_ignored(tmp_path, value):
     path = tmp_path / "app_settings.json"
-    path.write_text(json.dumps({"version": 1, "ai": {"cooldown_bypass_user_id": value}}))
-    assert AppSettingsStore(path).snapshot().ai.cooldown_bypass_user_id is None
+    write_section(path, "app", {"version": 1, "ai": {"cooldown_bypass_user_id": value}})
+    assert AppSettingsStore(ConfigFile(path)).snapshot().ai.cooldown_bypass_user_id is None

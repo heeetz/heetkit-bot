@@ -30,6 +30,7 @@ from app.twitch.sending import ChatSendSession
 from app.utils.cooldown import CooldownManager, CooldownPolicy
 from app.utils.logging import OperatorActivityHandler, RecentLogBuffer
 from app.utils.output_limiter import OutputLimiter
+from app.config_file import ConfigFile
 
 
 @pytest.fixture(autouse=True)
@@ -365,7 +366,7 @@ def weather_terminal_reasons(caplog):
 async def test_weather_unicode_name_and_qualifier_survive_renaming_aliases_and_cooldown(tmp_path):
     registry = CommandRegistry()
     register_weather_commands(registry)
-    state = RuntimeState(command_settings_path=tmp_path / "weather-command.json")
+    state = RuntimeState(ConfigFile(tmp_path / "weather-command.json"))
     state.configure_commands(registry.definitions())
     state.apply_command_settings("weather", primary_name="погода", aliases=["weather"])
     weather = FakeWeatherService(report=WeatherReport(
@@ -1095,7 +1096,7 @@ async def test_generic_filter_blocks_message_before_command_dispatch() -> None:
 
 
 async def test_concurrent_custom_alias_bursts_link_each_response_without_double_counting(tmp_path, caplog):
-    store = CustomCommandStore(tmp_path / "custom.json", set())
+    store = CustomCommandStore(ConfigFile(tmp_path / "custom.json"), set())
     custom = store.save({"name": "greet", "aliases": ["hi"], "enabled": True,
                          "responses": ["Hello"], "permission": "MODERATOR",
                          "per_user_seconds": 0, "global_seconds": 0,
@@ -1154,7 +1155,7 @@ async def test_limiter_and_dispatch_decisions_are_explicit_and_silent(caplog, tm
     @registry.command("check", aliases=("c",), required_permission=Permission.MODERATOR)
     async def check(context, _):
         await context.reply("ok")
-    state = RuntimeState(command_settings_path=tmp_path / "command.json")
+    state = RuntimeState(ConfigFile(tmp_path / "command.json"))
     state.configure_commands(registry.definitions())
     limiter = OutputLimiter(interval=60)
     dispatcher = build_dispatcher(registry, runtime_state=state, output_limiter=limiter)
@@ -1194,12 +1195,12 @@ async def test_trigger_announcement_has_stable_source_identity(caplog):
 @pytest.mark.parametrize("mode", ["single", "random", "burst"])
 @pytest.mark.parametrize("send_as", ["chat", "mention", "reply"])
 async def test_custom_delivery_keeps_templates_and_burst_path(tmp_path, mode, send_as):
-    store = CustomCommandStore(tmp_path / "custom_commands.json", set())
+    store = CustomCommandStore(ConfigFile(tmp_path / "custom_commands.json"), set())
     store.save({"name": "hello", "enabled": True, "permission": "MODERATOR",
                 "response_mode": mode, "responses": ["Hi @{sender}, {target}!"],
                 "send_as": send_as, "per_user_seconds": 0, "global_seconds": 0, "aliases": [],
                 **({"burst_count": 2} if mode == "burst" else {})})
-    store = CustomCommandStore(tmp_path / "custom_commands.json", set())
+    store = CustomCommandStore(ConfigFile(tmp_path / "custom_commands.json"), set())
     assert store.list()[0].send_as == send_as
     transport = FakeChatTransport("!hello Alice", is_moderator=True)
     thread = AsyncMock(return_value=SimpleNamespace(id="thread-send", sent=True))
@@ -1227,14 +1228,14 @@ async def test_builtin_delivery_persists_for_ask_and_weather(tmp_path, send_as):
     register_ai_commands(registry)
     register_weather_commands(registry)
     path = tmp_path / "command_settings.json"
-    state = RuntimeState(command_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     state.configure_commands(registry.definitions())
     for name in ("ask", "weather"):
         assert state.get_command_settings(name).send_as is None
         defaults = state.get_command_settings(name)
         state.save_command_settings(name, send_as=send_as, enabled=defaults.enabled,
                                     cooldown=defaults.cooldown, permission=defaults.permission)
-    state = RuntimeState(command_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     state.configure_commands(registry.definitions())
     dispatcher = build_dispatcher(registry, runtime_state=state)
     services = weather_services(FakeWeatherService(WeatherReport("London", 17.0, "overcast", 14.0)),

@@ -19,6 +19,7 @@ from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownManager
 from app.utils.output_limiter import OutputLimiter
+from app.config_file import ConfigFile
 
 
 def burst_payload(**changes):
@@ -32,12 +33,12 @@ def burst_payload(**changes):
 
 def setup_dispatcher(tmp_path, *, tg_settings=None, **changes):
     registry = CommandRegistry()
-    fun = FunSettingsStore(tmp_path / "fun.json")
+    fun = FunSettingsStore(ConfigFile(tmp_path / "fun.json"))
     register_fun_commands(registry, fun)
-    store = CustomCommandStore(tmp_path / "commands.json", set(registry.names()))
+    store = CustomCommandStore(ConfigFile(tmp_path / "commands.json"), set(registry.names()))
     store.save(burst_payload(**changes))
     limiter = OutputLimiter(interval=60)
-    state = RuntimeState(command_settings_path=tmp_path / "builtin_settings.json")
+    state = RuntimeState(ConfigFile(tmp_path / "builtin_settings.json"))
     state.configure_commands(registry.definitions())
     store.save(burst_payload(name="tg", aliases=[], burst_count=1, burst_allow_override=True,
                              **(tg_settings or {})))

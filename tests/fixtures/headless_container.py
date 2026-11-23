@@ -18,6 +18,7 @@ from app.twitch.client import TwitchChatBot
 from app.app_settings import AppSettingsStore
 from app.operation_policy import OperationPolicy
 from app.services.twitch import TwitchAPIService
+from app.config_file import ConfigFile
 
 
 paths = RuntimePaths.default()
@@ -43,18 +44,18 @@ def seed():
         assert not Path("/opt/heetkit/app", name).exists(), "Excluded image content: " + name
     assert not any(Path("/opt/heetkit", name).exists() for name in (".git", "data", "frontend", "tests", "build", ".env"))
     prepare_runtime_data("sqlite+aiosqlite:///" + str(paths.database))
-    paths.app_settings.write_text(json.dumps({"version": 1, "twitch": {
+    ConfigFile(paths.config_file).save({"app": {"version": 1, "twitch": {
         "client_id": "synthetic-client", "bot_user_id": "100", "bot_username": "syntheticbot",
         "channel_user_id": "200", "channel": "syntheticchannel"}, "ai": {
         "memory_enabled": False, "selected_model": "gemini-synthetic",
-        "fallback_model": "gemini-synthetic-fallback"}}))
-    paths.personality_settings.write_text(json.dumps({"active_personality": "neutral", "overrides": {"neutral": "Synthetic saved personality."}, "profile_instructions": ""}))
+        "fallback_model": "gemini-synthetic-fallback"}},
+        "personalities": {"active_personality": "neutral", "overrides": {"neutral": "Synthetic saved personality."}, "profile_instructions": ""},
+        "commands": {"ask": {"stream_availability": "live_only"}}}, recovered={})
     (paths.filters / "blocked_words.txt").write_text("syntheticblocked\n")
     paths.tokens.write_text(json.dumps({"100": {"user_id": "100", "token": "synthetic-access", "refresh": "synthetic-refresh-0"}}))
     paths.tokens.chmod(0o600)
-    paths.command_settings.write_text(json.dumps({"ask": {"stream_availability": "live_only"}}))
     from app.custom_commands import CustomCommandStore
-    custom = CustomCommandStore(paths.custom_commands, set())
+    custom = CustomCommandStore(ConfigFile(paths.config_file), set())
     for name, availability in (("crosshair", "anytime"), ("offline", "offline_only")):
         custom.save({"name": name, "enabled": True, "responses": [name], "permission": "USER",
             "per_user_seconds": 0, "global_seconds": 0, "aliases": [], "stream_availability": availability})
@@ -138,7 +139,7 @@ def verify():
 def policy_probe(arguments):
     """Fixed commands over disposable synthetic probe state, never production UI."""
     if arguments[0] == "set-mode":
-        AppSettingsStore(paths.app_settings).update_operation_mode(arguments[1])
+        AppSettingsStore(ConfigFile(paths.config_file)).update_operation_mode(arguments[1])
     elif arguments[0] == "set-live":
         assert arguments[1] in {"true", "false", "unknown"}
         (paths.data / "probe-live").write_text(arguments[1])
@@ -146,7 +147,7 @@ def policy_probe(arguments):
         def counter(name):
             path = paths.data / name
             return int(path.read_text()) if path.exists() else 0
-        print(json.dumps({"mode": AppSettingsStore(paths.app_settings).snapshot().startup.operation_mode,
+        print(json.dumps({"mode": AppSettingsStore(ConfigFile(paths.config_file)).snapshot().startup.operation_mode,
             "starts": counter("probe-starts"), "stops": counter("probe-stops")}))
     else:
         raise AssertionError("Unknown probe command")
@@ -189,7 +190,7 @@ async def availability_probe():
         await kwargs["stop_event"].wait()
     bot_runtime.run_twitch_bot = idle
     runtime = bot_runtime.BotRuntime(app, logging.getLogger("probe"), headless=True)
-    store = AppSettingsStore(paths.app_settings)
+    store = AppSettingsStore(ConfigFile(paths.config_file))
     store.update_operation_mode("always_on")
     policy = synthetic_policy(runtime, store)
     app.dispatcher._output_limiter = OutputLimiter(interval=0)

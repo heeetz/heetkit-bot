@@ -26,6 +26,7 @@ from app.runtime_paths import RuntimePaths, prepare_runtime_data
 from app.server_credentials import ServerCredentialManager, ServerCredentialStore
 from app.twitch_setup import credential_manager
 from app.twitch.client import CHAT_SCOPES, OAUTH_SCOPES, OAUTH_REDIRECT_URI, TwitchChatBot
+from app.config_file import ConfigFile
 
 
 TOKEN = "synthetic_management_token_" + "x" * 32
@@ -50,7 +51,7 @@ async def api(unused_tcp_port):
     paths = RuntimePaths.default()
     settings = Settings(twitch_token_file=str(paths.tokens), database_url="sqlite+aiosqlite:///" + str(paths.database))
     prepare_runtime_data(settings.database_url)
-    store = AppSettingsStore(paths.app_settings)
+    store = AppSettingsStore(ConfigFile(paths.config_file))
     store.update_operation_mode("manual")
     runtime = BotRuntime(build_application(settings), logging.getLogger("test"), headless=True)
     await runtime.startup()
@@ -109,7 +110,7 @@ async def test_saved_channels_crud_does_not_apply_and_persists_after_reload(api)
     assert status == 200
     preset_id = result["preset_id"]
     assert server.runtime.application.settings.model_dump() == before
-    stored = AppSettingsStore(RuntimePaths.default().app_settings).snapshot()
+    stored = AppSettingsStore(ConfigFile(RuntimePaths.default().config_file)).snapshot()
     assert stored.twitch.channel == "testchannel" and stored.startup.operation_mode == "manual"
     assert stored.twitch.presets[0].display_name == "Other channel"
     assert (await call("/v1/ops/get_management_setup", {}))[1]["twitch"]["presets"][0]["id"] == preset_id
@@ -117,9 +118,9 @@ async def test_saved_channels_crud_does_not_apply_and_persists_after_reload(api)
     for invalid in ({"channel": "bad login"}, {"channel": "x" * 26}, {"channel_user_id": "٣٠٠"}, {"display_name": ""}):
         assert (await call("/v1/ops/save_twitch_preset", payload | invalid))[0] == 400
     assert (await call("/v1/ops/save_twitch_preset", payload | {"preset_id": preset_id, "display_name": "Renamed"}))[0] == 200
-    assert AppSettingsStore(RuntimePaths.default().app_settings).snapshot().twitch.presets[0].display_name == "Renamed"
+    assert AppSettingsStore(ConfigFile(RuntimePaths.default().config_file)).snapshot().twitch.presets[0].display_name == "Renamed"
     assert (await call("/v1/ops/delete_twitch_preset", {"preset_id": preset_id}))[0] == 200
-    assert not AppSettingsStore(RuntimePaths.default().app_settings).snapshot().twitch.presets
+    assert not AppSettingsStore(ConfigFile(RuntimePaths.default().config_file)).snapshot().twitch.presets
     assert server.runtime.application.settings.model_dump() == before
     assert (await call("/v1/ops/switch_server_twitch_preset", {"preset_id": preset_id}))[0] == 400
 
@@ -149,7 +150,7 @@ async def test_preset_switch_preserves_oauth_credentials_and_mode(api, monkeypat
     settings = server.runtime.application.settings
     assert (settings.twitch_client_id, settings.twitch_bot_username, settings.twitch_bot_user_id) == ("test-client", "testbot", "100")
     assert (settings.twitch_channel, settings.twitch_channel_user_id) == ("other", "300")
-    saved = AppSettingsStore(paths.app_settings).snapshot()
+    saved = AppSettingsStore(ConfigFile(paths.config_file)).snapshot()
     assert saved.startup.operation_mode == mode and saved.twitch.channel == "other"
     setup = (await call("/v1/ops/get_management_setup", {}))[1]["twitch"]
     assert setup["active_preset_id"] == preset_id and setup["oauth_token_available"]
@@ -351,7 +352,7 @@ async def test_direct_backend_setup_discovery_rotation_and_removal(api, monkeypa
     status, error = await call("/v1/ops/discover_ai_models", {"provider": provider})
     assert status == 400 and error["error_code"] == "rate_limited"
     assert settings.ai_setup.primary.model == custom and "PRIVATE" not in json.dumps(error)
-    reloaded = apply_ai_app_settings(Settings(), AppSettingsStore(RuntimePaths.default().app_settings).snapshot())
+    reloaded = apply_ai_app_settings(Settings(), AppSettingsStore(ConfigFile(RuntimePaths.default().config_file)).snapshot())
     assert reloaded.ai_provider == provider and reloaded.ai_setup.primary.model == custom
     invalid_setup = {**setup, "primary": {**setup["primary"], "model": "gemini-wrong"}}
     assert (await call("/v1/ops/save_ai_setup", {"settings": invalid_setup}))[0] == 400
@@ -375,7 +376,7 @@ async def test_oauth_completion_works_disabled_and_replay_is_rejected(api, twitc
     assert not server.runtime.bot_active and server.policy.mode == "disabled"
     assert "rotated-private-refresh-sentinel" in RuntimePaths.default().tokens.read_text()
     assert (await call("/v1/ops/complete_twitch_authorization", {"callback_url": callback}))[0] == 400
-    restarted = apply_twitch_app_settings(Settings(), AppSettingsStore(RuntimePaths.default().app_settings).snapshot())
+    restarted = apply_twitch_app_settings(Settings(), AppSettingsStore(ConfigFile(RuntimePaths.default().config_file)).snapshot())
     assert restarted.twitch_bot_username == "testbot" and restarted.twitch_channel == "testchannel"
     assert credential_manager(restarted).effective_value(CredentialName.TWITCH_CLIENT_SECRET) == "synthetic-secret"
 

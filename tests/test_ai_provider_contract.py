@@ -11,6 +11,7 @@ from app.config.settings import Settings
 from app.runtime_state import RuntimeState
 from app.services.ai_service import SharedAIService
 from app.services.filter_manager import FilterManager
+from app.config_file import ConfigFile
 
 
 @pytest.fixture(params=["gemini", "deepseek", "openai"])
@@ -18,7 +19,7 @@ async def provider_pipeline(request, tmp_path, monkeypatch):
     settings = Settings(ai_provider=request.param, gemini_api_key="PRIVATE-GEMINI-KEY",
                         deepseek_api_key="PRIVATE-DEEPSEEK-KEY", openai_api_key="PRIVATE-OPENAI-KEY")
     filters = FilterManager()
-    state = RuntimeState(personality_settings_path=tmp_path / "personalities.json")
+    state = RuntimeState(ConfigFile(tmp_path / "personalities.json"))
     state.apply_profile_instructions("PRIVATE-PROFILE-INSTRUCTIONS")
     service = SharedAIService(settings, state, filters)
     exchange = AsyncMock(return_value="A friendly answer.")

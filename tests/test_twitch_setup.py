@@ -13,6 +13,7 @@ from app.config.settings import Settings
 from app.credentials import CredentialManager, CredentialName
 from app.server_credentials import ServerCredentialManager, ServerCredentialStore
 from app.twitch_setup import DesktopOAuth, ServerOAuth, TwitchSetup
+from app.config_file import ConfigFile
 
 
 @pytest.fixture(params=["desktop", "server"])
@@ -21,7 +22,7 @@ def setup(request, tmp_path):
         twitch_bot_username="testbot", twitch_bot_user_id="100",
         twitch_channel="testchannel", twitch_channel_user_id="200",
         twitch_client_secret="synthetic-old-secret", twitch_token_file=str(tmp_path / "tokens.json"))
-    store = AppSettingsStore(tmp_path / "settings.json")
+    store = AppSettingsStore(ConfigFile(tmp_path / "settings.json"))
     store.update_twitch(client_id="test-client", bot_username="testbot", bot_user_id="100",
         channel="testchannel", channel_user_id="200")
     # Inject a private synthetic store for both managers; never discover a keyring.

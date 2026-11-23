@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 import random
 from string import Formatter
-import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from pathlib import Path
 from threading import RLock
 from uuid import UUID, uuid4
 from typing import Annotated, Literal
@@ -22,7 +18,7 @@ from app.settings_models import (SettingsModel, CommandName, CooldownSeconds, Bu
 from app.errors import UserError
 from app.twitch.permissions import Permission
 from app.command_order import CommandCreationOrder
-from app.settings_recovery import preserve_settings_recovery
+from app.config_file import ConfigFile
 from app.utils.cooldown import CooldownPolicy
 from app.utils.text import CHAT_RESPONSE_BYTES, normalize_command_name
 
@@ -152,9 +148,9 @@ def render_response(command: CustomCommand, arguments: str, sender: str, random_
 class CustomCommandStore:
     """Keep immutable command snapshots behind one lock; publish after atomic save."""
 
-    def __init__(self, path: Path, built_in_names: set[str], *, namespace_lock=None,
+    def __init__(self, config: ConfigFile, built_in_names: set[str], *, namespace_lock=None,
                  creation_order: CommandCreationOrder | None = None) -> None:
-        self._path = path
+        self._section = config.section("custom_commands")
         self._built_in_names = built_in_names | {"optout"}
         self._builtin_names_provider: Callable[[], set[str]] | None = None
         self._lock = namespace_lock if namespace_lock is not None else RLock()
@@ -219,10 +215,10 @@ class CustomCommandStore:
 
     def _load(self) -> None:
         try:
-            payload = json.loads(self._path.read_text(encoding="utf-8"))
+            payload = self._section.load()
         except FileNotFoundError:
             return
-        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        except (OSError, UnicodeError, ValueError) as error:
             logger.warning("Could not load custom commands: %s", type(error).__name__)
             return
         if not isinstance(payload, dict) or type(payload.get("version")) is not int or payload["version"] != SCHEMA_VERSION or not isinstance(payload.get("commands"), list):
@@ -243,22 +239,8 @@ class CustomCommandStore:
         self._publish(commands)
 
     def _write(self, commands: dict[str, CustomCommand]) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        temporary_path: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self._path.parent,
-                                             prefix=f".{self._path.name}.", suffix=".tmp", delete=False) as output:
-                temporary_path = Path(output.name)
-                json.dump({"version": SCHEMA_VERSION, "commands": [command.to_json() for command in commands.values()]}, output, indent=2)
-                output.write("\n")
-                output.flush()
-                os.fsync(output.fileno())
-            preserve_settings_recovery(
-                self._path,
-                {"version": SCHEMA_VERSION, "commands": [command.to_json() for command in self._commands.values()]},
-                version=SCHEMA_VERSION,
-            )
-            temporary_path.replace(self._path)
-        finally:
-            if temporary_path is not None:
-                temporary_path.unlink(missing_ok=True)
+        self._section.save(
+            {"version": SCHEMA_VERSION, "commands": [command.to_json() for command in commands.values()]},
+            recovered={"version": SCHEMA_VERSION, "commands": [command.to_json() for command in self._commands.values()]},
+            version=SCHEMA_VERSION,
+        )

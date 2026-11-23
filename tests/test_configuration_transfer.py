@@ -20,6 +20,8 @@ from app.filter_settings import apply_filter_settings, validate_filter_input
 from app.management import ApplicationManagement
 from app.runtime_paths import FILTER_NAMES
 from app.webview_host import DESKTOP_OPERATIONS, WebUIBridge
+from app.config_file import ConfigFile
+from config_helpers import read_section, write_section
 
 
 @pytest.fixture
@@ -42,7 +44,7 @@ async def profiles(tmp_path, monkeypatch):
                             database_url="sqlite+aiosqlite:///" + str(root / "history.db"))
         application = build_application(settings)
         applications.append(application)
-        store = AppSettingsStore(config / "app_settings.json")
+        store = AppSettingsStore(ConfigFile(config / "config.json"))
         return ConfigurationTransfer(application, store)
 
     async def no_network(*args, **kwargs):
@@ -73,7 +75,7 @@ async def test_import_published_commands_entry_merges_into_help(profiles):
     assert settings.aliases == ("commands", "guide", "catalog", "pages")
     assert settings.permission.name == help_settings["permission"]
     assert settings.cooldown.global_seconds == help_settings["cooldown"]["global_seconds"]
-    saved = json.loads(target.state._command_settings_path.read_text(encoding="utf-8"))
+    saved = target.state._command_section.load()
     assert "commands" not in saved
     assert saved["help"]["aliases"] == list(settings.aliases)
 
@@ -138,7 +140,7 @@ async def test_announcements_transfer_both_hosts_legacy_preservation_and_rollbac
     preview = target.preview(encoded)
     assert next(section for section in preview["sections"] if section["name"] == "announcements")["details"] == ["Community"]
     target.apply(encoded, preview["preview_token"], True)
-    assert AnnouncementStore(target.announcements._path).list() == source.announcements.list()
+    assert AnnouncementStore(target.announcements._section.file).list() == source.announcements.list()
     assert target.app.announcement_scheduler.snapshot()[0]["status"]["next_run_at"] is None
     # Older archives without a delivery type remain regular, never gain moderation behavior.
     legacy_target = profiles("legacy-announcement-server")
@@ -185,13 +187,13 @@ async def test_setup_transfer_preserves_nonsecrets_and_requires_destination_rout
     assert "acknowledged" in str(preview["sections"])
     assert "Primary: deepseek / deepseek-v4-pro; thinking high; search on" in str(preview["sections"])
     target.apply(encoded, preview["preview_token"], True)
-    saved = AppSettingsStore(target.settings._path).snapshot().ai.setup
+    saved = AppSettingsStore(target.settings._section.file).snapshot().ai.setup
     assert saved.primary == setup.primary and saved.fallback == setup.fallback
     assert saved.shared_instructions == "Custom shared" and saved.max_answer_length == 400
     assert not saved.cross_provider_acknowledged
     assert target.app.settings.ai_setup == saved
     # Consent is deliberately absent after restart, too.
-    reloaded = apply_ai_app_settings(Settings(), AppSettingsStore(target.settings._path).snapshot())
+    reloaded = apply_ai_app_settings(Settings(), AppSettingsStore(target.settings._section.file).snapshot())
     assert not reloaded.ai_setup.cross_provider_acknowledged
 
 
@@ -221,12 +223,12 @@ def file_state(transfer):
 async def test_both_provider_choices_transfer_without_credentials_and_legacy_stays_gemini(profiles):
     from app.config.profile_settings import apply_ai_app_settings
     source, target = profiles("source-providers"), profiles("target-providers")
-    path = source.settings._path
-    path.write_text(json.dumps({"version": 1, "ai": {
+    path = source.settings._section.path
+    write_section(path, "app", {"version": 1, "ai": {
         "provider": "deepseek", "selected_model": "gemini-custom", "fallback_model": "gemini-backup",
         "deepseek_selected_model": "deepseek-custom", "deepseek_fallback_model": "deepseek-backup",
-    }}), encoding="utf-8")
-    source.settings = AppSettingsStore(path)
+    }})
+    source.settings = AppSettingsStore(ConfigFile(path))
     source.app.settings = apply_ai_app_settings(source.app.settings, source.settings.snapshot())
     source.app.settings.deepseek_api_key = "PRIVATE-DEEPSEEK-KEY"
     target.app.settings.deepseek_api_key = "PRIVATE-DESTINATION-KEY"
@@ -234,7 +236,7 @@ async def test_both_provider_choices_transfer_without_credentials_and_legacy_sta
     payload, _, _ = unpack_configuration(encoded)
     assert "PRIVATE" not in json.dumps(payload)
     target.apply(encoded, target.preview(encoded)["preview_token"], True)
-    reloaded = apply_ai_app_settings(Settings(), AppSettingsStore(target.settings._path).snapshot())
+    reloaded = apply_ai_app_settings(Settings(), AppSettingsStore(target.settings._section.file).snapshot())
     assert reloaded.ai_provider == "deepseek" and reloaded.deepseek_model == "deepseek-custom"
     assert reloaded.gemini_model == "gemini-custom"
     assert target.app.settings.deepseek_api_key == "PRIVATE-DESTINATION-KEY"
@@ -284,12 +286,12 @@ async def test_desktop_export_server_preview_import_round_trip_and_restart(profi
     target.settings.update_operation_mode("disabled")
     target.settings.update_twitch(channel="keepchannel", channel_user_id="888")
     target.app.settings.gemini_api_key = "destination-secret"
-    extra = json.loads(target.settings._path.read_text())
+    extra = json.loads(target.settings._section.path.read_text())
     extra["future_unrelated"] = {"keep": True}
-    target.settings._path.write_text(json.dumps(extra), encoding="utf-8")
-    target.settings._path.parent.parent.joinpath("history.db").write_bytes(b"private history sentinel")
-    target.settings._path.parent.parent.joinpath("auth").mkdir()
-    tokens = target.settings._path.parent.parent / "auth" / "tokens.json"
+    target.settings._section.path.write_text(json.dumps(extra), encoding="utf-8")
+    target.settings._section.path.parent.parent.joinpath("history.db").write_bytes(b"private history sentinel")
+    target.settings._section.path.parent.parent.joinpath("auth").mkdir()
+    tokens = target.settings._section.path.parent.parent / "auth" / "tokens.json"
     tokens.write_bytes(b"private OAuth sentinel")
     before = file_state(target)
     preview = target.preview(encoded)
@@ -305,7 +307,7 @@ async def test_desktop_export_server_preview_import_round_trip_and_restart(profi
     assert target.settings.snapshot().startup.auto_start_bot
     assert target.settings.snapshot().startup.operation_mode == "disabled"
     assert target.settings.snapshot().window.start_minimized
-    assert json.loads(target.settings._path.read_text())["future_unrelated"] == {"keep": True}
+    assert json.loads(target.settings._section.path.read_text())["future_unrelated"] == {"keep": True}
     assert target.app.settings.gemini_api_key == "destination-secret"
     assert tokens.read_bytes() == b"private OAuth sentinel"
     assert tokens.parent.parent.joinpath("history.db").read_bytes() == b"private history sentinel"
@@ -334,7 +336,7 @@ async def test_desktop_export_server_preview_import_round_trip_and_restart(profi
         assert replacement.services.runtime_state.get_command_settings("fate").send_as == "reply"
         assert replacement.services.command_restrictions.match(target.app.settings.twitch_channel_user_id, "12345", "ask", "renamed")
         assert replacement.dispatcher._message_triggers.list()[0].id == "hello"
-        assert not AppSettingsStore(target.settings._path).snapshot().ai.memory_enabled
+        assert not AppSettingsStore(target.settings._section.file).snapshot().ai.memory_enabled
     finally:
         await replacement.shutdown()
     # Reverse transport uses the same format too.
@@ -369,7 +371,7 @@ async def test_confirmation_is_bound_to_archive_and_destination(profiles, change
     elif change == "state_changed":
         transfer.state.apply_profile_instructions("Changed since preview")
     elif change == "disk_changed":
-        transfer.fun.path.write_text('{"version":1,"fates":["External edit"]}')
+        transfer.fun.section.path.write_text('{"version":1,"fates":["External edit"]}')
     elif change == "expired":
         _, digest, fingerprint = transfer.pending[token]
         transfer.pending[token] = (0, digest, fingerprint)
@@ -536,7 +538,7 @@ async def test_future_or_corrupt_destination_refuses_overwrite(profiles):
     transfer = profiles("profile")
     encoded = transfer.export()["archive_base64"]
     for contents in ('{"version":999}', 'corrupt JSON'):
-        transfer.settings._path.write_text(contents)
+        transfer.settings._section.path.write_text(contents)
         token = transfer.preview(encoded)["preview_token"]
         before = file_state(transfer)
         with pytest.raises((ValueError, TypeError)):
@@ -549,7 +551,7 @@ async def test_symlink_destination_is_rejected(profiles, tmp_path):
     outside = tmp_path / "outside.json"
     outside.write_text("{}")
     try:
-        transfer.custom._path.symlink_to(outside)
+        transfer.custom._section.path.symlink_to(outside)
     except OSError:
         pytest.skip("Symlink creation unavailable")
     with pytest.raises(ValueError):
@@ -631,17 +633,18 @@ async def test_rollback_storage_failure_retains_exact_original_backups(profiles,
 async def test_unrelated_fun_and_app_policy_fields_are_preserved(profiles):
     transfer = profiles("profile")
     transfer.settings.update_ai_memory(enabled=True)
-    existing = json.loads(transfer.settings._path.read_text())
+    path = transfer.settings._section.path
+    existing = read_section(path, "app")
     existing["ai"]["cooldown_bypass_user_id"] = "999"
-    transfer.settings._path.write_text(json.dumps(existing))
-    transfer.settings = AppSettingsStore(transfer.settings._path)
-    transfer.fun.path.write_text('{"version":1,"future_option":"keep"}')
+    write_section(path, "app", existing)
+    transfer.settings = AppSettingsStore(transfer.settings._section.file)
+    write_section(path, "fun", {"version": 1, "future_option": "keep"})
     encoded = transfer.export()["archive_base64"]
     token = transfer.preview(encoded)["preview_token"]
     transfer.apply(encoded, token, True)
-    assert json.loads(transfer.fun.path.read_text())["future_option"] == "keep"
+    assert read_section(path, "fun")["future_option"] == "keep"
     assert transfer.settings.snapshot().ai.cooldown_bypass_user_id == "999"
-    assert json.loads(transfer.settings._path.read_text())["ai"]["cooldown_bypass_user_id"] == "999"
+    assert read_section(path, "app")["ai"]["cooldown_bypass_user_id"] == "999"
 
 
 @pytest.mark.parametrize("case", ["cancel", "missing_window", "invalid_extension", "write_failure"])

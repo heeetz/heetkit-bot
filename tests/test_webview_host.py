@@ -45,6 +45,7 @@ from app.webview_host import (
     resolve_auto_start,
     resolve_frontend_url,
 )
+from app.config_file import ConfigFile
 
 
 def complete_bridge_coroutine(coroutine) -> Future:
@@ -135,7 +136,7 @@ def test_analytics_and_memory_desktop_adapters_share_backend_operations(tmp_path
     from app.database.database import Database
     from app.database.repository import UserRepository
     from app.leaderboards import Leaderboards
-    store = AppSettingsStore(tmp_path / "settings.json")
+    store = AppSettingsStore(ConfigFile(tmp_path / "settings.json"))
     settings = Settings()
     settings = apply_ai_app_settings(settings, store.snapshot())
     collector = Analytics(None)
@@ -191,7 +192,7 @@ def test_desktop_announcements_use_shared_saved_settings_and_backend_status(tmp_
     from app.announcements import AnnouncementScheduler, AnnouncementStore
     from app.services.twitch import TwitchAPIService
     from uuid import uuid4
-    store = AnnouncementStore(tmp_path / "announcements.json")
+    store = AnnouncementStore(ConfigFile(tmp_path / "announcements.json"))
     twitch = TwitchAPIService()
     state = RuntimeState()
     scheduler = AnnouncementScheduler(store, twitch, Settings(), state)
@@ -207,7 +208,7 @@ def test_desktop_announcements_use_shared_saved_settings_and_backend_status(tmp_
     result = bridge.call("get_announcements", {})["announcements"][0]
     assert {key: value for key, value in result.items() if key != "status"} == raw
     assert result["status"]["next_run_at"] is None
-    assert AnnouncementStore(store._path).list() == store.list()
+    assert AnnouncementStore(store._section.file).list() == store.list()
     assert not bridge.call("save_announcements", {"announcements": [{**raw, "interval_seconds": 1}]})["ok"]
     assert bridge.call("get_announcements", {})["announcements"][0] == result
 
@@ -217,7 +218,7 @@ def test_desktop_ai_setup_and_guidance_share_atomic_profile_operations(tmp_path)
     from app.config.ai_setup import AISetup, AIModelSelection
     from app.config.settings import Settings
     application = SimpleNamespace(settings=Settings(), services=SimpleNamespace())
-    store = AppSettingsStore(tmp_path / "app_settings.json")
+    store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
     bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace(
         application=application, submit=complete_bridge_coroutine)), app_settings=store)
     setup = AISetup(AIModelSelection("deepseek", "deepseek-flash", "off"), shared_instructions="", max_answer_length=70)
@@ -227,7 +228,7 @@ def test_desktop_ai_setup_and_guidance_share_atomic_profile_operations(tmp_path)
     assert application.settings.ai_setup == setup
     assert bridge.get_ai_provider_settings()["settings"]["selected_model"] == "deepseek-flash"
     assert bridge.save_setup_guide(True, True) == {"ok": True, "dismissed": True, "ai_skipped": True}
-    assert AppSettingsStore(store._path).snapshot().ai.setup_guide_ai_skipped
+    assert AppSettingsStore(store._section.file).snapshot().ai.setup_guide_ai_skipped
     bad = {**asdict(setup), "max_answer_length": 0}
     assert not bridge.call("save_ai_setup", {"settings": bad})["ok"]
     assert bridge.get_ai_setup()["settings"] == asdict(setup)
@@ -664,7 +665,7 @@ def twitch_authorization_bridge(tmp_path, *, running=True, state="auth_required"
     )
     return WebUIBridge(
         cast(AsyncioBackendHost, SimpleNamespace(application=application, submit=complete_bridge_coroutine)),
-        app_settings=AppSettingsStore(tmp_path / "app_settings.json"),
+        app_settings=AppSettingsStore(ConfigFile(tmp_path / "app_settings.json")),
     )
 
 
@@ -890,7 +891,7 @@ def test_bridge_exposes_ai_provider_settings(tmp_path) -> None:
             ),
         )
     )
-    store = AppSettingsStore(tmp_path / "app_settings.json")
+    store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
     bridge = WebUIBridge(
         cast(
             AsyncioBackendHost,
@@ -996,7 +997,7 @@ def test_bridge_exposes_and_saves_non_secret_twitch_settings(tmp_path) -> None:
             twitch_token_file=str(token_path),
         ),
     )
-    store = AppSettingsStore(tmp_path / "app_settings.json")
+    store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
     bridge = WebUIBridge(
         cast(AsyncioBackendHost, SimpleNamespace(application=application)),
         app_settings=store,
@@ -1055,7 +1056,7 @@ def test_bridge_manages_twitch_presets_without_changing_bot_identity(tmp_path) -
             twitch_token_file=str(tmp_path / "tokens.json"),
         ),
     )
-    store = AppSettingsStore(tmp_path / "app_settings.json")
+    store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
     bridge = WebUIBridge(
         cast(AsyncioBackendHost, SimpleNamespace(application=application)),
         app_settings=store,
@@ -1123,7 +1124,7 @@ def test_bridge_reconnects_through_existing_bot_runtime(tmp_path) -> None:
             future.set_result(asyncio.run(coroutine))
             return future
 
-    store = AppSettingsStore(tmp_path / "app_settings.json")
+    store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
     store.update_twitch(channel="newchannel", channel_user_id="300")
     bridge = WebUIBridge(
         cast(AsyncioBackendHost, FakeBackend()),
@@ -1226,7 +1227,7 @@ def build_command_bridge(tmp_path) -> tuple[WebUIBridge, RuntimeState]:
     async def ping(context, arguments: str) -> None:
         return None
 
-    runtime_state = RuntimeState(command_settings_path=tmp_path / "command_settings.json")
+    runtime_state = RuntimeState(ConfigFile(tmp_path / "command_settings.json"))
     runtime_state.configure_commands(registry.definitions())
     application = SimpleNamespace(
         services=SimpleNamespace(runtime_state=runtime_state),
@@ -1325,10 +1326,7 @@ def build_ai_bridge(tmp_path) -> tuple[WebUIBridge, RuntimeState]:
     async def ask(context, arguments: str) -> None:
         return None
 
-    runtime_state = RuntimeState(
-        command_settings_path=tmp_path / "command_settings.json",
-        personality_settings_path=tmp_path / "personality_settings.json",
-    )
+    runtime_state = RuntimeState(ConfigFile(tmp_path / "personality_settings.json"))
     runtime_state.configure_commands(registry.definitions())
     application = SimpleNamespace(
         services=SimpleNamespace(runtime_state=runtime_state),
@@ -1380,7 +1378,7 @@ def test_bridge_applies_saves_resets_profile_instructions_without_saving_persona
         assert bridge.reset_profile_instructions() == {"ok": True}
     assert "PRIVATE SAMPLE INSTRUCTIONS" not in caplog.text
     assert "Saved profile instructions" not in caplog.text
-    restored = RuntimeState(personality_settings_path=tmp_path / "personality_settings.json")
+    restored = RuntimeState(ConfigFile(tmp_path / "personality_settings.json"))
     assert restored.active_ai_personality == "custom"
     assert restored.get_ai_personality_prompt("custom") == "Saved style"
     assert restored.profile_instructions == ""
@@ -1437,7 +1435,7 @@ def test_bridge_manages_custom_personalities_and_activation_independently(tmp_pa
     assert state.get_ai_personality_prompt("Renamed") == "Edited"
     assert bridge.delete_personality("Renamed") == {"ok": True}
     assert state.active_ai_personality == "neutral"
-    restored = RuntimeState(personality_settings_path=tmp_path / "personality_settings.json")
+    restored = RuntimeState(ConfigFile(tmp_path / "personality_settings.json"))
     assert restored.active_ai_personality == "neutral"
     assert restored.profile_instructions == "Kept instructions"
     assert restored.available_personalities == ("neutral",)
@@ -1541,14 +1539,14 @@ def test_bridge_ai_toggle_keeps_saved_and_applied_settings_separate(tmp_path) ->
 def test_bridge_ai_toggle_save_failure_keeps_previous_state(tmp_path, monkeypatch, failure) -> None:
     bridge, state = build_ai_bridge(tmp_path)
     assert bridge.set_ai_enabled(False) == {"ok": True}
-    path = tmp_path / "command_settings.json"
+    path = tmp_path / "personality_settings.json"
     original = path.read_bytes()
     if failure == "replace":
         def fail_replace(*args):
             raise OSError("Synthetic replacement failure")
-        monkeypatch.setattr("app.command_settings.os.replace", fail_replace)
+        monkeypatch.setattr("app.config_file.os.replace", fail_replace)
     else:
-        state._command_settings_path = None
+        state._command_section = None
 
     assert bridge.set_ai_enabled(True) == {
         "ok": False, "error_code": "management.could_not_save_ai_command_enabled", "error_params": {},
@@ -1557,7 +1555,7 @@ def test_bridge_ai_toggle_save_failure_keeps_previous_state(tmp_path, monkeypatc
     assert bridge.get_commands()["commands"][0]["enabled"] is False
     assert state.command_settings_are_saved("ask")
     assert path.read_bytes() == original
-    assert list(tmp_path.glob(".command_settings.json.*.tmp")) == []
+    assert list(tmp_path.glob("*.tmp")) == []
     _, restarted = build_ai_bridge(tmp_path)
     assert restarted.ai_enabled is False
 
@@ -1864,7 +1862,7 @@ def build_desktop_controller(tmp_path):
     backend = FakeDesktopBackend()
     bridge = FakeDesktopBridge(backend.runtime_state)
     tray = FakeTray()
-    store = AppSettingsStore(tmp_path / "app_settings.json")
+    store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
     controller = DesktopController(
         cast(AsyncioBackendHost, backend),
         cast(WebUIBridge, bridge),
@@ -1943,7 +1941,7 @@ def test_desktop_controller_tray_toggles_bot_and_exits_orderly(tmp_path) -> None
 def test_system_tray_toggle_refreshes_menu_once(tmp_path) -> None:
     backend = FakeDesktopBackend()
     bridge = FakeDesktopBridge(backend.runtime_state)
-    store = AppSettingsStore(tmp_path / "app_settings.json")
+    store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
     controller = DesktopController(
         cast(AsyncioBackendHost, backend),
         cast(WebUIBridge, bridge),

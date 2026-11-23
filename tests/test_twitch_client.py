@@ -30,6 +30,7 @@ from app.twitch.client import (
     run_twitch_bot,
     to_incoming_chat_message,
 )
+from app.config_file import ConfigFile
 
 
 def test_desktop_authorization_preserves_scopes_callback_and_consent(monkeypatch) -> None:
@@ -322,8 +323,8 @@ async def test_real_ingress_exposes_wait_and_quarantine_without_dispatching_drop
     services = SimpleNamespace(users=users, filter_manager=AllowingFilterManager(), settings=settings,
                                twitch=TwitchAPIService(), runtime_state=None)
     registry = CommandRegistry()
-    register_fun_commands(registry, FunSettingsStore(tmp_path / "fun.json"))
-    custom = CustomCommandStore(tmp_path / "custom.json", set(registry.names()))
+    register_fun_commands(registry, FunSettingsStore(ConfigFile(tmp_path / "fun.json")))
+    custom = CustomCommandStore(ConfigFile(tmp_path / "custom.json"), set(registry.names()))
     custom.save(dict(name="tg", enabled=True, responses=["Synthetic reply"], permission="MODERATOR",
                      aliases=[], per_user_seconds=0, global_seconds=0, response_mode="burst"))
     dispatcher = CommandDispatcher(registry, CooldownManager(), logger, "!",
@@ -482,10 +483,10 @@ async def test_duplicate_burst_delivery_does_not_start_a_second_burst(tmp_path, 
 
     settings = build_settings()
     registry = CommandRegistry()
-    register_fun_commands(registry, FunSettingsStore(tmp_path / "fun.json"))
+    register_fun_commands(registry, FunSettingsStore(ConfigFile(tmp_path / "fun.json")))
     state = RuntimeState()
     state.configure_commands(registry.definitions())
-    custom = CustomCommandStore(tmp_path / "custom.json", set(registry.names()))
+    custom = CustomCommandStore(ConfigFile(tmp_path / "custom.json"), set(registry.names()))
     custom.save(dict(name="tg", enabled=True, responses=["Synthetic reply"], permission="MODERATOR",
                      aliases=[], per_user_seconds=0, global_seconds=0, response_mode="burst",
                      burst_count=1, burst_max_count=20, burst_allow_override=True))

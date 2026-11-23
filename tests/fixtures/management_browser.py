@@ -16,6 +16,7 @@ from app.container import build_application
 from app.management_api import ManagementAPI, ManagementConfig
 from app.runtime_paths import RuntimePaths, prepare_runtime_data
 from app.utils.logging import RecentLogBuffer
+from app.config_file import ConfigFile
 
 
 async def main():
@@ -32,8 +33,8 @@ async def main():
     prepare_runtime_data(value.database_url)
     # Synthetic preauthorization for lifecycle checks; provider I/O is forbidden.
     paths.tokens.write_text('{"100":{"token":"synthetic-access","refresh":"synthetic-refresh"}}', encoding="utf-8")
-    store = AppSettingsStore(paths.app_settings)
-    if not paths.app_settings.exists():
+    store = AppSettingsStore(ConfigFile(paths.config_file))
+    if "app" not in ConfigFile(paths.config_file).read():
         store.update_operation_mode("manual")
     application = build_application(apply_twitch_app_settings(value, store.snapshot()))
     async def no_network(*args, **kwargs):

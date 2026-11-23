@@ -238,7 +238,7 @@ def backup_profile(profile: RuntimePaths, stage: Path) -> None:
             raise UserOSError("desktop_relaunch.profile_contains_unsupported_file")
 
     with ExitStack() as guards:
-        guards.enter_context(desktop_instance_guard(profile.app_settings))
+        guards.enter_context(desktop_instance_guard(profile.instance_guard))
         for database in databases:
             guards.enter_context(desktop_instance_guard(database, database=True))
         copy(profile.root, temporary)

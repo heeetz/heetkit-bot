@@ -18,6 +18,8 @@ from app.runtime_paths import RuntimePaths
 from app.runtime_state import RuntimeState
 from app.services.ai_service import SharedAIService
 from app.webview_host import DESKTOP_OPERATIONS, WebUIBridge, apply_ai_app_settings
+from app.config_file import ConfigFile
+from config_helpers import read_section, write_section
 
 
 LIMITED = ResponseLanguageSettings("limited", ("en", "uk", "ru"), "en")
@@ -44,9 +46,9 @@ def save_language(store, settings=LIMITED):
 def test_missing_language_policy_defaults_to_unrestricted_auto_without_startup_write(tmp_path, existing):
     path = tmp_path / "app_settings.json"
     if existing is not None:
-        path.write_text(json.dumps(existing), encoding="utf-8")
+        write_section(path, "app", existing)
     original = path.read_bytes() if path.exists() else None
-    settings = load_app_settings(path)
+    settings = load_app_settings(ConfigFile(path).section("app"))
     assert settings.ai.response_language == ResponseLanguageSettings()
     policy = build_response_language_instruction(settings.ai.response_language)
     assert "Auto" in policy and "no language restrictions" in policy
@@ -56,13 +58,13 @@ def test_missing_language_policy_defaults_to_unrestricted_auto_without_startup_w
 
 def test_language_save_roundtrip_and_other_settings_updates_preserve_policy(tmp_path):
     path = tmp_path / "app_settings.json"
-    store = AppSettingsStore(path)
+    store = AppSettingsStore(ConfigFile(path))
     store.update_ai_memory(enabled=False)
     selected = ResponseLanguageSettings("limited", ("de", "es", "en"), "de")
     updated = save_language(store, selected)
     assert updated.ai.memory_enabled is False
-    assert AppSettingsStore(path).snapshot() == updated
-    assert json.loads(path.read_text(encoding="utf-8"))["ai"]["response_language"] == {
+    assert AppSettingsStore(ConfigFile(path)).snapshot() == updated
+    assert read_section(path, "app")["ai"]["response_language"] == {
         "mode": "limited", "allowed_languages": ["de", "es", "en"], "fallback_language": "de",
     }
     store.update_ai_setup({
@@ -74,7 +76,7 @@ def test_language_save_roundtrip_and_other_settings_updates_preserve_policy(tmp_
     assert list(tmp_path.glob("*.recovery")) == []
     # Auto retains the dormant Limited selection, while removing restrictions.
     save_language(store, ResponseLanguageSettings("auto", selected.allowed_languages, "de"))
-    assert AppSettingsStore(path).snapshot().ai.response_language.mode == "auto"
+    assert AppSettingsStore(ConfigFile(path)).snapshot().ai.response_language.mode == "auto"
     assert "German" not in build_response_language_instruction(store.snapshot().ai.response_language)
 
 
@@ -87,7 +89,7 @@ def test_language_save_roundtrip_and_other_settings_updates_preserve_policy(tmp_
 ])
 def test_invalid_policy_is_rejected_without_publishing_or_creating_files(tmp_path, mode, allowed, fallback):
     path = tmp_path / "app_settings.json"
-    store = AppSettingsStore(path)
+    store = AppSettingsStore(ConfigFile(path))
     before = store.snapshot()
     with pytest.raises(ValueError):
         store.update_ai_response_language(mode=mode, allowed_languages=allowed, fallback_language=fallback)
@@ -102,12 +104,12 @@ def test_invalid_policy_is_rejected_without_publishing_or_creating_files(tmp_pat
 ])
 def test_malformed_language_settings_default_safely_and_survive_exactly_in_recovery(tmp_path, payload):
     path = tmp_path / "app_settings.json"
-    original = json.dumps({
+    original = json.dumps({"schema_version": 1, "app": {
         "version": 1, "window": {"start_minimized": True},
         "ai": {"memory_enabled": False, "response_language": payload}, "future": "é",
-    }, ensure_ascii=False, indent=3).encode("utf-8")
+    }}, ensure_ascii=False, indent=3).encode("utf-8")
     path.write_bytes(original)
-    store = AppSettingsStore(path)
+    store = AppSettingsStore(ConfigFile(path))
     assert store.snapshot().ai.response_language == ResponseLanguageSettings()
     assert store.snapshot().window.start_minimized is True
     assert store.snapshot().ai.memory_enabled is False
@@ -122,7 +124,7 @@ def test_malformed_language_settings_default_safely_and_survive_exactly_in_recov
 def test_language_save_respects_existing_unrecoverable_file_boundary(tmp_path, content):
     path = tmp_path / "app_settings.json"
     path.write_bytes(content)
-    store = AppSettingsStore(path)
+    store = AppSettingsStore(ConfigFile(path))
     before = store.snapshot()
     with pytest.raises(ValueError) as error:
         save_language(store)
@@ -134,11 +136,11 @@ def test_language_save_respects_existing_unrecoverable_file_boundary(tmp_path, c
 
 def test_external_language_edit_is_preserved_before_unrelated_save(tmp_path):
     path = tmp_path / "app_settings.json"
-    store = AppSettingsStore(path)
+    store = AppSettingsStore(ConfigFile(path))
     save_language(store)
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = read_section(path, "app")
     payload["ai"]["response_language"]["fallback_language"] = "uk"
-    original = json.dumps(payload, indent=3).encode("utf-8")
+    original = json.dumps({"schema_version": 1, "app": payload}, indent=3).encode("utf-8")
     path.write_bytes(original)
     store.update_ai_memory(enabled=False)
     recovery, = tmp_path.glob("*.recovery")
@@ -148,13 +150,13 @@ def test_external_language_edit_is_preserved_before_unrelated_save(tmp_path):
 
 def test_failed_atomic_language_save_keeps_disk_and_effective_policy(tmp_path, monkeypatch):
     path = tmp_path / "app_settings.json"
-    store = AppSettingsStore(path)
+    store = AppSettingsStore(ConfigFile(path))
     store.update_ai_memory(enabled=False)
     original = path.read_bytes()
     before = store.snapshot()
     def fail_replace(*args):
         raise OSError("synthetic replacement failure")
-    monkeypatch.setattr("app.app_settings.os.replace", fail_replace)
+    monkeypatch.setattr("app.config_file.os.replace", fail_replace)
     with pytest.raises(OSError):
         save_language(store)
     assert path.read_bytes() == original
@@ -166,24 +168,24 @@ def test_selected_profiles_have_independent_language_policies(tmp_path, monkeypa
     configured = tmp_path / "configured"
     clean = tmp_path / "clean"
     monkeypatch.setenv("HEETKIT_DATA_DIR", str(configured))
-    configured_path = RuntimePaths.default().app_settings
-    save_language(AppSettingsStore(configured_path))
+    configured_path = RuntimePaths.default().config_file
+    save_language(AppSettingsStore(ConfigFile(configured_path)))
     configured_bytes = configured_path.read_bytes()
     monkeypatch.setenv("HEETKIT_DATA_DIR", str(clean))
-    clean_path = RuntimePaths.default().app_settings
-    clean_settings = AppSettingsStore(clean_path).snapshot()
+    clean_path = RuntimePaths.default().config_file
+    clean_settings = AppSettingsStore(ConfigFile(clean_path)).snapshot()
     assert apply_ai_app_settings(Settings(), clean_settings).ai_response_language.mode == "auto"
     assert not clean_path.exists()
     monkeypatch.setenv("HEETKIT_DATA_DIR", str(configured))
-    restored = AppSettingsStore(RuntimePaths.default().app_settings).snapshot()
+    restored = AppSettingsStore(ConfigFile(RuntimePaths.default().config_file)).snapshot()
     assert apply_ai_app_settings(Settings(), restored).ai_response_language == LIMITED
     assert configured_path.read_bytes() == configured_bytes
 
 
 def make_bridge(tmp_path):
-    store = AppSettingsStore(tmp_path / "app_settings.json")
+    store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
     settings = apply_ai_app_settings(Settings(gemini_api_key="synthetic-key"), store.snapshot())
-    state = RuntimeState(personality_settings_path=tmp_path / "personalities.json")
+    state = RuntimeState(ConfigFile(tmp_path / "personalities.json"))
     def submit(coroutine):
         future = Future()
         try:

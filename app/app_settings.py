@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 import re
-import tempfile
 import uuid
 from dataclasses import asdict, dataclass, field, replace
-from pathlib import Path
 from threading import RLock
 
 from app.errors import UserError
@@ -18,7 +14,7 @@ from pydantic import BeforeValidator, Field, StrictBool, StrictInt, StrictStr, S
 from app.settings_models import (SettingsModel, InterfaceLanguage, OperationMode,
     field_value, parse)
 from app.config.ai_models import validate_ai_provider, validate_provider_models
-from app.settings_recovery import preserve_settings_recovery
+from app.config_file import ConfigFile, ConfigSection
 from app.config.ai import AI_MEMORY_ENABLED
 from app.config.privacy import AI_HISTORY_MAX_ENTRIES, AI_CONTEXT_MAX_ENTRIES
 from app.config.ai_setup import AISetup, parse_ai_setup
@@ -297,17 +293,17 @@ def _read_models(section, provider):
     return None, None
 
 
-def load_app_settings(path: Path) -> AppSettings:
+def load_app_settings(section: ConfigSection) -> AppSettings:
     defaults = AppSettings()
     unsafe_defaults = replace(defaults, startup=StartupSettings(operation_mode="disabled"))
-    if not path.exists():
-        return defaults
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        payload = section.load()
+    except FileNotFoundError:
+        return defaults
+    except (OSError, UnicodeError, ValueError) as error:
         logger.warning(
             "Could not load desktop settings path=%s error=%s; using defaults",
-            path,
+            section.path,
             type(error).__name__,
         )
         return unsafe_defaults
@@ -444,53 +440,31 @@ def load_app_settings(path: Path) -> AppSettings:
 
 
 def save_app_settings(
-    path: Path, settings: AppSettings, *, recovered_settings: AppSettings | None = None,
+    section: ConfigSection, settings: AppSettings, *, recovered_settings: AppSettings | None = None,
 ) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as temporary_file:
-            temporary_path = Path(temporary_file.name)
-            payload = {"version": APP_SETTINGS_VERSION, **asdict(settings)}
-            json.dump(payload, temporary_file, indent=2, sort_keys=True)
-            temporary_file.write("\n")
-            temporary_file.flush()
-            os.fsync(temporary_file.fileno())
-        preserve_settings_recovery(
-            path,
-            None if recovered_settings is None else {"version": APP_SETTINGS_VERSION, **asdict(recovered_settings)},
-            version=APP_SETTINGS_VERSION,
-        )
-        os.replace(temporary_path, path)
-        temporary_path = None
-    finally:
-        if temporary_path is not None:
-            temporary_path.unlink(missing_ok=True)
+    section.save(
+        {"version": APP_SETTINGS_VERSION, **asdict(settings)},
+        recovered=None if recovered_settings is None else {"version": APP_SETTINGS_VERSION, **asdict(recovered_settings)},
+        version=APP_SETTINGS_VERSION,
+    )
 
 
-def _has_saved_interface_language(path: Path) -> bool:
-    """True when the settings file already records a valid interface language."""
+def _has_saved_interface_language(section: ConfigSection) -> bool:
+    """True when the settings already record a valid interface language."""
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
+        payload = section.load()
+    except (OSError, UnicodeError, ValueError):
         return False
-    section = payload.get("interface") if isinstance(payload, dict) else None
-    return isinstance(section, dict) and section.get("language") in INTERFACE_LANGUAGES
+    interface = payload.get("interface") if isinstance(payload, dict) else None
+    return isinstance(interface, dict) and interface.get("language") in INTERFACE_LANGUAGES
 
 
 class AppSettingsStore:
-    def __init__(self, path: str | Path) -> None:
-        self._path = Path(path)
+    def __init__(self, config: ConfigFile) -> None:
+        self._section = config.section("app")
         self._lock = RLock()
-        self._settings = load_app_settings(self._path)
-        self._interface_language_saved = _has_saved_interface_language(self._path)
+        self._settings = load_app_settings(self._section)
+        self._interface_language_saved = _has_saved_interface_language(self._section)
 
     def snapshot(self) -> AppSettings:
         with self._lock:
@@ -500,7 +474,7 @@ class AppSettingsStore:
         mode = field_value(OperationMode, mode, "operation_mode")
         with self._lock:
             updated = replace(self._settings, startup=replace(self._settings.startup, operation_mode=mode))
-            save_app_settings(self._path, updated, recovered_settings=self._settings)
+            save_app_settings(self._section, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated
 
@@ -510,7 +484,7 @@ class AppSettingsStore:
             if self._settings.interface.language == parsed and self._interface_language_saved:
                 return self._settings
             updated = replace(self._settings, interface=InterfaceSettings(language=parsed))
-            save_app_settings(self._path, updated, recovered_settings=self._settings)
+            save_app_settings(self._section, updated, recovered_settings=self._settings)
             self._settings = updated
             self._interface_language_saved = True
         return updated
@@ -522,7 +496,7 @@ class AppSettingsStore:
                 return False
             parsed = validate_interface_language(language)
             updated = replace(self._settings, interface=InterfaceSettings(language=parsed))
-            save_app_settings(self._path, updated, recovered_settings=self._settings)
+            save_app_settings(self._section, updated, recovered_settings=self._settings)
             self._settings = updated
             self._interface_language_saved = True
         return True
@@ -546,7 +520,7 @@ class AppSettingsStore:
                 ai=self._settings.ai,
                 twitch=self._settings.twitch,
             )
-            save_app_settings(self._path, updated, recovered_settings=self._settings)
+            save_app_settings(self._section, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated
 
@@ -555,7 +529,7 @@ class AppSettingsStore:
         with self._lock:
             updated = replace(self._settings, ai=replace(self._settings.ai,
                               history_max_entries=stored, context_max_entries=context))
-            save_app_settings(self._path, updated, recovered_settings=self._settings)
+            save_app_settings(self._section, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated
 
@@ -569,7 +543,7 @@ class AppSettingsStore:
                 ai=replace(self._settings.ai, memory_enabled=enabled),
                 twitch=self._settings.twitch,
             )
-            save_app_settings(self._path, updated, recovered_settings=self._settings)
+            save_app_settings(self._section, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated
 
@@ -578,7 +552,7 @@ class AppSettingsStore:
         with self._lock:
             updated = replace(self._settings, ai=replace(self._settings.ai, setup=setup,
                                                        provider=setup.primary.provider))
-            save_app_settings(self._path, updated, recovered_settings=self._settings)
+            save_app_settings(self._section, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated
 
@@ -588,7 +562,7 @@ class AppSettingsStore:
         with self._lock:
             updated = replace(self._settings, ai=replace(self._settings.ai,
                               setup_guide_dismissed=dismissed, setup_guide_ai_skipped=ai_skipped))
-            save_app_settings(self._path, updated, recovered_settings=self._settings)
+            save_app_settings(self._section, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated
 
@@ -600,7 +574,7 @@ class AppSettingsStore:
             updated = replace(
                 self._settings, ai=replace(self._settings.ai, response_language=language),
             )
-            save_app_settings(self._path, updated, recovered_settings=self._settings)
+            save_app_settings(self._section, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated
 
@@ -635,7 +609,7 @@ class AppSettingsStore:
                 ai=self._settings.ai,
                 twitch=twitch,
             )
-            save_app_settings(self._path, updated, recovered_settings=self._settings)
+            save_app_settings(self._section, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated
 
@@ -691,7 +665,7 @@ class AppSettingsStore:
                     selected_preset_id=parsed_id if update_target else None,
                 ),
             )
-            save_app_settings(self._path, updated, recovered_settings=self._settings)
+            save_app_settings(self._section, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated, preset
 
@@ -720,6 +694,6 @@ class AppSettingsStore:
                     ),
                 ),
             )
-            save_app_settings(self._path, updated, recovered_settings=self._settings)
+            save_app_settings(self._section, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated

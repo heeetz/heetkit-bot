@@ -173,6 +173,7 @@ from app.config.settings import load_settings_with_credentials
 from app.app_settings import AppSettingsStore
 from app import runtime_paths, webview_host
 from app.runtime_paths import DEFAULT_FILTERS, PACKAGED_FRONTEND, SOURCE_ROOT, RuntimePaths, prepare_runtime_data
+from app.config_file import ConfigFile
 
 # Exercise an installed normal profile.
 profile = Path(os.environ["HEETKIT_DATA_DIR"])
@@ -189,7 +190,7 @@ prepare_runtime_data(settings.database_url)
 backend = webview_host.AsyncioBackendHost(settings)
 try:
     backend.start()
-    store = AppSettingsStore(paths.app_settings)
+    store = AppSettingsStore(ConfigFile(paths.config_file))
     bridge = webview_host.WebUIBridge(backend, app_settings=store, credential_manager=credentials)
     assert bridge.get_twitch_settings()["settings"]["client_id"] == ""
     assert bridge.update_twitch_settings("target", "200", None, "client-id", "bot", "100")["ok"]
@@ -200,7 +201,7 @@ try:
     }})["ok"]
 finally:
     backend.close()
-saved = AppSettingsStore(paths.app_settings).snapshot()
+saved = AppSettingsStore(ConfigFile(paths.config_file)).snapshot()
 applied = webview_host.apply_twitch_app_settings(settings, saved)
 applied = webview_host.apply_ai_app_settings(applied, saved)
 assert applied.twitch_bot_username == "bot"
@@ -213,7 +214,7 @@ for name, module in tuple(sys.modules.items()):
         assert Path(source).resolve().is_relative_to(install_root), (name, source)
 assert paths.database.is_file()
 assert not paths.tokens.exists()
-assert paths.message_triggers.is_file()
+assert paths.config_file.is_file()
 for name in ("blocked_words.txt", "blocked_phrases.txt", "blocked_patterns.txt"):
     assert (paths.filters / name).read_bytes() == (DEFAULT_FILTERS / name).read_bytes()
 assert DEFAULT_FILTERS.is_dir()

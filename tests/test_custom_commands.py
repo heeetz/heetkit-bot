@@ -1,6 +1,5 @@
 """Custom commands share dispatch policy while remaining validated local data."""
 
-import json
 import logging
 from types import SimpleNamespace
 from typing import cast
@@ -13,11 +12,13 @@ from app.services.facade import ApplicationServices
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.utils.cooldown import CooldownManager
 from app.utils.output_limiter import OutputLimiter
+from app.config_file import ConfigFile
+from config_helpers import read_section, write_section
 
 
 @pytest.mark.asyncio
 async def test_manual_broadcaster_using_bot_account_executes_custom_alias(tmp_path):
-    store = CustomCommandStore(tmp_path / "commands.json", set())
+    store = CustomCommandStore(ConfigFile(tmp_path / "commands.json"), set())
     store.save(payload(responses=["Hello {sender}"]))
     replies = []
     async def respond(content):
@@ -43,19 +44,18 @@ async def test_legacy_tg_converts_once_to_an_ordinary_burst_command(tmp_path, ca
     from app.legacy_tg import migrate_tg
     from app.twitch.permissions import Permission
 
-    fun_path, settings_path = tmp_path / "fun_settings.json", tmp_path / "command_settings.json"
+    fun_path = settings_path = custom_path = tmp_path / "config.json"
     message_text = "My {sender} community" if case == "customized" else "My community"
     if case != "absent":
-        fun_path.write_text(json.dumps({"version": 1, "fates": ["Keep fate"],
-                                      **({"tg_message": message_text} if case != "enabled" else {})}), encoding="utf-8")
-        settings_path.write_text(json.dumps({"tg": {
+        write_section(fun_path, "fun", {"version": 1, "fates": ["Keep fate"],
+                                      **({"tg_message": message_text} if case != "enabled" else {})})
+        write_section(settings_path, "commands", {"tg": {
             "enabled": case != "disabled", "permission": "BROADCASTER",
             "cooldown": {"per_user_seconds": 2, "global_seconds": 5},
             "aliases": ["community"], "burst_max_count": 20, "burst_interval_ms": 200,
-        }}), encoding="utf-8")
-    custom_path = tmp_path / "custom_commands.json"
-    store = CustomCommandStore(custom_path, set())
-    migrate_tg(store, fun_path, settings_path)
+        }})
+    store = CustomCommandStore(ConfigFile(custom_path), set())
+    migrate_tg(store, ConfigFile(fun_path))
     saved = store.list()
     if case == "absent":
         assert saved == ()
@@ -63,17 +63,17 @@ async def test_legacy_tg_converts_once_to_an_ordinary_burst_command(tmp_path, ca
         return
     command, = saved
     assert (command.name, command.response_mode, command.enabled) == ("tg", "burst", case != "disabled")
-    expected_text = "Configure your community link in config/fun_settings.json." if case == "enabled" else message_text
+    expected_text = "Configure your community link in config.json." if case == "enabled" else message_text
     assert render_response(command, "", "owner", "owner") == expected_text
     assert command.permission == Permission.BROADCASTER
     assert (command.cooldown.per_user_seconds, command.cooldown.global_seconds) == (2, 5)
     assert command.aliases == ("community",)
     assert (command.burst_count, command.burst_allow_override, command.burst_max_count, command.burst_interval_ms) == (1, True, 20, 200)
-    assert json.loads(fun_path.read_text()) == {"version": 1, "fates": ["Keep fate"]}
-    assert "tg" not in json.loads(settings_path.read_text())
-    assert FunSettingsStore(fun_path).fates == ("Keep fate",)
-    restarted = CustomCommandStore(custom_path, set())
-    migrate_tg(restarted, fun_path, settings_path)
+    assert read_section(fun_path, "fun") == {"version": 1, "fates": ["Keep fate"]}
+    assert "tg" not in read_section(settings_path, "commands")
+    assert FunSettingsStore(ConfigFile(fun_path)).fates == ("Keep fate",)
+    restarted = CustomCommandStore(ConfigFile(custom_path), set())
+    migrate_tg(restarted, ConfigFile(fun_path))
     assert restarted.list() == saved
     replies = []
     async def respond(content):
@@ -95,7 +95,7 @@ def test_model_constraints_reject_edits_without_writing(tmp_path, changes, code,
     from app.errors import UserError
 
     path = tmp_path / "commands.json"
-    store = CustomCommandStore(path, set())
+    store = CustomCommandStore(ConfigFile(path), set())
     saved = store.save(payload())
     before = path.read_bytes()
     with pytest.raises(UserError) as error:
@@ -107,12 +107,12 @@ def test_model_constraints_reject_edits_without_writing(tmp_path, changes, code,
 
 def test_store_normalizes_aliases_rejects_collisions_and_persists(tmp_path) -> None:
     path = tmp_path / "custom_commands.json"
-    store = CustomCommandStore(path, {"ping", "p"})
+    store = CustomCommandStore(ConfigFile(path), {"ping", "p"})
     saved = store.save(payload())
     assert store.get_by_name("HELLO") == saved
     assert store.get_by_name("!gReEt") == saved
     assert saved.response_mode == "single"
-    assert CustomCommandStore(path, {"ping", "p"}).get_by_name("greet") == saved
+    assert CustomCommandStore(ConfigFile(path), {"ping", "p"}).get_by_name("greet") == saved
     with pytest.raises(ValueError) as error:
         store.save(payload(name="Ping"))
     assert error.value.code == "custom_commands.command_name_alias_already_exists"
@@ -125,21 +125,21 @@ def test_store_normalizes_aliases_rejects_collisions_and_persists(tmp_path) -> N
     with pytest.raises(ValueError) as error:
         store.save(payload(responses=["{execute}"]))
     assert error.value.code == "custom_commands.response_contains_unknown_variable"
-    assert json.loads(path.read_text(encoding="utf-8"))["commands"] == [saved.to_json()]
+    assert read_section(path, "custom_commands")["commands"] == [saved.to_json()]
     store.delete(saved.id)
     assert store.get_by_name("hello") is None
 
 
 def test_templates_use_safe_fallbacks_and_bounded_output(tmp_path) -> None:
-    command = CustomCommandStore(tmp_path / "commands.json", set()).save(
+    command = CustomCommandStore(ConfigFile(tmp_path / "commands.json"), set()).save(
         payload(responses=["{sender}|{target}|{args}|{arg1}|{arg2}|{random_user}"])
     )
     assert render_response(command, "", "caller", "recent") == "caller|caller||||recent"
     assert render_response(command, "@alice other", "caller", "recent") == "caller|alice|@alice other|@alice|other|recent"
     assert render_response(command, "@", "caller", "recent") == "caller|caller|@|@||recent"
-    long = CustomCommandStore(tmp_path / "long.json", set()).save(payload(responses=["x" * 1000]))
+    long = CustomCommandStore(ConfigFile(tmp_path / "long.json"), set()).save(payload(responses=["x" * 1000]))
     assert len(render_response(long, "", "caller", "recent")) == 450
-    emoji = CustomCommandStore(tmp_path / "emoji.json", set()).save(payload(responses=["😀" * 200]))
+    emoji = CustomCommandStore(ConfigFile(tmp_path / "emoji.json"), set()).save(payload(responses=["😀" * 200]))
     assert len(render_response(emoji, "", "caller", "recent").encode("utf-8")) <= 450
 
 
@@ -147,15 +147,15 @@ def test_templates_use_safe_fallbacks_and_bounded_output(tmp_path) -> None:
 def test_random_pool_saves_and_reloads_all_templates(tmp_path, count):
     path = tmp_path / "commands.json"
     responses = [f"Reply {index} to {{sender}}" for index in range(count)]
-    saved = CustomCommandStore(path, set()).save(payload(response_mode="random", responses=responses))
+    saved = CustomCommandStore(ConfigFile(path), set()).save(payload(response_mode="random", responses=responses))
     assert saved.responses == tuple(responses)
-    assert CustomCommandStore(path, set()).get_by_name("hello") == saved
+    assert CustomCommandStore(ConfigFile(path), set()).get_by_name("hello") == saved
 
 
 @pytest.mark.parametrize("responses", [[], ["Reply"] * 31])
 def test_random_pool_invalid_size_rejected_without_changing_saved_command(tmp_path, responses):
     path = tmp_path / "commands.json"
-    store = CustomCommandStore(path, set())
+    store = CustomCommandStore(ConfigFile(path), set())
     saved = store.save(payload(response_mode="random", responses=["Reply"] * 30))
     before = path.read_bytes()
     with pytest.raises(ValueError) as error:
@@ -174,13 +174,13 @@ def test_random_pool_invalid_size_rejected_without_changing_saved_command(tmp_pa
 ])
 def test_larger_random_pool_preserves_other_custom_limits(tmp_path, changes, match):
     with pytest.raises(ValueError) as error:
-        CustomCommandStore(tmp_path / "commands.json", set()).save(payload(**changes))
+        CustomCommandStore(ConfigFile(tmp_path / "commands.json"), set()).save(payload(**changes))
     assert error.value.code == match
 
 
 @pytest.mark.asyncio
 async def test_dispatch_selects_from_entire_thirty_template_pool(tmp_path, monkeypatch):
-    store = CustomCommandStore(tmp_path / "commands.json", set())
+    store = CustomCommandStore(ConfigFile(tmp_path / "commands.json"), set())
     responses = [f"Reply {index} to {{sender}}" for index in range(29)] + ["{sender} " + "😀" * 200]
     store.save(payload(response_mode="random", responses=responses))
     choices = []
@@ -207,19 +207,19 @@ async def test_dispatch_selects_from_entire_thirty_template_pool(tmp_path, monke
 
 def test_malformed_file_skips_bad_entries_and_never_blocks_builtins(tmp_path) -> None:
     path = tmp_path / "custom_commands.json"
-    good = CustomCommandStore(path, set()).save(payload())
-    path.write_text(json.dumps({"version": 2, "commands": [{**good.to_json(), "name": "ping"},
-                                                  good.to_json(), {**good.to_json(), "id": "bad"}]}), encoding="utf-8")
-    store = CustomCommandStore(path, {"ping"})
+    good = CustomCommandStore(ConfigFile(path), set()).save(payload())
+    write_section(path, "custom_commands", {"version": 2, "commands": [{**good.to_json(), "name": "ping"},
+                                                  good.to_json(), {**good.to_json(), "id": "bad"}]})
+    store = CustomCommandStore(ConfigFile(path), {"ping"})
     assert store.list() == (good,)
     path.write_text("{bad", encoding="utf-8")
-    assert CustomCommandStore(path, {"ping"}).list() == ()
+    assert CustomCommandStore(ConfigFile(path), {"ping"}).list() == ()
     path.write_text('{"version": 99, "commands": []}', encoding="utf-8")
-    assert CustomCommandStore(path, {"ping"}).list() == ()
+    assert CustomCommandStore(ConfigFile(path), {"ping"}).list() == ()
     path.write_text('{"version": true, "commands": []}', encoding="utf-8")
-    assert CustomCommandStore(path, {"ping"}).list() == ()
-    path.write_text(json.dumps({"version": 2, "commands": [{**good.to_json(), "per_user_seconds": 10 ** 1000}]}), encoding="utf-8")
-    assert CustomCommandStore(path, {"ping"}).list() == ()
+    assert CustomCommandStore(ConfigFile(path), {"ping"}).list() == ()
+    write_section(path, "custom_commands", {"version": 2, "commands": [{**good.to_json(), "per_user_seconds": 10 ** 1000}]})
+    assert CustomCommandStore(ConfigFile(path), {"ping"}).list() == ()
 
 
 @pytest.mark.parametrize("mode,responses", [("single", ["Hello"]), ("random", ["Only one"]),
@@ -227,10 +227,10 @@ def test_malformed_file_skips_bad_entries_and_never_blocks_builtins(tmp_path) ->
 def test_explicit_modes_and_burst_configuration_persist_across_restart(tmp_path, mode, responses):
     path = tmp_path / "commands.json"
     extra = {"burst_count": 7, "burst_max_count": 20, "burst_allow_override": True} if mode == "burst" else {}
-    saved = CustomCommandStore(path, set()).save(payload(
+    saved = CustomCommandStore(ConfigFile(path), set()).save(payload(
         response_mode=mode, responses=responses, permission="MODERATOR", **extra))
     assert saved.response_mode == mode
-    restarted = CustomCommandStore(path, set())
+    restarted = CustomCommandStore(ConfigFile(path), set())
     assert restarted.list() == (saved,)
     assert saved.to_json()["response_mode"] == mode
     assert ("burst_count" in saved.to_json()) == (mode == "burst")
@@ -257,19 +257,19 @@ def test_invalid_burst_configuration_rejected_by_save_and_load(tmp_path, changes
     raw = {
         **payload(response_mode="burst", permission="MODERATOR", burst_count=5, burst_allow_override=True), **changes,
     }
-    store = CustomCommandStore(path, set())
+    store = CustomCommandStore(ConfigFile(path), set())
     with pytest.raises(ValueError):
         store.save(raw)
     assert store.list() == ()
     assert not path.exists()
-    path.write_text(json.dumps({"version": 2, "commands": [{**raw, "id": str(uuid4())}]}), encoding="utf-8")
-    assert CustomCommandStore(path, set()).list() == ()
+    write_section(path, "custom_commands", {"version": 2, "commands": [{**raw, "id": str(uuid4())}]})
+    assert CustomCommandStore(ConfigFile(path), set()).list() == ()
 
 
 def test_bridge_exposes_modes_defaults_and_reports_invalid_burst(tmp_path):
     from app.webview_host import WebUIBridge
 
-    store = CustomCommandStore(tmp_path / "commands.json", set())
+    store = CustomCommandStore(ConfigFile(tmp_path / "commands.json"), set())
     bridge = WebUIBridge(SimpleNamespace(application=SimpleNamespace(
         custom_commands=store, settings=SimpleNamespace(command_prefix="!"))))
     raw = payload(response_mode="burst", permission="MODERATOR")
@@ -289,7 +289,7 @@ async def test_dispatch_alias_permission_cooldown_random_response_and_output_lim
     async def ping(context, arguments):
         await context.reply("pong")
 
-    store = CustomCommandStore(tmp_path / "custom_commands.json", {"ping"})
+    store = CustomCommandStore(ConfigFile(tmp_path / "custom_commands.json"), {"ping"})
     saved = store.save(payload(responses=["first {random_user}", "second {random_user}"],
                                permission="MODERATOR", per_user_seconds=30))
     chosen = iter(["first {random_user}", "alice"])

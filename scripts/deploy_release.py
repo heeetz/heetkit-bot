@@ -182,9 +182,14 @@ def verify_backup(path):
                 with closing(sqlite3.connect(database)) as connection:
                     require(connection.execute("PRAGMA integrity_check").fetchall() == [("ok",)],
                             "Stopped backup SQLite integrity failed")
-        settings = archive.extractfile("./config/app_settings.json")
-        with settings:
-            mode = json.load(settings)["startup"]["operation_mode"]
+        # Profiles from 1.6 and earlier keep application settings in their own file.
+        names = {member.name for member in members}
+        if "./config/config.json" in names:
+            with archive.extractfile("./config/config.json") as settings:
+                mode = json.load(settings)["app"]["startup"]["operation_mode"]
+        else:
+            with archive.extractfile("./config/app_settings.json") as settings:
+                mode = json.load(settings)["startup"]["operation_mode"]
         require(mode in MODES, "Stopped backup operation policy is invalid")
     require(any(PurePosixPath(item["name"]) == PurePosixPath("data/heetkit.db") for item in manifest),
             "Stopped backup lacks the profile database")

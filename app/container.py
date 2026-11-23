@@ -18,6 +18,7 @@ from app.ai_user_blocks import AIUserBlocklist
 from app.command_restrictions import CommandRestrictionStore
 from app.message_triggers import MessageTriggerStore
 from app.runtime_paths import RuntimePaths
+from app.config_file import ConfigFile
 from app.fun_settings import FunSettingsStore
 from app.legacy_tg import migrate_tg
 from app.config.settings import Settings
@@ -121,17 +122,15 @@ def build_application(settings: Settings) -> Application:
     twitch_api.analytics = analytics
     twitch_api.leaderboards = Leaderboards(user_repository, twitch_api, settings)
     memory = AIMemoryService(memory_repository)
-    runtime_state = RuntimeState(
-        command_settings_path=paths.command_settings,
-        personality_settings_path=paths.personality_settings,
-    )
+    config = ConfigFile(paths.config_file)
+    runtime_state = RuntimeState(config)
     ai_service = SharedAIService(
         settings,
         runtime_state=runtime_state,
         filter_manager=filter_manager,
     )
     registry = CommandRegistry()
-    fun_settings = FunSettingsStore(paths.config / "fun_settings.json")
+    fun_settings = FunSettingsStore(config)
     register_fun_commands(registry, fun_settings)
     register_weather_commands(registry)
     register_info_commands(registry)
@@ -140,12 +139,12 @@ def build_application(settings: Settings) -> Application:
     register_leaderboard_commands(registry)
     creation_order = CommandCreationOrder()
     custom_commands = CustomCommandStore(
-        paths.custom_commands,
+        config,
         {name for definition in registry.definitions() for name in (definition.name, *definition.aliases)},
         namespace_lock=runtime_state.command_namespace_lock,
         creation_order=creation_order,
     )
-    migrate_tg(custom_commands, fun_settings.path, paths.command_settings)
+    migrate_tg(custom_commands, config)
     fun_settings._payload.pop("tg_message", None)
     runtime_state.bind_custom_commands(custom_commands)
     runtime_state.configure_commands(registry.definitions())
@@ -165,7 +164,7 @@ def build_application(settings: Settings) -> Application:
         analytics=analytics,
     )
     services.command_restrictions.migrate_ai_blocks(services.ai_user_blocks, settings.twitch_channel_user_id)
-    message_triggers = MessageTriggerStore(paths.message_triggers, creation_order=creation_order)
+    message_triggers = MessageTriggerStore(config, creation_order=creation_order)
     dispatcher = CommandDispatcher(
         registry=registry,
         cooldowns=CooldownManager(),
@@ -188,5 +187,5 @@ def build_application(settings: Settings) -> Application:
         custom_commands=custom_commands,
         dispatcher=dispatcher,
         fun_settings=fun_settings,
-        announcements=AnnouncementStore(paths.config / "announcements.json"),
+        announcements=AnnouncementStore(config),
     )

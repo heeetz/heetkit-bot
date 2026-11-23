@@ -9,6 +9,7 @@ from app.commands.registry import CommandRegistry
 from app.fun_settings import FATES, FunSettingsStore
 from app.runtime_paths import RuntimePaths
 from app.runtime_state import RuntimeState
+from app.config_file import ConfigFile
 
 
 RESPONSES = ["Моя доля, {literal}.", "My unchanged forecast"]
@@ -16,17 +17,17 @@ RESPONSES = ["Моя доля, {literal}.", "My unchanged forecast"]
 
 def write_json(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)
-    original = (json.dumps(payload, ensure_ascii=False, indent=3) + "\n").encode("utf-8")
+    original = (json.dumps({"schema_version": 1, "fun": payload}, ensure_ascii=False, indent=3) + "\n").encode("utf-8")
     path.write_bytes(original)
     return original
 
 
 def load_profile(root):
     paths = RuntimePaths(root)
-    fun = FunSettingsStore(paths.config / "fun_settings.json")
+    fun = FunSettingsStore(ConfigFile(paths.config_file))
     registry = CommandRegistry()
     register_fun_commands(registry, fun)
-    state = RuntimeState(command_settings_path=paths.command_settings)
+    state = RuntimeState(ConfigFile(paths.config_file))
     state.configure_commands(registry.definitions())
     return fun, state, registry
 
@@ -35,7 +36,7 @@ def load_profile(root):
 @pytest.mark.parametrize("content", [b"{bad", b"[]", b"\xff", b'{"fate":{},"fate":null,"fates":[],"version":1}'])
 def test_malformed_files_are_never_replaced_by_editor(tmp_path, kind, content):
     paths = RuntimePaths(tmp_path)
-    path = paths.command_settings if kind == "command" else paths.config / "fun_settings.json"
+    path = paths.config_file
     path.parent.mkdir(parents=True)
     path.write_bytes(content)
     fun, state, _ = load_profile(tmp_path)
@@ -49,7 +50,7 @@ def test_malformed_files_are_never_replaced_by_editor(tmp_path, kind, content):
 
 @pytest.mark.parametrize("version", [2, True, "1", None])
 def test_unsupported_fun_format_is_retained(tmp_path, version):
-    path = tmp_path / "config" / "fun_settings.json"
+    path = RuntimePaths(tmp_path).config_file
     original = write_json(path, {"version": version, "fates": RESPONSES})
     fun, _, _ = load_profile(tmp_path)
     assert fun.fates == FATES
@@ -60,10 +61,10 @@ def test_unsupported_fun_format_is_retained(tmp_path, version):
 
 
 def test_fun_save_keeps_external_edits_in_recovery(tmp_path):
-    path = tmp_path / "config" / "fun_settings.json"
+    path = RuntimePaths(tmp_path).config_file
     write_json(path, {"version": 1, "fates": RESPONSES})
     fun, _, _ = load_profile(tmp_path)
     external = write_json(path, {"version": 1, "fates": ["External edit"], "future": "keep"})
     fun.save(["Editor change"])
-    assert FunSettingsStore(path).fates == ("Editor change",)
+    assert FunSettingsStore(ConfigFile(path)).fates == ("Editor change",)
     assert external in {copy.read_bytes() for copy in path.parent.glob(f"{path.name}.*.recovery")}

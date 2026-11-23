@@ -28,6 +28,7 @@ from app.filter_settings import FilterValidationError
 from app.management import ApplicationManagement
 from app.operations import SERVER, collect, operation, private_context
 from app.runtime_paths import PACKAGED_FRONTEND, SOURCE_ROOT, RuntimePaths
+from app.config_file import ConfigFile
 from app.utils.logging import RecentLogBuffer
 from app.credentials import CredentialError
 from app.config.settings import TwitchConfigurationError
@@ -369,7 +370,7 @@ class ManagementAPI:
                  app_settings: AppSettingsStore | None = None, credentials=None) -> None:
         self.runtime = runtime
         self.config = config
-        store = app_settings or AppSettingsStore(RuntimePaths.default().app_settings)
+        store = app_settings or AppSettingsStore(ConfigFile(RuntimePaths.default().config_file))
         self.service = ApplicationManagement(runtime.application, store, log_buffer)
         self.policy = policy or OperationPolicy(runtime, store)
         self.setup = TwitchSetup(runtime, self.policy, store,

@@ -2,18 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import os
-import tempfile
-from pathlib import Path
 from threading import RLock
 
 from app.errors import UserError
 from typing import Annotated
 from pydantic import Field, StrictStr
 from app.settings_models import SettingsModel, byte_limit, field_value, parse
-from app.settings_recovery import preserve_settings_recovery
+from app.config_file import ConfigFile
 
 FATES = ("Tomorrow brings a new opportunity.",)
 
@@ -43,22 +39,23 @@ def _response_options(command_name: str) -> tuple[str, tuple[str, ...], int]:
 class FunSettingsStore:
     """One versioned store, preserving existing owner responses and other fields."""
 
-    def __init__(self, path: Path) -> None:
-        self.path = path
+    def __init__(self, config: ConfigFile) -> None:
+        self.section = config.section("fun")
         self._lock = RLock()
         self._payload: dict[str, object] = {"version": 1}
         self._load_error = False
         self._fates = FATES
-        if path.exists():
-            try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-                if (not isinstance(payload, dict) or type(payload.get("version")) is not int
-                        or payload["version"] != 1):
-                    raise UserError("fun_settings.unsupported_fun_settings")
-                self._payload = payload
-            except (OSError, UnicodeError, ValueError):
-                self._load_error = True
-                logging.getLogger(__name__).warning("Could not load local fun settings; using neutral defaults")
+        try:
+            payload = self.section.load()
+            if (not isinstance(payload, dict) or type(payload.get("version")) is not int
+                    or payload["version"] != 1):
+                raise UserError("fun_settings.unsupported_fun_settings")
+            self._payload = payload
+        except FileNotFoundError:
+            pass
+        except (OSError, UnicodeError, ValueError):
+            self._load_error = True
+            logging.getLogger(__name__).warning("Could not load local fun settings; using neutral defaults")
         try:
             self._fates = tuple(parse(FunSettingsModel, {"fates": self._payload.get("fates", list(FATES))}).fates)
         except ValueError:
@@ -123,17 +120,4 @@ class FunSettingsStore:
     def _write(self, payload: dict[str, object]) -> None:
         if self._load_error:
             raise UserError("fun_settings.repair_unreadable_unsupported_fun_settings_json")
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.path.parent, delete=False) as output:
-                temporary = Path(output.name)
-                json.dump(payload, output, ensure_ascii=False, indent=2)
-                output.write("\n")
-                output.flush()
-                os.fsync(output.fileno())
-            preserve_settings_recovery(self.path, self._payload, version=1)
-            os.replace(temporary, self.path)
-        finally:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
+        self.section.save(payload, recovered=self._payload, version=1)

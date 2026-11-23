@@ -55,7 +55,8 @@ The local profile guard does not prevent duplicate bots on separate hosts or cop
 
 | Location | Stored data | Retention |
 | --- | --- | --- |
-| `config/` | Commands, settings, prompts, filters, schedules, private access policy | Until changed/deleted; review personal text separately |
+| `config/config.json` | Commands, settings, prompts, triggers, schedules | Until changed/deleted; review personal text separately |
+| `config/` (other files) | Filters, private access policy | Until changed/deleted |
 | `data/heetkit.db` | Presence, AI exchanges, leaderboard counts, opt-outs, schema metadata | Personal retention below; opt-outs until withdrawal/retirement |
 | `<database-name>.analytics.sqlite3` | Anonymous daily/hourly counters and coverage | 60 UTC calendar days |
 | `auth/twitchio_tokens.json` | Twitch access/refresh tokens | Until revoked/replaced/deleted |
@@ -208,7 +209,12 @@ The managed `data/<database-name>.recovery/` snapshot expires seven days after c
 startup/hourly cleanup removes it without extending expiry. Privacy actions scrub it.
 Never run an older binary against an upgraded database or restore expired snapshots.
 
+Settings live in one `config/config.json`. The first start after 1.6 moves the 1.6
+settings files into it and keeps their exact copies in `config/backup-1.6/`; an
+unreadable 1.6 file stays only in that backup. HeetKit 1.6 cannot read `config.json`,
+so going back to 1.6 means restoring those files.
+
 Unreadable/future settings stay intact and refuse saves/resets. Stop, back up and repair
 only the named file. Lossy saves retain exact `<filename>.<unique-id>.recovery` copies;
-these and import backups have no automatic expiry. Review/delete them separately.
+these, `backup-1.6/` and import backups have no automatic expiry. Review/delete them separately.
 Rotate exposed credentials at their provider and follow [SECURITY.md](../SECURITY.md).

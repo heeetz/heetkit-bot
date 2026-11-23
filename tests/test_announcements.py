@@ -1,7 +1,6 @@
 """Synthetic schedules: monotonic time, no Twitch accounts or wall-clock waits."""
 
 import asyncio
-import json
 from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -15,6 +14,8 @@ from app.announcements import AnnouncementScheduler, AnnouncementStore, parse_an
 from app.services.twitch import TwitchAPIService
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.utils.output_limiter import OutputLimiter
+from app.config_file import ConfigFile
+from config_helpers import write_section
 
 
 def entry(**changes):
@@ -33,7 +34,7 @@ def test_announcement_constraints_report_fields_without_writing(tmp_path, change
     from app.errors import UserError
 
     path = tmp_path / "announcements.json"
-    store = AnnouncementStore(path)
+    store = AnnouncementStore(ConfigFile(path))
     with pytest.raises(UserError) as error:
         store.save([entry(**changes)])
     assert (error.value.code, error.value.params) == (code, params)
@@ -43,7 +44,7 @@ def test_announcement_constraints_report_fields_without_writing(tmp_path, change
 @pytest.fixture
 async def rig(tmp_path):
     now = [0.0]
-    store = AnnouncementStore(tmp_path / "announcements.json")
+    store = AnnouncementStore(ConfigFile(tmp_path / "announcements.json"))
     store.save([entry()])
     responder = AsyncMock(return_value=SimpleNamespace(id="sent", sent=True))
     client = SimpleNamespace(create_partialuser=lambda channel: SimpleNamespace(send_message=responder, send_announcement=responder))
@@ -108,7 +109,7 @@ async def test_aggregate_announcement_attempt_has_one_delivery_outcome(rig, tmp_
         r.twitch.analytics = None
         await analytics.close()
     # A fresh scheduler loads configuration only, no deadlines/delivery/activity.
-    restarted = AnnouncementScheduler(AnnouncementStore(r.store._path), r.twitch, SimpleNamespace(), r.state,
+    restarted = AnnouncementScheduler(AnnouncementStore(r.store._section.file), r.twitch, SimpleNamespace(), r.state,
                                       clock=lambda: r.now[0])
     restarted.reset()
     try:
@@ -315,11 +316,11 @@ def test_legacy_announcement_defaults_to_regular_and_type_survives_reload(tmp_pa
     legacy = entry()
     legacy.pop("delivery_mode")
     path = tmp_path / "announcements.json"
-    path.write_text(json.dumps({"version": 1, "announcements": [legacy]}), encoding="utf-8")
-    store = AnnouncementStore(path)
+    write_section(path, "announcements", {"version": 1, "announcements": [legacy]})
+    store = AnnouncementStore(ConfigFile(path))
     assert store.list()[0].delivery_mode == "regular"
     store.save([{**legacy, "delivery_mode": "highlighted"}])
-    assert AnnouncementStore(path).list()[0].delivery_mode == "highlighted"
+    assert AnnouncementStore(ConfigFile(path)).list()[0].delivery_mode == "highlighted"
 
 
 @pytest.mark.parametrize("delivery_mode", ["regular", "highlighted"])
@@ -387,41 +388,41 @@ async def test_worker_start_is_idempotent_and_close_drains_pending_output(rig):
     {"delivery_mode": "announcepurple"}, {"delivery_mode": None}, {"delivery_mode": True},
 ])
 def test_invalid_values_never_change_store(tmp_path, changes):
-    store = AnnouncementStore(tmp_path / "announcements.json")
+    store = AnnouncementStore(ConfigFile(tmp_path / "announcements.json"))
     original = entry()
     store.save([original])
-    before = store._path.read_bytes()
+    before = store._section.path.read_bytes()
     with pytest.raises(ValueError):
         store.save([{**original, **changes}])
-    assert store._path.read_bytes() == before
+    assert store._section.path.read_bytes() == before
     assert store.list()[0].to_json() == original
 
 
 def test_atomic_persistence_ids_limits_corruption_and_future_recovery(tmp_path, monkeypatch):
-    store = AnnouncementStore(tmp_path / "announcements.json")
+    store = AnnouncementStore(ConfigFile(tmp_path / "announcements.json"))
     raw = entry()
     raw.pop("id")
     store.save([raw])
     saved = store.list()
-    assert AnnouncementStore(store._path).list() == saved
+    assert AnnouncementStore(store._section.file).list() == saved
     with pytest.raises(ValueError):
         parse_announcements([saved[0].to_json()] * 2)
     with pytest.raises(ValueError):
         parse_announcements([entry() for _ in range(51)])
-    import app.announcements as module
+    import app.config_file as module
     with monkeypatch.context() as scoped:
         scoped.setattr(module.os, "replace", lambda *args: (_ for _ in ()).throw(OSError("disk")))
         with pytest.raises(OSError):
             store.save([])
-    assert store.list() == saved and AnnouncementStore(store._path).list() == saved
-    assert not list(tmp_path.glob(".announcements-*"))
-    for bad in ('{"version":2,"announcements":[]}', 'broken json'):
-        store._path.write_text(bad)
-        recovered = AnnouncementStore(store._path)
+    assert store.list() == saved and AnnouncementStore(store._section.file).list() == saved
+    assert not list(tmp_path.glob("*.tmp"))
+    for bad in ('{"schema_version":1,"announcements":{"version":2,"announcements":[]}}', 'broken json'):
+        store._section.path.write_text(bad)
+        recovered = AnnouncementStore(store._section.file)
         assert not recovered.list()
         with pytest.raises(ValueError):
             recovered.save([])
-        assert store._path.read_text() == bad
+        assert store._section.path.read_text() == bad
 
 
 async def test_real_ingress_counts_only_current_eligible_unique_human_events(rig):

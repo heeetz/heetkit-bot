@@ -21,6 +21,7 @@ from app.services.ai_service import SharedAIService
 from app.services.contracts import AIReply
 from app.services.filter_manager import FilterEvaluation, FilterManager
 from app.services.gemini_ai_service import GeminiProvider
+from app.config_file import ConfigFile
 
 
 class SyntheticProvider:
@@ -41,7 +42,7 @@ class SyntheticProvider:
 @pytest.fixture
 def pipeline(tmp_path):
     settings = Settings(_env_file=None)
-    state = RuntimeState(personality_settings_path=tmp_path / "personalities.json")
+    state = RuntimeState(ConfigFile(tmp_path / "personalities.json"))
     filters = FilterManager()
     provider = SyntheticProvider()
     return SharedAIService(settings, state, filters, provider=provider), provider
@@ -189,7 +190,7 @@ def test_legacy_settings_default_to_gemini_without_a_provider_field():
 async def test_snapshot_precedes_client_wait_and_survives_settings_changes_and_fallback(tmp_path, monkeypatch):
     settings = Settings(_env_file=None, gemini_api_key="synthetic-first-key",
                         gemini_model="gemini-primary", gemini_fallback_model="gemini-backup")
-    state = RuntimeState(personality_settings_path=tmp_path / "personalities.json")
+    state = RuntimeState(ConfigFile(tmp_path / "personalities.json"))
     state.apply_profile_instructions("Original community vocabulary.")
     service = SharedAIService(settings, state)
     calls = []

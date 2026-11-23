@@ -3,7 +3,6 @@
 from collections.abc import Callable, Iterable
 from dataclasses import replace
 import logging
-from pathlib import Path
 from threading import RLock
 from time import monotonic
 from typing import Literal
@@ -23,6 +22,7 @@ from app.command_settings import (
     validate_leaderboard_template,
 )
 from app.config.personalities import AI_PERSONALITY_PROMPTS
+from app.config_file import ConfigFile
 from app.personality_settings import (
     PersonalitySettings,
     load_personality_settings,
@@ -45,8 +45,7 @@ TwitchConnectionState = Literal[
 class RuntimeState:
     def __init__(
         self,
-        command_settings_path: str | Path | None = None,
-        personality_settings_path: str | Path | None = None,
+        config: ConfigFile | None = None,
     ) -> None:
         self._lock = RLock()
         self._command_defaults: dict[str, CommandSettings] = {}
@@ -58,18 +57,14 @@ class RuntimeState:
         self.server_stream_status: Callable[[], str] | None = None
         self._command_settings: dict[str, CommandSettings] = {}
         self._persisted_command_overrides: dict[str, CommandSettingsOverride] = {}
-        self._command_settings_path = (
-            None if command_settings_path is None else Path(command_settings_path)
-        )
-        self._personality_settings_path = (
-            None if personality_settings_path is None else Path(personality_settings_path)
-        )
+        self._command_section = None if config is None else config.section("commands")
+        self._personality_section = None if config is None else config.section("personalities")
         self._ai_memory_enabled = AI_MEMORY_ENABLED
         personality_settings = (
             PersonalitySettings(ACTIVE_AI_PERSONALITY, {})
-            if self._personality_settings_path is None
+            if self._personality_section is None
             else load_personality_settings(
-                self._personality_settings_path,
+                self._personality_section,
                 AI_PERSONALITY_PROMPTS,
                 ACTIVE_AI_PERSONALITY,
             )
@@ -107,9 +102,9 @@ class RuntimeState:
             }
             self._persisted_command_overrides = (
                 {}
-                if self._command_settings_path is None
+                if self._command_section is None
                 else load_command_overrides(
-                    self._command_settings_path,
+                    self._command_section,
                     self._command_defaults,
                 )
             )
@@ -355,7 +350,7 @@ class RuntimeState:
         command_name: str,
         settings: CommandSettings,
     ) -> None:
-        if self._command_settings_path is None:
+        if self._command_section is None:
             raise UserRuntimeError("runtime_state.command_settings_persistence_not_configured")
         with self._lock:
             defaults = self._command_defaults[command_name]
@@ -366,7 +361,7 @@ class RuntimeState:
             else:
                 overrides[command_name] = override
             save_command_overrides(
-                self._command_settings_path, overrides,
+                self._command_section, overrides,
                 recovered_overrides=self._persisted_command_overrides,
             )
             self._persisted_command_overrides = overrides
@@ -387,9 +382,9 @@ class RuntimeState:
                 overrides.pop(command_name, None)
             else:
                 overrides[command_name] = override
-            if self._command_settings_path is not None:
+            if self._command_section is not None:
                 save_command_overrides(
-                    self._command_settings_path, overrides,
+                    self._command_section, overrides,
                     recovered_overrides=self._persisted_command_overrides,
                 )
             self._persisted_command_overrides = overrides
@@ -416,7 +411,7 @@ class RuntimeState:
 
     def reset_all_command_settings(self, *, preserve_enabled: bool = False) -> None:
         with self._lock:
-            if self._command_settings_path is None:
+            if self._command_section is None:
                 raise UserRuntimeError("runtime_state.command_settings_persistence_not_configured")
             updated = dict(self._command_defaults)
             overrides: dict[str, CommandSettingsOverride] = {}
@@ -427,7 +422,7 @@ class RuntimeState:
                     override = CommandSettingsOverride.from_settings(updated[name], defaults)
                     if not override.is_empty:
                         overrides[name] = override
-            save_command_overrides(self._command_settings_path, overrides, recovered_overrides=self._persisted_command_overrides)
+            save_command_overrides(self._command_section, overrides, recovered_overrides=self._persisted_command_overrides)
             self._persisted_command_overrides = overrides
             self._command_settings = updated
 
@@ -637,7 +632,7 @@ class RuntimeState:
                 overrides.pop(personality, None)
             else:
                 overrides[personality] = built_in_prompt
-            if self._personality_settings_path is not None:
+            if self._personality_section is not None:
                 self._save_personality_settings(
                     self._persisted_active_ai_personality,
                     overrides,
@@ -651,10 +646,10 @@ class RuntimeState:
         overrides: dict[str, str],
         profile_instructions: str | None = None,
     ) -> None:
-        if self._personality_settings_path is None:
+        if self._personality_section is None:
             raise UserRuntimeError("runtime_state.personality_settings_persistence_not_configured")
         save_personality_settings(
-            self._personality_settings_path,
+            self._personality_section,
             PersonalitySettings(
                 active_personality, overrides,
                 self._persisted_profile_instructions if profile_instructions is None else profile_instructions,

@@ -57,7 +57,7 @@ for (const host of ['127.0.0.1', '127.0.0.2']) {
       await mode.click()
       await page.getByRole('option', { name: 'Disabled', exact: true }).click()
       await expect(operation.getByRole('heading', { name: 'Disabled', exact: true })).toBeVisible()
-      expect(JSON.parse(await readFile(join(profile, 'config', 'app_settings.json'), 'utf8')).startup.operation_mode).toBe('disabled')
+      expect(JSON.parse(await readFile(join(profile, 'config', 'config.json'), 'utf8')).app.startup.operation_mode).toBe('disabled')
       await expect(page.getByRole('button', { name: 'Connect', exact: true })).toHaveCount(0)
       await page.reload()
       await page.getByLabel('Administrator token').fill('synthetic_management_token_' + 'x'.repeat(32))
@@ -92,7 +92,7 @@ for (const host of ['127.0.0.1', '127.0.0.2']) {
       await target.getByLabel('Saved channel name', { exact: true }).fill('Other channel')
       await target.getByRole('button', { name: 'Save new channel', exact: true }).click()
       await expect(page.getByRole('status').filter({ has: page.getByRole('button', { name: 'Dismiss message' }) })).toBeVisible()
-      let settings = JSON.parse(await readFile(join(profile, 'config', 'app_settings.json'), 'utf8'))
+      let settings = JSON.parse(await readFile(join(profile, 'config', 'config.json'), 'utf8')).app
       expect(settings.twitch.presets).toHaveLength(1)
       expect(settings.twitch.channel).not.toBe('otherchannel')
       await target.getByLabel('Saved channel name', { exact: true }).fill('Renamed channel')
@@ -110,7 +110,7 @@ for (const host of ['127.0.0.1', '127.0.0.2']) {
       page.once('dialog', (dialog) => dialog.accept())
       await target.getByRole('button', { name: 'Switch to saved channel', exact: true }).click()
       await expect(page.getByRole('status').filter({ has: page.getByRole('button', { name: 'Dismiss message' }) })).toBeVisible()
-      settings = JSON.parse(await readFile(join(profile, 'config', 'app_settings.json'), 'utf8'))
+      settings = JSON.parse(await readFile(join(profile, 'config', 'config.json'), 'utf8')).app
       expect(settings.twitch.channel).toBe('otherchannel')
       expect(settings.startup.operation_mode).toBe('manual')
       expect(await readFile(join(profile, 'auth', 'twitchio_tokens.json'), 'utf8')).toContain('synthetic-refresh')
@@ -123,7 +123,7 @@ for (const host of ['127.0.0.1', '127.0.0.2']) {
       page.once('dialog', (dialog) => dialog.accept())
       await target.getByRole('button', { name: 'Delete saved channel', exact: true }).click()
       await expect(page.getByRole('status').filter({ has: page.getByRole('button', { name: 'Dismiss message' }) })).toBeVisible()
-      settings = JSON.parse(await readFile(join(profile, 'config', 'app_settings.json'), 'utf8'))
+      settings = JSON.parse(await readFile(join(profile, 'config', 'config.json'), 'utf8')).app
       expect(settings.twitch.presets).toHaveLength(0)
       expect(settings.twitch.channel).toBe('otherchannel')
       const transfer = page.getByRole('region', { name: 'Configuration transfer' })

@@ -19,6 +19,7 @@ from app.management_api import ManagementAPI
 from app.operations import collect, operation
 from app.ui_messages import MESSAGES
 from app.webview_host import AsyncioBackendHost, DesktopController, WebUIBridge
+from app.config_file import ConfigFile
 
 ROOT = Path(__file__).parents[1]
 PLACEHOLDER = re.compile(r"\{(\w+)\}")
@@ -104,7 +105,7 @@ def test_user_error_preserves_code_parameters_and_legacy_rendering() -> None:
 
 
 def test_settings_validation_errors_are_coded(tmp_path) -> None:
-    store = AppSettingsStore(tmp_path / "app_settings.json")
+    store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
     with pytest.raises(UserError) as error:
         store.update_twitch(channel="bad channel", channel_user_id="1")
     assert error.value.code == "validation.text"
@@ -243,7 +244,7 @@ def _controller(tmp_path):
                                     settings=SimpleNamespace(twitch_channel="synthetic")),
         close=lambda: None,
     )
-    store = AppSettingsStore(tmp_path / "app_settings.json")
+    store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
     bridge = WebUIBridge.__new__(WebUIBridge)
     bridge._app_settings = store
     bridge._update_available = False

@@ -16,6 +16,8 @@ from app.services.facade import ApplicationServices
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.utils.cooldown import CooldownManager
 from app.utils.output_limiter import OutputLimiter
+from app.config_file import ConfigFile
+from config_helpers import read_section, write_section
 
 
 def trigger(**changes):
@@ -27,29 +29,29 @@ def trigger(**changes):
 
 
 def save(path, *triggers):
-    path.write_text(json.dumps({"version": 1, "triggers": list(triggers)}), encoding="utf-8")
-    return MessageTriggerStore(path)
+    write_section(path, "triggers", {"version": 1, "triggers": list(triggers)})
+    return MessageTriggerStore(ConfigFile(path))
 
 
 def test_local_defaults_seed_and_remain_editable(tmp_path):
     paths = RuntimePaths(tmp_path / "appdata")
     assert not paths.root.exists()
     prepare_runtime_data("sqlite+aiosqlite:///:memory:", paths=paths)
-    seeded = MessageTriggerStore(paths.message_triggers).list()
+    seeded = MessageTriggerStore(ConfigFile(paths.config_file)).list()
     assert seeded == ()
-    assert paths.message_triggers.read_bytes() == DEFAULT_TRIGGERS.read_bytes()
-    save(paths.message_triggers, trigger(enabled=False))
+    assert read_section(paths.config_file, "triggers") == json.loads(DEFAULT_TRIGGERS.read_text(encoding="utf-8"))
+    save(paths.config_file, trigger(enabled=False))
     prepare_runtime_data("sqlite+aiosqlite:///:memory:", paths=paths)
-    assert MessageTriggerStore(paths.message_triggers).list()[0].enabled is False
+    assert MessageTriggerStore(ConfigFile(paths.config_file)).list()[0].enabled is False
 
 
 @pytest.mark.parametrize("bom", [b"", b"\xef\xbb\xbf"])
 def test_utf8_with_bom_loads_like_utf8_without_bom(tmp_path, bom):
     path = tmp_path / "message_triggers.json"
-    payload = json.dumps({"version": 1, "triggers": [trigger()]}, ensure_ascii=False)
+    payload = json.dumps({"schema_version": 1, "triggers": {"version": 1, "triggers": [trigger()]}}, ensure_ascii=False)
     path.write_bytes(bom + payload.encode("utf-8"))
 
-    loaded = MessageTriggerStore(path).list()
+    loaded = MessageTriggerStore(ConfigFile(path)).list()
 
     assert len(loaded) == 1
     assert loaded[0].text == trigger()["text"]
@@ -58,10 +60,10 @@ def test_utf8_with_bom_loads_like_utf8_without_bom(tmp_path, bom):
 
 def test_valid_bom_file_can_be_edited_atomically(tmp_path):
     path = tmp_path / "message_triggers.json"
-    path.write_text(json.dumps({"version": 1, "triggers": [trigger()]}), encoding="utf-8-sig")
-    store = MessageTriggerStore(path)
+    write_section(path, "triggers", {"version": 1, "triggers": [trigger()]})
+    store = MessageTriggerStore(ConfigFile(path))
     store.save([trigger(text="edited")])
-    assert MessageTriggerStore(path).list()[0].text == "edited"
+    assert MessageTriggerStore(ConfigFile(path)).list()[0].text == "edited"
 
 
 @pytest.mark.parametrize(
@@ -76,14 +78,14 @@ def test_corrupt_files_disable_reactions_preserve_bytes_and_log_json_location(
 ):
     paths = RuntimePaths(tmp_path / "profile")
     paths.config.mkdir(parents=True)
-    path = paths.message_triggers
+    path = paths.config_file
     path.write_bytes(contents)
     prepare_runtime_data("sqlite+aiosqlite:///:memory:", paths=paths)
     with pytest.raises(json.JSONDecodeError) as decoded:
         json.loads(contents)
 
     with caplog.at_level(logging.WARNING, logger="app.message_triggers"):
-        assert MessageTriggerStore(path).list() == ()
+        assert MessageTriggerStore(ConfigFile(path)).list() == ()
 
     assert path.read_bytes() == contents
     assert str(path) in caplog.text
@@ -96,7 +98,7 @@ def test_invalid_utf8_diagnostic_does_not_include_content(tmp_path, caplog):
     original = b'PRIVATE REACTION\xff'
     path.write_bytes(original)
     with caplog.at_level(logging.WARNING, logger="app.message_triggers"):
-        assert MessageTriggerStore(path).list() == ()
+        assert MessageTriggerStore(ConfigFile(path)).list() == ()
     assert str(path) in caplog.text and "UnicodeDecodeError" in caplog.text
     assert "position=16" in caplog.text
     assert "PRIVATE REACTION" not in caplog.text and path.read_bytes() == original
@@ -111,11 +113,11 @@ def test_validation_skips_bad_entries_and_bounds_matching(tmp_path):
     assert match.matches("Эй ВАСЬ!")
     assert not match.matches("привет")
     assert save(path, trigger(match_mode="exact", case_sensitive=True, text="Hi")).list()[0].matches("Hi")
-    assert not MessageTriggerStore(path).list()[0].matches("hi")
+    assert not MessageTriggerStore(ConfigFile(path)).list()[0].matches("hi")
     path.write_text("{invalid", encoding="utf-8")
-    assert MessageTriggerStore(path).list() == ()
+    assert MessageTriggerStore(ConfigFile(path)).list() == ()
     path.write_text('{"version": 99, "triggers": []}', encoding="utf-8")
-    assert MessageTriggerStore(path).list() == ()
+    assert MessageTriggerStore(ConfigFile(path)).list() == ()
 
 
 @pytest.mark.parametrize("payload,error", [
@@ -127,7 +129,7 @@ def test_validation_skips_bad_entries_and_bounds_matching(tmp_path):
 ])
 def test_save_failure_preserves_file_and_active_triggers(tmp_path, monkeypatch, payload, error):
     path = tmp_path / "message_triggers.json"
-    store = MessageTriggerStore(path)
+    store = MessageTriggerStore(ConfigFile(path))
     store.save([trigger()])
     original, before = path.read_bytes(), store.list()
 
@@ -136,7 +138,7 @@ def test_save_failure_preserves_file_and_active_triggers(tmp_path, monkeypatch, 
 
     with monkeypatch.context() as patch:
         if error is OSError:
-            patch.setattr("app.message_triggers.os.replace", fail_replace)
+            patch.setattr("app.config_file.os.replace", fail_replace)
         with pytest.raises(error):
             store.save(payload)
 
@@ -146,33 +148,33 @@ def test_save_failure_preserves_file_and_active_triggers(tmp_path, monkeypatch, 
 
     if error is OSError:
         store.save(payload)
-        assert MessageTriggerStore(path).list()[0].id == "other"
+        assert MessageTriggerStore(ConfigFile(path)).list()[0].id == "other"
 
 
 def test_save_preserves_lossy_source_in_recovery_file(tmp_path):
     path = tmp_path / "message_triggers.json"
     original = (
-        b'{"version":1,"triggers":[{"id":"vas","enabled":true,'
+        b'{"schema_version":1,"triggers":{"version":1,"triggers":[{"id":"vas","enabled":true,'
         b'"match_mode":"contains","text":"vas","case_sensitive":false,'
         b'"probability":1,"cooldown_seconds":30,"responses":["first"],'
-        b'"future":true}],"future":{"retain":1}}'
+        b'"future":true}],"future":{"retain":1}}}'
     )
     path.write_bytes(original)
-    store = MessageTriggerStore(path)
+    store = MessageTriggerStore(ConfigFile(path))
 
     store.save([trigger(text="vas", responses=["first"])])
 
     recovery = list(tmp_path.glob("*.recovery"))
     assert len(recovery) == 1
     assert recovery[0].read_bytes() == original
-    assert MessageTriggerStore(path).list()[0].responses == ("first",)
+    assert MessageTriggerStore(ConfigFile(path)).list()[0].responses == ("first",)
 
 
 def test_save_refuses_to_replace_unreadable_source(tmp_path):
     path = tmp_path / "message_triggers.json"
     original = b'{"version":1,"triggers":[}'
     path.write_bytes(original)
-    store = MessageTriggerStore(path)
+    store = MessageTriggerStore(ConfigFile(path))
 
     with pytest.raises(ValueError) as error:
         store.save([trigger()])
@@ -268,7 +270,7 @@ def test_editor_reorders_stable_ids_and_rejects_stale_collection(tmp_path):
     from app.message_triggers import trigger_revision
 
     path = tmp_path / "message_triggers.json"
-    store = MessageTriggerStore(path)
+    store = MessageTriggerStore(ConfigFile(path))
     first, second = trigger(), trigger(id="next", text="second")
     revision = trigger_revision(store.save([first, second]))
     updated = store.save([second, {**first, "enabled": False}], revision=revision)
@@ -276,15 +278,15 @@ def test_editor_reorders_stable_ids_and_rejects_stale_collection(tmp_path):
     with pytest.raises(ValueError) as error:
         store.save([first], revision=revision)
     assert error.value.code == "message_triggers.chat_reactions_changed_reload_them_before"
-    assert MessageTriggerStore(path).list() == updated
+    assert MessageTriggerStore(ConfigFile(path)).list() == updated
 
 
 def test_creation_order_survives_restart_and_does_not_change_when_reordering_reactions(tmp_path):
     command_path = tmp_path / "custom_commands.json"
     trigger_path = tmp_path / "message_triggers.json"
     order = CommandCreationOrder()
-    commands = CustomCommandStore(command_path, set(), creation_order=order)
-    reactions = MessageTriggerStore(trigger_path, creation_order=order)
+    commands = CustomCommandStore(ConfigFile(command_path), set(), creation_order=order)
+    reactions = MessageTriggerStore(ConfigFile(trigger_path), creation_order=order)
     first = reactions.save([trigger(id="one")])[0]
     command = commands.save({
         "name": "hello", "enabled": True, "permission": "USER", "responses": ["Hello!"],
@@ -294,8 +296,8 @@ def test_creation_order_survives_restart_and_does_not_change_when_reordering_rea
     assert 0 < first.creation_order < command.creation_order < second.creation_order
 
     order = CommandCreationOrder()
-    reactions = MessageTriggerStore(trigger_path, creation_order=order)
-    commands = CustomCommandStore(command_path, set(), creation_order=order)
+    reactions = MessageTriggerStore(ConfigFile(trigger_path), creation_order=order)
+    commands = CustomCommandStore(ConfigFile(command_path), set(), creation_order=order)
     assert commands.save({**command.to_json(), "name": "welcome"}).creation_order == command.creation_order
     changed = reactions.save([second.to_json(), {**first.to_json(), "text": "updated"}, trigger(id="three")])
     assert [item.id for item in changed] == ["two", "one", "three"]

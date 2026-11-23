@@ -117,7 +117,7 @@ MESSAGES: dict[str, str] = {
     "filter_settings.active_filter_tests_do_not_accept": "Active filter tests do not accept draft rules.",
     "filter_settings.choose_active_draft_filters": "Choose active or draft filters.",
     "fun_settings.command_has_no_editable_responses": "This command has no editable responses.",
-    "fun_settings.repair_unreadable_unsupported_fun_settings_json": "Repair the unreadable or unsupported fun_settings.json before saving responses.",
+    "fun_settings.repair_unreadable_unsupported_fun_settings_json": "Repair the unreadable or unsupported fun settings in config.json before saving responses.",
     "management.configuration_rejected_check_zip_format_limits": "Configuration rejected. Check ZIP format, limits and values; preview again if settings changed or ten minutes elapsed.",
     "management.configuration_storage_failed_inspect_private_profile": "Configuration storage failed. Inspect the private profile and config/import-backups before retrying; restore affected files while stopped if rollback could not finish.",
     "management.configure_verified_numeric_twitch_channel_id": "Configure a verified numeric Twitch channel ID before adding restrictions.",

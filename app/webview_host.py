@@ -55,6 +55,7 @@ from app.filter_settings import (
     save_filter_settings,
     validate_filter_input,
 )
+from app.config_file import ConfigFile
 from app.runtime_paths import (
     DATA_DIR_ENV, PACKAGED_FRONTEND, SOURCE_ROOT,
     RuntimePaths, RuntimeDataError, prepare_runtime_data,
@@ -1424,7 +1425,7 @@ def run_desktop_host(
                 "Could not set Windows taskbar application identity: %s", result
             )
 
-    app_settings = AppSettingsStore(RuntimePaths.default().app_settings)
+    app_settings = AppSettingsStore(ConfigFile(RuntimePaths.default().config_file))
     if app_settings.seed_interface_language(setup_interface_language()):
         get_logger("app.webview.desktop").info("Applied the interface language chosen in Setup")
     settings_snapshot = app_settings.snapshot()
@@ -1523,7 +1524,7 @@ def main() -> None:
                 if (install := desktop_relaunch.installed_directory()) is not None:
                     guards.enter_context(desktop_relaunch.installation_access(install))
                     desktop_relaunch.remove_finished_runners()
-                guards.enter_context(desktop_instance_guard(paths.app_settings))
+                guards.enter_context(desktop_instance_guard(paths.instance_guard))
             settings, credential_manager = load_settings_with_credentials()
             if not arguments.check:
                 token_file, database_url = prepare_runtime_data(settings.database_url)

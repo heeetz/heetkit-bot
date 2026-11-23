@@ -13,6 +13,8 @@ from app.commands.registry import CommandRegistry
 from app.runtime_state import RuntimeState
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
+from app.config_file import ConfigFile
+from config_helpers import read_section, write_section
 
 
 def build_registry() -> CommandRegistry:
@@ -44,11 +46,12 @@ def build_registry() -> CommandRegistry:
 ])
 def test_saved_commands_settings_convert_on_next_write(tmp_path, caplog, old, help_aliases, expected, overflow):
     path = tmp_path / "command_settings.json"
-    original = json.dumps({"commands": old, "help": {"aliases": help_aliases}, "weather": {"aliases": ["taken"]}})
+    original = json.dumps({"schema_version": 1, "commands": {
+        "commands": old, "help": {"aliases": help_aliases}, "weather": {"aliases": ["taken"]}}})
     path.write_text(original, encoding="utf-8")
     registry = build_registry()
     register_info_commands(registry)
-    state = RuntimeState(path)
+    state = RuntimeState(ConfigFile(path))
     state.configure_commands(registry.definitions())
 
     help_settings = state.get_command_settings("help")
@@ -61,8 +64,8 @@ def test_saved_commands_settings_convert_on_next_write(tmp_path, caplog, old, he
     assert path.read_text(encoding="utf-8") == original
 
     state.save_command_override("weather")
-    assert "commands" not in json.loads(path.read_text(encoding="utf-8"))
-    restarted = RuntimeState(path)
+    assert "commands" not in read_section(path, "commands")
+    restarted = RuntimeState(ConfigFile(path))
     restarted.configure_commands(registry.definitions())
     assert restarted.get_command_settings("help") == help_settings
 
@@ -93,7 +96,7 @@ def test_settings_derive_from_registry_and_apply_runtime_changes() -> None:
 def test_settings_persist_only_on_save_and_reset_clears_override(tmp_path, apply_first):
     path = tmp_path / "command_settings.json"
     definitions = build_registry().definitions()
-    state = RuntimeState(command_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     state.configure_commands(definitions)
     defaults = state.get_command_settings("ping")
     changes = dict(
@@ -114,16 +117,16 @@ def test_settings_persist_only_on_save_and_reset_clears_override(tmp_path, apply
     assert saved.permission is changes["permission"] and saved.cooldown == changes["cooldown"]
     assert state.command_settings_are_saved("ping") and state.has_saved_command_override("ping")
     assert list(tmp_path.iterdir()) == [path]
-    reopened = RuntimeState(command_settings_path=path)
+    reopened = RuntimeState(ConfigFile(path))
     reopened.configure_commands(definitions)
     assert reopened.get_command_settings("ping") == saved
     assert reopened.reset_command_settings("ping") == defaults
     assert reopened.command_settings_are_saved("ping") and not reopened.has_saved_command_override("ping")
-    assert json.loads(path.read_text(encoding="utf-8")) == {}
+    assert read_section(path, "commands") == {}
 
 
 def test_failed_explicit_save_does_not_apply_runtime_change(tmp_path, monkeypatch) -> None:
-    runtime_state = RuntimeState(command_settings_path=tmp_path / "command_settings.json")
+    runtime_state = RuntimeState(ConfigFile(tmp_path / "command_settings.json"))
     runtime_state.configure_commands(build_registry().definitions())
     original = runtime_state.get_command_settings("ping")
 
@@ -149,9 +152,7 @@ def test_partial_and_malformed_values_fall_back_individually(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     settings_path = tmp_path / "command_settings.json"
-    settings_path.write_text(
-        json.dumps(
-            {
+    write_section(settings_path, "commands", {
                 "stale": {"enabled": False},
                 "ping": {
                     "enabled": "false",
@@ -162,14 +163,11 @@ def test_partial_and_malformed_values_fall_back_individually(
                     "permission": "OWNER",
                 },
                 "weather": {"enabled": False},
-            }
-        ),
-        encoding="utf-8",
-    )
+            })
     registry = build_registry()
 
     with caplog.at_level(logging.WARNING):
-        runtime_state = RuntimeState(command_settings_path=settings_path)
+        runtime_state = RuntimeState(ConfigFile(settings_path))
         runtime_state.configure_commands(registry.definitions())
 
     ping = runtime_state.get_command_settings("ping")
@@ -194,7 +192,7 @@ def test_malformed_settings_file_does_not_block_defaults(
     settings_path = tmp_path / "command_settings.json"
     settings_path.write_text(file_content, encoding="utf-8")
     registry = build_registry()
-    runtime_state = RuntimeState(command_settings_path=settings_path)
+    runtime_state = RuntimeState(ConfigFile(settings_path))
 
     runtime_state.configure_commands(registry.definitions())
 
@@ -222,10 +220,10 @@ def test_failed_atomic_write_cleans_up_temporary_file(tmp_path, monkeypatch) -> 
     def fail_json_write(*args, **kwargs) -> None:
         raise OSError("expected write failure")
 
-    monkeypatch.setattr("app.command_settings.json.dump", fail_json_write)
+    monkeypatch.setattr("app.config_file.os.fsync", fail_json_write)
 
     with pytest.raises(OSError, match="expected write failure"):
-        save_command_overrides(settings_path, {})
+        save_command_overrides(ConfigFile(settings_path).section("commands"), {})
 
     assert not settings_path.exists()
     assert list(tmp_path.glob(".command_settings.json.*.tmp")) == []
@@ -239,25 +237,25 @@ def test_ai_toggle_preserves_other_saved_commands_and_unsaved_runtime_changes(tm
     async def ask(context, arguments: str) -> None:
         return None
 
-    state = RuntimeState(command_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     state.configure_commands(registry.definitions())
     state.save_command_settings(
         "ping", enabled=False, cooldown=CooldownPolicy(global_seconds=30),
         permission=Permission.VIP,
     )
-    saved_ping = json.loads(path.read_text(encoding="utf-8"))["ping"]
+    saved_ping = read_section(path, "commands")["ping"]
     state.apply_command_settings("ping", enabled=True, permission=Permission.BROADCASTER)
     state.apply_command_settings("weather", enabled=False)
 
     state.set_ai_enabled(False)
 
-    assert json.loads(path.read_text(encoding="utf-8")) == {
+    assert read_section(path, "commands") == {
         "ask": {"enabled": False}, "ping": saved_ping,
     }
     assert state.get_command_settings("ping").enabled is True
     assert state.get_command_settings("ping").permission is Permission.BROADCASTER
     assert state.get_command_settings("weather").enabled is False
-    restarted = RuntimeState(command_settings_path=path)
+    restarted = RuntimeState(ConfigFile(path))
     restarted.configure_commands(registry.definitions())
     assert restarted.ai_enabled is False
     assert restarted.get_command_settings("ping").enabled is False

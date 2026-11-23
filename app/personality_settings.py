@@ -2,19 +2,15 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import os
-import tempfile
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Mapping
 
 from typing import Annotated
 from pydantic import Field, StrictStr, StringConstraints
 from app.settings_models import SettingsModel, field_value, parse
 from app.config.personalities import AI_PERSONALITY_PROMPTS
-from app.settings_recovery import preserve_settings_recovery
+from app.config_file import ConfigSection
 
 logger = logging.getLogger(__name__)
 
@@ -52,18 +48,18 @@ def validate_profile_instructions(instructions: object) -> str:
 
 
 def load_personality_settings(
-    path: Path,
+    section: ConfigSection,
     built_in_prompts: Mapping[str, str],
     default_active: str,
 ) -> PersonalitySettings:
-    if not path.exists():
-        return PersonalitySettings(default_active, {})
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        payload = section.load()
+    except FileNotFoundError:
+        return PersonalitySettings(default_active, {})
+    except (OSError, UnicodeError, ValueError) as error:
         logger.warning(
             "Could not load personality settings path=%s error=%s; using defaults",
-            path,
+            section.path,
             type(error).__name__,
         )
         return PersonalitySettings(default_active, {})
@@ -107,39 +103,17 @@ def load_personality_settings(
 
 
 def save_personality_settings(
-    path: Path, settings: PersonalitySettings, *, recovered_settings: PersonalitySettings | None = None,
+    section: ConfigSection, settings: PersonalitySettings, *, recovered_settings: PersonalitySettings | None = None,
 ) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "active_personality": settings.active_personality,
-        "overrides": dict(sorted(settings.overrides.items())),
-        "profile_instructions": settings.profile_instructions,
-    }
-    temporary_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as temporary_file:
-            temporary_path = Path(temporary_file.name)
-            json.dump(payload, temporary_file, indent=2, sort_keys=True, ensure_ascii=False)
-            temporary_file.write("\n")
-            temporary_file.flush()
-            os.fsync(temporary_file.fileno())
-        preserve_settings_recovery(
-            path,
-            None if recovered_settings is None else {
-                "active_personality": recovered_settings.active_personality,
-                "overrides": {**AI_PERSONALITY_PROMPTS, **recovered_settings.overrides},
-                "profile_instructions": recovered_settings.profile_instructions,
-            },
-        )
-        os.replace(temporary_path, path)
-        temporary_path = None
-    finally:
-        if temporary_path is not None:
-            temporary_path.unlink(missing_ok=True)
+    section.save(
+        {
+            "active_personality": settings.active_personality,
+            "overrides": dict(sorted(settings.overrides.items())),
+            "profile_instructions": settings.profile_instructions,
+        },
+        recovered=None if recovered_settings is None else {
+            "active_personality": recovered_settings.active_personality,
+            "overrides": {**AI_PERSONALITY_PROMPTS, **recovered_settings.overrides},
+            "profile_instructions": recovered_settings.profile_instructions,
+        },
+    )

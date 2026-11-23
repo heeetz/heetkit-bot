@@ -13,6 +13,7 @@ from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownManager, CooldownPolicy
 from app.utils.output_limiter import OutputLimiter
+from app.config_file import ConfigFile
 
 
 def dispatcher(registry, **kwargs):
@@ -126,7 +127,7 @@ async def test_burst_has_one_start_and_one_mutually_exclusive_terminal(caplog, r
 @pytest.mark.asyncio
 async def test_custom_alias_uses_saved_id_across_rename(tmp_path, caplog):
     registry = CommandRegistry()
-    store = CustomCommandStore(tmp_path / "custom.json", set())
+    store = CustomCommandStore(ConfigFile(tmp_path / "custom.json"), set())
     payload = {"enabled": True, "permission": "USER", "per_user_seconds": 0, "global_seconds": 0,
                "responses": ["Hi"]}
     first = store.save({**payload, "name": "greeting", "aliases": ["hello"]})

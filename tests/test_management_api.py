@@ -24,6 +24,7 @@ from app.management_api import ManagementAPI, ManagementConfig, load_management_
 from app.runtime_paths import RuntimePaths, prepare_runtime_data
 from app.utils.logging import RecentLogBuffer, OperatorActivityHandler, event_metadata
 from app.services.contracts import AIGenerationDetails, AIReply
+from app.config_file import ConfigFile
 
 
 TOKEN = "synthetic_management_token_" + "x" * 32
@@ -59,7 +60,7 @@ def settings():
 @pytest.fixture
 async def api(unused_tcp_port):
     app = build_application(settings())
-    AppSettingsStore(RuntimePaths.default().app_settings).update_operation_mode("manual")
+    AppSettingsStore(ConfigFile(RuntimePaths.default().config_file)).update_operation_mode("manual")
     runtime = BotRuntime(app, logging.getLogger("test"), headless=True)
     await runtime.startup()
     server = ManagementAPI(runtime, ManagementConfig(TOKEN, port=unused_tcp_port), RecentLogBuffer())
@@ -117,7 +118,7 @@ async def test_announcements_authenticated_settings_status_and_shared_monitor(ap
     assert {key: value for key, value in row.items() if key != "status"} == raw
     assert row["status"]["next_run_at"] is None
     assert not server.policy._monitoring  # Manual disconnected does not poll
-    saved = AnnouncementStore(server.runtime.application.announcements._path)
+    saved = AnnouncementStore(server.runtime.application.announcements._section.file)
     assert saved.list()[0].to_json() == raw
     for payload in ({"announcements": [{**raw, "interval_seconds": 1}]},
                     {"announcements": [{**raw, "status": {}}]}, {"announcements": [raw], "extra": True}):
@@ -161,7 +162,7 @@ async def test_analytics_private_scoped_windows_controls_and_memory_limits(api):
         assert (await call("POST", "/v1/ops/save_ai_memory_limits", json={"stored": stored, "context": context}))[0] == 400
     assert (await call("POST", "/v1/ops/save_ai_memory_limits", json={"stored": 10, "context": 2}))[1]["ok"]
     assert (await call("POST", "/v1/ops/get_ai_memory_limits"))[1] == {"ok": True, "stored": 10, "context": 2}
-    saved = AppSettingsStore(RuntimePaths.default().app_settings).snapshot().ai
+    saved = AppSettingsStore(ConfigFile(RuntimePaths.default().config_file)).snapshot().ai
     assert (saved.history_max_entries, saved.context_max_entries) == (10, 2)
     assert (await call("POST", "/v1/ops/configure_leaderboard_counting", json={"enabled": False}))[1]["ok"]
     paused = (await call("POST", "/v1/ops/get_analytics", json={}))[1]
@@ -653,16 +654,16 @@ async def test_operation_mode_auth_validation_persistence_and_disabled_start(api
         assert operation["stream_status"] == "unknown"
         assert "private-client-sentinel" not in json.dumps(operation)
     assert (await call("POST", "/v1/ops/set_ai_memory_enabled", json={"enabled": False}))[0] == 200
-    store = AppSettingsStore(RuntimePaths.default().app_settings)
+    store = AppSettingsStore(ConfigFile(RuntimePaths.default().config_file))
     assert store.snapshot().startup.operation_mode == "disabled"
     assert not store.snapshot().ai.memory_enabled
-    original = store._path.read_bytes()
+    original = store._section.path.read_bytes()
     def fail(*args, **kwargs):
         raise OSError("private-path-sentinel")
-    monkeypatch.setattr("app.app_settings.os.replace", fail)
+    monkeypatch.setattr("app.config_file.os.replace", fail)
     status, result, _ = await call("POST", "/v1/ops/set_bot_mode", json={"mode": "always_on"})
     assert status == 500 and "private-path-sentinel" not in json.dumps(result)
-    assert server.policy.mode == "disabled" and store._path.read_bytes() == original
+    assert server.policy.mode == "disabled" and store._section.path.read_bytes() == original
 
 
 @pytest.mark.asyncio
@@ -772,7 +773,7 @@ async def test_management_applies_and_persists_existing_stores(api):
     assert server.runtime.application.dispatcher._message_triggers.list()[0].matches("HELLO")
     # Load a second composition only after inspecting persisted settings. No live
     # account, private profile, desktop host or second Twitch session is involved.
-    profile = AppSettingsStore(RuntimePaths.default().app_settings).snapshot()
+    profile = AppSettingsStore(ConfigFile(RuntimePaths.default().config_file)).snapshot()
     clone_settings = apply_ai_app_settings(settings(), profile)
     # This verifies configuration stores; the running composition exclusively owns
     # the persistent database. Use an independent synthetic database for the clone.
@@ -804,7 +805,7 @@ async def test_serialized_updates_failures_limits_and_safe_logs(api, monkeypatch
     server, call = api
     replies = await asyncio.gather(*[call("POST", "/v1/ops/set_ai_memory_enabled", json={"enabled": bool(n % 2)}) for n in range(8)])
     assert all(reply[0] == 200 for reply in replies)
-    persisted = AppSettingsStore(RuntimePaths.default().app_settings).snapshot().ai.memory_enabled
+    persisted = AppSettingsStore(ConfigFile(RuntimePaths.default().config_file)).snapshot().ai.memory_enabled
     assert persisted == server.runtime.application.services.runtime_state.ai_memory_enabled
     record = logging.LogRecord("test", logging.ERROR, "", 0, "private-token-sentinel", (), None)
     record.event_kind = "twitch.connected"
@@ -1000,7 +1001,7 @@ async def test_headless_api_stop_start_keeps_supervisor_and_state(monkeypatch, u
 @pytest.mark.parametrize("mode", ["always_on", "stream_only", "manual", "disabled"])
 async def test_process_restarts_honor_modes_with_management_available(monkeypatch, unused_tcp_port, mode):
     value = settings()
-    store = AppSettingsStore(RuntimePaths.default().app_settings)
+    store = AppSettingsStore(ConfigFile(RuntimePaths.default().config_file))
     store.update_operation_mode(mode)
     sessions = []
     async def session(**kwargs):
@@ -1340,8 +1341,8 @@ async def test_server_logs_snapshot_spans_retained_pages_and_preserves_projected
 
 async def test_server_setup_guide_save_failure_retry_and_profile_reload(api, monkeypatch):
     server, call = api
-    path = RuntimePaths.default().app_settings
-    before = AppSettingsStore(path).snapshot().ai
+    path = RuntimePaths.default().config_file
+    before = AppSettingsStore(ConfigFile(path)).snapshot().ai
     assert server.setup_status()["twitch"]["saved_bot_authorization"] is True
     with monkeypatch.context() as patch:
         def reject(*args, **kwargs):
@@ -1350,10 +1351,10 @@ async def test_server_setup_guide_save_failure_retry_and_profile_reload(api, mon
         _, failure, _ = await call("POST", "/v1/ops/save_setup_guide", json={"dismissed": False, "ai_skipped": True})
         assert not failure["ok"] and failure["error_code"] == "management.could_not_save_setup_guidance_check"
         assert "error" not in failure
-    assert not AppSettingsStore(path).snapshot().ai.setup_guide_ai_skipped
+    assert not AppSettingsStore(ConfigFile(path)).snapshot().ai.setup_guide_ai_skipped
     _, saved, _ = await call("POST", "/v1/ops/save_setup_guide", json={"dismissed": False, "ai_skipped": True})
     assert saved == {"ok": True, "dismissed": False, "ai_skipped": True}
-    after = AppSettingsStore(path).snapshot().ai
+    after = AppSettingsStore(ConfigFile(path)).snapshot().ai
     assert after.setup_guide_ai_skipped and after.setup == before.setup and after.provider == before.provider
 
 

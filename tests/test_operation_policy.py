@@ -16,6 +16,7 @@ from app.commands.registry import CommandDispatcher, CommandRegistry
 from app.custom_commands import CustomCommandStore
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.utils.cooldown import CooldownManager
+from app.config_file import ConfigFile
 
 
 async def eventually(predicate):
@@ -27,8 +28,7 @@ async def eventually(predicate):
 
 @pytest.fixture
 async def rig(tmp_path, monkeypatch):
-    state = RuntimeState(command_settings_path=tmp_path / "commands.json",
-                         personality_settings_path=tmp_path / "personalities.json")
+    state = RuntimeState(ConfigFile(tmp_path / "personalities.json"))
     calls = SimpleNamespace(active=0, maximum=0, starts=0, live=False, polls=0,
                             gate=None, stop_gate=None, closed=0, poll_times=[])
 
@@ -67,7 +67,7 @@ async def rig(tmp_path, monkeypatch):
         dispatcher=object(), startup=noop, shutdown=noop)
     monkeypatch.setattr("app.bot_runtime.run_twitch_bot", session)
     runtime = BotRuntime(app, logging.getLogger("test.policy"), headless=True)
-    store = AppSettingsStore(tmp_path / "app_settings.json")
+    store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
     store.update_operation_mode("manual")
     policy = OperationPolicy(runtime, store, poll_interval=0.01, max_backoff=0.08,
                              request_timeout=0.2)
@@ -87,7 +87,7 @@ async def test_announcement_restrictions_share_existing_server_monitor(rig, tmp_
     from uuid import uuid4
     policy, runtime, calls, state, _ = rig
     state.server_runtime = True
-    store = AnnouncementStore(tmp_path / "announcements.json")
+    store = AnnouncementStore(ConfigFile(tmp_path / "announcements.json"))
     runtime.application.announcements = store
     raw = {"id": str(uuid4()), "name": "Community", "enabled": True, "messages": ["Join us"],
         "message_mode": "single", "interval_seconds": 60, "min_messages": 0,
@@ -115,7 +115,7 @@ async def test_all_mode_transitions_persist_without_duplicate_sessions(rig, sour
     await eventually(lambda: not policy.pending and runtime.bot_active == (source in {"always_on", "stream_only"}))
     policy.set_mode(target)
     await eventually(lambda: not policy.pending and runtime.bot_active == (target in {"always_on", "stream_only"}))
-    assert AppSettingsStore(store._path).snapshot().startup.operation_mode == target
+    assert AppSettingsStore(store._section.file).snapshot().startup.operation_mode == target
     assert calls.maximum <= 1
     if target == "disabled":
         with pytest.raises(ValueError):
@@ -273,14 +273,14 @@ async def test_persistence_failure_leaves_applied_policy_and_twitch_intact(rig, 
     policy, runtime, calls, _, store = rig
     policy.connect()
     await eventually(lambda: calls.starts == 1)
-    before = store._path.read_bytes()
+    before = store._section.path.read_bytes()
     def fail(*args, **kwargs):
         raise OSError("private-path")
-    monkeypatch.setattr("app.app_settings.os.replace", fail)
+    monkeypatch.setattr("app.config_file.os.replace", fail)
     with pytest.raises(OSError):
         policy.set_mode("disabled")
     assert policy.mode == "manual" and policy.desired_running and runtime.bot_active
-    assert store._path.read_bytes() == before
+    assert store._section.path.read_bytes() == before
 
 
 async def test_shutdown_cancels_inflight_monitor_without_late_connection(rig):
@@ -304,27 +304,27 @@ async def test_restart_uses_saved_mode_but_never_manual_run_intent(rig, mode):
     if mode == "manual":
         policy.connect()
         await eventually(lambda: calls.starts == 1)
-    restored = OperationPolicy(runtime, AppSettingsStore(store._path))
+    restored = OperationPolicy(runtime, AppSettingsStore(store._section.file))
     assert restored.mode == mode
     assert restored.desired_running == (mode == "always_on")
 
 
 def test_operation_mode_preserved_by_desktop_ai_updates_and_invalid_settings(tmp_path):
     path = tmp_path / "app_settings.json"
-    store = AppSettingsStore(path)
+    store = AppSettingsStore(ConfigFile(path))
     assert store.snapshot().startup.operation_mode == "always_on"  # Existing profiles.
     store.update_operation_mode("disabled")
     store.update_desktop(start_minimized=False, minimize_to_tray=False, close_to_tray=False, auto_start_bot=True)
     store.update_ai_memory(enabled=False)
-    assert AppSettingsStore(path).snapshot().startup.operation_mode == "disabled"
+    assert AppSettingsStore(ConfigFile(path)).snapshot().startup.operation_mode == "disabled"
     assert store.snapshot().startup.auto_start_bot
     for mode in (None, [], "ALWAYS_ON", True, "../../secret"):
         with pytest.raises(ValueError):
             store.update_operation_mode(mode)
-    path.write_text('{"version":1,"startup":{"operation_mode":"future_mode"}}')
-    assert AppSettingsStore(path).snapshot().startup.operation_mode == "disabled"
-    path.write_text('{"version":1,"startup":null}')
-    assert AppSettingsStore(path).snapshot().startup.operation_mode == "disabled"
+    path.write_text('{"schema_version":1,"app":{"version":1,"startup":{"operation_mode":"future_mode"}}}')
+    assert AppSettingsStore(ConfigFile(path)).snapshot().startup.operation_mode == "disabled"
+    path.write_text('{"schema_version":1,"app":{"version":1,"startup":null}}')
+    assert AppSettingsStore(ConfigFile(path)).snapshot().startup.operation_mode == "disabled"
 
 
 @pytest.mark.parametrize("mode", ["always_on", "manual"])
@@ -342,7 +342,7 @@ async def test_restricted_commands_reuse_monitor_without_controlling_connection(
         await context.reply("ordinary")
 
     state.configure_commands(registry.definitions())
-    store = CustomCommandStore(tmp_path / "custom.json", {"restricted", "ordinary"})
+    store = CustomCommandStore(ConfigFile(tmp_path / "custom.json"), {"restricted", "ordinary"})
     runtime.application.custom_commands = store
     if custom:
         store.save({"name": "custom", "enabled": True, "responses": ["restricted"],
