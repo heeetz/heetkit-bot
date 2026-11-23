@@ -138,5 +138,9 @@ def test_intentional_process_environment_defaults_without_dotenv(tmp_path, monke
             assert getattr(settings, name) == int(value)
         else:
             assert getattr(settings, name) == value
-    assert all(status.source == "environment" for status in manager.statuses())
+    # The custom provider key is Desktop-only and never read from the environment.
+    assert {status.name: status.source for status in manager.statuses()} == {
+        "twitch_client_secret": "environment", "gemini_api_key": "environment",
+        "deepseek_api_key": "environment", "openai_api_key": "environment", "custom_api_key": "missing",
+    }
     assert not list(tmp_path.iterdir())
