@@ -2,7 +2,7 @@
 
 from pydantic import SecretStr
 
-from app.app_settings import AISettings, AppSettings, TwitchSettings
+from app.app_settings import AIModelPair, AISettings, AppSettings, CustomAIConnection, TwitchSettings
 from app.config.ai_language import ResponseLanguageSettings
 from app.config.profile_settings import apply_ai_app_settings, apply_twitch_app_settings
 from app.config.settings import Settings
@@ -38,8 +38,8 @@ def test_saved_twitch_and_ai_settings_take_precedence() -> None:
             channel_user_id="500",
         ),
         ai=AISettings(
-            selected_model="gemini-saved",
-            fallback_model="gemini-saved-fallback",
+            providers={"gemini": AIModelPair("gemini-saved", "gemini-saved-fallback"),
+                       "custom": CustomAIConnection("http://localhost:1234/v1")},
             cooldown_bypass_user_id="600",
             response_language=language,
         ),
@@ -59,6 +59,9 @@ def test_saved_twitch_and_ai_settings_take_precedence() -> None:
         "gemini-saved-fallback",
     )
     assert effective.ai_cooldown_bypass_user_id == "600"
+    # Server applies the same profile without its custom endpoint (Desktop only in v1).
+    assert effective.custom_base_url is None
+    assert apply_ai_app_settings(runtime, saved, allow_custom=True).custom_base_url == "http://localhost:1234/v1"
     assert effective.ai_response_language == language
     assert effective.twitch_client_secret == runtime.twitch_client_secret
     assert effective.gemini_api_key == runtime.gemini_api_key

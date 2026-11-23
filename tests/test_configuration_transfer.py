@@ -10,7 +10,7 @@ from concurrent.futures import Future
 
 import pytest
 
-from app.app_settings import AppSettingsStore
+from app.app_settings import AIModelPair, AppSettingsStore
 from app.configuration_transfer import (
     ConfigurationTransfer, MAX_ARCHIVE, MAX_CONFIGURATION, pack_configuration, unpack_configuration,
 )
@@ -685,8 +685,7 @@ async def test_import_uses_normalized_model_values_from_existing_validator(profi
     transfer.apply(encoded, transfer.preview(encoded)["preview_token"], True)
     assert transfer.app.settings.gemini_model == selected
     assert transfer.app.settings.gemini_fallback_model == fallback
-    assert transfer.settings.snapshot().ai.selected_model == selected
-    assert transfer.settings.snapshot().ai.fallback_model == fallback
+    assert transfer.settings.snapshot().ai.providers["gemini"] == AIModelPair(selected, fallback)
 
 
 @pytest.mark.parametrize("old_format", [False, True])

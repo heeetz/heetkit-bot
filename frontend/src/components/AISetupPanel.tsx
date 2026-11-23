@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { type AIModelSelection, type AIProviderId, type AISetupResponse, type AISetupSettings, waitForBridge } from '../bridge'
 import Switch from './Switch'
+import HelpTip from './HelpTip'
 import Accordion from './Accordion'
 import AIBehaviorSection from './AIBehaviorSection'
 import { Select } from './Select'
@@ -30,9 +31,10 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
   const [instructionsNotice, setInstructionsNotice] = useState('')
   const [discoveries, setDiscoveries] = useState<Partial<Record<AIProviderId, string[]>>>({})
   const [discoveryState, setDiscoveryState] = useState<Partial<Record<AIProviderId, string>>>({})
+  const [customUrl, setCustomUrl] = useState<string | null>(null)
   const text = useCatalog(aiText).setup
   const { fmt } = useI18n()
-  const generation = useRef({ gemini: 0, deepseek: 0, openai: 0 })
+  const generation = useRef({ gemini: 0, deepseek: 0, openai: 0, custom: 0 })
   const mounted = useRef(true)
   const lastFallback = useRef<AIModelSelection | null>(null)
   const dirty = Boolean(draft && saved && JSON.stringify(draft) !== JSON.stringify(saved))
@@ -47,12 +49,13 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
   }, [discardInstructions])
   useEffect(() => {
     mounted.current = true
-    return () => { mounted.current = false; generation.current.gemini++; generation.current.deepseek++; generation.current.openai++ }
+    return () => { mounted.current = false; for (const provider of Object.keys(generation.current) as AIProviderId[]) generation.current[provider]++ }
   }, [])
   useEffect(() => {
     if (!active) {
       setKeys({})
-      generation.current.gemini++; generation.current.deepseek++; generation.current.openai++
+      setCustomUrl(null)
+      for (const provider of Object.keys(generation.current) as AIProviderId[]) generation.current[provider]++
     }
   }, [active])
   const load = async (replaceDraft = false) => {
@@ -111,7 +114,7 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
     })
     void operation.finally(() => setKeys((current) => ({ ...current, [provider]: '' })))
   }
-  const discover = (provider: AIProviderId) => void run(`discover:${provider}`, async () => {
+  const discover = (provider: AIProviderId, testing = false) => void run(`discover:${provider}`, async () => {
     const version = generation.current[provider]
     const result = await (await waitForBridge()).discover_ai_models(provider)
     if (!mounted.current || generation.current[provider] !== version) return
@@ -122,8 +125,30 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
     const models = result.models
     setDiscoveries((current) => ({ ...current, [provider]: models }))
     setDiscoveryState((current) => ({ ...current, [provider]: models.length ? text.modelsAvailable : text.noModels }))
-    setNotice(text.discovered)
+    setNotice(testing ? fmt(text.custom.testPassed, { count: models.length }) : text.discovered)
   })
+  const providerLabel = (provider: { id: AIProviderId; label: string }) => provider.id === 'custom' ? text.custom.label : provider.label
+  // The custom provider needs only an address; its key is optional.
+  const connected = (provider?: { id: AIProviderId; credential: { configured: boolean } | null; base_url?: string | null }) =>
+    provider?.id === 'custom' ? Boolean(provider.base_url) : Boolean(provider?.credential?.configured)
+  const customAction = (action: 'save' | 'remove', url = '') => {
+    const inUse = draft?.primary.provider === 'custom' || saved?.primary.provider === 'custom'
+    if (action === 'remove' && !window.confirm(fmt(text.custom.confirmRemove, { inUse: inUse ? text.inUse : '' }))) return
+    const operation = run(`custom:${action}`, async () => {
+      generation.current.custom++
+      setDiscoveries((current) => ({ ...current, custom: [] }))
+      setDiscoveryState((current) => ({ ...current, custom: '' }))
+      const api = await waitForBridge()
+      const result = action === 'save' ? await api.save_custom_ai_connection(url, keys.custom ?? '')
+        : await api.remove_custom_ai_connection()
+      if (!result.ok) throw new Error(result.error || text.credentialFailed)
+      await load()
+      onSaved?.()
+      setCustomUrl(null)
+      setNotice(action === 'remove' ? text.custom.removed : 'key_removed' in result && result.key_removed ? text.custom.keyCleared : text.custom.saved)
+    })
+    void operation.finally(() => setKeys((current) => ({ ...current, custom: '' })))
+  }
   const modelCard = (slot: 'primary' | 'fallback') => {
     const selection = draft?.[slot]
     if (!selection) return null
@@ -135,23 +160,24 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
     const models = Array.from(new Set([...(info?.models ?? []), ...(discoveries[selection.provider] ?? [])]))
     return <div className="ai-setup-model-fields">
       <div className="ai-model-selectors">
-        <label className="form-field">{text.provider}<Select aria-label={labels.provider} value={selection.provider} disabled={Boolean(busy)} onChange={(value) => switchProvider(slot, value as AIProviderId)} options={data?.providers?.map((provider) => ({ value: provider.id, label: provider.label })) ?? []} /></label>
+        <label className="form-field">{text.provider}<Select aria-label={labels.provider} value={selection.provider} disabled={Boolean(busy)} onChange={(value) => switchProvider(slot, value as AIProviderId)} options={data?.providers?.filter((provider) => slot === 'primary' || provider.id !== 'custom').map((provider) => ({ value: provider.id, label: providerLabel(provider) })) ?? []} /></label>
         <label className="form-field">{text.model}<Select aria-label={labels.modelChoices} searchable value={selection.model} disabled={Boolean(busy)} onChange={(model) => select(slot, { model })} options={Array.from(new Set([selection.model, ...models])).filter(Boolean).map((model) => ({ value: model, label: model }))} /></label>
         <label className="form-field">{text.thinkingEffort}<Select aria-label={labels.thinking} value={selection.thinking} disabled={Boolean(busy)} onChange={(value) => select(slot, { thinking: value })} options={[...(staleThinking ? [{ value: selection.thinking, label: fmt(text.unsupportedChoice, { value: selection.thinking }) }] : []), ...thinking]} /></label>
         <div className="ai-search-control"><Switch checked={selection.search} ariaLabel={labels.search} disabled={Boolean(busy) || !capabilities?.search_supported} onCheckedChange={(search) => select(slot, { search })}>{selection.search ? text.searchOn : text.searchOff}</Switch></div>
       </div>
       <div className="ai-model-configuration-row">
-        <div className="ai-discovery-action"><button className="secondary" aria-label={labels.discover} disabled={Boolean(busy) || !info?.credential?.configured} onClick={() => discover(selection.provider)}>{text.discoverModels}</button></div>
+        <div className="ai-discovery-action"><button className="secondary" aria-label={labels.discover} disabled={Boolean(busy) || !connected(info)} onClick={() => discover(selection.provider)}>{text.discoverModels}</button></div>
         <label className="form-field ai-manual-model">{text.manualModel}<input aria-label={labels.model} value={selection.model} maxLength={200} disabled={Boolean(busy)} onChange={(event) => select(slot, { model: event.target.value })} /></label>
       </div>
       {(busy === `discover:${selection.provider}` || discoveryState[selection.provider]) && <p className="settings-hint" role="status">{busy === `discover:${selection.provider}` ? text.loadingModels : discoveryState[selection.provider]}</p>}
-      {!info?.credential?.configured && <p role="alert">{text.connectProvider}</p>}
+      {!connected(info) && <p role="alert">{text.connectProvider}</p>}
       {staleThinking && <p role="alert">{text.chooseThinking}</p>}
       {selection.search && capabilities?.attribution_required ? <p className="ai-search-warning" role="alert">{text.geminiSearch}</p> : !capabilities?.search_supported && <p className="settings-hint">{text.searchUnavailable}</p>}
       {selection.search && !capabilities?.search_supported && <button className="secondary" onClick={() => select(slot, { search: false })}>{text.searchOffButton}</button>}
     </div>
   }
 
+  const customInfo = data?.providers?.find((provider) => provider.id === 'custom')
   const crossProvider = draft?.fallback && draft.fallback.provider !== draft.primary.provider
   const toggleFallback = (enabled: boolean) => {
     if (!draft) return
@@ -183,13 +209,23 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
       {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
       {!draft ? <p>{text.loading}</p> : <>
         <section aria-label={text.providers} className="ai-connections"><div className="ai-section-title"><h3>{text.providers}</h3></div>
-          {data?.providers?.map((provider) => <div className="ai-connection-row" key={provider.id}>
+          {data?.providers?.filter((provider) => provider.id !== 'custom').map((provider) => <div className="ai-connection-row" key={provider.id}>
             <div className="ai-provider-status"><strong>{provider.label}</strong><span className={`state-pill ${provider.credential?.configured ? 'enabled' : 'unconfigured'}`}>{provider.credential?.configured ? provider.credential.source === 'environment' ? text.keyProvided : text.keySaved : text.noKey}</span></div>
             <label className="form-field ai-key-field"><span>{fmt(text.apiKey, { provider: provider.label })}</span><input type="password" aria-label={fmt(text.apiKey, { provider: provider.id })} autoComplete="off" maxLength={8192} disabled={Boolean(busy) || provider.credential?.managed === false} placeholder={provider.credential?.managed === false ? text.managedExternally : provider.credential?.configured ? text.replacementKey : text.enterKey} value={keys[provider.id] ?? ''} onChange={(event) => setKeys((current) => ({ ...current, [provider.id]: event.target.value }))} /></label>
             <div className="row-actions"><button className="primary" aria-label={fmt(provider.credential?.configured ? text.replaceProviderKey : text.connectProviderKey, { provider: provider.label })} disabled={Boolean(busy) || !keys[provider.id]?.trim() || provider.credential?.managed === false} onClick={() => credentialAction(provider.id, 'replace')}>{provider.credential?.configured ? text.replaceKey : text.connectKey}</button>
               <button className="secondary" aria-label={fmt(text.testProvider, { provider: provider.label })} disabled={Boolean(busy) || !provider.credential?.configured} onClick={() => credentialAction(provider.id, 'test')}>{text.testConnection}</button>
               <button className="ghost destructive" aria-label={fmt(text.removeProviderKey, { provider: provider.label })} disabled={Boolean(busy) || !provider.credential?.configured || provider.credential?.managed === false || provider.credential?.source === 'environment'} onClick={() => credentialAction(provider.id, 'remove')}>{text.removeKey}</button></div>
           </div>)}
+          {customInfo && <div className="ai-connection-row ai-custom-connection">
+            <div className="ai-provider-status"><strong>{text.custom.label}</strong><HelpTip label={text.custom.helpLabel}><ul><li>{text.custom.tip1}</li><li>{text.custom.tip2}</li><li>{text.custom.tip3}</li><li>{text.custom.tip4}</li></ul></HelpTip><span className={`state-pill ${customInfo.base_url ? 'enabled' : 'unconfigured'}`}>{!customInfo.base_url ? text.custom.notSetUp : customInfo.credential?.configured ? text.custom.addressAndKey : text.custom.addressSaved}</span></div>
+            <div className="ai-custom-fields">
+              <label className="form-field ai-key-field"><span>{text.custom.baseUrl}</span><input aria-label={text.custom.baseUrl} type="url" inputMode="url" autoComplete="off" spellCheck={false} maxLength={2048} disabled={Boolean(busy)} placeholder={text.custom.urlPlaceholder} value={customUrl ?? customInfo.base_url ?? ''} onChange={(event) => setCustomUrl(event.target.value)} /></label>
+              <label className="form-field ai-key-field"><span>{text.custom.keyField}</span><input type="password" aria-label={text.custom.apiKey} autoComplete="off" maxLength={8192} disabled={Boolean(busy)} placeholder={customInfo.credential?.configured ? text.replacementKey : text.custom.keyOptional} value={keys.custom ?? ''} onChange={(event) => setKeys((current) => ({ ...current, custom: event.target.value }))} /></label>
+            </div>
+            <div className="row-actions"><button className="primary" aria-label={text.custom.saveLabel} disabled={Boolean(busy) || !(customUrl ?? customInfo.base_url ?? '').trim() || ((customUrl ?? customInfo.base_url ?? '').trim() === (customInfo.base_url ?? '') && !keys.custom?.trim())} onClick={() => customAction('save', (customUrl ?? customInfo.base_url ?? '').trim())}>{text.custom.save}</button>
+              <button className="secondary" aria-label={text.custom.testLabel} disabled={Boolean(busy) || !customInfo.base_url} onClick={() => discover('custom', true)}>{text.testConnection}</button>
+              <button className="ghost destructive" aria-label={text.custom.removeLabel} disabled={Boolean(busy) || !customInfo.base_url} onClick={() => customAction('remove')}>{text.custom.remove}</button></div>
+          </div>}
         </section>
         <section className="ai-models-section" aria-label={text.models}><h3>{text.models}</h3><div className="ai-setup-cards"><section className="ai-model-card"><div className="ai-section-title"><h3>{text.primaryModel}</h3></div>{modelCard('primary')}</section>
           <section className="ai-model-card"><div className="ai-section-title"><h3>{text.fallbackModel}</h3>

@@ -14,7 +14,8 @@ from app.command_settings import CommandNameConflict, CommandSettings
 from app.commands.registry import command_unavailable_reason
 from app.config.ai_language import RESPONSE_LANGUAGES, build_response_language_instruction
 from app.config.ai_models import (GEMINI_MODEL_PRESETS, AI_PROVIDERS, DEFAULT_DEEPSEEK_MODEL,
-    DEFAULT_DEEPSEEK_FALLBACK_MODEL, DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL, validate_ai_provider)
+    DEFAULT_DEEPSEEK_FALLBACK_MODEL, DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL, validate_ai_provider,
+    custom_base_url_origin, validate_custom_base_url)
 from app.config.personalities import AI_PERSONALITY_PROMPTS, build_protected_shared_instructions
 from app.container import Application
 from app.custom_commands import VARIABLES
@@ -26,7 +27,7 @@ from app.utils.cooldown import CooldownPolicy
 from app.utils.logging import RecentLogBuffer, get_logger
 from app.services.updates import RELEASE_PAGE_URL
 from app.version import VERSION
-from app.operations import operation
+from app.operations import DESKTOP, operation
 from app.configuration_transfer import MAX_TRANSFER_BODY as TRANSFER_BODY
 
 # Per-operation JSON body limits for the Server transport.
@@ -1148,10 +1149,10 @@ class ApplicationManagement:
             "settings": {
                 "provider": AI_PROVIDERS[selected],
                 "provider_id": selected,
-                "selected_model": setup.primary.model if setup and provider is None else getattr(application.settings, selected + "_model"),
-                "fallback_model": (setup.fallback.model if setup.fallback else "") if setup and provider is None else getattr(application.settings, selected + "_fallback_model"),
+                "selected_model": setup.primary.model if setup and provider is None else getattr(application.settings, selected + "_model", ""),
+                "fallback_model": (setup.fallback.model if setup.fallback else "") if setup and provider is None else getattr(application.settings, selected + "_fallback_model", ""),
                 "fallback_provider_id": setup.fallback.provider if setup and setup.fallback and provider is None else selected,
-                "presets": ([preset.serialize() for preset in GEMINI_MODEL_PRESETS] if selected == "gemini" else [
+                "presets": ([preset.serialize() for preset in GEMINI_MODEL_PRESETS] if selected == "gemini" else [] if selected == "custom" else [
                     {"id": model, "label": model, "description": AI_PROVIDERS[selected] + " direct API; configure thinking/search in AI setup"}
                     for model in ((DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL) if selected == "openai"
                                   else (DEFAULT_DEEPSEEK_MODEL, DEFAULT_DEEPSEEK_FALLBACK_MODEL))]),
@@ -1173,7 +1174,8 @@ class ApplicationManagement:
             info = self.get_ai_provider_settings(provider)["settings"]
             providers.append({"id": provider, "label": label, "credential": info["credential"],
                               "selected_model": info["selected_model"], "fallback_model": info["fallback_model"],
-                              "models": list(KNOWN_MODELS[provider])})
+                              "models": list(KNOWN_MODELS[provider]),
+                              **({"base_url": settings.custom_base_url} if provider == "custom" else {})})
         return {"ok": True, "settings": asdict(setup), "providers": providers,
                 "capabilities": {provider: {model: model_capabilities(provider, model)
                                             for model in KNOWN_MODELS[provider]} for provider in AI_PROVIDERS},
@@ -1192,6 +1194,50 @@ class ApplicationManagement:
         application.settings.ai_provider = updated.ai.setup.primary.provider
         self._logger.info("AI setup saved", extra={"event_kind": "settings.ai", "event_action": "save"})
         return {"ok": True}
+
+    @operation(write=True, hosts=(DESKTOP,), passthrough_errors=True)
+    async def _save_custom_ai_connection(self, base_url: object, api_key: object = None) -> dict[str, object]:
+        """Save the endpoint; a new origin drops the stored key unless a key is entered with it."""
+        from app.credentials import CredentialName
+        settings = self._backend.application.settings
+        name = CredentialName.CUSTOM_API_KEY
+        try:
+            url = validate_custom_base_url(base_url)
+            entered = api_key.strip() if isinstance(api_key, str) else ""
+            new_origin = (settings.custom_base_url is None
+                          or custom_base_url_origin(settings.custom_base_url) != custom_base_url_origin(url))
+            if entered:
+                self._credential_manager.replace(name, entered)
+            elif new_origin:
+                self._credential_manager.remove(name)
+            self._app_settings.update_custom_ai_connection(url)
+        except ValueError as error:
+            return error_result(error)
+        finally:
+            self._refresh_custom_ai_key()
+        settings.custom_base_url = url
+        self._logger.info("Custom AI connection saved", extra={"event_kind": "settings.ai", "event_action": "save"})
+        return {"ok": True, "key_removed": new_origin and not entered}
+
+    @operation(write=True, hosts=(DESKTOP,), passthrough_errors=True)
+    async def _remove_custom_ai_connection(self) -> dict[str, object]:
+        from app.credentials import CredentialName
+        try:
+            self._credential_manager.remove(CredentialName.CUSTOM_API_KEY)
+            self._app_settings.update_custom_ai_connection(None)
+        except ValueError as error:
+            return error_result(error)
+        finally:
+            self._refresh_custom_ai_key()
+        self._backend.application.settings.custom_base_url = None
+        self._logger.info("Custom AI connection removed", extra={"event_kind": "settings.ai", "event_action": "remove"})
+        return {"ok": True}
+
+    def _refresh_custom_ai_key(self) -> None:
+        from pydantic import SecretStr
+        from app.credentials import CredentialName
+        value = self._credential_manager.effective_value(CredentialName.CUSTOM_API_KEY)
+        self._backend.application.settings.custom_api_key = SecretStr(value) if value else None
 
     @operation(write=False, passthrough_errors=True)
     def get_setup_guide(self) -> dict[str, object]:

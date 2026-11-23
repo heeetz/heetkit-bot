@@ -99,20 +99,21 @@ class HTTPProvider:
         return b"".join(chunks)
 
     async def _http_json(
-        self, method: str, path: str, key: SecretStr, **kwargs: Any,
+        self, method: str, path: str, key: SecretStr | None, **kwargs: Any,
     ) -> tuple[int, Any]:
         transport_timeout = kwargs.pop("transport_timeout", self.transport_timeout)
+        base_url = kwargs.pop("base_url", None) or self.base_url
+        headers = {"Content-Type": "application/json"}
+        if key is not None:
+            headers["Authorization"] = f"Bearer {key.get_secret_value()}"
         async with httpx.AsyncClient(
-            base_url=self.base_url,
+            base_url=base_url,
             timeout=httpx.Timeout(transport_timeout),
             follow_redirects=False,
             trust_env=False,
         ) as client:
             async with client.stream(
-                method, path,
-                headers={"Authorization": f"Bearer {key.get_secret_value()}",
-                         "Content-Type": "application/json"},
-                **kwargs,
+                method, path, headers=headers, **kwargs,
             ) as response:
                 if response.status_code >= 400 and not self.read_error_body:
                     return response.status_code, None
@@ -132,18 +133,20 @@ class HTTPProvider:
     def _http_error(self, status: int, payload: Any = None) -> _ProviderHTTPError:
         return _ProviderHTTPError(self.name, status, self._response_error_is_model_missing(payload))
 
+    def _available_with(self, options: AIProviderSettings) -> bool:
+        return self._available_with_key(options.api_key)
+
     async def discover_models(self) -> list[str]:
         options = self.snapshot()
-        if not self._available_with_key(options.api_key):
+        if not self._available_with(options):
             raise RuntimeError(f"{self.name} API key is not configured.")
-        assert options.api_key is not None
         async with self._operation():
             async with asyncio.timeout(self.discovery_timeout):
                 status, payload = await self._http_json(
-                    "GET", "/models", options.api_key,
+                    "GET", "/models", options.api_key, base_url=options.base_url,
                     transport_timeout=self.discovery_transport_timeout,
                 )
-        if status >= 400:
+        if status >= 300:
             raise self._http_error(status)
         data = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(data, list):

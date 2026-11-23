@@ -7,10 +7,17 @@ import json
 import re
 from dataclasses import dataclass
 from importlib.resources import files
+from ipaddress import ip_address
+from urllib.parse import urlsplit
 
 GEMINI_MODELS_RESOURCE = "gemini_models.json"
 _MODEL_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$")
-AI_PROVIDERS = {"gemini": "Google Gemini", "deepseek": "DeepSeek", "openai": "OpenAI"}
+# Custom is one operator-defined OpenAI-compatible endpoint; Desktop only (task 2).
+AI_PROVIDERS = {"gemini": "Google Gemini", "deepseek": "DeepSeek", "openai": "OpenAI",
+                "custom": "Custom (OpenAI-compatible)"}
+# Local servers such as LM Studio name quantized variants with "@".
+_CUSTOM_MODEL_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,199}$")
+MAX_CUSTOM_BASE_URL_LENGTH = 2048
 DEFAULT_DEEPSEEK_MODEL = "deepseek-flash"
 DEFAULT_DEEPSEEK_FALLBACK_MODEL = "deepseek-v4-pro"
 DEFAULT_OPENAI_MODEL = "gpt-6-luna"
@@ -33,6 +40,12 @@ def validate_provider_models(provider: object, selected: object, fallback: objec
 
 
 def validate_provider_model_id(provider: str, value: object) -> str:
+    if provider == "custom":
+        if not isinstance(value, str) or not value.strip():
+            raise UserError("ai_models.not_empty", field="AI model")
+        if _CUSTOM_MODEL_ID_PATTERN.fullmatch(value.strip()) is None:
+            raise UserError("ai_models.contains_unsupported_characters", field="AI model")
+        return value.strip()
     model = validate_gemini_model_id(value, "AI model")
     if provider == "deepseek" and not re.fullmatch(r"deepseek-[A-Za-z0-9._-]+", model):
         raise UserError("ai_models.choose_deepseek_model_deepseek")
@@ -41,6 +54,40 @@ def validate_provider_model_id(provider: str, value: object) -> str:
     if provider == "openai" and model.lower().startswith(("gemini-", "deepseek-")):
         raise UserError("ai_models.choose_openai_model_openai")
     return model
+
+
+def _is_loopback(host: str) -> bool:
+    if host.lower().removesuffix(".") == "localhost":
+        return True
+    try:
+        return ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def validate_custom_base_url(value: object) -> str:
+    """Accept HTTPS anywhere and HTTP only on this computer; no credentials, query or fragment."""
+    if not isinstance(value, str) or not value.strip() or len(value.strip()) > MAX_CUSTOM_BASE_URL_LENGTH:
+        raise UserError("ai_models.custom_base_url_invalid")
+    url = value.strip().rstrip("/")
+    try:
+        parts = urlsplit(url)
+        parts.port  # Raises for an invalid port.
+    except ValueError:
+        raise UserError("ai_models.custom_base_url_invalid") from None
+    scheme = parts.scheme.lower()
+    if (scheme not in {"http", "https"} or not parts.hostname or "@" in parts.netloc
+            or parts.query or parts.fragment or "?" in url or "#" in url or any(ord(c) <= 32 for c in url)):
+        raise UserError("ai_models.custom_base_url_invalid")
+    if scheme == "http" and not _is_loopback(parts.hostname):
+        raise UserError("ai_models.custom_base_url_http_local_only")
+    return url
+
+
+def custom_base_url_origin(url: str) -> tuple[str, str, int]:
+    parts = urlsplit(url)
+    scheme = parts.scheme.lower()
+    return scheme, (parts.hostname or "").lower(), parts.port or (443 if scheme == "https" else 80)
 
 
 @dataclass(frozen=True, slots=True)

@@ -197,6 +197,8 @@ class ServerOperations:
     def get_ai_setup(self) -> dict:
         result = self.service.get_ai_setup()
         if result.get("ok") is not False:
+            # v1: the custom endpoint is Desktop only.
+            result["providers"] = [provider for provider in result["providers"] if provider["id"] != "custom"]
             for provider in result["providers"]:
                 provider["credential"] = self.api.ai_credential_status(provider["id"])
         return result

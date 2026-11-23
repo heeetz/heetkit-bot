@@ -86,6 +86,9 @@ stream category to the selected Gemini, DeepSeek or OpenAI provider. With memory
 up to M recent successful exchanges for that viewer/channel are included. A configured
 cross-provider fallback can receive the same permitted context after explicit consent.
 Search tools can also receive context.
+A Desktop custom OpenAI-compatible server receives the same context at the address
+you enter; its address stays in `config/config.json` on that computer, its optional
+key in the OS keyring, and neither is exported.
 
 There is no separate attached Twitch viewer identity field, but text may identify
 people. The provider receives its key and normal network connection information.

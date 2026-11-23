@@ -14,6 +14,7 @@ import pytest
 
 from app.commands.registry import CommandRegistry
 from app.app_settings import (
+    AIModelPair,
     AISettings,
     AppSettings,
     AppSettingsStore,
@@ -232,6 +233,39 @@ def test_desktop_ai_setup_and_guidance_share_atomic_profile_operations(tmp_path)
     bad = {**asdict(setup), "max_answer_length": 0}
     assert not bridge.call("save_ai_setup", {"settings": bad})["ok"]
     assert bridge.get_ai_setup()["settings"] == asdict(setup)
+
+
+def test_desktop_custom_connection_needs_key_reentry_for_a_new_origin(tmp_path):
+    from app.config.settings import Settings
+    from app.credentials import CredentialManager, CredentialName, CredentialStore
+
+    class MemoryKeyring:
+        values: dict = {}
+        def get_password(self, service, name): return self.values.get((service, name))
+        def set_password(self, service, name, value): self.values[(service, name)] = value
+        def delete_password(self, service, name): self.values.pop((service, name))
+
+    credentials = CredentialManager({}, CredentialStore(backend=MemoryKeyring()))
+    application = SimpleNamespace(settings=Settings(), services=SimpleNamespace())
+    store = AppSettingsStore(ConfigFile(tmp_path / "config.json"))
+    bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace(
+        application=application, submit=complete_bridge_coroutine)), app_settings=store, credential_manager=credentials)
+    custom = lambda: next(item for item in bridge.get_ai_setup()["providers"] if item["id"] == "custom")
+
+    assert bridge.call("save_custom_ai_connection", {"base_url": "http://192.168.1.5:1234/v1"})["error_code"] \
+        == "ai_models.custom_base_url_http_local_only"
+    assert bridge.call("save_custom_ai_connection", {"base_url": "https://llm.example.com/v1", "api_key": "synthetic"}) \
+        == {"ok": True, "key_removed": False}
+    assert application.settings.custom_api_key.get_secret_value() == "synthetic"
+    # The same origin keeps the key; another origin drops it unless a key is entered with it.
+    assert bridge.call("save_custom_ai_connection", {"base_url": "https://LLM.example.com:443/v2"})["key_removed"] is False
+    assert bridge.call("save_custom_ai_connection", {"base_url": "https://other.example.com/v1"})["key_removed"] is True
+    assert application.settings.custom_api_key is None
+    assert credentials.effective_value(CredentialName.CUSTOM_API_KEY) is None
+    assert (custom()["base_url"], application.settings.custom_base_url) == ("https://other.example.com/v1",) * 2
+    assert AppSettingsStore(store._section.file).snapshot().ai.providers["custom"].base_url == "https://other.example.com/v1"
+    assert bridge.call("remove_custom_ai_connection", {}) == {"ok": True}
+    assert custom()["base_url"] is None and "custom" not in store.snapshot().ai.providers
 
 
 def test_desktop_instance_guard_blocks_other_process_and_releases(tmp_path) -> None:
@@ -848,10 +882,7 @@ def test_ai_app_settings_override_environment_model_defaults() -> None:
     effective = apply_ai_app_settings(
         settings,
         AppSettings(
-            ai=AISettings(
-                selected_model="gemini-local",
-                fallback_model="gemini-local-fallback",
-            )
+            ai=AISettings(providers={"gemini": AIModelPair("gemini-local", "gemini-local-fallback")})
         ),
     )
 

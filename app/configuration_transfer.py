@@ -27,7 +27,7 @@ from types import SimpleNamespace
 
 from app.errors import UserError, UserOSError
 from app.ai_user_blocks import BlockedAIUser, normalize_ai_username, verified_user_id
-from app.app_settings import APP_SETTINGS_VERSION
+from app.app_settings import APP_SETTINGS_VERSION, LEGACY_AI_MODEL_FIELDS, AIModelPair
 from app.announcements import parse_announcements
 from app.config_file import encode as encode_config
 from app.command_settings import CommandSettings, CommandSettingsOverride, merge_commands_into_help
@@ -496,13 +496,12 @@ class ConfigurationTransfer:
                      for name, value in parsed.commands.items()}
         overrides = {name: value for name, value in overrides.items() if not value.is_empty}
         old_app = self.settings.snapshot()
-        new_ai = replace(old_app.ai, memory_enabled=parsed.ai["memory_enabled"],
-                         selected_model=parsed.ai["selected_model"], fallback_model=parsed.ai["fallback_model"],
-                         provider=parsed.ai["provider"], deepseek_selected_model=parsed.ai["deepseek_selected_model"],
-                         deepseek_fallback_model=parsed.ai["deepseek_fallback_model"],
-                         openai_selected_model=parsed.ai["openai_selected_model"],
-                         openai_fallback_model=parsed.ai["openai_fallback_model"],
-                         response_language=parsed.language, setup=parsed.setup)
+        # The custom connection is machine-local: the destination keeps its own.
+        providers = {**old_app.ai.providers, **{
+            provider: AIModelPair(parsed.ai[selected], parsed.ai[fallback])
+            for provider, (selected, fallback) in LEGACY_AI_MODEL_FIELDS.items()}}
+        new_ai = replace(old_app.ai, memory_enabled=parsed.ai["memory_enabled"], provider=parsed.ai["provider"],
+                         providers=providers, response_language=parsed.language, setup=parsed.setup)
         # Existing recovery rules refuse corrupt/future local settings. Exact import
         # backups additionally preserve every affected file, even fully valid ones.
         original = originals[self.config_file.path]
@@ -510,7 +509,9 @@ class ConfigurationTransfer:
                                                        "fun": 1, "app": APP_SETTINGS_VERSION, "triggers": 1,
                                                        "announcements": 1})
         app_payload = document.get("app", {"version": APP_SETTINGS_VERSION, **asdict(old_app)})
-        app_payload = {**app_payload, "ai": {**app_payload.get("ai", {}), **asdict(new_ai)}}
+        legacy = {name for fields in LEGACY_AI_MODEL_FIELDS.values() for name in fields}
+        stored_ai = {key: value for key, value in app_payload.get("ai", {}).items() if key not in legacy}
+        app_payload = {**app_payload, "ai": {**stored_ai, **asdict(new_ai)}}
         fun_payload = {**document.get("fun", self.fun._payload), "fates": list(parsed.responses["fate"])}
         sections = {
             "commands": {name: value.to_json() for name, value in overrides.items() if not value.is_empty},

@@ -7,17 +7,29 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.config.ai_setup import AISetup, AIModelSelection
 from app.config.settings import Settings
+from app.services.custom_ai_service import final_answer
 from app.runtime_state import RuntimeState
 from app.services.ai_service import SharedAIService
 from app.services.filter_manager import FilterManager
 from app.config_file import ConfigFile
 
 
-@pytest.fixture(params=["gemini", "deepseek", "openai"])
+def _model(settings):
+    if settings.ai_provider == "custom":
+        return settings.ai_setup.primary.model
+    return getattr(settings, settings.ai_provider + "_model")
+
+
+@pytest.fixture(params=["gemini", "deepseek", "openai", "custom"])
 async def provider_pipeline(request, tmp_path, monkeypatch):
     settings = Settings(ai_provider=request.param, gemini_api_key="PRIVATE-GEMINI-KEY",
                         deepseek_api_key="PRIVATE-DEEPSEEK-KEY", openai_api_key="PRIVATE-OPENAI-KEY")
+    if request.param == "custom":
+        # A local server without a key; the reply carries recognized reasoning to strip.
+        settings.custom_base_url = "http://localhost:1234/v1"
+        settings.ai_setup = AISetup(AIModelSelection("custom", "qwen/qwen3-27b@q4_k_m"))
     filters = FilterManager()
     state = RuntimeState(ConfigFile(tmp_path / "personalities.json"))
     state.apply_profile_instructions("PRIVATE-PROFILE-INSTRUCTIONS")
@@ -37,12 +49,16 @@ async def provider_pipeline(request, tmp_path, monkeypatch):
                 pass
 
         monkeypatch.setattr(genai, "Client", lambda **kwargs: Client())
-    elif request.param == "deepseek":
+    elif request.param in {"deepseek", "custom"}:
         async def http_json(method, path, key, **kwargs):
+            if request.param == "custom":
+                assert key is None and kwargs["base_url"] == "http://localhost:1234/v1"
             payload = kwargs["json"]
             calls.append((payload["messages"][0]["content"], payload["messages"][1]["content"], payload["model"]))
+            answer = await exchange()
             return 200, {"choices": [{"finish_reason": "stop", "message": {
-                "content": await exchange(), "reasoning_content": "PRIVATE-THOUGHT"}}]}
+                "content": "<think>PRIVATE-THOUGHT</think>" + answer if request.param == "custom" else answer,
+                "reasoning_content": "PRIVATE-THOUGHT"}}]}
         monkeypatch.setattr(service.provider, "_http_json", http_json)
     else:
         async def http_json(method, path, key, **kwargs):
@@ -67,7 +83,8 @@ async def test_shared_prompt_context_bounds_and_private_diagnostics(provider_pip
     assert "PRIVATE-PROFILE-INSTRUCTIONS" in instruction
     assert all(value in content for value in ("PRIVATE-QUESTION", "PRIVATE-HISTORY", "PRIVATE-CATEGORY"))
     assert "PRIVATE-USER-ID" not in content
-    assert model == getattr(service.settings, service.settings.ai_provider + "_model")
+    assert model == _model(service.settings)
+    assert "PRIVATE-THOUGHT" not in reply.text
     assert "PRIVATE" not in caplog.text + str([vars(record) for record in caplog.records])
 
 
@@ -106,7 +123,8 @@ async def test_provider_switch_keeps_inflight_adapter_and_snapshot(provider_pipe
     setattr(service.settings, captured_provider + "_api_key", None)
     release.set()
     assert (await pending).text == "Old request finished."
-    assert len(calls) == 1 and calls[0][2] == getattr(service.settings, captured_provider + "_model")
+    service.settings.ai_provider = captured_provider
+    assert len(calls) == 1 and calls[0][2] == _model(service.settings)
 
 
 @pytest.mark.parametrize("status,code", [(401, "credential_rejected"), (403, "credential_rejected"),
@@ -124,3 +142,14 @@ async def test_discovery_errors_are_safe_and_do_not_change_models(provider_pipel
         await service.discover_models()
     assert error.value.code == code and "PRIVATE" not in str(error.value)
     assert service.provider.snapshot() == before
+
+
+@pytest.mark.parametrize("content,answer", [
+    ("<think>plan</think>\n Hello!", "Hello!"),
+    ("<THINKING>a</THINKING>Hi <reasoning>b</reasoning>there", "Hi there"),
+    ("<think>still thinking when the token limit hit", None),
+    ("<think>only reasoning</think>  ", None),
+    (None, None),
+])
+def test_custom_reply_is_only_final_answer_text(content, answer):
+    assert final_answer(content) == answer

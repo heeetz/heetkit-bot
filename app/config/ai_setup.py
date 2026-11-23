@@ -37,7 +37,7 @@ class AISetup:
 
 class AIModelSelectionModel(SettingsModel):
     model_config = ConfigDict(extra="forbid")
-    provider: Literal["gemini", "deepseek", "openai"]
+    provider: Literal["gemini", "deepseek", "openai", "custom"]
     model: StrictStr
     thinking: Annotated[StrictStr, Field(max_length=32)]
     search: StrictBool
@@ -56,14 +56,18 @@ class AISetupModel(SettingsModel):
     max_question_length: Annotated[StrictInt, Field(ge=1, le=4000)] = 300
     max_answer_length: Annotated[StrictInt, Field(ge=1, le=450)] = 220
     shared_instructions: Annotated[StrictStr, Field(max_length=MAX_SHARED_INSTRUCTIONS), AfterValidator(utf8)] | None = None
-    provider_drafts: dict[Literal["gemini", "deepseek", "openai", "primary:gemini", "primary:deepseek", "primary:openai",
-                                  "fallback:gemini", "fallback:deepseek", "fallback:openai"], AIModelSelectionModel] = {}
+    provider_drafts: dict[Literal["gemini", "deepseek", "openai", "custom", "primary:gemini", "primary:deepseek",
+                                  "primary:openai", "primary:custom", "fallback:gemini", "fallback:deepseek",
+                                  "fallback:openai"], AIModelSelectionModel] = {}
 
     @model_validator(mode="after")
     def selections(self, info: ValidationInfo):
         context = info.context or {}
         if self.fallback == self.primary:
             raise UserError("ai_setup.fallback_differ_from_primary_selection")
+        # v1: a hosted model never hands prompts and memory to a custom endpoint.
+        if self.fallback and self.fallback.provider == "custom":
+            raise UserError("ai_setup.custom_primary_only")
         if (context.get("require_consent", True) and self.fallback
                 and self.fallback.provider != self.primary.provider and not self.cross_provider_acknowledged):
             raise UserError("ai_setup.acknowledge_sending_questions_instructions_permitted_memory")
@@ -90,6 +94,8 @@ def effective_ai_setup(settings) -> AISetup:
     if saved is not None:
         return saved
     provider = getattr(settings, "ai_provider", "gemini")
+    if provider == "custom":  # Custom exists only with a saved setup.
+        provider = "gemini"
     thinking = "off" if provider == "deepseek" else "default"
     default_models = {"gemini": ("gemini-3.5-flash-lite", DEFAULT_GEMINI_FALLBACK_MODEL),
                       "deepseek": (DEFAULT_DEEPSEEK_MODEL, DEFAULT_DEEPSEEK_FALLBACK_MODEL),

@@ -31,6 +31,7 @@ class CredentialName(StrEnum):
     TWITCH_CLIENT_SECRET = "twitch_client_secret"
     DEEPSEEK_API_KEY = "deepseek_api_key"
     OPENAI_API_KEY = "openai_api_key"
+    CUSTOM_API_KEY = "custom_api_key"
 
 
 CREDENTIAL_LABELS = {
@@ -38,6 +39,7 @@ CREDENTIAL_LABELS = {
     CredentialName.TWITCH_CLIENT_SECRET: "Twitch client secret",
     CredentialName.DEEPSEEK_API_KEY: "DeepSeek API key",
     CredentialName.OPENAI_API_KEY: "OpenAI API key",
+    CredentialName.CUSTOM_API_KEY: "Custom provider API key",
 }
 
 
@@ -193,6 +195,9 @@ class CredentialManager:
         twitch_client_id: str,
     ) -> None:
         parsed_name = self.parse_name(name)
+        if parsed_name is CredentialName.CUSTOM_API_KEY:
+            # The endpoint lives in profile settings; model discovery tests it instead.
+            raise UserError("credentials.unknown_credential")
         value = self.effective_value(parsed_name)
         if value is None:
             raise CredentialError("credentials.credential_not_configured")

@@ -55,8 +55,9 @@ class SharedAIService:
             from app.services.gemini_ai_service import GeminiProvider
             from app.services.deepseek_ai_service import DeepSeekProvider
             from app.services.openai_ai_service import OpenAIProvider
+            from app.services.custom_ai_service import CustomProvider
             self._providers = {"gemini": GeminiProvider(settings), "deepseek": DeepSeekProvider(settings),
-                               "openai": OpenAIProvider(settings)}
+                               "openai": OpenAIProvider(settings), "custom": CustomProvider(settings)}
         else:
             self._providers = {"injected": provider}
         self._safety_policy = AIRequestPolicy()
@@ -182,10 +183,11 @@ class SharedAIService:
         selected = self.provider if provider is None else self._providers[validate_ai_provider(provider)]
         if not selected.is_available:
             raise AIModelDiscoveryError("provider_unavailable")
-        credential = selected.snapshot().api_key
+        before = selected.snapshot()
         try:
             models = await selected.discover_models()
-            if selected.snapshot().api_key != credential:
+            after = selected.snapshot()
+            if (after.api_key, after.base_url) != (before.api_key, before.base_url):
                 raise AIModelDiscoveryError("credentials_changed")
             return models
         except AIModelDiscoveryError:

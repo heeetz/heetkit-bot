@@ -376,6 +376,8 @@ async def test_ai_setup_save_reload_validation_and_guide_use_authenticated_share
     server, call = api
     status, result, _ = await call("POST", "/v1/ops/get_ai_setup")
     assert status == 200 and {row["id"] for row in result["providers"]} == {"gemini", "deepseek", "openai"}
+    # v1 custom endpoint is Desktop only: not listed and not configurable here.
+    assert (await call("POST", "/v1/ops/save_custom_ai_connection", json={"base_url": "http://localhost:1234/v1"}))[0] == 404
     assert all("value" not in row["credential"] for row in result["providers"])
     settings = result["settings"]
     settings.update(shared_instructions="Owner custom instructions", max_question_length=42, max_answer_length=120)

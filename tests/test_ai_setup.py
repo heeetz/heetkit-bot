@@ -67,6 +67,9 @@ def test_save_reload_empty_custom_reset_and_legacy_defaults(tmp_path):
     {"cross_provider_acknowledged": False}, {"shared_instructions": "x" * 20001},
     {"primary": {"provider": "deepseek", "model": "manual-id", "thinking": "high", "search": False}},
     {"primary": {"provider": "deepseek", "model": "manual-id", "thinking": "default", "search": True}},
+    {"fallback": {"provider": "custom", "model": "local-model", "thinking": "default", "search": False},
+     "cross_provider_acknowledged": True},
+    {"primary": {"provider": "custom", "model": "local-model", "thinking": "low", "search": False}},
 ])
 def test_invalid_setup_is_atomic(tmp_path, patch):
     store = AppSettingsStore(ConfigFile(tmp_path / "settings.json"))

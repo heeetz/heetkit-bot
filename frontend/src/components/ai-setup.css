@@ -42,6 +42,7 @@
 .ai-setup-panel p { overflow-wrap: anywhere; }
 .ai-provider-status { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .75rem; }
 .ai-key-field { width: 100%; min-width: 0; }
+.ai-custom-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: .75rem; min-width: 0; }
 .ai-setup-panel .row-actions { align-items: center; gap: .5rem; }
 .ai-connection-row .row-actions > button,
 .ai-connection-row input { min-height: 40px; }
@@ -64,7 +65,7 @@
 .ai-setup-panel .form-field { min-width: 0; }
 .ai-setup-panel input:not([type=checkbox]),
 .ai-shared-instructions textarea { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
-.ai-setup-panel button:not(.accordion-trigger) { min-height: 40px; white-space: normal; }
+.ai-setup-panel button:not(.accordion-trigger, .help-trigger) { min-height: 40px; white-space: normal; }
 .ai-setup-panel .select-value { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .ai-search-control { display: flex; align-items: center; min-height: 40px; }
 .ai-model-configuration-row { display: grid; grid-template-columns: minmax(0, 1fr); align-items: end; gap: .75rem; }
@@ -159,8 +160,14 @@
 .select-search { width: calc(100% - 16px); min-width: 0; min-height: 44px; margin: 8px; padding: 8px; box-sizing: border-box; border: 1px solid var(--input-border); border-radius: 8px; color: var(--text); background: var(--panel); }
 
 @media (min-width: 900px) {
-  .ai-connection-row { grid-template-columns: minmax(8rem, .7fr) minmax(12rem, 1fr) auto; }
-  .ai-connection-row .row-actions { flex-wrap: nowrap; }
+  /* Rows share the section's columns (one per button too), so fields and buttons
+     line up across providers whatever the button text. */
+  .ai-connections { grid-template-columns: minmax(8rem, .7fr) minmax(12rem, 1fr) repeat(3, auto); column-gap: .75rem; }
+  .ai-connections > * { grid-column: 1 / -1; }
+  .ai-connection-row { grid-template-columns: subgrid; }
+  .ai-connection-row > .row-actions { display: grid; grid-column: 3 / -1; grid-template-columns: subgrid; }
+  .ai-custom-connection > .ai-provider-status,
+  .ai-custom-connection > .ai-custom-fields { grid-column: 1 / -1; }
   .ai-setup-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ai-setup-lengths { grid-template-columns: repeat(2, minmax(8rem, 12rem)) minmax(22rem, 1fr); }
   .ai-setup-actions { grid-column: 3; }
@@ -168,6 +175,14 @@
   .ai-model-selectors > .ai-search-control { grid-column: 1 / -1; }
   .ai-model-selectors .form-field > .select-trigger { gap: 4px; padding-inline: 7px; }
   .ai-model-configuration-row { grid-template-columns: minmax(9rem, .65fr) minmax(0, 1.35fr); }
+}
+@media (min-width: 620px) {
+  .ai-custom-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ai-custom-connection > .row-actions { justify-content: flex-end; }
+}
+@media (min-width: 1100px) {
+  /* Custom row: both fields beside the buttons instead of above them. */
+  .ai-custom-connection > .ai-custom-fields { grid-column: 1 / 3; }
 }
 @media (max-width: 620px) {
   .ai-behavior-card .ai-behavior-overview { grid-template-columns: minmax(0, 1fr); }

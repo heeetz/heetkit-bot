@@ -50,6 +50,7 @@ KNOWN_MODELS = {
     "deepseek": tuple(sorted(_DEEPSEEK_MODELS)),
     "gemini": tuple(sorted(_GEMINI_SEARCH | frozenset(_GEMINI_LEVELS))),
     "openai": tuple(_OPENAI_LEVELS),
+    "custom": (),
 }
 
 
@@ -89,7 +90,7 @@ def model_capabilities(provider: str, model: str) -> dict[str, Any]:
         "thinking_options": options, "search_supported": search,
         "search_reason": reason, "attribution_required": provider == "gemini" and search,
         "api_version": {"deepseek": "chat-completions", "gemini": "v1beta/generateContent",
-                        "openai": "v1/responses"}[provider],
+                        "openai": "v1/responses", "custom": "chat-completions"}[provider],
     }
 
 
