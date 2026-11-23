@@ -4,11 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import tempfile
 from dataclasses import asdict, dataclass, replace
 from hashlib import sha256
-from pathlib import Path
 from threading import RLock
 
 from app.errors import UserError
@@ -17,7 +14,7 @@ from typing import Annotated, Literal
 from pydantic import AfterValidator, ConfigDict, Field, StrictBool, StrictStr
 from app.settings_models import (SettingsModel, Identifier, ChatLine, CooldownSeconds, single_line, field_value,
     CreationOrder, parse)
-from app.settings_recovery import preserve_settings_recovery
+from app.config_file import ConfigFile
 
 
 logger = logging.getLogger(__name__)
@@ -83,15 +80,14 @@ def trigger_revision(triggers: tuple[MessageTrigger, ...]) -> str:
 class MessageTriggerStore:
     """Keep immutable trigger snapshots behind one lock; publish after atomic save."""
 
-    def __init__(self, path: Path, *, creation_order: CommandCreationOrder | None = None) -> None:
-        self._path = path
+    def __init__(self, config: ConfigFile, *, creation_order: CommandCreationOrder | None = None) -> None:
+        self._section = config.section("triggers")
+        path = config.path
         self._lock = RLock()
         self._creation_order = creation_order or CommandCreationOrder()
         self._triggers: tuple[MessageTrigger, ...] = ()
         try:
-            # ``utf-8-sig`` accepts both ordinary UTF-8 and the BOM emitted by
-            # some Windows editors while still rejecting other encodings.
-            payload = json.loads(path.read_text(encoding="utf-8-sig"))
+            payload = self._section.load()
         except FileNotFoundError:
             return
         except json.JSONDecodeError as error:
@@ -112,7 +108,7 @@ class MessageTriggerStore:
                 getattr(error, "start", "unknown"),
             )
             return
-        except OSError as error:
+        except (OSError, ValueError) as error:
             logger.warning(
                 "Could not load message triggers path=%s error=%s; reactions disabled",
                 path,
@@ -173,41 +169,8 @@ class MessageTriggerStore:
             return updated
 
     def _write(self, triggers: tuple[MessageTrigger, ...]) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        temporary_path: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                dir=self._path.parent,
-                prefix=f".{self._path.name}.",
-                suffix=".tmp",
-                delete=False,
-            ) as output:
-                temporary_path = Path(output.name)
-                json.dump(
-                    {
-                        "version": SCHEMA_VERSION,
-                        "triggers": [trigger.to_json() for trigger in triggers],
-                    },
-                    output,
-                    indent=2,
-                    ensure_ascii=False,
-                )
-                output.write("\n")
-                output.flush()
-                os.fsync(output.fileno())
-            preserve_settings_recovery(
-                self._path,
-                {
-                    "version": SCHEMA_VERSION,
-                    "triggers": [trigger.to_json() for trigger in self._triggers],
-                },
-                version=SCHEMA_VERSION,
-                encoding="utf-8-sig",
-            )
-            os.replace(temporary_path, self._path)
-            temporary_path = None
-        finally:
-            if temporary_path is not None:
-                temporary_path.unlink(missing_ok=True)
+        self._section.save(
+            {"version": SCHEMA_VERSION, "triggers": [trigger.to_json() for trigger in triggers]},
+            recovered={"version": SCHEMA_VERSION, "triggers": [trigger.to_json() for trigger in self._triggers]},
+            version=SCHEMA_VERSION,
+        )

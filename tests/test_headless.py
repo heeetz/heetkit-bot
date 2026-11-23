@@ -1,7 +1,6 @@
 """Foreground lifecycle checks with disposable profiles and synthetic Twitch."""
 
 import asyncio
-import json
 import logging
 import os
 import signal
@@ -16,6 +15,7 @@ from app.app_settings import AISettings, AppSettings
 from app.config.settings import Settings
 from app.desktop_instance import desktop_instance_guard
 from app.runtime_paths import RuntimePaths, prepare_runtime_data
+from config_helpers import write_section
 
 
 @pytest.fixture(autouse=True)
@@ -267,9 +267,9 @@ async def test_partial_startup_or_slow_stop_still_attempts_application_cleanup(m
 def test_cli_uses_environment_without_keyring_applies_saved_settings_and_handles_signals(tmp_path, monkeypatch, signum):
     paths = RuntimePaths.default()
     paths.config.mkdir(parents=True)
-    paths.app_settings.write_text(json.dumps({"version": 1, "twitch": {
+    write_section(paths.config_file, "app", {"version": 1, "twitch": {
         "client_id": "saved-client", "bot_user_id": "100", "bot_username": "savedbot",
-        "channel_user_id": "200", "channel": "savedchannel"}, "ai": {"memory_enabled": False}}))
+        "channel_user_id": "200", "channel": "savedchannel"}, "ai": {"memory_enabled": False}})
     paths.auth.mkdir()
     paths.tokens.write_text("{}")
     monkeypatch.setenv("TWITCH_CLIENT_SECRET", "private-env-secret")
@@ -300,9 +300,9 @@ def test_cli_locks_profile_before_loading_or_migrating(monkeypatch):
     paths = RuntimePaths.default()
     monkeypatch.setattr(headless, "configure_headless_logging", lambda: None)
     monkeypatch.setattr(headless, "prepare_runtime_data", lambda *args: pytest.fail("Migration ran"))
-    with desktop_instance_guard(paths.app_settings):
+    with desktop_instance_guard(paths.instance_guard):
         assert headless.main([]) == 1
-    assert not paths.app_settings.exists()
+    assert not paths.config_file.exists()
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "301"])

@@ -1,7 +1,6 @@
 """Task-5 saved choices and shared request routing use synthetic providers only."""
 
 import asyncio
-import json
 import logging
 from dataclasses import asdict, replace
 from unittest.mock import AsyncMock
@@ -17,6 +16,8 @@ from app.config.profile_settings import apply_ai_app_settings
 from app.config.settings import Settings
 from app.services.ai_provider import AIProviderCapabilities, AIProviderResponse, AIProviderSettings, AISource
 from app.services.ai_service import SharedAIService
+from app.config_file import ConfigFile
+from config_helpers import write_section
 
 
 def setup(**changes):
@@ -47,17 +48,17 @@ def pipeline(configuration):
 
 
 def test_save_reload_empty_custom_reset_and_legacy_defaults(tmp_path):
-    store = AppSettingsStore(tmp_path / "settings.json")
+    store = AppSettingsStore(ConfigFile(tmp_path / "settings.json"))
     legacy = apply_ai_app_settings(Settings(), store.snapshot())
     assert legacy.ai_setup is None
     custom = setup(shared_instructions="", max_question_length=2, max_answer_length=35,
                    provider_drafts={"primary:gemini": asdict(AIModelSelection("gemini", "manual-unknown"))})
     store.update_ai_setup(asdict(custom))
-    reloaded = AppSettingsStore(store._path).snapshot()
+    reloaded = AppSettingsStore(store._section.file).snapshot()
     assert reloaded.ai.setup == custom
     assert apply_ai_app_settings(Settings(), reloaded).ai_provider == "deepseek"
     store.update_ai_setup(asdict(replace(custom, shared_instructions=None)))
-    assert AppSettingsStore(store._path).snapshot().ai.setup.shared_instructions is None
+    assert AppSettingsStore(store._section.file).snapshot().ai.setup.shared_instructions is None
     assert SHARED_AI_INSTRUCTIONS.startswith("You are a Twitch chat assistant.")
 
 
@@ -68,12 +69,12 @@ def test_save_reload_empty_custom_reset_and_legacy_defaults(tmp_path):
     {"primary": {"provider": "deepseek", "model": "manual-id", "thinking": "default", "search": True}},
 ])
 def test_invalid_setup_is_atomic(tmp_path, patch):
-    store = AppSettingsStore(tmp_path / "settings.json")
+    store = AppSettingsStore(ConfigFile(tmp_path / "settings.json"))
     before = store.snapshot()
     with pytest.raises(ValueError):
         store.update_ai_setup({**asdict(setup()), **patch})
     assert store.snapshot() == before
-    assert not store._path.exists()
+    assert not store._section.path.exists()
 
 
 async def test_cross_provider_single_fallback_snapshots_keys_options_and_instructions():
@@ -209,17 +210,17 @@ async def test_openai_cross_provider_fallback_keeps_independent_options_and_cons
 
 def test_openai_setup_and_legacy_models_reload_without_changing_other_providers(tmp_path):
     path = tmp_path / "settings.json"
-    path.write_text(json.dumps({"version": 1, "ai": {
+    write_section(path, "app", {"version": 1, "ai": {
         "provider": "openai", "openai_selected_model": "gpt-6-luna", "openai_fallback_model": "gpt-6.1-sol",
-    }}), encoding="utf-8")
-    store = AppSettingsStore(path)
-    runtime = apply_ai_app_settings(Settings(), AppSettingsStore(store._path).snapshot())
+    }})
+    store = AppSettingsStore(ConfigFile(path))
+    runtime = apply_ai_app_settings(Settings(), AppSettingsStore(store._section.file).snapshot())
     assert runtime.ai_provider == "openai" and runtime.openai_model == "gpt-6-luna"
     assert runtime.gemini_model == Settings().gemini_model
     value = AISetup(AIModelSelection("openai", "gpt-6-luna", "none", True),
                     provider_drafts={"primary:openai": asdict(AIModelSelection("openai", "gpt-6-luna", "low"))})
     store.update_ai_setup(asdict(value))
-    assert AppSettingsStore(store._path).snapshot().ai.setup == value
+    assert AppSettingsStore(store._section.file).snapshot().ai.setup == value
 
 
 async def test_one_total_deadline_and_cancellation(monkeypatch):

@@ -21,6 +21,7 @@ from app.services.ai_service import SharedAIService
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.utils.cooldown import CooldownManager
 from app.webview_host import AsyncioBackendHost, WebUIBridge
+from app.config_file import ConfigFile
 
 
 def test_gemini_availability_handles_absent_blank_and_missing_provider(monkeypatch):
@@ -58,7 +59,7 @@ def test_clean_backend_provider_changes_restore_availability_and_preserve_saved_
         state = backend.application.services.runtime_state
         defaults = state.get_command_default_settings("ask")
         state.save_command_settings("ask", enabled=enabled, cooldown=defaults.cooldown, permission=defaults.permission)
-        saved = (tmp_path / "config" / "command_settings.json").read_bytes()
+        saved = (tmp_path / "config" / "config.json").read_bytes()
         commands = {item["name"]: item for item in bridge.get_commands()["commands"]}
         assert commands["ask"]["enabled"] is enabled
         assert commands["ask"]["available"] is False
@@ -79,7 +80,7 @@ def test_clean_backend_provider_changes_restore_availability_and_preserve_saved_
         assert settings.gemini_api_key is None
         assert state.get_command_settings("ask").enabled is enabled
         assert state.command_settings_are_saved("ask")
-        assert (tmp_path / "config" / "command_settings.json").read_bytes() == saved
+        assert (tmp_path / "config" / "config.json").read_bytes() == saved
     finally:
         backend.close()
 
@@ -89,8 +90,8 @@ async def test_unavailable_ai_does_not_consume_cooldown_or_block_normal_commands
     monkeypatch.setenv("HEETKIT_DATA_DIR", str(tmp_path))
     registry = CommandRegistry()
     register_ai_commands(registry)
-    register_fun_commands(registry, FunSettingsStore(tmp_path / "fun_settings.json"))
-    state = RuntimeState(command_settings_path=tmp_path / "command_settings.json")
+    register_fun_commands(registry, FunSettingsStore(ConfigFile(tmp_path / "fun_settings.json")))
+    state = RuntimeState(ConfigFile(tmp_path / "command_settings.json"))
     state.configure_commands(registry.definitions())
     replies = []
     calls = []

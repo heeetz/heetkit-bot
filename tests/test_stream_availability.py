@@ -1,6 +1,5 @@
 """Server command restrictions at the shared dispatch and persistence boundaries."""
 
-import json
 import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -17,6 +16,8 @@ from app.services.ai_request_policy import PolicyDecision
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownManager, CooldownPolicy
+from app.config_file import ConfigFile
+from config_helpers import write_section
 
 
 @pytest.fixture
@@ -31,9 +32,9 @@ def rig(tmp_path):
         await external(arguments)
         await context.reply("crosshair")
 
-    state = RuntimeState(command_settings_path=tmp_path / "commands.json")
+    state = RuntimeState(ConfigFile(tmp_path / "commands.json"))
     state.configure_commands(registry.definitions())
-    custom = CustomCommandStore(tmp_path / "custom.json", state.reserved_command_names(),
+    custom = CustomCommandStore(ConfigFile(tmp_path / "custom.json"), state.reserved_command_names(),
                                 namespace_lock=state.command_namespace_lock)
     state.bind_custom_commands(custom)
     saved = custom.save({"name": "hello", "enabled": True, "responses": ["hello"],
@@ -142,7 +143,7 @@ def test_save_apply_reset_restore_restart_and_desktop_editor_isolation(rig):
     assert rig.management.apply_command_settings("ask", True, 0, 0, "USER", {"stream_availability": "live_only"})["ok"]
     assert not rig.state.command_settings_are_saved("ask")
     assert rig.management.save_command_settings("ask", True, 0, 0, "USER", {"stream_availability": "live_only"})["ok"]
-    state = RuntimeState(command_settings_path=rig.state._command_settings_path)
+    state = RuntimeState(rig.state._command_section.file)
     state.configure_commands(rig.registry.definitions())
     assert state.get_command_settings("ask").stream_availability == "live_only"
     assert state.command_settings_are_saved("ask")
@@ -154,10 +155,10 @@ def test_save_apply_reset_restore_restart_and_desktop_editor_isolation(rig):
     # An ordinary Desktop edit does not know or erase the stored Server field.
     rig.state.server_runtime = False
     assert rig.management.save_custom_command({**rig.saved.to_json(), "responses": ["edited"]})["ok"]
-    restored = CustomCommandStore(rig.custom._path, rig.state.reserved_command_names())
+    restored = CustomCommandStore(rig.custom._section.file, rig.state.reserved_command_names())
     assert restored.get_by_name("hi").stream_availability == "offline_only"
     rig.custom.delete(rig.saved.id)
-    assert not CustomCommandStore(rig.custom._path, rig.state.reserved_command_names()).list()
+    assert not CustomCommandStore(rig.custom._section.file, rig.state.reserved_command_names()).list()
 
 
 @pytest.mark.parametrize("invalid", [None, [], True, "Live only", "invalid"])
@@ -171,9 +172,9 @@ def test_invalid_management_values_do_not_mutate_settings(rig, invalid):
 
 
 def test_invalid_persisted_builtin_and_custom_values_are_safe(rig):
-    rig.state._command_settings_path.write_text(json.dumps({"ask": {"stream_availability": "future"}}))
-    state = RuntimeState(command_settings_path=rig.state._command_settings_path)
+    write_section(rig.state._command_section.path, "commands", {"ask": {"stream_availability": "future"}})
+    state = RuntimeState(rig.state._command_section.file)
     state.configure_commands(rig.registry.definitions())
     assert state.get_command_settings("ask").stream_availability == "anytime"
-    rig.custom._path.write_text(json.dumps({"version": 2, "commands": [{**rig.saved.to_json(), "stream_availability": "future"}]}))
-    assert not CustomCommandStore(rig.custom._path, rig.state.reserved_command_names()).list()
+    write_section(rig.custom._section.path, "custom_commands", {"version": 2, "commands": [{**rig.saved.to_json(), "stream_availability": "future"}]})
+    assert not CustomCommandStore(rig.custom._section.file, rig.state.reserved_command_names()).list()

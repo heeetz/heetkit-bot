@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import os
-import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from pathlib import Path
 from typing import Annotated, Any, Protocol
 from pydantic import AfterValidator, Field, StrictBool, StrictStr
 from app.settings_models import (SettingsModel, CommandName, StreamAvailability, SendAs, BurstInterval,
@@ -17,7 +13,7 @@ from app.settings_models import (SettingsModel, CommandName, StreamAvailability,
 from app.errors import UserError
 from app.config.commands import BURST_HARD_MAX_COUNT, BURST_DEFAULT_MAX_COUNT
 from app.twitch.permissions import Permission
-from app.settings_recovery import preserve_settings_recovery
+from app.config_file import ConfigSection
 from app.utils.cooldown import CooldownPolicy
 from app.utils.text import validate_chat_template
 
@@ -231,19 +227,18 @@ class CommandSettingsOverride:
 
 
 def load_command_overrides(
-    path: Path,
+    section: ConfigSection,
     defaults: Mapping[str, CommandSettings],
 ) -> dict[str, CommandSettingsOverride]:
     """Load valid overrides without allowing local file errors to block startup."""
-    if not path.exists():
-        return {}
-
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        payload = section.load()
+    except FileNotFoundError:
+        return {}
+    except (OSError, UnicodeError, ValueError) as error:
         logger.warning(
-            "Could not load command settings file path=%s error=%s; using defaults",
-            path,
+            "Could not load command settings path=%s error=%s; using defaults",
+            section.path,
             type(error).__name__,
         )
         return {}
@@ -288,44 +283,19 @@ def merge_commands_into_help(
 
 
 def save_command_overrides(
-    path: Path,
+    section: ConfigSection,
     overrides: Mapping[str, CommandSettingsOverride],
     *,
     recovered_overrides: Mapping[str, CommandSettingsOverride] | None = None,
 ) -> None:
-    """Atomically replace the local command override file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        command_name: override.to_json()
-        for command_name, override in sorted(overrides.items())
-        if not override.is_empty
-    }
-    temporary_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as temporary_file:
-            temporary_path = Path(temporary_file.name)
-            json.dump(payload, temporary_file, indent=2, sort_keys=True)
-            temporary_file.write("\n")
-            temporary_file.flush()
-            os.fsync(temporary_file.fileno())
-        preserve_settings_recovery(
-            path,
-            None if recovered_overrides is None else {
-                name: override.to_json() for name, override in recovered_overrides.items()
-            },
-        )
-        os.replace(temporary_path, path)
-        temporary_path = None
-    finally:
-        if temporary_path is not None:
-            temporary_path.unlink(missing_ok=True)
+    """Atomically replace the command overrides section."""
+    section.save(
+        {command_name: override.to_json() for command_name, override in sorted(overrides.items())
+         if not override.is_empty},
+        recovered=None if recovered_overrides is None else {
+            name: override.to_json() for name, override in recovered_overrides.items()
+        },
+    )
 
 
 def _parse_override(

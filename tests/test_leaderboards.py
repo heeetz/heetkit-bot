@@ -19,6 +19,7 @@ from app.services.twitch import TwitchAPIService
 from app.twitch.client import TwitchChatBot
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.utils.cooldown import CooldownManager
+from app.config_file import ConfigFile
 
 
 def date(value):
@@ -177,7 +178,7 @@ async def test_rank_without_data_leaves_global_cooldown_available(setup, tmp_pat
     registry = CommandRegistry()
     register_leaderboard_commands(registry)
     path = tmp_path / "commands.json"
-    state = RuntimeState(command_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     state.configure_commands(registry.definitions())
     defaults = state.get_command_default_settings("top")
     with pytest.raises(CommandNameConflict, match="top"):
@@ -187,7 +188,7 @@ async def test_rank_without_data_leaves_global_cooldown_available(setup, tmp_pat
         state.save_command_settings("top", entry_limit=size, enabled=False,
                                     cooldown=defaults.cooldown, permission=defaults.permission)
         state.save_builtin_enabled("top", True)
-        loaded = RuntimeState(command_settings_path=path)
+        loaded = RuntimeState(ConfigFile(path))
         loaded.configure_commands(registry.definitions())
         assert loaded.get_command_settings("top").entry_limit == size
         assert loaded.get_command_settings("rank").entry_limit is None

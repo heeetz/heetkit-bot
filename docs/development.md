@@ -423,7 +423,7 @@ and do not connect Twitch or call Gemini for layout validation.
 
 The UI is available in English, Ukrainian and Russian. The EN/UA/RU switcher sits
 next to About in the navigation, and Settings has an Interface language field.
-Desktop saves the choice in `app_settings.json` (`interface.language`), and the
+Desktop saves the choice in `config.json` (`app.interface.language`), and the
 tray menu follows it. The Server browser keeps it in that browser's local storage.
 
 Windows Setup asks for English, Ukrainian or Russian (English preselected) and shows

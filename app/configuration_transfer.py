@@ -29,6 +29,7 @@ from app.errors import UserError, UserOSError
 from app.ai_user_blocks import BlockedAIUser, normalize_ai_username, verified_user_id
 from app.app_settings import APP_SETTINGS_VERSION
 from app.announcements import parse_announcements
+from app.config_file import encode as encode_config
 from app.command_settings import CommandSettings, CommandSettingsOverride, merge_commands_into_help
 from app.config.ai_language import validate_response_language
 from app.config.ai_models import validate_ai_provider, validate_provider_models
@@ -182,14 +183,16 @@ class ConfigurationTransfer:
         self.restrictions = application.services.command_restrictions
         self.triggers = application.dispatcher._message_triggers
         self.announcements = application.announcements
-        self.config = app_settings._path.parent
+        self.config_file = app_settings._section.file
+        self.config = self.config_file.path.parent
         self.pending = {}
 
     @contextmanager
     def locked(self):
         with ExitStack() as stack:
             for lock in (self.state.command_namespace_lock, self.settings._lock, self.fun._lock,
-                         self.restrictions._lock, self.blocks._lock, self.triggers._lock, self.announcements._lock):
+                         self.restrictions._lock, self.blocks._lock, self.triggers._lock, self.announcements._lock,
+                         self.config_file.lock):
                 stack.enter_context(lock)
             yield
 
@@ -366,8 +369,7 @@ class ConfigurationTransfer:
                                announcements=parse_announcements(payload["announcements"]))
 
     def paths(self):
-        return [self.state._command_settings_path, self.custom._path, self.state._personality_settings_path,
-                self.fun.path, self.settings._path, self.blocks._path, self.triggers._path, self.announcements._path,
+        return [self.config_file.path, self.blocks._path,
                 *(self.config / "filters" / name for name in FILTER_NAMES), self.restrictions._path]
 
     def originals(self):
@@ -501,27 +503,28 @@ class ConfigurationTransfer:
                          openai_selected_model=parsed.ai["openai_selected_model"],
                          openai_fallback_model=parsed.ai["openai_fallback_model"],
                          response_language=parsed.language, setup=parsed.setup)
-        app_payload = {"version": APP_SETTINGS_VERSION, **asdict(old_app)}
-        if originals[self.settings._path] is not None:
-            app_payload = _json(originals[self.settings._path])
-        app_payload = {**app_payload, "ai": {**app_payload.get("ai", {}), **asdict(new_ai)}}
-        old_fun = (self.fun._payload if originals[self.fun.path] is None else _json(originals[self.fun.path]))
-        fun_payload = {**old_fun, "fates": list(parsed.responses["fate"])}
-        values = [
-            {name: value.to_json() for name, value in overrides.items() if not value.is_empty},
-            {"version": 2, "commands": [item.to_json() for item in parsed.customs.values()]},
-            parsed.personality, fun_payload, app_payload,
-            self.blocks._payload(()),
-            {"version": 1, "triggers": [item.to_json() for item in parsed.triggers]},
-            {"version": 1, "announcements": [item.to_json() for item in parsed.announcements]},
-        ]
-        # Existing recovery rules refuse corrupt/future local stores. Exact import
+        # Existing recovery rules refuse corrupt/future local settings. Exact import
         # backups additionally preserve every affected file, even fully valid ones.
-        for index, path in enumerate(self.paths()[:8]):
-            preserve_settings_recovery(path, None, version={1: 2, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1}.get(index),
-                                       encoding="utf-8-sig" if index == 6 else "utf-8")
-        files = dict(zip(self.paths()[:8], map(_encode, values)))
-        for path, rules in zip(self.paths()[8:11], (parsed.filters[0], parsed.filters[1], [rule.pattern for rule in parsed.filters[2]])):
+        original = originals[self.config_file.path]
+        document = self.config_file.checked(original, {"commands": None, "custom_commands": 2, "personalities": None,
+                                                       "fun": 1, "app": APP_SETTINGS_VERSION, "triggers": 1,
+                                                       "announcements": 1})
+        app_payload = document.get("app", {"version": APP_SETTINGS_VERSION, **asdict(old_app)})
+        app_payload = {**app_payload, "ai": {**app_payload.get("ai", {}), **asdict(new_ai)}}
+        fun_payload = {**document.get("fun", self.fun._payload), "fates": list(parsed.responses["fate"])}
+        sections = {
+            "commands": {name: value.to_json() for name, value in overrides.items() if not value.is_empty},
+            "custom_commands": {"version": 2, "commands": [item.to_json() for item in parsed.customs.values()]},
+            "personalities": parsed.personality, "fun": fun_payload, "app": app_payload,
+            "triggers": {"version": 1, "triggers": [item.to_json() for item in parsed.triggers]},
+            "announcements": {"version": 1, "announcements": [item.to_json() for item in parsed.announcements]},
+        }
+        if original is not None:
+            self.config_file.preserve(original)
+        preserve_settings_recovery(self.blocks._path, None, version=1)
+        files = {self.config_file.path: encode_config({**document, **sections}),
+                 self.blocks._path: _encode(self.blocks._payload(()))}
+        for path, rules in zip(self.paths()[2:5], (parsed.filters[0], parsed.filters[1], [rule.pattern for rule in parsed.filters[2]])):
             files[path] = "".join(f"{rule}\n" for rule in rules).encode("utf-8")
         migrated_rules = self.restrictions.migrated_ai_rules(parsed.users, self.app.settings.twitch_channel_user_id)
         if migrated_rules != self.restrictions._rules:

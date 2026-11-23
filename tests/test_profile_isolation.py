@@ -14,6 +14,8 @@ from app.credentials import CredentialName, CredentialStore
 from app.runtime_paths import DEFAULT_FILTERS, FILTER_NAMES, RuntimePaths, prepare_runtime_data
 from app.runtime_state import RuntimeState
 from app import webview_host
+from app.config_file import ConfigFile
+from config_helpers import read_section, write_section
 
 
 def clear_deployment_environment(monkeypatch):
@@ -54,7 +56,7 @@ def test_clean_cli_launch_reaches_desktop_with_disconnected_backend(tmp_path, mo
         try:
             backend.start()
             bridge = webview_host.WebUIBridge(
-                backend, app_settings=AppSettingsStore(root / 'config' / 'app_settings.json'),
+                backend, app_settings=AppSettingsStore(ConfigFile(root / 'config' / 'app_settings.json')),
                 credential_manager=kwargs['credential_manager'],
             )
             status = bridge.get_app_status()
@@ -87,7 +89,7 @@ def prepare(paths, legacy):
 def test_clean_profile_never_imports_checkout_state_and_config_reset_preserves_auth_and_db(tmp_path):
     legacy = tmp_path / 'legacy'
     (legacy / 'filters').mkdir(parents=True)
-    for filename in ('app_settings.json', 'custom_commands.json', 'message_triggers.json', 'personality_settings.json'):
+    for filename in ('app_settings.json', 'custom_commands.json', 'message_triggers.json', 'config.json'):
         (legacy / filename).write_text('private', encoding='utf-8')
     (legacy / 'filters' / FILTER_NAMES[0]).write_text('private rule', encoding='utf-8')
     (legacy / 'tokens.json').write_text('private token', encoding='utf-8')
@@ -95,10 +97,10 @@ def test_clean_profile_never_imports_checkout_state_and_config_reset_preserves_a
     paths = RuntimePaths(tmp_path / 'clean')
     prepare(paths, legacy)
     assert not paths.tokens.exists() and not paths.database.exists()
-    assert AppSettingsStore(paths.app_settings).snapshot().twitch.presets == ()
-    assert RuntimeState(personality_settings_path=paths.personality_settings).available_personalities == ('neutral',)
-    assert RuntimeState(personality_settings_path=paths.personality_settings).profile_instructions == ''
-    assert json.loads(paths.message_triggers.read_text())['triggers'] == []
+    assert AppSettingsStore(ConfigFile(paths.config_file)).snapshot().twitch.presets == ()
+    assert RuntimeState(ConfigFile(paths.config_file)).available_personalities == ('neutral',)
+    assert RuntimeState(ConfigFile(paths.config_file)).profile_instructions == ''
+    assert read_section(paths.config_file, "triggers")['triggers'] == []
     for filename in FILTER_NAMES:
         assert (paths.filters / filename).read_bytes() == (DEFAULT_FILTERS / filename).read_bytes()
     paths.tokens.write_bytes(b'kept token')
@@ -107,25 +109,23 @@ def test_clean_profile_never_imports_checkout_state_and_config_reset_preserves_a
     prepare(paths, legacy)
     assert paths.tokens.read_bytes() == b'kept token'
     assert paths.database.read_bytes() == b'kept database'
-    assert json.loads(paths.message_triggers.read_text())['triggers'] == []
-    assert not paths.custom_commands.exists()
+    assert set(json.loads(paths.config_file.read_text(encoding='utf-8'))) == {'schema_version', 'triggers'}
 
 
 def test_profile_upgrade_preserves_all_local_files_and_custom_personalities(tmp_path, monkeypatch):
     paths = RuntimePaths(tmp_path / 'profile')
     monkeypatch.setenv('HEETKIT_DATA_DIR', str(paths.root))
     prepare(paths, tmp_path)
-    state = RuntimeState(personality_settings_path=paths.personality_settings)
+    state = RuntimeState(ConfigFile(paths.config_file))
     state.create_ai_personality('my-style', 'User style with {literal braces}')
     state.save_active_ai_personality('my-style')
-    files = [paths.app_settings, paths.command_settings, paths.custom_commands, paths.message_triggers,
-             paths.config / 'fun_settings.json', *(paths.filters / name for name in FILTER_NAMES)]
+    files = [*(paths.filters / name for name in FILTER_NAMES)]
     for path in files:
         path.write_text('local data', encoding='utf-8')
-    snapshots = {path: path.read_bytes() for path in [*files, paths.personality_settings]}
+    snapshots = {path: path.read_bytes() for path in [*files, paths.config_file]}
     prepare(paths, tmp_path)
     assert all(path.read_bytes() == content for path, content in snapshots.items())
-    restored = RuntimeState(personality_settings_path=paths.personality_settings)
+    restored = RuntimeState(ConfigFile(paths.config_file))
     assert restored.active_ai_personality == 'my-style'
     assert restored.get_ai_personality_prompt('my-style') == 'User style with {literal braces}'
     assert restored.available_personalities == ('neutral', 'my-style')
@@ -155,22 +155,22 @@ def test_data_dir_profiles_do_not_share_instructions_or_personalities(tmp_path, 
     for name in ('one', 'two'):
         monkeypatch.setenv('HEETKIT_DATA_DIR', str(tmp_path / name))
         paths = RuntimePaths.default()
-        states.append(RuntimeState(personality_settings_path=paths.personality_settings))
+        states.append(RuntimeState(ConfigFile(paths.config_file)))
     one, two = states
     one.create_ai_personality('local', 'Local style')
     one.save_profile_instructions('First profile instructions')
     assert two.profile_instructions == ''
     assert two.available_personalities == ('neutral',)
     two.save_profile_instructions('Second profile instructions')
-    second_original = (tmp_path / 'two' / 'config' / 'personality_settings.json').read_bytes()
+    second_original = (tmp_path / 'two' / 'config' / 'config.json').read_bytes()
     one.save_active_ai_personality('local')
     one.rename_ai_personality('local', 'renamed')
     one.delete_ai_personality('renamed')
     assert one.active_ai_personality == 'neutral'
-    assert (tmp_path / 'two' / 'config' / 'personality_settings.json').read_bytes() == second_original
+    assert (tmp_path / 'two' / 'config' / 'config.json').read_bytes() == second_original
     for name, text in (('one', 'First profile instructions'), ('two', 'Second profile instructions')):
         monkeypatch.setenv('HEETKIT_DATA_DIR', str(tmp_path / name))
-        restored = RuntimeState(personality_settings_path=RuntimePaths.default().personality_settings)
+        restored = RuntimeState(ConfigFile(RuntimePaths.default().config_file))
         assert restored.profile_instructions == text
 
 
@@ -216,10 +216,10 @@ def test_alternate_profile_ignores_dotenv_and_forces_canonical_storage(tmp_path,
 
 def test_fun_responses_are_local_and_neutral_when_missing_or_invalid(tmp_path, monkeypatch):
     monkeypatch.setenv('HEETKIT_DATA_DIR', str(tmp_path))
-    assert FunSettingsStore(tmp_path / "config" / "fun_settings.json").fates == FATES
+    assert FunSettingsStore(ConfigFile(tmp_path / "config" / "fun_settings.json")).fates == FATES
     path = tmp_path / 'config' / 'fun_settings.json'
     path.parent.mkdir()
-    path.write_text(json.dumps({'version': 1, 'fates': ['local forecast']}))
-    assert FunSettingsStore(path).fates == ('local forecast',)
+    write_section(path, "fun", {'version': 1, 'fates': ['local forecast']})
+    assert FunSettingsStore(ConfigFile(path)).fates == ('local forecast',)
     path.write_text('{broken')
-    assert FunSettingsStore(tmp_path / "config" / "fun_settings.json").fates == FATES
+    assert FunSettingsStore(ConfigFile(tmp_path / "config" / "fun_settings.json")).fates == FATES

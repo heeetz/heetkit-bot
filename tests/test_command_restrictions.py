@@ -29,6 +29,7 @@ from app.utils.cooldown import CooldownManager
 from app.utils.logging import OperatorActivityHandler, RecentLogBuffer
 from app.utils.output_limiter import OutputLimiter
 from app.webview_host import WebUIBridge
+from app.config_file import ConfigFile
 
 NOW = datetime(2026, 10, 29, tzinfo=timezone.utc)
 NOTE = "PRIVATE NOTE SENTINEL"
@@ -123,10 +124,10 @@ def core(tmp_path):
     registry = CommandRegistry()
     register_ai_commands(registry)
     register_info_commands(registry)
-    state = RuntimeState(command_settings_path=tmp_path / "commands.json")
+    state = RuntimeState(ConfigFile(tmp_path / "commands.json"))
     state.configure_commands(registry.definitions())
     state.apply_command_settings("ask", primary_name="question", aliases=["q"])
-    custom = CustomCommandStore(tmp_path / "custom.json", state.reserved_command_names(),
+    custom = CustomCommandStore(ConfigFile(tmp_path / "custom.json"), state.reserved_command_names(),
                                 namespace_lock=state.command_namespace_lock)
     state.bind_custom_commands(custom)
     rules = CommandRestrictionStore(tmp_path / "policy.json")
@@ -219,7 +220,7 @@ async def test_custom_stable_id_survives_rename_aliases_and_restart(core):
 async def test_all_rule_covers_reactions_and_future_commands_without_suppressing_ordinary_chat(core, tmp_path):
     rules, services, dispatcher, _, _, _, _ = core
     save(rules, command_ids=[])
-    triggers = MessageTriggerStore(tmp_path / "triggers.json")
+    triggers = MessageTriggerStore(ConfigFile(tmp_path / "triggers.json"))
     triggers.save([{"id": "reaction", "enabled": True, "match_mode": "exact", "text": "hi",
         "case_sensitive": False, "probability": 1, "cooldown_seconds": 30, "responses": ["hello"]}])
     dispatcher._message_triggers = triggers
@@ -238,7 +239,7 @@ async def test_captured_command_and_reaction_guards_survive_a_stale_early_lookup
     save(rules, command_ids=[])
     # A native edit may race the first lookup; actual captured identities are gated too.
     monkeypatch.setattr(dispatcher, "is_command_restricted", lambda *_: False)
-    reaction = MessageTriggerStore(tmp_path / "triggers.json")
+    reaction = MessageTriggerStore(ConfigFile(tmp_path / "triggers.json"))
     reaction.save([{"id": "reaction", "enabled": True, "match_mode": "exact", "text": "hi",
         "case_sensitive": False, "probability": 1, "cooldown_seconds": 30, "responses": ["hello"]}])
     dispatcher._message_triggers = reaction

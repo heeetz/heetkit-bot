@@ -415,7 +415,7 @@ remove a reaction after confirmation.
 HeetKit checks rules from top to bottom and sends at most one reaction per
 message. Reactions skip command-prefixed messages and the bot’s own output.
 
-Rules are stored in `config/message_triggers.json` in the active
+Rules are stored in the `triggers` section of `config/config.json` in the active
 [profile](data-and-privacy.md#profiles). If the file is invalid, check **Logs** and
 see [backups and recovery](data-and-privacy.md#backups-and-settings-recovery).
 

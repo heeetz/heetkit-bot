@@ -24,6 +24,7 @@ from app.twitch.message_correlation import ChatMessageCorrelation
 from app.utils.cooldown import CooldownManager
 from app.utils.logging import OperatorActivityHandler, RecentLogBuffer
 from app.utils.output_limiter import OutputLimiter
+from app.config_file import ConfigFile
 
 
 async def turns():
@@ -89,9 +90,9 @@ class Sandbox:
         self.services = NS(settings=settings, twitch=self.twitch, users=self.users,
                            filter_manager=FilterManager(), runtime_state=self.state)
         registry = CommandRegistry()
-        register_fun_commands(registry, FunSettingsStore(path / 'fun.json'))
+        register_fun_commands(registry, FunSettingsStore(ConfigFile(path / 'fun.json')))
         self.state.configure_commands(registry.definitions())
-        self.custom = CustomCommandStore(path / 'custom.json', {d.name for d in registry.definitions()})
+        self.custom = CustomCommandStore(ConfigFile(path / 'custom.json'), {d.name for d in registry.definitions()})
         for name, mode in [('single', 'single'), ('tg', 'burst'), ('yt', 'burst')]:
             raw = dict(name=name, enabled=True, responses=['Synthetic reply'], permission='MODERATOR',
                        aliases=[], per_user_seconds=0, global_seconds=0, response_mode=mode)

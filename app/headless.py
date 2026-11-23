@@ -24,6 +24,7 @@ from app.desktop_instance import DesktopAlreadyRunningError, desktop_instance_gu
 from app.headless_health import HealthFile
 from app.operation_policy import OperationPolicy
 from app.runtime_paths import DATA_DIR_ENV, RuntimePaths, prepare_runtime_data
+from app.config_file import ConfigFile
 from app.utils.logging import OperatorActivityHandler, RecentLogBuffer, PrivacyLogFilter, socket_diagnostic_context
 
 
@@ -133,7 +134,7 @@ async def run_headless(
     ready = asyncio.Event()
     management = None
     recent_handler = None
-    store = AppSettingsStore(RuntimePaths.default().app_settings)
+    store = AppSettingsStore(ConfigFile(RuntimePaths.default().config_file))
     policy = OperationPolicy(runtime, store)
 
     async def serve() -> None:
@@ -332,7 +333,7 @@ def main(argv: list[str] | None = None) -> int:
             previous_signals[signum] = signal.signal(signum, lambda *_: loop.call_soon_threadsafe(stop.set))
         paths = RuntimePaths.default()
         # Use the identical desktop identity before migrations or stores load.
-        guards.enter_context(desktop_instance_guard(paths.app_settings))
+        guards.enter_context(desktop_instance_guard(paths.instance_guard))
         # Headless credentials use private environment/file inputs: never discover
         # or prompt an OS keyring, and never accept secrets on the command line.
         settings = Settings(twitch_token_file=str(paths.tokens), database_url="sqlite+aiosqlite:///" + str(paths.database), **secret_file_settings())
@@ -343,7 +344,7 @@ def main(argv: list[str] | None = None) -> int:
         from pydantic import SecretStr
         for name, value in credentials.settings_overrides().items():
             setattr(settings, name, SecretStr(value) if value else None)
-        profile = AppSettingsStore(paths.app_settings).snapshot()
+        profile = AppSettingsStore(ConfigFile(paths.config_file)).snapshot()
         settings = apply_ai_app_settings(apply_twitch_app_settings(settings, profile), profile)
         # Management must remain usable with Twitch stopped/unconfigured. Without
         # it, retain fail-fast diagnostics for the backwards-compatible default.

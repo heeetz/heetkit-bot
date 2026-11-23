@@ -10,6 +10,7 @@ from app.commands.registry import CommandRegistry
 from app.utils.cooldown import CooldownPolicy
 from app.twitch.permissions import Permission
 from app.runtime_paths import RuntimePaths
+from app.config_file import ConfigFile
 from app.fun_settings import FATES, FunSettingsStore
 
 
@@ -19,7 +20,7 @@ def random_fate(fates: tuple[str, ...] = FATES) -> str:
 
 
 def register_fun_commands(registry: CommandRegistry, fun_settings: FunSettingsStore | None = None) -> None:
-    fun_settings = fun_settings or FunSettingsStore(RuntimePaths.default().config / "fun_settings.json")
+    fun_settings = fun_settings or FunSettingsStore(ConfigFile(RuntimePaths.default().config_file))
     @registry.command(
         "ping",
         description="Check that HeetKit responds.",

@@ -21,6 +21,7 @@ from app.services.ai_service import SharedAIService
 from app.services.ai_playground import AIPlayground
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.webview_host import WebUIBridge
+from app.config_file import ConfigFile
 
 
 class ForbiddenService:
@@ -45,10 +46,7 @@ def playground(tmp_path, monkeypatch):
 
     monkeypatch.setattr(genai, "Client", lambda **kwargs: Client())
     settings = Settings(_env_file=None, gemini_api_key="synthetic-playground-key")
-    state = RuntimeState(
-        personality_settings_path=tmp_path / "personalities.json",
-        command_settings_path=tmp_path / "commands.json",
-    )
+    state = RuntimeState(ConfigFile(tmp_path / "personalities.json"))
     filters = FilterManager()
     ai = SharedAIService(settings, runtime_state=state, filter_manager=filters)
     services = SimpleNamespace(

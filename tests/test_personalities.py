@@ -14,6 +14,8 @@ from app.runtime_state import RuntimeState
 from app.config.settings import Settings
 from app.services.ai_service import SharedAIService
 from app.config.personalities import ACTIVE_AI_PERSONALITY, build_ai_system_instruction
+from app.config_file import ConfigFile
+from config_helpers import read_section, write_section
 
 
 def test_only_neutral_personality_is_shipped() -> None:
@@ -71,17 +73,17 @@ def test_custom_prompt_is_combined_with_protected_shared_instructions() -> None:
 
 def test_personality_override_and_active_selection_survive_restart(tmp_path) -> None:
     settings_path = tmp_path / "personality_settings.json"
-    runtime_state = RuntimeState(personality_settings_path=settings_path)
+    runtime_state = RuntimeState(ConfigFile(settings_path))
 
     runtime_state.save_ai_personality("neutral", "\nCustom neutral prompt.")
 
-    payload = json.loads(settings_path.read_text(encoding="utf-8"))
+    payload = read_section(settings_path, "personalities")
     assert payload == {
         "active_personality": "neutral",
         "overrides": {"neutral": "\nCustom neutral prompt."},
         "profile_instructions": "",
     }
-    restored = RuntimeState(personality_settings_path=settings_path)
+    restored = RuntimeState(ConfigFile(settings_path))
     assert restored.active_ai_personality == "neutral"
     assert restored.get_ai_personality_prompt("neutral") == "\nCustom neutral prompt."
     assert restored.personality_prompt_is_saved("neutral") is True
@@ -90,7 +92,7 @@ def test_personality_override_and_active_selection_survive_restart(tmp_path) -> 
 
 def test_apply_is_runtime_only_and_reset_restores_built_in(tmp_path) -> None:
     settings_path = tmp_path / "personality_settings.json"
-    runtime_state = RuntimeState(personality_settings_path=settings_path)
+    runtime_state = RuntimeState(ConfigFile(settings_path))
 
     runtime_state.apply_ai_personality("neutral", "temporary")
     assert runtime_state.active_ai_personality == "neutral"
@@ -103,7 +105,7 @@ def test_apply_is_runtime_only_and_reset_restores_built_in(tmp_path) -> None:
         "neutral"
     ]
     assert runtime_state.has_saved_personality_override("neutral") is False
-    assert json.loads(settings_path.read_text(encoding="utf-8"))["overrides"] == {}
+    assert read_section(settings_path, "personalities")["overrides"] == {}
 
 
 def test_malformed_and_stale_personality_settings_fall_back_safely(
@@ -111,22 +113,17 @@ def test_malformed_and_stale_personality_settings_fall_back_safely(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     settings_path = tmp_path / "personality_settings.json"
-    settings_path.write_text(
-        json.dumps(
-            {
+    write_section(settings_path, "personalities", {
                 "active_personality": "absent",
                 "overrides": {
                     "": "invalid name",
                     "neutral": 42,
                     "custom": "valid override",
                 },
-            }
-        ),
-        encoding="utf-8",
-    )
+            })
 
     with caplog.at_level(logging.WARNING):
-        runtime_state = RuntimeState(personality_settings_path=settings_path)
+        runtime_state = RuntimeState(ConfigFile(settings_path))
 
     assert runtime_state.active_ai_personality == ACTIVE_AI_PERSONALITY
     assert runtime_state.get_ai_personality_prompt("custom") == "valid override"
@@ -146,15 +143,13 @@ def test_malformed_personality_file_does_not_block_startup(
     settings_path = tmp_path / "personality_settings.json"
     settings_path.write_text(file_content, encoding="utf-8")
 
-    runtime_state = RuntimeState(personality_settings_path=settings_path)
+    runtime_state = RuntimeState(ConfigFile(settings_path))
 
     assert runtime_state.active_ai_personality == ACTIVE_AI_PERSONALITY
 
 
 def test_failed_personality_save_does_not_change_runtime(tmp_path, monkeypatch) -> None:
-    runtime_state = RuntimeState(
-        personality_settings_path=tmp_path / "personality_settings.json"
-    )
+    runtime_state = RuntimeState(ConfigFile(tmp_path / "personality_settings.json"))
     original_prompt = runtime_state.get_ai_personality_prompt("neutral")
 
     def fail_save(*args, **kwargs) -> None:
@@ -182,12 +177,12 @@ def test_gemini_service_uses_effective_runtime_personality_prompt() -> None:
 
 def test_profile_instructions_default_empty_in_clean_and_legacy_profiles(tmp_path) -> None:
     path = tmp_path / "personality_settings.json"
-    clean = RuntimeState(personality_settings_path=path)
+    clean = RuntimeState(ConfigFile(path))
     assert clean.profile_instructions == ""
     assert clean.profile_instructions_are_saved
     assert clean.available_personalities == ("neutral",)
-    path.write_text(json.dumps({"active_personality": "local", "overrides": {"local": "Local style"}}))
-    legacy = RuntimeState(personality_settings_path=path)
+    write_section(path, "personalities", {"active_personality": "local", "overrides": {"local": "Local style"}})
+    legacy = RuntimeState(ConfigFile(path))
     assert legacy.profile_instructions == ""
     assert legacy.active_ai_personality == "local"
     assert legacy.get_ai_personality_prompt("local") == "Local style"
@@ -195,7 +190,7 @@ def test_profile_instructions_default_empty_in_clean_and_legacy_profiles(tmp_pat
 
 def test_profile_apply_save_reset_preserve_personalities_and_selection(tmp_path) -> None:
     path = tmp_path / "personality_settings.json"
-    state = RuntimeState(personality_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     state.create_ai_personality("first", "First style")
     state.create_ai_personality("second", "Second style")
     state.save_active_ai_personality("second")
@@ -204,15 +199,15 @@ def test_profile_apply_save_reset_preserve_personalities_and_selection(tmp_path)
     state.apply_profile_instructions("Session instructions")
     assert path.read_bytes() == original
     assert not state.profile_instructions_are_saved
-    assert RuntimeState(personality_settings_path=path).profile_instructions == ""
+    assert RuntimeState(ConfigFile(path)).profile_instructions == ""
 
     state.save_profile_instructions("Shared local instructions {literal braces}\nSecond line")
-    payload = json.loads(path.read_text())
+    payload = read_section(path, "personalities")
     assert payload["active_personality"] == "second"
     assert payload["overrides"] == {"first": "First style", "second": "Second style"}
     assert state.active_ai_personality == "first"
     assert state.get_ai_personality_prompt("first") == "Session style"
-    restored = RuntimeState(personality_settings_path=path)
+    restored = RuntimeState(ConfigFile(path))
     assert restored.profile_instructions == payload["profile_instructions"]
     assert restored.profile_instructions_are_saved
     assert restored.active_ai_personality == "second"
@@ -222,7 +217,7 @@ def test_profile_apply_save_reset_preserve_personalities_and_selection(tmp_path)
     assert state.profile_instructions_are_saved
     assert state.active_ai_personality == "first"
     assert state.get_ai_personality_prompt("first") == "Session style"
-    reset = json.loads(path.read_text())
+    reset = read_section(path, "personalities")
     assert reset["active_personality"] == payload["active_personality"]
     assert reset["overrides"] == payload["overrides"]
     assert reset["profile_instructions"] == ""
@@ -230,7 +225,7 @@ def test_profile_apply_save_reset_preserve_personalities_and_selection(tmp_path)
 
 def test_personality_actions_preserve_saved_and_applied_profile_instructions(tmp_path) -> None:
     path = tmp_path / "personality_settings.json"
-    state = RuntimeState(personality_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     state.save_profile_instructions("Saved instructions")
     state.apply_profile_instructions("Session instructions")
     for action in (state.save_ai_personality, state.reset_ai_personality):
@@ -238,7 +233,7 @@ def test_personality_actions_preserve_saved_and_applied_profile_instructions(tmp
             action("neutral", "Edited style")
         else:
             action("neutral")
-        assert json.loads(path.read_text())["profile_instructions"] == "Saved instructions"
+        assert read_section(path, "personalities")["profile_instructions"] == "Saved instructions"
         assert state.profile_instructions == "Session instructions"
         assert not state.profile_instructions_are_saved
 
@@ -246,13 +241,13 @@ def test_personality_actions_preserve_saved_and_applied_profile_instructions(tmp
 def test_profile_save_and_reset_retain_explicit_default_personality_override(tmp_path) -> None:
     path = tmp_path / "personality_settings.json"
     overrides = {"neutral": AI_PERSONALITY_PROMPTS["neutral"], "local": "Local style"}
-    path.write_text(json.dumps({"active_personality": "local", "overrides": overrides}))
-    state = RuntimeState(personality_settings_path=path)
+    write_section(path, "personalities", {"active_personality": "local", "overrides": overrides})
+    state = RuntimeState(ConfigFile(path))
     state.save_profile_instructions("Shared local context")
-    assert json.loads(path.read_text())["overrides"] == overrides
+    assert read_section(path, "personalities")["overrides"] == overrides
     state.reset_profile_instructions()
-    assert json.loads(path.read_text())["overrides"] == overrides
-    assert json.loads(path.read_text())["active_personality"] == "local"
+    assert read_section(path, "personalities")["overrides"] == overrides
+    assert read_section(path, "personalities")["active_personality"] == "local"
 
 
 @pytest.mark.parametrize(
@@ -261,8 +256,8 @@ def test_profile_save_and_reset_retain_explicit_default_personality_override(tmp
 )
 def test_invalid_profile_instructions_do_not_change_state_or_leak_into_logs(tmp_path, caplog, invalid) -> None:
     path = tmp_path / "personality_settings.json"
-    path.write_text(json.dumps({"profile_instructions": invalid, "overrides": {"local": "Kept style"}}))
-    state = RuntimeState(personality_settings_path=path)
+    write_section(path, "personalities", {"profile_instructions": invalid, "overrides": {"local": "Kept style"}})
+    state = RuntimeState(ConfigFile(path))
     assert state.profile_instructions == ""
     assert state.get_ai_personality_prompt("local") == "Kept style"
     assert "Ignoring invalid AI profile instructions" in caplog.text
@@ -312,17 +307,17 @@ def test_profile_instructions_work_with_a_cleared_local_personality() -> None:
 
 def test_create_custom_personality_is_profile_owned_and_does_not_activate(tmp_path) -> None:
     path = tmp_path / "personality_settings.json"
-    state = RuntimeState(personality_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     shipped = files('app.resources').joinpath(BUILTIN_PERSONALITIES_RESOURCE).read_bytes()
     prompt = "  Exact prompt {braces}\n\tUnicode: café 🌙  "
     assert state.create_ai_personality("  My style  ", prompt) == "My style"
     assert state.available_personalities == ("neutral", "My style")
     assert state.active_ai_personality == "neutral"
-    restored = RuntimeState(personality_settings_path=path)
+    restored = RuntimeState(ConfigFile(path))
     assert restored.get_ai_personality_prompt("My style") == prompt
     assert restored.active_ai_personality == "neutral"
     assert files('app.resources').joinpath(BUILTIN_PERSONALITIES_RESOURCE).read_bytes() == shipped
-    clean = RuntimeState(personality_settings_path=tmp_path / "clean" / "personality_settings.json")
+    clean = RuntimeState(ConfigFile(tmp_path / "clean" / "personality_settings.json"))
     assert clean.available_personalities == ("neutral",)
     assert clean.active_ai_personality == "neutral"
     assert clean.profile_instructions == ""
@@ -332,7 +327,7 @@ def test_create_custom_personality_is_profile_owned_and_does_not_activate(tmp_pa
                          ids=["null", "number", "empty", "whitespace", "too-long"])
 def test_create_rejects_invalid_names_without_changing_profile(tmp_path, name) -> None:
     path = tmp_path / "personality_settings.json"
-    state = RuntimeState(personality_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     with pytest.raises(ValueError) as error:
         state.create_ai_personality(name, "prompt")
     assert error.value.code == ("validation.type" if not isinstance(name, str) else
@@ -344,7 +339,7 @@ def test_create_rejects_invalid_names_without_changing_profile(tmp_path, name) -
 @pytest.mark.parametrize("name", ["local", " local ", "LOCAL", "neutral", " Neutral "])
 def test_create_rejects_duplicate_and_builtin_names(tmp_path, name) -> None:
     path = tmp_path / "personality_settings.json"
-    state = RuntimeState(personality_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     state.create_ai_personality("local", "Keep this")
     original = path.read_bytes()
     with pytest.raises(ValueError) as error:
@@ -357,7 +352,7 @@ def test_create_rejects_duplicate_and_builtin_names(tmp_path, name) -> None:
 @pytest.mark.parametrize("active", [False, True])
 def test_rename_preserves_exact_prompt_selection_and_removes_old_name(tmp_path, active) -> None:
     path = tmp_path / "personality_settings.json"
-    state = RuntimeState(personality_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     prompt = " \nExact {prompt}\n\t "
     state.create_ai_personality("local", prompt)
     if active:
@@ -366,17 +361,17 @@ def test_rename_preserves_exact_prompt_selection_and_removes_old_name(tmp_path, 
     assert "local" not in state.available_personalities
     assert state.get_ai_personality_prompt("Renamed") == prompt
     assert state.active_ai_personality == ("Renamed" if active else "neutral")
-    restored = RuntimeState(personality_settings_path=path)
+    restored = RuntimeState(ConfigFile(path))
     assert restored.available_personalities == ("neutral", "Renamed")
     assert restored.active_ai_personality == state.active_ai_personality
     assert restored.get_ai_personality_prompt("Renamed") == prompt
-    assert set(json.loads(path.read_text())["overrides"]) == {"Renamed"}
+    assert set(read_section(path, "personalities")["overrides"]) == {"Renamed"}
 
 
 @pytest.mark.parametrize("name", ["other", " OTHER ", "neutral", " NEUTRAL ", "local"])
 def test_rename_rejects_collisions_without_changes(tmp_path, name) -> None:
     path = tmp_path / "personality_settings.json"
-    state = RuntimeState(personality_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     state.create_ai_personality("local", "Original")
     state.create_ai_personality("other", "Other")
     state.save_active_ai_personality("local")
@@ -392,7 +387,7 @@ def test_rename_rejects_collisions_without_changes(tmp_path, name) -> None:
 @pytest.mark.parametrize("active", [False, True])
 def test_delete_preserves_other_personalities_and_falls_back_if_active(tmp_path, active) -> None:
     path = tmp_path / "personality_settings.json"
-    state = RuntimeState(personality_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     state.create_ai_personality("local", "Remove")
     state.create_ai_personality("other", "Keep")
     state.save_ai_personality("neutral", "Built-in override")
@@ -400,16 +395,16 @@ def test_delete_preserves_other_personalities_and_falls_back_if_active(tmp_path,
     state.delete_ai_personality("local")
     assert "local" not in state.available_personalities
     assert state.active_ai_personality == ("neutral" if active else "other")
-    restored = RuntimeState(personality_settings_path=path)
+    restored = RuntimeState(ConfigFile(path))
     assert restored.active_ai_personality == state.active_ai_personality
     assert restored.get_ai_personality_prompt("other") == "Keep"
     assert restored.get_ai_personality_prompt("neutral") == "Built-in override"
-    assert set(json.loads(path.read_text())["overrides"]) == {"neutral", "other"}
+    assert set(read_section(path, "personalities")["overrides"]) == {"neutral", "other"}
 
 
 def test_builtin_cannot_be_renamed_or_deleted_even_when_overridden(tmp_path) -> None:
     path = tmp_path / "personality_settings.json"
-    state = RuntimeState(personality_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     state.save_ai_personality("neutral", "Override")
     original = path.read_bytes()
     for action in (lambda: state.rename_ai_personality("neutral", "new"),
@@ -423,7 +418,7 @@ def test_builtin_cannot_be_renamed_or_deleted_even_when_overridden(tmp_path) -> 
 
 def test_save_reset_and_activation_are_independent(tmp_path) -> None:
     path = tmp_path / "personality_settings.json"
-    state = RuntimeState(personality_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     state.create_ai_personality("first", "First")
     state.create_ai_personality("second", "Second")
     state.save_active_ai_personality("first")
@@ -432,10 +427,10 @@ def test_save_reset_and_activation_are_independent(tmp_path) -> None:
     state.save_ai_personality("neutral", "Override")
     state.reset_ai_personality("neutral")
     assert state.active_ai_personality == "second"
-    assert RuntimeState(personality_settings_path=path).active_ai_personality == "first"
+    assert RuntimeState(ConfigFile(path)).active_ai_personality == "first"
     state.apply_ai_personality("second", "Session prompt")
     state.save_active_ai_personality("second")
-    restored = RuntimeState(personality_settings_path=path)
+    restored = RuntimeState(ConfigFile(path))
     assert restored.active_ai_personality == "second"
     assert restored.get_ai_personality_prompt("second") == "Second"
     assert state.get_ai_personality_prompt("second") == "Session prompt"
@@ -445,7 +440,7 @@ def test_profile_instructions_and_other_state_survive_all_crud_operations(tmp_pa
     path = tmp_path / "personality_settings.json"
     other_file = tmp_path / "app_settings.json"
     other_file.write_bytes(b'{"ai":{"selected_model":"synthetic-model"}}')
-    state = RuntimeState(personality_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     state.save_profile_instructions("Saved profile instructions")
     state.apply_profile_instructions("Session profile instructions")
     state.create_ai_personality("other", "Kept prompt")
@@ -462,7 +457,7 @@ def test_profile_instructions_and_other_state_survive_all_crud_operations(tmp_pa
         action()
         assert state.profile_instructions == "Session profile instructions"
         assert not state.profile_instructions_are_saved
-        assert json.loads(path.read_text())["profile_instructions"] == "Saved profile instructions"
+        assert read_section(path, "personalities")["profile_instructions"] == "Saved profile instructions"
         assert state.get_ai_personality_prompt("other") == "Kept prompt"
         assert other_file.read_bytes() == b'{"ai":{"selected_model":"synthetic-model"}}'
 
@@ -470,14 +465,14 @@ def test_profile_instructions_and_other_state_survive_all_crud_operations(tmp_pa
 @pytest.mark.parametrize("action", ["create", "rename", "delete", "activate"])
 def test_collection_operations_fail_atomically_on_replace_error(tmp_path, monkeypatch, action) -> None:
     path = tmp_path / "personality_settings.json"
-    state = RuntimeState(personality_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     state.create_ai_personality("local", "Exact\n prompt ")
     state.save_active_ai_personality("local")
     before = state.get_personality_settings_snapshot()
     original = path.read_bytes()
     def fail_replace(*args):
         raise OSError("expected replace failure")
-    monkeypatch.setattr("app.personality_settings.os.replace", fail_replace)
+    monkeypatch.setattr("app.config_file.os.replace", fail_replace)
     operations = {
         "create": lambda: state.create_ai_personality("new", "New"),
         "rename": lambda: state.rename_ai_personality("local", "renamed"),
@@ -494,7 +489,7 @@ def test_collection_operations_fail_atomically_on_replace_error(tmp_path, monkey
 @pytest.mark.parametrize("action", ["create", "rename", "delete", "activate"])
 def test_collection_operations_preserve_malformed_files(tmp_path, action) -> None:
     path = tmp_path / "personality_settings.json"
-    state = RuntimeState(personality_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     state.create_ai_personality("local", "Original")
     before = state.get_personality_settings_snapshot()
     path.write_bytes(b"{broken")
@@ -513,11 +508,11 @@ def test_collection_operations_preserve_malformed_files(tmp_path, action) -> Non
 
 def test_rename_preserves_runtime_prompt_and_persists_runtime_active_reference(tmp_path) -> None:
     path = tmp_path / "personality_settings.json"
-    state = RuntimeState(personality_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     state.create_ai_personality("local", "Saved")
     state.apply_ai_personality("local", "Exact session\n style ")
     state.rename_ai_personality("local", "renamed")
-    restored = RuntimeState(personality_settings_path=path)
+    restored = RuntimeState(ConfigFile(path))
     assert restored.active_ai_personality == "renamed"
     assert restored.get_ai_personality_prompt("renamed") == "Exact session\n style "
 
@@ -526,7 +521,7 @@ def test_rename_preserves_runtime_prompt_and_persists_runtime_active_reference(t
                          ids=["null", "empty", "whitespace", "too-long"])
 def test_rename_validates_names_in_backend(tmp_path, name) -> None:
     path = tmp_path / "personality_settings.json"
-    state = RuntimeState(personality_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     state.create_ai_personality("local", "Keep")
     original = path.read_bytes()
     with pytest.raises(ValueError) as error:
@@ -539,25 +534,25 @@ def test_rename_validates_names_in_backend(tmp_path, name) -> None:
 @pytest.mark.parametrize("prompt", [None, 7, "x" * 50001], ids=["null", "number", "too-long"])
 def test_create_validates_prompt_and_accepts_existing_name_limit(tmp_path, prompt) -> None:
     path = tmp_path / "personality_settings.json"
-    state = RuntimeState(personality_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     with pytest.raises(ValueError) as error:
         state.create_ai_personality("x" * 64, prompt)
     assert error.value.code == ("validation.too_long" if isinstance(prompt, str) else "validation.type")
     assert not path.exists()
     state.create_ai_personality("x" * 64, "")
-    assert RuntimeState(personality_settings_path=path).get_ai_personality_prompt("x" * 64) == ""
+    assert RuntimeState(ConfigFile(path)).get_ai_personality_prompt("x" * 64) == ""
 
 
 @pytest.mark.parametrize("action", ["create", "rename", "delete", "activate"])
 def test_collection_operations_keep_exact_recovery_of_future_fields(tmp_path, action) -> None:
     path = tmp_path / "personality_settings.json"
-    state = RuntimeState(personality_settings_path=path)
+    state = RuntimeState(ConfigFile(path))
     state.create_ai_personality("local", "Kept")
-    payload = json.loads(path.read_text())
+    payload = read_section(path, "personalities")
     payload["version"] = 99
     payload["future"] = {"setting": "Synthetic future data"}
     payload["overrides"]["invalid"] = ["Skipped entry"]
-    original = json.dumps(payload, indent=4).encode()
+    original = json.dumps({"schema_version": 1, "personalities": payload}, indent=4).encode()
     path.write_bytes(original)
     operations = {
         "create": lambda: state.create_ai_personality("new", "New"),
@@ -571,7 +566,7 @@ def test_collection_operations_keep_exact_recovery_of_future_fields(tmp_path, ac
 
 @pytest.mark.parametrize("action", ["rename", "delete"])
 def test_ai_request_snapshot_survives_personality_mutation(tmp_path, monkeypatch, action) -> None:
-    state = RuntimeState(personality_settings_path=tmp_path / "personality_settings.json")
+    state = RuntimeState(ConfigFile(tmp_path / "personality_settings.json"))
     state.create_ai_personality("local", "Request style")
     state.save_active_ai_personality("local")
     snapshot = state.get_active_ai_instructions

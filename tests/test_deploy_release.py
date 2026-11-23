@@ -51,12 +51,15 @@ def test_loopback_management_http_emulates_trusted_https_proxy(monkeypatch):
                        trusted_origin="https://synthetic.ts.net") == (200, b"{}")
 
 
-def profile_archive(tmp_path, mode="manual", corrupt=False):
+def profile_archive(tmp_path, mode="manual", corrupt=False, legacy=False):
     profile = tmp_path / "synthetic-profile"
     (profile / "config").mkdir(parents=True)
     (profile / "data").mkdir()
     (profile / "auth").mkdir()
-    (profile / "config/app_settings.json").write_text(json.dumps({"startup": {"operation_mode": mode}}))
+    if legacy:  # A 1.6 profile, before settings moved into config.json.
+        (profile / "config/app_settings.json").write_text(json.dumps({"startup": {"operation_mode": mode}}))
+    else:
+        (profile / "config/config.json").write_text(json.dumps({"schema_version": 1, "app": {"startup": {"operation_mode": mode}}}))
     database = profile / "data/heetkit.db"
     with sqlite3.connect(database) as connection:
         connection.execute("CREATE TABLE synthetic (value TEXT)")
@@ -308,11 +311,12 @@ def test_candidate_branch_tip_must_match(host):
     assert "stop" not in host.events and "build" not in host.events
 
 
-@pytest.mark.parametrize("mode,connected", [("manual", False), ("manual", True), ("disabled", False),
-                                           ("always_on", True), ("stream_only", False)])
-def test_deploy_preserves_policy_and_one_service(host, mode, connected):
+@pytest.mark.parametrize("mode,connected,legacy", [("manual", False, False), ("manual", True, False),
+                                                  ("disabled", False, False), ("always_on", True, False),
+                                                  ("stream_only", False, True)])
+def test_deploy_preserves_policy_and_one_service(host, mode, connected, legacy):
     host.mode, host.connected = mode, connected
-    host.backup_bytes = profile_archive(host.root / "other", mode)
+    host.backup_bytes = profile_archive(host.root / "other", mode, legacy=legacy)
     result = host.execute()
     assert result["result"] == "deployed"
     assert result["sha"] == SHA and result["image"] == NEW_IMAGE and result["old_image"] == OLD_IMAGE

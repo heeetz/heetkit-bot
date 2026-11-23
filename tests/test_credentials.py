@@ -18,6 +18,7 @@ from app.credentials import (
     CredentialStore,
 )
 from app.webview_host import AsyncioBackendHost, WebUIBridge
+from app.config_file import ConfigFile
 
 
 pytestmark = pytest.mark.usefixtures("synthetic_default_profile")
@@ -185,7 +186,7 @@ def test_desktop_direct_key_rotation_removal_and_environment_fallback(tmp_path, 
     host = ImmediateBackend(FakeHTTPClient())
     host.application.settings = Settings(ai_provider=provider)
     bridge = WebUIBridge(cast(AsyncioBackendHost, host), credential_manager=manager,
-                         app_settings=AppSettingsStore(tmp_path / "app_settings.json"))
+                         app_settings=AppSettingsStore(ConfigFile(tmp_path / "app_settings.json")))
     for key in ("PRIVATE-FIRST", "PRIVATE-ROTATED"):
         assert bridge.replace_credential(credential, key) == {"ok": True}
         assert getattr(host.application.settings, credential).get_secret_value() == key

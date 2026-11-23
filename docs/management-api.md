@@ -442,8 +442,8 @@ allowlist and cannot run code. Filters retain their shared regex execution budge
 ## Operation modes
 
 The browser Dashboard selects a headless policy independently of the actual Twitch
-connection state. The policy is stored as `startup.operation_mode` in the existing
-profile `config/app_settings.json`; the profile volume must be retained across
+connection state. The policy is stored as `app.startup.operation_mode` in the
+profile `config/config.json`; the profile volume must be retained across
 container/host restarts. Desktop continues to use its own auto-start preference.
 Portable configuration import/export preserves the destination operation policy.
 

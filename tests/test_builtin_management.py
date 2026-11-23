@@ -1,6 +1,5 @@
 """Factory overrides retain handlers, enforce policy and coexist with custom data."""
 
-import json
 import logging
 from dataclasses import replace
 from types import SimpleNamespace
@@ -23,6 +22,9 @@ from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownManager, CooldownPolicy
 from app.utils.output_limiter import OutputLimiter
 from app.webview_host import WebUIBridge
+from app.config_file import ConfigFile
+from config_helpers import read_section
+from config_helpers import write_section
 
 
 def custom_payload(**changes):
@@ -45,15 +47,15 @@ def test_privacy_name_is_reserved_for_builtin_and_custom_edits(tmp_path, field):
 
 def setup_commands(root):
     registry = CommandRegistry()
-    fun = FunSettingsStore(root / "fun_settings.json")
+    fun = FunSettingsStore(ConfigFile(root / "fun_settings.json"))
     register_fun_commands(registry, fun)
     register_info_commands(registry)
     register_weather_commands(registry)
     register_ai_commands(registry)
-    state = RuntimeState(command_settings_path=root / "command_settings.json")
+    state = RuntimeState(ConfigFile(root / "command_settings.json"))
     state.configure_commands(registry.definitions())
     factory_names = {name for definition in registry.definitions() for name in (definition.name, *definition.aliases)}
-    custom = CustomCommandStore(root / "custom_commands.json", factory_names,
+    custom = CustomCommandStore(ConfigFile(root / "custom_commands.json"), factory_names,
                                 namespace_lock=state.command_namespace_lock)
     state.bind_custom_commands(custom)
     services = SimpleNamespace(runtime_state=state, ai_request_policy=AIRequestPolicy(),
@@ -284,7 +286,7 @@ def test_failed_primary_save_and_startup_conflict_preserve_file_and_other_settin
     _, state, custom, _, bridge, _, _ = setup_commands(tmp_path)
     custom.save(custom_payload(name="conditions"))
     path = tmp_path / "command_settings.json"
-    original = b'{"weather":{"primary_name":"conditions","aliases":["climate"],"permission":"VIP"}}'
+    original = b'{"schema_version":1,"commands":{"weather":{"primary_name":"conditions","aliases":["climate"],"permission":"VIP"}}}'
     path.write_bytes(original)
     restarted = setup_commands(tmp_path)[1]
     assert restarted.get_command_settings("weather").primary_name == "weather"
@@ -379,10 +381,10 @@ def test_complete_factory_reset_keeps_custom_and_unknown_response_data(tmp_path)
     assert all(state.get_command_settings(definition.name) == definition.default_settings
                for definition in registry.definitions())
     assert fun.fates == FATES
-    assert json.loads(fun.path.read_text())["future_response_section"] == {"retain": True}
+    assert read_section(fun.section.path, "fun")["future_response_section"] == {"retain": True}
     assert custom.list() == (command,)
     assert (tmp_path / "custom_commands.json").read_bytes() == custom_before
-    assert json.loads((tmp_path / "command_settings.json").read_text()) == {}
+    assert read_section(tmp_path / "command_settings.json", "commands") == {}
 
 
 def test_complete_restore_reports_partial_response_failure_without_false_success(tmp_path, monkeypatch):
@@ -430,11 +432,11 @@ def test_legacy_enable_preserves_settings_and_leaves_a_colliding_command_disable
     custom.save(custom_payload(name="occupied"))
     fun.save(["Saved community reply"], "fate")
     path = tmp_path / "command_settings.json"
-    path.write_text(json.dumps({"fate": {
+    write_section(path, "commands", {"fate": {
         "removed": True, "enabled": False, "primary_name": "community",
         "aliases": ["occupied"], "display_name": "Community link",
         "permission": "BROADCASTER",
-    }}))
+    }})
     _, state, custom, fun, bridge, _, _ = setup_commands(tmp_path)
     original = state.get_command_settings("fate")
     before = path.read_bytes()
@@ -462,7 +464,7 @@ def test_startup_conflict_keeps_existing_custom_command_and_recovers_original_ov
     _, _, custom, _, _, _, _ = setup_commands(tmp_path)
     command = custom.save(custom_payload(aliases=["hello"]))
     path = tmp_path / "command_settings.json"
-    original = b'{"ping":{"aliases":["hello"],"display_name":"Keep this label"},"future":{"data":true}}'
+    original = b'{"schema_version":1,"commands":{"ping":{"aliases":["hello"],"display_name":"Keep this label"},"future":{"data":true}}}'
     path.write_bytes(original)
     _, state, restarted_custom, _, bridge, _, _ = setup_commands(tmp_path)
     assert restarted_custom.list() == (command,)
@@ -479,7 +481,7 @@ def test_privileged_permissions_rejected_at_editor_and_clamped_on_restart(tmp_pa
     registry, state, _, _, bridge, _, _ = setup_commands(tmp_path)
     assert bridge.save_command_settings(name, True, 0, 0, permission)["ok"] is False
     path = tmp_path / "command_settings.json"
-    path.write_text(json.dumps({name: {"permission": permission}}))
+    write_section(path, "commands", {name: {"permission": permission}})
     restarted = setup_commands(tmp_path)
     assert restarted[1].get_command_settings(name).permission == registry.get(name).minimum_permission
     assert state.get_command_settings(name).permission >= registry.get(name).minimum_permission
@@ -561,7 +563,7 @@ def test_old_builtin_settings_and_version_two_bursts_default_to_zero_without_rew
     _, _, custom, _, _, _, _ = setup_commands(tmp_path)
     custom.save(custom_payload(response_mode="burst", permission="MODERATOR", burst_count=4))
     path = tmp_path / "command_settings.json"
-    original = b'{"weather":{"enabled":false,"cooldown":{"global_seconds":8},"permission":"VIP"}}'
+    original = b'{"schema_version":1,"commands":{"weather":{"enabled":false,"cooldown":{"global_seconds":8},"permission":"VIP"}}}'
     path.write_bytes(original)
     custom_before = (tmp_path / "custom_commands.json").read_bytes()
     _, state, commands, _, _, _, _ = setup_commands(tmp_path)
