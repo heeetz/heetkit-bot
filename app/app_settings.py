@@ -13,7 +13,7 @@ from typing import Annotated, Literal
 from pydantic import BeforeValidator, Field, StrictBool, StrictInt, StrictStr, StringConstraints, model_validator
 from app.settings_models import (SettingsModel, InterfaceLanguage, OperationMode,
     field_value, parse)
-from app.config.ai_models import validate_ai_provider, validate_provider_models
+from app.config.ai_models import validate_ai_provider, validate_custom_base_url, validate_provider_models
 from app.config_file import ConfigFile, ConfigSection
 from app.config.ai import AI_MEMORY_ENABLED
 from app.config.privacy import AI_HISTORY_MAX_ENTRIES, AI_CONTEXT_MAX_ENTRIES
@@ -43,18 +43,33 @@ class StartupSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class AIModelPair:
+    selected_model: str
+    fallback_model: str
+
+
+@dataclass(frozen=True, slots=True)
+class CustomAIConnection:
+    """Machine-local: never exported; its key stays in the secure store."""
+    base_url: str
+
+
+BUILTIN_AI_PROVIDERS = ("gemini", "deepseek", "openai")
+# 1.4b and earlier stored per-provider models as flat fields in the ai section.
+LEGACY_AI_MODEL_FIELDS = {"gemini": ("selected_model", "fallback_model"),
+                          "deepseek": ("deepseek_selected_model", "deepseek_fallback_model"),
+                          "openai": ("openai_selected_model", "openai_fallback_model")}
+
+
+@dataclass(frozen=True, slots=True)
 class AISettings:
     memory_enabled: bool = AI_MEMORY_ENABLED
     history_max_entries: int = AI_HISTORY_MAX_ENTRIES
     context_max_entries: int = AI_CONTEXT_MAX_ENTRIES
-    selected_model: str | None = None
-    fallback_model: str | None = None
     # None preserves intentional process defaults; old profiles still default to Gemini.
     provider: str | None = None
-    deepseek_selected_model: str | None = None
-    deepseek_fallback_model: str | None = None
-    openai_selected_model: str | None = None
-    openai_fallback_model: str | None = None
+    # Saved model pairs by built-in provider id, plus the "custom" connection.
+    providers: dict[str, AIModelPair | CustomAIConnection] = field(default_factory=dict)
     # Optional per-account policy; internal AI/output bounds remain code-owned.
     cooldown_bypass_user_id: str | None = None
     response_language: ResponseLanguageSettings = field(default_factory=ResponseLanguageSettings)
@@ -134,13 +149,8 @@ def _memory_limits(stored, context):
 
 
 class AISettingsModel(AIMemoryLimitsModel, AIFlagsModel):
-    selected_model: StrictStr | None = None
-    fallback_model: StrictStr | None = None
-    provider: Literal["gemini", "deepseek", "openai"] | None = None
-    deepseek_selected_model: StrictStr | None = None
-    deepseek_fallback_model: StrictStr | None = None
-    openai_selected_model: StrictStr | None = None
-    openai_fallback_model: StrictStr | None = None
+    provider: Literal["gemini", "deepseek", "openai", "custom"] | None = None
+    providers: dict[str, AIModelPair | CustomAIConnection] = {}
     cooldown_bypass_user_id: StrictStr | None = None
     response_language: ResponseLanguageSettings
     setup: AISetup | None = None
@@ -281,16 +291,32 @@ def _read_twitch_presets(section: dict[str, object]) -> tuple[TwitchConnectionPr
     return tuple(presets)
 
 
-def _read_models(section, provider):
-    prefix = "" if provider == "gemini" else provider + "_"
-    values = tuple(_read_optional_string(section, "ai", prefix + key) if provider == "gemini"
-                   else section.get(prefix + key) for key in ("selected_model", "fallback_model"))
-    if any(value is not None for value in values):
+def _read_providers(ai_payload: dict[str, object]) -> dict[str, AIModelPair | CustomAIConnection]:
+    stored = ai_payload.get("providers")
+    if stored is None:
+        stored = {provider: {"selected_model": ai_payload.get(selected), "fallback_model": ai_payload.get(fallback)}
+                  for provider, (selected, fallback) in LEGACY_AI_MODEL_FIELDS.items()}
+    elif not isinstance(stored, dict):
+        logger.warning("Ignoring malformed application setting name=ai.providers")
+        stored = {}
+    providers: dict[str, AIModelPair | CustomAIConnection] = {}
+    for provider in BUILTIN_AI_PROVIDERS:
+        entry = stored.get(provider)
+        values = (entry.get("selected_model"), entry.get("fallback_model")) if isinstance(entry, dict) else (None, None)
+        if any(value is not None for value in values):
+            try:
+                providers[provider] = AIModelPair(*validate_provider_models(provider, *values))
+            except ValueError:
+                logger.warning("Ignoring invalid %s model settings override", provider)
+    custom = stored.get("custom")
+    if custom is not None:
         try:
-            return validate_provider_models(provider, *values)
+            if not isinstance(custom, dict):
+                raise UserError("ai_models.custom_base_url_invalid")
+            providers["custom"] = CustomAIConnection(validate_custom_base_url(custom.get("base_url")))
         except ValueError:
-            logger.warning("Ignoring invalid %s model settings override", provider)
-    return None, None
+            logger.warning("Ignoring invalid custom AI connection")
+    return providers
 
 
 def load_app_settings(section: ConfigSection) -> AppSettings:
@@ -378,7 +404,6 @@ def load_app_settings(section: ConfigSection) -> AppSettings:
         except ValueError:
             logger.warning("Ignoring invalid or incomplete Twitch identity override")
 
-    selected_model, fallback_model = _read_models(ai_payload, "gemini")
     cooldown_bypass_user_id = _read_optional_string(ai_payload, "ai", "cooldown_bypass_user_id")
     if cooldown_bypass_user_id is not None and re.fullmatch(r"[0-9]+", cooldown_bypass_user_id) is None:
         logger.warning("Ignoring invalid application setting name=ai.cooldown_bypass_user_id")
@@ -389,8 +414,6 @@ def load_app_settings(section: ConfigSection) -> AppSettings:
     except ValueError:
         logger.warning("Ignoring invalid AI provider selection")
         provider = None
-    deepseek_selected, deepseek_fallback = _read_models(ai_payload, "deepseek")
-    openai_selected, openai_fallback = _read_models(ai_payload, "openai")
     if "response_language" in ai_payload:
         language_payload = ai_payload["response_language"]
         try:
@@ -423,13 +446,8 @@ def load_app_settings(section: ConfigSection) -> AppSettings:
             history_max_entries=history_limit,
             context_max_entries=context_limit,
             **_recover_fields(AIFlagsModel, ai_payload),
-            selected_model=selected_model,
-            fallback_model=fallback_model,
             provider=provider,
-            deepseek_selected_model=deepseek_selected,
-            deepseek_fallback_model=deepseek_fallback,
-            openai_selected_model=openai_selected,
-            openai_fallback_model=openai_fallback,
+            providers=_read_providers(ai_payload),
             cooldown_bypass_user_id=cooldown_bypass_user_id,
             response_language=response_language,
             setup=setup,
@@ -552,6 +570,19 @@ class AppSettingsStore:
         with self._lock:
             updated = replace(self._settings, ai=replace(self._settings.ai, setup=setup,
                                                        provider=setup.primary.provider))
+            save_app_settings(self._section, updated, recovered_settings=self._settings)
+            self._settings = updated
+        return updated
+
+    def update_custom_ai_connection(self, base_url: object) -> AppSettings:
+        """Save or (with None) remove the custom endpoint."""
+        with self._lock:
+            providers = dict(self._settings.ai.providers)
+            if base_url is None:
+                providers.pop("custom", None)
+            else:
+                providers["custom"] = CustomAIConnection(validate_custom_base_url(base_url))
+            updated = replace(self._settings, ai=replace(self._settings.ai, providers=providers))
             save_app_settings(self._section, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated

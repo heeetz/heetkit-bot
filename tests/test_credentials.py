@@ -76,6 +76,7 @@ def test_secure_credentials_override_environment_without_exposing_values() -> No
     manager = build_manager(backend)
 
     assert manager.settings_overrides() == {
+        "custom_api_key": None,
         "deepseek_api_key": None,
         "openai_api_key": None,
         "gemini_api_key": "secure-gemini",

@@ -31,13 +31,13 @@ def normalized_usage(provider: str, payload: object) -> dict[str, int | bool]:
                 "reasoning_tokens": "thoughts_token_count", "tool_input_tokens": "tool_use_prompt_token_count"} if provider == "gemini" else
                {"input_tokens": "prompt_tokens", "output_tokens": "completion_tokens",
                 "total_tokens": "total_tokens", "cached_input_tokens": "prompt_cache_hit_tokens"}
-               if provider == "deepseek" else
+               if provider in {"deepseek", "custom"} else
                {"input_tokens": "input_tokens", "output_tokens": "output_tokens", "total_tokens": "total_tokens"})
     for target, source in mapping.items():
         count = usage_count(get(usage, source))
         if count is not None:
             fields[target] = count
-    if provider in {"openai", "deepseek"}:
+    if provider in {"openai", "deepseek", "custom"}:
         details = get(usage, "output_tokens_details" if provider == "openai" else "completion_tokens_details")
         reasoning = usage_count(get(details, "reasoning_tokens"))
         if reasoning is not None:
@@ -134,6 +134,8 @@ class AIProviderSettings:
     api_key: SecretStr | None = field(default=None, repr=False)
     thinking: str = "default"
     single_attempt: bool = False
+    # Custom provider only: the endpoint captured with its key.
+    base_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -429,8 +429,8 @@ export interface TwitchSettingsResponse extends ActionResult {
   settings?: TwitchConnectionSettings
 }
 
-export type CredentialName = 'gemini_api_key' | 'deepseek_api_key' | 'openai_api_key' | 'twitch_client_secret'
-export type AIProviderId = 'gemini' | 'deepseek' | 'openai'
+export type CredentialName = 'gemini_api_key' | 'deepseek_api_key' | 'openai_api_key' | 'custom_api_key' | 'twitch_client_secret'
+export type AIProviderId = 'gemini' | 'deepseek' | 'openai' | 'custom'
 
 export interface CredentialInfo {
   name: CredentialName
@@ -493,7 +493,8 @@ export interface AIModelCapabilities {
 
 export interface AISetupResponse extends ActionResult {
   settings?: AISetupSettings
-  providers?: { id: AIProviderId; label: string; credential: CredentialInfo | null; models: string[]; selected_model: string; fallback_model: string }[]
+  // Desktop lists the custom provider with its saved endpoint (base_url) when one is set.
+  providers?: { id: AIProviderId; label: string; credential: CredentialInfo | null; models: string[]; selected_model: string; fallback_model: string; base_url?: string | null }[]
   capabilities?: Record<AIProviderId, Record<string, AIModelCapabilities>>
   default_shared_instructions?: string
   retained_restrictions?: string
@@ -707,6 +708,8 @@ export interface PythonApi {
   get_ai_provider_settings(): Promise<AIProviderSettingsResponse>
   get_ai_setup(): Promise<AISetupResponse>
   save_ai_setup(settings: AISetupSettings): Promise<ActionResult>
+  save_custom_ai_connection(baseUrl: string, apiKey: string): Promise<ActionResult & { key_removed?: boolean }>
+  remove_custom_ai_connection(): Promise<ActionResult>
   get_setup_guide(): Promise<ActionResult & { dismissed?: boolean; ai_skipped?: boolean }>
   save_setup_guide(dismissed: boolean, ai_skipped: boolean): Promise<ActionResult & { dismissed?: boolean; ai_skipped?: boolean }>
   get_ai_language_settings(): Promise<AILanguageSettingsResponse>

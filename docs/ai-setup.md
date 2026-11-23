@@ -40,6 +40,29 @@ the provider's limits, charges and data-use terms before you enable AI for viewe
   key can still supply the credential. **Cancel AI edits** discards model and
   length drafts only. Keep keys out of screenshots, chat and support messages.
 
+### Use your own OpenAI-compatible server (Desktop)
+
+Run a local model, for example in LM Studio, or use another server that offers the
+OpenAI `chat/completions` API. HeetKit sends one non-streaming request per question
+and posts only the final answer; reasoning blocks are removed, and a reply with
+reasoning only counts as a failure.
+
+1. In **Providers**, find **Custom (OpenAI-compatible)**.
+2. Enter the **Server address**. For LM Studio on the same PC, enter
+   `http://localhost:1234/v1`. HTTP works only for this computer; use HTTPS for any
+   other server. Redirects are not followed.
+3. Enter an **API key** only if the server requires one, then select **Save connection**.
+   A new address on another host or port removes the saved key; enter it again.
+4. Select **Test connection**. It lists the server's models; it cannot prove that a
+   model generates replies.
+5. In **Primary model**, select **Custom (OpenAI-compatible)**, then select a
+   discovered model or enter its ID in **Manual model ID**. Select **Save AI setup**.
+6. [Test a prompt](#test-locally-with-ai-playground) in Playground.
+
+The custom provider is Desktop only and can be the primary model only. Thinking
+controls and internet search are not available for it. The address stays on this
+computer: configuration export does not include it or the key.
+
 ## Test locally with AI Playground
 
 Send a test prompt to your saved provider without posting to Twitch. You need a

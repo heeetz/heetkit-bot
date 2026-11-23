@@ -59,13 +59,16 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None
     gemini_model: str = "gemini-3.5-flash-lite"
     gemini_fallback_model: str = DEFAULT_GEMINI_FALLBACK_MODEL
-    ai_provider: Literal["gemini", "deepseek", "openai"] = "gemini"
+    ai_provider: Literal["gemini", "deepseek", "openai", "custom"] = "gemini"
     deepseek_api_key: SecretStr | None = None
     deepseek_model: str = DEFAULT_DEEPSEEK_MODEL
     deepseek_fallback_model: str = DEFAULT_DEEPSEEK_FALLBACK_MODEL
     openai_api_key: SecretStr | None = None
     openai_model: str = DEFAULT_OPENAI_MODEL
     openai_fallback_model: str = DEFAULT_OPENAI_FALLBACK_MODEL
+    # Desktop only: one validated custom endpoint; its key is optional.
+    custom_api_key: SecretStr | None = None
+    custom_base_url: str | None = None
     ai_cooldown_bypass_user_id: str | None = None
     ai_response_language: ResponseLanguageSettings = Field(default_factory=ResponseLanguageSettings)
     ai_setup: AISetup | None = None

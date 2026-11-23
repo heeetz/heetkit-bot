@@ -86,6 +86,8 @@ export const createOperationClient = (call: OperationTransport): PythonApi => ({
   get_ai_provider_settings: () => call('get_ai_provider_settings'),
   get_ai_setup: () => call('get_ai_setup'),
   save_ai_setup: (settings) => call('save_ai_setup', { settings }),
+  save_custom_ai_connection: (base_url, api_key) => call('save_custom_ai_connection', { base_url, api_key }),
+  remove_custom_ai_connection: () => call('remove_custom_ai_connection'),
   get_setup_guide: () => call('get_setup_guide'),
   save_setup_guide: (dismissed, ai_skipped) => call('save_setup_guide', { dismissed, ai_skipped }),
   get_ai_language_settings: () => call('get_ai_language_settings'),

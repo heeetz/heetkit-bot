@@ -129,7 +129,7 @@ const desktopOnlyOperations = new Set([
   'export_activity', 'check_for_updates', 'prepare_desktop_update', 'get_desktop_update_progress',
   'finish_desktop_update', 'restart_desktop', 'get_app_settings', 'get_profile_info',
   'open_profile_folder', 'update_app_settings', 'get_twitch_settings', 'update_twitch_settings',
-  'reconnect_twitch', 'get_credentials',
+  'reconnect_twitch', 'get_credentials', 'save_custom_ai_connection', 'remove_custom_ai_connection',
 ])
 
 export const browserCall: OperationTransport = async <T>(name: string, args: Record<string, unknown> = {}): Promise<T> => {

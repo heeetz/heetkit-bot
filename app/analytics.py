@@ -187,7 +187,8 @@ class Analytics:
         elif kind.startswith("ai."):
             provider = values.get("provider", values.get("requested_provider", "unknown"))
             model = values.get("model", values.get("requested_model", "unknown"))
-            provider = {"Google Gemini": "gemini", "DeepSeek": "deepseek", "OpenAI": "openai"}.get(provider, provider)
+            provider = {"Google Gemini": "gemini", "DeepSeek": "deepseek", "OpenAI": "openai",
+                        "Custom": "custom"}.get(provider, provider)
             dimension = f"{provider}/{model}"
             if kind == "ai.logical_start":
                 add("ai.requests")

@@ -42,6 +42,8 @@
 .ai-setup-panel p { overflow-wrap: anywhere; }
 .ai-provider-status { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .75rem; }
 .ai-key-field { width: 100%; min-width: 0; }
+.ai-custom-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: .75rem; min-width: 0; }
+.ai-custom-connection .ai-custom-hint { margin: 0; }
 .ai-setup-panel .row-actions { align-items: center; gap: .5rem; }
 .ai-connection-row .row-actions > button,
 .ai-connection-row input { min-height: 40px; }
@@ -161,6 +163,10 @@
 @media (min-width: 900px) {
   .ai-connection-row { grid-template-columns: minmax(8rem, .7fr) minmax(12rem, 1fr) auto; }
   .ai-connection-row .row-actions { flex-wrap: nowrap; }
+  /* Two fields need the full row: status, fields, hint and actions stack. */
+  .ai-connection-row.ai-custom-connection { grid-template-columns: minmax(0, 1fr); }
+  .ai-custom-connection .row-actions { justify-content: flex-end; }
+  .ai-custom-fields { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
   .ai-setup-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ai-setup-lengths { grid-template-columns: repeat(2, minmax(8rem, 12rem)) minmax(22rem, 1fr); }
   .ai-setup-actions { grid-column: 3; }

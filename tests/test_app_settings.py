@@ -12,15 +12,18 @@ import pytest
 
 from app.app_settings import (
     APP_SETTINGS_VERSION,
+    AIModelPair,
     AISettings,
     AppSettings,
     AppSettingsStore,
+    CustomAIConnection,
     StartupSettings,
     TwitchConnectionPreset,
     TwitchSettings,
     WindowSettings,
     load_app_settings,
 )
+from app.errors import UserError
 from app.webview_host import AsyncioBackendHost, WebUIBridge
 from app.config_file import ConfigFile
 from config_helpers import read_section, write_section
@@ -110,13 +113,10 @@ def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
         "startup": {"auto_start_bot": True, "operation_mode": "always_on"},
         "ai": {
             "history_max_entries": 100, "context_max_entries": 5,
-            "provider": None, "deepseek_selected_model": None, "deepseek_fallback_model": None,
-            "openai_selected_model": None, "openai_fallback_model": None,
+            "provider": None, "providers": {},
             "setup": None, "setup_guide_dismissed": False, "setup_guide_ai_skipped": False,
             "cooldown_bypass_user_id": None,
-            "fallback_model": None,
             "memory_enabled": False,
-            "selected_model": None,
             "response_language": {
                 "mode": "auto", "allowed_languages": ["en", "uk", "ru"],
                 "fallback_language": "en",
@@ -288,41 +288,64 @@ def test_incomplete_twitch_override_falls_back_safely(tmp_path) -> None:
     assert load_app_settings(ConfigFile(settings_path).section("app")).twitch == TwitchSettings()
 
 
-def test_legacy_gemini_model_settings_survive_a_memory_update(tmp_path) -> None:
-    settings_path = tmp_path / "app_settings.json"
+def test_legacy_flat_model_settings_move_to_providers_on_the_next_save(tmp_path) -> None:
+    settings_path = tmp_path / "config.json"
     write_section(settings_path, "app", {"version": APP_SETTINGS_VERSION, "ai": {
         "provider": "gemini", "selected_model": " custom-gemini-model ", "fallback_model": "gemini-3.1-flash-lite",
+        "deepseek_selected_model": "deepseek-flash", "deepseek_fallback_model": "deepseek-v4-pro",
+        "openai_selected_model": None, "openai_fallback_model": None,
     }})
     store = AppSettingsStore(ConfigFile(settings_path))
+    providers = {"gemini": AIModelPair("custom-gemini-model", "gemini-3.1-flash-lite"),
+                 "deepseek": AIModelPair("deepseek-flash", "deepseek-v4-pro")}
 
-    assert store.snapshot().ai == AISettings(
-        provider="gemini",
-        selected_model="custom-gemini-model",
-        fallback_model="gemini-3.1-flash-lite",
-    )
+    assert store.snapshot().ai == AISettings(provider="gemini", providers=providers)
     memory_updated = store.update_ai_memory(enabled=False)
     assert AppSettingsStore(ConfigFile(settings_path)).snapshot().ai == memory_updated.ai
     assert read_section(settings_path, "app")["ai"] == {
         "history_max_entries": 100, "context_max_entries": 5,
-        "provider": "gemini", "deepseek_selected_model": None, "deepseek_fallback_model": None,
-        "openai_selected_model": None, "openai_fallback_model": None,
+        "provider": "gemini", "providers": {
+            "gemini": {"selected_model": "custom-gemini-model", "fallback_model": "gemini-3.1-flash-lite"},
+            "deepseek": {"selected_model": "deepseek-flash", "fallback_model": "deepseek-v4-pro"}},
         "setup": None, "setup_guide_dismissed": False, "setup_guide_ai_skipped": False,
         "cooldown_bypass_user_id": None,
-        "fallback_model": "gemini-3.1-flash-lite",
         "memory_enabled": False,
-        "selected_model": "custom-gemini-model",
         "response_language": {
             "mode": "auto", "allowed_languages": ["en", "uk", "ru"],
             "fallback_language": "en",
         },
     }
+    # The pre-migration file is kept once as a recovery copy.
+    assert len(list(tmp_path.glob("config.json.*.recovery"))) == 1
+    assert memory_updated.ai == AISettings(provider="gemini", memory_enabled=False, providers=providers)
 
-    assert memory_updated.ai == AISettings(
-        provider="gemini",
-        memory_enabled=False,
-        selected_model="custom-gemini-model",
-        fallback_model="gemini-3.1-flash-lite",
-    )
+
+@pytest.mark.parametrize(("url", "accepted"), [
+    ("http://localhost:1234/v1/", "http://localhost:1234/v1"),
+    ("http://127.0.0.1:1234/v1", "http://127.0.0.1:1234/v1"),
+    ("http://[::1]:8080", "http://[::1]:8080"),
+    ("https://llm.example.com/v1", "https://llm.example.com/v1"),
+    ("http://192.168.1.20:1234/v1", "ai_models.custom_base_url_http_local_only"),
+    ("http://localhost.example.com/v1", "ai_models.custom_base_url_http_local_only"),
+    ("https://user:secret@llm.example.com/v1", "ai_models.custom_base_url_invalid"),
+    ("https://llm.example.com/v1?key=1", "ai_models.custom_base_url_invalid"),
+    ("ftp://localhost/v1", "ai_models.custom_base_url_invalid"),
+    ("https://llm.example.com:99999", "ai_models.custom_base_url_invalid"),
+    ("localhost:1234", "ai_models.custom_base_url_invalid"),
+])
+def test_custom_connection_accepts_https_or_local_http_only(tmp_path, url, accepted) -> None:
+    settings_path = tmp_path / "config.json"
+    store = AppSettingsStore(ConfigFile(settings_path))
+    if accepted.startswith("ai_models."):
+        with pytest.raises(UserError) as error:
+            store.update_custom_ai_connection(url)
+        assert error.value.code == accepted
+        assert not settings_path.exists()
+        return
+    store.update_custom_ai_connection(url)
+    assert read_section(settings_path, "app")["ai"]["providers"] == {"custom": {"base_url": accepted}}
+    assert AppSettingsStore(ConfigFile(settings_path)).snapshot().ai.providers == {"custom": CustomAIConnection(accepted)}
+    assert store.update_custom_ai_connection(None).ai.providers == {}
 
 
 def test_incomplete_gemini_model_override_falls_back_safely(tmp_path) -> None:
