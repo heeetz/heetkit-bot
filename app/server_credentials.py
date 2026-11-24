@@ -17,6 +17,26 @@ from app.credentials import (
 )
 
 
+def write_private_json(path: Path, data: object) -> None:
+    """Atomically replace an owner-only JSON file inside an owner-only directory."""
+    temporary = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if os.name == "posix":
+            os.chmod(path.parent, 0o700)
+        descriptor, filename = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        temporary = Path(filename)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            json.dump(data, output, ensure_ascii=True)
+            output.flush()
+            os.fsync(output.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 class ServerCredentialStore:
     """One bounded, atomic secret document in the private persistent profile.
 
@@ -74,25 +94,11 @@ class ServerCredentialStore:
             return self._read().get(name.value)
 
     def _write(self, data: dict[str, str]) -> None:
-        temporary = None
         try:
             self._check_path()
-            self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            if os.name == "posix":
-                os.chmod(self.path.parent, 0o700)
-            descriptor, filename = tempfile.mkstemp(dir=self.path.parent, suffix=".tmp")
-            temporary = Path(filename)
-            with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-                json.dump(data, output, ensure_ascii=True)
-                output.flush()
-                os.fsync(output.fileno())
-            os.chmod(temporary, 0o600)
-            os.replace(temporary, self.path)
+            write_private_json(self.path, data)
         except OSError:
             raise CredentialError("server_credentials.could_not_save_private_server_credentials") from None
-        finally:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
 
     def replace(self, name: CredentialName, value: str) -> None:
         value = self.validate(value)

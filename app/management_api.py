@@ -31,6 +31,7 @@ from app.runtime_paths import PACKAGED_FRONTEND, SOURCE_ROOT, RuntimePaths
 from app.config_file import ConfigFile
 from app.utils.logging import RecentLogBuffer
 from app.credentials import CredentialError
+from app.server_credentials import write_private_json
 from app.config.settings import TwitchConfigurationError
 from app.twitch_setup import ServerOAuth, TwitchSetup, credential_manager
 
@@ -40,9 +41,13 @@ REQUEST_SECONDS = 25
 CONNECTION_SECONDS = 35
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{43,128}\Z")
 SESSION_SECONDS = 3600
+# A remembered session slides forward at most once a day while it is used.
+REMEMBER_SECONDS = 30 * 86400
+RENEW_AFTER_SECONDS = 86400
 MAX_SESSIONS = 8
 MAX_ASSET = 4 * 1024 * 1024
 REQUESTS_PER_MINUTE = 120
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -391,9 +396,13 @@ class ManagementAPI:
         self.callback_active = False
         self.started = time.monotonic()
         self.log_buffer = log_buffer
-        # Store only digests of short-lived browser bearer tokens. No cookies,
-        # persistent session state or automatic renewal of administrator authority.
+        # Store only digests of browser bearer tokens, never cookies. Only
+        # "remembered" sessions persist (as digests) and slide while used; a new
+        # management token invalidates them all.
         self.sessions: dict[bytes, float] = {}
+        self.remembered: set[bytes] = set()
+        self.sessions_file = RuntimePaths.default().auth / "management_sessions.json"
+        self._load_remembered()
         self.frontend = (SOURCE_ROOT / "frontend" / "dist" if SOURCE_ROOT is not None
                          and not PACKAGED_FRONTEND.is_file() else PACKAGED_FRONTEND.parent)
 
@@ -419,6 +428,7 @@ class ManagementAPI:
     async def close(self) -> None:
         self.setup.close()
         self.sessions.clear()
+        self.remembered.clear()
         try:
             await self.runtime.application.ai_playground.close()
             if self.runner is not None:
@@ -430,6 +440,53 @@ class ManagementAPI:
 
     def app_status(self) -> dict:
         return self.service.get_app_status() | {"operation": self.policy.snapshot()}
+
+    def _administrator_digest(self) -> str:
+        return hashlib.sha256(self.config.token.encode("ascii")).hexdigest()
+
+    def _load_remembered(self) -> None:
+        """Restore unexpired remembered sessions; anything unreadable means sign in again."""
+        try:
+            if self.sessions_file.is_symlink():
+                raise ValueError
+            raw = self.sessions_file.read_bytes()
+            data = json.loads(raw) if len(raw) <= 4096 else None
+            if not isinstance(data, dict) or set(data) != {"admin", "sessions"} or not isinstance(data["sessions"], dict):
+                raise ValueError
+            if not hmac.compare_digest(str(data["admin"]), self._administrator_digest()):
+                return
+            wall, monotonic = time.time(), time.monotonic()
+            for key, expiry in list(data["sessions"].items())[:MAX_SESSIONS]:
+                digest = bytes.fromhex(key)
+                if len(digest) != 32 or type(expiry) not in (int, float):
+                    raise ValueError
+                if wall < expiry <= wall + REMEMBER_SECONDS:
+                    self.sessions[digest] = monotonic + expiry - wall
+                    self.remembered.add(digest)
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError, UnicodeError):
+            self.sessions.clear()
+            self.remembered.clear()
+            logger.warning("Ignoring unreadable remembered management sessions")
+
+    def _save_remembered(self) -> None:
+        wall, monotonic = time.time(), time.monotonic()
+        try:
+            write_private_json(self.sessions_file, {"admin": self._administrator_digest(), "sessions": {
+                digest.hex(): int(wall + self.sessions[digest] - monotonic)
+                for digest in self.remembered if digest in self.sessions}})
+        except OSError:
+            # The session still works until restart; only persistence failed.
+            logger.warning("Could not save remembered management sessions")
+
+    def _end_session(self, digest: bytes) -> None:
+        self.sessions.pop(digest, None)
+        self.setup.cancel(digest)
+        self.runtime.application.ai_playground.revoke(digest)
+        if digest in self.remembered:
+            self.remembered.discard(digest)
+            self._save_remembered()
 
     def owner_active(self, owner: bytes) -> bool:
         administrator = hashlib.sha256(self.config.token.encode("ascii")).digest()
@@ -578,6 +635,7 @@ class ManagementAPI:
         authorization = request.headers.getall("Authorization", [])
         expected = "Bearer " + self.config.token
         self.sessions = {key: expiry for key, expiry in self.sessions.items() if expiry > now}
+        self.remembered.intersection_update(self.sessions)
         supplied = authorization[0] if len(authorization) == 1 else ""
         admin = hmac.compare_digest(supplied.encode("utf-8"), expected.encode("ascii"))
         digest = hashlib.sha256(supplied.removeprefix("Bearer ").encode("utf-8")).digest()
@@ -616,25 +674,40 @@ class ManagementAPI:
                     # A queued request must not outlive logout/session expiry.
                     if session and self.sessions.get(digest, 0) <= time.monotonic():
                         return reject(401, "management_api.session_expired_sign_again")
+                    if (session and digest in self.remembered
+                            and self.sessions[digest] - now < REMEMBER_SECONDS - RENEW_AFTER_SECONDS):
+                        self.sessions[digest] = now + REMEMBER_SECONDS
+                        self._save_remembered()
                     if request.path == "/v1/session":
-                        if payload:
+                        remember = payload.pop("remember", False) if request.method == "POST" else False
+                        if payload or not isinstance(remember, bool):
                             raise ValueError
                         result = {"ok": True}
                         if request.method == "POST":
                             token = secrets.token_urlsafe(32)
                             if len(self.sessions) >= MAX_SESSIONS:
-                                evicted = next(iter(self.sessions))
-                                self.setup.cancel(evicted)
-                                self.runtime.application.ai_playground.revoke(evicted)
-                                del self.sessions[evicted]
-                            self.sessions[hashlib.sha256(token.encode("ascii")).digest()] = now + SESSION_SECONDS
-                            result.update(token=token, expires_in=SESSION_SECONDS)
+                                # The session closest to expiry goes first, so short tab
+                                # sessions never push out a remembered device.
+                                self._end_session(min(self.sessions, key=self.sessions.__getitem__))
+                            created = hashlib.sha256(token.encode("ascii")).digest()
+                            seconds = REMEMBER_SECONDS if remember else SESSION_SECONDS
+                            self.sessions[created] = now + seconds
+                            if remember:
+                                self.remembered.add(created)
+                                self._save_remembered()
+                            result.update(token=token, expires_in=seconds)
+                        else:
+                            result.update(expires_in=max(1, int(self.sessions[digest] - now)))
                     elif request.method == "POST" and request.path == "/v1/session/logout":
                         if payload:
                             raise ValueError
-                        self.sessions.pop(digest, None)
-                        self.setup.cancel(digest)
-                        self.runtime.application.ai_playground.revoke(digest)
+                        self._end_session(digest)
+                        result = {"ok": True}
+                    elif request.method == "POST" and request.path == "/v1/session/logout_all":
+                        if payload:
+                            raise ValueError
+                        for owner in list(self.sessions):
+                            self._end_session(owner)
                         result = {"ok": True}
                     else:
                         result = await self.dispatch(request.method, request.path, payload, owner=digest)
@@ -660,7 +733,7 @@ class ManagementAPI:
         """The operation a request addresses, or None for session paths; LookupError if unknown."""
         if path.startswith(OPERATIONS_PREFIX):
             operation = OPERATIONS.get(path.removeprefix(OPERATIONS_PREFIX)) if method == "POST" else None
-        elif path in ("/v1/session", "/v1/session/logout"):
+        elif path in ("/v1/session", "/v1/session/logout", "/v1/session/logout_all"):
             return None
         else:
             operation = None

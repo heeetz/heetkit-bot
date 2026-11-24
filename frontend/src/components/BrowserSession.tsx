@@ -1,8 +1,9 @@
-import { type FormEvent, type ReactNode, useState, useSyncExternalStore } from 'react'
+import { type FormEvent, type ReactNode, useEffect, useState, useSyncExternalStore } from 'react'
 import { shell } from '../i18n/app'
 import { useCatalog } from '../i18n/core'
 import LanguageSwitcher from './LanguageSwitcher'
-import { browserConnectionSecure, getBrowserSession, loginBrowserSession, logoutBrowserSession, subscribeBrowserSession } from '../httpTransport'
+import Switch from './Switch'
+import { browserConnectionSecure, getBrowserSession, loginBrowserSession, logoutBrowserSession, restoreBrowserSession, subscribeBrowserSession } from '../httpTransport'
 
 export default function BrowserSession({ children }: { children: ReactNode }) {
   const text = useCatalog(shell).session
@@ -10,7 +11,10 @@ export default function BrowserSession({ children }: { children: ReactNode }) {
   const [adminToken, setAdminToken] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [remember, setRemember] = useState(false)
   const secure = browserConnectionSecure()
+  const [restoring, setRestoring] = useState(secure)
+  useEffect(() => { if (secure) void restoreBrowserSession().finally(() => setRestoring(false)) }, [secure])
 
   const login = async (event: FormEvent) => {
     event.preventDefault()
@@ -19,14 +23,15 @@ export default function BrowserSession({ children }: { children: ReactNode }) {
     setAdminToken('')
     setError('')
     setBusy(true)
-    try { await loginBrowserSession(token) }
+    try { await loginBrowserSession(token, remember) }
     catch (reason) { setError(reason instanceof Error ? reason.message : text.failed) }
     finally { setBusy(false) }
   }
 
   if (session.authenticated) {
-    return <div className="browser-management"><div className="browser-session-bar"><span>{text.bar}</span><button className="secondary" onClick={() => { setError(''); void logoutBrowserSession() }}>{text.signOut}</button></div>{children}</div>
+    return <div className="browser-management"><div className="browser-session-bar"><span>{text.bar}</span><div className="row-actions"><button className="ghost" onClick={() => { setError(''); void logoutBrowserSession(true) }}>{text.signOutEverywhere}</button><button className="secondary" onClick={() => { setError(''); void logoutBrowserSession() }}>{text.signOut}</button></div></div>{children}</div>
   }
+  if (restoring) return null
   return (
     <main className="browser-login">
       <section className="card">
@@ -39,6 +44,8 @@ export default function BrowserSession({ children }: { children: ReactNode }) {
         <form onSubmit={(event) => void login(event)}>
           <label htmlFor="admin-token">{text.token}</label>
           <input id="admin-token" type="password" autoComplete="off" spellCheck={false} autoCapitalize="none" value={adminToken} disabled={!secure || busy} onChange={(event) => setAdminToken(event.target.value)} />
+          <Switch checked={remember} disabled={!secure || busy} ariaDescribedBy="remember-hint" onCheckedChange={setRemember}>{text.remember}</Switch>
+          <p id="remember-hint" className="muted">{text.rememberHint}</p>
           <button className="primary" type="submit" disabled={!secure || busy || !adminToken}>{busy ? text.signingIn : text.signIn}</button>
         </form>
       </section>

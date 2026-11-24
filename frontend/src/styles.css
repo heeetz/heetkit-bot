@@ -163,7 +163,8 @@ button.dashboard-icon-button { display: inline-grid; flex: 0 0 38px; place-items
 .browser-login > .card { width: min(100%, 520px); overflow-wrap: anywhere; }
 .browser-login h1 { margin-bottom: 12px; }
 .browser-login form { display: grid; gap: 12px; }
-.browser-login form input { width: 100%; min-width: 0; }
+.browser-login form input:not(.switch-input) { width: 100%; min-width: 0; }
+.browser-login form .muted { margin: 0; }
 .desktop-startup { height: 100vh; overflow-y: auto; align-content: safe center; }
 .browser-management { display: flex; flex-direction: column; height: 100%; }
 .browser-session-bar { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--separator); background: var(--panel); }

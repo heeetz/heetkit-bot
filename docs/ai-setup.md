@@ -187,6 +187,9 @@ See [OpenAI search](https://developers.openai.com/api/docs/guides/tools-web-sear
 [Gemini thinking](https://ai.google.dev/gemini-api/docs/generate-content/thinking)
 and [Gemini grounding](https://ai.google.dev/gemini-api/docs/generate-content/google-search).
 
+**Dashboard** also lets you switch the active **Personality** and the **Main model**
+without opening AI setup. Each change saves immediately.
+
 ## Personality editing
 
 Give the bot a reply style. You can select a built-in personality or create your

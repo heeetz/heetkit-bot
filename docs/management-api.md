@@ -217,9 +217,15 @@ Open the local panel after enabling management. Source installs need `npm ci` an
 `npm run build` in `frontend/`; Docker compiles the same UI during its image build.
 Missing assets return a safe 503 without disabling the API.
 
-Sign in with the management token. The panel exchanges it for a tab-only session:
-no tokens in URLs, cookies or browser storage. Sessions expire after one hour;
-reload requires sign-in. At most eight sessions exist. Restart invalidates them all.
+Sign in with the management token. The panel exchanges it for a session token and
+never stores the management token. By default the session lives in this tab's
+`sessionStorage`: it survives reload, ends when the tab closes or after one hour, and a
+restart invalidates it. **Remember me on this device** keeps it in `localStorage`
+instead: it lasts 30 days after the last use (renewed at most once a day), survives
+restarts and is shared by this browser's tabs for the same origin. **Sign out on all
+devices** revokes every session; replacing the management token invalidates all
+remembered sessions. At most eight sessions exist; a new one replaces the session
+closest to expiry. Session tokens never enter URLs or cookies.
 Sign out clears local drafts immediately and revokes the server session when reachable.
 
 Use loopback HTTP (or an SSH tunnel), or the explicitly configured private HTTPS
@@ -331,9 +337,11 @@ print(request("start_bot", {}))
 
 All panel operations use `POST /v1/ops/<name>` with a JSON object. Unknown names
 return 404 and unknown arguments return 400. Writes persist and apply immediately
-unless noted. Sessions use `POST /v1/session`, `GET /v1/session` and
-`POST /v1/session/logout`; the administrator creates sessions with `{}`, and logout
-revokes the current session with `{}`.
+unless noted. Sessions use `POST /v1/session`, `GET /v1/session`, `POST /v1/session/logout` and
+`POST /v1/session/logout_all`. The administrator creates a session with `{}` (one hour)
+or `{"remember": true}` (30 days, sliding); `GET` returns the session's remaining
+`expires_in`; logout revokes the current session and `logout_all` every session, each
+with `{}`.
 
 | Operation | Arguments | Notes |
 |---|---|---|
@@ -360,6 +368,7 @@ revokes the current session with `{}`.
 | `export_configuration` | `{}` | returns `filename` and ZIP `archive_base64` |
 | `preview_configuration_import` | `archive_base64` | validates ZIP and returns a ten-minute `preview_token`, source `application_version`, `format_version`, replacement `sections` with counts/details, `effects` and `preserved` settings |
 | `apply_configuration_import` | The same `archive_base64`, `preview_token` and `confirmed: true` | saves/applies only after revalidation against the preview and unchanged destination |
+| `get_reply_interval`, `set_reply_interval` | `{}` / `seconds` (integer 0–60) | minimum pause between bot replies; saves and applies at once; installation-local, not exported |
 | `start_bot`, `stop_bot` | `{}` | clear or save the manual stop (`paused`) and reconcile, `changed` and current `operation`; completion is asynchronous |
 | `set_bot_mode` | `mode`: `always_on`, `stream_only`, `manual` or `disabled` | persist and reconcile without process restart |
 | `get_commands` | Built-ins with stable `name` IDs, effective/default `primary_name` triggers, aliases, permissions, cooldowns, delivery and response pools | ? |
@@ -394,6 +403,7 @@ revokes the current session with `{}`.
 | `apply_filters` | Same as filters Save, session-only | ? |
 | `test_filters` | `text`, `source` (`active` or `draft`), `payload` (`null` for active | filter object for draft) |
 | `get_blocked_ai_users` | Compatibility view of migrated legacy AI rules | manage all access rules through `command-restrictions` |
+| `block_ai_user` | `username` | legacy AI block, migrated at once into a visible channel `!ask` restriction; returns the compatibility view |
 | `block_ai_user_only`, `unblock_ai_user` | Legacy `username` compatibility operations | creation migrates into visible channel AI restrictions |
 | `get_command_restrictions` | Private authenticated list, configured numeric `channel_id`, and current stable command IDs/labels | ? |
 | `save_command_restriction` | `data`: `username`, `command_ids` (empty means all), `expires_at` (UTC-offset ISO date or null), `note` | optional `scope` (`channel` default or `global_ai`, which requires exactly `["ask"]`), optional `id` edits while preserving identity/scope; unresolved legacy edits retry verification |

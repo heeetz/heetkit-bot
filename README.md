@@ -17,20 +17,25 @@ HeetKit is not affiliated with or endorsed by Twitch.
 
 ## Features
 
-- **AI chat:** Gemini, DeepSeek or OpenAI; saved primary/fallback models, supported
+- **AI chat:** Gemini, DeepSeek or OpenAI, or your own OpenAI-compatible server
+  (Desktop, main model only); saved primary/fallback models, supported
   thinking/search controls, personalities, shared instructions and response languages.
 - **AI Playground on both hosts:** test the applied setup without posting to Twitch.
   Requests use real provider quota; Playground never uses viewer memory.
 - **Commands:** built-ins, aliases, custom single/random/burst replies, permissions,
-  cooldowns, timed announcements and a local filter tester.
+  cooldowns, timed announcements, a global reply interval and filters that also
+  catch look-alike letters, invisible characters and spaced-out words, with a local tester.
 - **Private access controls:** per-user command restrictions, global AI blocks and
   profile-wide storage opt-outs. These do not ban or timeout Twitch accounts.
 - **Channel-scoped history:** last-seen records and optional AI memory, with configurable
   stored/context counts and automatic expiry.
 - **Analytics:** private daily trends, command/provider outcomes, coverage and known
   usage estimates. Missing data is shown as unknown; estimates are not invoices.
+- **Dashboard:** start/stop (a manual stop survives restarts), quick personality and
+  model switch, one-step ignore, recent commands and stream activity.
 - **Desktop or Server:** Windows window/tray controls, or private browser management
   with saved channels and Manual, Always On, Stream Only or Disabled operation.
+  The Server panel can remember sign-in on a device for 30 days.
 - **Separate profiles and portable configuration:** move settings between hosts while
   keeping credentials, private history and access restrictions separate.
 

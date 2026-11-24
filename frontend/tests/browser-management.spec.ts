@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { adminToken, closeAIBehavior, login, navigate, openAIBehaviorSection, server, sessionToken, signIn } from './browser-fixture'
 
-test('browser login keeps tokens out of storage, URLs and request bodies; reload signs out', async ({ page, context }) => {
+test('browser login keeps tokens out of cookies, URLs and request bodies; a tab session survives reload only', async ({ page, context }) => {
   const api = await server(page)
   await context.addCookies([{ name: 'unrelated', value: 'cookie', url: 'http://127.0.0.1:5174' }])
   await page.addInitScript(() => {
@@ -20,10 +20,43 @@ test('browser login keeps tokens out of storage, URLs and request bodies; reload
   expect(api.calls.slice(1).every((call) => call.authorization === `Bearer ${sessionToken}`)).toBe(true)
   expect(api.calls.every((call) => !JSON.stringify(call.body).includes(adminToken) && !JSON.stringify(call.body).includes(sessionToken))).toBe(true)
   expect(page.url()).not.toContain(adminToken)
-  expect(await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage }, cookie: document.cookie }))).toEqual({ local: {}, session: {}, cookie: 'unrelated=cookie' })
+  expect(await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage }, cookie: document.cookie }))).toEqual({ local: {}, session: { 'heetkit.session': sessionToken }, cookie: 'unrelated=cookie' })
   expect(await page.evaluate(() => Reflect.get(window, 'fetchOptions').every((options: { credentials: string; redirect: string }) => options.credentials === 'omit' && options.redirect === 'error'))).toBe(true)
   await page.reload()
+  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible()
+  expect(api.calls.some((call) => call.method === 'GET' && call.path === '/v1/session' && call.authorization === `Bearer ${sessionToken}`)).toBe(true)
+  const fresh = await context.newPage()
+  await fresh.goto('/tests/browser.fixture.html')
+  await expect(fresh.getByRole('heading', { name: 'Sign in to server' })).toBeVisible()
+  await fresh.close()
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click()
+  expect(await page.evaluate(() => ({ ...sessionStorage }))).toEqual({})
+  await page.reload()
   await expect(page.getByRole('heading', { name: 'Sign in to server' })).toBeVisible()
+})
+
+test('remembered sign-in survives a new tab; an expired session or sign-out everywhere forgets it', async ({ page, context }) => {
+  const api = await server(page)
+  await page.goto('/tests/browser.fixture.html')
+  await page.getByLabel('Administrator token').fill(adminToken)
+  await page.getByText('Remember me on this device').click()
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible()
+  expect(api.calls[0]).toEqual({ method: 'POST', path: '/v1/session', body: { remember: true }, authorization: `Bearer ${adminToken}` })
+  expect(await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }))).toEqual({ local: { 'heetkit.session': sessionToken }, session: {} })
+  const other = await context.newPage()
+  await server(other)
+  await other.goto('/tests/browser.fixture.html')
+  await expect(other.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible()
+  await other.getByRole('button', { name: 'Sign out on all devices' }).click()
+  await expect(other.getByRole('heading', { name: 'Sign in to server' })).toBeVisible()
+  expect(await other.evaluate(() => ({ ...localStorage }))).toEqual({})
+  await other.close()
+  await page.evaluate((token) => localStorage.setItem('heetkit.session', token), sessionToken)
+  api.expire()
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Sign in to server' })).toBeVisible()
+  expect(await page.evaluate(() => ({ ...localStorage }))).toEqual({})
 })
 
 test('401 expiration removes editors and their drafts; failed logout still removes local access', async ({ page }) => {
