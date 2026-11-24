@@ -177,7 +177,7 @@ export async function server(page: Page, operationOverrides: OperationOverrides 
     if (path === '/v1/ops/save_command_responses') {
       command.response_pool!.responses = body!.responses as string[]
     }
-    if (path === '/v1/ops/get_custom_commands') result = { command_prefix: '!', permissions: ['EVERYONE', 'MODERATOR', 'USER'], variables: ['sender'], commands: customCommands }
+    if (path === '/v1/ops/get_custom_commands') result = { command_prefix: '!', permissions: ['EVERYONE', 'MODERATOR', 'USER'], variables: ['sender', 'target', 'args', ...Array.from({ length: 9 }, (_, index) => `arg${index + 1}`), 'random_user'], commands: customCommands }
     if (path === '/v1/ops/get_command_restrictions') result = { ok: true, channel_id: '200', commands: [{ id: 'ping', label: '!ping' }, { id: 'ask', label: '!ask' }], restrictions: commandRestrictions }
     if (path === '/v1/ops/save_command_restriction') {
       const data = body!.data as { id?: string; username: string; command_ids: string[]; expires_at: string | null; note: string; scope?: 'channel' | 'global_ai' }
