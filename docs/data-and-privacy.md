@@ -61,6 +61,7 @@ The local profile guard does not prevent duplicate bots on separate hosts or cop
 | `<database-name>.analytics.sqlite3` | Anonymous daily/hourly counters and coverage | 60 UTC calendar days |
 | `auth/twitchio_tokens.json` | Twitch access/refresh tokens | Until revoked/replaced/deleted |
 | `auth/server_credentials.json` | Browser-managed Server credentials/provider keys | Until removed/replaced |
+| `auth/management_sessions.json` | Server only: SHA-256 digests and expiry of remembered panel sessions plus a digest of the management token; no tokens; not exported | 30 days after last use, or until sign-out / token change |
 | `auth/ai_safety_salt` | Random secret for the OpenAI viewer safety identifier; not exported | Until deleted (a new one is created) |
 | OS keyring | Desktop secrets/provider keys | Separate from profile files |
 
@@ -77,7 +78,9 @@ exception prose. The live buffer is memory-only, capped at 500 entries / 1 MiB.
 need separate operator retention and deletion. HeetKit creates no application log files.
 
 UI drafts and Playground results stay in memory. Close the UI to clear drafts.
-Application state uses no cookies, localStorage, sessionStorage or IndexedDB;
+Application state uses no cookies or IndexedDB. Browser storage holds only the interface
+language and, on Server, the panel session token (`sessionStorage`, or `localStorage`
+with **Remember me**);
 browser engines and OAuth pages may retain their own data. Temporary cooldown and
 message-correlation caches are bounded, transient state rather than a chat archive.
 

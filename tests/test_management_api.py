@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import socket
 import ssl
 import time
@@ -1220,6 +1221,36 @@ async def test_browser_session_origin_expiry_revocation_and_capacity(api):
         assert (await call("POST", "/v1/session", json={}, headers={
             "Host": "192.168.0.5:8765", "Origin": scheme + "://192.168.0.5:8765",
             "Sec-Fetch-Site": "same-origin"}))[0] == expected
+
+
+async def test_remembered_session_survives_restart_slides_and_ends_with_the_token(api):
+    server, call = api
+    for payload in ({"remember": "yes"}, {"remember": True, "extra": 1}):
+        assert (await call("POST", "/v1/session", json=payload))[0] == 400
+    _, tab, _ = await call("POST", "/v1/session", json={"remember": False})
+    status, remembered, _ = await call("POST", "/v1/session", json={"remember": True})
+    assert status == 200 and remembered["expires_in"] == 30 * 86400 and tab["expires_in"] == 3600
+    stored = json.loads(server.sessions_file.read_text())
+    assert remembered["token"] not in json.dumps(stored) and len(stored["sessions"]) == 1
+    assert os.name != "posix" or server.sessions_file.stat().st_mode & 0o077 == 0
+    browser = {"Authorization": "Bearer " + remembered["token"]}
+    digest = hashlib.sha256(remembered["token"].encode()).digest()
+    # Use after more than a day slides the expiry forward and saves it.
+    server.sessions[digest] -= 2 * 86400
+    assert (await call("GET", "/v1/session", headers=browser))[1]["expires_in"] > 30 * 86400 - 5
+
+    def restarted(token=TOKEN):
+        return ManagementAPI(server.runtime, ManagementConfig(token, port=server.config.port), RecentLogBuffer(),
+                             policy=server.policy)
+    assert set(restarted().sessions) == {digest}
+    assert restarted("rotated_management_token_" + "y" * 32).sessions == {}
+    server.sessions_file.write_text("{broken", encoding="utf-8")
+    assert restarted().sessions == {}
+    server._save_remembered()
+    assert (await call("POST", "/v1/session/logout_all", json={}, headers=browser))[0] == 200
+    assert not server.sessions and restarted().sessions == {}
+    for token in (tab["token"], remembered["token"]):
+        assert (await call("GET", "/v1/session", headers={"Authorization": "Bearer " + token}))[0] == 401
 
 
 async def test_session_queued_before_logout_cannot_mutate(api):

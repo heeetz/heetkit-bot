@@ -13,6 +13,13 @@ let expiryTimer = 0
 const listeners = new Set<() => void>()
 const activeRequests = new Set<AbortController>()
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43,128}$/
+// A tab session survives reload in sessionStorage; "remember" keeps it in
+// localStorage for the server's sliding 30 days. Both are origin-scoped (port too).
+const STORAGE_KEY = 'heetkit.session'
+const TAB_SESSION_SECONDS = 3600
+const REMEMBER_SECONDS = 30 * 86400
+const storages = () => { try { return [window.sessionStorage, window.localStorage] } catch { return [] } }
+const forgetToken = () => { for (const storage of storages()) { try { storage.removeItem(STORAGE_KEY) } catch { /* Unavailable storage holds nothing. */ } } }
 
 export const getBrowserSession = () => sessionState
 export const subscribeBrowserSession = (listener: () => void) => {
@@ -30,6 +37,7 @@ export function browserConnectionSecure(): boolean {
 
 function clearSession(message = '') {
   sessionToken = ''
+  forgetToken()
   sessionGeneration += 1
   window.clearTimeout(expiryTimer)
   for (const controller of activeRequests) controller.abort()
@@ -88,26 +96,54 @@ async function request<T>(method: 'GET' | 'POST', path: string, token: string, p
   }
 }
 
-export async function loginBrowserSession(adminToken: string): Promise<void> {
-  if (!TOKEN_PATTERN.test(adminToken)) throw new Error(transport().invalidToken)
-  const generation = sessionGeneration
-  const result = await request<{ ok: boolean; token?: string; expires_in?: number }>('POST', '/v1/session', adminToken, {})
-  if (generation !== sessionGeneration) return
-  if (!result.ok || !result.token || !TOKEN_PATTERN.test(result.token)
-    || !Number.isFinite(result.expires_in) || result.expires_in! <= 0 || result.expires_in! > 3600) {
-    throw new Error(transport().signInFailed)
-  }
-  sessionToken = result.token
+function startSession(token: string, expiresIn: number) {
+  sessionToken = token
   sessionState = { authenticated: true, message: '' }
-  expiryTimer = window.setTimeout(() => clearSession('expired'), result.expires_in! * 1000)
+  window.clearTimeout(expiryTimer)
+  // Remembered sessions slide on the server while used; a 401 ends them here.
+  if (expiresIn <= TAB_SESSION_SECONDS) expiryTimer = window.setTimeout(() => clearSession('expired'), expiresIn * 1000)
   for (const listener of listeners) listener()
 }
 
-export async function logoutBrowserSession(): Promise<void> {
+const validExpiry = (value: unknown, maximum: number): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= maximum
+
+export async function loginBrowserSession(adminToken: string, remember = false): Promise<void> {
+  if (!TOKEN_PATTERN.test(adminToken)) throw new Error(transport().invalidToken)
+  const generation = sessionGeneration
+  const result = await request<{ ok: boolean; token?: string; expires_in?: number }>('POST', '/v1/session', adminToken, remember ? { remember: true } : {})
+  if (generation !== sessionGeneration) return
+  if (!result.ok || !result.token || !TOKEN_PATTERN.test(result.token)
+    || !validExpiry(result.expires_in, remember ? REMEMBER_SECONDS : TAB_SESSION_SECONDS)) {
+    throw new Error(transport().signInFailed)
+  }
+  forgetToken()
+  try { (remember ? window.localStorage : window.sessionStorage).setItem(STORAGE_KEY, result.token) } catch { /* Without storage the session lasts until reload. */ }
+  startSession(result.token, result.expires_in)
+}
+
+/** Resume a stored session after reload; a rejected or unreachable one shows sign-in. */
+export async function restoreBrowserSession(): Promise<void> {
+  let token = ''
+  for (const storage of storages()) { try { token ||= storage.getItem(STORAGE_KEY) ?? '' } catch { /* Ignore. */ } }
+  if (!TOKEN_PATTERN.test(token)) { forgetToken(); return }
+  const generation = sessionGeneration
+  try {
+    const result = await request<{ ok: boolean; expires_in?: number }>('GET', '/v1/session', token)
+    if (generation !== sessionGeneration) return
+    if (result.ok && validExpiry(result.expires_in, REMEMBER_SECONDS)) startSession(token, result.expires_in)
+    else forgetToken()
+  } catch (error) {
+    // Keep the stored session across a temporary outage; a rejected one is gone.
+    if (error instanceof Error && error.message === transport().authRequired) forgetToken()
+  }
+}
+
+export async function logoutBrowserSession(everywhere = false): Promise<void> {
   const token = sessionToken
   clearSession('signed_out')
   if (token) {
-    try { await request('POST', '/v1/session/logout', token, {}) } catch { /* Local access is already cleared. */ }
+    try { await request('POST', everywhere ? '/v1/session/logout_all' : '/v1/session/logout', token, {}) } catch { /* Local access is already cleared. */ }
   }
 }
 

@@ -83,9 +83,10 @@ export async function server(page: Page, operationOverrides: OperationOverrides 
     if (fail === path) return route.abort('connectionrefused')
     if (path === '/v1/session' && request.method() === 'POST') {
       return route.fulfill({ json: request.headers().authorization === `Bearer ${adminToken}`
-        ? { ok: true, token: sessionToken, expires_in: 3600 } : { ok: false }, status: request.headers().authorization === `Bearer ${adminToken}` ? 200 : 401 })
+        ? { ok: true, token: sessionToken, expires_in: request.postDataJSON()?.remember ? 30 * 86400 : 3600 } : { ok: false }, status: request.headers().authorization === `Bearer ${adminToken}` ? 200 : 401 })
     }
     if (expired) return route.fulfill({ status: 401, json: { ok: false } })
+    if (path === '/v1/session') return route.fulfill({ json: { ok: true, expires_in: 3000 } })
     if (path === '/v1/session/logout') return route.fulfill({ json: { ok: true } })
     let result: object = { ok: true }
     if (path === '/v1/ops/start_ai_playground') {

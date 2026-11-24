@@ -65,6 +65,6 @@ test('transfers an archive through export, cancel, preview and confirmed import'
   await expect(transfer.getByRole('alert')).toBeVisible()
   await expect(preview).toBeVisible()
   await Promise.all([page.waitForNavigation(), confirm.click()])
-  await expect(page.getByRole('heading', { name: 'Sign in to server' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible()
   expect(apply).toEqual(Array(2).fill({ archive_base64: archiveBase64, preview_token: 'preview-2', confirmed: true }))
 })

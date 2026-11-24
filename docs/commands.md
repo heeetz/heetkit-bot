@@ -186,6 +186,17 @@ At the default 0, HeetKit starts the sends together. At 200, it starts
 them about 200 ms apart. Twitch controls when the messages appear and can
 reject individual sends. Check **Logs** if only some messages arrive.
 
+### Reply interval
+
+Set the minimum pause between two bot replies in chat.
+
+**In HeetKit:** **Settings > Reply interval** on Desktop or Server.
+
+Enter 0–60 seconds (default 5). The value saves immediately and stays on this
+installation; configuration transfer does not carry it. A reply that would arrive
+sooner is skipped and shows as a limiter skip in **Logs**. 0 turns the limit off.
+Burst commands keep their own spacing.
+
 ## Scheduled announcements
 
 Send a reminder at regular intervals. You need a connected bot to see it in
@@ -254,6 +265,10 @@ HeetKit. The account can still chat and use self-service `!optout`.
 **Check:** Find the rule in **Search restrictions**. Check the account, scope
 and expiry. To test a rule for an account you control, run a restricted command
 that works from a permitted account. The restricted request produces no reply.
+
+To ignore someone quickly, enter the username in **Dashboard > Ignore user** and
+select **Ignore**. This saves a permanent rule for all commands in the current
+channel; it then appears here for editing or removal.
 
 Use **Edit** to change the commands, expiry or note. A change of account or
 scope needs a new rule. **Remove** takes effect after confirmation. Other active
