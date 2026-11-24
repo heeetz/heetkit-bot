@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { waitForBridge, type LogEntry } from '../bridge'
-import { leaderboardStates, useChatLeaderboards } from '../useChatLeaderboards'
+import { waitForBridge, type LeaderboardSnapshot, type LogEntry } from '../bridge'
+import { leaderboardStates } from '../useChatLeaderboards'
 import { terminalCommandName, terminalCommandOutcome } from './LogEventSummary'
 import { dashboard } from '../i18n/dashboard'
 import { useCatalog, useI18n } from '../i18n/core'
@@ -65,13 +65,15 @@ export function RecentCommands({ onOpenLogs }: { onOpenLogs: () => void }) {
   )
 }
 
-export function StreamActivity({ channel, onOpenAnalytics }: {
+/** Leaderboard data comes from the Dashboard, which also shows its stream status. */
+export function StreamActivity({ channel, data, unavailable, onOpenAnalytics }: {
   channel?: string | null
+  data: LeaderboardSnapshot | null
+  unavailable: boolean
   onOpenAnalytics: () => void
 }) {
   const text = useCatalog(dashboard).stream
   const { number } = useI18n()
-  const { data, unavailable } = useChatLeaderboards(channel)
   const { stream: state } = leaderboardStates(channel, data, unavailable)
   const stream = data?.stream?.ends_at === null ? data.stream : undefined
   const top = stream?.rows.slice(0, 3) ?? []

@@ -31,6 +31,7 @@ import DesktopStartup from './components/DesktopStartup'
 import Confirmation from './components/Confirmation'
 import { RecentCommands, StreamActivity } from './components/DashboardActivity'
 import DashboardQuickControls from './components/DashboardQuickControls'
+import { useChatLeaderboards } from './useChatLeaderboards'
 import { restartDesktop } from './desktopRestart'
 import useUpdateCheck from './useUpdateCheck'
 import LanguageSwitcher from './components/LanguageSwitcher'
@@ -163,9 +164,11 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onRefr
   const botActive = operation
     ? !operation.paused && !operation.error && (operation.mode !== 'manual' || operation.desired_running)
     : Boolean(status?.running)
-  const streamStatus = operation?.stream_status === 'unknown' && operation.last_known_stream_status
-    ? operation.last_known_stream_status : operation?.stream_status
-  const checkedAt = operation?.last_checked_at ? new Date(operation.last_checked_at) : null
+  // Server's monitor when it runs (with its check time); otherwise the leaderboard's own check (both hosts).
+  const leaderboard = useChatLeaderboards(status?.leaderboard_channel_id)
+  const monitored = operation && operation.stream_status !== 'unknown' ? operation : null
+  const streamStatus = monitored?.stream_status ?? (leaderboard.data?.connected ? leaderboard.data.stream_status : 'unknown')
+  const checkedAt = monitored?.last_checked_at ? new Date(monitored.last_checked_at) : null
   const lifecycleBusy = Boolean(busy) || Boolean(operation?.pending)
   const recovery = status?.twitch_recovery
   const recoveryCause = recovery?.cause && Object.hasOwn(text.recoveryCause, recovery.cause)
@@ -200,26 +203,16 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onRefr
   return (
     <section className="dashboard-layout">
       <article className="card dashboard-hero" aria-label={text.botSession}>
-        <div className="dashboard-session-main">
-          <div className="dashboard-session-fields">
-            <div className="dashboard-connection">
-              <div className="dashboard-label">{text.twitchConnection}</div>
-              <h2><span aria-hidden="true" className={`status-dot ${status?.twitch_connected ? 'online' : ''}`} />
-                {needsTwitchSetup ? commonText.notConfigured : status ? twitchConnectionLabel(status.twitch_connection_state) : commonText.loading}
-              </h2>
-              {operation && <div className="dashboard-stream-status">
-                <div className="dashboard-label">{operationText.broadcasterStatus}</div>
-                <strong><span aria-hidden="true" className={`status-dot ${streamStatus === 'live' ? 'online' : ''}`} />
-                  {operationText.stream[streamStatus ?? 'unknown']}
-                  {checkedAt && !Number.isNaN(checkedAt.getTime()) && <span className="dashboard-checked">
-                    {fmt(operationText.checkedAt, { time: time(checkedAt, { hour: '2-digit', minute: '2-digit' }) })}</span>}
-                </strong>
-              </div>}
-            </div>
-            <div><div className="dashboard-label">{text.channel}</div><strong>{status?.channel || setup?.twitch.target_channel || commonText.notConfigured}</strong></div>
-            <div><div className="dashboard-label">{text.botAccount}</div><strong>{status?.account || setup?.twitch.bot_username || commonText.notConfigured}</strong></div>
-            <div><div className="dashboard-label">{text.sessionUptime}</div><strong className="metric">{status ? formatUptime(status.uptime_seconds) : '—'}</strong></div>
+        <div className={`dashboard-session-fields${operation ? ' server' : ''}`}>
+          <div className="dashboard-connection">
+            <div className="dashboard-label">{text.twitchConnection}</div>
+            <h2><span aria-hidden="true" className={`status-dot ${status?.twitch_connected ? 'online' : ''}`} />
+              {needsTwitchSetup ? commonText.notConfigured : status ? twitchConnectionLabel(status.twitch_connection_state) : commonText.loading}
+            </h2>
           </div>
+          <div><div className="dashboard-label">{text.channel}</div><strong>{status?.channel || setup?.twitch.target_channel || commonText.notConfigured}</strong></div>
+          <div><div className="dashboard-label">{text.botAccount}</div><strong>{status?.account || setup?.twitch.bot_username || commonText.notConfigured}</strong></div>
+          <div><div className="dashboard-label">{text.sessionUptime}</div><strong className="metric">{status ? formatUptime(status.uptime_seconds) : '—'}</strong></div>
           <div className="dashboard-hero-actions">
             {onOpenUpdate && <button type="button" className="secondary dashboard-update" onClick={onOpenUpdate}>{text.updateAvailable}</button>}
             {operation?.mode !== 'disabled' && <button
@@ -229,15 +222,6 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onRefr
             >
               {busy === 'bot' ? commonText.working : operation?.pending ? text.reconciling : botActive ? text.stopBot : text.startBot}
             </button>}
-            {operation && <div className="dashboard-mode">
-              <Select id="operation-mode" className="dashboard-mode-select" value={operation.mode} aria-label={operationText.label}
-                options={browserOperationModes} disabled={busy === 'operation-mode'}
-                onChange={(mode) => onChangeBrowserMode(mode as BrowserOperationMode)} />
-              <HelpTip label={operationText.label}>
-                {operationText.descriptions[operation.mode]} {operationText.pauseNote}
-                {operation.mode === 'stream_only' && <> {operationText.streamChecks}</>}
-              </HelpTip>
-            </div>}
           </div>
         </div>
         {(connectionHint || connectionState === 'failed' || connectionState === 'reconnecting'
@@ -273,8 +257,27 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onRefr
           </div>
         </article>
       )}
-      <DashboardQuickControls aiStatus={aiStatus} onAIStatusChanged={onRefreshAIStatus}
-        onOpenAISetup={() => onNavigate('AI', 'ai-models')} onOpenRestrictions={() => onNavigate('Commands', 'command-restrictions')} />
+      <DashboardQuickControls aiStatus={aiStatus} onAIStatusChanged={onRefreshAIStatus} server={Boolean(operation)}
+        onOpenAISetup={() => onNavigate('AI', 'ai-models')} onOpenRestrictions={() => onNavigate('Commands', 'command-restrictions')}
+        stream={<>
+          <div className="dashboard-label">{operationText.broadcasterStatus}</div>
+          <strong className="dashboard-stream-value"><span aria-hidden="true" className={`status-dot ${streamStatus === 'live' ? 'online' : ''}`} />
+            {operationText.stream[streamStatus]}
+            {checkedAt && !Number.isNaN(checkedAt.getTime()) && <span className="dashboard-checked">
+              {fmt(operationText.checkedAt, { time: time(checkedAt, { hour: '2-digit', minute: '2-digit' }) })}</span>}
+          </strong>
+        </>}
+        mode={operation && <>
+          <label className="dashboard-label" htmlFor="operation-mode">{operationText.label}
+            <HelpTip label={operationText.label}>
+              {operationText.descriptions[operation.mode]} {operationText.pauseNote}
+              {operation.mode === 'stream_only' && <> {operationText.streamChecks}</>}
+            </HelpTip>
+          </label>
+          <Select id="operation-mode" value={operation.mode} aria-label={operationText.label}
+            options={browserOperationModes} disabled={busy === 'operation-mode'}
+            onChange={(mode) => onChangeBrowserMode(mode as BrowserOperationMode)} />
+        </>} />
       <div className="dashboard-panels">
         <article className="card dashboard-ai-card">
           <div className="dashboard-card-heading">
@@ -292,7 +295,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onRefr
             <button className="secondary" onClick={() => onNavigate('AI', 'ai-behavior')}>{text.ai.manage}</button>
           </div>
         </article>
-        <StreamActivity key={status?.leaderboard_channel_id ?? ''} channel={status?.leaderboard_channel_id}
+        <StreamActivity channel={status?.leaderboard_channel_id} data={leaderboard.data} unavailable={leaderboard.unavailable}
           onOpenAnalytics={() => onNavigate('Analytics', 'analytics-chatters')} />
       </div>
       <RecentCommands onOpenLogs={() => onNavigate('Logs')} />

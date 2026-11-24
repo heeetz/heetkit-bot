@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { type AISetupResponse, type AIStatus, waitForBridge } from '../bridge'
 import { Select } from './Select'
 import { common } from '../i18n/common'
@@ -7,9 +7,12 @@ import { catalogFor, useCatalog, useI18n } from '../i18n/core'
 
 type Setup = Required<Pick<AISetupResponse, 'settings' | 'providers' | 'capabilities'>>
 
-/** Thin row of everyday controls: personality, main model and a quick bot-side ignore. */
-export default function DashboardQuickControls({ aiStatus, onAIStatusChanged, onOpenAISetup, onOpenRestrictions }: {
+/** Thin row under the session tile: stream status, personality, main model, quick ignore and (Server) work mode. */
+export default function DashboardQuickControls({ aiStatus, server, stream, mode, onAIStatusChanged, onOpenAISetup, onOpenRestrictions }: {
   aiStatus: AIStatus | null
+  server: boolean
+  stream: ReactNode
+  mode: ReactNode
   onAIStatusChanged: () => Promise<void>
   onOpenAISetup: () => void
   onOpenRestrictions: () => void
@@ -98,7 +101,8 @@ export default function DashboardQuickControls({ aiStatus, onAIStatusChanged, on
 
   const personalities = aiStatus?.available_personalities ?? []
   return (
-    <section className="card dashboard-quick" aria-label={text.label}>
+    <section className={`card dashboard-quick${server ? ' server' : ''}`} aria-label={text.label}>
+      <div className="dashboard-quick-item dashboard-stream-status">{stream}</div>
       <div className="dashboard-quick-item">
         <label className="dashboard-label" htmlFor="dashboard-personality">{text.personality}</label>
         <Select id="dashboard-personality" aria-label={text.personality} value={aiStatus?.active_personality ?? ''}
@@ -123,14 +127,16 @@ export default function DashboardQuickControls({ aiStatus, onAIStatusChanged, on
         <div className="dashboard-quick-ignore-row">
           <input id="dashboard-ignore" value={username} placeholder={text.ignorePlaceholder} autoComplete="off" spellCheck={false}
             maxLength={26} disabled={busy === 'ignore'} onChange={(event) => { setUsername(event.target.value); setIgnoreNotice(''); setIgnoreError('') }} />
-          <button type="submit" className="secondary" disabled={!username.trim() || Boolean(busy)}>
-            {busy === 'ignore' ? commonText.working : text.ignoreAction}
+          <button type="submit" className="secondary dashboard-icon-button" aria-label={text.ignoreAction} title={text.ignoreAction}
+            disabled={!username.trim() || Boolean(busy)}>
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.8" /><path d="m5 15 10-10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
           </button>
         </div>
         {ignoreError && <p className="inline-error" role="alert">{ignoreError}</p>}
         {ignoreNotice && <p className="dashboard-quick-note" role="status">{ignoreNotice}{' '}
           <button type="button" className="dashboard-link" onClick={onOpenRestrictions}>{text.manageIgnored}</button></p>}
       </form>
+      {mode && <div className="dashboard-quick-item dashboard-mode">{mode}</div>}
     </section>
   )
 }
