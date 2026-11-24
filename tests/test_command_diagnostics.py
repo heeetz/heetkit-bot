@@ -220,7 +220,8 @@ async def test_diagnostics_suppressed_for_optout_and_disabled_option(chat):
         [entry] = buffer.recent_commands()
         assert entry["context"]["invoked_name"] == "ask"
         assert entry["context"]["reason"] == "confirmed_delivery"
-        assert entry["text"] is None and "username" not in entry["context"]
+        # The dashboard names who ran the command; the opted-out viewer above left no entry.
+        assert entry["text"] is None and entry["context"]["username"] == "privateviewer"
         assert entry in buffer.activity()["entries"]
         chat.services.filter_manager.add_blocked_word("answer")
         await chat.bot.event_message(chat.message("!ask Give me an example", user_id="456"))

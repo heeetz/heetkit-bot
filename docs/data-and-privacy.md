@@ -55,7 +55,7 @@ The local profile guard does not prevent duplicate bots on separate hosts or cop
 
 | Location | Stored data | Retention |
 | --- | --- | --- |
-| `config/config.json` | Commands, settings, prompts, triggers, schedules | Until changed/deleted; review personal text separately |
+| `config/config.json` | Commands, settings (including the manual stop and reply interval), prompts, triggers, schedules | Until changed/deleted; review personal text separately |
 | `config/` (other files) | Filters, private access policy | Until changed/deleted |
 | `data/heetkit.db` | Presence, AI exchanges, leaderboard counts, opt-outs, schema metadata | Personal retention below; opt-outs until withdrawal/retirement |
 | `<database-name>.analytics.sqlite3` | Anonymous daily/hourly counters and coverage | 60 UTC calendar days |
@@ -69,6 +69,7 @@ browser-managed values. Desktop keyring values override environment fallbacks.
 HeetKit does not load `.env` files. See [process configuration](development.md#advanced-process-configuration).
 
 Logs can show permitted command inputs, reply attempts, outcomes and lifecycle events.
+Dashboard **Recent commands** shows the viewer login with each outcome (opted-out viewers leave no entry).
 They exclude ordinary chat, provider payloads, reasoning, rejected AI output and raw
 exception prose. The live buffer is memory-only, capped at 500 entries / 1 MiB.
 **Clear view** clears only the display. Exported JSON and console/service/Docker logs

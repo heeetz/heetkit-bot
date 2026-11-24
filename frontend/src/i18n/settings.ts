@@ -7,6 +7,14 @@ import { defineCatalog } from './core'
  */
 export const settingsText = defineCatalog({
   en: {
+    replyInterval: {
+      label: 'Reply interval',
+      hint: 'Minimum pause between any two bot messages in chat. 0 turns it off. Saves immediately.',
+      seconds: 'seconds',
+      saved: 'Saved',
+      saveFailed: 'The reply interval could not be saved.',
+      loadFailed: 'The reply interval is unavailable.',
+    },
     twitch: {
       title: 'Twitch connection',
       helpLabel: 'How Twitch setup works',
@@ -334,6 +342,14 @@ export const settingsText = defineCatalog({
     },
   },
   uk: {
+    replyInterval: {
+      label: 'Інтервал відповідей',
+      hint: 'Мінімальна пауза між будь-якими двома повідомленнями бота в чаті. 0 вимикає її. Зберігається одразу.',
+      seconds: 'секунд',
+      saved: 'Збережено',
+      saveFailed: 'Не вдалося зберегти інтервал відповідей.',
+      loadFailed: 'Інтервал відповідей недоступний.',
+    },
     twitch: {
       title: 'Підключення до Twitch',
       helpLabel: 'Як налаштувати Twitch',
@@ -666,6 +682,14 @@ export const settingsText = defineCatalog({
     },
   },
   ru: {
+    replyInterval: {
+      label: 'Интервал ответов',
+      hint: 'Минимальная пауза между любыми двумя сообщениями бота в чате. 0 отключает ее. Сохраняется сразу.',
+      seconds: 'секунд',
+      saved: 'Сохранено',
+      saveFailed: 'Не удалось сохранить интервал ответов.',
+      loadFailed: 'Интервал ответов недоступен.',
+    },
     twitch: {
       title: 'Подключение к Twitch',
       helpLabel: 'Как настроить Twitch',

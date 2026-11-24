@@ -16,11 +16,19 @@ class OutputLimiter:
         interval: float = 5.0,
         clock: Callable[[], float] = monotonic,
     ) -> None:
-        if interval < 0:
-            raise ValueError("Output limiter interval cannot be negative.")
-        self._interval = interval
+        self.interval = interval
         self._clock = clock
         self._last_send: float | None = None
+
+    @property
+    def interval(self) -> float:
+        return self._interval
+
+    @interval.setter
+    def interval(self, value: float) -> None:
+        if value < 0:
+            raise ValueError("Output limiter interval cannot be negative.")
+        self._interval = value
 
     def try_acquire(self) -> bool:
         """Return *True* and record a send if the interval has elapsed."""

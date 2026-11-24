@@ -153,7 +153,7 @@ Use separate [profiles](data-and-privacy.md#profiles) for separate credentials.
 Keep chat connected, follow the stream's live status, or connect by hand. You
 need a running Server and a [configured Twitch account](#save-the-details-in-heetkit).
 
-**In HeetKit:** **Dashboard > Operation mode** on Server.
+**In HeetKit:** the mode menu under **Start**/**Stop** on the Server **Dashboard**.
 
 1. Open **Dashboard**.
 2. Choose an **Operation mode**. The choice saves immediately.
@@ -162,14 +162,15 @@ need a running Server and a [configured Twitch account](#save-the-details-in-hee
    | --- | --- |
    | **Always On** (default) | HeetKit connects at startup and stays connected when the stream is offline. |
    | **Stream Only** | HeetKit connects after it confirms the stream is live and disconnects after it confirms the stream is offline. |
-   | **Manual** | HeetKit stops chat when you enter this mode. Use **Connect** and **Disconnect** to control the session. HeetKit starts stopped after a restart. |
+   | **Manual** | HeetKit stops chat when you enter this mode. Use **Start** and **Stop** to control the session. HeetKit starts stopped after a restart. |
    | **Disabled** | HeetKit stops chat and prevents new connections until you choose another mode. |
 
 **Check:** Check the saved mode and **Twitch connection** on **Dashboard**.
-In **Stream Only**, check **Broadcaster status**. HeetKit needs consecutive
+In **Stream Only**, check **Broadcaster status** under the connection. HeetKit needs consecutive
 successful checks before it acts on a live or offline transition.
 
-**Switch to Manual & disconnect** saves **Manual** and stops chat. The private
+**Stop** works in every mode: it stops chat and keeps the bot off, also after a
+restart, until you select **Start**. The selected mode does not change. The private
 panel remains available. See [operation mode details](management-api.md#operation-modes).
 
 ## Set Desktop startup and tray behavior

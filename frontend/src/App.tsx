@@ -30,6 +30,7 @@ import BrowserSession from './components/BrowserSession'
 import DesktopStartup from './components/DesktopStartup'
 import Confirmation from './components/Confirmation'
 import { RecentCommands, StreamActivity } from './components/DashboardActivity'
+import DashboardQuickControls from './components/DashboardQuickControls'
 import { restartDesktop } from './desktopRestart'
 import useUpdateCheck from './useUpdateCheck'
 import LanguageSwitcher from './components/LanguageSwitcher'
@@ -68,27 +69,23 @@ function formatUptime(totalSeconds: number): string {
 
 const browserOperationModeValues: BrowserOperationMode[] = ['always_on', 'stream_only', 'manual', 'disabled']
 
-function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuthorizeTwitch, onChangeBrowserMode, onNavigate, onOpenUpdate, busy }: {
+function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onRefreshAIStatus, onAuthorizeTwitch, onChangeBrowserMode, onNavigate, onOpenUpdate, busy }: {
   status: AppStatus | null
   aiStatus: AIStatus | null
   onChangeBotState: (shouldRun: boolean) => void
   onChangeAIState: (kind: 'enabled' | 'memory', enabled: boolean) => void
+  onRefreshAIStatus: () => Promise<void>
   onAuthorizeTwitch: () => void
   onChangeBrowserMode: (mode: BrowserOperationMode) => void
-  onNavigate: (section: Extract<Section, 'AI' | 'Analytics' | 'Settings' | 'Logs'>, targetId?: string) => void
+  onNavigate: (section: Extract<Section, 'AI' | 'Analytics' | 'Settings' | 'Logs' | 'Commands'>, targetId?: string) => void
   onOpenUpdate?: () => void
   busy: string
 }) {
   const text = useCatalog(dashboard)
   const commonText = useCatalog(common)
-  const { fmt, dateTime } = useI18n()
+  const { fmt, time } = useI18n()
   const operationText = text.operation
   const browserOperationModes = browserOperationModeValues.map((value) => ({ value, label: operationText.modes[value] }))
-  const formatCheckedAt = (value: string | null): string => {
-    if (!value) return operationText.notChecked
-    const date = new Date(value)
-    return Number.isNaN(date.getTime()) ? commonText.unavailable : dateTime(date)
-  }
   const [setup, setSetup] = useState<DashboardSetup | null>(null)
   const [setupError, setSetupError] = useState('')
   const [restartError, setRestartError] = useState('')
@@ -162,8 +159,13 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
   const pendingReconnect = Boolean(setup?.twitch.requires_reconnect && !pendingRestart && !needsTwitchSetup)
   const needsApply = Boolean(setup?.twitch.requires_restart || setup?.twitch.requires_reconnect)
   const operation = isBrowserMode() ? status?.operation : undefined
-  const automaticOperation = operation?.mode === 'always_on' || operation?.mode === 'stream_only'
-  const browserManaged = Boolean(operation)
+  // Server: Stop is a saved manual stop in any mode; Start clears it. Desktop follows the session.
+  const botActive = operation
+    ? !operation.paused && !operation.error && (operation.mode !== 'manual' || operation.desired_running)
+    : Boolean(status?.running)
+  const streamStatus = operation?.stream_status === 'unknown' && operation.last_known_stream_status
+    ? operation.last_known_stream_status : operation?.stream_status
+  const checkedAt = operation?.last_checked_at ? new Date(operation.last_checked_at) : null
   const lifecycleBusy = Boolean(busy) || Boolean(operation?.pending)
   const recovery = status?.twitch_recovery
   const recoveryCause = recovery?.cause && Object.hasOwn(text.recoveryCause, recovery.cause)
@@ -192,7 +194,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
             : connectionState === 'connected'
               ? ''
               : isBrowserMode()
-                ? operation?.mode === 'disabled' ? text.hints.disabled : operation?.mode === 'manual' ? text.hints.manualReady : text.hints.automaticWaiting
+                ? operation?.mode === 'disabled' ? text.hints.disabled : operation?.paused ? text.hints.paused : operation?.mode === 'manual' ? text.hints.manualReady : text.hints.automaticWaiting
                 : text.hints.startToConnect
 
   return (
@@ -205,23 +207,38 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
               <h2><span aria-hidden="true" className={`status-dot ${status?.twitch_connected ? 'online' : ''}`} />
                 {needsTwitchSetup ? commonText.notConfigured : status ? twitchConnectionLabel(status.twitch_connection_state) : commonText.loading}
               </h2>
+              {operation && <div className="dashboard-stream-status">
+                <div className="dashboard-label">{operationText.broadcasterStatus}</div>
+                <strong><span aria-hidden="true" className={`status-dot ${streamStatus === 'live' ? 'online' : ''}`} />
+                  {operationText.stream[streamStatus ?? 'unknown']}
+                  {checkedAt && !Number.isNaN(checkedAt.getTime()) && <span className="dashboard-checked">
+                    {fmt(operationText.checkedAt, { time: time(checkedAt, { hour: '2-digit', minute: '2-digit' }) })}</span>}
+                </strong>
+              </div>}
             </div>
             <div><div className="dashboard-label">{text.channel}</div><strong>{status?.channel || setup?.twitch.target_channel || commonText.notConfigured}</strong></div>
             <div><div className="dashboard-label">{text.botAccount}</div><strong>{status?.account || setup?.twitch.bot_username || commonText.notConfigured}</strong></div>
             <div><div className="dashboard-label">{text.sessionUptime}</div><strong className="metric">{status ? formatUptime(status.uptime_seconds) : '—'}</strong></div>
           </div>
-          {operation?.mode !== 'disabled' && (
-            <div className="dashboard-hero-actions">
-              {onOpenUpdate && <button type="button" className="secondary dashboard-update" onClick={onOpenUpdate}>{text.updateAvailable}</button>}
-              <button
-                className={status?.running ? 'secondary' : 'primary'}
-                disabled={!status || lifecycleBusy || (!status.running && !automaticOperation && (pendingRestart || needsTwitchSetup))}
-                onClick={() => onChangeBotState(automaticOperation ? false : !status?.running)}
-              >
-                {busy === 'bot' ? commonText.working : operation?.pending ? text.reconciling : automaticOperation ? text.switchToManual : browserManaged ? status?.running ? text.disconnect : text.connect : status?.running ? text.stopBot : text.startBot}
-              </button>
-            </div>
-          )}
+          <div className="dashboard-hero-actions">
+            {onOpenUpdate && <button type="button" className="secondary dashboard-update" onClick={onOpenUpdate}>{text.updateAvailable}</button>}
+            {operation?.mode !== 'disabled' && <button
+              className={`dashboard-bot-toggle ${botActive ? 'secondary' : 'primary'}`}
+              disabled={!status || lifecycleBusy || (!botActive && (pendingRestart || needsTwitchSetup))}
+              onClick={() => onChangeBotState(!botActive)}
+            >
+              {busy === 'bot' ? commonText.working : operation?.pending ? text.reconciling : botActive ? text.stopBot : text.startBot}
+            </button>}
+            {operation && <div className="dashboard-mode">
+              <Select id="operation-mode" className="dashboard-mode-select" value={operation.mode} aria-label={operationText.label}
+                options={browserOperationModes} disabled={busy === 'operation-mode'}
+                onChange={(mode) => onChangeBrowserMode(mode as BrowserOperationMode)} />
+              <HelpTip label={operationText.label}>
+                {operationText.descriptions[operation.mode]} {operationText.pauseNote}
+                {operation.mode === 'stream_only' && <> {operationText.streamChecks}</>}
+              </HelpTip>
+            </div>}
+          </div>
         </div>
         {(connectionHint || connectionState === 'failed' || connectionState === 'reconnecting'
           || (connectionState === 'auth_required' && !isBrowserMode())) && <div className="dashboard-connection-actions">
@@ -256,16 +273,14 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
           </div>
         </article>
       )}
-      <RecentCommands onOpenLogs={() => onNavigate('Logs')} />
+      <DashboardQuickControls aiStatus={aiStatus} onAIStatusChanged={onRefreshAIStatus}
+        onOpenAISetup={() => onNavigate('AI', 'ai-models')} onOpenRestrictions={() => onNavigate('Commands', 'command-restrictions')} />
       <div className="dashboard-panels">
         <article className="card dashboard-ai-card">
           <div className="dashboard-card-heading">
             <h2>{text.ai.title}</h2>
           </div>
-          <div className="dashboard-ai-summary">
-            <span>{aiStatus ? aiStatus.available ? aiStatus.model || setup?.aiProvider.selected_model || text.ai.modelNotSelected : text.ai.unavailable : commonText.loading}</span>
-            {aiStatus?.available && <span>{fmt(text.ai.personality, { name: aiStatus.active_personality || commonText.notSelected })}</span>}
-          </div>
+          {aiStatus && !aiStatus.available && <p className="dashboard-ai-summary">{text.ai.unavailable}</p>}
           <div className="dashboard-switches">
             <Switch checked={aiStatus?.enabled ?? false} disabled={!aiStatus || Boolean(busy)}
               ariaLabel={text.ai.enableCommand} onCheckedChange={(enabled) => onChangeAIState('enabled', enabled)}>{text.ai.command}</Switch>
@@ -280,36 +295,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onAuth
         <StreamActivity key={status?.leaderboard_channel_id ?? ''} channel={status?.leaderboard_channel_id}
           onOpenAnalytics={() => onNavigate('Analytics', 'analytics-chatters')} />
       </div>
-      {operation && (
-        <article className="card dashboard-operation-card">
-          <div className="dashboard-card-heading">
-            <div>
-              <div className="dashboard-label">{operationText.label}</div>
-              <h2>{operationText.modes[operation.mode] ?? operation.mode}</h2>
-            </div>
-            <Select
-              id="operation-mode"
-              value={operation.mode}
-              aria-label={operationText.label}
-              options={browserOperationModes}
-              disabled={busy === 'operation-mode'}
-              onChange={(mode) => onChangeBrowserMode(mode as BrowserOperationMode)}
-            />
-          </div>
-          <p>{operationText.descriptions[operation.mode]}{operationText.saveNote}</p>
-          {operation.mode === 'stream_only' && <p>{operationText.streamChecks}</p>}
-          <div className="twitch-status-grid dashboard-operation-status">
-            <div><span>{operationText.broadcasterStatus}</span><strong className={operation.stream_status === 'live' ? 'status-good' : ''}>{operationText.stream[operation.stream_status]}</strong></div>
-            <div><span>{operationText.lastKnown}</span><strong>{operation.last_known_stream_status ? operationText.stream[operation.last_known_stream_status] : commonText.none}</strong></div>
-            <div><span>{operationText.lastChecked}</span><strong>{formatCheckedAt(operation.last_checked_at)}</strong></div>
-          </div>
-          {operation.stream_status === 'unknown' && <p className="dashboard-operation-unknown">{operation.mode === 'stream_only' ? operationText.unknownStreamOnly : operationText.unknownOther}</p>}
-          {operation.error === 'connection_failed' && <p className="inline-error">{operationText.connectionFailed}</p>}
-          {operation.pending && <p role="status">{operationText.applying}</p>}
-          {operation.mode === 'manual' && <p className="dashboard-operation-actions">{operationText.manualNote}</p>}
-          {operation.mode === 'disabled' && <p className="dashboard-operation-actions">{operationText.disabledNote}</p>}
-        </article>
-      )}
+      <RecentCommands onOpenLogs={() => onNavigate('Logs')} />
     </section>
   )
 }
@@ -781,6 +767,7 @@ function ManagementApp({ windowsDesktop = false }: { windowsDesktop?: boolean })
               busy={actionBusy}
               onChangeBotState={(shouldRun) => void changeBotState(shouldRun)}
               onChangeAIState={(kind, enabled) => void changeAIState(kind, enabled)}
+              onRefreshAIStatus={async () => setAIStatus(await (await waitForBridge()).get_ai_status())}
               onAuthorizeTwitch={() => void authorizeTwitch()}
               onChangeBrowserMode={(mode) => void changeBrowserMode(mode)}
               onNavigate={navigate}

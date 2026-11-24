@@ -15,6 +15,7 @@ from app.command_order import CommandCreationOrder
 from app.custom_commands import CustomCommandStore
 from app.announcements import AnnouncementStore, AnnouncementScheduler
 from app.ai_user_blocks import AIUserBlocklist
+from app.utils.output_limiter import OutputLimiter
 from app.command_restrictions import CommandRestrictionStore
 from app.message_triggers import MessageTriggerStore
 from app.runtime_paths import RuntimePaths
@@ -118,7 +119,7 @@ def build_application(settings: Settings) -> Application:
     memory_repository = AIMemoryRepository(database.session_factory)
     filter_manager = FilterManager()
     ai_request_policy = AIRequestPolicy()
-    twitch_api = TwitchAPIService()
+    twitch_api = TwitchAPIService(output_limiter=OutputLimiter(settings.reply_interval_seconds))
     twitch_api.analytics = analytics
     twitch_api.leaderboards = Leaderboards(user_repository, twitch_api, settings)
     memory = AIMemoryService(memory_repository)

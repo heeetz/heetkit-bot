@@ -180,3 +180,15 @@ test('a managed Twitch credential is replaced, tested and removed without losing
     ['/v1/ops/remove_credential', { name: 'twitch_client_secret' }],
   ])
 })
+
+test('reply interval saves on Enter next to the interface language', async ({ page }) => {
+  const api = await server(page)
+  await signIn(page)
+  await navigate(page, 'Settings')
+  const interval = page.locator('#interface-settings').getByRole('spinbutton', { name: 'Reply interval' })
+  await expect(interval).toHaveValue('5')
+  await interval.fill('12')
+  await interval.press('Enter')
+  await expect(page.locator('#interface-settings').getByRole('status')).toHaveText('Saved')
+  expect(api.calls.filter(({ path }) => path === '/v1/ops/set_reply_interval').map(({ body }) => body)).toEqual([{ seconds: 12 }])
+})

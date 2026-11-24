@@ -16,6 +16,7 @@ from app.app_settings import (
     AISettings,
     AppSettings,
     AppSettingsStore,
+    ChatSettings,
     CustomAIConnection,
     StartupSettings,
     TwitchConnectionPreset,
@@ -69,8 +70,9 @@ def test_partial_and_invalid_app_settings_fall_back_individually(
                     "minimize_to_tray": "yes",
                     "close_to_tray": False,
                 },
-                "startup": {"auto_start_bot": "yes"},
+                "startup": {"auto_start_bot": "yes", "paused": "yes"},
                 "ai": {"memory_enabled": "yes"},
+                "chat": {"reply_interval_seconds": 61},
             })
 
     with caplog.at_level(logging.WARNING):
@@ -91,11 +93,16 @@ def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
         close_to_tray=False,
         auto_start_bot=True,
     )
+    store.update_paused(True)
+    updated = store.update_reply_interval(12)
+    with pytest.raises(ValueError):
+        store.update_reply_interval(61)
 
     assert updated == AppSettings(
         window=WindowSettings(start_minimized=True, minimize_to_tray=True),
-        startup=StartupSettings(auto_start_bot=True),
+        startup=StartupSettings(auto_start_bot=True, paused=True),
         ai=AISettings(memory_enabled=False),
+        chat=ChatSettings(reply_interval_seconds=12),
     )
     assert AppSettingsStore(ConfigFile(settings_path)).snapshot() == updated
     assert read_section(settings_path, "app") == {
@@ -105,7 +112,7 @@ def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
             "minimize_to_tray": True,
             "close_to_tray": False,
         },
-        "startup": {"auto_start_bot": True, "operation_mode": "always_on"},
+        "startup": {"auto_start_bot": True, "operation_mode": "always_on", "paused": True},
         "ai": {
             "history_max_entries": 100, "context_max_entries": 5,
             "provider": None, "providers": {},
@@ -127,6 +134,7 @@ def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
             "selected_preset_id": None,
         },
         "interface": {"language": "en"},
+        "chat": {"reply_interval_seconds": 12},
     }
     assert list(tmp_path.glob(".app_settings.json.*.tmp")) == []
 

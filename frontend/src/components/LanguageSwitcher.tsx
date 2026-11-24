@@ -3,6 +3,7 @@ import { shell } from '../i18n/app'
 import { type Language, languageCodes, languageNames, languages, useCatalog, useLanguage } from '../i18n/core'
 import { chooseLanguage } from '../i18n/language'
 import { Select } from './Select'
+import ReplyIntervalSetting from './ReplyIntervalSetting'
 
 /** Saves in place; a failed Desktop save keeps the new language for this session. */
 function useLanguageChoice() {
@@ -39,14 +40,17 @@ export function InterfaceLanguageField({ id = 'interface-language' }: { id?: str
   </div>
 }
 
-/** Slim Settings row shared by Desktop and Server: title and hint on the left, menu on the right. */
+/** Slim Settings row shared by Desktop and Server: interface language and reply interval side by side. */
 export function InterfaceLanguageSettings({ server = false }: { server?: boolean }) {
   const text = useCatalog(shell).language
   return <section className="card settings-page interface-language-card" id="interface-settings" aria-labelledby="interface-settings-heading">
-    <div className="interface-language-copy">
-      <h2 id="interface-settings-heading">{text.label}</h2>
-      <p className="section-copy">{text.hint} {server ? text.serverSaved : text.desktopSaved}</p>
+    <div className="interface-setting">
+      <div className="interface-language-copy">
+        <h2 id="interface-settings-heading">{text.label}</h2>
+        <p className="section-copy">{text.hint} {server ? text.serverSaved : text.desktopSaved}</p>
+      </div>
+      <InterfaceLanguageField />
     </div>
-    <InterfaceLanguageField />
+    <ReplyIntervalSetting />
   </section>
 }

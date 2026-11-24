@@ -20,6 +20,7 @@ RECENT_LOG_ENTRY_BYTES = 16 * 1024
 RECENT_COMMAND_LIMIT = 5
 COMMAND_TERMINAL_FIELDS = frozenset({
     "command", "command_id", "command_prefix", "invoked_name", "outcome", "reason", "request_id", "source", "stage",
+    "username",
 })
 EVENT_CONTEXT_ATTRIBUTES = {
     "event_username": "username",
