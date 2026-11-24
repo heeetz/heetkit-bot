@@ -144,6 +144,8 @@ class AIGenerationRequest:
     content: str = field(repr=False)
     use_search: bool = False
     search_required: bool = False
+    # Salted hash of the viewer's Twitch id, never the id or login itself.
+    safety_identifier: str | None = field(default=None, repr=False)
 
     @property
     def search_instruction(self) -> str:

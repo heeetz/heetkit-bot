@@ -18,6 +18,7 @@ from twitch_fakes import established_socket
 from app.commands.registry import CommandDispatcher
 from app.config.settings import Settings, TwitchConfigurationError
 from app.services.facade import ApplicationServices
+from app.services.filter_manager import FilterEvaluation
 from app.runtime_state import RuntimeState
 from app.twitch.client import (
     CHAT_SCOPES,
@@ -207,6 +208,9 @@ class AllowingFilterManager:
     def filter_message(self, content: str) -> bool:
         self.messages.append(content)
         return True
+
+    def evaluate_message(self, content: str) -> FilterEvaluation:
+        return FilterEvaluation(True)
 
 
 class ReplyingDispatcher:

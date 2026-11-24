@@ -15,6 +15,7 @@ from app.commands.registry import CommandContext, CommandDispatcher, CommandRegi
 from app.custom_commands import CustomCommandStore
 from app.fun_settings import FunSettingsStore
 from app.runtime_state import RuntimeState
+from app.services.filter_manager import FilterManager
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownManager
@@ -47,7 +48,7 @@ def setup_dispatcher(tmp_path, *, tg_settings=None, **changes):
         output_limiter=limiter, custom_commands=store, runtime_state=state,
     )
     users = SimpleNamespace(recent_usernames=AsyncMock(return_value=["alice", "bob"]))
-    services = SimpleNamespace(users=users, settings=SimpleNamespace(
+    services = SimpleNamespace(users=users, filter_manager=FilterManager(), settings=SimpleNamespace(
         twitch_bot_user_id="bot", twitch_bot_username="bot"))
     return dispatcher, store, limiter, services
 
@@ -365,3 +366,17 @@ async def test_helper_invalid_interval_rejected_before_any_send(interval):
     with pytest.raises(ValueError, match="interval"):
         await context.reply_burst("Hello", 3, interval_ms=interval)
     respond.assert_not_awaited()
+
+
+@pytest.mark.parametrize("arguments", ["badword", "b.a.d.w.o.r.d", "bаdwоrd", "x"])
+@pytest.mark.parametrize("command", ["promo", "single"])
+async def test_custom_output_with_filtered_viewer_text_sends_nothing(tmp_path, command, arguments):
+    dispatcher, store, _, services = setup_dispatcher(tmp_path, responses=["Say {args}"], burst_allow_override=False)
+    raw = burst_payload(name="single", aliases=[], response_mode="single", responses=["Say {arg1}"])
+    del raw["burst_count"], raw["burst_allow_override"]
+    store.save(raw)
+    services.filter_manager.add_blocked_word("badword")
+    respond = AsyncMock()
+    assert await dispatcher.dispatch(message(f"!{command} {arguments}", respond, is_moderator=True), services)
+    sent = [call.args[0] for call in respond.await_args_list]
+    assert sent == ([] if arguments != "x" else ["Say x"] * (5 if command == "promo" else 1))

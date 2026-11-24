@@ -61,6 +61,7 @@ The local profile guard does not prevent duplicate bots on separate hosts or cop
 | `<database-name>.analytics.sqlite3` | Anonymous daily/hourly counters and coverage | 60 UTC calendar days |
 | `auth/twitchio_tokens.json` | Twitch access/refresh tokens | Until revoked/replaced/deleted |
 | `auth/server_credentials.json` | Browser-managed Server credentials/provider keys | Until removed/replaced |
+| `auth/ai_safety_salt` | Random secret for the OpenAI viewer safety identifier; not exported | Until deleted (a new one is created) |
 | OS keyring | Desktop secrets/provider keys | Separate from profile files |
 
 Server credential file permissions restrict access; they are not encryption at rest.
@@ -91,8 +92,11 @@ A Desktop custom OpenAI-compatible server receives the same context at the addre
 you enter; its address stays in `config/config.json` on that computer, its optional
 key in the OS keyring, and neither is exported.
 
-There is no separate attached Twitch viewer identity field, but text may identify
-people. The provider receives its key and normal network connection information.
+OpenAI requests from chat carry `safety_identifier`: a hash of the viewer's Twitch
+user ID keyed with the profile's `auth/ai_safety_salt`, so OpenAI can attribute
+abuse to that viewer instead of your account. It is stable per profile and cannot
+be reversed without the salt; the ID and login are never sent. Other providers get
+no viewer identity field, but text may identify people. The provider receives its key and normal network connection information.
 OpenAI requests use `store: false` without server conversation history. Provider
 retention and deletion terms remain independent of local controls.
 See [AI setup](ai-setup.md#thinking-search-and-fallback-boundaries).

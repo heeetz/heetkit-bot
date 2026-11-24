@@ -129,6 +129,7 @@ def build_application(settings: Settings) -> Application:
         settings,
         runtime_state=runtime_state,
         filter_manager=filter_manager,
+        safety_salt_path=paths.auth / "ai_safety_salt",
     )
     registry = CommandRegistry()
     fun_settings = FunSettingsStore(config)

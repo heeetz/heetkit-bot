@@ -907,7 +907,7 @@ async def test_concurrent_custom_alias_bursts_link_each_response_without_double_
             return SimpleNamespace(sent=True, id=f"twitch-{index}-{asyncio.current_task().get_name()}")
         message = IncomingChatMessage("channel", f"!{name}", ChatAuthor(str(index), f"viewer{index}",
                                       is_moderator=True), respond, message_id=f"input-{index}")
-        await dispatcher.dispatch(message, SimpleNamespace())
+        await dispatcher.dispatch(message, SimpleNamespace(filter_manager=FilterManager()))
 
     with caplog.at_level(logging.INFO, logger="tests.commands"):
         await asyncio.gather(run(1, "hi"), run(2, "greet"))
@@ -959,13 +959,13 @@ async def test_limiter_and_dispatch_decisions_are_explicit_and_silent(caplog, tm
     dispatcher = build_dispatcher(registry, runtime_state=state, output_limiter=limiter)
     transport = FakeChatTransport("!c")
     with caplog.at_level(logging.INFO, logger="tests.commands"):
-        await dispatcher.dispatch(transport.message, SimpleNamespace())
+        await dispatcher.dispatch(transport.message, SimpleNamespace(filter_manager=FilterManager()))
         state.apply_command_settings("check", enabled=False)
-        await dispatcher.dispatch(transport.message, SimpleNamespace())
+        await dispatcher.dispatch(transport.message, SimpleNamespace(filter_manager=FilterManager()))
         state.apply_command_settings("check", enabled=True)
         transport.message = replace(transport.message, author=replace(transport.message.author, is_moderator=True))
-        await dispatcher.dispatch(transport.message, SimpleNamespace())
-        await dispatcher.dispatch(transport.message, SimpleNamespace())
+        await dispatcher.dispatch(transport.message, SimpleNamespace(filter_manager=FilterManager()))
+        await dispatcher.dispatch(transport.message, SimpleNamespace(filter_manager=FilterManager()))
     decisions = [record.event_outcome for record in caplog.records
                  if getattr(record, "event_kind", None) == "command.outcome"]
     assert decisions == ["permissions", "disabled"]
@@ -1005,7 +1005,7 @@ async def test_custom_delivery_keeps_templates_and_burst_path(tmp_path, mode, se
     message = replace(transport.message, message_id="incoming", respond_in_thread=thread)
     dispatcher = CommandDispatcher(CommandRegistry(), CooldownManager(), logging.getLogger(__name__), "!",
                                    custom_commands=store)
-    assert await dispatcher.dispatch(message, SimpleNamespace())
+    assert await dispatcher.dispatch(message, SimpleNamespace(filter_manager=FilterManager()))
     rendered = "Hi @viewer, Alice!"
     if mode == "burst":
         assert transport.replies == [rendered, rendered]
