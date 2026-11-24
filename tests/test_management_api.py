@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import socket
 import ssl
 import time
@@ -1231,7 +1232,7 @@ async def test_remembered_session_survives_restart_slides_and_ends_with_the_toke
     assert status == 200 and remembered["expires_in"] == 30 * 86400 and tab["expires_in"] == 3600
     stored = json.loads(server.sessions_file.read_text())
     assert remembered["token"] not in json.dumps(stored) and len(stored["sessions"]) == 1
-    assert server.sessions_file.stat().st_mode & 0o077 == 0
+    assert os.name != "posix" or server.sessions_file.stat().st_mode & 0o077 == 0
     browser = {"Authorization": "Bearer " + remembered["token"]}
     digest = hashlib.sha256(remembered["token"].encode()).digest()
     # Use after more than a day slides the expiry forward and saves it.
