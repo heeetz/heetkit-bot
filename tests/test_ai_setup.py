@@ -308,3 +308,30 @@ async def test_legacy_deepseek_keeps_search_off_and_legacy_gemini_reports_its_ac
         assert not effective_ai_setup(Settings(gemini_model="manual-unknown")).primary.search
     finally:
         await service.aclose()
+
+
+async def test_openai_receives_stable_salted_viewer_identifier_never_the_id(tmp_path):
+    salt = tmp_path / "auth" / "ai_safety_salt"
+
+    def service():
+        built = SharedAIService(Settings(ai_provider="openai", openai_api_key="PRIVATE-KEY",
+            ai_setup=AISetup(AIModelSelection("openai", "gpt-6-luna", "none"))), safety_salt_path=salt)
+        built._providers["openai"]._http_json = AsyncMock(return_value=(200, {
+            "model": "gpt-6-luna", "status": "completed", "output": [{"type": "message", "role": "assistant", "status": "completed", "content": [
+                {"type": "output_text", "text": "Answer.", "annotations": []}]}]}))
+        return built
+
+    async def identifier(built, user_id):
+        assert (await built.generate_reply("hello", user_id)).is_available
+        payload = built._providers["openai"]._http_json.await_args.kwargs["json"]
+        assert not user_id or user_id not in str(payload)
+        return payload.get("safety_identifier")
+
+    first = service()
+    viewer = await identifier(first, "123456")
+    assert len(viewer) == 32 and viewer == await identifier(first, "123456")
+    assert viewer != await identifier(first, "654321")
+    assert await identifier(service(), "123456") == viewer  # Same profile salt after a restart.
+    assert await identifier(first, "") is None  # Playground has no viewer.
+    salt.write_bytes(b"\0" * 32)
+    assert await identifier(service(), "123456") != viewer

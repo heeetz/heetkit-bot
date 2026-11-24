@@ -72,6 +72,8 @@ def register_ai_commands(registry: CommandRegistry) -> None:
         if not reply.is_available or not reply.text:
             if status == "output_blocked":
                 context.skip("filters", stage="output_filter")
+                if reply.matched_category == "links":
+                    operator_event(context.logger, "command.outcome", "filters", reason="foreign_link")
             elif status in {"provider_unavailable", "question_too_long"}:
                 context.skip("ai_unavailable" if status == "provider_unavailable" else "invalid_arguments")
             else:

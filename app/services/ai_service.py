@@ -1,10 +1,16 @@
 """Shared AI generation policy behind the command-facing AIService contract."""
 
 import asyncio
+import hashlib
+import hmac
 import logging
 import re
+import secrets
+import unicodedata
 from dataclasses import replace
+from pathlib import Path
 from re import Pattern
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -15,6 +21,7 @@ from app.config.personalities import (
     build_ai_system_instruction as build_system_instruction,
 )
 from app.config.settings import Settings
+from app.config_file import write_atomic
 from app.runtime_state import RuntimeState
 from app.services.ai_provider import AIGenerationRequest, AIProvider, AIModelDiscoveryError
 from app.services.ai_request_policy import AIRequestPolicy
@@ -36,6 +43,57 @@ _EXPLICIT_SEARCH_REQUEST = re.compile(
 )
 
 
+SAFETY_SALT_BYTES = 32
+# What Twitch chat would turn into a link: a scheme URL or a bare host whose last
+# label is a country code or a common generic TLD.
+# shortcut: a fixed TLD list, not the full public suffix list; extend it if links slip through.
+_LINK_HOST = re.compile(
+    r"(?<![\w.-])((?:[^\W_](?:[\w-]{0,61}[^\W_])?\.)+"
+    r"(?:[a-z]{2}|com|net|org|info|biz|xyz|app|dev|site|online|top|shop|store|club|live|link|"
+    r"click|fun|pro|art|blog|cloud|page|win|bet|vip|icu|tech|space|website|news|stream|games?|"
+    r"lol|wtf|porn|sex|xxx|onion|edu|gov|cam|chat|social|media|digital|world|today|life|email|"
+    r"one|best|buzz|monster|rest|bar|cfd|sbs|ltd|group|agency|network|zone|tools|xn--[a-z0-9-]+))"
+    r"(?![\w-])",
+    re.IGNORECASE,
+)
+_SCHEME_URL = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
+
+
+def _host_key(host: str) -> str:
+    host = host.lower().rstrip(".")
+    return host[4:] if host.startswith("www.") else host
+
+
+def has_foreign_link(text: str, sources) -> bool:
+    """Whether the answer links anywhere other than the hosts of its search sources."""
+    allowed = {_host_key(urlsplit(source.url).hostname or "") for source in sources}
+    text = unicodedata.normalize("NFKC", text)
+    hosts = [match.group(1) for match in _LINK_HOST.finditer(text)]
+    hosts += [urlsplit(match.group()).hostname or "" for match in _SCHEME_URL.finditer(text)]
+    return any(_host_key(host) not in allowed for host in hosts)
+
+
+def load_safety_salt(path: Path | None) -> bytes:
+    """The profile's secret salt for provider safety identifiers, created on first use."""
+    if path is None:
+        return secrets.token_bytes(SAFETY_SALT_BYTES)
+    try:
+        stored = path.read_bytes()
+    except FileNotFoundError:
+        stored = b""
+    except OSError:
+        logger.warning("AI safety salt is unreadable; identifiers last for this run only")
+        return secrets.token_bytes(SAFETY_SALT_BYTES)
+    if len(stored) == SAFETY_SALT_BYTES:
+        return stored
+    salt = secrets.token_bytes(SAFETY_SALT_BYTES)
+    try:
+        write_atomic(path, salt)
+    except OSError:
+        logger.warning("AI safety salt could not be saved; identifiers last for this run only")
+    return salt
+
+
 class SharedAIService:
     """Assemble instructions/context and check full output for every provider."""
 
@@ -46,8 +104,11 @@ class SharedAIService:
         filter_manager: FilterManager | None = None,
         *,
         provider: AIProvider | None = None,
+        safety_salt_path: Path | None = None,
     ):
         self.settings = settings
+        self._safety_salt_path = safety_salt_path
+        self._safety_salt: bytes | None = None
         self.runtime_state = runtime_state
         self.filter_manager = filter_manager
         if provider is None:
@@ -278,6 +339,7 @@ class SharedAIService:
                     content=self._build_request_content(prompt, memory_context, stream_category),
                     use_search=use_search,
                     search_required=use_search and explicit_lookup,
+                    safety_identifier=self._safety_identifier(user_id),
                 )
                 max_length = setup.max_answer_length
                 with operator_event_scope(requested_model=options.model, attempt=1, fallback=False):
@@ -321,6 +383,10 @@ class SharedAIService:
                     if blocked is not None:
                         logger.info("AI response blocked by local response filter")
                         return finish(blocked)
+                    # A viewer must not make the bot post a link it did not get from search.
+                    if has_foreign_link(original_text, response.sources):
+                        logger.info("AI response blocked: link outside search sources")
+                        return finish(AIReply("", False, "output_blocked", "protected_policy", "links"))
                     # Truncation could separate required citations from their claims.
                     if response.inline_citations and len(original_text) > max_length:
                         return finish(AIReply("", False, "attribution_unavailable"))
@@ -356,6 +422,14 @@ class SharedAIService:
             + "\n\nCurrent user request (the task to answer; higher priority than contextual metadata):\n"
             + prompt
         )
+
+    def _safety_identifier(self, user_id: str) -> str | None:
+        """A stable pseudonym so a provider attributes abuse to the viewer, not the owner."""
+        if not user_id:
+            return None
+        if self._safety_salt is None:
+            self._safety_salt = load_safety_salt(self._safety_salt_path)
+        return hmac.new(self._safety_salt, user_id.encode(), hashlib.sha256).hexdigest()[:32]
 
     def _contains_blocked_response_content(self, text: str) -> bool:
         return self._blocked_response_reply(text) is not None

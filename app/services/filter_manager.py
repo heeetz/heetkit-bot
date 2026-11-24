@@ -7,6 +7,8 @@ from typing import List
 
 import regex as regex_engine
 
+from app.utils.text import fold_for_filter
+
 
 REGEX_MATCH_BUDGET_SECONDS = 0.05
 _REGEX_TIMEOUT_ERROR = getattr(regex_engine, "TimeoutError", TimeoutError)
@@ -119,35 +121,37 @@ class FilterManager:
 
     def evaluate_message(self, message_content: str) -> FilterEvaluation:
         """Evaluate the same rules used by chat and AI, retaining match details."""
-        # Check for blocked words - use word boundary matching
-        for word in self._blocked_words:
-            # Use word boundary matching to avoid partial matches
-            pattern = r'\b' + re.escape(word) + r'\b'
-            flags = re.IGNORECASE  # Always case insensitive for words
-            if re.search(pattern, message_content, flags):
-                return FilterEvaluation(False, "words", word)
-        
-        # Check for blocked phrases - simple substring matching, case-insensitive by default
-        for phrase in self._blocked_phrases:
-            flags = re.IGNORECASE  # Always case insensitive for phrases
-            if re.search(re.escape(phrase), message_content, flags):
-                return FilterEvaluation(False, "phrases", phrase)
-        
+        # Every rule is checked against the raw text and against a folded skeleton
+        # (look-alike letters, invisible characters, "w.o.r.d"), so evasion only
+        # adds matches and never removes one.
+        folded = fold_for_filter(message_content)
+
+        # Words use word boundaries to avoid partial matches; phrases are substrings.
+        for category, rules, template in (("words", self._blocked_words, r"\b{}\b"),
+                                          ("phrases", self._blocked_phrases, "{}")):
+            for rule in rules:
+                for text, value in ((message_content, rule), (folded, fold_for_filter(rule))):
+                    if value and re.search(template.format(re.escape(value)), text, re.IGNORECASE):
+                        return FilterEvaluation(False, category, rule)
+
         # Configured patterns are compiled when rules are loaded or edited so
         # the chat path only performs bounded searches. One deadline is shared
         # across every configured pattern for this message.
         deadline = time.monotonic() + REGEX_MATCH_BUDGET_SECONDS
         for index, compiled in enumerate(self._compiled_patterns):
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return FilterEvaluation(False, "patterns", timed_out=True)
             rule = self._blocked_patterns[index].pattern
-            try:
-                if compiled.search(message_content, timeout=remaining):
-                    return FilterEvaluation(False, "patterns", rule)
-            except _REGEX_TIMEOUT_ERROR:
-                # A timeout is fail-closed: a message that cannot be checked
-                # within the configured budget must not pass moderation.
-                return FilterEvaluation(False, "patterns", rule, timed_out=True)
+            # The skeleton is casefolded, so case-sensitive rules match the raw text only.
+            texts = (message_content,) if self._blocked_patterns[index].case_sensitive else (message_content, folded)
+            for text in texts:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return FilterEvaluation(False, "patterns", timed_out=True)
+                try:
+                    if compiled.search(text, timeout=remaining):
+                        return FilterEvaluation(False, "patterns", rule)
+                except _REGEX_TIMEOUT_ERROR:
+                    # A timeout is fail-closed: a message that cannot be checked
+                    # within the configured budget must not pass moderation.
+                    return FilterEvaluation(False, "patterns", rule, timed_out=True)
 
         return FilterEvaluation(True)

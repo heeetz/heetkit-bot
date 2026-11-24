@@ -191,6 +191,8 @@ class OpenAIProvider(HTTPProvider):
             "max_output_tokens": 1024 if options.thinking == "none" else 4096,
             **native_thinking_parameters("openai", model, options.thinking),
         }
+        if request.safety_identifier:
+            payload["safety_identifier"] = request.safety_identifier
         if request.use_search:
             payload["instructions"] += (
                 " Keep searched answers concise and leave room for the required inline citation URLs."
