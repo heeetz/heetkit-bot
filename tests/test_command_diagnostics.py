@@ -109,8 +109,10 @@ async def test_received_before_presence_wait_and_linked_to_confirmed_reply(chat)
 
 @pytest.mark.parametrize(("mode", "reason", "ai_status", "sends"), [
     ("input", "filters", None, {}),
+    ("obfuscated_input", "filters", None, {}),
     ("user", "ai_user_blocked", None, {}),
     ("output", "filters", "output_blocked", {}),
+    ("foreign_link", "filters", "output_blocked", {}),
     ("timeout", "provider_failure", "timeout", {}),
     ("provider_error", "provider_failure", "api_error", {}),
     ("limit", "output_limiter", "success", {"limited": 1}),
@@ -119,14 +121,17 @@ async def test_received_before_presence_wait_and_linked_to_confirmed_reply(chat)
     ("cooldown", "cooldown", None, {}),
 ])
 async def test_ask_terminal_paths_through_twitch(chat, mode, reason, ai_status, sends):
-    text = "!ask Give me an example"
+    # Cyrillic "е"/"а" and separators must not slip past the input filter.
+    text = "!ask Give me an е.x.а.m.p.l.e" if mode == "obfuscated_input" else "!ask Give me an example"
     filters = chat.services.filter_manager
-    if mode == "input":
+    if mode in {"input", "obfuscated_input"}:
         filters.add_blocked_word("example")
     elif mode == "user":
         chat.services.ai_user_blocks.block("privateviewer", "123")
     elif mode == "output":
         filters.add_blocked_word("answer")
+    elif mode == "foreign_link":  # Without search results no link may be posted.
+        chat.provider.generate.return_value = AIProviderResponse("Sure, visit https://synthetic.test/x")
     elif mode == "timeout":
         chat.provider.generate.side_effect = TimeoutError("PRIVATE-PROVIDER-ERROR")
     elif mode == "provider_error":
@@ -148,13 +153,13 @@ async def test_ask_terminal_paths_through_twitch(chat, mode, reason, ai_status, 
     assert row["command"] == "ask"
     assert row["reason"] == reason and row["ai_status"] == ai_status and row["sends"] == sends
     assert ("PRIVATE" not in str(row) and "example" not in str(row))
-    if mode in {"input", "user", "cooldown"}:
+    if mode in {"input", "obfuscated_input", "user", "cooldown"}:
         assert row["handler_ms"] is None
         chat.provider.generate.assert_not_awaited()
     else:
         assert row["handler_ms"] is not None
         chat.provider.generate.assert_awaited_once()
-    if mode == "input":
+    if mode in {"input", "obfuscated_input"}:
         assert row["input_block"] == "content_filter" and row["db_wait_ms"] is None
 
 

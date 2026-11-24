@@ -56,6 +56,8 @@ from an allowed account. Check that the bot replies with your Twitch name.
 Expand **Available variables** for templates. Each reply can use up to 450
 UTF-8 bytes. A Burst renders the template once and repeats the same result.
 Use `{{` and `}}` for literal braces; migrated community messages keep literal text.
+The rendered reply is checked against your [bot filters](#filters) before sending;
+a reply that matches one, for example through viewer arguments, is not sent.
 
 | Variable | What HeetKit inserts |
 | --- | --- |
@@ -277,6 +279,11 @@ with empty rules. Filters control the bot's behavior in chat.
 3. Enter one rule per line. HeetKit trims spaces at the ends of a rule.
    Blank lines and lines that start with `#` are ignored. Commas stay in the rule.
 4. Select **Save filters**. If a rule fails validation, correct the line shown.
+
+Rules also match common evasions: Latin/Cyrillic look-alike letters, styled or
+full-width letters, invisible characters and spaced-out letters such as `w.o.r.d`.
+Case-sensitive regex rules match only the original text. Rare false positives are
+possible where a word in one alphabet looks like a blocked word in another.
 
 **Check:** Use [Filter Tester](#test-filters-locally) with a sample that
 should match and one that should pass.

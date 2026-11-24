@@ -12,6 +12,7 @@ from app.bot_runtime import BotRuntime
 from app.config.settings import Settings
 from app.operation_policy import OperationPolicy
 from app.runtime_state import RuntimeState
+from app.services.filter_manager import FilterManager
 from app.commands.registry import CommandDispatcher, CommandRegistry
 from app.custom_commands import CustomCommandStore
 from app.twitch.events import ChatAuthor, IncomingChatMessage
@@ -62,7 +63,7 @@ async def rig(tmp_path, monkeypatch):
     app = SimpleNamespace(settings=Settings(_env_file=None, twitch_client_id="synthetic",
         twitch_client_secret="synthetic", twitch_bot_username="testbot", twitch_bot_user_id="100",
         twitch_channel="testchannel", twitch_channel_user_id="200"),
-        services=SimpleNamespace(runtime_state=state, twitch=SimpleNamespace(
+        services=SimpleNamespace(runtime_state=state, filter_manager=FilterManager(), twitch=SimpleNamespace(
             get_broadcaster_live=live, close_stream_monitor=close, stop_chat=lambda: None)),
         dispatcher=object(), startup=noop, shutdown=noop)
     monkeypatch.setattr("app.bot_runtime.run_twitch_bot", session)

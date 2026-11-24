@@ -9,6 +9,7 @@ import pytest
 from app.commands.registry import CommandDispatcher, CommandRegistry
 from app.custom_commands import CustomCommandStore, render_response
 from app.services.facade import ApplicationServices
+from app.services.filter_manager import FilterManager
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.utils.cooldown import CooldownManager
 from app.utils.output_limiter import OutputLimiter
@@ -24,7 +25,7 @@ async def test_manual_broadcaster_using_bot_account_executes_custom_alias(tmp_pa
         replies.append(content)
     message = IncomingChatMessage("channel", "!hello", ChatAuthor("100", "broadcaster", is_broadcaster=True), respond)
     dispatcher = CommandDispatcher(CommandRegistry(), CooldownManager(), logging.getLogger(__name__), "!", custom_commands=store)
-    assert await dispatcher.dispatch(message, SimpleNamespace(settings=SimpleNamespace(twitch_bot_user_id="100")))
+    assert await dispatcher.dispatch(message, SimpleNamespace(filter_manager=FilterManager(), settings=SimpleNamespace(twitch_bot_user_id="100")))
     assert replies == ["Hello broadcaster"]
 
 
@@ -78,7 +79,7 @@ async def test_legacy_tg_converts_once_to_an_ordinary_burst_command(tmp_path, ca
         replies.append(content)
     message = IncomingChatMessage("channel", "!community 2", ChatAuthor("100", "owner", is_broadcaster=True), respond)
     dispatcher = CommandDispatcher(CommandRegistry(), CooldownManager(), logging.getLogger(__name__), "!", custom_commands=restarted)
-    assert await dispatcher.dispatch(message, SimpleNamespace(settings=SimpleNamespace(twitch_bot_user_id="200")))
+    assert await dispatcher.dispatch(message, SimpleNamespace(filter_manager=FilterManager(), settings=SimpleNamespace(twitch_bot_user_id="200")))
     assert replies == ([expected_text] * 2 if command.enabled else [])
 
 
@@ -196,7 +197,7 @@ async def test_dispatch_selects_from_entire_thirty_template_pool(tmp_path, monke
     dispatcher = CommandDispatcher(CommandRegistry(), CooldownManager(), logging.getLogger(__name__), "!",
                                    custom_commands=store)
     message = IncomingChatMessage("channel", "!hello", ChatAuthor("viewer-id", "viewer"), respond)
-    assert await dispatcher.dispatch(message, SimpleNamespace(settings=SimpleNamespace(twitch_bot_user_id="bot-id")))
+    assert await dispatcher.dispatch(message, SimpleNamespace(filter_manager=FilterManager(), settings=SimpleNamespace(twitch_bot_user_id="bot-id")))
     assert len(choices) == len(replies) == 1
     assert replies[0].startswith("viewer 😀")
     assert len(replies[0].encode("utf-8")) <= 450
@@ -297,7 +298,7 @@ async def test_dispatch_alias_permission_cooldown_random_response_and_output_lim
         async def recent_usernames(self, **kwargs):
             assert kwargs["exclude_user_ids"] == ("viewer-id", "bot-id")
             return ["alice"]
-    services = cast(ApplicationServices, SimpleNamespace(users=Users(), settings=SimpleNamespace(
+    services = cast(ApplicationServices, SimpleNamespace(users=Users(), filter_manager=FilterManager(), settings=SimpleNamespace(
         twitch_bot_user_id="bot-id", twitch_bot_username="bot")))
     dispatcher = CommandDispatcher(registry, CooldownManager(), logging.getLogger(__name__), "!",
                                    output_limiter=OutputLimiter(interval=0), custom_commands=store)

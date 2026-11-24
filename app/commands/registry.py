@@ -424,6 +424,14 @@ class CommandDispatcher:
             except Exception:
                 self._logger.exception("Could not load recent chatters for custom command")
         response = render_response(command, arguments, sender, random_user, template=template)
+        # Viewer text substituted into {args}/{argN}/{target} only passed the ingress
+        # filter as a whole message; check what the bot itself would post.
+        match = context.services.filter_manager.evaluate_message(response)
+        if not match.allowed:
+            reason = "custom_output_filter_timeout" if match.timed_out else "custom_output_blocked"
+            context.skip(reason, stage="output_filter")
+            operator_event(self._logger, "command.outcome", "filters", reason=reason)
+            return
         if response:
             if command.response_mode == "burst":
                 await context.reply_burst(response, count, interval_ms=command.burst_interval_ms)

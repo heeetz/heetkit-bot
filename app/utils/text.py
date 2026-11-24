@@ -100,3 +100,33 @@ def format_duration(total_seconds: int) -> str:
     if minutes:
         return f"{minutes}m {seconds:02}s"
     return f"{seconds}s"
+
+
+# Cyrillic and Greek letters that read as a Latin letter (after casefold). Folding both
+# the rule and the message to this skeleton makes "слово" typed with Latin "c"/"o"
+# match a blocked "слово", and the other way round.
+_CONFUSABLES = str.maketrans({
+    "а": "a", "в": "b", "е": "e", "ё": "e", "к": "k", "м": "m", "н": "h", "о": "o", "р": "p",
+    "с": "c", "т": "t", "у": "y", "х": "x", "і": "i", "ї": "i", "ј": "j", "ѕ": "s", "ԁ": "d",
+    "ү": "y", "α": "a", "ε": "e", "ι": "i", "κ": "k", "ν": "v", "ο": "o", "ρ": "p", "τ": "t",
+    "υ": "u", "χ": "x",
+})
+# Single letters joined by separators: "w.o.r.d", "с л о в о", "w_o-r_d".
+_SPACED_LETTERS = re.compile(r"(?<![^\W_])[^\W_](?:[\W_]{1,3}[^\W_](?![^\W_]))+")
+_SEPARATORS = re.compile(r"[\W_]+")
+
+
+def fold_for_filter(value: str) -> str:
+    """A matching skeleton that undoes common filter evasion; never shown or sent.
+
+    NFKC folds styled and full-width letters, invisible and combining characters are
+    dropped, case and look-alike letters are folded, and spaced-out letters are joined.
+    """
+    decomposed = unicodedata.normalize("NFD", unicodedata.normalize("NFKC", value))
+    visible = "".join(
+        character for character in decomposed
+        if character.isspace() or unicodedata.category(character) not in {"Cf", "Cc", "Mn", "Me"}
+    )
+    folded = unicodedata.normalize("NFC", visible).casefold().translate(_CONFUSABLES)
+    joined = _SPACED_LETTERS.sub(lambda match: _SEPARATORS.sub("", match.group()), folded)
+    return " ".join(joined.split())

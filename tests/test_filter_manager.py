@@ -36,11 +36,12 @@ def test_regex_budget_is_shared_across_patterns(monkeypatch: pytest.MonkeyPatch)
             return None
 
     manager._compiled_patterns = [NonMatchingPattern(), NonMatchingPattern()]
-    clock = iter((100.0, 100.01, 100.02))
+    clock = iter((100.0, 100.01, 100.02, 100.03, 100.04))
     monkeypatch.setattr(filter_manager_module.time, "monotonic", lambda: next(clock))
 
     assert not manager.contains_blocked_content("ordinary chat")
-    assert calls == pytest.approx([0.04, 0.03])
+    # Raw and folded text of each pattern share the one deadline.
+    assert calls == pytest.approx([0.04, 0.03, 0.02, 0.01])
 
 
 @pytest.mark.parametrize(
@@ -53,6 +54,15 @@ def test_regex_budget_is_shared_across_patterns(monkeypatch: pytest.MonkeyPatch)
         ("Первая строка\nПЛОХАЯ ФРАЗА\nтретья", "phrases", "плохая фраза"),
         ("Це НЕБАЖАНА ФРАЗА", "phrases", "небажана фраза"),
         ("prefix BAD123 suffix", "patterns", r"bad\d+"),
+        # Evasion: separators, Latin/Cyrillic look-alikes, invisible and styled letters.
+        ("ну т.е.с.т же", "words", "тест"),
+        ("т е с т", "words", "тест"),
+        ("тeст", "words", "тест"),
+        ("a\u200blpha", "words", "alpha"),
+        ("\U0001d400\U0001d40b\U0001d40f\U0001d407\U0001d400", "words", "alpha"),
+        ("FREE FOLLOWЕRS", "phrases", "free followers"),
+        ("prefix ВАD42", "patterns", r"bad\d+"),
+        ("Тесто и альфа-версия", None, None),
         ("Alphabet and tests are harmless", None, None),
         ("", None, None),
     ],

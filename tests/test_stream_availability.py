@@ -13,6 +13,7 @@ from app.custom_commands import CustomCommandStore
 from app.management import ApplicationManagement
 from app.runtime_state import RuntimeState
 from app.services.ai_request_policy import PolicyDecision
+from app.services.filter_manager import FilterManager
 from app.twitch.events import ChatAuthor, IncomingChatMessage
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownManager, CooldownPolicy
@@ -39,7 +40,7 @@ def rig(tmp_path):
     state.bind_custom_commands(custom)
     saved = custom.save({"name": "hello", "enabled": True, "responses": ["hello"],
         "permission": "USER", "per_user_seconds": 0, "global_seconds": 30, "aliases": ["hi"]})
-    services = SimpleNamespace(runtime_state=state, custom_commands=custom,
+    services = SimpleNamespace(runtime_state=state, custom_commands=custom, filter_manager=FilterManager(),
         settings=SimpleNamespace(twitch_bot_user_id="100", command_prefix="!"),
         ai=SimpleNamespace(is_available=True, generate_reply=AsyncMock(return_value=SimpleNamespace(is_available=True, text="AI reply"))),
         ai_request_policy=SimpleNamespace(check=Mock(return_value=PolicyDecision.ALLOW)),

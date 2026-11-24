@@ -168,6 +168,9 @@ request leaves the fallback unused.
   the required citation links inline on both surfaces and withholds answers that
   exceed the saved length limit with citations included. Twitch channel link
   moderation applies. HeetKit leaves out the appended URL list.
+- An AI answer that contains a link (a URL or a bare domain) to a site that is not
+  one of its search sources is not sent; Activity shows reason `foreign_link`.
+  Without search, any link blocks the answer.
   [Twitch link moderation](https://help.twitch.tv/s/article/how-to-manage-harassment-in-chat)
 - Gemini can run Google Search, but Twitch and the current Playground lack the
   required Google Search Suggestions display. HeetKit withholds grounded replies
