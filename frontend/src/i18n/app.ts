@@ -48,7 +48,7 @@ export const shell = defineCatalog({
       title: 'Sign in to server',
       helpLabel: 'About signing in',
       help: [
-        'The administrator token is in the management_token file on the server (by default ~/.config/heetkit-secrets).',
+        'Forgot the administrator token? On the server, run bash scripts/heetkit-token.sh show, or reset to issue a new one.',
         'Without Remember me, the session ends after one hour or when this tab closes.',
         'Remember me keeps you signed in on this device for 30 days after the last visit, even across server restarts. Do not turn it on for a shared computer.',
         'Sign out on all devices, or a new token, ends every session.',
@@ -131,7 +131,7 @@ export const shell = defineCatalog({
       title: 'Вхід на сервер',
       helpLabel: 'Про вхід',
       help: [
-        'Токен адміністратора лежить у файлі management_token на сервері (типово ~/.config/heetkit-secrets).',
+        'Забули токен адміністратора? На сервері виконайте bash scripts/heetkit-token.sh show, або reset, щоб видати новий.',
         'Без «Запам\'ятати» сесія завершується через годину або після закриття вкладки.',
         '«Запам\'ятати» зберігає вхід на цьому пристрої 30 днів після останнього візиту, навіть після перезапуску сервера. Не вмикайте на спільному комп\'ютері.',
         '«Вийти на всіх пристроях» або новий токен завершують усі сесії.',
@@ -214,7 +214,7 @@ export const shell = defineCatalog({
       title: 'Вход на сервер',
       helpLabel: 'О входе',
       help: [
-        'Токен администратора лежит в файле management_token на сервере (по умолчанию ~/.config/heetkit-secrets).',
+        'Забыли токен администратора? На сервере выполните bash scripts/heetkit-token.sh show, или reset, чтобы выдать новый.',
         'Без «Запомнить» сессия завершается через час или после закрытия вкладки.',
         '«Запомнить» сохраняет вход на этом устройстве 30 дней после последнего визита, даже после перезапуска сервера. Не включайте на общем компьютере.',
         '«Выйти на всех устройствах» или новый токен завершают все сессии.',
