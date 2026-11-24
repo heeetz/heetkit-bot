@@ -64,7 +64,7 @@ a reply that matches one, for example through viewer arguments, is not sent.
 | `{sender}` | The chatter who ran the command. |
 | `{target}` | The first argument, or the sender if there is no argument. |
 | `{args}` | All arguments. |
-| `{arg1}` through `{arg9}` | Individual arguments. A missing argument becomes blank. See **Advanced variables**. |
+| `{arg1}` through `{arg9}` | Individual arguments. A missing argument becomes blank. |
 | `{random_user}` | A chatter seen in the last 30 minutes, or the sender if there is none. |
 
 Use **Edit** to change a saved command. **Save command** saves edits across all

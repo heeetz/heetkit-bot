@@ -200,6 +200,19 @@ function customDraftFromCommand(command: CustomCommandInfo): CustomDraft {
   }
 }
 
+type VariableHelpKey = 'variableSender' | 'variableTarget' | 'variableArgs' | 'variableArgN' | 'variableRandomUser'
+
+const variableHelp: Record<string, VariableHelpKey> = { sender: 'variableSender', target: 'variableTarget', args: 'variableArgs', random_user: 'variableRandomUser' }
+
+// Positional {argN} variables share one row so the list stays short.
+function variableRows(variables: string[]): [string, VariableHelpKey][] {
+  const names = variables.map((variable) => variable.replace(/^\{|\}$/g, ''))
+  const positional = names.filter((name) => /^arg\d+$/.test(name))
+  const rows: [string, VariableHelpKey][] = names.filter((name) => variableHelp[name]).map((name) => [`{${name}}`, variableHelp[name]])
+  if (positional.length) rows.splice(rows.findIndex(([name]) => name === '{args}') + 1, 0, [`{${positional[0]}}…{${positional[positional.length - 1]}}`, 'variableArgN'])
+  return rows
+}
+
 const burstPermissions = ['MODERATOR', 'BROADCASTER']
 
 function parsedBurstCount(value: string): number | null {
@@ -962,6 +975,14 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
             </div>
             {customDraft.responseMode !== 'burst' && <SendAsField id="custom-send-as" value={customDraft.sendAs} onChange={(sendAs) => updateCustomDraft({ sendAs })} />}
           </div>
+          <details className="custom-variable-help">
+            <summary>{text.variablesTitle}</summary>
+            <p>{text.variablesHint}</p>
+            <table className="custom-variable-table">
+              <thead><tr><th scope="col">{text.variableColumn}</th><th scope="col">{text.meaningColumn}</th></tr></thead>
+              <tbody>{variableRows(customData.variables).map(([name, help]) => <tr key={name}><th scope="row"><code>{name}</code></th><td>{text[help]}</td></tr>)}</tbody>
+            </table>
+          </details>
         </div>
       },
       {

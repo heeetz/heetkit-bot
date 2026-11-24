@@ -92,6 +92,7 @@ export default function CommandRestrictions({ active, commands }: Props) {
   const [now, setNow] = useState(Date.now())
   const pendingChange = useRef(false)
   const loadRevision = useRef(0)
+  const panel = useRef<HTMLElement>(null)
   const commandChoices = (serverCommands ?? commands).filter((command) => command.id !== 'optout')
   const catalogRevision = JSON.stringify(commands)
   const commandLabels = useMemo(() => new Map(commandChoices.map((command) => [command.id, command.label])), [commandChoices])
@@ -133,7 +134,11 @@ export default function CommandRestrictions({ active, commands }: Props) {
 
   const filtered = items.filter((item) => `${item.username} ${item.twitch_user_id} ${item.channel_id} ${item.note} ${item.scope === 'global_ai' ? 'global AI all profile channels' : 'channel'} ${item.command_ids.map((id) => commandLabels.get(id) ?? id).join(' ')}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
   const newDraft = (): Draft => ({ username: '', allCommands: true, commandIds: [], expiryMode: 'permanent', duration: '86400', customDuration: '3600', localExpiry: '', note: '', scope: 'channel' })
-  const edit = (item: CommandRestriction) => setDraft({ id: item.id, username: item.username, allCommands: item.command_ids.length === 0, commandIds: [...item.command_ids], expiryMode: item.expires_at ? 'date' : 'permanent', duration: '86400', customDuration: '3600', localExpiry: localInputValue(item.expires_at), originalExpiry: item.expires_at, note: item.note, scope: item.scope ?? 'channel', channelId: item.channel_id, unresolved: item.identity_state === 'unresolved' || !item.twitch_user_id })
+  const edit = (item: CommandRestriction) => {
+    setDraft({ id: item.id, username: item.username, allCommands: item.command_ids.length === 0, commandIds: [...item.command_ids], expiryMode: item.expires_at ? 'date' : 'permanent', duration: '86400', customDuration: '3600', localExpiry: localInputValue(item.expires_at), originalExpiry: item.expires_at, note: item.note, scope: item.scope ?? 'channel', channelId: item.channel_id, unresolved: item.identity_state === 'unresolved' || !item.twitch_user_id })
+    // The editor opens at the top of the panel; bring it into view from long lists.
+    requestAnimationFrame(() => panel.current?.scrollIntoView({ block: 'start' }))
+  }
   const save = async () => {
     if (!draft || pendingChange.current) return
     pendingChange.current = true
@@ -174,7 +179,7 @@ export default function CommandRestrictions({ active, commands }: Props) {
     finally { pendingChange.current = false; setBusy(false) }
   }
 
-  return <section className="card command-editor-card restriction-panel" id="command-restrictions" aria-labelledby="restriction-title">
+  return <section ref={panel} className="card command-editor-card restriction-panel" id="command-restrictions" aria-labelledby="restriction-title">
     <div className="restriction-heading"><div className="settings-heading-with-help"><h2 id="restriction-title">{text.title}</h2><HelpTip label={text.helpLabel}>{text.help}</HelpTip></div>
       <button type="button" className="primary" disabled={busy || loading || channelId === undefined} onClick={() => { setError(''); setDraft(newDraft()) }}>{text.add}</button>
     </div>

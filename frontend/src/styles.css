@@ -32,7 +32,7 @@ button:disabled { cursor: not-allowed; opacity: .52; }
 
 .app-shell { height: 100vh; display: grid; grid-template-columns: 230px minmax(0, 1fr); overflow: hidden; background: var(--page); }
 .sidebar { position: sticky; top: 0; display: flex; flex-direction: column; min-width: 0; height: 100vh; padding: 16px 12px; overflow: hidden; border-right: 1px solid var(--separator); background: var(--panel); }
-.brand { display: flex; flex: 0 0 auto; align-items: center; gap: 12px; padding: 0 8px 16px; }
+.brand { display: flex; flex: 0 0 auto; align-items: center; gap: 12px; padding: 0 8px 16px; border: 0; color: inherit; background: none; text-align: left; cursor: pointer; }
 .brand-mark { width: 38px; height: 38px; border-radius: 11px; object-fit: cover; }
 .brand strong, .brand small { display: block; }
 .brand small { margin-top: 2px; color: var(--muted); font-size: 12px; }
@@ -42,7 +42,8 @@ nav button { border: 0; border-radius: 9px; padding: 9px 10px; text-align: left;
 nav button:hover, nav button.active { color: var(--text); background: var(--hover); }
 .nav-section { flex: 0 0 auto; }
 .nav-about { margin-top: auto; padding-top: 12px; }
-.nav-section > button { width: 100%; }
+.nav-section > button { display: flex; align-items: center; gap: var(--space-3); width: 100%; }
+.nav-icon { flex: 0 0 auto; }
 .sidebar-subnav { display: grid; gap: 2px; margin: 5px 0 4px 13px; padding: 0 0 0 9px; border-left: 1px solid var(--separator); list-style: none; }
 .sidebar-subnav[hidden] { display: none; }
 .sidebar-subnav button { width: 100%; padding: 7px 10px; font-size: 13px; line-height: 1.4; }
@@ -131,7 +132,7 @@ h1 { margin-bottom: 0; font-size: 28px; }
 .dashboard-quick-note { color: var(--muted); overflow-wrap: anywhere; }
 .dashboard-quick-ignore-row { display: flex; gap: 6px; }
 .dashboard-quick-ignore-row input { flex: 1 1 auto; }
-.dashboard-icon-button { display: inline-grid; flex: 0 0 38px; place-items: center; width: 38px; height: 38px; padding: 0; }
+button.dashboard-icon-button { display: inline-grid; flex: 0 0 38px; place-items: center; width: 38px; height: 38px; min-height: 0; padding: 0; }
 .dashboard-card-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; }
 .dashboard-card-heading h2 { margin: 0; font-size: 18px; }
 .dashboard-card-heading .dashboard-label { margin-bottom: 0; color: var(--text); font-size: 18px; }
@@ -463,13 +464,13 @@ td { color: var(--text); }
 .custom-variable-help { margin-top: 20px; padding: 14px; border: 1px solid var(--separator); border-radius: 10px; background: var(--page); }
 .custom-variable-help > summary { cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 700; }
 .custom-variable-help > p { margin: 5px 0 12px; color: var(--muted); font-size: 13px; }
-.custom-variable-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr)); gap: 8px 16px; }
-.custom-variable-list > div { display: flex; align-items: baseline; gap: 8px; min-width: 0; color: var(--muted); font-size: 13px; }
-.custom-variable-list code { flex: 0 0 auto; color: var(--text); }
-.custom-advanced-variables { margin-top: 12px; color: var(--muted); font-size: 13px; }
-.custom-advanced-variables summary { cursor: pointer; padding: 4px 0; }
-.custom-advanced-variables summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
-.custom-advanced-variables .custom-variable-list { margin-top: 10px; }
+.custom-variable-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.custom-variable-table th, .custom-variable-table td { padding: var(--space-1) var(--space-3) var(--space-1) 0; border-bottom: 1px solid var(--separator); text-align: left; vertical-align: baseline; }
+.custom-variable-table thead th { color: var(--muted); font-weight: 700; }
+.custom-variable-table tbody th { width: 1%; font-weight: 400; white-space: nowrap; }
+.custom-variable-table code { color: var(--text); }
+.custom-variable-table td { color: var(--muted); overflow-wrap: anywhere; }
+.custom-variable-table tr:last-child > * { border-bottom: 0; }
 .ai-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
 .ai-layout .section-copy, .ai-layout .setting-effect { overflow-wrap: anywhere; }
 .ai-state-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; min-height: 40px; margin-bottom: 8px; }
@@ -783,7 +784,8 @@ td { color: var(--text); }
   .sidebar nav { display: grid; flex: none; grid-template-columns: repeat(7, minmax(max-content, 1fr)); overflow-x: auto; overflow-y: hidden; }
   nav button { text-align: center; }
   .nav-section { display: contents; }
-  .nav-section > button { grid-row: 1; }
+  .nav-section > button { grid-row: 1; justify-content: center; }
+  .nav-icon { display: none; }
   .sidebar-subnav { grid-row: 2; grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 0; padding: 4px 0 0; border-left: 0; border-top: 1px solid var(--separator); }
   .sidebar-subnav button { text-align: left; }
   .setup-item, .setup-callout, .dashboard-notice { align-items: flex-start; flex-direction: column; }

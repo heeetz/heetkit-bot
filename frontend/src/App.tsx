@@ -26,6 +26,7 @@ import LogEventSummary, { logEventClassNames } from './components/LogEventSummar
 import { Select } from './components/Select'
 import Switch from './components/Switch'
 import HelpTip from './components/HelpTip'
+import NavIcon from './components/NavIcon'
 import BrowserSession from './components/BrowserSession'
 import DesktopStartup from './components/DesktopStartup'
 import Confirmation from './components/Confirmation'
@@ -266,12 +267,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onRefr
           </strong>
         </>}
         mode={operation && <>
-          <label className="dashboard-label" htmlFor="operation-mode">{operationText.label}
-            <HelpTip label={operationText.label}>
-              {operationText.descriptions[operation.mode]} {operationText.pauseNote}
-              {operation.mode === 'stream_only' && <> {operationText.streamChecks}</>}
-            </HelpTip>
-          </label>
+          <label className="dashboard-label" htmlFor="operation-mode">{operationText.label}</label>
           <Select id="operation-mode" value={operation.mode} aria-label={operationText.label}
             options={browserOperationModes} disabled={busy === 'operation-mode'}
             onChange={(mode) => onChangeBrowserMode(mode as BrowserOperationMode)} />
@@ -726,7 +722,7 @@ function ManagementApp({ windowsDesktop = false }: { windowsDesktop?: boolean })
   return (
     <div className="app-shell">
       <aside className="sidebar" ref={sidebar}>
-        <div className="brand"><img className="brand-mark" src="./icon.png" alt="" /><div><strong>HeetKit</strong><small>{shellText.tagline}</small></div></div>
+        <button type="button" className="brand" onClick={() => navigate('Dashboard')}><img className="brand-mark" src="./icon.png" alt="" /><span><strong>HeetKit</strong><small>{shellText.tagline}</small></span></button>
         <nav aria-label={shellText.mainNavigation}>
           {sections.map((item) => (
             <div className={`nav-section${item === 'About' ? ' nav-about' : ''}`} key={item}>
@@ -737,7 +733,7 @@ function ManagementApp({ windowsDesktop = false }: { windowsDesktop?: boolean })
                 aria-expanded={subsections[item] ? section === item : undefined}
                 aria-controls={subsections[item] ? `nav-${item}` : undefined}
                 onClick={() => navigate(item)}
-              >{shellText.sections[item]}</button>
+              ><NavIcon section={item} />{shellText.sections[item]}</button>
               {item === 'About' && <LanguageSwitcher />}
               {subsections[item] && (
                 <ul className="sidebar-subnav" id={`nav-${item}`} hidden={section !== item}>

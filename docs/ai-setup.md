@@ -244,9 +244,9 @@ You need a working provider and model to test your changes.
 
 1. Open **AI**.
 2. On **AI behavior**, select **Edit shared instructions**.
-3. Edit **Shared AI instructions**. Select **Restore default instructions** to
+3. Edit **Shared AI instructions**. Select **Reset** to
    put the default text in the draft.
-4. Select **Save instructions**. Saving an empty field removes the shared text.
+4. Select **Save**. Saving an empty field removes the shared text.
 5. To change the length limits, close the editor and expand **AI setup**.
 6. Set **Input length limit** to 1–4000 characters. The default is 300.
 7. Set **Output length limit** to 1–450 characters. The default is 220.
@@ -256,7 +256,7 @@ You need a working provider and model to test your changes.
 in Playground. If you changed the input limit, also test a question over that limit.
 
 HeetKit replaces only `{current_datetime}`, `{ai_max_response_length}` and
-`{response_language_instruction}` in shared instructions. **Save instructions**
+`{response_language_instruction}` in shared instructions. **Save**
 and **Save AI setup** apply separate drafts. The input limit counts the trimmed
 question. HeetKit rejects an overlong question. The reply and mention must fit
 in one Twitch message.
@@ -273,7 +273,7 @@ You need a working provider and model to test the policy.
 3. Select **Auto** or **Limited** in **Response language mode**.
 4. For **Limited**, select the **Allowed languages**.
 5. For **Limited**, select a **Fallback language** from that list.
-6. Select **Save language settings**.
+6. Select **Save**.
 
 **Check:** Check **Active policy**. In **AI Playground**, test a question in an
 allowed language and, in **Limited** mode, one in an unsupported language.
