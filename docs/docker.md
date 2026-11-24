@@ -61,11 +61,21 @@ or replacing the profile volume.
 
 ### Find or replace the administrator token
 
-On the Docker host, show the token with
-`cat "$HEETKIT_SECRETS_DIR/management_token"` (by default
-`~/.config/heetkit-secrets`). To replace it, delete that file, run step 4 again,
-then restart with the same Compose files (`up -d`). A new token signs out every
-browser, including devices with **Remember me**.
+Anyone with shell access to the Docker host can read this token, so recovery
+needs that same access and nothing else. Run these on the Docker host from the
+checkout, as the account that owns the secret file and can use Docker:
+
+```bash
+bash scripts/heetkit-token.sh show    # print the current token
+bash scripts/heetkit-token.sh reset   # new token, restart, print it once
+```
+
+The script finds the running HeetKit container by its `management_token` secret,
+so it needs no paths. `reset` rewrites that file in place (a new file would stay
+invisible to the container), restarts the bot (a few seconds offline) and signs
+out every browser, including devices with **Remember me**. The token appears in
+your terminal; clear the scrollback on a shared screen. Do not run it during a
+release update.
 
 ## Runtime and network reference
 
@@ -256,6 +266,15 @@ Store the archive and secret files privately, preferably encrypted and separatel
 from the checkout. The volume archive contains OAuth tokens, browser-managed
 `auth/server_credentials.json` and private user data;
 the two mounted secret files are outside it and need their own secure backup.
+
+**How often.** Back up before every update (the
+[release update](#repeatable-release-update) helper does this itself), and at least
+weekly while the bot is in use, off-stream, since the bot stops for a few seconds.
+Also back up after Twitch reauthorization or a large settings change. Copy each
+archive off the server (for example to your PC with `scp`), encrypt it there or
+before copying (`age` or `gpg`), and keep about four weekly and three monthly
+copies. Back up the secret files separately when they change. Rehearse a restore
+(below) every few months so a backup is known to work.
 
 Restore to a new empty volume with the target service stopped. For a recovery
 rehearsal, use a distinct project name and **do not start its bot** while the original
