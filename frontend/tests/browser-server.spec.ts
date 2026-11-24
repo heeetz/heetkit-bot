@@ -120,6 +120,7 @@ for (const host of ['127.0.0.1', '127.0.0.2']) {
       await page.getByLabel('Administrator token').fill('synthetic_management_token_' + 'x'.repeat(32))
       await page.getByRole('button', { name: 'Sign in', exact: true }).click()
       await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await target.getByRole('button', { name: 'Twitch connection', exact: true }).click()
       await expect(target.getByRole('combobox', { name: 'Saved channel', exact: true })).toContainText('Renamed channel (active)')
       await expect(target.getByLabel('Target channel login', { exact: true })).toHaveValue('otherchannel')
       page.once('dialog', (dialog) => dialog.accept())
