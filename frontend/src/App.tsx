@@ -70,7 +70,7 @@ function formatUptime(totalSeconds: number): string {
 
 const browserOperationModeValues: BrowserOperationMode[] = ['always_on', 'stream_only', 'manual', 'disabled']
 
-function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onRefreshAIStatus, onAuthorizeTwitch, onChangeBrowserMode, onNavigate, onOpenUpdate, busy }: {
+function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onRefreshAIStatus, onAuthorizeTwitch, onChangeBrowserMode, onNavigate, busy }: {
   status: AppStatus | null
   aiStatus: AIStatus | null
   onChangeBotState: (shouldRun: boolean) => void
@@ -79,7 +79,6 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onRefr
   onAuthorizeTwitch: () => void
   onChangeBrowserMode: (mode: BrowserOperationMode) => void
   onNavigate: (section: Extract<Section, 'AI' | 'Analytics' | 'Settings' | 'Logs' | 'Commands'>, targetId?: string) => void
-  onOpenUpdate?: () => void
   busy: string
 }) {
   const text = useCatalog(dashboard)
@@ -214,7 +213,6 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onRefr
           <div><div className="dashboard-label">{text.botAccount}</div><strong>{status?.account || setup?.twitch.bot_username || commonText.notConfigured}</strong></div>
           <div><div className="dashboard-label">{text.sessionUptime}</div><strong className="metric">{status ? formatUptime(status.uptime_seconds) : '—'}</strong></div>
           <div className="dashboard-hero-actions">
-            {onOpenUpdate && <button type="button" className="secondary dashboard-update" onClick={onOpenUpdate}>{text.updateAvailable}</button>}
             {operation?.mode !== 'disabled' && <button
               className={`dashboard-bot-toggle ${botActive ? 'secondary' : 'primary'}`}
               disabled={!status || lifecycleBusy || (!botActive && (pendingRestart || needsTwitchSetup))}
@@ -761,7 +759,9 @@ function ManagementApp({ windowsDesktop = false }: { windowsDesktop?: boolean })
       </aside>
       <main ref={main}>
         <div className="page-content">
-          <header><h1>{shellText.sections[section]}</h1></header>
+          <header className="page-header"><h1>{shellText.sections[section]}</h1>
+            {section === 'Dashboard' && windowsDesktop && updates.result?.update_available && <button type="button" className="secondary dashboard-update"
+              onClick={() => navigate('About', 'desktop-updates')}>{dashboardText.updateAvailable}</button>}</header>
           <FeedbackToast error={error} onDismiss={() => setError('')} />
           {section === 'Dashboard' && (
             <Dashboard
@@ -774,7 +774,6 @@ function ManagementApp({ windowsDesktop = false }: { windowsDesktop?: boolean })
               onAuthorizeTwitch={() => void authorizeTwitch()}
               onChangeBrowserMode={(mode) => void changeBrowserMode(mode)}
               onNavigate={navigate}
-              onOpenUpdate={windowsDesktop && updates.result?.update_available ? () => navigate('About', 'desktop-updates') : undefined}
             />
           )}
           <div hidden={section !== 'Commands'}><CommandsPage active={section === 'Commands'} revealCommand={navigationTarget?.id === 'command-editor-ask' ? 'ask' : undefined} onAIEnabledChanged={synchronizeAIEnabled} /></div>
