@@ -59,6 +59,14 @@ Keep both Compose files and the same project name in subsequent commands for
 this setup. See [backup and updates](#backup-restore-and-updates) before moving
 or replacing the profile volume.
 
+### Find or replace the administrator token
+
+On the Docker host, show the token with
+`cat "$HEETKIT_SECRETS_DIR/management_token"` (by default
+`~/.config/heetkit-secrets`). To replace it, delete that file, run step 4 again,
+then restart with the same Compose files (`up -d`). A new token signs out every
+browser, including devices with **Remember me**.
+
 ## Runtime and network reference
 
 HeetKit's container runs the shared [headless backend](development.md#headless-runtime)
