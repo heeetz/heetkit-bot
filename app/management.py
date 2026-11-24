@@ -1240,6 +1240,24 @@ class ApplicationManagement:
         self._backend.application.settings.custom_api_key = SecretStr(value) if value else None
 
     @operation(write=False, passthrough_errors=True)
+    def get_reply_interval(self) -> dict[str, object]:
+        return {"ok": True, "seconds": self._app_settings.snapshot().chat.reply_interval_seconds}
+
+    @operation(write=True, passthrough_errors=True)
+    def set_reply_interval(self, seconds: object) -> dict[str, object]:
+        """Save, then apply to the one limiter that spaces every outgoing bot message."""
+        try:
+            value = self._app_settings.update_reply_interval(seconds).chat.reply_interval_seconds
+        except OSError:
+            return {"ok": False, "error_code": "management.could_not_save_reply_interval", "error_params": {}}
+        except ValueError as error:
+            return error_result(error)
+        application = self._backend.application
+        application.settings.reply_interval_seconds = value
+        application.services.twitch.output_limiter.interval = value
+        return {"ok": True, "seconds": value}
+
+    @operation(write=False, passthrough_errors=True)
     def get_setup_guide(self) -> dict[str, object]:
         ai = self._app_settings.snapshot().ai
         return {"ok": True, "dismissed": ai.setup_guide_dismissed, "ai_skipped": ai.setup_guide_ai_skipped}

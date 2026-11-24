@@ -360,7 +360,7 @@ revokes the current session with `{}`.
 | `export_configuration` | `{}` | returns `filename` and ZIP `archive_base64` |
 | `preview_configuration_import` | `archive_base64` | validates ZIP and returns a ten-minute `preview_token`, source `application_version`, `format_version`, replacement `sections` with counts/details, `effects` and `preserved` settings |
 | `apply_configuration_import` | The same `archive_base64`, `preview_token` and `confirmed: true` | saves/applies only after revalidation against the preview and unchanged destination |
-| `start_bot`, `stop_bot` | `{}` | policy-aware connect/disconnect intent, `changed` and current `operation`; completion is asynchronous |
+| `start_bot`, `stop_bot` | `{}` | clear or save the manual stop (`paused`) and reconcile, `changed` and current `operation`; completion is asynchronous |
 | `set_bot_mode` | `mode`: `always_on`, `stream_only`, `manual` or `disabled` | persist and reconcile without process restart |
 | `get_commands` | Built-ins with stable `name` IDs, effective/default `primary_name` triggers, aliases, permissions, cooldowns, delivery and response pools | ? |
 | `save_command_settings` | Stable `command_name` ID, `enabled`, `per_user_seconds`, `global_seconds`, `permission`. Optional `options` includes `primary_name`, `aliases`, `display_name`, `burst_interval_ms`, `burst_max_count` and `reactivate_removed` to explicitly enable a legacy removed command. | ? |
@@ -451,17 +451,18 @@ Portable configuration import/export preserves the destination operation policy.
 | --- | --- |
 | Always On | Connect on process start and retain TwitchIO's existing connection recovery. This is the default for profiles without a mode setting. |
 | Stream Only | Start monitoring while chat is disconnected; connect on confirmed live status and disconnect on confirmed offline status. Monitoring runs without a browser. |
-| Manual | Start stopped after every process restart. Connect/Disconnect explicitly controls this process's session. |
+| Manual | Start stopped after every process restart. Start/Stop explicitly controls this process's session. |
 | Disabled | Stay disconnected across restarts. Start is rejected until the mode changes. |
 
-Disconnect in an automatic mode first saves Manual, then stops the session, so a
-later stream change or process restart cannot undo an intentional stop. The button
-states this mode change explicitly. `bot/start` is accepted only in Manual.
+Stop saves a manual stop (`app.startup.paused`) in any mode and stops the session, so
+a later stream change, mode change or process restart cannot undo an intentional stop.
+The mode is kept. Start clears it: Manual connects, Always On reconnects and Stream
+Only resumes waiting for a confirmed live stream. Start is rejected in Disabled.
 Entering Manual or Disabled stops the current session; entering Always On requests
 connection. Entering Stream Only retains a currently desired active session while
 confirming the broadcaster state. Pending close/token flush finishes before a new
 session can start; subsequent mode changes replace pending intent. The `operation`
-projection includes `mode`, `desired_running`, `pending`, `error`, `stream_status`,
+projection includes `mode`, `desired_running`, `paused`, `pending`, `error`, `stream_status`,
 `last_known_stream_status` and UTC `last_checked_at`. Inspect it after mutations;
 an accepted request does not prove Twitch readiness.
 

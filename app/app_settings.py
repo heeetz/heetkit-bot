@@ -40,6 +40,17 @@ class StartupSettings:
     auto_start_bot: bool = False
     # Headless only. Desktop continues to use auto_start_bot.
     operation_mode: str = "always_on"
+    # Manual stop on both hosts: keeps the bot off across restarts in every mode.
+    paused: bool = False
+
+
+REPLY_INTERVAL_SECONDS = 5
+
+
+@dataclass(frozen=True, slots=True)
+class ChatSettings:
+    # Minimum seconds between any two bot messages (installation-local, not exported).
+    reply_interval_seconds: int = REPLY_INTERVAL_SECONDS
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +120,7 @@ class AppSettings:
     ai: AISettings = field(default_factory=AISettings)
     twitch: TwitchSettings = field(default_factory=TwitchSettings)
     interface: InterfaceSettings = field(default_factory=InterfaceSettings)
+    chat: ChatSettings = field(default_factory=ChatSettings)
 
 
 class WindowSettingsModel(SettingsModel):
@@ -120,6 +132,11 @@ class WindowSettingsModel(SettingsModel):
 class StartupSettingsModel(SettingsModel):
     auto_start_bot: StrictBool = False
     operation_mode: OperationMode = "always_on"
+    paused: StrictBool = False
+
+
+class ChatSettingsModel(SettingsModel):
+    reply_interval_seconds: Annotated[StrictInt, Field(ge=0, le=60)] = REPLY_INTERVAL_SECONDS
 
 
 class InterfaceSettingsModel(SettingsModel):
@@ -454,6 +471,7 @@ def load_app_settings(section: ConfigSection) -> AppSettings:
         ),
         twitch=twitch,
         interface=InterfaceSettings(language=str(interface_language)),
+        chat=ChatSettings(**_recover_fields(ChatSettingsModel, _read_section(payload, "chat"))),
     )
 
 
@@ -492,6 +510,24 @@ class AppSettingsStore:
         mode = field_value(OperationMode, mode, "operation_mode")
         with self._lock:
             updated = replace(self._settings, startup=replace(self._settings.startup, operation_mode=mode))
+            save_app_settings(self._section, updated, recovered_settings=self._settings)
+            self._settings = updated
+        return updated
+
+    def update_paused(self, paused: object) -> AppSettings:
+        paused = field_value(StrictBool, paused, "paused")
+        with self._lock:
+            if self._settings.startup.paused == paused:
+                return self._settings
+            updated = replace(self._settings, startup=replace(self._settings.startup, paused=paused))
+            save_app_settings(self._section, updated, recovered_settings=self._settings)
+            self._settings = updated
+        return updated
+
+    def update_reply_interval(self, seconds: object) -> AppSettings:
+        chat = parse(ChatSettingsModel, {"reply_interval_seconds": seconds})
+        with self._lock:
+            updated = replace(self._settings, chat=ChatSettings(**chat.model_dump()))
             save_app_settings(self._section, updated, recovered_settings=self._settings)
             self._settings = updated
         return updated

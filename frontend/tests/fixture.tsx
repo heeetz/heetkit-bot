@@ -54,6 +54,10 @@ const operations: Record<string, (payload: any) => Promise<unknown>> = {
     active_personality: 'neutral', available_personalities: ['neutral'], model: 'test-model',
   }),
   get_recent_commands: async () => ({ entries: [] }),
+  get_ai_setup: async () => ({ ok: true, settings: { primary: { provider: 'gemini', model: 'test-model', thinking: 'default', search: false },
+    fallback: null, cross_provider_acknowledged: false, max_question_length: 300, max_answer_length: 220, shared_instructions: null, provider_drafts: {} },
+  providers: [{ id: 'gemini', label: 'Google Gemini', credential: null, models: ['test-model'], selected_model: 'test-model', fallback_model: '' }], capabilities: { gemini: {} } }),
+  get_reply_interval: async () => ({ ok: true, seconds: 5 }),
   set_ai_enabled: async ({ enabled: value }: { enabled: boolean }) => {
     bridgeCalls.push(['set_ai_enabled', value])
     aiEnabled = value

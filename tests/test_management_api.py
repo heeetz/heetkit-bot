@@ -395,6 +395,18 @@ async def test_ai_setup_save_reload_validation_and_guide_use_authenticated_share
     assert (await call("POST", "/v1/ops/get_ai_setup"))[1]["settings"]["shared_instructions"] == "🙂" * 20000
 
 
+async def test_reply_interval_saves_and_spaces_every_bot_message(api):
+    server, call = api
+    limiter = server.runtime.application.services.twitch.output_limiter
+    assert (await call("POST", "/v1/ops/get_reply_interval"))[1] == {"ok": True, "seconds": 5}
+    status, result, _ = await call("POST", "/v1/ops/set_reply_interval", json={"seconds": 0})
+    assert status == 200 and result == {"ok": True, "seconds": 0}
+    assert limiter.interval == 0 and limiter.try_acquire() and limiter.try_acquire()
+    assert AppSettingsStore(ConfigFile(RuntimePaths.default().config_file)).snapshot().chat.reply_interval_seconds == 0
+    status, result, _ = await call("POST", "/v1/ops/set_reply_interval", json={"seconds": 61})
+    assert status == 400 and result["error_code"] == "validation.maximum" and limiter.interval == 0
+
+
 async def test_playground_routes_authenticate_and_isolate_the_shared_slot(api):
     from app.webview_host import WebUIBridge
     from types import SimpleNamespace
@@ -859,7 +871,7 @@ async def test_recent_commands_share_logs_and_return_only_five_terminal_events(a
         name = f"test{i}"
         emit("command.invoke", "executing", command=name)
         emit("command.terminal", "success", command=name, reason="confirmed_delivery",
-             username="PRIVATE VIEWER", input_message_id="PRIVATE ID")
+             username="viewer_" + name, input_message_id="PRIVATE ID")
         emit("command.complete", "handler_completed", command=name)
     emit("command.terminal", "skipped", command="PRIVATE BLOCKED", reason="filters")
     assert (await call("POST", "/v1/ops/get_recent_commands", headers={"Authorization": ""}))[0] == 401
@@ -869,6 +881,7 @@ async def test_recent_commands_share_logs_and_return_only_five_terminal_events(a
     desktop = WebUIBridge(SimpleNamespace(), log_buffer=server.log_buffer)
     assert body == desktop.get_recent_commands()
     assert [entry["context"]["command"] for entry in body["entries"]] == [f"test{i}" for i in range(5, 0, -1)]
+    assert [entry["context"]["username"] for entry in body["entries"]] == [f"viewer_test{i}" for i in range(5, 0, -1)]
     assert all(entry["event_kind"] == "command.terminal" for entry in body["entries"])
     assert all(entry in desktop.get_recent_logs()["entries"] for entry in body["entries"])
 

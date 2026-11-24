@@ -16,6 +16,7 @@ type OperationOverrides = Partial<{
   last_known_stream_status: 'live' | 'offline' | null
   last_checked_at: string | null
   error: null | 'connection_failed'
+  paused: boolean
 }>
 type StatusOverrides = Partial<{
   twitch_recovery: AppStatus['twitch_recovery']
@@ -61,7 +62,7 @@ export async function server(page: Page, operationOverrides: OperationOverrides 
   let operation = {
     mode: 'always_on' as const, desired_running: true, pending: false,
     stream_status: 'live' as const, last_known_stream_status: 'live' as const,
-    last_checked_at: '2026-10-20T12:00:00Z', error: null as null | 'connection_failed',
+    last_checked_at: '2026-10-20T12:00:00Z', error: null as null | 'connection_failed', paused: false,
     ...operationOverrides,
   }
   const status = { running: true, twitch_connected: true, twitch_connection_state: 'connected' as const, uptime_seconds: 10, channel: 'synthetic_channel', account: 'synthetic_bot', leaderboard_channel_id: '200', ...statusOverrides, operation }
@@ -71,6 +72,7 @@ export async function server(page: Page, operationOverrides: OperationOverrides 
     fallback: null, cross_provider_acknowledged: false, max_question_length: 300, max_answer_length: 220,
     shared_instructions: null, provider_drafts: {} }
   let setupGuide = { dismissed: false, ai_skipped: false }
+  let replyInterval = 5
   const twitch: Record<string, unknown> = { client_id: 'synthetic-client', bot_username: 'synthetic_bot', bot_user_id: '100', target_channel: 'synthetic_channel', target_channel_user_id: '200', active_channel: 'synthetic_channel', requires_restart: false, requires_reconnect: false, oauth_token_available: true, saved_bot_authorization: true, oauth_callback_url: 'http://localhost:8765/oauth/callback', authorization_status: 'verified', authorized_account: 'synthetic_bot', setup_complete: true }
   const credentials = [{ name: 'twitch_client_secret', label: 'Twitch client secret', configured: true, source: 'environment', managed: false, validation_status: 'not_tested', secure_storage_available: false }, { name: 'gemini_api_key', label: 'Gemini API key', configured: false, source: 'missing', managed: true, validation_status: 'not_tested', secure_storage_available: false }, { name: 'deepseek_api_key', label: 'DeepSeek API key', configured: aiConfigured, source: aiConfigured ? 'server_file' : 'missing', managed: true, validation_status: 'not_tested', secure_storage_available: false }]
   await page.route('**/v1/**', async (route) => {
@@ -104,8 +106,16 @@ export async function server(page: Page, operationOverrides: OperationOverrides 
       status.operation = operation
     }
     if (path === '/v1/ops/stop_bot') {
-      operation = { ...operation, mode: 'manual', desired_running: false, pending: false }
+      operation = { ...operation, paused: true, desired_running: false, pending: false }
       Object.assign(status, { operation, running: false, twitch_connected: false, twitch_connection_state: 'stopped' as const })
+    }
+    if (path === '/v1/ops/start_bot') {
+      operation = { ...operation, paused: false, desired_running: true, error: null, pending: false }
+      Object.assign(status, { operation, running: true, twitch_connected: true, twitch_connection_state: 'connected' as const })
+    }
+    if (path === '/v1/ops/get_reply_interval' || path === '/v1/ops/set_reply_interval') {
+      if (path.endsWith('/set_reply_interval')) replyInterval = body!.seconds as number
+      result = { ok: true, seconds: replyInterval }
     }
     if (path === '/v1/ops/get_management_setup') result = { ok: true, twitch, credentials, aiProvider }
     if (path === '/v1/ops/get_setup_guide' || path === '/v1/ops/save_setup_guide') {

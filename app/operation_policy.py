@@ -27,7 +27,9 @@ class OperationPolicy:
             raise UserError("operation_policy.invalid_internal_stream_monitoring_timing")
         self.runtime, self.store = runtime, store
         self.mode = store.snapshot().startup.operation_mode
-        self.desired_running = self.mode == "always_on"
+        # A manual stop outlives restarts and mode changes until Start clears it.
+        self.paused = store.snapshot().startup.paused
+        self.desired_running = self.mode == "always_on" and not self.paused
         self.pending = False
         self.error: str | None = None
         self.stream_status = "unknown"
@@ -76,7 +78,7 @@ class OperationPolicy:
             self._monitor_wake.set()
 
     def snapshot(self) -> dict:
-        return {"mode": self.mode, "desired_running": self.desired_running,
+        return {"mode": self.mode, "desired_running": self.desired_running, "paused": self.paused,
             "pending": self.pending, "error": self.error,
             "stream_status": self.confirmed_stream_status(),
             "last_known_stream_status": self.last_known_stream_status,
@@ -111,7 +113,7 @@ class OperationPolicy:
         self.mode = mode
         self.error = None
         self.stream_status = "unknown"
-        self.desired_running = (mode == "always_on" or
+        self.desired_running = not self.paused and (mode == "always_on" or
             (mode == "stream_only" and self.desired_running and self.runtime.bot_active))
         self._monitor_wake.set()
         self._schedule()
@@ -119,20 +121,26 @@ class OperationPolicy:
         return True
 
     def connect(self) -> bool:
-        if self._closed or self.mode != "manual":
-            raise UserError("operation_policy.choose_manual_before_connecting_explicitly")
-        changed = not self.desired_running or self.error is not None
+        """Clear a manual stop. Manual mode connects now; automatic modes resume their rule."""
+        if self._closed or self.mode == "disabled":
+            raise UserError("operation_policy.bot_disabled_choose_mode")
+        # Save before publishing intent. Failed writes cannot partially change policy.
+        self.store.update_paused(False)
+        desired = self.mode != "stream_only" or self.confirmed_stream_status() == "live"
+        changed = self.paused or self.desired_running != desired or self.error is not None
+        self.paused = False
         self.error = None
-        self.desired_running = True
+        self.desired_running = desired
         self._schedule()
         return changed
 
     def disconnect(self) -> bool:
+        """Manual stop in any mode; the mode itself is kept."""
         if self._closed:
             raise UserError("operation_policy.operation_policy_has_closed")
-        if self.mode in {"always_on", "stream_only"}:
-            return self.set_mode("manual")
-        changed = self.desired_running
+        self.store.update_paused(True)
+        changed = self.desired_running or not self.paused
+        self.paused = True
         self.desired_running = False
         self._schedule()
         return changed
@@ -168,7 +176,8 @@ class OperationPolicy:
         self._revision += 1
         self.error = None
         self.stream_status = "unknown"
-        self.desired_running = self.mode == "always_on" or (self.mode == "manual" and manual_running)
+        self.desired_running = not self.paused and (
+            self.mode == "always_on" or (self.mode == "manual" and manual_running))
         self._monitor_wake.set()
         self._schedule()
 
@@ -226,7 +235,7 @@ class OperationPolicy:
                 self.last_known_stream_status = self.stream_status
                 count = count + 1 if candidate is live else 1
                 candidate = live
-                if (self.mode == "stream_only" and count >= self._confirmations
+                if (self.mode == "stream_only" and count >= self._confirmations and not self.paused
                         and self.error is None and self.desired_running != live):
                     self.desired_running = live
                     self._schedule()

@@ -237,7 +237,7 @@ async def test_pending_poll_cannot_override_disabled_or_manual_intent(rig):
     policy.disconnect()
     await eventually(lambda: not runtime.bot_active)
     await asyncio.sleep(0.04)
-    assert policy.mode == "manual" and calls.starts == 1
+    assert policy.mode == "always_on" and policy.paused and calls.starts == 1
 
 
 async def test_coalesces_mode_changes_while_stopping_and_prevents_concurrent_starts(rig):
@@ -251,6 +251,7 @@ async def test_coalesces_mode_changes_while_stopping_and_prevents_concurrent_sta
     policy.set_mode("always_on")
     policy.set_mode("disabled")
     policy.set_mode("always_on")
+    policy.connect()  # Stop paused the bot; Start resumes the chosen mode.
     assert policy.pending and calls.active == 1
     calls.stop_gate.set()
     await eventually(lambda: calls.starts == 2 and not policy.pending)
@@ -307,6 +308,30 @@ async def test_restart_uses_saved_mode_but_never_manual_run_intent(rig, mode):
     restored = OperationPolicy(runtime, AppSettingsStore(store._section.file))
     assert restored.mode == mode
     assert restored.desired_running == (mode == "always_on")
+
+
+@pytest.mark.parametrize("mode", ["always_on", "stream_only", "manual"])
+async def test_stop_is_a_saved_pause_that_keeps_the_mode_until_start(rig, mode):
+    policy, runtime, calls, _, store = rig
+    calls.live = True
+    policy.set_mode(mode)
+    if mode == "manual":
+        policy.connect()
+    await eventually(lambda: not policy.pending and runtime.bot_active)
+    assert policy.disconnect()
+    await eventually(lambda: not policy.pending and not runtime.bot_active)
+    saved = AppSettingsStore(store._section.file).snapshot().startup
+    assert (saved.operation_mode, saved.paused) == (mode, True)
+    # The pause survives a restart and later mode changes.
+    restored = OperationPolicy(runtime, AppSettingsStore(store._section.file))
+    assert restored.paused and not restored.desired_running
+    policy.set_mode("always_on" if mode != "always_on" else "manual")
+    policy.set_mode(mode)
+    await asyncio.sleep(0.05)
+    assert not runtime.bot_active and policy.paused
+    assert policy.connect()
+    await eventually(lambda: not policy.pending and runtime.bot_active)
+    assert not AppSettingsStore(store._section.file).snapshot().startup.paused
 
 
 def test_operation_mode_preserved_by_desktop_ai_updates_and_invalid_settings(tmp_path):

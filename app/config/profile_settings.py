@@ -11,6 +11,7 @@ def apply_twitch_app_settings(settings: Settings, app_settings: AppSettings) -> 
         for name in ("client_id", "bot_username", "bot_user_id", "channel", "channel_user_id")
         if (value := getattr(twitch, name)) is not None
     }
+    overrides["reply_interval_seconds"] = app_settings.chat.reply_interval_seconds
     return settings.model_copy(update=overrides)
 
 

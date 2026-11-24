@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { waitForBridge, type LogEntry } from '../bridge'
-import { leaderboardStates, useChatLeaderboards } from '../useChatLeaderboards'
+import { waitForBridge, type LeaderboardSnapshot, type LogEntry } from '../bridge'
+import { leaderboardStates } from '../useChatLeaderboards'
 import { terminalCommandName, terminalCommandOutcome } from './LogEventSummary'
 import { dashboard } from '../i18n/dashboard'
 import { useCatalog, useI18n } from '../i18n/core'
@@ -44,17 +44,18 @@ export function RecentCommands({ onOpenLogs }: { onOpenLogs: () => void }) {
       </div>
       <div className="dashboard-command-table">
         <table aria-labelledby="dashboard-recent-commands">
-          <thead><tr><th scope="col">{text.time}</th><th scope="col">{text.command}</th><th scope="col">{text.outcome}</th></tr></thead>
+          <thead><tr><th scope="col">{text.time}</th><th scope="col">{text.user}</th><th scope="col">{text.command}</th><th scope="col">{text.outcome}</th></tr></thead>
           <tbody>
             {entries?.map((entry) => {
               const outcome = terminalCommandOutcome(entry)
               return <tr key={entry.id}>
                 <td><time dateTime={entry.timestamp} title={entry.timestamp}>{commandTime.format(new Date(entry.timestamp))}</time></td>
+                <td className="dashboard-command-user">{typeof entry.context.username === 'string' ? entry.context.username : '—'}</td>
                 <th scope="row">{terminalCommandName(entry)}</th>
                 <td><span className={`dashboard-outcome ${outcome.tone ?? ''}`}><span aria-hidden="true" />{text.outcomes[outcome.key]}</span></td>
               </tr>
             })}
-            {(!entries?.length || unavailable) && <tr><td colSpan={3} className="muted">
+            {(!entries?.length || unavailable) && <tr><td colSpan={4} className="muted">
               {unavailable ? text.unavailable : entries ? text.empty : text.loading}
             </td></tr>}
           </tbody>
@@ -64,13 +65,15 @@ export function RecentCommands({ onOpenLogs }: { onOpenLogs: () => void }) {
   )
 }
 
-export function StreamActivity({ channel, onOpenAnalytics }: {
+/** Leaderboard data comes from the Dashboard, which also shows its stream status. */
+export function StreamActivity({ channel, data, unavailable, onOpenAnalytics }: {
   channel?: string | null
+  data: LeaderboardSnapshot | null
+  unavailable: boolean
   onOpenAnalytics: () => void
 }) {
   const text = useCatalog(dashboard).stream
   const { number } = useI18n()
-  const { data, unavailable } = useChatLeaderboards(channel)
   const { stream: state } = leaderboardStates(channel, data, unavailable)
   const stream = data?.stream?.ends_at === null ? data.stream : undefined
   const top = stream?.rows.slice(0, 3) ?? []

@@ -42,6 +42,7 @@ export interface BrowserOperation {
   last_known_stream_status: 'live' | 'offline' | null
   last_checked_at: string | null
   error: null | 'connection_failed'
+  paused?: boolean
 }
 
 export type TwitchConnectionState =
@@ -708,6 +709,8 @@ export interface PythonApi {
   get_ai_provider_settings(): Promise<AIProviderSettingsResponse>
   get_ai_setup(): Promise<AISetupResponse>
   save_ai_setup(settings: AISetupSettings): Promise<ActionResult>
+  get_reply_interval(): Promise<ActionResult & { seconds?: number }>
+  set_reply_interval(seconds: number): Promise<ActionResult & { seconds?: number }>
   save_custom_ai_connection(baseUrl: string, apiKey: string): Promise<ActionResult & { key_removed?: boolean }>
   remove_custom_ai_connection(): Promise<ActionResult>
   get_setup_guide(): Promise<ActionResult & { dismissed?: boolean; ai_skipped?: boolean }>

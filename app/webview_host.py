@@ -1035,6 +1035,7 @@ class DesktopOperations(ApplicationManagement):
             },
         )
         self._backend.run_intent = True
+        self._save_paused(False)
         return {"ok": True, "changed": started}
 
     @operation(write=True, hosts=(DESKTOP,))
@@ -1064,7 +1065,17 @@ class DesktopOperations(ApplicationManagement):
             },
         )
         self._backend.run_intent = False
+        self._save_paused(True)
         return {"ok": True, "changed": stopped}
+
+    def _save_paused(self, paused: bool) -> None:
+        """A manual stop keeps auto-start off on later launches until Start."""
+        if self._app_settings is None:
+            return
+        try:
+            self._app_settings.update_paused(paused)
+        except OSError:
+            self._logger.warning("Could not save the manual stop state; the bot state applies to this session only")
 
 
 class WebUIBridge(DesktopOperations):
@@ -1152,7 +1163,7 @@ def expose_frontend_operations(window: Any, bridge: WebUIBridge) -> None:
 def resolve_auto_start(app_settings: AppSettings, override: bool | None) -> bool:
     if override is not None:
         return override
-    return app_settings.startup.auto_start_bot
+    return app_settings.startup.auto_start_bot and not app_settings.startup.paused
 
 
 class DesktopController:

@@ -897,6 +897,8 @@ def test_saved_auto_start_defaults_off_and_accepts_explicit_override() -> None:
 
     assert resolve_auto_start(defaults, None) is False
     assert resolve_auto_start(enabled, None) is True
+    # A manual Stop keeps auto-start off until Start.
+    assert resolve_auto_start(AppSettings(startup=StartupSettings(auto_start_bot=True, paused=True)), None) is False
     assert resolve_auto_start(enabled, False) is False
     assert resolve_auto_start(defaults, True) is True
 
@@ -1009,6 +1011,32 @@ def test_bridge_observes_backend_completion_after_timeout(
     assert result["ok"] is False
     assert "completed after its UI deadline operation=start_bot" in caplog.text
 
+
+
+def test_desktop_stop_and_start_save_the_manual_pause(tmp_path) -> None:
+    class Runtime:
+        async def start_bot(self) -> bool:
+            return True
+
+        async def stop_bot(self) -> bool:
+            return True
+
+    class Backend:
+        bot_runtime = Runtime()
+        application = SimpleNamespace(settings=SimpleNamespace(twitch_channel="testchannel"))
+        run_intent = False
+
+        def submit(self, coroutine):
+            future: Future[bool] = Future()
+            future.set_result(asyncio.run(coroutine))
+            return future
+
+    store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
+    bridge = WebUIBridge(cast(AsyncioBackendHost, Backend()), app_settings=store)
+    assert bridge.stop_bot()["ok"]
+    assert AppSettingsStore(ConfigFile(tmp_path / "app_settings.json")).snapshot().startup.paused
+    assert bridge.start_bot()["ok"]
+    assert not AppSettingsStore(ConfigFile(tmp_path / "app_settings.json")).snapshot().startup.paused
 
 
 def twitch_settings_bridge(tmp_path, bot_username="testbot", **backend):

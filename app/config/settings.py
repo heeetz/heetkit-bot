@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     custom_api_key: SecretStr | None = None
     custom_base_url: str | None = None
     ai_cooldown_bypass_user_id: str | None = None
+    reply_interval_seconds: int = Field(default=5, strict=True, ge=0, le=60)
     ai_response_language: ResponseLanguageSettings = Field(default_factory=ResponseLanguageSettings)
     ai_setup: AISetup | None = None
     ai_history_max_entries: int = Field(default=AI_HISTORY_MAX_ENTRIES, strict=True, ge=1, le=500)
