@@ -132,7 +132,7 @@ h1 { margin-bottom: 0; font-size: 28px; }
 .dashboard-quick-note { color: var(--muted); overflow-wrap: anywhere; }
 .dashboard-quick-ignore-row { display: flex; gap: 6px; }
 .dashboard-quick-ignore-row input { flex: 1 1 auto; }
-button.dashboard-icon-button { display: inline-grid; flex: 0 0 40px; place-items: center; width: 40px; height: 40px; padding: 0; }
+button.dashboard-icon-button { display: inline-grid; flex: 0 0 38px; place-items: center; width: 38px; height: 38px; min-height: 0; padding: 0; }
 .dashboard-card-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; }
 .dashboard-card-heading h2 { margin: 0; font-size: 18px; }
 .dashboard-card-heading .dashboard-label { margin-bottom: 0; color: var(--text); font-size: 18px; }
