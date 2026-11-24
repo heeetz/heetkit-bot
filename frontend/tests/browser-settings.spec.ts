@@ -116,7 +116,6 @@ test('Server Skip AI persists and finishes setup while waiting for a stream', as
   await expect(checklist).toBeVisible()
   await expect(skip).toHaveCount(0)
   await page.reload()
-  await login(page)
   await expect(skip).toHaveCount(0)
   await expect(checklist).toBeVisible()
   api.setTwitch({ saved_bot_authorization: true })
@@ -146,7 +145,8 @@ test('Twitch redirect authorization follows the signed-in attempt without reques
   api.setTwitch({ authorization_attempt: 'completed' })
   await expect(authorization).toHaveCount(0)
   expect(api.calls.some((call) => call.path === '/v1/ops/complete_twitch_authorization')).toBe(false)
-  expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0])
+  // Only the tab session token is stored; no authorization state reaches browser storage.
+  expect(await page.evaluate(() => [Object.keys(localStorage), Object.keys(sessionStorage)])).toEqual([[], ['heetkit.session']])
 
   api.setTwitch({ authorization_attempt: 'pending' })
   await page.getByRole('button', { name: 'Connect Twitch', exact: true }).click()

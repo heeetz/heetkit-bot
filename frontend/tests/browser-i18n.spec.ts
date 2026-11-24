@@ -159,7 +159,8 @@ test('switching the Server language preserves a settings draft and persists acro
   await expect(page.getByRole('heading', { name: 'Налаштування', level: 1 })).toBeVisible()
   await expect(page.getByLabel('Логін каналу', { exact: true })).toHaveValue('unsaved_channel')
   expect(await page.evaluate(() => localStorage.getItem('heetkit.ui-language'))).toBe('uk')
+  // Reload keeps both the language and the tab session.
   await page.reload()
-  await expect(page.getByRole('heading', { name: 'Вхід на сервер' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Головна', level: 1 })).toBeVisible()
   await expect(page.locator('html')).toHaveAttribute('lang', 'uk')
 })
