@@ -54,6 +54,8 @@ main { min-width: 0; height: 100vh; padding: var(--space-6); overflow-y: auto; }
 .page-content { width: min(100%, 1280px); min-width: 0; margin-inline: auto; container: page-content / inline-size; }
 header { margin-bottom: 28px; }
 .page-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
+/* Equal space above and below the heading button, matching main's top padding. */
+.page-header:has(> button) { margin-bottom: var(--space-6); }
 h1, h2, h3, p { margin-top: 0; }
 h1 { margin-bottom: 0; font-size: 28px; }
 .eyebrow, .label { margin-bottom: 8px; color: var(--muted); font-size: 13px; font-weight: 750; letter-spacing: normal; text-transform: none; }
