@@ -249,10 +249,10 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
     </Accordion>
     {instructionsTarget && createPortal(<AIBehaviorSection id="ai-shared-instructions" title={text.sharedTitle} helpLabel={text.placeholdersLabel} className="ai-shared-instructions" badges={instructionsDirty && <span className="mini-badge dirty-badge">{text.edited}</span>} description={<ul><li><code>{'{current_datetime}'}</code>: {text.placeholders.datetime}</li><li><code>{'{ai_max_response_length}'}</code>: {text.placeholders.length}</li><li><code>{'{response_language_instruction}'}</code>: {text.placeholders.language}</li></ul>}
       footer={saved && <div className="editor-footer ai-editor-footer">
-        <button className="secondary" disabled={Boolean(busy)} onClick={() => setInstructions(null)}>{text.restoreDefault}</button>
         <div className="row-actions">
           <button className="secondary" disabled={Boolean(busy) || !instructionsDirty} onClick={() => setInstructions(saved.shared_instructions)}>{text.cancelInstructions}</button>
           <button className="primary" disabled={Boolean(busy) || !instructionsDirty} onClick={saveInstructions}>{text.saveInstructions}</button>
+          <button className="ghost" disabled={Boolean(busy)} onClick={() => setInstructions(null)}>{text.restoreDefault}</button>
         </div>
       </div>}>
       {instructionsError && <p role="alert">{instructionsError}</p>}{instructionsNotice && <p role="status">{instructionsNotice}</p>}

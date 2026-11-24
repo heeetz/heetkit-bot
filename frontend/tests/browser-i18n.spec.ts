@@ -3,7 +3,7 @@ import { readdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import ts from 'typescript'
-import { navigate, server, signIn } from './browser-fixture'
+import { navigate, openSection, server, signIn } from './browser-fixture'
 
 const i18nRoot = resolve(process.cwd(), 'src/i18n')
 const infrastructure = new Set(['core.ts', 'language.ts', 'errors.ts'])
@@ -152,6 +152,7 @@ test('switching the Server language preserves a settings draft and persists acro
   await server(page)
   await signIn(page)
   await navigate(page, 'Settings')
+  await openSection(page.locator('#twitch-settings').getByRole('button', { name: 'Twitch connection', exact: true }))
   await page.getByLabel('Target channel login', { exact: true }).fill('unsaved_channel')
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('combobox', { name: 'Interface language' }).click()
   await page.getByRole('option', { name: 'Українська', exact: true }).click()

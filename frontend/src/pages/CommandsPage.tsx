@@ -978,9 +978,10 @@ export default function CommandsPage({ active, revealCommand, onAIEnabledChanged
           <details className="custom-variable-help">
             <summary>{text.variablesTitle}</summary>
             <p>{text.variablesHint}</p>
-            <div className="custom-variable-list">
-              {variableRows(customData.variables).map(([name, help]) => <div key={name}><code>{name}</code><span>{text[help]}</span></div>)}
-            </div>
+            <table className="custom-variable-table">
+              <thead><tr><th scope="col">{text.variableColumn}</th><th scope="col">{text.meaningColumn}</th></tr></thead>
+              <tbody>{variableRows(customData.variables).map(([name, help]) => <tr key={name}><th scope="row"><code>{name}</code></th><td>{text[help]}</td></tr>)}</tbody>
+            </table>
           </details>
         </div>
       },

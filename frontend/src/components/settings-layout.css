@@ -61,6 +61,10 @@
 .target-channel-state { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .65rem; margin: 0; font-size: 13px; }
 .target-channel-state span { color: var(--muted); }
 .target-channel-state strong { color: var(--text); overflow-wrap: anywhere; }
+.target-switch-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); }
+.target-switch-row > div { display: grid; gap: var(--space-1); min-width: 0; flex: 1 1 16rem; }
+.target-switch-row > div > p { margin: 0; }
+.target-switch-row > button { flex: 0 0 auto; white-space: nowrap; }
 .secret-actions-menu { position: relative; display: grid; justify-items: end; min-width: 0; }
 .secret-actions-menu summary { display: inline-flex; align-items: center; min-height: 40px; padding: 0 2.1rem 0 .7rem; border: 1px solid var(--separator); border-radius: 7px; cursor: pointer; color: var(--text); background: var(--panel); }
 .secret-actions-menu summary::after { right: 12px; width: 8px; height: 8px; top: calc(50% - 5px); }

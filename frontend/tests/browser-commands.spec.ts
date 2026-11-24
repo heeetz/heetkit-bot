@@ -221,6 +221,11 @@ test('Server restrictions use the authenticated management endpoints and exact p
   expect(api.calls.find((call) => call.path === '/v1/ops/save_command_restriction')?.body).toEqual({ data: {
     username: 'httpviewer', command_ids: [], expires_at: null, note: '', scope: 'channel',
   } })
+  await page.setViewportSize({ width: 1180, height: 500 })
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  await panel.getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(panel.getByRole('heading', { name: 'Edit restriction for httpviewer' })).toBeInViewport()
+  await panel.getByRole('button', { name: 'Cancel', exact: true }).click()
   await panel.getByRole('button', { name: 'Remove' }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('button', { name: 'Confirm' }).click()

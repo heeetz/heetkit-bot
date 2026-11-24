@@ -92,13 +92,6 @@ function ServerSettings({ active, status }: { active: boolean; status: AppStatus
     return () => { mounted = false; mountedRef.current = false }
   }, [active, retry])
   useEffect(() => {
-    if (!active) return
-    const frame = window.requestAnimationFrame(() => {
-      document.getElementById('twitch-settings')?.dispatchEvent(new CustomEvent('accordion:open', { bubbles: true }))
-    })
-    return () => window.cancelAnimationFrame(frame)
-  }, [active])
-  useEffect(() => {
     if (!active || authorizationExpires === null || setup?.twitch.authorization_mode !== 'redirect') return
     let disposed = false
     let timer: ReturnType<typeof setTimeout>
@@ -315,12 +308,16 @@ function ServerSettings({ active, status }: { active: boolean; status: AppStatus
             <label className="form-field target-channel-login">{tw.targetLogin}<input disabled={Boolean(busy)} value={twitchDraft.channel} maxLength={25} onChange={(event) => updateDraft('channel', event.target.value)} /></label>
             <label className="form-field target-channel-id">{tw.targetUserId}<input disabled={Boolean(busy)} inputMode="numeric" value={twitchDraft.channelUserId} maxLength={20} onChange={(event) => updateDraft('channelUserId', event.target.value)} /></label>
           </div>
-          <p className="settings-hint">{tw.selectionHint}</p>
-          <button className="primary" disabled={Boolean(busy) || !selectedPreset || identityChanged || presetEdited || !targetChanged} onClick={switchPreset}>{tw.switchPreset}</button>
+          <div className="target-switch-row">
+            <div>
+              <p className="settings-hint">{tw.selectionHint}</p>
+              <p className="target-channel-state"><span>{tw.activeChannel}</span><strong>{setup.twitch.active_channel || common.notConfigured}</strong>{targetChanged && <><span>{tw.draftTarget}</span><strong>{twitchDraft.channel || common.notConfigured}</strong></>}</p>
+            </div>
+            <button className="primary" disabled={Boolean(busy) || !selectedPreset || identityChanged || presetEdited || !targetChanged} onClick={switchPreset}>{tw.switchPreset}</button>
+          </div>
           {identityChanged && <p className="settings-hint">{tw.identityChangedHint}</p>}
           {presetEdited && <p className="settings-hint">{tw.presetEditedHint}</p>}
           {(targetChanged || identityChanged || presetEdited) && <button className="secondary" disabled={Boolean(busy)} onClick={() => { if (window.confirm(text.confirmDiscardPreset)) void run('twitch:discard', () => refresh()) }}>{tw.discardEdits}</button>}
-          <p className="target-channel-state"><span>{tw.activeChannel}</span><strong>{setup.twitch.active_channel || common.notConfigured}</strong>{targetChanged && <><span>{tw.draftTarget}</span><strong>{twitchDraft.channel || common.notConfigured}</strong></>}</p>
         </section>
         <Accordion id="twitch-application" title={tw.application} badges={<span className={`state-pill ${twitchCredential?.configured ? 'enabled' : 'unconfigured'}`}>{twitchCredential?.configured ? tw.secretConfigured : tw.secretMissing}</span>} className="twitch-application-disclosure">
           <div className="settings-application-box">
