@@ -92,9 +92,11 @@ up to M recent successful exchanges for that viewer/channel are included. A conf
 cross-provider fallback can receive the same permitted context after explicit consent.
 Search tools can also receive context.
 A custom OpenAI-compatible server receives the same context at the address you
-enter; its address stays in the profile's `config/config.json`, its optional key in
-the OS keyring on Desktop or in `auth/server_credentials.json` on Server, and neither
-is exported.
+enter. The provider list (names, custom addresses and **Private networks** choices)
+stays in the profile's `config/config.json` under `ai.connections`; keys stay in the
+OS keyring on Desktop or in `auth/server_credentials.json` on Server, as
+`<provider>_api_key` for the first provider of a type and `<provider>-<id>_api_key`
+for others. The list and keys are not exported and are deleted with **Remove**.
 
 OpenAI requests from chat carry `safety_identifier`: a hash of the viewer's Twitch
 user ID keyed with the profile's `auth/ai_safety_salt`, so OpenAI can attribute

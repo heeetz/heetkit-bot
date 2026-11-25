@@ -15,7 +15,7 @@ from app.errors import UserError
 from app.config.ai_models import (
     DEFAULT_GEMINI_FALLBACK_MODEL,
     DEFAULT_DEEPSEEK_MODEL, DEFAULT_DEEPSEEK_FALLBACK_MODEL, validate_provider_model_id,
-    DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL,
+    DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL, AIConnection, provider_type, validate_ai_provider,
 )
 from app.config.ai_language import ResponseLanguageSettings, validate_response_language
 from app.config.ai_setup import AISetup
@@ -59,17 +59,22 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None
     gemini_model: str = "gemini-3.5-flash-lite"
     gemini_fallback_model: str = DEFAULT_GEMINI_FALLBACK_MODEL
-    ai_provider: Literal["gemini", "deepseek", "openai", "custom"] = "gemini"
+    # The primary provider connection id (see app.config.ai_models).
+    ai_provider: str = "gemini"
     deepseek_api_key: SecretStr | None = None
     deepseek_model: str = DEFAULT_DEEPSEEK_MODEL
     deepseek_fallback_model: str = DEFAULT_DEEPSEEK_FALLBACK_MODEL
     openai_api_key: SecretStr | None = None
     openai_model: str = DEFAULT_OPENAI_MODEL
     openai_fallback_model: str = DEFAULT_OPENAI_FALLBACK_MODEL
-    # One validated custom endpoint; its key is optional. Server sets "public" or
-    # "private" (app.services.custom_ai_network); Desktop keeps "local".
+    # The first custom connection's key; its key is optional.
     custom_api_key: SecretStr | None = None
-    custom_base_url: str | None = None
+    # Added provider connections (label, custom address) and the keys of connections
+    # after the first of a type; the first keeps the <type>_api_key field above.
+    ai_connections: tuple[AIConnection, ...] = ()
+    ai_keys: dict[str, SecretStr] = Field(default_factory=dict, repr=False)
+    # Custom address ceiling for this host (app.services.custom_ai_network): Desktop
+    # keeps "local"; Server sets "public", or "private" when its environment allows it.
     custom_ai_network: Literal["local", "public", "private"] = "local"
     ai_cooldown_bypass_user_id: str | None = None
     reply_interval_seconds: int = Field(default=5, strict=True, ge=0, le=60)
@@ -112,6 +117,11 @@ class Settings(BaseSettings):
     @classmethod
     def validate_openai_model(cls, value: str) -> str:
         return validate_provider_model_id("openai", value)
+
+    @field_validator("ai_provider")
+    @classmethod
+    def validate_ai_provider(cls, value: str) -> str:
+        return validate_ai_provider(value)
 
     @field_validator("ai_response_language")
     @classmethod
@@ -197,3 +207,14 @@ def load_settings_with_credentials(
         overrides.update(twitch_token_file=str(paths.tokens), database_url="sqlite+aiosqlite:///" + str(paths.database))
     settings = Settings(**overrides)
     return settings, manager
+
+
+def ai_connection(settings, connection_id: str) -> AIConnection | None:
+    return next((item for item in getattr(settings, "ai_connections", ()) if item.id == connection_id), None)
+
+
+def ai_connection_key(settings, connection_id: str) -> SecretStr | None:
+    """A connection's runtime key: the first of a type keeps its own settings field."""
+    if connection_id == provider_type(connection_id):
+        return getattr(settings, connection_id + "_api_key", None)
+    return getattr(settings, "ai_keys", {}).get(connection_id)

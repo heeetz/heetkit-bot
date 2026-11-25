@@ -23,6 +23,7 @@ from app.config.personalities import (
 from app.config.settings import Settings
 from app.config_file import write_atomic
 from app.runtime_state import RuntimeState
+from app.config.ai_models import provider_type
 from app.services.ai_provider import AIGenerationRequest, AIProvider, AIModelDiscoveryError
 from app.services.custom_ai_network import CustomAddressRefused
 from app.services.ai_request_policy import AIRequestPolicy
@@ -112,16 +113,9 @@ class SharedAIService:
         self._safety_salt: bytes | None = None
         self.runtime_state = runtime_state
         self.filter_manager = filter_manager
-        if provider is None:
-            # Existing profiles need no provider field or migration.
-            from app.services.gemini_ai_service import GeminiProvider
-            from app.services.deepseek_ai_service import DeepSeekProvider
-            from app.services.openai_ai_service import OpenAIProvider
-            from app.services.custom_ai_service import CustomProvider
-            self._providers = {"gemini": GeminiProvider(settings), "deepseek": DeepSeekProvider(settings),
-                               "openai": OpenAIProvider(settings), "custom": CustomProvider(settings)}
-        else:
-            self._providers = {"injected": provider}
+        # One adapter per provider connection id, created on first use.
+        self._providers: dict[str, AIProvider] = {} if provider is None else {"injected": provider}
+        self._closed = False
         self._safety_policy = AIRequestPolicy()
         self._blocked_response_patterns: list[Pattern] = [
             # Dedicated hard block for the specified term and grammatical forms.
@@ -224,7 +218,20 @@ class SharedAIService:
     def provider(self) -> AIProvider:
         setup = getattr(self.settings, "ai_setup", None)
         provider = setup.primary.provider if setup else getattr(self.settings, "ai_provider", "gemini")
-        return self._providers.get("injected") or self._providers[provider]
+        return self._providers.get("injected") or self._connection(provider)
+
+    def _connection(self, connection_id: str) -> AIProvider:
+        if connection_id not in self._providers:
+            from app.config.ai_models import provider_type
+            from app.services.gemini_ai_service import GeminiProvider
+            from app.services.deepseek_ai_service import DeepSeekProvider
+            from app.services.openai_ai_service import OpenAIProvider
+            from app.services.custom_ai_service import CustomProvider
+            adapter = {"gemini": GeminiProvider, "deepseek": DeepSeekProvider, "openai": OpenAIProvider,
+                       "custom": CustomProvider}[provider_type(connection_id)]
+            self._providers[connection_id] = adapter(self.settings, connection_id)
+            self._providers[connection_id]._closed = self._closed
+        return self._providers[connection_id]
 
     @property
     def is_available(self) -> bool:
@@ -233,7 +240,10 @@ class SharedAIService:
     async def aclose(self) -> None:
         # Enter retirement directly: scheduling close in child tasks lets immediate
         # cancellation skip Gemini's lease retirement before cleanup can take over.
-        providers = iter(self._providers.values())
+        self._closed = True
+        providers = iter(list(self._providers.values()))
+        if not self._providers:
+            return
         try:
             await next(providers).aclose()
         finally:
@@ -242,7 +252,7 @@ class SharedAIService:
 
     async def discover_models(self, provider: str | None = None) -> list[str]:
         from app.config.ai_models import validate_ai_provider
-        selected = self.provider if provider is None else self._providers[validate_ai_provider(provider)]
+        selected = self.provider if provider is None else self._connection(validate_ai_provider(provider))
         if not selected.is_available:
             raise AIModelDiscoveryError("provider_unavailable")
         before = selected.snapshot()
@@ -321,7 +331,7 @@ class SharedAIService:
                         return finish(AIReply("", False, "configuration_error"))
                     options = replace(options, model=setup.primary.model, fallback_model=setup.primary.model,
                                       thinking=setup.primary.thinking, single_attempt=True)
-                    fallback_provider = (self._providers.get("injected") or self._providers[setup.fallback.provider]) if setup.fallback else None
+                    fallback_provider = (self._providers.get("injected") or self._connection(setup.fallback.provider)) if setup.fallback else None
                     fallback_options = replace(fallback_provider.snapshot(), model=setup.fallback.model,
                                                fallback_model=setup.fallback.model,
                                                thinking=setup.fallback.thinking, single_attempt=True) if fallback_provider else None
@@ -348,7 +358,8 @@ class SharedAIService:
                     async with asyncio.timeout(AI_REQUEST_TIMEOUT_SECONDS):
                         response = await provider.generate(request, options)
                         if response.status == "model_unavailable" and fallback_provider is not None:
-                            if configured and setup.fallback.provider != setup.primary.provider and not setup.cross_provider_acknowledged:
+                            if (configured and provider_type(setup.fallback.provider) != provider_type(setup.primary.provider)
+                                    and not setup.cross_provider_acknowledged):
                                 return finish(AIReply("", False, "configuration_error"))
                             fallback_search = setup.fallback.search if setup.fallback else use_search
                             if not configured and "injected" in self._providers:

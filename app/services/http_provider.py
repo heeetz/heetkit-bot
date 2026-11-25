@@ -9,7 +9,7 @@ import httpx
 from pydantic import SecretStr
 
 from app.config.ai_models import validate_provider_model_id
-from app.config.settings import Settings
+from app.config.settings import Settings, ai_connection_key
 from app.services.ai_provider import AIProviderSettings
 
 
@@ -42,8 +42,10 @@ class HTTPProvider:
     max_model_id_length = 200
     model_id_pattern = None
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, connection_id: str | None = None):
         self.settings = settings
+        # Which added connection's key to use; the first of a type shares the type's id.
+        self.connection_id = connection_id or self.settings_prefix
         self._closed = False
         self._active_calls = 0
         self._condition = asyncio.Condition()
@@ -57,13 +59,13 @@ class HTTPProvider:
         return AIProviderSettings(
             model=model,
             fallback_model=fallback,
-            api_key=getattr(self.settings, prefix + "_api_key", None),
+            api_key=ai_connection_key(self.settings, self.connection_id),
             thinking=getattr(self.settings, prefix + "_thinking", self.default_thinking),
         )
 
     @property
     def is_available(self) -> bool:
-        return self._available_with_key(getattr(self.settings, self.settings_prefix + "_api_key", None))
+        return self._available_with_key(ai_connection_key(self.settings, self.connection_id))
 
     def _available_with_key(self, key: SecretStr | None) -> bool:
         return (not self._closed and key is not None

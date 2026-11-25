@@ -23,7 +23,7 @@ from app.app_settings import (
 )
 from app.config.settings import Settings
 from app.container import Application
-from app.credentials import CredentialError, CredentialName, CredentialStatus
+from app.credentials import CredentialError, CredentialName
 from app.runtime_paths import DATA_DIR_ENV
 from app.runtime_state import RuntimeState
 from app.services.updates import RELEASE_PAGE_URL, UpdateCheckError
@@ -235,7 +235,7 @@ def test_desktop_ai_setup_and_guidance_share_atomic_profile_operations(tmp_path)
     assert bridge.get_ai_setup()["settings"] == asdict(setup)
 
 
-def test_desktop_custom_connection_needs_key_reentry_for_a_new_origin(tmp_path):
+def test_desktop_adds_several_providers_with_distinct_keys(tmp_path):
     from app.config.settings import Settings
     from app.credentials import CredentialManager, CredentialName, CredentialStore
 
@@ -245,27 +245,51 @@ def test_desktop_custom_connection_needs_key_reentry_for_a_new_origin(tmp_path):
         def set_password(self, service, name, value): self.values[(service, name)] = value
         def delete_password(self, service, name): self.values.pop((service, name))
 
-    credentials = CredentialManager({}, CredentialStore(backend=MemoryKeyring()))
+    credentials = CredentialManager({CredentialName.GEMINI_API_KEY: "ENV-GEMINI"}, CredentialStore(backend=MemoryKeyring()))
     application = SimpleNamespace(settings=Settings(), services=SimpleNamespace())
     store = AppSettingsStore(ConfigFile(tmp_path / "config.json"))
     bridge = WebUIBridge(cast(AsyncioBackendHost, SimpleNamespace(
         application=application, submit=complete_bridge_coroutine)), app_settings=store, credential_manager=credentials)
-    custom = lambda: next(item for item in bridge.get_ai_setup()["providers"] if item["id"] == "custom")
+    listed = lambda: [(item["id"], item["label"], item["credential"]["source"]) for item in bridge.get_ai_setup()["providers"]]
+    add = lambda **body: bridge.call("save_ai_connection", body)
 
-    assert bridge.call("save_custom_ai_connection", {"base_url": "http://192.168.1.5:1234/v1"})["error_code"] \
+    # An environment key shows as a provider that cannot be removed here.
+    assert listed() == [("gemini", "", "environment")]
+    assert bridge.call("remove_ai_connection", {"connection_id": "gemini"})["error_code"] \
+        == "server_credentials.credential_externally_managed_rotate_remove_environment"
+    assert add(provider="deepseek")["error_code"] == "ai_connections.key_required"
+    first = add(provider="deepseek", api_key="KEY-ONE")
+    second = add(provider="deepseek", api_key="KEY-TWO", label="Backup")
+    # The first of a type keeps the old credential name; further ones get their own.
+    assert first["id"] == "deepseek" and second["id"].startswith("deepseek-") and second["id"] != "deepseek"
+    for key in ("KEY-ONE", " KEY-TWO ", "ENV-GEMINI"):
+        assert add(provider="deepseek", api_key=key)["error_code"] == "ai_connections.duplicate_key"
+    assert add(connection_id=second["id"], api_key="KEY-ONE")["error_code"] == "ai_connections.duplicate_key"
+    assert listed() == [("gemini", "", "environment"), ("deepseek", "", "credential_store"),
+                        (second["id"], "Backup", "credential_store")]
+    assert application.settings.deepseek_api_key.get_secret_value() == "KEY-ONE"
+    assert application.settings.ai_keys[second["id"]].get_secret_value() == "KEY-TWO"
+    # Renaming keeps the key; removing drops the key and the entry.
+    assert add(connection_id=second["id"], label="Spare")["ok"] is True
+    assert application.settings.ai_keys[second["id"]].get_secret_value() == "KEY-TWO"
+    assert bridge.call("remove_ai_connection", {"connection_id": second["id"]}) == {"ok": True}
+    assert credentials.effective_value(second["id"] + "_api_key") is None and second["id"] not in application.settings.ai_keys
+    assert bridge.call("remove_ai_connection", {"connection_id": second["id"]})["error_code"] == "ai_connections.unknown"
+
+    # Custom: Desktop allows HTTP on other computers only with Private networks.
+    assert add(provider="custom", base_url="http://192.168.1.5:1234/v1")["error_code"] \
         == "ai_models.custom_base_url_http_local_only"
-    assert bridge.call("save_custom_ai_connection", {"base_url": "https://llm.example.com/v1", "api_key": "synthetic"}) \
-        == {"ok": True, "key_removed": False}
+    assert add(provider="custom", base_url="http://192.168.1.5:1234/v1", private_network=True)["ok"] is True
+    assert add(connection_id="custom", base_url="https://llm.example.com/v1", api_key="synthetic") \
+        == {"ok": True, "id": "custom", "key_removed": False}
     assert application.settings.custom_api_key.get_secret_value() == "synthetic"
     # The same origin keeps the key; another origin drops it unless a key is entered with it.
-    assert bridge.call("save_custom_ai_connection", {"base_url": "https://LLM.example.com:443/v2"})["key_removed"] is False
-    assert bridge.call("save_custom_ai_connection", {"base_url": "https://other.example.com/v1"})["key_removed"] is True
+    assert add(connection_id="custom", base_url="https://LLM.example.com:443/v2")["key_removed"] is False
+    assert add(connection_id="custom", base_url="https://other.example.com/v1")["key_removed"] is True
     assert application.settings.custom_api_key is None
-    assert credentials.effective_value(CredentialName.CUSTOM_API_KEY) is None
-    assert (custom()["base_url"], application.settings.custom_base_url) == ("https://other.example.com/v1",) * 2
-    assert AppSettingsStore(store._section.file).snapshot().ai.providers["custom"].base_url == "https://other.example.com/v1"
-    assert bridge.call("remove_custom_ai_connection", {}) == {"ok": True}
-    assert custom()["base_url"] is None and "custom" not in store.snapshot().ai.providers
+    assert application.settings.ai_connections[-1].base_url == "https://other.example.com/v1"
+    assert bridge.call("remove_ai_connection", {"connection_id": "custom"}) == {"ok": True}
+    assert [item.id for item in AppSettingsStore(store._section.file).snapshot().ai.connections] == ["deepseek"]
 
 
 def test_desktop_instance_guard_blocks_other_process_and_releases(tmp_path) -> None:
@@ -913,17 +937,9 @@ def test_bridge_exposes_ai_provider_settings(tmp_path) -> None:
         settings=settings,
         services=SimpleNamespace(ai=SimpleNamespace()),
     )
-    credential_manager = SimpleNamespace(
-        statuses=lambda: (
-            CredentialStatus(
-                name="gemini_api_key",
-                label="Gemini API key",
-                configured=True,
-                source="environment",
-                secure_storage_available=True,
-            ),
-        )
-    )
+    from app.credentials import CredentialManager, CredentialName
+    credential_manager = CredentialManager({CredentialName.GEMINI_API_KEY: "ENV-GEMINI"},
+                                           SimpleNamespace(get=lambda name: None))
     store = AppSettingsStore(ConfigFile(tmp_path / "app_settings.json"))
     bridge = WebUIBridge(
         cast(

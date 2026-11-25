@@ -35,7 +35,7 @@ from app.config.ai_language import (
     RESPONSE_LANGUAGES, build_response_language_instruction,
 )
 from app.config.personalities import AI_PERSONALITY_PROMPTS, build_protected_shared_instructions
-from app.config.profile_settings import apply_ai_app_settings, apply_twitch_app_settings
+from app.config.profile_settings import apply_ai_app_settings, apply_twitch_app_settings, load_ai_connection_keys
 from app.config.settings import Settings, TwitchConfigurationError, load_settings_with_credentials
 from app.container import Application, build_application
 from app.database.migrations import DatabaseMigrationError
@@ -1442,6 +1442,8 @@ def run_desktop_host(
     settings_snapshot = app_settings.snapshot()
     settings = apply_twitch_app_settings(settings, settings_snapshot)
     settings = apply_ai_app_settings(settings, settings_snapshot)
+    if credential_manager is not None:
+        load_ai_connection_keys(settings, credential_manager)
     should_auto_start = resolve_auto_start(settings_snapshot, auto_start)
     backend = AsyncioBackendHost(
         settings,

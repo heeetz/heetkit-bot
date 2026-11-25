@@ -18,7 +18,7 @@ https://developers.openai.com/api/docs/guides/tools-web-search
 from typing import Any
 
 from app.errors import UserError
-from app.config.ai_models import validate_ai_provider, validate_provider_model_id
+from app.config.ai_models import provider_type, validate_provider_model_id
 
 _DEEPSEEK_MODELS = frozenset({
     "deepseek-flash", "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp",
@@ -55,7 +55,7 @@ KNOWN_MODELS = {
 
 
 def model_capabilities(provider: str, model: str) -> dict[str, Any]:
-    provider = validate_ai_provider(provider)
+    provider = provider_type(provider)
     model = validate_provider_model_id(provider, model)
     options = [dict(_DEFAULT)]
     known = False

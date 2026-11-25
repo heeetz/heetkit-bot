@@ -13,6 +13,7 @@ from typing import Protocol
 
 import httpx
 
+from app.config.ai_models import ai_key_name
 from app.errors import UserError
 from app.runtime_paths import RuntimePaths
 
@@ -82,24 +83,24 @@ class CredentialStore:
             identity = sha256(os.path.normcase(str(paths.root.resolve())).encode("utf-8")).hexdigest()
             self._service_name += ":" + identity
 
-    def get(self, name: CredentialName) -> str | None:
+    def get(self, name: str) -> str | None:
         try:
-            value = self._backend.get_password(self._service_name, name.value)
+            value = self._backend.get_password(self._service_name, str(name))
         except self._keyring_error as error:
             raise CredentialError("credentials.secure_credential_storage_unavailable") from error
         return value or None
 
-    def replace(self, name: CredentialName, value: str) -> None:
+    def replace(self, name: str, value: str) -> None:
         try:
-            self._backend.set_password(self._service_name, name.value, value)
+            self._backend.set_password(self._service_name, str(name), value)
         except self._keyring_error as error:
             raise CredentialError("credentials.could_not_store_credential_securely") from error
 
-    def remove(self, name: CredentialName) -> bool:
+    def remove(self, name: str) -> bool:
         if self.get(name) is None:
             return False
         try:
-            self._backend.delete_password(self._service_name, name.value)
+            self._backend.delete_password(self._service_name, str(name))
         except self._delete_error:
             return False
         except self._keyring_error as error:
@@ -129,7 +130,30 @@ class CredentialManager:
         except ValueError as error:
             raise UserError("credentials.unknown_credential") from error
 
-    def _secure_value(self, name: CredentialName) -> tuple[str | None, bool]:
+    @staticmethod
+    def parse_stored_name(name: object) -> str:
+        """A fixed credential, or the API key of an added AI provider connection."""
+        if isinstance(name, str) and name.endswith("_api_key") and name not in set(CredentialName):
+            try:
+                return ai_key_name(name.removesuffix("_api_key"))
+            except ValueError:
+                pass
+        return CredentialManager.parse_name(name)
+
+    @staticmethod
+    def ai_key_name(connection_id: str) -> str:
+        name = ai_key_name(connection_id)
+        return CredentialName(name) if name in set(CredentialName) else name
+
+    def ai_key_status(self, connection_id: str) -> dict[str, object]:
+        """Presence and source only, never the value."""
+        name = self.ai_key_name(connection_id)
+        secure_value, _ = self._secure_value(name)
+        source = ("environment" if secure_value is None and self._environment_fallbacks.get(name)
+                  else "credential_store" if secure_value is not None else "missing")
+        return {"configured": source != "missing", "source": source, "managed": source != "environment"}
+
+    def _secure_value(self, name: str) -> tuple[str | None, bool]:
         try:
             return self._store.get(name), True
         except CredentialError as error:
@@ -142,7 +166,7 @@ class CredentialManager:
 
     def effective_value(self, name: CredentialName) -> str | None:
         secure_value, _ = self._secure_value(name)
-        return secure_value or self._environment_fallbacks[name]
+        return secure_value or self._environment_fallbacks.get(name)
 
     def settings_overrides(self) -> dict[str, str | None]:
         return {
@@ -174,7 +198,7 @@ class CredentialManager:
         return tuple(statuses)
 
     def replace(self, name: object, value: object) -> None:
-        parsed_name = self.parse_name(name)
+        parsed_name = self.parse_stored_name(name)
         if not isinstance(value, str):
             raise UserError("credentials.credential_must_be_text")
         normalized = value.strip()
@@ -185,7 +209,7 @@ class CredentialManager:
         self._store.replace(parsed_name, normalized)
 
     def remove(self, name: object) -> bool:
-        return self._store.remove(self.parse_name(name))
+        return self._store.remove(self.parse_stored_name(name))
 
     async def test(
         self,

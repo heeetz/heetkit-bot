@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.config.ai_setup import AISetup, AIModelSelection
+from app.config.ai_models import AIConnection
 from app.config.settings import Settings
 from app.services.custom_ai_service import final_answer
 from app.runtime_state import RuntimeState
@@ -28,7 +29,7 @@ async def provider_pipeline(request, tmp_path, monkeypatch):
                         deepseek_api_key="PRIVATE-DEEPSEEK-KEY", openai_api_key="PRIVATE-OPENAI-KEY")
     if request.param == "custom":
         # A local server without a key; the reply carries recognized reasoning to strip.
-        settings.custom_base_url = "http://localhost:1234/v1"
+        settings.ai_connections = (AIConnection("custom", base_url="http://localhost:1234/v1"),)
         settings.ai_setup = AISetup(AIModelSelection("custom", "qwen/qwen3-27b@q4_k_m"))
     filters = FilterManager()
     state = RuntimeState(ConfigFile(tmp_path / "personalities.json"))
@@ -155,19 +156,21 @@ def test_custom_reply_is_only_final_answer_text(content, answer):
     assert final_answer(content) == answer
 
 
-@pytest.mark.parametrize(("network", "url", "answers", "expected"), [
-    ("local", "http://localhost:{port}/v1", None, ["local-model"]),
+@pytest.mark.parametrize(("network", "private", "url", "answers", "expected"), [
+    ("local", False, "http://localhost:{port}/v1", None, ["local-model"]),
     # A hand-edited Desktop profile cannot widen HTTP beyond this computer.
-    ("local", "http://192.168.1.5:{port}/v1", None, "custom_address_refused"),
-    ("private", "http://localhost:{port}/v1", None, ["local-model"]),
-    ("public", "http://localhost:{port}/v1", None, "custom_address_refused"),
-    ("public", "https://llm.example.test/v1", ["10.0.0.5"], "custom_address_refused"),
+    ("local", False, "http://192.168.1.5:{port}/v1", None, "custom_address_refused"),
+    ("private", True, "http://localhost:{port}/v1", None, ["local-model"]),
+    # Server: the connection's switch opts in, the environment stays the ceiling.
+    ("private", False, "http://localhost:{port}/v1", None, "custom_address_refused"),
+    ("public", True, "http://localhost:{port}/v1", None, "custom_address_refused"),
+    ("public", False, "https://llm.example.test/v1", ["10.0.0.5"], "custom_address_refused"),
     # Any disallowed answer refuses the name, including mapped cloud metadata.
-    ("private", "https://llm.example.test/v1", ["93.184.216.34", "169.254.169.254"], "custom_address_refused"),
-    ("private", "https://llm.example.test/v1", ["::ffff:169.254.169.254"], "custom_address_refused"),
+    ("private", True, "https://llm.example.test/v1", ["93.184.216.34", "169.254.169.254"], "custom_address_refused"),
+    ("local", True, "https://llm.example.test/v1", ["::ffff:169.254.169.254"], "custom_address_refused"),
 ])
 async def test_custom_endpoint_connects_only_where_the_host_allows(unused_tcp_port, monkeypatch,
-                                                                    network, url, answers, expected):
+                                                                    network, private, url, answers, expected):
     from aiohttp import web
     from app.services.ai_provider import AIModelDiscoveryError
 
@@ -183,8 +186,8 @@ async def test_custom_endpoint_connects_only_where_the_host_allows(unused_tcp_po
         async def resolve(host, port, **kwargs):
             return [(None, None, None, "", (address, port)) for address in answers]
         monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", resolve)
-    service = SharedAIService(Settings(custom_base_url=url.format(port=unused_tcp_port),
-                                       custom_ai_network=network), None, FilterManager())
+    connection = AIConnection("custom", base_url=url.format(port=unused_tcp_port), private_network=private)
+    service = SharedAIService(Settings(ai_connections=(connection,), custom_ai_network=network), None, FilterManager())
     try:
         if isinstance(expected, list):
             assert await service.discover_models("custom") == expected

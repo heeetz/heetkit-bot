@@ -227,10 +227,12 @@ or raw provider errors are intentionally emitted by headless logging.
 
 ### Reach a custom AI server on a private network
 
-The custom OpenAI-compatible provider connects only to public HTTPS addresses from
+Custom OpenAI-compatible providers connect only to public HTTPS addresses from
 the container. To use a model on your PC over Tailscale or a home network, set
 `HEETKIT_CUSTOM_AI_PRIVATE_NETWORKS=true` in the `bot` service's `environment` and
-restart; see [Custom server addresses on HeetKit Server](ai-setup.md#custom-server-addresses-on-heetkit-server).
+restart, then turn on **Private networks** for that provider in **AI setup**; see
+[custom server addresses](ai-setup.md#custom-server-addresses-and-private-networks).
+The variable is a ceiling: without it, no provider can reach a private address.
 Prefer the Tailscale IP address over a MagicDNS name, because the container may not
 use the host's Tailscale DNS.
 

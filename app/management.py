@@ -14,8 +14,8 @@ from app.command_settings import CommandNameConflict, CommandSettings
 from app.commands.registry import command_unavailable_reason
 from app.config.ai_language import RESPONSE_LANGUAGES, build_response_language_instruction
 from app.config.ai_models import (GEMINI_MODEL_PRESETS, AI_PROVIDERS, DEFAULT_DEEPSEEK_MODEL,
-    DEFAULT_DEEPSEEK_FALLBACK_MODEL, DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL, validate_ai_provider,
-    custom_base_url_origin)
+    DEFAULT_DEEPSEEK_FALLBACK_MODEL, DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL, MAX_AI_CONNECTIONS,
+    validate_ai_provider, provider_type, custom_base_url_origin)
 from app.config.personalities import AI_PERSONALITY_PROMPTS, build_protected_shared_instructions
 from app.container import Application
 from app.custom_commands import VARIABLES
@@ -25,7 +25,7 @@ from app.filter_settings import (get_filter_settings, validate_filter_input,
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
 from app.utils.logging import RecentLogBuffer, get_logger
-from app.services.custom_ai_network import validate_custom_url_for_host
+from app.services.custom_ai_network import effective_policy, private_networks_allowed, validate_custom_url_for_host
 from app.services.updates import RELEASE_PAGE_URL
 from app.version import VERSION
 from app.operations import operation
@@ -891,11 +891,11 @@ class ApplicationManagement:
             "enabled": runtime_state.ai_enabled,
             "available": bool(getattr(getattr(application.services, "ai", None), "is_available", False)),
             "memory_enabled": runtime_state.ai_memory_enabled,
-            "provider": AI_PROVIDERS[application.settings.ai_setup.primary.provider if getattr(application.settings, "ai_setup", None) is not None else application.settings.ai_provider],
+            "provider": AI_PROVIDERS[provider_type(application.settings.ai_setup.primary.provider if getattr(application.settings, "ai_setup", None) is not None else application.settings.ai_provider)],
             "active_personality": runtime_state.active_ai_personality,
             "available_personalities": list(runtime_state.available_personalities),
             "model": (application.settings.ai_setup.primary.model if getattr(application.settings, "ai_setup", None) is not None
-                      else getattr(application.settings, application.settings.ai_provider + "_model")),
+                      else getattr(application.settings, provider_type(application.settings.ai_provider) + "_model")),
         }
 
     @operation(write=False)
@@ -1135,33 +1135,47 @@ class ApplicationManagement:
         application = self._backend.application
         setup = getattr(application.settings, "ai_setup", None)
         selected = (setup.primary.provider if setup else application.settings.ai_provider) if provider is None else validate_ai_provider(provider)
-        credential = None
-        if self._credential_manager is not None:
-            credential = next(
-                (
-                    status.serialize()
-                    for status in self._credential_manager.statuses()
-                    if status.name == selected + "_api_key"
-                ),
-                None,
-            )
+        kind = provider_type(selected)
         return {
             "ok": True,
             "settings": {
-                "provider": AI_PROVIDERS[selected],
+                "provider": AI_PROVIDERS[kind],
                 "provider_id": selected,
-                "selected_model": setup.primary.model if setup and provider is None else getattr(application.settings, selected + "_model", ""),
-                "fallback_model": (setup.fallback.model if setup.fallback else "") if setup and provider is None else getattr(application.settings, selected + "_fallback_model", ""),
+                "selected_model": setup.primary.model if setup and provider is None else getattr(application.settings, kind + "_model", ""),
+                "fallback_model": (setup.fallback.model if setup.fallback else "") if setup and provider is None else getattr(application.settings, kind + "_fallback_model", ""),
                 "fallback_provider_id": setup.fallback.provider if setup and setup.fallback and provider is None else selected,
-                "presets": ([preset.serialize() for preset in GEMINI_MODEL_PRESETS] if selected == "gemini" else [] if selected == "custom" else [
-                    {"id": model, "label": model, "description": AI_PROVIDERS[selected] + " direct API; configure thinking/search in AI setup"}
-                    for model in ((DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL) if selected == "openai"
+                "presets": ([preset.serialize() for preset in GEMINI_MODEL_PRESETS] if kind == "gemini" else [] if kind == "custom" else [
+                    {"id": model, "label": model, "description": AI_PROVIDERS[kind] + " direct API; configure thinking/search in AI setup"}
+                    for model in ((DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL) if kind == "openai"
                                   else (DEFAULT_DEEPSEEK_MODEL, DEFAULT_DEEPSEEK_FALLBACK_MODEL))]),
-                "credential": credential,
+                "credential": self._credential_manager.ai_key_status(selected) if self._credential_manager is not None else None,
+                # Any added provider can answer (a key, or a custom address).
+                "connected": any(self._connection_ready(item) for item in self._ai_connections()),
                 "discovery_proves_generation_access": False,
             },
             "providers": [{"id": key, "label": label} for key, label in AI_PROVIDERS.items()],
         }
+
+    @staticmethod
+    def _connection_ready(item: dict) -> bool:
+        return bool(item["base_url"]) if item["type"] == "custom" else bool(item["credential"] and item["credential"]["configured"])
+
+    def _ai_connections(self) -> list[dict[str, object]]:
+        """Saved connections plus a key-only first connection per type (older profiles, environment keys)."""
+        credentials = self._credential_manager
+        saved = {item.id: item for item in self._app_settings.snapshot().ai.connections}
+        key_only = [kind for kind in ("gemini", "deepseek", "openai") if kind not in saved
+                    and credentials is not None and credentials.ai_key_status(kind)["configured"]]
+        items = []
+        for connection_id in (*key_only, *saved):
+            connection = saved.get(connection_id)
+            kind = provider_type(connection_id)
+            items.append({"id": connection_id, "type": kind, "label": connection.label if connection else "",
+                          "credential": credentials.ai_key_status(connection_id) if credentials is not None else None,
+                          "base_url": connection.base_url if connection else None,
+                          "private_network": bool(connection and connection.private_network)})
+        order = list(AI_PROVIDERS)
+        return sorted(items, key=lambda item: order.index(item["type"]))
 
     @operation(write=False, passthrough_errors=True)
     def get_ai_setup(self) -> dict[str, object]:
@@ -1170,14 +1184,13 @@ class ApplicationManagement:
         from app.config.personalities import SHARED_AI_INSTRUCTIONS
         settings = self._backend.application.settings
         setup = effective_ai_setup(settings)
-        providers = []
-        for provider, label in AI_PROVIDERS.items():
-            info = self.get_ai_provider_settings(provider)["settings"]
-            providers.append({"id": provider, "label": label, "credential": info["credential"],
-                              "selected_model": info["selected_model"], "fallback_model": info["fallback_model"],
-                              "models": list(KNOWN_MODELS[provider]),
-                              **({"base_url": settings.custom_base_url} if provider == "custom" else {})})
+        providers = [{**item, "models": list(KNOWN_MODELS[item["type"]]),
+                      "selected_model": getattr(settings, item["type"] + "_model", ""),
+                      "fallback_model": getattr(settings, item["type"] + "_fallback_model", "")}
+                     for item in self._ai_connections()]
         return {"ok": True, "settings": asdict(setup), "providers": providers,
+                "private_networks_allowed": private_networks_allowed(settings.custom_ai_network),
+                "max_providers": MAX_AI_CONNECTIONS,
                 "capabilities": {provider: {model: model_capabilities(provider, model)
                                             for model in KNOWN_MODELS[provider]} for provider in AI_PROVIDERS},
                 "default_shared_instructions": SHARED_AI_INSTRUCTIONS,
@@ -1197,48 +1210,91 @@ class ApplicationManagement:
         return {"ok": True}
 
     @operation(write=True, passthrough_errors=True)
-    async def _save_custom_ai_connection(self, base_url: object, api_key: object = None) -> dict[str, object]:
-        """Save the endpoint; a new origin drops the stored key unless a key is entered with it."""
-        from app.credentials import CredentialName
-        settings = self._backend.application.settings
-        name = CredentialName.CUSTOM_API_KEY
+    async def save_ai_connection(self, connection_id: object = None, provider: object = None, label: object = "",
+                                 api_key: object = None, base_url: object = None,
+                                 private_network: object = False) -> dict[str, object]:
+        """Add a provider (``provider`` set) or edit one (``connection_id`` set). Keys must differ."""
+        import secrets
+        from app.app_settings import parse_ai_connection
+        credentials = self._credential_manager
+        if credentials is None:
+            return {"ok": False, "error_code": "webview_host.credential_storage_not_configured", "error_params": {}}
+        host_policy = self._backend.application.settings.custom_ai_network
+        key_removed = False
         try:
-            url = validate_custom_url_for_host(base_url, settings.custom_ai_network)
+            listed = {item["id"]: item for item in self._ai_connections()}
+            if connection_id is None:
+                kind = validate_ai_provider(provider)
+                if kind != provider_type(kind):
+                    raise UserError("ai_models.unknown_ai_provider")
+                # The first connection of a type keeps the type's own id and credential name.
+                connection_id = kind if kind not in listed else f"{kind}-{secrets.token_hex(3)}"
+                existing = None
+            else:
+                existing = listed.get(validate_ai_provider(connection_id))
+                if existing is None:
+                    raise UserError("ai_connections.unknown")
+            kind = provider_type(connection_id)
+            connection = parse_ai_connection({"id": connection_id, "label": label, "base_url": base_url,
+                                              "private_network": private_network})
+            if kind == "custom":
+                if connection.private_network and not private_networks_allowed(host_policy):
+                    raise UserError("ai_connections.private_networks_disabled")
+                validate_custom_url_for_host(connection.base_url, effective_policy(host_policy, connection.private_network))
             entered = api_key.strip() if isinstance(api_key, str) else ""
-            new_origin = (settings.custom_base_url is None
-                          or custom_base_url_origin(settings.custom_base_url) != custom_base_url_origin(url))
+            if not entered and existing is None and kind != "custom":
+                raise UserError("ai_connections.key_required")
+            name = credentials.ai_key_name(connection_id)
             if entered:
-                self._credential_manager.replace(name, entered)
-            elif new_origin:
-                self._credential_manager.remove(name)
-            self._app_settings.update_custom_ai_connection(url)
+                if not credentials.ai_key_status(connection_id)["managed"]:
+                    raise UserError("server_credentials.credential_externally_managed_rotate_remove_environment")
+                if any(other != connection_id and credentials.effective_value(credentials.ai_key_name(other)) == entered
+                       for other in listed):
+                    raise UserError("ai_connections.duplicate_key")
+                credentials.replace(name, entered)
+            elif existing is None or (kind == "custom" and existing["base_url"]
+                    and custom_base_url_origin(existing["base_url"]) != custom_base_url_origin(connection.base_url)):
+                # A new connection never inherits a leftover key; a new custom origin drops the old one.
+                key_removed = credentials.remove(name) and existing is not None
+            self._app_settings.save_ai_connection(connection)
         except ValueError as error:
             return error_result(error)
         finally:
-            self._refresh_custom_ai_key()
-        settings.custom_base_url = url
-        self._logger.info("Custom AI connection saved", extra={"event_kind": "settings.ai", "event_action": "save"})
-        return {"ok": True, "key_removed": new_origin and not entered}
+            self._apply_ai_connections()
+        self._logger.info("AI provider saved", extra={"event_kind": "settings.ai", "event_action": "save"})
+        return {"ok": True, "id": connection_id, "key_removed": key_removed}
 
     @operation(write=True, passthrough_errors=True)
-    async def _remove_custom_ai_connection(self) -> dict[str, object]:
-        from app.credentials import CredentialName
+    async def remove_ai_connection(self, connection_id: object) -> dict[str, object]:
+        credentials = self._credential_manager
+        if credentials is None:
+            return {"ok": False, "error_code": "webview_host.credential_storage_not_configured", "error_params": {}}
         try:
-            self._credential_manager.remove(CredentialName.CUSTOM_API_KEY)
-            self._app_settings.update_custom_ai_connection(None)
+            connection_id = validate_ai_provider(connection_id)
+            if connection_id not in {item["id"] for item in self._ai_connections()}:
+                raise UserError("ai_connections.unknown")
+            if not credentials.ai_key_status(connection_id)["managed"]:
+                raise UserError("server_credentials.credential_externally_managed_rotate_remove_environment")
+            credentials.remove(credentials.ai_key_name(connection_id))
+            self._app_settings.remove_ai_connection(connection_id)
         except ValueError as error:
             return error_result(error)
         finally:
-            self._refresh_custom_ai_key()
-        self._backend.application.settings.custom_base_url = None
-        self._logger.info("Custom AI connection removed", extra={"event_kind": "settings.ai", "event_action": "remove"})
+            self._apply_ai_connections()
+        self._logger.info("AI provider removed", extra={"event_kind": "settings.ai", "event_action": "remove"})
         return {"ok": True}
 
-    def _refresh_custom_ai_key(self) -> None:
+    def _apply_ai_connections(self) -> None:
+        """Publish saved connections and their keys to the running settings."""
         from pydantic import SecretStr
-        from app.credentials import CredentialName
-        value = self._credential_manager.effective_value(CredentialName.CUSTOM_API_KEY)
-        self._backend.application.settings.custom_api_key = SecretStr(value) if value else None
+        from app.config.profile_settings import load_ai_connection_keys
+        settings = self._backend.application.settings
+        credentials = self._credential_manager
+        settings.ai_connections = self._app_settings.snapshot().ai.connections
+        for kind in AI_PROVIDERS:
+            value = credentials.effective_value(credentials.ai_key_name(kind))
+            setattr(settings, kind + "_api_key", SecretStr(value) if value else None)
+        load_ai_connection_keys(settings, credentials)
 
     @operation(write=False, passthrough_errors=True)
     def get_reply_interval(self) -> dict[str, object]:

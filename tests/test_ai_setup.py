@@ -274,7 +274,7 @@ async def test_real_adapter_fallback_diagnostics_keep_original_request(monkeypat
     from google import genai
     service = SharedAIService(Settings(ai_provider="deepseek", ai_setup=setup(),
         deepseek_api_key="PRIVATE-FIRST", gemini_api_key="PRIVATE-SECOND"))
-    service._providers["deepseek"]._http_json = AsyncMock(return_value=(404, None))
+    service._connection("deepseek")._http_json = AsyncMock(return_value=(404, None))
     class Client:
         aio = SimpleNamespace(models=SimpleNamespace(generate_content=AsyncMock(
             return_value=SimpleNamespace(text="Answer.", candidates=[]))), aclose=AsyncMock())
@@ -316,14 +316,14 @@ async def test_openai_receives_stable_salted_viewer_identifier_never_the_id(tmp_
     def service():
         built = SharedAIService(Settings(ai_provider="openai", openai_api_key="PRIVATE-KEY",
             ai_setup=AISetup(AIModelSelection("openai", "gpt-6-luna", "none"))), safety_salt_path=salt)
-        built._providers["openai"]._http_json = AsyncMock(return_value=(200, {
+        built._connection("openai")._http_json = AsyncMock(return_value=(200, {
             "model": "gpt-6-luna", "status": "completed", "output": [{"type": "message", "role": "assistant", "status": "completed", "content": [
                 {"type": "output_text", "text": "Answer.", "annotations": []}]}]}))
         return built
 
     async def identifier(built, user_id):
         assert (await built.generate_reply("hello", user_id)).is_available
-        payload = built._providers["openai"]._http_json.await_args.kwargs["json"]
+        payload = built._connection("openai")._http_json.await_args.kwargs["json"]
         assert not user_id or user_id not in str(payload)
         return payload.get("safety_identifier")
 

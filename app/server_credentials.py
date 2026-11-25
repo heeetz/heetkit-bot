@@ -62,8 +62,8 @@ class ServerCredentialStore:
                 if not stat.S_ISREG(info.st_mode) or (os.name == "posix" and
                         (info.st_uid != os.geteuid() or info.st_mode & 0o077)):
                     raise ValueError
-                raw = source.read(32769)
-            if len(raw) > 32768:
+                raw = source.read(262145)
+            if len(raw) > 262144:
                 raise ValueError
             def unique(pairs):
                 result = {}
@@ -73,8 +73,10 @@ class ServerCredentialStore:
                     result[key] = value
                 return result
             data = json.loads(raw, object_pairs_hook=unique)
-            if not isinstance(data, dict) or set(data) - {name.value for name in CredentialName}:
+            if not isinstance(data, dict):
                 raise ValueError
+            for name in data:
+                CredentialManager.parse_stored_name(name)
             for value in data.values():
                 self.validate(value)
             return data
@@ -89,9 +91,9 @@ class ServerCredentialStore:
             raise CredentialError("server_credentials.use_nonempty_credential_most_visible_ascii", maximum=str(MAX_CREDENTIAL_LENGTH))
         return value.strip()
 
-    def get(self, name: CredentialName) -> str | None:
+    def get(self, name: str) -> str | None:
         with self._lock:
-            return self._read().get(name.value)
+            return self._read().get(str(name))
 
     def _write(self, data: dict[str, str]) -> None:
         try:
@@ -100,17 +102,17 @@ class ServerCredentialStore:
         except OSError:
             raise CredentialError("server_credentials.could_not_save_private_server_credentials") from None
 
-    def replace(self, name: CredentialName, value: str) -> None:
+    def replace(self, name: str, value: str) -> None:
         value = self.validate(value)
         with self._lock:
-            self._write(self._read() | {name.value: value})
+            self._write(self._read() | {str(name): value})
 
-    def remove(self, name: CredentialName) -> bool:
+    def remove(self, name: str) -> bool:
         with self._lock:
             data = self._read()
-            if name.value not in data:
+            if str(name) not in data:
                 return False
-            del data[name.value]
+            del data[str(name)]
             self._write(data)
             return True
 
@@ -123,19 +125,20 @@ class ServerCredentialManager(CredentialManager):
     def effective_value(self, name: CredentialName) -> str | None:
         # Unlike Desktop's fallback ordering, server external inputs cannot be
         # shadowed. Storage failures fail closed instead of hiding a broken file.
-        return self._environment_fallbacks[name] or self._store.get(name)
+        return self._environment_fallbacks.get(name) or self._store.get(name)
 
     def statuses(self) -> tuple:
         # Server callers use the explicit projection below, never keyring status.
         return ()
 
-    def server_status(self, name: CredentialName) -> dict:
-        return {"name": name.value, "label": CREDENTIAL_LABELS[name],
+    def server_status(self, name: str) -> dict:
+        external = bool(self._environment_fallbacks.get(name))
+        return {"name": str(name), "label": CREDENTIAL_LABELS.get(name, "AI provider API key"),
             "configured": bool(self.effective_value(name)),
-            "source": "environment" if self._environment_fallbacks[name] else
+            "source": "environment" if external else
                       "server_file" if self._store.get(name) else "missing",
-            "secure_storage_available": True, "managed": not bool(self._environment_fallbacks[name]),
-            "validation_status": self.validation[name]}
+            "secure_storage_available": True, "managed": not external,
+            "validation_status": self.validation.get(name, "not_tested")}
 
     def server_statuses(self) -> list[dict]:
         # The custom key is shown with its connection in AI setup, not in this list.
@@ -143,9 +146,12 @@ class ServerCredentialManager(CredentialManager):
                 CredentialName.TWITCH_CLIENT_SECRET, CredentialName.GEMINI_API_KEY,
                 CredentialName.DEEPSEEK_API_KEY, CredentialName.OPENAI_API_KEY)]
 
-    def check_managed(self, name: object) -> CredentialName:
-        parsed = self.parse_name(name)
-        if self._environment_fallbacks[parsed]:
+    def ai_key_status(self, connection_id: str) -> dict[str, object]:
+        return self.server_status(self.ai_key_name(connection_id))
+
+    def check_managed(self, name: object) -> str:
+        parsed = self.parse_stored_name(name)
+        if self._environment_fallbacks.get(parsed):
             raise CredentialError("server_credentials.credential_externally_managed_rotate_remove_environment")
         return parsed
 

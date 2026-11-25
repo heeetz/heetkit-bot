@@ -8,7 +8,8 @@ import time
 import httpx
 
 from app.config.ai_capabilities import validate_model_options
-from app.services.custom_ai_network import custom_transport
+from app.config.settings import ai_connection, ai_connection_key
+from app.services.custom_ai_network import custom_transport, effective_policy
 from app.services.ai_provider import (
     AIGenerationRequest, AIProviderCapabilities, AIProviderResponse, AIProviderSettings,
     attempt_usage, report_usage,
@@ -43,11 +44,14 @@ class CustomProvider(HTTPProvider):
     model_defaults = ("", "")
 
     def _transport(self, base_url: str) -> httpx.AsyncBaseTransport | None:
-        return custom_transport(self.settings.custom_ai_network, base_url)
+        connection = ai_connection(self.settings, self.connection_id)
+        return custom_transport(effective_policy(self.settings.custom_ai_network,
+                                                 bool(connection and connection.private_network)), base_url)
 
     def snapshot(self) -> AIProviderSettings:
-        key = self.settings.custom_api_key
-        return AIProviderSettings(model="", fallback_model="", base_url=self.settings.custom_base_url,
+        key = ai_connection_key(self.settings, self.connection_id)
+        connection = ai_connection(self.settings, self.connection_id)
+        return AIProviderSettings(model="", fallback_model="", base_url=connection.base_url if connection else None,
                                   api_key=key if key is not None and key.get_secret_value().strip() else None)
 
     @property

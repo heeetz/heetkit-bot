@@ -1,9 +1,10 @@
 """Where the custom AI endpoint may connect, checked on save and on every connection.
 
 Desktop ("local"): HTTPS anywhere, HTTP only to this computer (as before).
-Server ("public"): only public addresses over HTTPS. Server ("private", set with
-HEETKIT_CUSTOM_AI_PRIVATE_NETWORKS=true): also loopback, LAN and Tailscale-style
-private addresses over HTTP or HTTPS. Link-local (cloud metadata), multicast,
+Server ("public"): only public addresses over HTTPS. "private": also loopback, LAN and
+Tailscale-style private addresses over HTTP or HTTPS. A custom connection opts in to
+"private" with its own switch; on Server that switch works only when the operator set
+HEETKIT_CUSTOM_AI_PRIVATE_NETWORKS=true, which stays the ceiling. Link-local (cloud metadata), multicast,
 unspecified and reserved addresses are always refused. Server resolves the name on
 each connection and connects only to the checked address, so DNS cannot swap in
 another one between the check and the connect.
@@ -31,6 +32,17 @@ PRIVATE_NETWORKS_ENV = "HEETKIT_CUSTOM_AI_PRIVATE_NETWORKS"
 
 class CustomAddressRefused(RuntimeError):
     """The endpoint resolved to an address this host's policy does not allow."""
+
+
+def effective_policy(host_policy: str, private_network: bool) -> str:
+    """The policy for one connection: Desktop may opt in; Server only under the environment ceiling."""
+    if host_policy == "local":
+        return "private" if private_network else "local"
+    return "private" if private_network and host_policy == "private" else "public"
+
+
+def private_networks_allowed(host_policy: str) -> bool:
+    return host_policy in {"local", "private"}
 
 
 def address_allowed(address: IPv4Address | IPv6Address, *, https: bool, private_networks: bool) -> bool:

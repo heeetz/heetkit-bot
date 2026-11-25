@@ -10,7 +10,7 @@ from typing import Any, AsyncIterator
 import httpx
 from pydantic import SecretStr
 
-from app.config.settings import Settings
+from app.config.settings import Settings, ai_connection_key
 from app.config.ai_capabilities import native_thinking_parameters, validate_model_options
 from app.services.ai_provider import (
     AIGenerationRequest, AIProviderCapabilities, AIProviderResponse, AIProviderSettings,
@@ -42,8 +42,9 @@ class GeminiProvider:
     name = "Google Gemini"
     capabilities = AIProviderCapabilities(search=True)
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, connection_id: str = "gemini"):
         self.settings = settings
+        self.connection_id = connection_id
         self._client: Any | None = None
         self._client_key: object | None = None
         self._client_users: dict[Any, int] = {}
@@ -55,13 +56,13 @@ class GeminiProvider:
         return AIProviderSettings(
             model=self.settings.gemini_model,
             fallback_model=self.settings.gemini_fallback_model,
-            api_key=getattr(self.settings, "gemini_api_key", None),
+            api_key=ai_connection_key(self.settings, self.connection_id),
             thinking=getattr(self.settings, "gemini_thinking", "default"),
         )
 
     @property
     def is_available(self) -> bool:
-        return self._available_with_key(getattr(self.settings, "gemini_api_key", None))
+        return self._available_with_key(ai_connection_key(self.settings, self.connection_id))
 
     def _available_with_key(self, key: SecretStr | None) -> bool:
         if self._closed or key is None or not key.get_secret_value().strip():
@@ -86,7 +87,7 @@ class GeminiProvider:
         async with self._client_condition:
             if self._closed:
                 raise RuntimeError("Gemini service has shut down.")
-            key = api_key if api_key is not None else self.settings.gemini_api_key
+            key = api_key if api_key is not None else ai_connection_key(self.settings, self.connection_id)
             if key is None:
                 raise RuntimeError("Gemini API key is not configured.")
             if self._client is None or self._client_key != key:

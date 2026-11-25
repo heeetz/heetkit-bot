@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useState } from 'react'
-import { type AISetupResponse, type AIStatus, waitForBridge } from '../bridge'
+import { type AISetupResponse, type AIStatus, providerType, waitForBridge } from '../bridge'
 import { Select } from './Select'
 import { common } from '../i18n/common'
 import { dashboard } from '../i18n/dashboard'
@@ -63,7 +63,7 @@ export default function DashboardQuickControls({ aiStatus, server, stream, mode,
     setBusy('model')
     setModelError('')
     // Keep thinking and search only when the new model supports them.
-    const capabilities = setup.capabilities[primary.provider]?.[model]
+    const capabilities = setup.capabilities[providerType(primary.provider)]?.[model]
     const thinkingOptions = capabilities?.thinking_options.map((option) => option.value) ?? []
     const thinking = !capabilities?.known || thinkingOptions.includes(primary.thinking)
       ? primary.thinking : thinkingOptions.includes('default') ? 'default' : thinkingOptions[0] ?? primary.thinking

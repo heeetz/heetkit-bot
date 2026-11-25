@@ -16,12 +16,19 @@ the provider's limits, charges and data-use terms before you enable AI for viewe
 
 1. Open **AI**.
 2. Expand **AI setup**.
-3. In **Providers**, enter your key in the field for your provider.
-4. Select **Connect key**. If you already saved a key, select **Replace key**.
-   This action saves the key immediately.
+3. In **Providers**, select **Add provider** and choose Google, DeepSeek, OpenAI or
+   Custom.
+4. Optionally enter a **Name**, for example `Backup`, enter the **API key** and select
+   **Add**. The key is saved immediately.
 5. In **Primary model**, select your **Provider**.
 6. Select a **Model**.
 7. If you changed the model or options, select **Save AI setup**.
+
+You can add several providers of the same type, for example two DeepSeek accounts.
+Each one needs its own key: HeetKit refuses a key that another provider already
+uses. The list stays grouped by type; a provider without a name is shown as its type
+with a number, such as **DeepSeek 2**. **Edit** changes the name or replaces the key
+(leave the key empty to keep it); **Remove** deletes the provider and its key.
 
 **Check:** Check the AI controls on **Dashboard** for the active model and
 [test a prompt](#test-locally-with-ai-playground).
@@ -36,8 +43,9 @@ the provider's limits, charges and data-use terms before you enable AI for viewe
   in your provider account. Check **Logs** for the failed attempt.
 - If the key says **Managed externally** on Server, change the key on the host
   and restart. See [credential storage](data-and-privacy.md#credentials-and-local-data).
-- **Remove key** deletes the saved key immediately. On Desktop, an environment
-  key can still supply the credential. **Cancel AI edits** discards model and
+- **Remove** deletes the provider and its saved key immediately. A provider in the
+  primary or fallback model is refused until you choose another one. On Desktop, an
+  environment key can still supply the first provider of its type. **Cancel AI edits** discards model and
   length drafts only. Keep keys out of screenshots, chat and support messages.
 
 ### Use your own OpenAI-compatible server
@@ -47,24 +55,28 @@ OpenAI `chat/completions` API. HeetKit sends one non-streaming request per quest
 and posts only the final answer; reasoning blocks are removed, and a reply with
 reasoning only counts as a failure.
 
-1. In **Providers**, find **Custom (OpenAI-compatible)**.
+1. In **Providers**, select **Add provider > Custom**.
 2. Enter the **Server address**. For LM Studio on the same PC, enter
-   `http://localhost:1234/v1`. On Desktop, HTTP works only for this computer; use
-   HTTPS for any other server. On Server, see [the address rules below](#custom-server-addresses-on-heetkit-server).
+   `http://localhost:1234/v1`. For a server on your home network or over Tailscale,
+   turn on **Private networks**. See [the address rules](#custom-server-addresses-and-private-networks).
    Redirects are not followed.
-3. Enter an **API key** only if the server requires one, then select **Save connection**.
-   A new address on another host or port removes the saved key; enter it again.
-4. Select **Test connection**. It lists the server's models; it cannot prove that a
+3. Enter an **API key** only if the server requires one, then select **Add**.
+   Editing the address to another host or port removes the saved key; enter it again.
+4. Select **Test**. It lists the server's models; it cannot prove that a
    model generates replies.
-5. In **Primary model**, select **Custom (OpenAI-compatible)**, then select a
+5. In **Primary model**, select the custom provider, then select a
    discovered model or enter its ID in **Manual model ID**. Select **Save AI setup**.
 6. [Test a prompt](#test-locally-with-ai-playground) in Playground.
 
 The custom provider can be the primary model only. Thinking controls and internet
-search are not available for it. The address stays in this profile: configuration
-export does not include it or the key.
+search are not available for it. Providers, names and addresses stay in this
+profile: configuration export does not include them or the keys.
 
-#### Custom server addresses on HeetKit Server
+#### Custom server addresses and private networks
+
+On Desktop, **Private networks** off allows HTTPS anywhere and HTTP only to this
+computer. Turn it on for each custom provider that runs on another device in your
+home network or Tailscale; then those addresses work over HTTP too.
 
 HeetKit Server connects only to public addresses over HTTPS by default. It checks
 every address a name resolves to on each connection and connects only to a checked
@@ -72,10 +84,12 @@ address. Link-local addresses (cloud metadata such as `169.254.169.254`), multic
 and reserved addresses are always refused.
 
 To reach a model on a private network, such as LM Studio on your PC over
-[Tailscale](https://tailscale.com/), set `HEETKIT_CUSTOM_AI_PRIVATE_NETWORKS=true` in the
-Server process environment (the `bot` service's `environment` for Compose) and
-restart. Then loopback, home-network and Tailscale (`100.64.0.0/10`) addresses are
-allowed over HTTP or HTTPS. For LM Studio, turn on serving on the local network,
+[Tailscale](https://tailscale.com/), the host owner first allows it: set
+`HEETKIT_CUSTOM_AI_PRIVATE_NETWORKS=true` in the Server process environment (the
+`bot` service's `environment` for Compose) and restart. Without it, the **Private
+networks** switch stays off and disabled. Then turn on **Private networks** for that
+custom provider: loopback, home-network and Tailscale (`100.64.0.0/10`) addresses are
+allowed over HTTP or HTTPS for it only; other custom providers stay public-only. For LM Studio, turn on serving on the local network,
 then enter its Tailscale address, for example `http://100.101.102.103:1234/v1`.
 Tailscale encrypts that traffic. The optional key is saved in
 `auth/server_credentials.json`, like the other Server keys.

@@ -24,10 +24,37 @@ DEFAULT_OPENAI_MODEL = "gpt-6-luna"
 DEFAULT_OPENAI_FALLBACK_MODEL = "gpt-6.1-sol"
 
 
+# A provider connection id: the type itself for the first connection of a type (it keeps
+# the pre-1.7 credential name), or the type plus a short suffix for further ones.
+AI_CONNECTION_ID_PATTERN = re.compile(r"^(gemini|deepseek|openai|custom)(?:-[a-z0-9]{6})?$")
+MAX_AI_CONNECTIONS = 20
+
+
+@dataclass(frozen=True, slots=True)
+class AIConnection:
+    """One added AI provider. Machine-local: never exported; its key stays in the secure store."""
+    id: str
+    label: str = ""
+    # Custom (OpenAI-compatible) connections only.
+    base_url: str | None = None
+    private_network: bool = False
+
+
 def validate_ai_provider(value: object) -> str:
-    if not isinstance(value, str) or value not in AI_PROVIDERS:
+    """Validate a provider connection id (for example ``deepseek`` or ``deepseek-a1b2c3``)."""
+    if not isinstance(value, str) or AI_CONNECTION_ID_PATTERN.fullmatch(value) is None:
         raise UserError("ai_models.unknown_ai_provider")
     return value
+
+
+def provider_type(value: object) -> str:
+    """The provider type (gemini, deepseek, openai or custom) of a connection id."""
+    return validate_ai_provider(value).split("-", 1)[0]
+
+
+def ai_key_name(connection_id: str) -> str:
+    """Credential name of a connection's API key; the first connection keeps the old name."""
+    return validate_ai_provider(connection_id) + "_api_key"
 
 
 def validate_provider_models(provider: object, selected: object, fallback: object) -> tuple[str, str]:
@@ -40,6 +67,7 @@ def validate_provider_models(provider: object, selected: object, fallback: objec
 
 
 def validate_provider_model_id(provider: str, value: object) -> str:
+    provider = provider_type(provider)
     if provider == "custom":
         if not isinstance(value, str) or not value.strip():
             raise UserError("ai_models.not_empty", field="AI model")
