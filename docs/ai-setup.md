@@ -43,9 +43,10 @@ with a number, such as **DeepSeek 2**. **Edit** changes the name or replaces the
   in your provider account. Check **Logs** for the failed attempt.
 - If the key says **Managed externally** on Server, change the key on the host
   and restart. See [credential storage](data-and-privacy.md#credentials-and-local-data).
-- **Remove** deletes the provider and its saved key immediately. A provider in the
-  primary or fallback model is refused until you choose another one. On Desktop, an
-  environment key can still supply the first provider of its type. **Cancel AI edits** discards model and
+- **Remove** deletes the provider and its saved key immediately. If the primary or
+  fallback model uses it, the confirmation warns you; those requests then fail until
+  you choose another provider. On Desktop, an environment key can still supply the
+  first provider of its type. **Cancel AI edits** discards model and
   length drafts only. Keep keys out of screenshots, chat and support messages.
 
 ### Use your own OpenAI-compatible server
