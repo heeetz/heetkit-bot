@@ -1,25 +1,35 @@
 import { expect, test } from '@playwright/test'
 import { expectNoOverflow, closeAIBehavior, login, navigate, openAIBehaviorSection, selectOption, server, sessionToken, signIn } from './browser-fixture'
 
-test('AI connects a key, saves provider settings and runs Playground with the saved setup', async ({ page }) => {
+test('AI adds providers with their own keys, saves provider settings and runs Playground with the saved setup', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 })
   const api = await server(page)
   const writes = () => api.calls.filter(({ method, path }) => method === 'POST' && path === '/v1/ops/save_ai_setup')
+  const added = () => api.calls.filter(({ path }) => path === '/v1/ops/save_ai_connection')
   await signIn(page)
   await navigate(page, 'AI')
   await expect(page.getByRole('heading', { name: 'AI', level: 1, exact: true })).toBeVisible()
   await navigate(page, 'AI setup')
   const setup = page.locator('#ai-models')
-  const key = setup.getByLabel('gemini API key', { exact: true })
-  await key.fill('synthetic-gemini-key')
-  await setup.getByRole('button', { name: 'Connect Google Gemini key' }).click()
-  await expect(key).toHaveValue('')
-  expect(api.calls.find(({ path }) => path === '/v1/ops/replace_credential')?.body).toEqual({
-    name: 'gemini_api_key', value: 'synthetic-gemini-key',
-  })
-  await setup.getByRole('button', { name: 'Test Google Gemini connection' }).click()
-  await expect.poll(() => api.calls.find(({ path }) => path === '/v1/ops/test_credential')?.body)
-    .toEqual({ name: 'gemini_api_key' })
+  // A second Gemini provider gets its own key and name.
+  await selectOption(setup.getByLabel('Add provider'), 'gemini')
+  const dialog = page.getByRole('dialog', { name: 'Add Google Gemini' })
+  await dialog.getByLabel('Name (optional)').fill('Backup')
+  await dialog.getByLabel('API key', { exact: true }).fill('synthetic-gemini-key')
+  await dialog.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(added()[0]?.body).toEqual({ provider: 'gemini', label: 'Backup', api_key: 'synthetic-gemini-key' })
+  await setup.getByRole('button', { name: 'Test Backup' }).click()
+  await expect.poll(() => api.calls.filter(({ path }) => path === '/v1/ops/discover_ai_models').at(-1)?.body)
+    .toEqual({ provider: 'gemini-a1b2c3' })
+  // The same key cannot be added twice; the dialog keeps the draft and shows why.
+  await selectOption(setup.getByLabel('Add provider'), 'gemini')
+  await dialog.getByLabel('API key', { exact: true }).fill('synthetic-gemini-key')
+  await dialog.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toContainText('already used by another provider')
+  await expect(dialog.getByLabel('API key', { exact: true })).toHaveValue('')
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(setup.getByRole('button', { name: /^Remove / })).toHaveCount(4)
 
   await selectOption(setup.getByLabel('Primary provider'), 'openai')
   await selectOption(setup.getByLabel('Primary thinking'), 'none')
@@ -72,13 +82,18 @@ test('AI clears an unsent key when leaving and keeps the non-secret provider dra
   await navigate(page, 'AI setup')
   const setup = page.locator('#ai-models')
   await selectOption(setup.getByLabel('Primary provider'), 'openai')
-  await setup.getByLabel('gemini API key', { exact: true }).fill('private unsent draft')
+  await setup.getByRole('button', { name: 'Edit OpenAI' }).click()
+  const dialog = page.getByRole('dialog', { name: 'OpenAI' })
+  await dialog.getByLabel('API key', { exact: true }).fill('private unsent draft')
+  await page.keyboard.press('Escape')
   await navigate(page, 'Dashboard')
   await navigate(page, 'AI')
   await navigate(page, 'AI setup')
-  await expect(setup.getByLabel('gemini API key', { exact: true })).toHaveValue('')
+  await setup.getByRole('button', { name: 'Edit OpenAI' }).click()
+  await expect(dialog.getByLabel('API key', { exact: true })).toHaveValue('')
+  await page.keyboard.press('Escape')
   await expect(setup.getByLabel('Primary provider')).toHaveAttribute('data-value', 'openai')
-  expect(api.calls.some(({ path, method }) => method === 'POST' && ['/v1/ops/replace_credential', '/v1/ops/save_ai_setup'].includes(path))).toBe(false)
+  expect(api.calls.some(({ path, method }) => method === 'POST' && ['/v1/ops/save_ai_connection', '/v1/ops/save_ai_setup'].includes(path))).toBe(false)
 })
 
 test('Playground hides unsafe results and retains the prompt for the next request', async ({ page }) => {
@@ -122,7 +137,7 @@ test('a failed Playground start shows an error, keeps the prompt and allows a re
   await expect(playground.getByText('Synthetic server answer <b>plain text</b>', { exact: true })).toBeVisible()
 })
 
-test('removing the active provider key warns first and leaves the provider unconnected', async ({ page }) => {
+test('removing the active provider warns first and drops it from the list', async ({ page }) => {
   const api = await server(page)
   await signIn(page)
   await navigate(page, 'AI')
@@ -131,14 +146,15 @@ test('removing the active provider key warns first and leaves the provider uncon
   await selectOption(setup.getByLabel('Primary provider'), 'deepseek')
   await setup.getByRole('button', { name: 'Save AI setup' }).click()
   await expect.poll(() => api.calls.some(({ method, path }) => method === 'POST' && path === '/v1/ops/save_ai_setup')).toBe(true)
-  const remove = setup.getByRole('button', { name: 'Remove DeepSeek key', exact: true })
+  const remove = setup.getByRole('button', { name: 'Remove DeepSeek', exact: true })
   let warning = ''
   page.once('dialog', async (dialog) => { warning = dialog.message(); await dialog.accept() })
   await remove.click()
   await expect.poll(() => warning).toContain('in use')
-  await expect.poll(() => api.calls.find(({ path }) => path === '/v1/ops/remove_credential')?.body)
-    .toEqual({ name: 'deepseek_api_key' })
-  await expect(setup.getByRole('button', { name: 'Connect DeepSeek key', exact: true })).toBeVisible()
+  await expect.poll(() => api.calls.find(({ path }) => path === '/v1/ops/remove_ai_connection')?.body)
+    .toEqual({ connection_id: 'deepseek' })
+  await expect(remove).toHaveCount(0)
+  await expect(setup.getByText('Unavailable', { exact: false })).toBeVisible()
 })
 
 test('browser AI setup saves typed selections, explicit fallback consent and shared instructions through HTTP', async ({ page }) => {
@@ -390,7 +406,7 @@ test('Playground offers explicit draft use and keeps unrelated personality edits
 test('failed key storage clears the sensitive draft and allows a retry', async ({ page }) => {
   await server(page)
   let fail = true
-  await page.route('**/v1/ops/replace_credential', async (route) => {
+  await page.route('**/v1/ops/save_ai_connection', async (route) => {
     if (!fail) return route.fallback()
     return route.fulfill({ json: { ok: false, error: 'Synthetic credential write failure' } })
   })
@@ -398,16 +414,18 @@ test('failed key storage clears the sensitive draft and allows a retry', async (
   await navigate(page, 'AI')
   await navigate(page, 'AI setup')
   const setup = page.locator('#ai-models')
-  const key = setup.getByLabel('gemini API key', { exact: true })
-  const connect = setup.getByRole('button', { name: 'Connect Google Gemini key' })
+  await selectOption(setup.getByLabel('Add provider'), 'deepseek')
+  const dialog = page.getByRole('dialog', { name: 'Add DeepSeek' })
+  const key = dialog.getByLabel('API key', { exact: true })
+  const add = dialog.getByRole('button', { name: 'Add', exact: true })
   await key.fill('synthetic-unsaved-key')
-  await connect.click()
-  await expect(setup.getByRole('alert').filter({ hasText: 'Synthetic credential write failure' })).toBeVisible()
+  await add.click()
+  await expect(dialog.getByRole('alert').filter({ hasText: 'Synthetic credential write failure' })).toBeVisible()
   await expect(key).toHaveValue('')
-  await expect(connect).toBeDisabled()
+  await expect(add).toBeDisabled()
   fail = false
   await key.fill('synthetic-replacement-key')
-  await connect.click()
-  await expect(setup.getByRole('button', { name: 'Test Google Gemini connection' })).toBeEnabled()
-  await expect(key).toHaveValue('')
+  await add.click()
+  await expect(dialog).toHaveCount(0)
+  await expect(setup.getByRole('button', { name: 'Test DeepSeek 2' })).toBeEnabled()
 })

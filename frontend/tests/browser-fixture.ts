@@ -67,7 +67,13 @@ export async function server(page: Page, operationOverrides: OperationOverrides 
   }
   const status = { running: true, twitch_connected: true, twitch_connection_state: 'connected' as const, uptime_seconds: 10, channel: 'synthetic_channel', account: 'synthetic_bot', leaderboard_channel_id: '200', ...statusOverrides, operation }
   const ai = () => ({ provider: 'Google Gemini', enabled, available: aiConfigured, memory_enabled: memoryEnabled, active_personality: activePersonality, available_personalities: personalities.map(({ name }) => name), model: 'test-model' })
-  const aiProvider = { provider: 'Gemini', selected_model: 'test-model', fallback_model: 'test-fallback', presets: [], credential: null }
+  const aiProvider = { provider: 'Gemini', selected_model: 'test-model', fallback_model: 'test-fallback', presets: [], credential: null, connected: aiConfigured }
+  const key = (configured: boolean) => ({ configured, source: configured ? 'server_file' : 'missing', managed: true })
+  const connection = (id: string, models: string[], configured: boolean, label = '') => ({ id, type: id.split('-')[0], label, credential: key(configured),
+    base_url: null as string | null, private_network: false, models, selected_model: models[0], fallback_model: models[1] ?? '' })
+  let aiConnections = [connection('gemini', ['gemini-2.5-flash', 'gemini-2.5-pro'], true),
+    connection('deepseek', ['deepseek-flash', 'deepseek-v4-pro'], aiConfigured), connection('openai', ['gpt-6-luna', 'gpt-6.1-sol'], true)]
+  const aiKeys = new Map([['gemini', 'saved-gemini-key'], ['openai', 'saved-openai-key']])
   let aiSetup = { primary: { provider: 'gemini', model: 'gemini-2.5-flash', thinking: 'default', search: false },
     fallback: null, cross_provider_acknowledged: false, max_question_length: 300, max_answer_length: 220,
     shared_instructions: null, provider_drafts: {} }
@@ -125,14 +131,29 @@ export async function server(page: Page, operationOverrides: OperationOverrides 
     }
     if (path === '/v1/ops/get_ai_setup' || path === '/v1/ops/save_ai_setup') {
       if (path.endsWith('/save_ai_setup')) aiSetup = body!.settings as typeof aiSetup
-      result = { ok: true, settings: aiSetup, providers: [
-        { id: 'gemini', label: 'Google Gemini', credential: credentials[1], models: ['gemini-2.5-flash'], selected_model: 'gemini-2.5-flash', fallback_model: 'gemini-2.5-pro' },
-        { id: 'deepseek', label: 'DeepSeek', credential: credentials[2], models: ['deepseek-flash'], selected_model: 'deepseek-flash', fallback_model: 'deepseek-v4-pro' },
-        { id: 'openai', label: 'OpenAI', credential: { name: 'openai_api_key', label: 'OpenAI API key', configured: true, source: 'server_file', managed: true }, models: ['gpt-6-luna'], selected_model: 'gpt-6-luna', fallback_model: 'gpt-6.1-sol' },
-      ], capabilities: { gemini: { 'gemini-2.5-flash': { known: true, thinking_options: [{ value: 'default', label: 'Provider default' }, { value: 'off', label: 'Off' }], search_supported: true, search_reason: 'Google Suggestions display required', attribution_required: true } },
+      result = { ok: true, settings: aiSetup, providers: aiConnections, private_networks_allowed: false, max_providers: 20, capabilities: { gemini: { 'gemini-2.5-flash': { known: true, thinking_options: [{ value: 'default', label: 'Provider default' }, { value: 'off', label: 'Off' }], search_supported: true, search_reason: 'Google Suggestions display required', attribution_required: true } },
         deepseek: { 'deepseek-flash': { known: true, thinking_options: [{ value: 'default', label: 'Provider default' }, { value: 'off', label: 'Off' }, { value: 'high', label: 'High' }], search_supported: true, search_reason: 'Bounded provider search', attribution_required: false } },
         openai: { 'gpt-6-luna': { known: true, thinking_options: [{ value: 'default', label: 'Provider default' }, { value: 'none', label: 'None' }, { value: 'low', label: 'Low' }], search_supported: true, search_reason: 'OpenAI Web Search with inline source URLs', attribution_required: false } } },
         default_shared_instructions: 'Shared defaults', retained_restrictions: 'Local request and output checks remain enabled.' }
+    }
+    if (path === '/v1/ops/save_ai_connection') {
+      const id = (body!.connection_id ?? (aiConnections.some((item) => item.id === body!.provider) ? `${body!.provider}-a1b2c${aiConnections.length}` : body!.provider)) as string
+      const entered = String(body!.api_key ?? '').trim()
+      if ([...aiKeys].some(([other, value]) => other !== id && value === entered)) {
+        result = { ok: false, error_code: 'ai_connections.duplicate_key', error_params: {}, error: 'This API key is already used by another provider. Each provider needs its own key.' }
+      } else {
+        if (entered) aiKeys.set(id, entered)
+        const existing = aiConnections.find((item) => item.id === id)
+        const saved = { ...(existing ?? connection(id, aiConnections.find((item) => item.type === id.split('-')[0])?.models ?? [], false)), label: String(body!.label ?? '') }
+        saved.credential = key(aiKeys.has(id))
+        aiConnections = existing ? aiConnections.map((item) => item.id === id ? saved : item) : [...aiConnections, saved]
+        result = { ok: true, id, key_removed: false }
+      }
+    }
+    if (path === '/v1/ops/remove_ai_connection') {
+      aiConnections = aiConnections.filter((item) => item.id !== body!.connection_id)
+      aiKeys.delete(body!.connection_id as string)
+      result = { ok: true }
     }
     if (path === '/v1/ops/discover_ai_models') result = { ok: true, provider_id: body?.provider, models: ['deepseek-flash'] }
     if (path === '/v1/ops/update_server_twitch_settings') {

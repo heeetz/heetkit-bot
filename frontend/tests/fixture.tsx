@@ -56,7 +56,8 @@ const operations: Record<string, (payload: any) => Promise<unknown>> = {
   get_recent_commands: async () => ({ entries: [] }),
   get_ai_setup: async () => ({ ok: true, settings: { primary: { provider: 'gemini', model: 'test-model', thinking: 'default', search: false },
     fallback: null, cross_provider_acknowledged: false, max_question_length: 300, max_answer_length: 220, shared_instructions: null, provider_drafts: {} },
-  providers: [{ id: 'gemini', label: 'Google Gemini', credential: null, models: ['test-model'], selected_model: 'test-model', fallback_model: '' }], capabilities: { gemini: {} } }),
+  providers: [{ id: 'gemini', type: 'gemini', label: '', credential: { configured: true, source: 'credential_store', managed: true }, base_url: null, private_network: false, models: ['test-model'], selected_model: 'test-model', fallback_model: '' }],
+  capabilities: { gemini: {}, deepseek: {}, openai: {}, custom: {} } }),
   get_reply_interval: async () => ({ ok: true, seconds: 5 }),
   set_ai_enabled: async ({ enabled: value }: { enabled: boolean }) => {
     bridgeCalls.push(['set_ai_enabled', value])

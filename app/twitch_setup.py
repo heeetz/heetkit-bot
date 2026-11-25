@@ -351,7 +351,8 @@ class TwitchSetup:
         return {"ok": True, "changed": True, "requires_reconnect": True}
 
     async def change_credential(self, name, value=None, *, remove=False):
-        parsed = self.credentials.check_managed(name)
+        # Fixed credentials only; added AI provider keys change through AI setup.
+        parsed = self.credentials.check_managed(self.credentials.parse_name(name))
         if not remove:
             value = self.credentials._store.validate(value)
         old = self.credentials.effective_value(parsed)

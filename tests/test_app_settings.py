@@ -17,13 +17,14 @@ from app.app_settings import (
     AppSettings,
     AppSettingsStore,
     ChatSettings,
-    CustomAIConnection,
     StartupSettings,
     TwitchConnectionPreset,
     TwitchSettings,
     WindowSettings,
     load_app_settings,
+    parse_ai_connection,
 )
+from app.config.ai_models import AIConnection
 from app.errors import UserError
 from app.webview_host import AsyncioBackendHost, WebUIBridge
 from app.config_file import ConfigFile
@@ -115,7 +116,7 @@ def test_app_settings_store_saves_atomically_and_reloads(tmp_path) -> None:
         "startup": {"auto_start_bot": True, "operation_mode": "always_on", "paused": True},
         "ai": {
             "history_max_entries": 100, "context_max_entries": 5,
-            "provider": None, "providers": {},
+            "provider": None, "providers": {}, "connections": [],
             "setup": None, "setup_guide_dismissed": False, "setup_guide_ai_skipped": False,
             "cooldown_bypass_user_id": None,
             "memory_enabled": False,
@@ -317,15 +318,50 @@ def test_custom_connection_address_policy_per_host(tmp_path, url, local, public,
     store = AppSettingsStore(ConfigFile(settings_path))
     if private.startswith("ai_models.") and local.startswith("ai_models."):
         with pytest.raises(UserError):
-            store.update_custom_ai_connection(url)
+            store.save_ai_connection(parse_ai_connection({"id": "custom", "base_url": url}))
         assert not settings_path.exists()
         return
     # The profile keeps any well-formed address; each host checks its policy on save and connect.
     accepted = private if not private.startswith("ai_models.") else local
-    store.update_custom_ai_connection(url)
-    assert read_section(settings_path, "app")["ai"]["providers"] == {"custom": {"base_url": accepted}}
-    assert AppSettingsStore(ConfigFile(settings_path)).snapshot().ai.providers == {"custom": CustomAIConnection(accepted)}
-    assert store.update_custom_ai_connection(None).ai.providers == {}
+    store.save_ai_connection(parse_ai_connection({"id": "custom-a1b2c3", "label": " LM Studio ", "base_url": url}))
+    assert read_section(settings_path, "app")["ai"]["connections"] == [
+        {"id": "custom-a1b2c3", "label": "LM Studio", "base_url": accepted, "private_network": False}]
+    assert AppSettingsStore(ConfigFile(settings_path)).snapshot().ai.connections == (
+        AIConnection("custom-a1b2c3", "LM Studio", accepted),)
+    assert store.remove_ai_connection("custom-a1b2c3").ai.connections == ()
+
+
+def test_legacy_custom_endpoint_becomes_the_first_custom_connection(tmp_path) -> None:
+    settings_path = tmp_path / "config.json"
+    write_section(settings_path, "app", {"version": APP_SETTINGS_VERSION, "ai": {"providers": {
+        "custom": {"base_url": "http://localhost:1234/v1"},
+        "deepseek": {"selected_model": "deepseek-flash", "fallback_model": "deepseek-v4-pro"}}}})
+    store = AppSettingsStore(ConfigFile(settings_path))
+
+    assert store.snapshot().ai.connections == (AIConnection("custom", base_url="http://localhost:1234/v1"),)
+    assert store.snapshot().ai.providers == {"deepseek": AIModelPair("deepseek-flash", "deepseek-v4-pro")}
+    store.update_ai_memory(enabled=False)
+    saved = read_section(settings_path, "app")["ai"]
+    assert "custom" not in saved["providers"]
+    assert saved["connections"] == [{"id": "custom", "label": "", "base_url": "http://localhost:1234/v1",
+                                     "private_network": False}]
+
+
+@pytest.mark.parametrize("connection", [
+    {"id": "deepseek-a1b2c3", "label": "x" * 41}, {"id": "deepseek-a1b2c3", "label": "line\nbreak"},
+    {"id": "deepseek-A1B2C3"}, {"id": "anthropic"}, {"id": "custom"}])
+def test_invalid_ai_connections_are_rejected(connection) -> None:
+    with pytest.raises(UserError):
+        parse_ai_connection(connection)
+
+
+def test_ai_connection_count_is_bounded(tmp_path) -> None:
+    store = AppSettingsStore(ConfigFile(tmp_path / "config.json"))
+    for index in range(20):
+        store.save_ai_connection(AIConnection(f"openai-{index:06d}"))
+    with pytest.raises(UserError) as error:
+        store.save_ai_connection(AIConnection("openai-zzzzzz"))
+    assert error.value.code == "ai_connections.too_many"
 
 
 def test_bridge_reads_and_updates_desktop_settings(tmp_path) -> None:

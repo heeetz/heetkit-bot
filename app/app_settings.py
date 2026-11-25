@@ -9,11 +9,12 @@ from dataclasses import asdict, dataclass, field, replace
 from threading import RLock
 
 from app.errors import UserError
-from typing import Annotated, Literal
-from pydantic import BeforeValidator, Field, StrictBool, StrictInt, StrictStr, StringConstraints, model_validator
+from typing import Annotated
+from pydantic import AfterValidator, BeforeValidator, Field, StrictBool, StrictInt, StrictStr, StringConstraints, model_validator
 from app.settings_models import (SettingsModel, InterfaceLanguage, OperationMode,
     field_value, parse)
-from app.config.ai_models import validate_ai_provider, validate_custom_base_url, validate_provider_models
+from app.config.ai_models import (AIConnection, MAX_AI_CONNECTIONS, provider_type, validate_ai_provider,
+                                  validate_custom_base_url, validate_provider_models)
 from app.config_file import ConfigFile, ConfigSection
 from app.config.ai import AI_MEMORY_ENABLED
 from app.config.privacy import AI_HISTORY_MAX_ENTRIES, AI_CONTEXT_MAX_ENTRIES
@@ -59,12 +60,6 @@ class AIModelPair:
     fallback_model: str
 
 
-@dataclass(frozen=True, slots=True)
-class CustomAIConnection:
-    """Machine-local: never exported; its key stays in the secure store."""
-    base_url: str
-
-
 BUILTIN_AI_PROVIDERS = ("gemini", "deepseek", "openai")
 # 1.4b and earlier stored per-provider models as flat fields in the ai section.
 LEGACY_AI_MODEL_FIELDS = {"gemini": ("selected_model", "fallback_model"),
@@ -79,8 +74,10 @@ class AISettings:
     context_max_entries: int = AI_CONTEXT_MAX_ENTRIES
     # None preserves intentional process defaults; old profiles still default to Gemini.
     provider: str | None = None
-    # Saved model pairs by built-in provider id, plus the "custom" connection.
-    providers: dict[str, AIModelPair | CustomAIConnection] = field(default_factory=dict)
+    # Saved model pairs by built-in provider type (pre-1.5b defaults).
+    providers: dict[str, AIModelPair] = field(default_factory=dict)
+    # Added provider connections; a first connection of a type may also exist only as its key.
+    connections: tuple[AIConnection, ...] = ()
     # Optional per-account policy; internal AI/output bounds remain code-owned.
     cooldown_bypass_user_id: str | None = None
     response_language: ResponseLanguageSettings = field(default_factory=ResponseLanguageSettings)
@@ -166,8 +163,9 @@ def _memory_limits(stored, context):
 
 
 class AISettingsModel(AIMemoryLimitsModel, AIFlagsModel):
-    provider: Literal["gemini", "deepseek", "openai", "custom"] | None = None
-    providers: dict[str, AIModelPair | CustomAIConnection] = {}
+    provider: Annotated[StrictStr, AfterValidator(validate_ai_provider)] | None = None
+    providers: dict[str, AIModelPair] = {}
+    connections: tuple[AIConnection, ...] = ()
     cooldown_bypass_user_id: StrictStr | None = None
     response_language: ResponseLanguageSettings
     setup: AISetup | None = None
@@ -308,7 +306,7 @@ def _read_twitch_presets(section: dict[str, object]) -> tuple[TwitchConnectionPr
     return tuple(presets)
 
 
-def _read_providers(ai_payload: dict[str, object]) -> dict[str, AIModelPair | CustomAIConnection]:
+def _read_providers(ai_payload: dict[str, object]) -> dict[str, AIModelPair]:
     stored = ai_payload.get("providers")
     if stored is None:
         stored = {provider: {"selected_model": ai_payload.get(selected), "fallback_model": ai_payload.get(fallback)}
@@ -316,7 +314,7 @@ def _read_providers(ai_payload: dict[str, object]) -> dict[str, AIModelPair | Cu
     elif not isinstance(stored, dict):
         logger.warning("Ignoring malformed application setting name=ai.providers")
         stored = {}
-    providers: dict[str, AIModelPair | CustomAIConnection] = {}
+    providers: dict[str, AIModelPair] = {}
     for provider in BUILTIN_AI_PROVIDERS:
         entry = stored.get(provider)
         values = (entry.get("selected_model"), entry.get("fallback_model")) if isinstance(entry, dict) else (None, None)
@@ -325,16 +323,56 @@ def _read_providers(ai_payload: dict[str, object]) -> dict[str, AIModelPair | Cu
                 providers[provider] = AIModelPair(*validate_provider_models(provider, *values))
             except ValueError:
                 logger.warning("Ignoring invalid %s model settings override", provider)
-    custom = stored.get("custom")
-    if custom is not None:
-        try:
-            if not isinstance(custom, dict):
-                raise UserError("ai_models.custom_base_url_invalid")
-            # The host's address policy applies on save and on every connection.
-            providers["custom"] = CustomAIConnection(validate_custom_base_url(custom.get("base_url"), local_http_only=False))
-        except ValueError:
-            logger.warning("Ignoring invalid custom AI connection")
     return providers
+
+
+AIConnectionLabel = Annotated[StrictStr, StringConstraints(strip_whitespace=True, max_length=40),
+                              AfterValidator(lambda value: value if value.isprintable() else _bad_label())]
+
+
+def _bad_label():
+    raise UserError("ai_connections.label_invalid")
+
+
+class AIConnectionModel(SettingsModel):
+    id: Annotated[StrictStr, AfterValidator(validate_ai_provider)]
+    label: AIConnectionLabel = ""
+    base_url: StrictStr | None = None
+    private_network: StrictBool = False
+
+    @model_validator(mode="after")
+    def custom_fields(self):
+        if provider_type(self.id) == "custom":
+            # The host's address policy applies on save and on every connection.
+            self.base_url = validate_custom_base_url(self.base_url, local_http_only=False)
+        else:
+            self.base_url, self.private_network = None, False
+        return self
+
+
+def parse_ai_connection(value: object) -> AIConnection:
+    return AIConnection(**parse(AIConnectionModel, value).model_dump())
+
+
+def _read_connections(ai_payload: dict[str, object]) -> tuple[AIConnection, ...]:
+    stored = ai_payload.get("connections")
+    if stored is None:
+        # 1.5b-1.6 kept one custom endpoint in providers.custom; other keys need no entry.
+        custom = ai_payload.get("providers", {}).get("custom") if isinstance(ai_payload.get("providers"), dict) else None
+        stored = [{"id": "custom", "base_url": custom.get("base_url")}] if isinstance(custom, dict) else []
+    elif not isinstance(stored, list):
+        logger.warning("Ignoring malformed application setting name=ai.connections")
+        stored = []
+    connections: dict[str, AIConnection] = {}
+    for item in stored:
+        try:
+            connection = parse_ai_connection(item)
+        except ValueError:
+            logger.warning("Ignoring invalid AI provider connection")
+            continue
+        if connection.id not in connections and len(connections) < MAX_AI_CONNECTIONS:
+            connections[connection.id] = connection
+    return tuple(connections.values())
 
 
 def load_app_settings(section: ConfigSection) -> AppSettings:
@@ -466,6 +504,7 @@ def load_app_settings(section: ConfigSection) -> AppSettings:
             **_recover_fields(AIFlagsModel, ai_payload),
             provider=provider,
             providers=_read_providers(ai_payload),
+            connections=_read_connections(ai_payload),
             cooldown_bypass_user_id=cooldown_bypass_user_id,
             response_language=response_language,
             setup=setup,
@@ -611,17 +650,25 @@ class AppSettingsStore:
             self._settings = updated
         return updated
 
-    def update_custom_ai_connection(self, base_url: object) -> AppSettings:
-        """Save or (with None) remove the custom endpoint."""
+    def save_ai_connection(self, connection: AIConnection) -> AppSettings:
+        """Add or replace one provider connection by id."""
         with self._lock:
-            providers = dict(self._settings.ai.providers)
-            if base_url is None:
-                providers.pop("custom", None)
-            else:
-                providers["custom"] = CustomAIConnection(validate_custom_base_url(base_url, local_http_only=False))
-            updated = replace(self._settings, ai=replace(self._settings.ai, providers=providers))
-            save_app_settings(self._section, updated, recovered_settings=self._settings)
-            self._settings = updated
+            current = self._settings.ai.connections
+            if connection.id not in {item.id for item in current} and len(current) >= MAX_AI_CONNECTIONS:
+                raise UserError("ai_connections.too_many", limit=str(MAX_AI_CONNECTIONS))
+            connections = tuple(connection if item.id == connection.id else item for item in current)
+            if connection.id not in {item.id for item in current}:
+                connections += (connection,)
+            return self._save_connections(connections)
+
+    def remove_ai_connection(self, connection_id: str) -> AppSettings:
+        with self._lock:
+            return self._save_connections(tuple(item for item in self._settings.ai.connections if item.id != connection_id))
+
+    def _save_connections(self, connections: tuple[AIConnection, ...]) -> AppSettings:
+        updated = replace(self._settings, ai=replace(self._settings.ai, connections=connections))
+        save_app_settings(self._section, updated, recovered_settings=self._settings)
+        self._settings = updated
         return updated
 
     def update_setup_guide(self, dismissed: object, ai_skipped: object) -> AppSettings:

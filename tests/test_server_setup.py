@@ -85,7 +85,7 @@ async def test_openai_saved_setup_and_playground_use_shared_policy_and_safe_usag
         return 200, {"status": "completed", "model": "gpt-6-luna", "usage": {"input_tokens": 150, "output_tokens": 25},
                      "output": [{"type": "message", "role": "assistant", "status": "completed",
                                  "content": [{"type": "output_text", "text": "Friendly answer.", "annotations": []}]}]}
-    monkeypatch.setattr(server.runtime.application.services.ai._providers["openai"], "_http_json", generate)
+    monkeypatch.setattr(server.runtime.application.services.ai._connection("openai"), "_http_json", generate)
     status, started = await call("/v1/ops/start_ai_playground", {"prompt": "Hello!"})
     assert status == 200
     await server.runtime.application.ai_playground.task

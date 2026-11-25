@@ -431,7 +431,10 @@ export interface TwitchSettingsResponse extends ActionResult {
 }
 
 export type CredentialName = 'gemini_api_key' | 'deepseek_api_key' | 'openai_api_key' | 'custom_api_key' | 'twitch_client_secret'
-export type AIProviderId = 'gemini' | 'deepseek' | 'openai' | 'custom'
+export type AIProviderType = 'gemini' | 'deepseek' | 'openai' | 'custom'
+/** A provider connection id: the type for the first one of a type, else `<type>-<6 chars>`. */
+export type AIProviderId = string
+export const providerType = (id: AIProviderId) => id.split('-')[0] as AIProviderType
 
 export interface CredentialInfo {
   name: CredentialName
@@ -453,18 +456,26 @@ export interface GeminiModelPreset {
   description: string
 }
 
+export interface AIKeyStatus {
+  configured: boolean
+  source: CredentialInfo['source']
+  managed: boolean
+}
+
 export interface AIProviderSettings {
   provider: string
   provider_id?: AIProviderId
   selected_model: string
   fallback_model: string
   presets: GeminiModelPreset[]
-  credential: CredentialInfo | null
+  credential: AIKeyStatus | null
+  /** Any added provider can answer. */
+  connected?: boolean
 }
 
 export interface AIProviderSettingsResponse extends ActionResult {
   settings?: AIProviderSettings
-  providers?: { id: AIProviderId; label: string }[]
+  providers?: { id: AIProviderType; label: string }[]
 }
 
 export interface AIModelSelection {
@@ -484,6 +495,28 @@ export interface AISetupSettings {
   provider_drafts: Partial<Record<string, AIModelSelection>>
 }
 
+export interface AIConnectionInfo {
+  id: AIProviderId
+  type: AIProviderType
+  label: string
+  credential: AIKeyStatus | null
+  base_url: string | null
+  private_network: boolean
+  models: string[]
+  selected_model: string
+  fallback_model: string
+}
+
+/** Add (provider set) or edit (connection_id set) one provider; an empty key keeps the saved one. */
+export type AIConnectionInput = {
+  connection_id?: AIProviderId
+  provider?: AIProviderType
+  label: string
+  api_key: string
+  base_url?: string
+  private_network?: boolean
+}
+
 export interface AIModelCapabilities {
   known: boolean
   thinking_options: { value: string; label: string }[]
@@ -494,9 +527,12 @@ export interface AIModelCapabilities {
 
 export interface AISetupResponse extends ActionResult {
   settings?: AISetupSettings
-  // Desktop lists the custom provider with its saved endpoint (base_url) when one is set.
-  providers?: { id: AIProviderId; label: string; credential: CredentialInfo | null; models: string[]; selected_model: string; fallback_model: string; base_url?: string | null }[]
-  capabilities?: Record<AIProviderId, Record<string, AIModelCapabilities>>
+  /** Added providers, grouped by type; several of one type may exist. */
+  providers?: AIConnectionInfo[]
+  capabilities?: Record<AIProviderType, Record<string, AIModelCapabilities>>
+  /** Custom providers may opt in to private networks here (Server: only when its operator allows). */
+  private_networks_allowed?: boolean
+  max_providers?: number
   default_shared_instructions?: string
   retained_restrictions?: string
 }
@@ -711,8 +747,8 @@ export interface PythonApi {
   save_ai_setup(settings: AISetupSettings): Promise<ActionResult>
   get_reply_interval(): Promise<ActionResult & { seconds?: number }>
   set_reply_interval(seconds: number): Promise<ActionResult & { seconds?: number }>
-  save_custom_ai_connection(baseUrl: string, apiKey: string): Promise<ActionResult & { key_removed?: boolean }>
-  remove_custom_ai_connection(): Promise<ActionResult>
+  save_ai_connection(connection: AIConnectionInput): Promise<ActionResult & { id?: AIProviderId; key_removed?: boolean }>
+  remove_ai_connection(connectionId: AIProviderId): Promise<ActionResult>
   get_setup_guide(): Promise<ActionResult & { dismissed?: boolean; ai_skipped?: boolean }>
   save_setup_guide(dismissed: boolean, ai_skipped: boolean): Promise<ActionResult & { dismissed?: boolean; ai_skipped?: boolean }>
   get_ai_language_settings(): Promise<AILanguageSettingsResponse>

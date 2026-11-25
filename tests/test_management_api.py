@@ -375,26 +375,43 @@ async def test_global_ai_scope_and_legacy_management_no_invisible_blocks(api, mo
 async def test_ai_setup_save_reload_validation_and_guide_use_authenticated_shared_operations(api):
     server, call = api
     status, result, _ = await call("POST", "/v1/ops/get_ai_setup")
-    assert status == 200 and {row["id"] for row in result["providers"]} == {"gemini", "deepseek", "openai", "custom"}
-    assert all("value" not in row["credential"] for row in result["providers"])
-    # Custom on Server: public HTTPS only until private networks are allowed; the key goes to the Server file.
+    # A new profile starts with no providers; one is added from the list.
+    assert status == 200 and result["providers"] == []
+    # Custom on Server: public HTTPS only; Private networks only under the environment ceiling.
     application = server.runtime.application
     application.settings.custom_ai_network = "public"
-    save_custom = lambda **body: call("POST", "/v1/ops/save_custom_ai_connection", json=body)
-    status, body, _ = await save_custom(base_url="http://localhost:1234/v1")
+    assert (await call("POST", "/v1/ops/get_ai_setup"))[1]["private_networks_allowed"] is False
+    save = lambda **body: call("POST", "/v1/ops/save_ai_connection", json=body)
+    status, body, _ = await save(provider="custom", base_url="http://localhost:1234/v1")
     assert status == 400 and body["error_code"] == "ai_models.custom_base_url_server_public_https"
-    assert (await save_custom(base_url="https://llm.example.com/v1", api_key="PRIVATE-CUSTOM-KEY"))[1] == {"ok": True, "key_removed": False}
+    status, body, _ = await save(provider="custom", base_url="http://localhost:1234/v1", private_network=True)
+    assert status == 400 and body["error_code"] == "ai_connections.private_networks_disabled"
+    assert (await save(provider="custom", base_url="https://llm.example.com/v1", api_key="PRIVATE-CUSTOM-KEY"))[1] \
+        == {"ok": True, "id": "custom", "key_removed": False}
     custom = lambda rows: next(row for row in rows["providers"] if row["id"] == "custom")
     row = custom((await call("POST", "/v1/ops/get_ai_setup"))[1])
     assert row["base_url"] == "https://llm.example.com/v1"
     assert (row["credential"]["configured"], row["credential"]["source"]) == (True, "server_file")
+    assert "value" not in row["credential"]
     assert application.settings.custom_api_key.get_secret_value() == "PRIVATE-CUSTOM-KEY"
     assert "custom_api_key" not in {item["name"] for item in server.credential_statuses()}
     application.settings.custom_ai_network = "private"
-    assert (await save_custom(base_url="http://100.101.102.103:1234/v1"))[1] == {"ok": True, "key_removed": True}
+    status, body, _ = await save(connection_id="custom", base_url="http://100.101.102.103:1234/v1")
+    assert status == 400 and body["error_code"] == "ai_models.custom_base_url_server_public_https"
+    assert (await save(connection_id="custom", base_url="http://100.101.102.103:1234/v1", private_network=True))[1] \
+        == {"ok": True, "id": "custom", "key_removed": True}
     assert application.settings.custom_api_key is None
-    assert (await call("POST", "/v1/ops/remove_custom_ai_connection"))[1] == {"ok": True}
-    assert custom((await call("POST", "/v1/ops/get_ai_setup"))[1])["base_url"] is None
+    # Further providers of a type use their own key in the Server file; keys must differ.
+    added = (await save(provider="openai", api_key="PRIVATE-OPENAI-1"))[1]
+    second = (await save(provider="openai", api_key="PRIVATE-OPENAI-2", label="Spare"))[1]
+    assert (added["id"], second["id"][:7]) == ("openai", "openai-")
+    assert (await save(provider="openai", api_key="PRIVATE-OPENAI-2"))[1]["error_code"] == "ai_connections.duplicate_key"
+    assert application.settings.ai_keys[second["id"]].get_secret_value() == "PRIVATE-OPENAI-2"
+    status, body, _ = await call("POST", "/v1/ops/replace_credential", json={"name": second["id"] + "_api_key", "value": "x"})
+    assert status == 400 and body["error_code"] == "credentials.unknown_credential"
+    for connection_id in ("custom", second["id"], "openai"):
+        assert (await call("POST", "/v1/ops/remove_ai_connection", json={"connection_id": connection_id}))[1] == {"ok": True}
+    assert (await call("POST", "/v1/ops/get_ai_setup"))[1]["providers"] == []
     settings = result["settings"]
     settings.update(shared_instructions="Owner custom instructions", max_question_length=42, max_answer_length=120)
     assert (await call("POST", "/v1/ops/save_ai_setup", json={"settings": settings}))[1]["ok"]

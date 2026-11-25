@@ -1,6 +1,6 @@
 """Apply saved profile settings to runtime configuration."""
 
-from app.app_settings import AIModelPair, AppSettings, CustomAIConnection
+from app.app_settings import AppSettings
 from app.config.settings import Settings
 
 
@@ -22,14 +22,24 @@ def apply_ai_app_settings(settings: Settings, app_settings: AppSettings) -> Sett
     if ai.provider is not None:
         overrides["ai_provider"] = ai.provider
     for provider, models in ai.providers.items():
-        if isinstance(models, AIModelPair):
-            overrides.update({provider + "_model": models.selected_model,
-                              provider + "_fallback_model": models.fallback_model})
-    custom = ai.providers.get("custom")
-    if isinstance(custom, CustomAIConnection):
-        overrides["custom_base_url"] = custom.base_url
+        overrides.update({provider + "_model": models.selected_model,
+                          provider + "_fallback_model": models.fallback_model})
+    overrides["ai_connections"] = ai.connections
     if ai.cooldown_bypass_user_id is not None:
         overrides["ai_cooldown_bypass_user_id"] = ai.cooldown_bypass_user_id
     if ai.setup is not None:
         overrides["ai_provider"] = ai.setup.primary.provider
     return settings.model_copy(update=overrides) if overrides else settings
+
+
+def load_ai_connection_keys(settings: Settings, credentials) -> None:
+    """Load keys of connections after the first of each type (the first loads with the fixed credentials)."""
+    from pydantic import SecretStr
+    from app.config.ai_models import provider_type
+    keys = {}
+    for connection in settings.ai_connections:
+        if connection.id != provider_type(connection.id):
+            value = credentials.effective_value(credentials.ai_key_name(connection.id))
+            if value:
+                keys[connection.id] = SecretStr(value)
+    settings.ai_keys = keys

@@ -421,10 +421,10 @@ async def test_effective_provider_model_thinking_and_tool_outcome_are_shared(pla
     ai.settings.deepseek_api_key = SecretStr("private-deepseek-key")
     ai.settings.openai_api_key = SecretStr("private-openai-key")
     response = AIProviderResponse("Fresh answer.", search_used=True)
-    primary = ai._providers[provider].generate = AsyncMock(
+    primary = ai._connection(provider).generate = AsyncMock(
         return_value=AIProviderResponse(status="model_unavailable") if fallback else response,
     )
-    secondary = ai._providers["gemini"].generate = AsyncMock(
+    secondary = ai._connection("gemini").generate = AsyncMock(
         return_value=AIProviderResponse("Grounded answer.", search_used=True, attribution_required=True),
     )
     result = await run_prompt(bridge, "What is the latest news?")

@@ -30,7 +30,7 @@ from app.operations import SERVER, collect, operation, private_context
 from app.runtime_paths import PACKAGED_FRONTEND, SOURCE_ROOT, RuntimePaths
 from app.config_file import ConfigFile
 from app.utils.logging import RecentLogBuffer
-from app.credentials import CredentialError, CredentialName
+from app.credentials import CredentialError
 from app.server_credentials import write_private_json
 from app.config.settings import TwitchConfigurationError
 from app.twitch_setup import ServerOAuth, TwitchSetup, credential_manager
@@ -191,20 +191,6 @@ class ServerOperations:
     @operation(write=False, hosts=SERVER_ONLY)
     def get_app_status(self) -> dict:
         return self.api.app_status()
-
-    @operation(write=False, hosts=SERVER_ONLY)
-    def get_ai_provider_settings(self, provider: object = None) -> dict:
-        result = self.service.get_ai_provider_settings(provider)
-        result["settings"]["credential"] = self.api.ai_credential_status(result["settings"]["provider_id"])
-        return result
-
-    @operation(write=False, hosts=SERVER_ONLY, passthrough_errors=True)
-    def get_ai_setup(self) -> dict:
-        result = self.service.get_ai_setup()
-        if result.get("ok") is not False:
-            for provider in result["providers"]:
-                provider["credential"] = self.api.ai_credential_status(provider["id"])
-        return result
 
     @operation(write=True, hosts=SERVER_ONLY)
     async def block_ai_user(self, username: object) -> dict:
@@ -777,14 +763,10 @@ class ManagementAPI:
         """Presence/source only; never read values back to the browser."""
         return self.setup.credentials.server_statuses()
 
-    def ai_credential_status(self, provider: str) -> dict:
-        return self.setup.credentials.server_status(CredentialName(provider + "_api_key"))
-
     def setup_status(self, owner: bytes = b"") -> dict:
         """Project effective configuration status, never credentials or paths."""
         credentials = self.credential_statuses()
         provider = self.service.get_ai_provider_settings()["settings"]
-        provider["credential"] = self.ai_credential_status(provider["provider_id"])
         state = self.service.get_app_status()
         return self.setup.server_status(state, credentials, provider, owner,
             management_url=self.config.trusted_origin or "http://" + sorted(self.config.authorities)[0],

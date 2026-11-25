@@ -154,8 +154,7 @@ function Dashboard({ status, aiStatus, onChangeBotState, onChangeAIState, onRefr
       && setup.twitch.client_id.trim() && setup.twitch.bot_username.trim() && setup.twitch.bot_user_id.trim(),
   )
   const needsTwitchSetup = Boolean(setup && (!twitchTargetReady || !twitchCredential?.configured))
-  const aiConfigured = Boolean(setup?.credentials.some((credential) => credential.configured
-    && (credential.name === 'gemini_api_key' || credential.name === 'deepseek_api_key' || credential.name === 'openai_api_key')))
+  const aiConfigured = Boolean(setup?.aiProvider.connected)
   const pendingRestart = !isBrowserMode() && Boolean(setup?.twitch.requires_restart || setup?.twitch.requires_cleanup_restart)
   const pendingReconnect = Boolean(setup?.twitch.requires_reconnect && !pendingRestart && !needsTwitchSetup)
   const needsApply = Boolean(setup?.twitch.requires_restart || setup?.twitch.requires_reconnect)

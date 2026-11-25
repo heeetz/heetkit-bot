@@ -17,7 +17,7 @@ from pathlib import Path
 from app.database.migrations import DatabaseMigrationError
 from app.app_settings import AppSettings, AppSettingsStore
 from app.bot_runtime import BotRuntime
-from app.config.profile_settings import apply_ai_app_settings, apply_twitch_app_settings
+from app.config.profile_settings import apply_ai_app_settings, apply_twitch_app_settings, load_ai_connection_keys
 from app.config.settings import Settings, TwitchConfigurationError
 from app.container import build_application
 from app.desktop_instance import DesktopAlreadyRunningError, desktop_instance_guard
@@ -347,6 +347,7 @@ def main(argv: list[str] | None = None) -> int:
             setattr(settings, name, SecretStr(value) if value else None)
         profile = AppSettingsStore(ConfigFile(paths.config_file)).snapshot()
         settings = apply_ai_app_settings(apply_twitch_app_settings(settings, profile), profile)
+        load_ai_connection_keys(settings, credentials)
         private = os.environ.get(PRIVATE_NETWORKS_ENV, "").strip().lower() in {"1", "true", "yes"}
         settings.custom_ai_network = "private" if private else "public"
         # Management must remain usable with Twitch stopped/unconfigured. Without
