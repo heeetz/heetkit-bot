@@ -59,9 +59,7 @@ def test_saved_twitch_and_ai_settings_take_precedence() -> None:
         "gemini-saved-fallback",
     )
     assert effective.ai_cooldown_bypass_user_id == "600"
-    # Server applies the same profile without its custom endpoint (Desktop only in v1).
-    assert effective.custom_base_url is None
-    assert apply_ai_app_settings(runtime, saved, allow_custom=True).custom_base_url == "http://localhost:1234/v1"
+    assert effective.custom_base_url == "http://localhost:1234/v1"
     assert effective.ai_response_language == language
     assert effective.twitch_client_secret == runtime.twitch_client_secret
     assert effective.gemini_api_key == runtime.gemini_api_key

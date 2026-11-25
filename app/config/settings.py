@@ -66,9 +66,11 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr | None = None
     openai_model: str = DEFAULT_OPENAI_MODEL
     openai_fallback_model: str = DEFAULT_OPENAI_FALLBACK_MODEL
-    # Desktop only: one validated custom endpoint; its key is optional.
+    # One validated custom endpoint; its key is optional. Server sets "public" or
+    # "private" (app.services.custom_ai_network); Desktop keeps "local".
     custom_api_key: SecretStr | None = None
     custom_base_url: str | None = None
+    custom_ai_network: Literal["local", "public", "private"] = "local"
     ai_cooldown_bypass_user_id: str | None = None
     reply_interval_seconds: int = Field(default=5, strict=True, ge=0, le=60)
     ai_response_language: ResponseLanguageSettings = Field(default_factory=ResponseLanguageSettings)

@@ -250,7 +250,7 @@ async def test_real_httpx_path_uses_fixed_host_limits_and_closes_client(monkeypa
     def client(**kwargs):
         assert kwargs["trust_env"] is False and kwargs["follow_redirects"] is False
         assert kwargs["timeout"].read == deepseek.DEEPSEEK_TRANSPORT_TIMEOUT_SECONDS
-        created = original_client(**kwargs, transport=httpx.MockTransport(handler))
+        created = original_client(**{**kwargs, "transport": httpx.MockTransport(handler)})
         clients.append(created)
         return created
     monkeypatch.setattr(httpx, "AsyncClient", client)

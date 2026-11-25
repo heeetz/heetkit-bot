@@ -1441,7 +1441,7 @@ def run_desktop_host(
         get_logger("app.webview.desktop").info("Applied the interface language chosen in Setup")
     settings_snapshot = app_settings.snapshot()
     settings = apply_twitch_app_settings(settings, settings_snapshot)
-    settings = apply_ai_app_settings(settings, settings_snapshot, allow_custom=True)
+    settings = apply_ai_app_settings(settings, settings_snapshot)
     should_auto_start = resolve_auto_start(settings_snapshot, auto_start)
     backend = AsyncioBackendHost(
         settings,

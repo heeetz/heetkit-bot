@@ -282,28 +282,46 @@ def test_legacy_flat_model_settings_move_to_providers_on_the_next_save(tmp_path)
     assert memory_updated.ai == AISettings(provider="gemini", memory_enabled=False, providers=providers)
 
 
-@pytest.mark.parametrize(("url", "accepted"), [
-    ("http://localhost:1234/v1/", "http://localhost:1234/v1"),
-    ("http://127.0.0.1:1234/v1", "http://127.0.0.1:1234/v1"),
-    ("http://[::1]:8080", "http://[::1]:8080"),
-    ("https://llm.example.com/v1", "https://llm.example.com/v1"),
-    ("http://192.168.1.20:1234/v1", "ai_models.custom_base_url_http_local_only"),
-    ("http://localhost.example.com/v1", "ai_models.custom_base_url_http_local_only"),
-    ("https://user:secret@llm.example.com/v1", "ai_models.custom_base_url_invalid"),
-    ("https://llm.example.com/v1?key=1", "ai_models.custom_base_url_invalid"),
-    ("ftp://localhost/v1", "ai_models.custom_base_url_invalid"),
-    ("https://llm.example.com:99999", "ai_models.custom_base_url_invalid"),
-    ("localhost:1234", "ai_models.custom_base_url_invalid"),
+LOCAL_ONLY, PUBLIC_HTTPS, BLOCKED, INVALID = ("ai_models.custom_base_url_http_local_only",
+    "ai_models.custom_base_url_server_public_https", "ai_models.custom_base_url_address_blocked",
+    "ai_models.custom_base_url_invalid")
+
+
+# Columns: Desktop ("local"), Server ("public"), Server with private networks ("private").
+@pytest.mark.parametrize(("url", "local", "public", "private"), [
+    ("http://localhost:1234/v1/", "http://localhost:1234/v1", PUBLIC_HTTPS, "http://localhost:1234/v1"),
+    ("http://127.0.0.1:1234/v1", "http://127.0.0.1:1234/v1", PUBLIC_HTTPS, "http://127.0.0.1:1234/v1"),
+    ("http://[::1]:8080", "http://[::1]:8080", PUBLIC_HTTPS, "http://[::1]:8080"),
+    ("https://llm.example.com/v1", "https://llm.example.com/v1", "https://llm.example.com/v1", "https://llm.example.com/v1"),
+    ("http://192.168.1.20:1234/v1", LOCAL_ONLY, PUBLIC_HTTPS, "http://192.168.1.20:1234/v1"),
+    ("http://100.101.102.103:1234/v1", LOCAL_ONLY, PUBLIC_HTTPS, "http://100.101.102.103:1234/v1"),
+    ("http://localhost.example.com/v1", LOCAL_ONLY, PUBLIC_HTTPS, "http://localhost.example.com/v1"),
+    ("https://10.0.0.5/v1", "https://10.0.0.5/v1", PUBLIC_HTTPS, "https://10.0.0.5/v1"),
+    ("https://169.254.169.254/v1", "https://169.254.169.254/v1", BLOCKED, BLOCKED),
+    ("https://user:secret@llm.example.com/v1", INVALID, INVALID, INVALID),
+    ("https://llm.example.com/v1?key=1", INVALID, INVALID, INVALID),
+    ("ftp://localhost/v1", INVALID, INVALID, INVALID),
+    ("https://llm.example.com:99999", INVALID, INVALID, INVALID),
+    ("localhost:1234", INVALID, INVALID, INVALID),
 ])
-def test_custom_connection_accepts_https_or_local_http_only(tmp_path, url, accepted) -> None:
+def test_custom_connection_address_policy_per_host(tmp_path, url, local, public, private) -> None:
+    from app.services.custom_ai_network import validate_custom_url_for_host
+    for policy, expected in (("local", local), ("public", public), ("private", private)):
+        if expected.startswith("ai_models."):
+            with pytest.raises(UserError) as error:
+                validate_custom_url_for_host(url, policy)
+            assert error.value.code == expected
+        else:
+            assert validate_custom_url_for_host(url, policy) == expected
     settings_path = tmp_path / "config.json"
     store = AppSettingsStore(ConfigFile(settings_path))
-    if accepted.startswith("ai_models."):
-        with pytest.raises(UserError) as error:
+    if private.startswith("ai_models.") and local.startswith("ai_models."):
+        with pytest.raises(UserError):
             store.update_custom_ai_connection(url)
-        assert error.value.code == accepted
         assert not settings_path.exists()
         return
+    # The profile keeps any well-formed address; each host checks its policy on save and connect.
+    accepted = private if not private.startswith("ai_models.") else local
     store.update_custom_ai_connection(url)
     assert read_section(settings_path, "app")["ai"]["providers"] == {"custom": {"base_url": accepted}}
     assert AppSettingsStore(ConfigFile(settings_path)).snapshot().ai.providers == {"custom": CustomAIConnection(accepted)}

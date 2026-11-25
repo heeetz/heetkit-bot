@@ -266,6 +266,7 @@ def test_cli_uses_environment_without_keyring_applies_saved_settings_and_handles
     monkeypatch.setenv("TWITCH_CLIENT_SECRET", "private-env-secret")
     monkeypatch.setenv("TWITCH_CLIENT_ID", "overridden-client")
     monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///unrelated-private.db")
+    monkeypatch.setenv("HEETKIT_CUSTOM_AI_PRIVATE_NETWORKS", "true")
     monkeypatch.setattr(headless, "configure_headless_logging", lambda: None)
     handlers = {}
     def register(number, handler):
@@ -279,6 +280,7 @@ def test_cli_uses_environment_without_keyring_applies_saved_settings_and_handles
         assert value.twitch_client_secret.get_secret_value() == "private-env-secret"
         assert value.database_url.endswith(str(paths.database))
         assert not profile.ai.memory_enabled
+        assert value.custom_ai_network == "private"
         handlers[signum](signum, None)
         await asyncio.wait_for(stop.wait(), timeout=1)
         return 0

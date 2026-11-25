@@ -18,7 +18,7 @@ HeetKit is not affiliated with or endorsed by Twitch.
 ## Features
 
 - **AI chat:** Gemini, DeepSeek or OpenAI, or your own OpenAI-compatible server
-  (Desktop, main model only); saved primary/fallback models, supported
+  (main model only); saved primary/fallback models, supported
   thinking/search controls, personalities, shared instructions and response languages.
 - **AI Playground on both hosts:** test the applied setup without posting to Twitch.
   Requests use real provider quota; Playground never uses viewer memory.

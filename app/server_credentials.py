@@ -129,13 +129,17 @@ class ServerCredentialManager(CredentialManager):
         # Server callers use the explicit projection below, never keyring status.
         return ()
 
-    def server_statuses(self) -> list[dict]:
-        return [{"name": name.value, "label": CREDENTIAL_LABELS[name],
+    def server_status(self, name: CredentialName) -> dict:
+        return {"name": name.value, "label": CREDENTIAL_LABELS[name],
             "configured": bool(self.effective_value(name)),
             "source": "environment" if self._environment_fallbacks[name] else
                       "server_file" if self._store.get(name) else "missing",
             "secure_storage_available": True, "managed": not bool(self._environment_fallbacks[name]),
-            "validation_status": self.validation[name]} for name in (
+            "validation_status": self.validation[name]}
+
+    def server_statuses(self) -> list[dict]:
+        # The custom key is shown with its connection in AI setup, not in this list.
+        return [self.server_status(name) for name in (
                 CredentialName.TWITCH_CLIENT_SECRET, CredentialName.GEMINI_API_KEY,
                 CredentialName.DEEPSEEK_API_KEY, CredentialName.OPENAI_API_KEY)]
 

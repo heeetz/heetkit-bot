@@ -8,6 +8,7 @@ import time
 import httpx
 
 from app.config.ai_capabilities import validate_model_options
+from app.services.custom_ai_network import custom_transport
 from app.services.ai_provider import (
     AIGenerationRequest, AIProviderCapabilities, AIProviderResponse, AIProviderSettings,
     attempt_usage, report_usage,
@@ -40,6 +41,9 @@ class CustomProvider(HTTPProvider):
     base_url = ""
     transport_timeout = CUSTOM_TRANSPORT_TIMEOUT_SECONDS
     model_defaults = ("", "")
+
+    def _transport(self, base_url: str) -> httpx.AsyncBaseTransport | None:
+        return custom_transport(self.settings.custom_ai_network, base_url)
 
     def snapshot(self) -> AIProviderSettings:
         key = self.settings.custom_api_key

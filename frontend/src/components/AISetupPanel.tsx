@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { type AIModelSelection, type AIProviderId, type AISetupResponse, type AISetupSettings, waitForBridge } from '../bridge'
+import { type AIModelSelection, type AIProviderId, type AISetupResponse, type AISetupSettings, isBrowserMode, waitForBridge } from '../bridge'
 import Switch from './Switch'
 import HelpTip from './HelpTip'
 import Accordion from './Accordion'
@@ -178,6 +178,7 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
   }
 
   const customInfo = data?.providers?.find((provider) => provider.id === 'custom')
+  const serverHost = isBrowserMode()
   const crossProvider = draft?.fallback && draft.fallback.provider !== draft.primary.provider
   const toggleFallback = (enabled: boolean) => {
     if (!draft) return
@@ -217,9 +218,9 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
               <button className="ghost destructive" aria-label={fmt(text.removeProviderKey, { provider: provider.label })} disabled={Boolean(busy) || !provider.credential?.configured || provider.credential?.managed === false || provider.credential?.source === 'environment'} onClick={() => credentialAction(provider.id, 'remove')}>{text.removeKey}</button></div>
           </div>)}
           {customInfo && <div className="ai-connection-row ai-custom-connection">
-            <div className="ai-provider-status"><strong>{text.custom.label}</strong><HelpTip label={text.custom.helpLabel}><ul><li>{text.custom.tip1}</li><li>{text.custom.tip2}</li><li>{text.custom.tip3}</li><li>{text.custom.tip4}</li></ul></HelpTip><span className={`state-pill ${customInfo.base_url ? 'enabled' : 'unconfigured'}`}>{!customInfo.base_url ? text.custom.notSetUp : customInfo.credential?.configured ? text.custom.addressAndKey : text.custom.addressSaved}</span></div>
+            <div className="ai-provider-status"><strong>{text.custom.label}</strong><HelpTip label={text.custom.helpLabel}><ul><li>{text.custom.tip1}</li><li>{serverHost ? text.custom.serverTip2 : text.custom.tip2}</li><li>{serverHost ? text.custom.serverTip3 : text.custom.tip3}</li><li>{text.custom.tip4}</li></ul></HelpTip><span className={`state-pill ${customInfo.base_url ? 'enabled' : 'unconfigured'}`}>{!customInfo.base_url ? text.custom.notSetUp : customInfo.credential?.configured ? text.custom.addressAndKey : text.custom.addressSaved}</span></div>
             <div className="ai-custom-fields">
-              <label className="form-field ai-key-field"><span>{text.custom.baseUrl}</span><input aria-label={text.custom.baseUrl} type="url" inputMode="url" autoComplete="off" spellCheck={false} maxLength={2048} disabled={Boolean(busy)} placeholder={text.custom.urlPlaceholder} value={customUrl ?? customInfo.base_url ?? ''} onChange={(event) => setCustomUrl(event.target.value)} /></label>
+              <label className="form-field ai-key-field"><span>{text.custom.baseUrl}</span><input aria-label={text.custom.baseUrl} type="url" inputMode="url" autoComplete="off" spellCheck={false} maxLength={2048} disabled={Boolean(busy)} placeholder={serverHost ? text.custom.serverUrlPlaceholder : text.custom.urlPlaceholder} value={customUrl ?? customInfo.base_url ?? ''} onChange={(event) => setCustomUrl(event.target.value)} /></label>
               <label className="form-field ai-key-field"><span>{text.custom.keyField}</span><input type="password" aria-label={text.custom.apiKey} autoComplete="off" maxLength={8192} disabled={Boolean(busy)} placeholder={customInfo.credential?.configured ? text.replacementKey : text.custom.keyOptional} value={keys.custom ?? ''} onChange={(event) => setKeys((current) => ({ ...current, custom: event.target.value }))} /></label>
             </div>
             <div className="row-actions"><button className="primary" aria-label={text.custom.saveLabel} disabled={Boolean(busy) || !(customUrl ?? customInfo.base_url ?? '').trim() || ((customUrl ?? customInfo.base_url ?? '').trim() === (customInfo.base_url ?? '') && !keys.custom?.trim())} onClick={() => customAction('save', (customUrl ?? customInfo.base_url ?? '').trim())}>{text.custom.save}</button>

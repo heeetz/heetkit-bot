@@ -375,10 +375,26 @@ async def test_global_ai_scope_and_legacy_management_no_invisible_blocks(api, mo
 async def test_ai_setup_save_reload_validation_and_guide_use_authenticated_shared_operations(api):
     server, call = api
     status, result, _ = await call("POST", "/v1/ops/get_ai_setup")
-    assert status == 200 and {row["id"] for row in result["providers"]} == {"gemini", "deepseek", "openai"}
-    # v1 custom endpoint is Desktop only: not listed and not configurable here.
-    assert (await call("POST", "/v1/ops/save_custom_ai_connection", json={"base_url": "http://localhost:1234/v1"}))[0] == 404
+    assert status == 200 and {row["id"] for row in result["providers"]} == {"gemini", "deepseek", "openai", "custom"}
     assert all("value" not in row["credential"] for row in result["providers"])
+    # Custom on Server: public HTTPS only until private networks are allowed; the key goes to the Server file.
+    application = server.runtime.application
+    application.settings.custom_ai_network = "public"
+    save_custom = lambda **body: call("POST", "/v1/ops/save_custom_ai_connection", json=body)
+    status, body, _ = await save_custom(base_url="http://localhost:1234/v1")
+    assert status == 400 and body["error_code"] == "ai_models.custom_base_url_server_public_https"
+    assert (await save_custom(base_url="https://llm.example.com/v1", api_key="PRIVATE-CUSTOM-KEY"))[1] == {"ok": True, "key_removed": False}
+    custom = lambda rows: next(row for row in rows["providers"] if row["id"] == "custom")
+    row = custom((await call("POST", "/v1/ops/get_ai_setup"))[1])
+    assert row["base_url"] == "https://llm.example.com/v1"
+    assert (row["credential"]["configured"], row["credential"]["source"]) == (True, "server_file")
+    assert application.settings.custom_api_key.get_secret_value() == "PRIVATE-CUSTOM-KEY"
+    assert "custom_api_key" not in {item["name"] for item in server.credential_statuses()}
+    application.settings.custom_ai_network = "private"
+    assert (await save_custom(base_url="http://100.101.102.103:1234/v1"))[1] == {"ok": True, "key_removed": True}
+    assert application.settings.custom_api_key is None
+    assert (await call("POST", "/v1/ops/remove_custom_ai_connection"))[1] == {"ok": True}
+    assert custom((await call("POST", "/v1/ops/get_ai_setup"))[1])["base_url"] is None
     settings = result["settings"]
     settings.update(shared_instructions="Owner custom instructions", max_question_length=42, max_answer_length=120)
     assert (await call("POST", "/v1/ops/save_ai_setup", json={"settings": settings}))[1]["ok"]

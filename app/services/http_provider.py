@@ -111,6 +111,7 @@ class HTTPProvider:
             timeout=httpx.Timeout(transport_timeout),
             follow_redirects=False,
             trust_env=False,
+            transport=self._transport(base_url),
         ) as client:
             async with client.stream(
                 method, path, headers=headers, **kwargs,
@@ -126,6 +127,10 @@ class HTTPProvider:
                     else:
                         raise
                 return response.status_code, payload
+
+    def _transport(self, base_url: str) -> httpx.AsyncBaseTransport | None:
+        """None keeps httpx's default transport."""
+        return None
 
     def _response_error_is_model_missing(self, payload: Any) -> bool:
         return True

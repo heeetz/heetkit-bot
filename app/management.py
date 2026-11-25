@@ -15,7 +15,7 @@ from app.commands.registry import command_unavailable_reason
 from app.config.ai_language import RESPONSE_LANGUAGES, build_response_language_instruction
 from app.config.ai_models import (GEMINI_MODEL_PRESETS, AI_PROVIDERS, DEFAULT_DEEPSEEK_MODEL,
     DEFAULT_DEEPSEEK_FALLBACK_MODEL, DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_FALLBACK_MODEL, validate_ai_provider,
-    custom_base_url_origin, validate_custom_base_url)
+    custom_base_url_origin)
 from app.config.personalities import AI_PERSONALITY_PROMPTS, build_protected_shared_instructions
 from app.container import Application
 from app.custom_commands import VARIABLES
@@ -25,9 +25,10 @@ from app.filter_settings import (get_filter_settings, validate_filter_input,
 from app.twitch.permissions import Permission
 from app.utils.cooldown import CooldownPolicy
 from app.utils.logging import RecentLogBuffer, get_logger
+from app.services.custom_ai_network import validate_custom_url_for_host
 from app.services.updates import RELEASE_PAGE_URL
 from app.version import VERSION
-from app.operations import DESKTOP, operation
+from app.operations import operation
 from app.configuration_transfer import MAX_TRANSFER_BODY as TRANSFER_BODY
 
 # Per-operation JSON body limits for the Server transport.
@@ -1195,14 +1196,14 @@ class ApplicationManagement:
         self._logger.info("AI setup saved", extra={"event_kind": "settings.ai", "event_action": "save"})
         return {"ok": True}
 
-    @operation(write=True, hosts=(DESKTOP,), passthrough_errors=True)
+    @operation(write=True, passthrough_errors=True)
     async def _save_custom_ai_connection(self, base_url: object, api_key: object = None) -> dict[str, object]:
         """Save the endpoint; a new origin drops the stored key unless a key is entered with it."""
         from app.credentials import CredentialName
         settings = self._backend.application.settings
         name = CredentialName.CUSTOM_API_KEY
         try:
-            url = validate_custom_base_url(base_url)
+            url = validate_custom_url_for_host(base_url, settings.custom_ai_network)
             entered = api_key.strip() if isinstance(api_key, str) else ""
             new_origin = (settings.custom_base_url is None
                           or custom_base_url_origin(settings.custom_base_url) != custom_base_url_origin(url))
@@ -1219,7 +1220,7 @@ class ApplicationManagement:
         self._logger.info("Custom AI connection saved", extra={"event_kind": "settings.ai", "event_action": "save"})
         return {"ok": True, "key_removed": new_origin and not entered}
 
-    @operation(write=True, hosts=(DESKTOP,), passthrough_errors=True)
+    @operation(write=True, passthrough_errors=True)
     async def _remove_custom_ai_connection(self) -> dict[str, object]:
         from app.credentials import CredentialName
         try:

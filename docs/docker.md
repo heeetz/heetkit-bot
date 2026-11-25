@@ -225,6 +225,15 @@ Initial startup has a 75-second health grace; application startup defaults to 60
 seconds. Log rotation bounds retained Docker logs; no private chat text, credentials
 or raw provider errors are intentionally emitted by headless logging.
 
+### Reach a custom AI server on a private network
+
+The custom OpenAI-compatible provider connects only to public HTTPS addresses from
+the container. To use a model on your PC over Tailscale or a home network, set
+`HEETKIT_CUSTOM_AI_PRIVATE_NETWORKS=true` in the `bot` service's `environment` and
+restart; see [Custom server addresses on HeetKit Server](ai-setup.md#custom-server-addresses-on-heetkit-server).
+Prefer the Tailscale IP address over a MagicDNS name, because the container may not
+use the host's Tailscale DNS.
+
 ### Trace a silent chat command
 
 For a local test or an operator-approved troubleshooting window, set
