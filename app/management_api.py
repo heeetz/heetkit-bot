@@ -30,7 +30,7 @@ from app.operations import SERVER, collect, operation, private_context
 from app.runtime_paths import PACKAGED_FRONTEND, SOURCE_ROOT, RuntimePaths
 from app.config_file import ConfigFile
 from app.utils.logging import RecentLogBuffer
-from app.credentials import CredentialError
+from app.credentials import CredentialError, CredentialName
 from app.server_credentials import write_private_json
 from app.config.settings import TwitchConfigurationError
 from app.twitch_setup import ServerOAuth, TwitchSetup, credential_manager
@@ -202,8 +202,6 @@ class ServerOperations:
     def get_ai_setup(self) -> dict:
         result = self.service.get_ai_setup()
         if result.get("ok") is not False:
-            # v1: the custom endpoint is Desktop only.
-            result["providers"] = [provider for provider in result["providers"] if provider["id"] != "custom"]
             for provider in result["providers"]:
                 provider["credential"] = self.api.ai_credential_status(provider["id"])
         return result
@@ -384,6 +382,8 @@ class ManagementAPI:
             credentials or credential_manager(runtime.application.settings),
             oauth=ServerOAuth(redirect_uri=config.oauth_redirect_uri,
                 owner_active=self.owner_active))
+        # Shared custom-connection operations store their key in the Server file.
+        self.service._credential_manager = self.setup.credentials
         self.operations = ServerOperations(self)
         self._owns_policy = policy is None
         self.lock = asyncio.Lock()
@@ -771,7 +771,7 @@ class ManagementAPI:
         return self.setup.credentials.server_statuses()
 
     def ai_credential_status(self, provider: str) -> dict:
-        return next(status for status in self.credential_statuses() if status["name"] == provider + "_api_key")
+        return self.setup.credentials.server_status(CredentialName(provider + "_api_key"))
 
     def setup_status(self, owner: bytes = b"") -> dict:
         """Project effective configuration status, never credentials or paths."""

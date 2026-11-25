@@ -330,7 +330,8 @@ def _read_providers(ai_payload: dict[str, object]) -> dict[str, AIModelPair | Cu
         try:
             if not isinstance(custom, dict):
                 raise UserError("ai_models.custom_base_url_invalid")
-            providers["custom"] = CustomAIConnection(validate_custom_base_url(custom.get("base_url")))
+            # The host's address policy applies on save and on every connection.
+            providers["custom"] = CustomAIConnection(validate_custom_base_url(custom.get("base_url"), local_http_only=False))
         except ValueError:
             logger.warning("Ignoring invalid custom AI connection")
     return providers
@@ -617,7 +618,7 @@ class AppSettingsStore:
             if base_url is None:
                 providers.pop("custom", None)
             else:
-                providers["custom"] = CustomAIConnection(validate_custom_base_url(base_url))
+                providers["custom"] = CustomAIConnection(validate_custom_base_url(base_url, local_http_only=False))
             updated = replace(self._settings, ai=replace(self._settings.ai, providers=providers))
             save_app_settings(self._section, updated, recovered_settings=self._settings)
             self._settings = updated

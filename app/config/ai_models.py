@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 
 GEMINI_MODELS_RESOURCE = "gemini_models.json"
 _MODEL_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$")
-# Custom is one operator-defined OpenAI-compatible endpoint; Desktop only (task 2).
+# Custom is one operator-defined OpenAI-compatible endpoint (Desktop and Server).
 AI_PROVIDERS = {"gemini": "Google Gemini", "deepseek": "DeepSeek", "openai": "OpenAI",
                 "custom": "Custom (OpenAI-compatible)"}
 # Local servers such as LM Studio name quantized variants with "@".
@@ -56,7 +56,7 @@ def validate_provider_model_id(provider: str, value: object) -> str:
     return model
 
 
-def _is_loopback(host: str) -> bool:
+def is_loopback_host(host: str) -> bool:
     if host.lower().removesuffix(".") == "localhost":
         return True
     try:
@@ -65,8 +65,12 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
-def validate_custom_base_url(value: object) -> str:
-    """Accept HTTPS anywhere and HTTP only on this computer; no credentials, query or fragment."""
+def validate_custom_base_url(value: object, *, local_http_only: bool = True) -> str:
+    """Accept HTTPS anywhere and HTTP only on this computer; no credentials, query or fragment.
+
+    ``local_http_only=False`` checks only the form: stored profiles and Server rely on the
+    connection policy in ``app.services.custom_ai_network``, applied on every connection.
+    """
     if not isinstance(value, str) or not value.strip() or len(value.strip()) > MAX_CUSTOM_BASE_URL_LENGTH:
         raise UserError("ai_models.custom_base_url_invalid")
     url = value.strip().rstrip("/")
@@ -79,7 +83,7 @@ def validate_custom_base_url(value: object) -> str:
     if (scheme not in {"http", "https"} or not parts.hostname or "@" in parts.netloc
             or parts.query or parts.fragment or "?" in url or "#" in url or any(ord(c) <= 32 for c in url)):
         raise UserError("ai_models.custom_base_url_invalid")
-    if scheme == "http" and not _is_loopback(parts.hostname):
+    if scheme == "http" and local_http_only and not is_loopback_host(parts.hostname):
         raise UserError("ai_models.custom_base_url_http_local_only")
     return url
 

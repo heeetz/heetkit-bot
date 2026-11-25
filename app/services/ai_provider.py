@@ -116,7 +116,7 @@ class AIModelDiscoveryError(UserError, RuntimeError):
 
     def __init__(self, code: str):
         codes = {"provider_unavailable", "credential_rejected", "rate_limited", "timeout",
-                 "provider_error", "credentials_changed"}
+                 "provider_error", "credentials_changed", "custom_address_refused"}
         super().__init__(code if code in codes else "provider_error")
 
 

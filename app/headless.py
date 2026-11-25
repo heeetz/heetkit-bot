@@ -24,6 +24,7 @@ from app.desktop_instance import DesktopAlreadyRunningError, desktop_instance_gu
 from app.headless_health import HealthFile
 from app.operation_policy import OperationPolicy
 from app.runtime_paths import DATA_DIR_ENV, RuntimePaths, prepare_runtime_data
+from app.services.custom_ai_network import PRIVATE_NETWORKS_ENV
 from app.config_file import ConfigFile
 from app.utils.logging import OperatorActivityHandler, RecentLogBuffer, PrivacyLogFilter, socket_diagnostic_context
 
@@ -346,6 +347,8 @@ def main(argv: list[str] | None = None) -> int:
             setattr(settings, name, SecretStr(value) if value else None)
         profile = AppSettingsStore(ConfigFile(paths.config_file)).snapshot()
         settings = apply_ai_app_settings(apply_twitch_app_settings(settings, profile), profile)
+        private = os.environ.get(PRIVATE_NETWORKS_ENV, "").strip().lower() in {"1", "true", "yes"}
+        settings.custom_ai_network = "private" if private else "public"
         # Management must remain usable with Twitch stopped/unconfigured. Without
         # it, retain fail-fast diagnostics for the backwards-compatible default.
         if not arguments.management_api and profile.startup.operation_mode == "always_on":

@@ -24,6 +24,7 @@ from app.config.settings import Settings
 from app.config_file import write_atomic
 from app.runtime_state import RuntimeState
 from app.services.ai_provider import AIGenerationRequest, AIProvider, AIModelDiscoveryError
+from app.services.custom_ai_network import CustomAddressRefused
 from app.services.ai_request_policy import AIRequestPolicy
 from app.services.contracts import AIGenerationDetails, AIReply
 from app.services.filter_manager import FilterManager
@@ -255,7 +256,8 @@ class SharedAIService:
             raise
         except Exception as error:
             status = getattr(error, "status_code", None) or getattr(error, "code", None)
-            code = ("credential_rejected" if status in (401, 403) else
+            code = ("custom_address_refused" if isinstance(error, CustomAddressRefused) else
+                    "credential_rejected" if status in (401, 403) else
                     "rate_limited" if status == 429 else
                     "timeout" if isinstance(error, (TimeoutError, httpx.TimeoutException)) else "provider_error")
             raise AIModelDiscoveryError(code) from None

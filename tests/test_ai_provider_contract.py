@@ -153,3 +153,45 @@ async def test_discovery_errors_are_safe_and_do_not_change_models(provider_pipel
 ])
 def test_custom_reply_is_only_final_answer_text(content, answer):
     assert final_answer(content) == answer
+
+
+@pytest.mark.parametrize(("network", "url", "answers", "expected"), [
+    ("local", "http://localhost:{port}/v1", None, ["local-model"]),
+    # A hand-edited Desktop profile cannot widen HTTP beyond this computer.
+    ("local", "http://192.168.1.5:{port}/v1", None, "custom_address_refused"),
+    ("private", "http://localhost:{port}/v1", None, ["local-model"]),
+    ("public", "http://localhost:{port}/v1", None, "custom_address_refused"),
+    ("public", "https://llm.example.test/v1", ["10.0.0.5"], "custom_address_refused"),
+    # Any disallowed answer refuses the name, including mapped cloud metadata.
+    ("private", "https://llm.example.test/v1", ["93.184.216.34", "169.254.169.254"], "custom_address_refused"),
+    ("private", "https://llm.example.test/v1", ["::ffff:169.254.169.254"], "custom_address_refused"),
+])
+async def test_custom_endpoint_connects_only_where_the_host_allows(unused_tcp_port, monkeypatch,
+                                                                    network, url, answers, expected):
+    from aiohttp import web
+    from app.services.ai_provider import AIModelDiscoveryError
+
+    async def models(request):
+        return web.json_response({"data": [{"id": "local-model"}]})
+
+    application = web.Application()
+    application.router.add_get("/v1/models", models)
+    runner = web.AppRunner(application)
+    await runner.setup()
+    await web.TCPSite(runner, "127.0.0.1", unused_tcp_port).start()
+    if answers is not None:
+        async def resolve(host, port, **kwargs):
+            return [(None, None, None, "", (address, port)) for address in answers]
+        monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", resolve)
+    service = SharedAIService(Settings(custom_base_url=url.format(port=unused_tcp_port),
+                                       custom_ai_network=network), None, FilterManager())
+    try:
+        if isinstance(expected, list):
+            assert await service.discover_models("custom") == expected
+        else:
+            with pytest.raises(AIModelDiscoveryError) as error:
+                await service.discover_models("custom")
+            assert error.value.code == expected
+    finally:
+        await service.aclose()
+        await runner.cleanup()

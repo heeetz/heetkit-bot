@@ -354,7 +354,7 @@ async def test_real_httpx_path_uses_fixed_host_no_redirects_no_env_and_response_
                 if oversized else response())
     def client(**kwargs):
         assert kwargs["trust_env"] is False and kwargs["follow_redirects"] is False
-        created = original_client(**kwargs, transport=httpx.MockTransport(handler))
+        created = original_client(**{**kwargs, "transport": httpx.MockTransport(handler)})
         clients.append(created)
         return created
     monkeypatch.setattr(httpx, "AsyncClient", client)

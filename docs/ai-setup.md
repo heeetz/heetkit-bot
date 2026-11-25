@@ -40,7 +40,7 @@ the provider's limits, charges and data-use terms before you enable AI for viewe
   key can still supply the credential. **Cancel AI edits** discards model and
   length drafts only. Keep keys out of screenshots, chat and support messages.
 
-### Use your own OpenAI-compatible server (Desktop)
+### Use your own OpenAI-compatible server
 
 Run a local model, for example in LM Studio, or use another server that offers the
 OpenAI `chat/completions` API. HeetKit sends one non-streaming request per question
@@ -49,8 +49,9 @@ reasoning only counts as a failure.
 
 1. In **Providers**, find **Custom (OpenAI-compatible)**.
 2. Enter the **Server address**. For LM Studio on the same PC, enter
-   `http://localhost:1234/v1`. HTTP works only for this computer; use HTTPS for any
-   other server. Redirects are not followed.
+   `http://localhost:1234/v1`. On Desktop, HTTP works only for this computer; use
+   HTTPS for any other server. On Server, see [the address rules below](#custom-server-addresses-on-heetkit-server).
+   Redirects are not followed.
 3. Enter an **API key** only if the server requires one, then select **Save connection**.
    A new address on another host or port removes the saved key; enter it again.
 4. Select **Test connection**. It lists the server's models; it cannot prove that a
@@ -59,9 +60,25 @@ reasoning only counts as a failure.
    discovered model or enter its ID in **Manual model ID**. Select **Save AI setup**.
 6. [Test a prompt](#test-locally-with-ai-playground) in Playground.
 
-The custom provider is Desktop only and can be the primary model only. Thinking
-controls and internet search are not available for it. The address stays on this
-computer: configuration export does not include it or the key.
+The custom provider can be the primary model only. Thinking controls and internet
+search are not available for it. The address stays in this profile: configuration
+export does not include it or the key.
+
+#### Custom server addresses on HeetKit Server
+
+HeetKit Server connects only to public addresses over HTTPS by default. It checks
+every address a name resolves to on each connection and connects only to a checked
+address. Link-local addresses (cloud metadata such as `169.254.169.254`), multicast
+and reserved addresses are always refused.
+
+To reach a model on a private network, such as LM Studio on your PC over
+[Tailscale](https://tailscale.com/), set `HEETKIT_CUSTOM_AI_PRIVATE_NETWORKS=true` in the
+Server process environment (the `bot` service's `environment` for Compose) and
+restart. Then loopback, home-network and Tailscale (`100.64.0.0/10`) addresses are
+allowed over HTTP or HTTPS. For LM Studio, turn on serving on the local network,
+then enter its Tailscale address, for example `http://100.101.102.103:1234/v1`.
+Tailscale encrypts that traffic. The optional key is saved in
+`auth/server_credentials.json`, like the other Server keys.
 
 ## Test locally with AI Playground
 

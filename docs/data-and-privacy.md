@@ -91,9 +91,10 @@ stream category to the selected Gemini, DeepSeek or OpenAI provider. With memory
 up to M recent successful exchanges for that viewer/channel are included. A configured
 cross-provider fallback can receive the same permitted context after explicit consent.
 Search tools can also receive context.
-A Desktop custom OpenAI-compatible server receives the same context at the address
-you enter; its address stays in `config/config.json` on that computer, its optional
-key in the OS keyring, and neither is exported.
+A custom OpenAI-compatible server receives the same context at the address you
+enter; its address stays in the profile's `config/config.json`, its optional key in
+the OS keyring on Desktop or in `auth/server_credentials.json` on Server, and neither
+is exported.
 
 OpenAI requests from chat carry `safety_identifier`: a hash of the viewer's Twitch
 user ID keyed with the profile's `auth/ai_safety_salt`, so OpenAI can attribute
