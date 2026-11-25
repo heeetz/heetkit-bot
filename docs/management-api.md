@@ -309,7 +309,9 @@ ignored. A cookie alone cannot authorize reads, login or mutations. No CORS poli
 is issued. Public static assets carry no configuration or credentials, refuse
 cross-site loading, and use a restrictive content security policy. Only the entry
 page, icon and named compiled JS/CSS assets can be served; profiles, source maps
-and arbitrary paths are excluded. Assets are limited to 4 MiB each.
+and arbitrary paths are excluded. Assets are limited to 4 MiB each. Compiled JS/CSS
+files are named by content hash, so they are sent compressed and the browser may cache
+them; the entry page and every API response stay `no-store` and uncompressed.
 
 This native Python example reads the private token into memory and does not print
 it. It also avoids environment-configured HTTP proxies:

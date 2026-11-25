@@ -1290,7 +1290,10 @@ async def test_built_frontend_delivery_is_allowlisted_and_isolated(api, tmp_path
             async with client.get(url + path) as response:
                 text = await response.text()
                 assert response.status == 200 and response.content_type == kind
-                assert response.headers["Cache-Control"] == "no-store"
+                compiled = path.startswith("/assets/")
+                assert response.headers["Cache-Control"] == (
+                    "private, max-age=31536000, immutable" if compiled else "no-store")
+                assert ("Content-Encoding" in response.headers) == compiled
                 assert response.headers["Cross-Origin-Resource-Policy"] == "same-origin"
                 csp = response.headers["Content-Security-Policy"]
                 assert "script-src 'self';" in csp and "frame-ancestors 'none'" in csp

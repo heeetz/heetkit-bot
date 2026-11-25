@@ -573,12 +573,19 @@ class ManagementAPI:
                 body = body.replace(b"<head>", b'<head><meta name="heetkit-transport" content="http">', 1)
         except OSError:
             return self.response(503, {"ok": False, "error_code": "management_api.browser_panel_assets_unavailable_build_the_frontend_before_starting", "error_params": {}})
+        # Vite names compiled assets by content hash, so a browser may keep them;
+        # the entry page stays uncached so an update loads the new names at once.
+        compiled = relative.startswith("assets/")
         response = web.Response(body=body, content_type=content_type, headers={
-            "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, max-age=31536000, immutable" if compiled else "no-store",
+            "X-Content-Type-Options": "nosniff",
             "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
             "Referrer-Policy": "no-referrer", "Cross-Origin-Resource-Policy": "same-origin",
             "X-Frame-Options": "DENY",
         })
+        if compiled:
+            # Public static code only; API responses stay uncompressed (no secret reflection).
+            response.enable_compression()
         response.force_close()
         return response
 

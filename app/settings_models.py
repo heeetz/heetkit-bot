@@ -1,5 +1,6 @@
 """Shared settings constraints; storage and recovery remain owned by each store."""
 
+from functools import lru_cache
 from typing import Annotated, Literal
 
 from pydantic import (AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field,
@@ -22,9 +23,17 @@ def parse(model, value, **kwargs):
         raise validation_error(error) from None
 
 
+# Building a TypeAdapter compiles a validator schema; reuse it for repeated annotations.
+_adapter = lru_cache(maxsize=256)(TypeAdapter)
+
+
 def field_value(annotation, value, field):
     try:
-        return TypeAdapter(annotation).validate_python(value)
+        adapter = _adapter(annotation)
+    except TypeError:  # unhashable annotation metadata
+        adapter = TypeAdapter(annotation)
+    try:
+        return adapter.validate_python(value)
     except ValidationError as error:
         raise validation_error(error, field=field) from None
 
