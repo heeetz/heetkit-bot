@@ -61,16 +61,31 @@ class FilterManager:
         self._blocked_phrases: List[str] = []
         self._blocked_patterns: List[FilterRule] = []
         self._compiled_patterns: list[object] = []
-    
+        self._literal_rules: list[tuple[str, str, tuple[re.Pattern[str] | None, re.Pattern[str] | None]]] = []
+
+    def _compile_literals(self) -> None:
+        # Compiled once per rule change: per-message re.search/fold calls overflowed
+        # re's pattern cache with large lists and recompiled every rule per message.
+        def compiled(template: str, value: str) -> re.Pattern[str] | None:
+            return re.compile(template.format(re.escape(value)), re.IGNORECASE) if value else None
+        self._literal_rules = [
+            (category, rule, (compiled(template, rule), compiled(template, fold_for_filter(rule))))
+            for category, rules, template in (("words", self._blocked_words, r"\b{}\b"),
+                                              ("phrases", self._blocked_phrases, "{}"))
+            for rule in rules
+        ]
+
     def add_blocked_word(self, word: str) -> None:
         """Add a word to the blocked words list."""
         if word and word not in self._blocked_words:
             self._blocked_words.append(word)
+            self._compile_literals()
     
     def add_blocked_phrase(self, phrase: str) -> None:
         """Add a phrase to the blocked phrases list."""
         if phrase and phrase not in self._blocked_phrases:
             self._blocked_phrases.append(phrase)
+            self._compile_literals()
     
     def add_blocked_pattern(self, pattern: str, is_regex: bool = True, case_sensitive: bool = False) -> None:
         """Add a regex pattern to the blocked patterns list."""
@@ -83,9 +98,11 @@ class FilterManager:
 
     def replace_blocked_words(self, words: list[str]) -> None:
         self._blocked_words = list(words)
+        self._compile_literals()
 
     def replace_blocked_phrases(self, phrases: list[str]) -> None:
         self._blocked_phrases = list(phrases)
+        self._compile_literals()
 
     def replace_blocked_patterns(self, patterns: list[FilterRule]) -> None:
         compiled = [
@@ -127,12 +144,10 @@ class FilterManager:
         folded = fold_for_filter(message_content)
 
         # Words use word boundaries to avoid partial matches; phrases are substrings.
-        for category, rules, template in (("words", self._blocked_words, r"\b{}\b"),
-                                          ("phrases", self._blocked_phrases, "{}")):
-            for rule in rules:
-                for text, value in ((message_content, rule), (folded, fold_for_filter(rule))):
-                    if value and re.search(template.format(re.escape(value)), text, re.IGNORECASE):
-                        return FilterEvaluation(False, category, rule)
+        for category, rule, (raw, skeleton) in self._literal_rules:
+            for text, compiled in ((message_content, raw), (folded, skeleton)):
+                if compiled is not None and compiled.search(text):
+                    return FilterEvaluation(False, category, rule)
 
         # Configured patterns are compiled when rules are loaded or edited so
         # the chat path only performs bounded searches. One deadline is shared

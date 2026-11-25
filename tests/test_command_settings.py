@@ -191,6 +191,21 @@ def test_runtime_operations_reject_invalid_typed_values() -> None:
     assert error.value.code == "runtime_state.unknown_command"
 
 
+def test_repeated_settings_reads_reuse_compiled_validators() -> None:
+    # Rebuilding a pydantic validator per field made the Commands list take
+    # hundreds of milliseconds on the shared event loop.
+    from app.settings_models import _adapter
+
+    runtime_state = RuntimeState()
+    runtime_state.configure_commands(build_registry().definitions())
+    runtime_state.command_settings_are_saved("ping")
+    compiled = _adapter.cache_info().misses
+    for _ in range(3):
+        for name in ("ping", "weather"):
+            runtime_state.command_settings_are_saved(name)
+    assert _adapter.cache_info().misses == compiled
+
+
 def test_ai_toggle_preserves_other_saved_commands_and_unsaved_runtime_changes(tmp_path) -> None:
     path = tmp_path / "command_settings.json"
     registry = build_registry()
