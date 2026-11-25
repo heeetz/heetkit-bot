@@ -352,7 +352,7 @@ inspected versions and local links point to the preserved licenses and notices.
 | [platformdirs](https://pypi.org/project/platformdirs/4.12.2/) | 4.12.2 | Direct | MIT | [Texts](third_party_licenses/python/platformdirs/) |
 | [propcache](https://pypi.org/project/propcache/0.5.2/) | 0.5.2 | Transitive | Apache-2.0 | [Texts](third_party_licenses/python/propcache/) |
 | [proxy-tools](https://pypi.org/project/proxy-tools/0.1.0/) | 0.1.0 | Transitive | BSD-2-Clause source grant; conflicting MIT metadata; v1.1.0 source match verified above | [Texts](third_party_licenses/python/proxy-tools/) |
-| [pyasn1](https://pypi.org/project/pyasn1/0.6.4/) | 0.6.4 | Transitive | BSD-2-Clause | [Texts](third_party_licenses/python/pyasn1/) |
+| [pyasn1](https://pypi.org/project/pyasn1/0.6.5/) | 0.6.5 | Transitive | BSD-2-Clause | [Texts](third_party_licenses/python/pyasn1/) |
 | [pyasn1-modules](https://pypi.org/project/pyasn1-modules/0.4.2/) | 0.4.2 | Transitive | BSD-2-Clause | [Texts](third_party_licenses/python/pyasn1-modules/) |
 | [pycparser](https://pypi.org/project/pycparser/3.0/) | 3.0 | Transitive | BSD-3-Clause | [Texts](third_party_licenses/python/pycparser/) |
 | [pydantic](https://pypi.org/project/pydantic/2.13.5/) | 2.13.5 | Direct | MIT | [Texts](third_party_licenses/python/pydantic/) |
@@ -421,7 +421,7 @@ Package installation tooling is not a reason to distribute the entire virtual en
 | [pygments](https://pypi.org/project/pygments/2.21.0/) | 2.21.0 | BSD-2-Clause | Test/audit tooling; not selected by runtime requirements |
 | [pytest](https://pypi.org/project/pytest/8.4.2/) | 8.4.2 | MIT | Direct test dependency |
 | [pytest-asyncio](https://pypi.org/project/pytest-asyncio/0.26.0/) | 0.26.0 | Apache-2.0 | Direct test dependency |
-| [setuptools](https://github.com/pypa/setuptools/blob/main/LICENSE) | >=69 for source; Windows build pins 84.0.0 | MIT | Declared build backend; not a runtime dependency |
+| [setuptools](https://github.com/pypa/setuptools/blob/main/LICENSE) | >=69 for source; Windows build pins 84.1.0 | MIT | Declared build backend; not a runtime dependency |
 
 No license-audit tool has been added as a runtime dependency.
 
