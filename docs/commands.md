@@ -249,6 +249,8 @@ username and a configured target for a channel rule. The rule only controls
 HeetKit. The account can still chat and use self-service `!optout`.
 
 **In HeetKit:** **Commands > User restrictions** on Desktop or Server.
+The **?** next to the title shows the channel ID that channel rules use, or what to
+set up when no target channel is configured.
 
 1. Open **Commands**.
 2. In **User restrictions**, select **Add restriction**.
