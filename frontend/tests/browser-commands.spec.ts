@@ -64,6 +64,19 @@ test('Commands renders the catalog and creates, edits and deletes a custom comma
   expect(api.calls.find(({ path }) => path === '/v1/ops/delete_custom_command')?.body).toEqual({ identifier: 'saved-command' })
 })
 
+test('the Russian command list keeps the response readable at mid widths', async ({ page }) => {
+  await server(page)
+  await signIn(page)
+  await navigate(page, 'Commands')
+  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('combobox', { name: 'Interface language' }).click()
+  await page.getByRole('option', { name: 'Русский', exact: true }).click()
+  const response = page.getByRole('cell', { name: 'Ответить на вопрос с помощью AI.' })
+  for (const width of [1000, 1045, 1100, 1180, 1440]) {
+    await page.setViewportSize({ width, height: 800 })
+    await expect.poll(async () => (await response.boundingBox())!.width, { message: `${width} px` }).toBeGreaterThanOrEqual(170)
+  }
+})
+
 test('command list keyboard previews cancel and commit without changing reaction priority', async ({ page }) => {
   const api = await server(page)
   await signIn(page)
