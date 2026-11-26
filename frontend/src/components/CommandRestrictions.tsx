@@ -180,12 +180,13 @@ export default function CommandRestrictions({ active, commands }: Props) {
   }
 
   return <section ref={panel} className="card command-editor-card restriction-panel" id="command-restrictions" aria-labelledby="restriction-title">
-    <div className="restriction-heading"><div className="settings-heading-with-help"><h2 id="restriction-title">{text.title}</h2><HelpTip label={text.helpLabel}>{text.help}</HelpTip></div>
+    <div className="restriction-heading"><div className="settings-heading-with-help"><h2 id="restriction-title">{text.title}</h2><HelpTip label={text.helpLabel}><ul>
+        {channelId === null ? <li>{text.noChannel}</li> : channelId && <li>{fmt(text.channelScope, { id: channelId })}</li>}
+        {text.help.map((item) => <li key={item}>{item}</li>)}
+      </ul></HelpTip></div>
       <button type="button" className="primary" disabled={busy || loading || channelId === undefined} onClick={() => { setError(''); setDraft(newDraft()) }}>{text.add}</button>
     </div>
-    {channelId === undefined ? <p className="restriction-scope-message">{loading ? text.loadingScope : text.scopeFailed}</p>
-      : channelId === null ? <p className="restriction-scope-message">{text.noChannel}</p>
-        : <p className="restriction-scope-message">{fmt(text.channelScope, { id: channelId })}</p>}
+    {channelId === undefined && <p className="restriction-scope-message">{loading ? text.loadingScope : text.scopeFailed}</p>}
     {error && <div className="inline-error" role="alert"><span>{error}</span><button type="button" className="secondary" disabled={busy} onClick={() => { setLoading(true); void load() }}>{text.retry}</button></div>}
     {draft && <div className="restriction-editor" aria-label={draft.id ? text.edit : text.add}>
       <h3>{draft.id ? fmt(text.editFor, { name: draft.username }) : text.addUser}</h3>
