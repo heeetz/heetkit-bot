@@ -291,7 +291,7 @@ export default function AISetupPanel({ active, onDirtyChange, onSaved, instructi
             placeholder={!managed ? text.managedExternally : credential?.configured ? text.replacementKey : custom ? text.custom.keyOptional : text.enterKey} value={editor.key} onChange={(event) => setEditor({ ...editor, key: event.target.value })} /></label>
           {custom && <div className="ai-private-network">
             <Switch checked={editor.privateNetwork} ariaLabel={text.custom.privateNetwork} disabled={busy === 'provider' || (!privateAllowed && !editor.privateNetwork)} onCheckedChange={(privateNetwork) => setEditor({ ...editor, privateNetwork })}>{text.custom.privateNetwork}</Switch>
-            <HelpTip label={text.custom.privateNetworkHelp}>{serverHost ? text.custom.serverPrivateTip : text.custom.privateTip}</HelpTip>
+            <HelpTip label={text.custom.privateNetworkHelp}><ul>{(serverHost ? text.custom.serverPrivateTip : text.custom.privateTip).map((item) => <li key={item}>{item}</li>)}</ul></HelpTip>
           </div>}
           {custom && !privateAllowed && <p className="settings-hint">{text.custom.privateOff}</p>}
         </div>

@@ -162,10 +162,10 @@ export default function AnalyticsPage({ leaderboardChannel }: { leaderboardChann
     </article>}
     <div className="analytics-cards">
       <article className="card analytics-summary"><div className="ai-state-heading"><h2>{text.commands}</h2><HelpTip label={text.otherOutcomes}>
-        <p>{text.otherOutcomesNote}</p>
-        <p>{fmt(text.otherOutcomesValues, { skipped: value('command.skipped'), partial: value('command.partial'), uncertain: value('command.uncertain'), cancelled: value('command.cancelled'), incomplete: value('command.incomplete') })}</p>
+        <ul><li>{text.otherOutcomesNote}</li>
+        <li>{fmt(text.otherOutcomesValues, { skipped: value('command.skipped'), partial: value('command.partial'), uncertain: value('command.uncertain'), cancelled: value('command.cancelled'), incomplete: value('command.incomplete') })}</li></ul>
       </HelpTip></div><strong className="analytics-primary">{fmt(text.attempts, { count: value('command.attempts') })}</strong><p>{fmt(text.successes, { success: value('command.success'), errors: value('command.error') })}</p></article>
-      <article className="card analytics-summary"><div className="ai-state-heading"><h2>{text.retainedUsers}</h2><HelpTip label={text.recordsLast}>{text.recordsHelp}</HelpTip></div><strong className="analytics-primary">{data?.retained_users == null ? text.unavailable : count(data.retained_users)}</strong><p>{text.viewerRecords}</p></article>
+      <article className="card analytics-summary"><div className="ai-state-heading"><h2>{text.retainedUsers}</h2><HelpTip label={text.recordsLast}><ul>{text.recordsHelp.map((item) => <li key={item}>{item}</li>)}</ul></HelpTip></div><strong className="analytics-primary">{data?.retained_users == null ? text.unavailable : count(data.retained_users)}</strong><p>{text.viewerRecords}</p></article>
       <article className="card analytics-summary"><div className="ai-state-heading"><h2>{text.aiUsage}</h2><HelpTip label={text.usageDetails}>
         <ul>
           <li>{fmt(text.usageAttempts, { attempts: value('ai.attempts'), unknown: value('ai.usage_unknown') })}</li>

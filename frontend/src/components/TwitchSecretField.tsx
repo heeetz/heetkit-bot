@@ -28,7 +28,7 @@ export default function TwitchSecretField({ credential, value, busy, host, onCha
         <ul>
           {text.help.map((item) => <li key={item}>{item}</li>)}
           {host === 'desktop'
-            ? <li>{text.helpDesktop}</li>
+            ? text.helpDesktop.map((item) => <li key={item}>{item}</li>)
             : <li>{text.helpServer}</li>}
           {external && <li>{text.helpExternal}</li>}
         </ul>

@@ -51,7 +51,7 @@ export default function BlockedAIUsers({ active, onOpenAsk }: { active: boolean;
     <div className="section-heading ai-access-heading">
       <div>
         <h2>{text.title}</h2>
-        <HelpTip label={text.title}>{text.help}</HelpTip>
+        <HelpTip label={text.title}><ul>{text.help.map((item) => <li key={item}>{item}</li>)}</ul></HelpTip>
       </div>
     </div>
     <p className="section-copy">{text.copy}</p>
