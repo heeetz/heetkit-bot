@@ -264,7 +264,7 @@ td { color: var(--text); }
 :is(:lang(uk), :lang(ru)) .command-action-column { width: 220px; }
 :is(:lang(uk), :lang(ru)) .command-state-column { width: 100px; }
 .unified-command-table :is(td, th) { padding: 9px 12px; vertical-align: middle; border: 0; overflow-wrap: anywhere; }
-.unified-command-table thead th { background: var(--hover); }
+.unified-command-table thead th { background: var(--hover); text-align: center; }
 .unified-command-table thead { background: var(--hover); color: var(--muted); font-size: 12px; }
 .unified-command-table tbody tr { border-top: 1px solid var(--separator); }
 .unified-command-table tbody tr:hover, .unified-command-table tbody tr:focus-within { background: var(--hover); }
