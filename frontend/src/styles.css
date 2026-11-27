@@ -310,15 +310,23 @@ td { color: var(--text); }
   .command-list-toolbar { justify-content: flex-end; }
   .command-list-filters, .command-list-create { justify-content: flex-end; margin-left: auto; }
 }
-/* Below this width the fixed columns leave the response column too narrow, so rows become cards.
-   The default 1180 px Desktop window must stay above it. */
-@container command-list (max-width: 780px) {
+/* Narrower lists stack the row buttons so the name and response columns keep the room. */
+@container command-list (max-width: 860px) {
+  :is(:lang(uk), :lang(ru)) .command-action-column { width: 124px; }
+  .command-action-column { width: 100px; }
+  .command-list-actions button { display: block; margin-left: auto; }
+  .command-list-actions button + button { margin: 4px 0 0 auto; }
+}
+/* Below this width even the stacked table leaves the response too narrow, so rows become cards. */
+@container command-list (max-width: 640px) {
   .unified-command-table, .unified-command-table tbody { display: block; }
   .unified-command-table colgroup { display: none; }
   .unified-command-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-  .unified-command-table tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "name state edit" "type type access" "response response response"; align-items: center; gap: 6px 12px; padding: 10px; }
+  .unified-command-table tbody tr { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "state name edit" "type type access" "response response response"; align-items: center; gap: 6px 12px; padding: 10px; }
   .unified-command-table tbody tr:first-child { border-top: 0; }
   .unified-command-table :is(td, th) { display: block; min-width: 0; padding: 0; }
+  .command-list-actions button { display: inline-block; }
+  .command-list-actions button + button { margin: 0 0 0 4px; }
   .command-list-name { grid-area: name; }
   .command-list-state { grid-area: state; }
   .command-list-actions { grid-area: edit; }
