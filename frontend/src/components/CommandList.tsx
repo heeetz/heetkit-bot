@@ -125,9 +125,9 @@ export default function CommandList({ entries, prefix, busy, canCreateCommand, c
           </td>
           <td role="cell" className="command-list-access">{row.access || <span aria-label={text.noRole}>—</span>}</td>
           <td role="cell" className="command-list-actions"><div className="command-list-buttons">
+            <button className="secondary" disabled={busy} onClick={() => onEdit(entry)} aria-label={fmt(text.editNamed, { name: row.name })}>{text.edit}</button>
             {entry.type !== 'builtin' && <button className="ghost destructive" disabled={busy} aria-label={fmt(text.deleteNamed, { name: row.name })}
               onClick={() => onDelete(entry)}>{text.delete}</button>}
-            <button className="secondary" disabled={busy} onClick={() => onEdit(entry)} aria-label={fmt(text.editNamed, { name: row.name })}>{text.edit}</button>
           </div></td>
         </tr>)}</tbody>
       </table>
