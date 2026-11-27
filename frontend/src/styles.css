@@ -255,14 +255,14 @@ td { color: var(--text); }
 .command-list-frame { border: 1px solid var(--separator); border-radius: 10px; overflow: hidden; }
 .unified-command-table { width: 100%; table-layout: fixed; border-collapse: collapse; text-align: left; }
 .command-state-column { width: 76px; }
-.command-name-column { width: 18%; }
+.command-name-column { width: 16%; }
 .command-type-column { width: 92px; }
 .command-access-column { width: 100px; }
 .command-action-column { width: 135px; }
 /* Ukrainian and Russian labels are longer than English ones. */
 :is(:lang(uk), :lang(ru)) .command-type-column { width: 112px; }
-:is(:lang(uk), :lang(ru)) .command-action-column { width: 220px; }
-:is(:lang(uk), :lang(ru)) .command-state-column { width: 100px; }
+:is(:lang(uk), :lang(ru)) .command-action-column { width: 214px; }
+:is(:lang(uk), :lang(ru)) .command-state-column { width: 94px; }
 .unified-command-table :is(td, th) { padding: 9px 12px; vertical-align: middle; border: 0; overflow-wrap: anywhere; }
 .unified-command-table thead th { background: var(--hover); }
 .unified-command-table thead { background: var(--hover); color: var(--muted); font-size: 12px; }
@@ -310,8 +310,9 @@ td { color: var(--text); }
   .command-list-toolbar { justify-content: flex-end; }
   .command-list-filters, .command-list-create { justify-content: flex-end; margin-left: auto; }
 }
-/* The fixed uk/ru columns leave the response column too narrow below this width, so rows become cards. */
-@container command-list (max-width: 860px) {
+/* Below this width the fixed columns leave the response column too narrow, so rows become cards.
+   The default 1180 px Desktop window must stay above it. */
+@container command-list (max-width: 780px) {
   .unified-command-table, .unified-command-table tbody { display: block; }
   .unified-command-table colgroup { display: none; }
   .unified-command-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
