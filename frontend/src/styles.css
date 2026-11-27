@@ -279,8 +279,8 @@ td { color: var(--text); }
 .command-type-label.type-custom { color: #d6c4fe; border-color: #665498; }
 .command-type-label.type-reaction { color: #a7e5d9; border-color: #32796a; }
 .command-list-actions { text-align: right; white-space: nowrap; }
+.command-list-buttons { display: flex; justify-content: flex-end; gap: 4px; }
 .command-list-actions button { padding: 5px 9px; }
-.command-list-actions button + button { margin-left: 4px; }
 .command-list-state .switch-content { display: none; }
 .command-list-empty { margin: 0; padding: 14px; border: 1px dashed var(--separator); border-radius: 10px; }
 .unified-command-table .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -313,8 +313,8 @@ td { color: var(--text); }
 /* Mid widths keep the table: the action buttons stack so the name and response columns keep their width. */
 @container command-list (740px < width <= 900px) {
   .unified-command-table .command-action-column { width: 120px; }
-  .command-list-actions button { display: block; width: 100%; }
-  .command-list-actions button + button { margin: 4px 0 0; }
+  /* Edit stays on top in every row; Delete, present only for custom rows, goes under it. */
+  .command-list-buttons { flex-direction: column-reverse; }
 }
 /* Below this width even stacked buttons leave the response column too narrow, so rows become cards. */
 @container command-list (max-width: 740px) {
