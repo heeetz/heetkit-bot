@@ -1,5 +1,6 @@
 """Mock Actions responses and immutable artifact downloads; never contact GitHub."""
 
+import base64
 from copy import deepcopy
 import hashlib
 from io import BytesIO
@@ -268,3 +269,25 @@ def test_record_uses_resolved_sha_and_current_run_attempt(monkeypatch, tmp_path,
     monkeypatch.setenv("GITHUB_REF", "refs/tags/v1.4.1")
     with pytest.raises(ValueError):
         release.record(kind, target)
+
+
+def test_signed_update_sidecars_are_verified_and_written_next_to_the_installer(tmp_path):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+    signer = Ed25519PrivateKey.generate()
+    publisher = tmp_path / "publisher.pub"
+    publisher.write_text(signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex())
+    installer = tmp_path / "release-artifacts" / f"{BASE}-setup.exe"
+    installer.parent.mkdir()
+    installer.write_bytes(b"synthetic installer")
+    manifest = json.dumps({"version": VERSION, "asset": installer.name, "size": installer.stat().st_size,
+                           "sha256": hashlib.sha256(installer.read_bytes()).hexdigest()}).encode()
+    encode = lambda data: base64.b64encode(data).decode()
+    release.verify_update_sidecars(tmp_path, VERSION, encode(manifest), encode(signer.sign(manifest)),
+                                   publisher_path=publisher)
+    assert installer.with_name(installer.name + ".manifest.json").read_bytes() == manifest
+    with pytest.raises(ValueError) as error:
+        release.verify_update_sidecars(tmp_path, VERSION, encode(manifest), encode(b"\0" * 64),
+                                       publisher_path=publisher)
+    assert error.value.code == "updates.release_manifest_failed_publisher_verification"
