@@ -71,9 +71,15 @@ test('the Russian command list keeps the response readable at mid widths', async
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('combobox', { name: 'Interface language' }).click()
   await page.getByRole('option', { name: 'Русский', exact: true }).click()
   const response = page.getByRole('cell', { name: 'Ответить на вопрос с помощью AI.' })
+  const name = page.getByRole('rowheader', { name: '!ask' })
   for (const width of [1000, 1045, 1100, 1180, 1440]) {
     await page.setViewportSize({ width, height: 800 })
     await expect.poll(async () => (await response.boundingBox())!.width, { message: `${width} px` }).toBeGreaterThanOrEqual(170)
+    // The default Desktop window (1180 px) keeps the table: the response sits beside the name, not below it.
+    if (width >= 1100) {
+      await expect.poll(async () => (await response.boundingBox())!.y < (await name.boundingBox())!.y + (await name.boundingBox())!.height,
+        { message: `${width} px table row` }).toBe(true)
+    }
   }
 })
 
