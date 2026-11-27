@@ -310,8 +310,9 @@ td { color: var(--text); }
   .command-list-toolbar { justify-content: flex-end; }
   .command-list-filters, .command-list-create { justify-content: flex-end; margin-left: auto; }
 }
-/* Mid widths keep the table: the action buttons stack so the name and response columns keep their width. */
-@container command-list (740px < width <= 900px) {
+/* The default Desktop window (about 835 px here) keeps the full layout. Narrower windows keep the table
+   and stack the action buttons so the name and response columns keep their width. */
+@container command-list (740px < width <= 800px) {
   .unified-command-table .command-action-column { width: 120px; }
   /* Edit stays on top in every row; Delete, present only for custom rows, goes under it. */
   .command-list-buttons { flex-direction: column-reverse; }
