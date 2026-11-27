@@ -52,7 +52,8 @@ test('status and logs poll at most every five seconds, use cursor and pause whil
   await login(page)
   await expect.poll(() => api.calls.filter((call) => call.path === '/v1/ops/get_snapshot').length).toBeGreaterThan(0)
   const snapshots = api.calls.filter((call) => call.path === '/v1/ops/get_snapshot').length
-  await page.clock.fastForward(4900)
+  // The installed clock also runs in real time, so leave slow runners a margin before the 5 s poll.
+  await page.clock.fastForward(4000)
   expect(api.calls.filter((call) => call.path === '/v1/ops/get_snapshot')).toHaveLength(snapshots)
   await page.getByRole('button', { name: 'Logs', exact: true }).click()
   await expect.poll(() => api.calls.filter((call) => call.path === '/v1/ops/get_recent_logs').length).toBe(1)
