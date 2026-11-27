@@ -255,16 +255,16 @@ td { color: var(--text); }
 .command-list-frame { border: 1px solid var(--separator); border-radius: 10px; overflow: hidden; }
 .unified-command-table { width: 100%; table-layout: fixed; border-collapse: collapse; text-align: left; }
 .command-state-column { width: 76px; }
-.command-name-column { width: 18%; }
+.command-name-column { width: 16%; }
 .command-type-column { width: 92px; }
 .command-access-column { width: 100px; }
 .command-action-column { width: 135px; }
 /* Ukrainian and Russian labels are longer than English ones. */
 :is(:lang(uk), :lang(ru)) .command-type-column { width: 112px; }
-:is(:lang(uk), :lang(ru)) .command-action-column { width: 220px; }
-:is(:lang(uk), :lang(ru)) .command-state-column { width: 100px; }
+:is(:lang(uk), :lang(ru)) .command-action-column { width: 214px; }
+:is(:lang(uk), :lang(ru)) .command-state-column { width: 94px; }
 .unified-command-table :is(td, th) { padding: 9px 12px; vertical-align: middle; border: 0; overflow-wrap: anywhere; }
-.unified-command-table thead th { background: var(--hover); }
+.unified-command-table thead th { background: var(--hover); text-align: center; }
 .unified-command-table thead { background: var(--hover); color: var(--muted); font-size: 12px; }
 .unified-command-table tbody tr { border-top: 1px solid var(--separator); }
 .unified-command-table tbody tr:hover, .unified-command-table tbody tr:focus-within { background: var(--hover); }
@@ -280,7 +280,8 @@ td { color: var(--text); }
 .command-type-label.type-reaction { color: #a7e5d9; border-color: #32796a; }
 .command-list-actions { text-align: right; white-space: nowrap; }
 .command-list-actions button { padding: 5px 9px; }
-.command-list-actions button + button { margin-left: 4px; }
+/* Edit comes first in the markup and keyboard order; wide rows show it right of Delete. */
+.command-list-buttons { display: flex; flex-direction: row-reverse; align-items: center; gap: 4px; }
 .command-list-state .switch-content { display: none; }
 .command-list-empty { margin: 0; padding: 14px; border: 1px dashed var(--separator); border-radius: 10px; }
 .unified-command-table .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -310,14 +311,22 @@ td { color: var(--text); }
   .command-list-toolbar { justify-content: flex-end; }
   .command-list-filters, .command-list-create { justify-content: flex-end; margin-left: auto; }
 }
-/* The fixed uk/ru columns leave the response column too narrow below this width, so rows become cards. */
-@container command-list (max-width: 860px) {
+/* Lists narrower than the default 1180 px Desktop window (about 835 px) stack the row buttons
+   so the name and response columns keep the room. */
+@container command-list (max-width: 800px) {
+  :is(:lang(uk), :lang(ru)) .command-action-column { width: 124px; }
+  .command-action-column { width: 100px; }
+  .command-list-buttons { flex-direction: column; align-items: flex-end; }
+}
+/* Below this width even the stacked table leaves the response too narrow, so rows become cards. */
+@container command-list (max-width: 640px) {
   .unified-command-table, .unified-command-table tbody { display: block; }
   .unified-command-table colgroup { display: none; }
   .unified-command-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-  .unified-command-table tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "name state edit" "type type access" "response response response"; align-items: center; gap: 6px 12px; padding: 10px; }
+  .unified-command-table tbody tr { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "state name edit" "type type access" "response response response"; align-items: center; gap: 6px 12px; padding: 10px; }
   .unified-command-table tbody tr:first-child { border-top: 0; }
   .unified-command-table :is(td, th) { display: block; min-width: 0; padding: 0; }
+  .command-list-buttons { flex-direction: row-reverse; align-items: center; }
   .command-list-name { grid-area: name; }
   .command-list-state { grid-area: state; }
   .command-list-actions { grid-area: edit; }

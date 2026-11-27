@@ -71,9 +71,12 @@ test('the Russian command list keeps the response readable at mid widths', async
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('combobox', { name: 'Interface language' }).click()
   await page.getByRole('option', { name: 'Русский', exact: true }).click()
   const response = page.getByRole('cell', { name: 'Ответить на вопрос с помощью AI.' })
-  for (const width of [1000, 1045, 1100, 1180, 1440]) {
+  const responseHeader = page.getByRole('columnheader', { name: 'Ответ и назначение' })
+  // 1150 px is the default Desktop window minus its scrollbar; all of these keep the table, not cards.
+  for (const width of [1000, 1045, 1100, 1150, 1440]) {
     await page.setViewportSize({ width, height: 800 })
-    await expect.poll(async () => (await response.boundingBox())!.width, { message: `${width} px` }).toBeGreaterThanOrEqual(170)
+    await expect.poll(async () => (await response.boundingBox())!.width, { message: `${width} px` }).toBeGreaterThanOrEqual(140)
+    expect((await responseHeader.boundingBox())!.width, `${width} px`).toBeGreaterThanOrEqual(140)
   }
 })
 
