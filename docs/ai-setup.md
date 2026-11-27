@@ -52,7 +52,8 @@ with a number, such as **DeepSeek 2**. **Edit** changes the name or replaces the
 ### Use your own OpenAI-compatible server
 
 Run a local model, for example in LM Studio, or use another server that offers the
-OpenAI `chat/completions` API. HeetKit sends one non-streaming request per question
+OpenAI `chat/completions` API, such as OpenRouter at `https://openrouter.ai/api/v1`.
+HeetKit sends one non-streaming request per question
 and posts only the final answer; reasoning blocks are removed, and a reply with
 reasoning only counts as a failure.
 

@@ -65,6 +65,15 @@ Server management must remain private, for example over Tailscale or an SSH tunn
 5. Configure Commands, filters and announcements. Use Playground for a provider test
    without posting a chat message.
 
+## Roadmap
+
+See what is planned on the public [HeetKit roadmap](https://github.com/users/heeetz/projects/2):
+**Next**, **Later** and **Ideas**, without dates. React with 👍 on an issue you want,
+or suggest something with a [feature request](https://github.com/heeetz/heetkit-bot/issues/new/choose).
+
+Not planned: full chat archives, a hosted SaaS version, broad OBS or Channel Points
+automation, and TikTok through unofficial APIs.
+
 ## Documentation
 
 | I want to… | Guide |
