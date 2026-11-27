@@ -142,8 +142,8 @@ awaits. It also serves allowlisted production React assets. The typed
 [`bridge.ts`](../frontend/src/bridge.ts) surface uses pywebview on Desktop; only the
 server's explicit document marker selects [`httpTransport.ts`](../frontend/src/httpTransport.ts).
 A delayed desktop bridge does not select HTTP automatically. Browser access uses
-same-origin requests and short-lived in-memory bearer sessions; native actions,
-update checks and Playground remain desktop-only. Credential editing
+same-origin requests and short-lived in-memory bearer sessions; native actions
+and update checks remain desktop-only; Playground runs on both hosts. Credential editing
 is also available through authenticated Server setup. Authentication,
 cookie handling, route limits and browser capabilities belong to the
 [management API guide](management-api.md).
