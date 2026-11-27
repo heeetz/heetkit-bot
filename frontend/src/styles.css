@@ -280,7 +280,7 @@ td { color: var(--text); }
 .command-type-label.type-reaction { color: #a7e5d9; border-color: #32796a; }
 .command-list-actions { text-align: right; white-space: nowrap; }
 .command-list-actions button { padding: 5px 9px; }
-.command-list-actions button + button { margin-left: 4px; }
+.command-list-buttons { display: flex; justify-content: flex-end; align-items: center; gap: 4px; }
 .command-list-state .switch-content { display: none; }
 .command-list-empty { margin: 0; padding: 14px; border: 1px dashed var(--separator); border-radius: 10px; }
 .unified-command-table .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -314,8 +314,7 @@ td { color: var(--text); }
 @container command-list (max-width: 860px) {
   :is(:lang(uk), :lang(ru)) .command-action-column { width: 124px; }
   .command-action-column { width: 100px; }
-  .command-list-actions button { display: block; margin-left: auto; }
-  .command-list-actions button + button { margin: 4px 0 0 auto; }
+  .command-list-buttons { flex-direction: column-reverse; align-items: flex-end; }
 }
 /* Below this width even the stacked table leaves the response too narrow, so rows become cards. */
 @container command-list (max-width: 640px) {
@@ -325,8 +324,7 @@ td { color: var(--text); }
   .unified-command-table tbody tr { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "state name edit" "type type access" "response response response"; align-items: center; gap: 6px 12px; padding: 10px; }
   .unified-command-table tbody tr:first-child { border-top: 0; }
   .unified-command-table :is(td, th) { display: block; min-width: 0; padding: 0; }
-  .command-list-actions button { display: inline-block; }
-  .command-list-actions button + button { margin: 0 0 0 4px; }
+  .command-list-buttons { flex-direction: row; align-items: center; }
   .command-list-name { grid-area: name; }
   .command-list-state { grid-area: state; }
   .command-list-actions { grid-area: edit; }

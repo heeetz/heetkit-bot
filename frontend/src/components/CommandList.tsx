@@ -124,11 +124,11 @@ export default function CommandList({ entries, prefix, busy, canCreateCommand, c
             {row.unavailable && <small title={row.unavailable}>{text.unavailable}</small>}
           </td>
           <td role="cell" className="command-list-access">{row.access || <span aria-label={text.noRole}>—</span>}</td>
-          <td role="cell" className="command-list-actions">
+          <td role="cell" className="command-list-actions"><div className="command-list-buttons">
             {entry.type !== 'builtin' && <button className="ghost destructive" disabled={busy} aria-label={fmt(text.deleteNamed, { name: row.name })}
               onClick={() => onDelete(entry)}>{text.delete}</button>}
             <button className="secondary" disabled={busy} onClick={() => onEdit(entry)} aria-label={fmt(text.editNamed, { name: row.name })}>{text.edit}</button>
-          </td>
+          </div></td>
         </tr>)}</tbody>
       </table>
     </div> : <p className="command-list-empty muted">{busy && !entries.length ? text.loading : text.empty}</p>}
